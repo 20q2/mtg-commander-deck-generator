@@ -104,12 +104,6 @@ export function ArchetypeDisplay() {
     setShowOtherDropdown(!showOtherDropdown);
   };
 
-  // Handle archetype selection from dropdown
-  const handleArchetypeSelect = (archetype: Archetype) => {
-    setSelectedArchetype(archetype);
-    // Keep dropdown open so user can see their selection
-  };
-
   // Handle clicking back on an EDHREC theme (deselects "Other")
   const handleThemeClick = (themeName: string) => {
     toggleThemeSelection(themeName);
@@ -161,20 +155,32 @@ export function ArchetypeDisplay() {
             </button>
           </div>
 
-          {/* Archetype dropdown - shown when "Other" is selected */}
+          {/* Additional themes dropdown - shown when "Other" is selected */}
           {showOtherDropdown && (
             <div className="mt-3 p-3 bg-accent/30 rounded-lg border border-border/50">
               <label className="text-sm font-medium text-muted-foreground mb-2 block">
-                Choose an Archetype
+                More Themes for {commander.name}
               </label>
-              <Select
-                value={selectedArchetype}
-                onChange={(e) => handleArchetypeSelect(e.target.value as Archetype)}
-                options={archetypeOptions}
-                className="w-full"
-              />
+              {selectedThemes.length > 8 ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedThemes.slice(8).map((theme) => (
+                    <ThemeChip
+                      key={theme.name}
+                      name={theme.name}
+                      popularityPercent={theme.popularityPercent}
+                      deckCount={theme.deckCount}
+                      isSelected={theme.isSelected}
+                      onClick={() => toggleThemeSelection(theme.name)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No additional themes available for this commander
+                </p>
+              )}
               <p className="text-xs text-muted-foreground mt-2">
-                Build around a specific strategy instead of EDHREC themes
+                Less common strategies from EDHREC
               </p>
             </div>
           )}

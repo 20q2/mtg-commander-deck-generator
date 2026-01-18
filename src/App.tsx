@@ -29,7 +29,7 @@ function getArtCropUrl(card: ScryfallCard | null): string | null {
 }
 
 // Commander artwork background component
-function CommanderBackground({ commander }: { commander: ScryfallCard | null }) {
+function CommanderBackground({ commander, deckGenerated }: { commander: ScryfallCard | null; deckGenerated: boolean }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [currentUrl, setCurrentUrl] = useState<string | null>(null);
 
@@ -44,18 +44,21 @@ function CommanderBackground({ commander }: { commander: ScryfallCard | null }) 
 
   if (!artUrl) return null;
 
+  // Use less blur when deck is generated to bring the art more into focus
+  const blurClass = deckGenerated ? 'blur-md' : 'blur-xl';
+
   return (
     <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
       {/* Art image with blur */}
       <div
-        className={`absolute inset-0 transition-opacity duration-1000 ${
+        className={`absolute inset-0 transition-all duration-1000 ${
           imageLoaded ? 'opacity-100' : 'opacity-0'
         }`}
       >
         <img
           src={artUrl}
           alt=""
-          className="w-full h-[70vh] object-cover object-top blur-xl scale-110"
+          className={`w-full h-[70vh] object-cover object-top ${blurClass} scale-110 transition-all duration-700`}
           onLoad={() => setImageLoaded(true)}
         />
       </div>
@@ -89,7 +92,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
       {/* Commander Art Background */}
-      <CommanderBackground commander={commander} />
+      <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen">

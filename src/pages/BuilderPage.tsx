@@ -222,66 +222,68 @@ export function BuilderPage() {
         {generatedDeck ? 'Back to Settings' : 'Back to Search'}
       </Button>
 
-      {/* Commander Card Display */}
-      <section className="mb-8">
-        <Card className="w-full max-w-lg mx-auto animate-scale-in overflow-hidden bg-card/80 backdrop-blur-sm">
-          <CardContent className="p-0">
-            <div className="flex">
-              {/* Card Image */}
-              <div className="relative w-40 shrink-0">
-                {!imageLoaded && (
-                  <div className="absolute inset-0 shimmer rounded-l-xl" />
-                )}
-                <img
-                  src={getCardImageUrl(commander, 'normal')}
-                  alt={commander.name}
-                  className={`w-full h-full object-cover rounded-l-xl transition-opacity duration-300 ${
-                    imageLoaded ? 'opacity-100' : 'opacity-0'
-                  }`}
-                  onLoad={() => setImageLoaded(true)}
-                />
-              </div>
-
-              {/* Card Details */}
-              <div className="flex-1 p-4 flex flex-col">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-bold text-lg leading-tight">
-                    {commander.name}
-                  </h3>
-                  <a
-                    href={`https://edhrec.com/commanders/${commander.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
-                    title="View on EDHREC"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
+      {/* Commander Card Display - only show during customization */}
+      {!generatedDeck && (
+        <section className="mb-8">
+          <Card className="w-full max-w-lg mx-auto animate-scale-in overflow-hidden bg-card/80 backdrop-blur-sm">
+            <CardContent className="p-0">
+              <div className="flex">
+                {/* Card Image */}
+                <div className="relative w-40 shrink-0">
+                  {!imageLoaded && (
+                    <div className="absolute inset-0 shimmer rounded-l-xl" />
+                  )}
+                  <img
+                    src={getCardImageUrl(commander, 'normal')}
+                    alt={commander.name}
+                    className={`w-full h-full object-cover rounded-l-xl transition-opacity duration-300 ${
+                      imageLoaded ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    onLoad={() => setImageLoaded(true)}
+                  />
                 </div>
 
-                <p className="text-sm text-muted-foreground mt-1">
-                  {commander.type_line}
-                </p>
-
-                {/* Color Identity */}
-                <div className="mt-3">
-                  <ColorIdentity colors={commander.color_identity} size="lg" />
-                </div>
-
-                {/* Mana Cost */}
-                {commander.mana_cost && (
-                  <div className="mt-auto pt-3 flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      Mana Cost:
-                    </span>
-                    <ManaCost cost={commander.mana_cost} />
+                {/* Card Details */}
+                <div className="flex-1 p-4 flex flex-col">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-bold text-lg leading-tight">
+                      {commander.name}
+                    </h3>
+                    <a
+                      href={`https://edhrec.com/commanders/${commander.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
+                      title="View on EDHREC"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
                   </div>
-                )}
+
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {commander.type_line}
+                  </p>
+
+                  {/* Color Identity */}
+                  <div className="mt-3">
+                    <ColorIdentity colors={commander.color_identity} size="lg" />
+                  </div>
+
+                  {/* Mana Cost */}
+                  {commander.mana_cost && (
+                    <div className="mt-auto pt-3 flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Mana Cost:
+                      </span>
+                      <ManaCost cost={commander.mana_cost} />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {/* Step 2/3: Customization */}
       {!generatedDeck && (
@@ -353,7 +355,7 @@ export function BuilderPage() {
               <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-500 font-bold text-sm">
                 ✓
               </div>
-              <h2 className="text-xl font-bold">Deck Generated!</h2>
+              <h2 className="text-xl font-bold">Deck generated for {commander.name}</h2>
             </div>
           </div>
           <DeckDisplay />
