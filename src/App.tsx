@@ -5,7 +5,7 @@ import { BuilderPage } from '@/pages/BuilderPage';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
 import type { ScryfallCard } from '@/types';
-import { RotateCcw, Sparkles } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 
 // Get art crop URL for background
 function getArtCropUrl(card: ScryfallCard | null): string | null {
@@ -101,9 +101,11 @@ function Layout({ children }: { children: React.ReactNode }) {
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-lg">
-                  <Sparkles className="w-5 h-5 text-white" />
-                </div>
+                <img
+                  src={`${import.meta.env.BASE_URL}logo.png`}
+                  alt="EDH Deck Builder"
+                  className="w-10 h-10 rounded-xl shadow-lg"
+                />
                 <div>
                   <h1 className="text-xl font-bold">EDH Deck Builder</h1>
                   <p className="text-xs text-muted-foreground">
