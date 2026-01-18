@@ -782,7 +782,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       onProgress?.(`Selecting ${planeswalkerTarget} planeswalkers...`);
       const planeswalkers = await pickFromEDHRECWithCurve(
         cardlists.planeswalkers,
-        Math.min(planeswalkerTarget, 3),
+        planeswalkerTarget,
         usedNames,
         colorIdentity,
         curveTargets,
