@@ -81,25 +81,33 @@ interface ManaCostProps {
   className?: string;
 }
 
+// Render mana symbols from a cost string part
+function renderManaSymbols(costPart: string, keyPrefix: string = '') {
+  const symbols = costPart.match(/\{[^}]+\}/g) || [];
+
+  return symbols.map((symbol, i) => {
+    const clean = symbol.replace(/[{}]/g, '');
+    // Convert to mana-font class format (lowercase, no slashes for hybrid)
+    const manaClass = clean.toLowerCase().replace('/', '');
+
+    return (
+      <i
+        key={`${keyPrefix}${i}`}
+        className={`ms ms-${manaClass} ms-cost`}
+      />
+    );
+  });
+}
+
 export function ManaCost({ cost, className = '' }: ManaCostProps) {
   if (!cost) return null;
 
-  const symbols = cost.match(/\{[^}]+\}/g) || [];
+  // For double-faced / split cards, just show the first face's cost
+  const firstPart = cost.split(' // ')[0];
 
   return (
     <span className={`inline-flex items-center gap-0.5 ${className}`}>
-      {symbols.map((symbol, i) => {
-        const clean = symbol.replace(/[{}]/g, '');
-        // Convert to mana-font class format (lowercase, no slashes)
-        const manaClass = clean.toLowerCase().replace('/', '');
-
-        return (
-          <i
-            key={i}
-            className={`ms ms-${manaClass} ms-cost`}
-          />
-        );
-      })}
+      {renderManaSymbols(firstPart)}
     </span>
   );
 }
