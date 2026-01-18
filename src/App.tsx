@@ -152,6 +152,15 @@ function Layout({ children }: { children: React.ReactNode }) {
               >
                 EDHREC
               </a>
+              {' · '}
+              <a
+                href="https://github.com/20q2/mtg-commander-deck-generator"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                GitHub
+              </a>
             </p>
           </div>
         </footer>

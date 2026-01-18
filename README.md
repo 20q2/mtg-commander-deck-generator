@@ -1,15 +1,27 @@
 # EDH Deck Builder
 
-A React application that generates complete 99-card Commander/EDH decks with one click. Select your commander, adjust preferences, and get a fully built deck ready to import into Moxfield or other deck building sites.
+A React application that generates complete Commander/EDH decks using real EDHREC data. Select your commander, choose themes, and get a deck built from the most popular cards for that commander.
+
+**[Try it live](https://20q2.github.io/mtg-commander-deck-generator/)**
 
 ## Features
 
 - **Commander Search** - Search any legendary creature using Scryfall's database
-- **Auto Archetype Detection** - Automatically detects deck archetypes from your commander's abilities (Tokens, Voltron, Spellslinger, Aristocrats, etc.)
-- **Customizable Generation** - Adjust land count, creature/spell balance, mana curve, and archetype focus
-- **Smart Card Selection** - Uses EDHREC popularity rankings and format staples to select optimal cards
+- **EDHREC Integration** - Pulls real theme data and card recommendations directly from EDHREC
+- **Theme Selection** - Choose from EDHREC themes specific to your commander (e.g., "+1/+1 Counters", "Voltron", "Aristocrats")
+- **Smart Card Selection** - Uses EDHREC's type distribution, mana curve, and card popularity data
+- **Dynamic Backgrounds** - Commander artwork displayed as atmospheric background
 - **Deck Statistics** - View mana curve, color distribution, and card type breakdown
 - **Easy Export** - Copy your deck list to clipboard for import into Moxfield, Archidekt, or MTGO
+
+## How It Works
+
+Unlike generic deck builders, this app fetches actual EDHREC data for your commander:
+
+1. **Real Statistics** - Uses EDHREC's average type distribution (creature count, instant count, etc.)
+2. **Theme-Specific Cards** - Fetches cards from your selected EDHREC themes
+3. **Popularity Ranking** - Cards are sorted by EDHREC inclusion rate
+4. **Mana Curve Matching** - Targets the average mana curve from EDHREC data
 
 ## Getting Started
 
@@ -21,8 +33,9 @@ A React application that generates complete 99-card Commander/EDH decks with one
 ### Installation
 
 ```bash
-# Clone or navigate to the project
-cd A:\Coding\MtgMakeDeckForMe
+# Clone the repository
+git clone https://github.com/20q2/mtg-commander-deck-generator.git
+cd mtg-commander-deck-generator
 
 # Install dependencies
 npm install
@@ -40,82 +53,52 @@ npm run build
 npm run preview
 ```
 
+### Deploy to GitHub Pages
+
+```bash
+npm run build
+# Then push the dist folder to gh-pages branch
+```
+
 ## How to Use
 
 ### Step 1: Choose Your Commander
 
 1. Type your commander's name in the search box
 2. Select from the autocomplete results
-3. The app will display your commander's image, colors, and mana cost
+3. Or click one of the top EDHREC commanders shown below the search
 
-**Try these popular commanders:**
-- Atraxa, Praetors' Voice (Superfriends/Counters)
-- Korvold, Fae-Cursed King (Aristocrats)
-- Yuriko, the Tiger's Shadow (Ninjas)
-- Ghave, Guru of Spores (Tokens/Aristocrats)
-- Urza, Lord High Artificer (Artifacts)
+### Step 2: Select Themes
 
-### Step 2: Review Detected Archetype
+The app fetches available themes from EDHREC for your commander. Select up to 2 themes to influence card selection:
 
-The app analyzes your commander's text and keywords to suggest an archetype:
-
-| Archetype | Description |
-|-----------|-------------|
-| Aggro | Fast, creature-heavy, low mana curve |
-| Control | Removal-heavy, card draw, higher curve |
-| Combo | Synergy pieces, tutors, enablers |
-| Voltron | Equipment and auras to buff commander |
-| Spellslinger | Instants/sorceries matter |
-| Tokens | Token generation and anthems |
-| Aristocrats | Sacrifice synergies |
-| Tribal | Creature type synergies |
-| Landfall | Land-based triggers |
-| Artifacts | Artifact synergies |
-| Enchantress | Enchantment synergies |
-
-You can override the detected archetype using the dropdown if you want a different build style.
+- Themes are sorted by popularity (deck count)
+- Each theme shows its popularity percentage
+- Click "Other" to see additional themes for that commander
 
 ### Step 3: Customize Your Deck
 
-Adjust the sliders to fine-tune your deck:
+Adjust preferences:
 
-**Land Count (32-42)**
-- 32-34: Aggressive decks with low curves
-- 36-38: Standard/balanced builds
-- 40-42: Control or landfall decks
-
-**Creature vs Spell Balance (0-100%)**
-- 0-30%: Spellslinger/control builds
-- 40-60%: Balanced midrange
-- 70-100%: Creature-heavy aggro/tribal
-
-**Mana Curve**
-- Aggressive: Average CMC ~2.5
-- Balanced: Average CMC ~3.2
-- Late Game: Average CMC ~3.8
-
-**Archetype Focus (0-100%)**
-- 0-30%: "Goodstuff" - best cards regardless of synergy
-- 50-70%: Balanced synergy and power
-- 80-100%: All-in on archetype theme
+- **Land Count** - Typically 35-38 for most decks
+- **Deck Format** - 99-card Commander (default), or 60/40 for other formats
 
 ### Step 4: Generate Your Deck
 
-Click **Generate Deck** and wait for the magic to happen. The app will:
+Click **Generate Deck** and the app will:
 
-1. Fetch ramp cards (Sol Ring, signets, land ramp)
-2. Add card draw appropriate to your colors
-3. Include removal and board wipes
-4. Fill creature slots based on your archetype
-5. Add synergy cards that work with your commander
-6. Build a mana base with duals, utility lands, and basics
+1. Fetch card recommendations from EDHREC for your selected themes
+2. Select creatures matching EDHREC's average creature count
+3. Pick instants, sorceries, artifacts, enchantments based on EDHREC type distribution
+4. Build a land base with utility lands and appropriate basics
+5. Categorize cards by function (ramp, removal, card draw, etc.)
 
 ### Step 5: Export Your Deck
 
 Once generated, you can:
 
-- **Export** - Copies the deck list to your clipboard
-- **Moxfield** - Opens Moxfield to paste your deck
+- **Copy to Clipboard** - Standard deck list format
+- **Export to Moxfield** - Opens Moxfield with your deck
 
 The export format is compatible with most deck building sites:
 ```
@@ -125,38 +108,28 @@ The export format is compatible with most deck building sites:
 ...
 ```
 
-## Deck Composition
-
-The generator uses the **8x8 Theory** as a baseline, adjusted by archetype:
-
-| Category | Base Count | Purpose |
-|----------|------------|---------|
-| Lands | 37 | Mana base |
-| Ramp | 10 | Mana acceleration |
-| Card Draw | 10 | Card advantage |
-| Removal | 8 | Single-target answers |
-| Board Wipes | 3 | Mass removal |
-| Creatures | 20 | Threats and utility |
-| Synergy | 8 | Archetype-specific cards |
-| Utility | 3 | Flexible slots |
-
 ## Tech Stack
 
 - **React 18** + TypeScript
-- **Vite** for fast development
+- **Vite** for fast development and building
 - **Tailwind CSS** for styling
 - **shadcn/ui** components
 - **Zustand** for state management
-- **Scryfall API** for card data
+- **Scryfall API** for card data and images
+- **EDHREC** for theme data and card recommendations
+- **mana-font** for mana symbols and card type icons
 
 ## API Usage
 
-This app uses the [Scryfall API](https://scryfall.com/docs/api) for all card data. The API is:
-- Free to use
+### Scryfall API
+- Used for card search, card details, and images
 - Rate limited to 10 requests/second (handled automatically)
 - No authentication required
 
-Card popularity is determined by Scryfall's `edhrec_rank` field, which reflects EDHREC inclusion rates.
+### EDHREC Data
+- Commander themes and statistics
+- Card recommendations by type
+- Popularity and inclusion rates
 
 ## Project Structure
 
@@ -165,30 +138,26 @@ src/
 ├── components/
 │   ├── ui/              # Base UI components (Button, Card, Slider, etc.)
 │   ├── commander/       # Commander search and display
-│   ├── archetype/       # Archetype detection display
-│   ├── customization/   # Deck customization sliders
+│   ├── archetype/       # Theme selection display
+│   ├── customization/   # Deck customization options
 │   └── deck/            # Deck display and export
 ├── services/
-│   ├── scryfall/        # API client with rate limiting
+│   ├── scryfall/        # Scryfall API client
+│   ├── edhrec/          # EDHREC data fetching
 │   └── deckBuilder/     # Deck generation algorithms
 ├── lib/
-│   └── constants/       # Archetype keywords, format staples
+│   ├── constants/       # Archetype keywords, configuration
+│   └── commanderTheme.ts # Dynamic theming based on commander colors
 ├── store/               # Zustand state management
+├── pages/               # Page components (Home, Builder)
 └── types/               # TypeScript type definitions
 ```
 
-## Contributing
-
-Feel free to open issues or submit pull requests for:
-- New archetype support
-- Improved card selection algorithms
-- UI/UX improvements
-- Bug fixes
-
 ## Credits
 
-- Card data provided by [Scryfall](https://scryfall.com)
-- Deck building strategies inspired by [EDHREC](https://edhrec.com)
+- Card data and images from [Scryfall](https://scryfall.com)
+- Theme data and recommendations from [EDHREC](https://edhrec.com)
+- Mana symbols from [mana-font](https://github.com/andrewgioia/mana)
 - Built with [React](https://react.dev), [Vite](https://vitejs.dev), and [shadcn/ui](https://ui.shadcn.com)
 
 ## License
