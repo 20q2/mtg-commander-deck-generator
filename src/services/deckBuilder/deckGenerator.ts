@@ -1001,22 +1001,36 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
   }
 
-  // Calculate the target deck size
+  // Calculate the target deck size (commander is separate)
   const targetDeckSize = format === 99 ? 99 : format - 1;
 
-  // Count all cards in categories
-  let allCards = Object.values(categories).flat();
-  let currentCount = allCards.length;
+  // Helper to count all cards
+  const countAllCards = () => Object.values(categories).flat().length;
 
-  // If we have too many cards, trim from synergy (lowest priority)
-  if (currentCount > targetDeckSize) {
+  // If we have too many cards, trim from lowest priority categories
+  // Priority order for trimming: synergy, utility, creatures, then others
+  const trimOrder: DeckCategory[] = ['synergy', 'utility', 'creatures', 'cardDraw', 'ramp', 'singleRemoval', 'boardWipes'];
+
+  let currentCount = countAllCards();
+  while (currentCount > targetDeckSize) {
     const excess = currentCount - targetDeckSize;
-    categories.synergy = categories.synergy.slice(0, Math.max(0, categories.synergy.length - excess));
+    let trimmed = false;
+
+    for (const category of trimOrder) {
+      if (categories[category].length > 0) {
+        const toTrim = Math.min(excess, categories[category].length);
+        categories[category] = categories[category].slice(0, categories[category].length - toTrim);
+        trimmed = true;
+        break;
+      }
+    }
+
+    if (!trimmed) break; // Safety: no more cards to trim
+    currentCount = countAllCards();
   }
 
   // If we have too few cards, add basic lands to fill
-  allCards = Object.values(categories).flat();
-  currentCount = allCards.length;
+  currentCount = countAllCards();
   if (currentCount < targetDeckSize) {
     const shortage = targetDeckSize - currentCount;
     const basicTypes: Record<string, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
@@ -1041,6 +1055,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         }
       }
     }
+  }
+
+  // Final verification - log warning if still wrong
+  const finalCount = countAllCards();
+  if (finalCount !== targetDeckSize) {
+    console.warn(`[DeckGen] Final deck size mismatch: got ${finalCount}, expected ${targetDeckSize}`);
   }
 
   // Calculate stats
