@@ -30,7 +30,7 @@ interface GenerationContext {
   archetype: Archetype;
   customization: Customization;
   selectedThemes?: ThemeResult[];
-  onProgress?: (message: string) => void;
+  onProgress?: (message: string, percent: number) => void;
 }
 
 // Check if a card's color identity fits within the commander's color identity
@@ -157,7 +157,6 @@ async function pickFromEDHREC(
   count: number,
   usedNames: Set<string>,
   colorIdentity: string[],
-  onProgress?: (message: string) => void,
   bannedCards: Set<string> = new Set()
 ): Promise<ScryfallCard[]> {
   const result: ScryfallCard[] = [];
@@ -171,8 +170,6 @@ async function pickFromEDHREC(
 
   // Fetch more than needed to account for color identity filtering
   const namesToFetch = candidates.slice(0, count * 2).map(c => c.name);
-
-  onProgress?.(`Fetching ${namesToFetch.length} cards...`);
   const cardMap = await getCardsByNames(namesToFetch);
 
   // Process fetched cards in original order (by inclusion rate)
@@ -236,7 +233,6 @@ async function pickFromEDHRECWithCurve(
   colorIdentity: string[],
   curveTargets: Record<number, number>,
   currentCurveCounts: Record<number, number>,
-  onProgress?: (message: string) => void,
   bannedCards: Set<string> = new Set(),
   expectedType?: string // Optional type filter for cards with Unknown primary_type
 ): Promise<ScryfallCard[]> {
@@ -298,14 +294,10 @@ async function pickFromEDHRECWithCurve(
   const unknownCards = allCandidates.filter(c => c.primary_type === 'Unknown');
 
   // Phase 1: Process typed cards first (no type verification needed)
-  if (typedCards.length > 0) {
-    onProgress?.(`Fetching ${Math.min(typedCards.length, count * 2)} typed cards...`);
-    await processBatch(typedCards, false);
-  }
+  await processBatch(typedCards, false);
 
   // Phase 2: If we need more, process Unknown cards (with type verification)
   if (result.length < count && unknownCards.length > 0) {
-    onProgress?.(`Fetching ${Math.min(unknownCards.length, (count - result.length) * 2)} additional cards...`);
     await processBatch(unknownCards, true);
   }
 
@@ -451,7 +443,7 @@ async function generateLands(
   usedNames: Set<string>,
   basicCount: number,
   format: DeckFormat,
-  onProgress?: (message: string) => void,
+  onProgress?: (message: string, percent: number) => void,
   bannedCards: Set<string> = new Set()
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
@@ -472,16 +464,16 @@ async function generateLands(
   const nonBasicTarget = count - basicCount;
 
   if (nonBasicTarget > 0 && nonBasicEdhrecLands.length > 0) {
-    onProgress?.('Fetching non-basic lands...');
+    onProgress?.('Discovering exotic lands...', 82);
     console.log(`[DeckGen] Picking ${nonBasicTarget} non-basic lands from ${nonBasicEdhrecLands.length} EDHREC suggestions`);
-    const nonBasics = await pickFromEDHREC(nonBasicEdhrecLands, nonBasicTarget, usedNames, colorIdentity, onProgress, bannedCards);
+    const nonBasics = await pickFromEDHREC(nonBasicEdhrecLands, nonBasicTarget, usedNames, colorIdentity, bannedCards);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
 
   // If we didn't get enough from EDHREC, search Scryfall for more
   if (lands.length < nonBasicTarget) {
-    onProgress?.('Finding additional lands...');
+    onProgress?.('Exploring uncharted territories...', 87);
     const query = `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`;
     const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards);
     lands.push(...moreLands);
@@ -511,7 +503,7 @@ async function generateLands(
   const colorsWithBasics = colorIdentity.filter((c) => basicTypes[c]);
 
   if (colorsWithBasics.length > 0 && basicsNeeded > 0) {
-    onProgress?.('Adding basic lands...');
+    onProgress?.('Claiming territories...', 92);
     const perColor = Math.floor(basicsNeeded / colorsWithBasics.length);
     const remainder = basicsNeeded % colorsWithBasics.length;
 
@@ -653,7 +645,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   }
 
   // Pre-fetch and cache basic lands for faster generation
-  onProgress?.('Preparing card cache...');
+  onProgress?.('Shuffling the library...', 5);
   await prefetchBasicLands();
 
   const categories: Record<DeckCategory, ScryfallCard[]> = {
@@ -677,7 +669,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   if (selectedThemesWithSlugs.length > 0) {
     // Fetch theme-specific data for all selected themes
-    onProgress?.(`Fetching ${selectedThemesWithSlugs.length} theme(s) from EDHREC...`);
+    onProgress?.('Seeking guidance from the oracle...', 8);
     try {
       const themeDataPromises = selectedThemesWithSlugs.map(theme =>
         fetchCommanderThemeData(commander.name, theme.slug!)
@@ -696,26 +688,26 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       };
 
       const themeNames = selectedThemesWithSlugs.map(t => t.name).join(', ');
-      onProgress?.(`Using ${edhrecData.cardlists.allNonLand.length} cards from: ${themeNames}`);
+      onProgress?.(`The oracle speaks of ${themeNames}...`, 12);
     } catch (error) {
       console.warn('Failed to fetch theme-specific EDHREC data, trying base commander:', error);
       // Fall back to base commander data
       try {
         edhrecData = await fetchCommanderData(commander.name);
-        onProgress?.(`Theme fetch failed, using ${edhrecData.cardlists.allNonLand.length} general cards`);
+        onProgress?.('Consulting ancient scrolls...', 12);
       } catch {
-        onProgress?.('EDHREC unavailable, using Scryfall search...');
+        onProgress?.('The oracle is silent... searching the multiverse...', 12);
       }
     }
   } else {
     // No themes selected - use base commander data (top recommended cards)
-    onProgress?.('Fetching top recommended cards from EDHREC...');
+    onProgress?.('Consulting the wisdom of EDHREC...', 8);
     try {
       edhrecData = await fetchCommanderData(commander.name);
-      onProgress?.(`Found ${edhrecData.cardlists.allNonLand.length} popular cards from EDHREC`);
+      onProgress?.('Ancient knowledge acquired!', 12);
     } catch (error) {
       console.warn('Failed to fetch EDHREC data, falling back to Scryfall:', error);
-      onProgress?.('EDHREC unavailable, using Scryfall search...');
+      onProgress?.('The oracle is silent... searching the multiverse...', 12);
     }
   }
 
@@ -742,7 +734,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const creatureTarget = typeTargets.creature || targets.creatures;
     const creaturePool = mergeWithAllNonLand(cardlists.creatures, cardlists.allNonLand);
     console.log(`[DeckGen] Creatures: need ${creatureTarget}, pool has ${creaturePool.length} cards (${cardlists.creatures.length} typed + ${creaturePool.length - cardlists.creatures.length} from generic lists)`);
-    onProgress?.(`Selecting ${creatureTarget} creatures...`);
+    onProgress?.('Summoning creatures from the aether...', 20);
     const creatures = await pickFromEDHRECWithCurve(
       creaturePool,
       creatureTarget,
@@ -750,7 +742,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       curveTargets,
       currentCurveCounts,
-      onProgress,
       bannedCards,
       'Creature'
     );
@@ -781,7 +772,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const instantTarget = typeTargets.instant || 0;
     const instantPool = mergeWithAllNonLand(cardlists.instants, cardlists.allNonLand);
     console.log(`[DeckGen] Instants: need ${instantTarget}, pool has ${instantPool.length} cards (${cardlists.instants.length} typed + ${instantPool.length - cardlists.instants.length} from generic lists)`);
-    onProgress?.(`Selecting ${instantTarget} instants...`);
+    onProgress?.('Preparing instant-speed responses...', 35);
     const instants = await pickFromEDHRECWithCurve(
       instantPool,
       instantTarget,
@@ -789,7 +780,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       curveTargets,
       currentCurveCounts,
-      onProgress,
       bannedCards,
       'Instant'
     );
@@ -800,7 +790,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const sorceryTarget = typeTargets.sorcery || 0;
     const sorceryPool = mergeWithAllNonLand(cardlists.sorceries, cardlists.allNonLand);
     console.log(`[DeckGen] Sorceries: need ${sorceryTarget}, pool has ${sorceryPool.length} cards (${cardlists.sorceries.length} typed + ${sorceryPool.length - cardlists.sorceries.length} from generic lists)`);
-    onProgress?.(`Selecting ${sorceryTarget} sorceries...`);
+    onProgress?.('Channeling sorcerous power...', 45);
     const sorceries = await pickFromEDHRECWithCurve(
       sorceryPool,
       sorceryTarget,
@@ -808,7 +798,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       curveTargets,
       currentCurveCounts,
-      onProgress,
       bannedCards,
       'Sorcery'
     );
@@ -819,7 +808,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const artifactTarget = typeTargets.artifact || 0;
     const artifactPool = mergeWithAllNonLand(cardlists.artifacts, cardlists.allNonLand);
     console.log(`[DeckGen] Artifacts: need ${artifactTarget}, pool has ${artifactPool.length} cards (${cardlists.artifacts.length} typed + ${artifactPool.length - cardlists.artifacts.length} from generic lists)`);
-    onProgress?.(`Selecting ${artifactTarget} artifacts...`);
+    onProgress?.('Forging powerful artifacts...', 55);
     const artifacts = await pickFromEDHRECWithCurve(
       artifactPool,
       artifactTarget,
@@ -827,7 +816,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       curveTargets,
       currentCurveCounts,
-      onProgress,
       bannedCards,
       'Artifact'
     );
@@ -838,7 +826,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const enchantmentTarget = typeTargets.enchantment || 0;
     const enchantmentPool = mergeWithAllNonLand(cardlists.enchantments, cardlists.allNonLand);
     console.log(`[DeckGen] Enchantments: need ${enchantmentTarget}, pool has ${enchantmentPool.length} cards (${cardlists.enchantments.length} typed + ${enchantmentPool.length - cardlists.enchantments.length} from generic lists)`);
-    onProgress?.(`Selecting ${enchantmentTarget} enchantments...`);
+    onProgress?.('Weaving magical enchantments...', 65);
     const enchantments = await pickFromEDHRECWithCurve(
       enchantmentPool,
       enchantmentTarget,
@@ -846,7 +834,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       curveTargets,
       currentCurveCounts,
-      onProgress,
       bannedCards,
       'Enchantment'
     );
@@ -858,7 +845,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const planeswalkerPool = mergeWithAllNonLand(cardlists.planeswalkers, cardlists.allNonLand);
     console.log(`[DeckGen] Planeswalkers: need ${planeswalkerTarget}, pool has ${planeswalkerPool.length} cards (${cardlists.planeswalkers.length} typed + ${planeswalkerPool.length - cardlists.planeswalkers.length} from generic lists)`);
     if (planeswalkerPool.length > 0 && planeswalkerTarget > 0) {
-      onProgress?.(`Selecting ${planeswalkerTarget} planeswalkers...`);
+      onProgress?.('Calling upon planeswalker allies...', 72);
       const planeswalkers = await pickFromEDHRECWithCurve(
         planeswalkerPool,
         planeswalkerTarget,
@@ -866,7 +853,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         colorIdentity,
         curveTargets,
         currentCurveCounts,
-        onProgress,
         bannedCards,
         'Planeswalker'
       );
@@ -875,7 +861,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
 
     // 7. Lands from EDHREC
-    onProgress?.('Generating land base...');
+    onProgress?.('Surveying the mana base...', 78);
     console.log('[DeckGen] Land stats from EDHREC:', {
       totalLandTarget: targets.lands,
       edhrecLandsAvailable: cardlists.lands.length,
@@ -925,7 +911,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   } else {
     // Fallback to Scryfall-based generation
-    onProgress?.('Searching for ramp cards...');
+    onProgress?.('Gathering mana accelerants...', 20);
     categories.ramp = await fillWithScryfall(
       '(t:artifact o:"add" OR o:"search your library" o:land t:sorcery cmc<=3)',
       colorIdentity,
@@ -934,7 +920,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards
     );
 
-    onProgress?.('Searching for card draw...');
+    onProgress?.('Seeking sources of knowledge...', 30);
     categories.cardDraw = await fillWithScryfall(
       'o:"draw" (t:instant OR t:sorcery OR t:enchantment)',
       colorIdentity,
@@ -943,7 +929,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards
     );
 
-    onProgress?.('Searching for removal...');
+    onProgress?.('Arming with removal spells...', 40);
     categories.singleRemoval = await fillWithScryfall(
       '(o:"destroy target" OR o:"exile target") (t:instant OR t:sorcery)',
       colorIdentity,
@@ -952,7 +938,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards
     );
 
-    onProgress?.('Searching for board wipes...');
+    onProgress?.('Preparing mass destruction...', 50);
     categories.boardWipes = await fillWithScryfall(
       '(o:"destroy all" OR o:"exile all") (t:instant OR t:sorcery)',
       colorIdentity,
@@ -961,7 +947,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards
     );
 
-    onProgress?.('Searching for creatures...');
+    onProgress?.('Recruiting an army...', 60);
     categories.creatures = await fillWithScryfall(
       't:creature',
       colorIdentity,
@@ -970,7 +956,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards
     );
 
-    onProgress?.('Searching for synergy cards...');
+    onProgress?.('Finding synergistic pieces...', 70);
     categories.synergy = await fillWithScryfall(
       '(t:artifact OR t:enchantment)',
       colorIdentity,
@@ -979,7 +965,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards
     );
 
-    onProgress?.('Generating land base...');
+    onProgress?.('Surveying the mana base...', 80);
     categories.lands = await generateLands(
       [],
       colorIdentity,

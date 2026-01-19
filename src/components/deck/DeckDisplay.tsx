@@ -38,9 +38,9 @@ function getCardType(card: ScryfallCard): CardType {
 
 // Format price
 function formatPrice(price: string | undefined): string {
-  if (!price) return '';
+  if (!price) return '-';
   const num = parseFloat(price);
-  if (isNaN(num)) return '';
+  if (isNaN(num)) return '-';
   return `$${num.toFixed(2)}`;
 }
 
@@ -67,11 +67,9 @@ function CardRow({ card, quantity, onPreview, onHover }: CardRowProps) {
         {card.name}
       </span>
       <ManaCost cost={card.mana_cost} />
-      {price && (
-        <span className="text-muted-foreground text-xs w-16 text-right shrink-0">
-          {price}
-        </span>
-      )}
+      <span className="text-muted-foreground text-xs w-16 text-right shrink-0">
+        {price}
+      </span>
     </button>
   );
 }

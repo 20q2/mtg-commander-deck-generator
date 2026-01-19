@@ -24,6 +24,7 @@ export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
   const navigate = useNavigate();
   const [progress, setProgress] = useState('');
+  const [progressPercent, setProgressPercent] = useState(0);
   const [isLoadingCommander, setIsLoadingCommander] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [partnerImageLoaded, setPartnerImageLoaded] = useState(false);
@@ -281,6 +282,7 @@ export function BuilderPage() {
 
     setLoading(true, 'Starting deck generation...');
     setProgress('Initializing...');
+    setProgressPercent(0);
 
     try {
       const deck = await generateDeck({
@@ -290,7 +292,10 @@ export function BuilderPage() {
         archetype: selectedArchetype,
         customization,
         selectedThemes,
-        onProgress: (message) => setProgress(message),
+        onProgress: (message, percent) => {
+          setProgress(message);
+          setProgressPercent(percent);
+        },
       });
 
       setGeneratedDeck(deck);
@@ -300,6 +305,7 @@ export function BuilderPage() {
     } finally {
       setLoading(false);
       setProgress('');
+      setProgressPercent(0);
     }
   };
 
@@ -530,9 +536,25 @@ export function BuilderPage() {
                 </>
               )}
             </Button>
-            <p className="text-sm text-muted-foreground mt-3">
-              Creates a complete {customization.deckFormat - (partnerCommander ? 1 : 0)}-card deck based on your preferences
-            </p>
+            {isLoading && progressPercent > 0 && (
+              <div className="mt-4 w-64 mx-auto">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full"
+                    style={{
+                      width: `${progressPercent}%`,
+                      transition: 'width 600ms cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{progressPercent}% complete</p>
+              </div>
+            )}
+            {!isLoading && (
+              <p className="text-sm text-muted-foreground mt-3">
+                Creates a complete {customization.deckFormat - (partnerCommander ? 1 : 0)}-card deck based on your preferences
+              </p>
+            )}
           </div>
         </section>
       )}
