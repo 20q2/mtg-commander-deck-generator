@@ -12,7 +12,7 @@ import type {
   EDHRECCommanderData,
   EDHRECCommanderStats,
 } from '@/types';
-import { searchCards, getCardByName } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData } from '@/services/edhrec/client';
 import {
   DECK_FORMAT_CONFIGS,
@@ -151,17 +151,7 @@ function calculateTargetCounts(
   };
 }
 
-// Convert EDHREC card to Scryfall card by fetching from Scryfall
-async function edhrecToScryfall(edhrecCard: EDHRECCard): Promise<ScryfallCard | null> {
-  try {
-    return await getCardByName(edhrecCard.name, true);
-  } catch {
-    console.warn(`Could not fetch card: ${edhrecCard.name}`);
-    return null;
-  }
-}
-
-// Pick cards from EDHREC list, converting to Scryfall cards
+// Pick cards from EDHREC list using batch fetching
 async function pickFromEDHREC(
   edhrecCards: EDHRECCard[],
   count: number,
@@ -172,23 +162,34 @@ async function pickFromEDHREC(
 ): Promise<ScryfallCard[]> {
   const result: ScryfallCard[] = [];
 
-  for (const edhrecCard of edhrecCards) {
+  // Filter candidates and collect names to fetch
+  const candidates = edhrecCards.filter(
+    c => !usedNames.has(c.name) && !bannedCards.has(c.name)
+  );
+
+  if (candidates.length === 0) return result;
+
+  // Fetch more than needed to account for color identity filtering
+  const namesToFetch = candidates.slice(0, count * 2).map(c => c.name);
+
+  onProgress?.(`Fetching ${namesToFetch.length} cards...`);
+  const cardMap = await getCardsByNames(namesToFetch);
+
+  // Process fetched cards in original order (by inclusion rate)
+  for (const edhrecCard of candidates) {
     if (result.length >= count) break;
-    if (usedNames.has(edhrecCard.name)) continue;
-    if (bannedCards.has(edhrecCard.name)) continue; // Skip banned cards
 
-    onProgress?.(`Fetching ${edhrecCard.name}...`);
-    const scryfallCard = await edhrecToScryfall(edhrecCard);
+    const scryfallCard = cardMap.get(edhrecCard.name);
+    if (!scryfallCard) continue;
 
-    if (scryfallCard) {
-      // Verify color identity matches commander's colors
-      if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
-        console.warn(`Skipping ${scryfallCard.name} - color identity ${scryfallCard.color_identity} doesn't fit ${colorIdentity}`);
-        continue;
-      }
-      result.push(scryfallCard);
-      usedNames.add(edhrecCard.name);
+    // Verify color identity matches commander's colors
+    if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
+      console.warn(`Skipping ${scryfallCard.name} - color identity ${scryfallCard.color_identity} doesn't fit ${colorIdentity}`);
+      continue;
     }
+
+    result.push(scryfallCard);
+    usedNames.add(edhrecCard.name);
   }
 
   return result;
@@ -225,10 +226,10 @@ function matchesExpectedType(typeLine: string, expectedType: string): boolean {
   return false;
 }
 
-// Pick cards from EDHREC list with CMC-aware selection
+// Pick cards from EDHREC list with CMC-aware selection using batch fetching
 // Since EDHREC cards don't have CMC, we:
-// 1. Sort primarily by inclusion rate (EDHREC's main metric)
-// 2. Fetch from Scryfall to get actual CMC
+// 1. Batch fetch all candidate cards from Scryfall
+// 2. Sort by inclusion rate (EDHREC's main metric)
 // 3. Use CMC for curve tracking and soft enforcement
 // 4. Optionally filter by expected type (for cards from generic lists like 'topcards')
 async function pickFromEDHRECWithCurve(
@@ -244,49 +245,55 @@ async function pickFromEDHRECWithCurve(
 ): Promise<ScryfallCard[]> {
   const result: ScryfallCard[] = [];
 
-  // Sort by inclusion rate (higher is better) - this is the primary EDHREC metric
-  // Note: EDHREC cards don't have CMC, so we can't do curve-based pre-sorting
-  const sortedCards = [...edhrecCards].sort((a, b) => b.inclusion - a.inclusion);
+  // Filter candidates and sort by inclusion rate
+  const candidates = edhrecCards
+    .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
+    .sort((a, b) => b.inclusion - a.inclusion);
 
-  for (const edhrecCard of sortedCards) {
+  if (candidates.length === 0) return result;
+
+  // Fetch more than needed to account for filtering (type, color identity, curve)
+  const namesToFetch = candidates.slice(0, count * 3).map(c => c.name);
+
+  onProgress?.(`Fetching ${namesToFetch.length} cards...`);
+  const cardMap = await getCardsByNames(namesToFetch);
+
+  // Process fetched cards in order of inclusion rate
+  for (const edhrecCard of candidates) {
     if (result.length >= count) break;
-    if (usedNames.has(edhrecCard.name)) continue;
-    if (bannedCards.has(edhrecCard.name)) continue; // Skip banned cards
 
-    onProgress?.(`Fetching ${edhrecCard.name}...`);
-    const scryfallCard = await edhrecToScryfall(edhrecCard);
+    const scryfallCard = cardMap.get(edhrecCard.name);
+    if (!scryfallCard) continue;
 
-    if (scryfallCard) {
-      // For cards with Unknown type (from generic lists like topcards/highsynergycards),
-      // verify they match the expected type before including them
-      if (expectedType && edhrecCard.primary_type === 'Unknown') {
-        if (!matchesExpectedType(scryfallCard.type_line, expectedType)) {
-          continue; // Skip - this card doesn't match the expected type
-        }
+    // For cards with Unknown type (from generic lists like topcards/highsynergycards),
+    // verify they match the expected type before including them
+    if (expectedType && edhrecCard.primary_type === 'Unknown') {
+      if (!matchesExpectedType(scryfallCard.type_line, expectedType)) {
+        continue; // Skip - this card doesn't match the expected type
       }
+    }
 
-      // Verify color identity matches commander's colors
-      if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
-        console.warn(`Skipping ${scryfallCard.name} - color identity ${scryfallCard.color_identity} doesn't fit ${colorIdentity}`);
+    // Verify color identity matches commander's colors
+    if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
+      console.warn(`Skipping ${scryfallCard.name} - color identity ${scryfallCard.color_identity} doesn't fit ${colorIdentity}`);
+      continue;
+    }
+
+    // Use the actual CMC from Scryfall (EDHREC doesn't have it)
+    const cmc = Math.min(Math.floor(scryfallCard.cmc), 7);
+
+    // Soft curve enforcement: skip low-inclusion cards if bucket is very overfilled
+    // High-inclusion cards (>40%) always get through regardless of curve
+    if (!hasCurveRoom(cmc, curveTargets, currentCurveCounts)) {
+      if (edhrecCard.inclusion < 40) {
+        // Skip this card - curve is overfilled and it's not high-inclusion
         continue;
       }
-
-      // Use the actual CMC from Scryfall (EDHREC doesn't have it)
-      const cmc = Math.min(Math.floor(scryfallCard.cmc), 7);
-
-      // Soft curve enforcement: skip low-inclusion cards if bucket is very overfilled
-      // High-inclusion cards (>40%) always get through regardless of curve
-      if (!hasCurveRoom(cmc, curveTargets, currentCurveCounts)) {
-        if (edhrecCard.inclusion < 40) {
-          // Skip this card - curve is overfilled and it's not high-inclusion
-          continue;
-        }
-      }
-
-      result.push(scryfallCard);
-      usedNames.add(edhrecCard.name);
-      currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
     }
+
+    result.push(scryfallCard);
+    usedNames.add(edhrecCard.name);
+    currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
   }
 
   return result;
@@ -478,7 +485,7 @@ async function generateLands(
     }
   }
 
-  // Fill remaining with basic lands
+  // Fill remaining with basic lands (use cached cards for efficiency)
   const basicsNeeded = Math.max(0, count - lands.length);
   const basicTypes: Record<string, string> = {
     W: 'Plains',
@@ -500,14 +507,19 @@ async function generateLands(
       const basicName = basicTypes[color];
       const countForColor = perColor + (i < remainder ? 1 : 0);
 
-      for (let j = 0; j < countForColor; j++) {
+      // Try to get cached basic land first (prefetched at start of deck generation)
+      let basicCard = getCachedCard(basicName);
+      if (!basicCard) {
         try {
-          const basic = await getCardByName(basicName, true);
-          // Create unique ID for each basic land instance
-          lands.push({ ...basic, id: `${basic.id}-${j}-${color}` });
+          basicCard = await getCardByName(basicName, true);
         } catch {
-          // Skip if can't fetch
+          continue; // Skip if can't fetch
         }
+      }
+
+      // Add multiple copies with unique IDs
+      for (let j = 0; j < countForColor; j++) {
+        lands.push({ ...basicCard, id: `${basicCard.id}-${j}-${color}` });
       }
     }
   }
@@ -626,6 +638,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   if (partnerCommander) {
     usedNames.add(partnerCommander.name);
   }
+
+  // Pre-fetch and cache basic lands for faster generation
+  onProgress?.('Preparing card cache...');
+  await prefetchBasicLands();
 
   const categories: Record<DeckCategory, ScryfallCard[]> = {
     lands: [],
@@ -993,7 +1009,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     currentCount = countAllCards();
   }
 
-  // If we have too few cards, add basic lands to fill
+  // If we have too few cards, add basic lands to fill (use cached cards)
   currentCount = countAllCards();
   if (currentCount < targetDeckSize) {
     const shortage = targetDeckSize - currentCount;
@@ -1009,13 +1025,19 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const basicName = basicTypes[color];
         const countForColor = perColor + (i < remainder ? 1 : 0);
 
-        for (let j = 0; j < countForColor; j++) {
+        // Try to get cached basic land first
+        let basicCard = getCachedCard(basicName);
+        if (!basicCard) {
           try {
-            const basic = await getCardByName(basicName, true);
-            categories.lands.push({ ...basic, id: `${basic.id}-fill-${j}-${color}` });
+            basicCard = await getCardByName(basicName, true);
           } catch {
-            // Skip if can't fetch
+            continue; // Skip if can't fetch
           }
+        }
+
+        // Add multiple copies with unique IDs
+        for (let j = 0; j < countForColor; j++) {
+          categories.lands.push({ ...basicCard, id: `${basicCard.id}-fill-${j}-${color}` });
         }
       }
     }

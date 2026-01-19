@@ -3,6 +3,16 @@ import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
 
 const BASE_URL = 'https://api.scryfall.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests (10/sec max)
+const COLLECTION_BATCH_SIZE = 75; // Max cards per collection request
+
+// In-memory cache for fetched cards
+const cardCache = new Map<string, ScryfallCard>();
+
+// Response type for collection endpoint
+interface CollectionResponse {
+  data: ScryfallCard[];
+  not_found: { name: string }[];
+}
 
 class RateLimiter {
   private lastRequestTime = 0;
@@ -75,9 +85,113 @@ export async function searchCards(
 }
 
 export async function getCardByName(name: string, exact = true): Promise<ScryfallCard> {
+  // Check cache first
+  const cached = cardCache.get(name);
+  if (cached) return cached;
+
   const param = exact ? 'exact' : 'fuzzy';
   const encodedName = encodeURIComponent(name);
-  return scryfallFetch<ScryfallCard>(`/cards/named?${param}=${encodedName}`);
+  const card = await scryfallFetch<ScryfallCard>(`/cards/named?${param}=${encodedName}`);
+
+  // Cache the result
+  cardCache.set(card.name, card);
+  return card;
+}
+
+/**
+ * Batch fetch multiple cards by name using Scryfall's Collection API.
+ * Much faster than individual getCardByName calls for large sets.
+ *
+ * @param names Array of card names to fetch
+ * @returns Map of card name -> ScryfallCard for found cards
+ */
+export async function getCardsByNames(names: string[]): Promise<Map<string, ScryfallCard>> {
+  const result = new Map<string, ScryfallCard>();
+
+  if (names.length === 0) return result;
+
+  // Check cache first and collect uncached names
+  const uncachedNames: string[] = [];
+  for (const name of names) {
+    const cached = cardCache.get(name);
+    if (cached) {
+      result.set(name, cached);
+    } else {
+      uncachedNames.push(name);
+    }
+  }
+
+  // If all cards were cached, return early
+  if (uncachedNames.length === 0) return result;
+
+  // Fetch uncached cards in batches of 75
+  for (let i = 0; i < uncachedNames.length; i += COLLECTION_BATCH_SIZE) {
+    const batch = uncachedNames.slice(i, i + COLLECTION_BATCH_SIZE);
+
+    await rateLimiter.throttle();
+
+    const identifiers = batch.map(name => ({ name }));
+
+    try {
+      const response = await fetch(`${BASE_URL}/cards/collection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ identifiers }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          // Rate limited - wait and retry this batch
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          i -= COLLECTION_BATCH_SIZE; // Retry this batch
+          continue;
+        }
+        console.error(`Collection API error: ${response.status}`);
+        continue;
+      }
+
+      const data: CollectionResponse = await response.json();
+
+      // Add found cards to result and cache
+      for (const card of data.data) {
+        result.set(card.name, card);
+        cardCache.set(card.name, card);
+      }
+
+      // Log not found cards
+      if (data.not_found.length > 0) {
+        console.warn('Cards not found:', data.not_found.map(c => c.name));
+      }
+    } catch (error) {
+      console.error('Collection fetch error:', error);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Pre-cache basic lands for faster deck generation.
+ * Call this once at the start of deck generation.
+ */
+export async function prefetchBasicLands(): Promise<void> {
+  const basicLands = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+
+  // Check if already cached
+  const uncached = basicLands.filter(name => !cardCache.has(name));
+  if (uncached.length === 0) return;
+
+  await getCardsByNames(uncached);
+}
+
+/**
+ * Get a cached card if available (for basic lands).
+ */
+export function getCachedCard(name: string): ScryfallCard | undefined {
+  return cardCache.get(name);
 }
 
 export async function autocompleteCardName(query: string): Promise<string[]> {

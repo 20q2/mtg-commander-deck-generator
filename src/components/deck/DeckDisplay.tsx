@@ -94,7 +94,7 @@ function CategoryColumn({ type, cards, onPreview, onHover }: CategoryColumnProps
   }, 0);
 
   return (
-    <div className="break-inside-avoid mb-4">
+    <div className="break-inside-avoid-column mb-4">
       {/* Header */}
       <div className="flex items-center justify-between px-2 py-2 border-b border-border/50">
         <div className="flex items-center gap-2">
@@ -730,7 +730,7 @@ export function DeckDisplay() {
           {/* Deck List */}
           <div className="flex-1 bg-card/30 rounded-lg border border-border/50 overflow-hidden">
             {viewMode === 'list' ? (
-              <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 p-2 gap-6">
+              <div className="p-4" style={{ columnWidth: '280px', columnGap: '2rem' }}>
                 {TYPE_ORDER.map((type) => (
                   <CategoryColumn
                     key={type}
