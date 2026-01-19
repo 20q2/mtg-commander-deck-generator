@@ -3,16 +3,10 @@ import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
 
 const BASE_URL = 'https://api.scryfall.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests (10/sec max)
-const COLLECTION_BATCH_SIZE = 75; // Max cards per collection request
+const PARALLEL_BATCH_SIZE = 8; // Fetch 8 cards in parallel (staying under 10/sec limit)
 
 // In-memory cache for fetched cards
 const cardCache = new Map<string, ScryfallCard>();
-
-// Response type for collection endpoint
-interface CollectionResponse {
-  data: ScryfallCard[];
-  not_found: { name: string }[];
-}
 
 class RateLimiter {
   private lastRequestTime = 0;
@@ -99,8 +93,37 @@ export async function getCardByName(name: string, exact = true): Promise<Scryfal
 }
 
 /**
- * Batch fetch multiple cards by name using Scryfall's Collection API.
- * Much faster than individual getCardByName calls for large sets.
+ * Fetch a single card by name without rate limiting (for parallel use).
+ * Returns null if not found instead of throwing.
+ */
+async function fetchCardByNameNoThrottle(name: string): Promise<ScryfallCard | null> {
+  try {
+    const encodedName = encodeURIComponent(name);
+    const response = await fetch(`${BASE_URL}/cards/named?exact=${encodedName}`, {
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      if (response.status === 429) {
+        // Rate limited - wait and retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return fetchCardByNameNoThrottle(name);
+      }
+      return null;
+    }
+
+    const card = await response.json() as ScryfallCard;
+    cardCache.set(card.name, card);
+    return card;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Batch fetch multiple cards by name using parallel GET requests.
+ * Uses parallel batches to maximize speed while respecting rate limits.
  *
  * @param names Array of card names to fetch
  * @returns Map of card name -> ScryfallCard for found cards
@@ -124,52 +147,31 @@ export async function getCardsByNames(names: string[]): Promise<Map<string, Scry
   // If all cards were cached, return early
   if (uncachedNames.length === 0) return result;
 
-  // Fetch uncached cards in batches of 75
-  for (let i = 0; i < uncachedNames.length; i += COLLECTION_BATCH_SIZE) {
-    const batch = uncachedNames.slice(i, i + COLLECTION_BATCH_SIZE);
+  console.log(`[Scryfall] Fetching ${uncachedNames.length} cards in parallel batches...`);
 
-    await rateLimiter.throttle();
+  // Fetch in parallel batches
+  for (let i = 0; i < uncachedNames.length; i += PARALLEL_BATCH_SIZE) {
+    const batch = uncachedNames.slice(i, i + PARALLEL_BATCH_SIZE);
 
-    const identifiers = batch.map(name => ({ name }));
+    // Small delay between batches to respect rate limit
+    if (i > 0) {
+      await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_DELAY));
+    }
 
-    try {
-      const response = await fetch(`${BASE_URL}/cards/collection`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ identifiers }),
-      });
+    // Fetch all cards in this batch in parallel
+    const promises = batch.map(name => fetchCardByNameNoThrottle(name));
+    const results = await Promise.all(promises);
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          // Rate limited - wait and retry this batch
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          i -= COLLECTION_BATCH_SIZE; // Retry this batch
-          continue;
-        }
-        console.error(`Collection API error: ${response.status}`);
-        continue;
+    // Add found cards to result
+    for (let j = 0; j < batch.length; j++) {
+      const card = results[j];
+      if (card) {
+        result.set(batch[j], card);
       }
-
-      const data: CollectionResponse = await response.json();
-
-      // Add found cards to result and cache
-      for (const card of data.data) {
-        result.set(card.name, card);
-        cardCache.set(card.name, card);
-      }
-
-      // Log not found cards
-      if (data.not_found.length > 0) {
-        console.warn('Cards not found:', data.not_found.map(c => c.name));
-      }
-    } catch (error) {
-      console.error('Collection fetch error:', error);
     }
   }
 
+  console.log(`[Scryfall] Batch fetch complete: ${result.size} cards found`);
   return result;
 }
 

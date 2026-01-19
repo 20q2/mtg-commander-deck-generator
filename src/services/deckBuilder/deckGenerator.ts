@@ -151,28 +151,23 @@ function calculateTargetCounts(
   };
 }
 
-// Pick cards from EDHREC list using batch fetching
-async function pickFromEDHREC(
+// Pick cards from a pre-fetched card map (no API calls)
+function pickFromPrefetched(
   edhrecCards: EDHRECCard[],
+  cardMap: Map<string, ScryfallCard>,
   count: number,
   usedNames: Set<string>,
   colorIdentity: string[],
   bannedCards: Set<string> = new Set()
-): Promise<ScryfallCard[]> {
+): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
-  // Filter candidates and collect names to fetch
+  // Filter candidates
   const candidates = edhrecCards.filter(
     c => !usedNames.has(c.name) && !bannedCards.has(c.name)
   );
 
-  if (candidates.length === 0) return result;
-
-  // Fetch more than needed to account for color identity filtering
-  const namesToFetch = candidates.slice(0, count * 2).map(c => c.name);
-  const cardMap = await getCardsByNames(namesToFetch);
-
-  // Process fetched cards in original order (by inclusion rate)
+  // Process cards in order (by inclusion rate)
   for (const edhrecCard of candidates) {
     if (result.length >= count) break;
 
@@ -181,12 +176,77 @@ async function pickFromEDHREC(
 
     // Verify color identity matches commander's colors
     if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
-      console.warn(`Skipping ${scryfallCard.name} - color identity ${scryfallCard.color_identity} doesn't fit ${colorIdentity}`);
       continue;
     }
 
     result.push(scryfallCard);
     usedNames.add(edhrecCard.name);
+  }
+
+  return result;
+}
+
+// Pick cards with curve awareness from pre-fetched map (no API calls)
+function pickFromPrefetchedWithCurve(
+  edhrecCards: EDHRECCard[],
+  cardMap: Map<string, ScryfallCard>,
+  count: number,
+  usedNames: Set<string>,
+  colorIdentity: string[],
+  curveTargets: Record<number, number>,
+  currentCurveCounts: Record<number, number>,
+  bannedCards: Set<string> = new Set(),
+  expectedType?: string
+): ScryfallCard[] {
+  const result: ScryfallCard[] = [];
+
+  // Separate typed cards from Unknown cards
+  const allCandidates = edhrecCards
+    .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
+    .sort((a, b) => b.inclusion - a.inclusion);
+
+  const typedCards = allCandidates.filter(c => c.primary_type !== 'Unknown');
+  const unknownCards = allCandidates.filter(c => c.primary_type === 'Unknown');
+
+  const processCards = (candidates: EDHRECCard[], requireTypeCheck: boolean): void => {
+    for (const edhrecCard of candidates) {
+      if (result.length >= count) break;
+
+      const scryfallCard = cardMap.get(edhrecCard.name);
+      if (!scryfallCard) continue;
+
+      // Type check only for Unknown cards
+      if (requireTypeCheck && expectedType) {
+        if (!matchesExpectedType(scryfallCard.type_line, expectedType)) {
+          continue;
+        }
+      }
+
+      // Verify color identity
+      if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
+        continue;
+      }
+
+      // Curve enforcement
+      const cmc = Math.min(Math.floor(scryfallCard.cmc), 7);
+      if (!hasCurveRoom(cmc, curveTargets, currentCurveCounts)) {
+        if (edhrecCard.inclusion < 40) {
+          continue;
+        }
+      }
+
+      result.push(scryfallCard);
+      usedNames.add(edhrecCard.name);
+      currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+    }
+  };
+
+  // Phase 1: Process typed cards first
+  processCards(typedCards, false);
+
+  // Phase 2: Process Unknown cards if needed
+  if (result.length < count && unknownCards.length > 0) {
+    processCards(unknownCards, true);
   }
 
   return result;
@@ -221,87 +281,6 @@ function matchesExpectedType(typeLine: string, expectedType: string): boolean {
   if (normalizedType === 'land') return normalizedTypeLine.includes('land');
 
   return false;
-}
-
-// Pick cards from EDHREC list with CMC-aware selection using batch fetching
-// Strategy: Prioritize typed cards first, then use Unknown cards as fallback
-// This prevents high-inclusion Unknown cards from crowding out typed cards
-async function pickFromEDHRECWithCurve(
-  edhrecCards: EDHRECCard[],
-  count: number,
-  usedNames: Set<string>,
-  colorIdentity: string[],
-  curveTargets: Record<number, number>,
-  currentCurveCounts: Record<number, number>,
-  bannedCards: Set<string> = new Set(),
-  expectedType?: string // Optional type filter for cards with Unknown primary_type
-): Promise<ScryfallCard[]> {
-  const result: ScryfallCard[] = [];
-
-  // Helper to process a batch of candidates
-  const processBatch = async (
-    candidates: EDHRECCard[],
-    requireTypeCheck: boolean
-  ): Promise<void> => {
-    if (candidates.length === 0 || result.length >= count) return;
-
-    const remaining = count - result.length;
-    // Fetch more than needed to account for color identity and curve filtering
-    const namesToFetch = candidates.slice(0, remaining * 2).map(c => c.name);
-
-    const cardMap = await getCardsByNames(namesToFetch);
-
-    for (const edhrecCard of candidates) {
-      if (result.length >= count) break;
-
-      const scryfallCard = cardMap.get(edhrecCard.name);
-      if (!scryfallCard) continue;
-
-      // Type check only for Unknown cards
-      if (requireTypeCheck && expectedType) {
-        if (!matchesExpectedType(scryfallCard.type_line, expectedType)) {
-          continue;
-        }
-      }
-
-      // Verify color identity matches commander's colors
-      if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
-        continue;
-      }
-
-      // Use the actual CMC from Scryfall (EDHREC doesn't have it)
-      const cmc = Math.min(Math.floor(scryfallCard.cmc), 7);
-
-      // Soft curve enforcement: skip low-inclusion cards if bucket is very overfilled
-      if (!hasCurveRoom(cmc, curveTargets, currentCurveCounts)) {
-        if (edhrecCard.inclusion < 40) {
-          continue;
-        }
-      }
-
-      result.push(scryfallCard);
-      usedNames.add(edhrecCard.name);
-      currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
-    }
-  };
-
-  // Separate typed cards (known type from EDHREC) from Unknown cards
-  const allCandidates = edhrecCards
-    .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
-    .sort((a, b) => b.inclusion - a.inclusion);
-
-  const typedCards = allCandidates.filter(c => c.primary_type !== 'Unknown');
-  const unknownCards = allCandidates.filter(c => c.primary_type === 'Unknown');
-
-  // Phase 1: Process typed cards first (no type verification needed)
-  await processBatch(typedCards, false);
-
-  // Phase 2: If we need more, process Unknown cards (with type verification)
-  if (result.length < count && unknownCards.length > 0) {
-    await processBatch(unknownCards, true);
-  }
-
-  return result;
 }
 
 // Categorize instants by function (removal, card draw, or synergy)
@@ -466,7 +445,15 @@ async function generateLands(
   if (nonBasicTarget > 0 && nonBasicEdhrecLands.length > 0) {
     onProgress?.('Discovering exotic lands...', 82);
     console.log(`[DeckGen] Picking ${nonBasicTarget} non-basic lands from ${nonBasicEdhrecLands.length} EDHREC suggestions`);
-    const nonBasics = await pickFromEDHREC(nonBasicEdhrecLands, nonBasicTarget, usedNames, colorIdentity, bannedCards);
+
+    // Batch fetch candidate lands
+    const landNamesToFetch = nonBasicEdhrecLands
+      .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
+      .slice(0, nonBasicTarget * 2)  // Fetch more than needed to account for filtering
+      .map(c => c.name);
+
+    const landCardMap = await getCardsByNames(landNamesToFetch);
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -729,14 +716,54 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
     const { cardlists } = edhrecData;
 
-    // 1. Creatures - use EDHREC type target count
-    // Merge with allNonLand to include cards from topcards/highsynergycards lists
+    // Build all pools first
     const creatureTarget = typeTargets.creature || targets.creatures;
     const creaturePool = mergeWithAllNonLand(cardlists.creatures, cardlists.allNonLand);
-    console.log(`[DeckGen] Creatures: need ${creatureTarget}, pool has ${creaturePool.length} cards (${cardlists.creatures.length} typed + ${creaturePool.length - cardlists.creatures.length} from generic lists)`);
-    onProgress?.('Summoning creatures from the aether...', 20);
-    const creatures = await pickFromEDHRECWithCurve(
+    const instantTarget = typeTargets.instant || 0;
+    const instantPool = mergeWithAllNonLand(cardlists.instants, cardlists.allNonLand);
+    const sorceryTarget = typeTargets.sorcery || 0;
+    const sorceryPool = mergeWithAllNonLand(cardlists.sorceries, cardlists.allNonLand);
+    const artifactTarget = typeTargets.artifact || 0;
+    const artifactPool = mergeWithAllNonLand(cardlists.artifacts, cardlists.allNonLand);
+    const enchantmentTarget = typeTargets.enchantment || 0;
+    const enchantmentPool = mergeWithAllNonLand(cardlists.enchantments, cardlists.allNonLand);
+    const planeswalkerTarget = typeTargets.planeswalker || 0;
+    const planeswalkerPool = mergeWithAllNonLand(cardlists.planeswalkers, cardlists.allNonLand);
+
+    // Collect ALL unique card names from all pools for a single batch fetch
+    onProgress?.('Gathering cards from across the multiverse...', 18);
+    const allCardNames = new Set<string>();
+
+    // Helper to add names from a pool (limited to what we might actually need)
+    const addPoolNames = (pool: EDHRECCard[], target: number) => {
+      const candidates = pool.filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name));
+      // Fetch more than needed to account for color identity / curve filtering
+      for (const card of candidates.slice(0, target * 2)) {
+        allCardNames.add(card.name);
+      }
+    };
+
+    addPoolNames(creaturePool, creatureTarget);
+    addPoolNames(instantPool, instantTarget);
+    addPoolNames(sorceryPool, sorceryTarget);
+    addPoolNames(artifactPool, artifactTarget);
+    addPoolNames(enchantmentPool, enchantmentTarget);
+    addPoolNames(planeswalkerPool, planeswalkerTarget);
+
+    console.log(`[DeckGen] Batch fetching ${allCardNames.size} unique card names`);
+
+    // SINGLE BATCH FETCH for all non-land cards
+    onProgress?.('Summoning cards from Scryfall...', 25);
+    const cardMap = await getCardsByNames([...allCardNames]);
+    console.log(`[DeckGen] Batch fetch returned ${cardMap.size} cards`);
+
+    // Now process each type synchronously using the pre-fetched cards
+    // 1. Creatures
+    console.log(`[DeckGen] Creatures: need ${creatureTarget}, pool has ${creaturePool.length} cards`);
+    onProgress?.('Summoning creatures from the aether...', 35);
+    const creatures = pickFromPrefetchedWithCurve(
       creaturePool,
+      cardMap,
       creatureTarget,
       usedNames,
       colorIdentity,
@@ -761,20 +788,18 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       );
       categories.creatures.push(...moreCreatures);
       console.log(`[DeckGen] FALLBACK: Got ${moreCreatures.length} creatures from Scryfall`);
-      // Update curve counts for Scryfall cards
       for (const card of moreCreatures) {
         const cmc = Math.min(Math.floor(card.cmc), 7);
         currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
       }
     }
 
-    // 2. Instants - use EDHREC type target count, then categorize by function
-    const instantTarget = typeTargets.instant || 0;
-    const instantPool = mergeWithAllNonLand(cardlists.instants, cardlists.allNonLand);
-    console.log(`[DeckGen] Instants: need ${instantTarget}, pool has ${instantPool.length} cards (${cardlists.instants.length} typed + ${instantPool.length - cardlists.instants.length} from generic lists)`);
-    onProgress?.('Preparing instant-speed responses...', 35);
-    const instants = await pickFromEDHRECWithCurve(
+    // 2. Instants
+    console.log(`[DeckGen] Instants: need ${instantTarget}, pool has ${instantPool.length} cards`);
+    onProgress?.('Preparing instant-speed responses...', 45);
+    const instants = pickFromPrefetchedWithCurve(
       instantPool,
+      cardMap,
       instantTarget,
       usedNames,
       colorIdentity,
@@ -786,13 +811,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeInstants(instants, categories);
 
-    // 3. Sorceries - use EDHREC type target count, then categorize by function
-    const sorceryTarget = typeTargets.sorcery || 0;
-    const sorceryPool = mergeWithAllNonLand(cardlists.sorceries, cardlists.allNonLand);
-    console.log(`[DeckGen] Sorceries: need ${sorceryTarget}, pool has ${sorceryPool.length} cards (${cardlists.sorceries.length} typed + ${sorceryPool.length - cardlists.sorceries.length} from generic lists)`);
-    onProgress?.('Channeling sorcerous power...', 45);
-    const sorceries = await pickFromEDHRECWithCurve(
+    // 3. Sorceries
+    console.log(`[DeckGen] Sorceries: need ${sorceryTarget}, pool has ${sorceryPool.length} cards`);
+    onProgress?.('Channeling sorcerous power...', 55);
+    const sorceries = pickFromPrefetchedWithCurve(
       sorceryPool,
+      cardMap,
       sorceryTarget,
       usedNames,
       colorIdentity,
@@ -804,13 +828,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeSorceries(sorceries, categories);
 
-    // 4. Artifacts - use EDHREC type target count, then categorize by function
-    const artifactTarget = typeTargets.artifact || 0;
-    const artifactPool = mergeWithAllNonLand(cardlists.artifacts, cardlists.allNonLand);
-    console.log(`[DeckGen] Artifacts: need ${artifactTarget}, pool has ${artifactPool.length} cards (${cardlists.artifacts.length} typed + ${artifactPool.length - cardlists.artifacts.length} from generic lists)`);
-    onProgress?.('Forging powerful artifacts...', 55);
-    const artifacts = await pickFromEDHRECWithCurve(
+    // 4. Artifacts
+    console.log(`[DeckGen] Artifacts: need ${artifactTarget}, pool has ${artifactPool.length} cards`);
+    onProgress?.('Forging powerful artifacts...', 62);
+    const artifacts = pickFromPrefetchedWithCurve(
       artifactPool,
+      cardMap,
       artifactTarget,
       usedNames,
       colorIdentity,
@@ -822,13 +845,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeArtifacts(artifacts, categories);
 
-    // 5. Enchantments - use EDHREC type target count, then categorize by function
-    const enchantmentTarget = typeTargets.enchantment || 0;
-    const enchantmentPool = mergeWithAllNonLand(cardlists.enchantments, cardlists.allNonLand);
-    console.log(`[DeckGen] Enchantments: need ${enchantmentTarget}, pool has ${enchantmentPool.length} cards (${cardlists.enchantments.length} typed + ${enchantmentPool.length - cardlists.enchantments.length} from generic lists)`);
-    onProgress?.('Weaving magical enchantments...', 65);
-    const enchantments = await pickFromEDHRECWithCurve(
+    // 5. Enchantments
+    console.log(`[DeckGen] Enchantments: need ${enchantmentTarget}, pool has ${enchantmentPool.length} cards`);
+    onProgress?.('Weaving magical enchantments...', 68);
+    const enchantments = pickFromPrefetchedWithCurve(
       enchantmentPool,
+      cardMap,
       enchantmentTarget,
       usedNames,
       colorIdentity,
@@ -840,14 +862,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeEnchantments(enchantments, categories);
 
-    // 6. Planeswalkers - use EDHREC type target count
-    const planeswalkerTarget = typeTargets.planeswalker || 0;
-    const planeswalkerPool = mergeWithAllNonLand(cardlists.planeswalkers, cardlists.allNonLand);
-    console.log(`[DeckGen] Planeswalkers: need ${planeswalkerTarget}, pool has ${planeswalkerPool.length} cards (${cardlists.planeswalkers.length} typed + ${planeswalkerPool.length - cardlists.planeswalkers.length} from generic lists)`);
+    // 6. Planeswalkers
+    console.log(`[DeckGen] Planeswalkers: need ${planeswalkerTarget}, pool has ${planeswalkerPool.length} cards`);
     if (planeswalkerPool.length > 0 && planeswalkerTarget > 0) {
       onProgress?.('Calling upon planeswalker allies...', 72);
-      const planeswalkers = await pickFromEDHRECWithCurve(
+      const planeswalkers = pickFromPrefetchedWithCurve(
         planeswalkerPool,
+        cardMap,
         planeswalkerTarget,
         usedNames,
         colorIdentity,
@@ -869,8 +890,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       nonbasicFromStats: edhrecData.stats.landDistribution.nonbasic,
     });
 
-    // Calculate non-basic target: use EDHREC's nonbasic count as a guide
-    // If EDHREC says average deck has X nonbasics, aim for that
     const nonbasicTarget = edhrecData.stats.landDistribution.nonbasic || 15;
     const basicCount = Math.max(0, targets.lands - nonbasicTarget);
 
@@ -905,9 +924,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       utility: categories.utility.length,
       lands: categories.lands.length,
     });
-
-    // No minimum requirements - let the deck be composed based on EDHREC data
-    // for the specific commander/archetype (e.g., enchantress, artifact-heavy, etc.)
 
   } else {
     // Fallback to Scryfall-based generation
