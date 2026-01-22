@@ -244,6 +244,7 @@ export interface DeckFormatConfig {
 export interface Customization {
   deckFormat: DeckFormat;
   landCount: number;
+  nonBasicLandCount: number; // How many non-basic lands to include (rest will be basics)
   bannedCards: string[]; // Card names to exclude from deck generation
 }
 

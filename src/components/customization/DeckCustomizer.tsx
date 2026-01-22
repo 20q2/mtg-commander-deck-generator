@@ -3,6 +3,7 @@ import { useStore } from '@/store';
 import type { DeckFormat } from '@/types';
 import { DECK_FORMAT_CONFIGS } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
+import { LandIcon } from '@/components/ui/mtg-icons';
 
 export function DeckCustomizer() {
   const { customization, updateCustomization, commander, partnerCommander } = useStore();
@@ -29,12 +30,24 @@ export function DeckCustomizer() {
   const currentFormat = DECK_FORMAT_CONFIGS[customization.deckFormat];
   const landRange = currentFormat.landRange;
 
-  // Handle format change - also update land count to format default
+  // Handle format change - also update land counts to format defaults
   const handleFormatChange = (format: DeckFormat) => {
     const formatConfig = DECK_FORMAT_CONFIGS[format];
+    // Scale non-basic count proportionally to new format
+    const defaultNonBasic = Math.min(15, Math.floor(formatConfig.defaultLands * 0.4));
     updateCustomization({
       deckFormat: format,
       landCount: formatConfig.defaultLands,
+      nonBasicLandCount: defaultNonBasic,
+    });
+  };
+
+  // Handle land count change - ensure non-basic doesn't exceed total
+  const handleLandCountChange = (newLandCount: number) => {
+    const newNonBasic = Math.min(customization.nonBasicLandCount, newLandCount);
+    updateCustomization({
+      landCount: newLandCount,
+      nonBasicLandCount: newNonBasic,
     });
   };
 
@@ -61,10 +74,16 @@ export function DeckCustomizer() {
         </div>
       </div>
 
+      {/* Land Section Header */}
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <LandIcon size={16} className="text-amber-600" />
+        <span>Mana Base</span>
+      </div>
+
       {/* Land Count */}
       <div>
         <div className="flex justify-between mb-2">
-          <label className="text-sm font-medium">Land Count</label>
+          <label className="text-sm font-medium">Total Lands</label>
           <span className="text-sm font-bold">{customization.landCount}</span>
         </div>
         <Slider
@@ -72,12 +91,37 @@ export function DeckCustomizer() {
           min={landRange[0]}
           max={landRange[1]}
           step={1}
-          onChange={(value) => updateCustomization({ landCount: value })}
+          onChange={handleLandCountChange}
         />
         <div className="flex justify-between text-xs text-muted-foreground mt-1">
           <span>{landRange[0]} (Aggro)</span>
           <span>{currentFormat.defaultLands} (Standard)</span>
           <span>{landRange[1]} (Control)</span>
+        </div>
+      </div>
+
+      {/* Non-Basic Land Count */}
+      <div>
+        <div className="flex justify-between mb-2">
+          <label className="text-sm font-medium">Non-Basic Lands</label>
+          <span className="text-sm font-bold">
+            {customization.nonBasicLandCount}
+            <span className="text-muted-foreground font-normal ml-1">
+              ({customization.landCount - customization.nonBasicLandCount} basics)
+            </span>
+          </span>
+        </div>
+        <Slider
+          value={customization.nonBasicLandCount}
+          min={0}
+          max={customization.landCount}
+          step={1}
+          onChange={(value) => updateCustomization({ nonBasicLandCount: value })}
+        />
+        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+          <span>0 (Budget)</span>
+          <span>{Math.floor(customization.landCount / 2)} (Balanced)</span>
+          <span>{customization.landCount} (Optimal)</span>
         </div>
       </div>
 

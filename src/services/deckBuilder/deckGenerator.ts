@@ -797,11 +797,21 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     onProgress?.('Gathering cards from across the multiverse...', 18);
     const allCardNames = new Set<string>();
 
-    // Helper to add names from a pool (limited to what we might actually need)
+    // Helper to add names from a pool
+    // IMPORTANT: Fetch ALL typed cards first (they're from EDHREC's type-specific lists),
+    // then add high synergy Unknown cards. This ensures we actually have cards of the right type.
     const addPoolNames = (pool: EDHRECCard[], target: number) => {
       const candidates = pool.filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name));
-      // Fetch more than needed to account for color identity / curve filtering
-      for (const card of candidates.slice(0, target * 2)) {
+
+      // First, add ALL typed cards (these are confirmed to be the right type by EDHREC)
+      const typedCards = candidates.filter(c => c.primary_type !== 'Unknown');
+      for (const card of typedCards.slice(0, Math.max(target * 3, 20))) {
+        allCardNames.add(card.name);
+      }
+
+      // Then add high synergy Unknown cards (need type check via Scryfall later)
+      const highSynergyUnknown = candidates.filter(c => c.primary_type === 'Unknown' && isHighSynergyCard(c));
+      for (const card of highSynergyUnknown.slice(0, Math.max(target * 2, 15))) {
         allCardNames.add(card.name);
       }
     };
@@ -946,19 +956,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
     // 7. Lands from EDHREC
     onProgress?.('Surveying the mana base...', 78);
-    console.log('[DeckGen] Land stats from EDHREC:', {
-      totalLandTarget: targets.lands,
-      edhrecLandsAvailable: cardlists.lands.length,
-      basicFromStats: edhrecData.stats.landDistribution.basic,
-      nonbasicFromStats: edhrecData.stats.landDistribution.nonbasic,
-    });
-
-    const nonbasicTarget = edhrecData.stats.landDistribution.nonbasic || 15;
+    // Use user's non-basic land preference from customization
+    const nonbasicTarget = Math.min(customization.nonBasicLandCount, targets.lands);
     const basicCount = Math.max(0, targets.lands - nonbasicTarget);
 
-    console.log('[DeckGen] Land targets:', {
+    console.log('[DeckGen] Land targets (from user preference):', {
+      totalLandTarget: targets.lands,
       nonbasicTarget,
       basicTarget: basicCount,
+      edhrecLandsAvailable: cardlists.lands.length,
     });
 
     if (cardlists.lands.length > 0) {
@@ -1045,12 +1051,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
 
     onProgress?.('Surveying the mana base...', 80);
+    // Use user's non-basic land preference
+    const fallbackNonbasicTarget = Math.min(customization.nonBasicLandCount, targets.lands);
+    const fallbackBasicCount = Math.max(0, targets.lands - fallbackNonbasicTarget);
     categories.lands = await generateLands(
       [],
       colorIdentity,
       targets.lands,
       usedNames,
-      Math.floor(targets.lands * 0.5),
+      fallbackBasicCount,
       format,
       onProgress,
       bannedCards
@@ -1088,27 +1097,60 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     currentCount = countAllCards();
   }
 
-  // If we have too few cards, fill shortage
+  // If we have too few cards, fill shortage from EDHREC data (not Scryfall)
   currentCount = countAllCards();
   if (currentCount < targetDeckSize) {
     const shortage = targetDeckSize - currentCount;
     console.log(`[DeckGen] Deck shortage: need ${shortage} more cards (have ${currentCount}, need ${targetDeckSize})`);
 
-    // First, try to fill with more synergy cards from Scryfall
-    const synergyNeeded = Math.min(shortage, 20); // Cap at 20 synergy cards
-    if (synergyNeeded > 0) {
+    // Try to fill with remaining EDHREC cards (sorted by inclusion, less popular cards)
+    if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
+      const remainingEdhrecCards = edhrecData.cardlists.allNonLand
+        .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
+        .sort((a, b) => b.inclusion - a.inclusion); // Still prioritize by inclusion
+
+      console.log(`[DeckGen] Found ${remainingEdhrecCards.length} remaining EDHREC cards to fill shortage`);
+
+      // Batch fetch these cards
+      const namesToFetch = remainingEdhrecCards.slice(0, shortage * 2).map(c => c.name);
+      const fillCardMap = await getCardsByNames(namesToFetch);
+
+      let filled = 0;
+      for (const edhrecCard of remainingEdhrecCards) {
+        if (filled >= shortage) break;
+
+        const scryfallCard = fillCardMap.get(edhrecCard.name);
+        if (!scryfallCard) continue;
+
+        // Verify color identity
+        if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
+
+        categories.synergy.push(scryfallCard);
+        usedNames.add(edhrecCard.name);
+        filled++;
+      }
+
+      console.log(`[DeckGen] Filled ${filled} cards from remaining EDHREC suggestions`);
+    }
+
+    // If still short after EDHREC, use Scryfall as last resort
+    currentCount = countAllCards();
+    if (currentCount < targetDeckSize) {
+      const stillNeeded = targetDeckSize - currentCount;
+      console.log(`[DeckGen] Still need ${stillNeeded} more cards, using Scryfall fallback`);
+
       const moreSynergy = await fillWithScryfall(
         '(t:artifact OR t:enchantment OR t:creature)',
         colorIdentity,
-        synergyNeeded,
+        stillNeeded,
         usedNames,
         bannedCards
       );
       categories.synergy.push(...moreSynergy);
-      console.log(`[DeckGen] Filled ${moreSynergy.length} synergy cards from Scryfall`);
+      console.log(`[DeckGen] Filled ${moreSynergy.length} cards from Scryfall`);
     }
 
-    // If still short, add basic lands as last resort
+    // If STILL short, add basic lands as absolute last resort
     currentCount = countAllCards();
     if (currentCount < targetDeckSize) {
       const remainingShortage = targetDeckSize - currentCount;

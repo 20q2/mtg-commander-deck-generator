@@ -31,6 +31,7 @@ function saveBannedCards(cards: string[]): void {
 const defaultCustomization: Customization = {
   deckFormat: 99,
   landCount: 37,
+  nonBasicLandCount: 15, // Default to 15 non-basics, rest will be basics
   bannedCards: loadBannedCards(), // Load from localStorage
 };
 
