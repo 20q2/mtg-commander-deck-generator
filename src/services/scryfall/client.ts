@@ -2,26 +2,58 @@ import type { ScryfallCard, ScryfallSearchResponse } from '@/types';
 import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
 
 const BASE_URL = 'https://api.scryfall.com';
-const MIN_REQUEST_DELAY = 100; // 100ms between requests (10/sec max)
-const PARALLEL_BATCH_SIZE = 8; // Fetch 8 cards in parallel (staying under 10/sec limit)
+const MIN_REQUEST_DELAY = 100; // 100ms between requests (Scryfall allows 10/sec)
+const SEQUENTIAL_BATCH_SIZE = 5; // Fetch cards sequentially in smaller batches
 
 // In-memory cache for fetched cards
 const cardCache = new Map<string, ScryfallCard>();
 
+/**
+ * Queue-based rate limiter that ensures requests are properly spaced.
+ * All Scryfall requests MUST go through this to prevent 429 errors.
+ */
 class RateLimiter {
+  private queue: Array<() => void> = [];
+  private processing = false;
   private lastRequestTime = 0;
 
-  async throttle(): Promise<void> {
-    const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
+  /**
+   * Wait for permission to make a request.
+   * Returns a promise that resolves when it's safe to send.
+   */
+  async acquire(): Promise<void> {
+    return new Promise((resolve) => {
+      this.queue.push(resolve);
+      this.processQueue();
+    });
+  }
 
-    if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, MIN_REQUEST_DELAY - timeSinceLastRequest)
-      );
+  private async processQueue(): Promise<void> {
+    if (this.processing || this.queue.length === 0) return;
+
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const now = Date.now();
+      const timeSinceLastRequest = now - this.lastRequestTime;
+
+      if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, MIN_REQUEST_DELAY - timeSinceLastRequest)
+        );
+      }
+
+      this.lastRequestTime = Date.now();
+      const resolve = this.queue.shift();
+      if (resolve) resolve();
     }
 
-    this.lastRequestTime = Date.now();
+    this.processing = false;
+  }
+
+  // Alias for backwards compatibility
+  async throttle(): Promise<void> {
+    return this.acquire();
   }
 }
 
@@ -93,11 +125,14 @@ export async function getCardByName(name: string, exact = true): Promise<Scryfal
 }
 
 /**
- * Fetch a single card by name without rate limiting (for parallel use).
+ * Fetch a single card by name with proper rate limiting.
  * Returns null if not found instead of throwing.
  */
-async function fetchCardByNameNoThrottle(name: string): Promise<ScryfallCard | null> {
+async function fetchCardByNameThrottled(name: string, retries = 2): Promise<ScryfallCard | null> {
   try {
+    // Always go through the rate limiter
+    await rateLimiter.acquire();
+
     const encodedName = encodeURIComponent(name);
     const response = await fetch(`${BASE_URL}/cards/named?exact=${encodedName}`, {
       headers: { 'Accept': 'application/json' },
@@ -105,10 +140,12 @@ async function fetchCardByNameNoThrottle(name: string): Promise<ScryfallCard | n
 
     if (!response.ok) {
       if (response.status === 404) return null;
-      if (response.status === 429) {
-        // Rate limited - wait and retry
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return fetchCardByNameNoThrottle(name);
+      if (response.status === 429 && retries > 0) {
+        // Rate limited - exponential backoff and retry
+        const backoffMs = 1000 * (3 - retries); // 1s, 2s
+        console.warn(`[Scryfall] Rate limited, backing off ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        return fetchCardByNameThrottled(name, retries - 1);
       }
       return null;
     }
@@ -122,8 +159,8 @@ async function fetchCardByNameNoThrottle(name: string): Promise<ScryfallCard | n
 }
 
 /**
- * Batch fetch multiple cards by name using parallel GET requests.
- * Uses parallel batches to maximize speed while respecting rate limits.
+ * Batch fetch multiple cards by name with proper rate limiting.
+ * Uses sequential requests with proper spacing to avoid 429 errors.
  *
  * @param names Array of card names to fetch
  * @returns Map of card name -> ScryfallCard for found cards
@@ -147,27 +184,24 @@ export async function getCardsByNames(names: string[]): Promise<Map<string, Scry
   // If all cards were cached, return early
   if (uncachedNames.length === 0) return result;
 
-  console.log(`[Scryfall] Fetching ${uncachedNames.length} cards in parallel batches...`);
+  console.log(`[Scryfall] Fetching ${uncachedNames.length} cards sequentially with rate limiting...`);
 
-  // Fetch in parallel batches
-  for (let i = 0; i < uncachedNames.length; i += PARALLEL_BATCH_SIZE) {
-    const batch = uncachedNames.slice(i, i + PARALLEL_BATCH_SIZE);
+  // Fetch cards sequentially with rate limiting to avoid 429 errors
+  // Process in small batches for progress logging
+  for (let i = 0; i < uncachedNames.length; i += SEQUENTIAL_BATCH_SIZE) {
+    const batch = uncachedNames.slice(i, i + SEQUENTIAL_BATCH_SIZE);
 
-    // Small delay between batches to respect rate limit
-    if (i > 0) {
-      await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_DELAY));
+    // Fetch each card in the batch sequentially (rate limiter handles timing)
+    for (const name of batch) {
+      const card = await fetchCardByNameThrottled(name);
+      if (card) {
+        result.set(name, card);
+      }
     }
 
-    // Fetch all cards in this batch in parallel
-    const promises = batch.map(name => fetchCardByNameNoThrottle(name));
-    const results = await Promise.all(promises);
-
-    // Add found cards to result
-    for (let j = 0; j < batch.length; j++) {
-      const card = results[j];
-      if (card) {
-        result.set(batch[j], card);
-      }
+    // Log progress for large fetches
+    if (uncachedNames.length > 10 && i > 0 && i % 10 === 0) {
+      console.log(`[Scryfall] Progress: ${Math.min(i + SEQUENTIAL_BATCH_SIZE, uncachedNames.length)}/${uncachedNames.length} cards`);
     }
   }
 
