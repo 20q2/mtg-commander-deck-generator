@@ -119,9 +119,9 @@ export function DeckCustomizer() {
           onChange={(value) => updateCustomization({ nonBasicLandCount: value })}
         />
         <div className="flex justify-between text-xs text-muted-foreground mt-1">
-          <span>0 (Budget)</span>
+          <span>0 (Basic)</span>
           <span>{Math.floor(customization.landCount / 2)} (Balanced)</span>
-          <span>{customization.landCount} (Optimal)</span>
+          <span>{customization.landCount} (Varied)</span>
         </div>
       </div>
 
