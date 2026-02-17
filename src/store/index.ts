@@ -33,6 +33,7 @@ const defaultCustomization: Customization = {
   landCount: 37,
   nonBasicLandCount: 15, // Default to 15 non-basics, rest will be basics
   bannedCards: loadBannedCards(), // Load from localStorage
+  maxCardPrice: null, // No limit by default
 };
 
 export const useStore = create<AppState>((set) => ({

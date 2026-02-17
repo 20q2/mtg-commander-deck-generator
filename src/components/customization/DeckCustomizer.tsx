@@ -10,6 +10,10 @@ export function DeckCustomizer() {
   const { customization, updateCustomization, commander, partnerCommander } = useStore();
   const [editingLands, setEditingLands] = useState(false);
   const [landInputValue, setLandInputValue] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [priceInputValue, setPriceInputValue] = useState('');
+  const priceInputRef = useRef<HTMLInputElement>(null);
   const landInputRef = useRef<HTMLInputElement>(null);
 
   if (!commander) return null;
@@ -55,13 +59,20 @@ export function DeckCustomizer() {
     });
   };
 
-  // Focus the input when entering edit mode
+  // Focus inputs when entering edit mode
   useEffect(() => {
     if (editingLands && landInputRef.current) {
       landInputRef.current.focus();
       landInputRef.current.select();
     }
   }, [editingLands]);
+
+  useEffect(() => {
+    if (editingPrice && priceInputRef.current) {
+      priceInputRef.current.focus();
+      priceInputRef.current.select();
+    }
+  }, [editingPrice]);
 
   const startEditingLands = () => {
     setLandInputValue(String(customization.landCount));
@@ -73,6 +84,19 @@ export function DeckCustomizer() {
     const parsed = parseInt(landInputValue, 10);
     if (!isNaN(parsed) && parsed > 0) {
       handleLandCountChange(parsed);
+    }
+  };
+
+  const startEditingPrice = () => {
+    setPriceInputValue(customization.maxCardPrice !== null ? String(customization.maxCardPrice) : '');
+    setEditingPrice(true);
+  };
+
+  const commitPriceInput = () => {
+    setEditingPrice(false);
+    const parsed = parseFloat(priceInputValue);
+    if (!isNaN(parsed) && parsed > 0) {
+      updateCustomization({ maxCardPrice: parsed });
     }
   };
 
@@ -101,7 +125,7 @@ export function DeckCustomizer() {
 
       {/* Land Section Header */}
       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        <LandIcon size={16} className="text-amber-600" />
+        <LandIcon size={16} className="text-muted-foreground" />
         <span>Mana Base</span>
       </div>
 
@@ -171,9 +195,92 @@ export function DeckCustomizer() {
         </div>
       </div>
 
-      {/* Banned Cards */}
+      {/* Advanced Options */}
       <div className="pt-2 border-t border-border/50">
-        <BannedCards />
+        <button
+          onClick={() => setAdvancedOpen(!advancedOpen)}
+          className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
+        >
+          <span className="font-medium">Advanced Options</span>
+          <svg
+            className={`w-4 h-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {advancedOpen && (
+          <div className="mt-3 space-y-4">
+            {/* Max Card Price */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="1" x2="12" y2="23" />
+                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                  </svg>
+                  Max Card Price
+                </label>
+                <span className="text-sm font-bold">
+                  {customization.maxCardPrice === null ? 'No limit' : `$${customization.maxCardPrice}`}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {([null, 1, 5, 10, 25] as const).map((price) => {
+                  const isSelected = customization.maxCardPrice === price;
+                  return (
+                    <button
+                      key={price ?? 'none'}
+                      onClick={() => { setEditingPrice(false); updateCustomization({ maxCardPrice: price }); }}
+                      className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                        isSelected
+                          ? 'bg-primary/10 border border-primary text-primary'
+                          : 'border border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {price === null ? 'None' : `$${price}`}
+                    </button>
+                  );
+                })}
+                {editingPrice ? (
+                  <input
+                    ref={priceInputRef}
+                    type="number"
+                    placeholder="$"
+                    value={priceInputValue}
+                    onChange={(e) => setPriceInputValue(e.target.value)}
+                    onBlur={commitPriceInput}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitPriceInput();
+                      if (e.key === 'Escape') setEditingPrice(false);
+                    }}
+                    className="flex-1 py-1.5 px-1 rounded text-xs font-medium text-center bg-background border border-primary outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                ) : (
+                  <button
+                    onClick={startEditingPrice}
+                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                      customization.maxCardPrice !== null && ![1, 5, 10, 25].includes(customization.maxCardPrice)
+                        ? 'bg-primary/10 border border-primary text-primary'
+                        : 'border border-border hover:border-primary/50'
+                    }`}
+                  >
+                    {customization.maxCardPrice !== null && ![1, 5, 10, 25].includes(customization.maxCardPrice)
+                      ? `$${customization.maxCardPrice}`
+                      : 'Custom'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Excluded Cards */}
+            <BannedCards />
+          </div>
+        )}
       </div>
     </div>
   );

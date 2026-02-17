@@ -246,6 +246,7 @@ export interface Customization {
   landCount: number;
   nonBasicLandCount: number; // How many non-basic lands to include (rest will be basics)
   bannedCards: string[]; // Card names to exclude from deck generation
+  maxCardPrice: number | null; // Max USD price per card, null = no limit
 }
 
 // Store state

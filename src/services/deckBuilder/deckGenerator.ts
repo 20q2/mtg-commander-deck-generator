@@ -144,6 +144,13 @@ function calculateTargetCounts(
   };
 }
 
+// Check if a card exceeds the max price limit
+function exceedsMaxPrice(card: ScryfallCard, maxPrice: number | null): boolean {
+  if (maxPrice === null) return false;
+  const price = parseFloat(card.prices?.usd || '0');
+  return price > maxPrice;
+}
+
 // Pick cards from a pre-fetched card map (no API calls)
 function pickFromPrefetched(
   edhrecCards: EDHRECCard[],
@@ -151,7 +158,8 @@ function pickFromPrefetched(
   count: number,
   usedNames: Set<string>,
   colorIdentity: string[],
-  bannedCards: Set<string> = new Set()
+  bannedCards: Set<string> = new Set(),
+  maxCardPrice: number | null = null
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -171,6 +179,8 @@ function pickFromPrefetched(
     if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
       continue;
     }
+
+    if (exceedsMaxPrice(scryfallCard, maxCardPrice)) continue;
 
     result.push(scryfallCard);
     usedNames.add(edhrecCard.name);
@@ -221,7 +231,8 @@ function pickFromPrefetchedWithCurve(
   curveTargets: Record<number, number>,
   currentCurveCounts: Record<number, number>,
   bannedCards: Set<string> = new Set(),
-  expectedType?: string
+  expectedType?: string,
+  maxCardPrice: number | null = null
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -258,6 +269,11 @@ function pickFromPrefetchedWithCurve(
 
       // Verify color identity
       if (!fitsColorIdentity(scryfallCard, colorIdentity)) {
+        continue;
+      }
+
+      // Price limit check
+      if (exceedsMaxPrice(scryfallCard, maxCardPrice)) {
         continue;
       }
 
@@ -425,7 +441,8 @@ async function fillWithScryfall(
   colorIdentity: string[],
   count: number,
   usedNames: Set<string>,
-  bannedCards: Set<string> = new Set()
+  bannedCards: Set<string> = new Set(),
+  maxCardPrice: number | null = null
 ): Promise<ScryfallCard[]> {
   if (count <= 0) return [];
 
@@ -437,6 +454,7 @@ async function fillWithScryfall(
       if (result.length >= count) break;
       if (usedNames.has(card.name)) continue; // Commander format is always singleton
       if (bannedCards.has(card.name)) continue; // Skip banned cards
+      if (exceedsMaxPrice(card, maxCardPrice)) continue;
 
       result.push(card);
       usedNames.add(card.name);
@@ -490,7 +508,8 @@ async function generateLands(
   format: DeckFormat,
   nonLandCards: ScryfallCard[],
   onProgress?: (message: string, percent: number) => void,
-  bannedCards: Set<string> = new Set()
+  bannedCards: Set<string> = new Set(),
+  maxCardPrice: number | null = null
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -520,7 +539,7 @@ async function generateLands(
       .map(c => c.name);
 
     const landCardMap = await getCardsByNames(landNamesToFetch);
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards);
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -531,7 +550,7 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice);
     lands.push(...moreLands);
   }
 
@@ -742,6 +761,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const format = customization.deckFormat;
   const usedNames = new Set<string>();
   const bannedCards = new Set(customization.bannedCards || []);
+  const maxCardPrice = customization.maxCardPrice ?? null;
 
   // Log banned cards if any
   if (bannedCards.size > 0) {
@@ -909,7 +929,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       curveTargets,
       currentCurveCounts,
       bannedCards,
-      'Creature'
+      'Creature',
+      maxCardPrice
     );
     categories.creatures.push(...creatures);
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
@@ -923,7 +944,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         colorIdentity,
         needed,
         usedNames,
-        bannedCards
+        bannedCards,
+        maxCardPrice
       );
       categories.creatures.push(...moreCreatures);
       console.log(`[DeckGen] FALLBACK: Got ${moreCreatures.length} creatures from Scryfall`);
@@ -945,7 +967,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       curveTargets,
       currentCurveCounts,
       bannedCards,
-      'Instant'
+      'Instant',
+      maxCardPrice
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeInstants(instants, categories);
@@ -962,7 +985,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       curveTargets,
       currentCurveCounts,
       bannedCards,
-      'Sorcery'
+      'Sorcery',
+      maxCardPrice
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeSorceries(sorceries, categories);
@@ -979,7 +1003,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       curveTargets,
       currentCurveCounts,
       bannedCards,
-      'Artifact'
+      'Artifact',
+      maxCardPrice
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeArtifacts(artifacts, categories);
@@ -996,7 +1021,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       curveTargets,
       currentCurveCounts,
       bannedCards,
-      'Enchantment'
+      'Enchantment',
+      maxCardPrice
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeEnchantments(enchantments, categories);
@@ -1014,7 +1040,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         curveTargets,
         currentCurveCounts,
         bannedCards,
-        'Planeswalker'
+        'Planeswalker',
+        maxCardPrice
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
@@ -1055,7 +1082,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       format,
       allNonLandCards,
       onProgress,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     // Log category counts after EDHREC selection
@@ -1078,7 +1106,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       targets.ramp,
       usedNames,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     onProgress?.('Seeking sources of knowledge...', 30);
@@ -1087,7 +1116,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       targets.cardDraw,
       usedNames,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     onProgress?.('Arming with removal spells...', 40);
@@ -1096,7 +1126,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       targets.singleRemoval,
       usedNames,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     onProgress?.('Preparing mass destruction...', 50);
@@ -1105,7 +1136,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       targets.boardWipes,
       usedNames,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     onProgress?.('Recruiting an army...', 60);
@@ -1114,7 +1146,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       targets.creatures,
       usedNames,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     onProgress?.('Finding synergistic pieces...', 70);
@@ -1123,7 +1156,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       targets.synergy,
       usedNames,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
 
     onProgress?.('Surveying the mana base...', 80);
@@ -1148,7 +1182,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       format,
       fallbackNonLandCards,
       onProgress,
-      bannedCards
+      bannedCards,
+      maxCardPrice
     );
   }
 
@@ -1210,6 +1245,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
         // Verify color identity
         if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
+        if (exceedsMaxPrice(scryfallCard, maxCardPrice)) continue;
 
         categories.synergy.push(scryfallCard);
         usedNames.add(edhrecCard.name);
@@ -1230,7 +1266,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         colorIdentity,
         stillNeeded,
         usedNames,
-        bannedCards
+        bannedCards,
+        maxCardPrice
       );
       categories.synergy.push(...moreSynergy);
       console.log(`[DeckGen] Filled ${moreSynergy.length} cards from Scryfall`);
