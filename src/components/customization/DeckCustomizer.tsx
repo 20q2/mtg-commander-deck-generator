@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { useStore } from '@/store';
 import type { DeckFormat } from '@/types';
@@ -7,6 +8,9 @@ import { LandIcon } from '@/components/ui/mtg-icons';
 
 export function DeckCustomizer() {
   const { customization, updateCustomization, commander, partnerCommander } = useStore();
+  const [editingLands, setEditingLands] = useState(false);
+  const [landInputValue, setLandInputValue] = useState('');
+  const landInputRef = useRef<HTMLInputElement>(null);
 
   if (!commander) return null;
 
@@ -51,6 +55,27 @@ export function DeckCustomizer() {
     });
   };
 
+  // Focus the input when entering edit mode
+  useEffect(() => {
+    if (editingLands && landInputRef.current) {
+      landInputRef.current.focus();
+      landInputRef.current.select();
+    }
+  }, [editingLands]);
+
+  const startEditingLands = () => {
+    setLandInputValue(String(customization.landCount));
+    setEditingLands(true);
+  };
+
+  const commitLandInput = () => {
+    setEditingLands(false);
+    const parsed = parseInt(landInputValue, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      handleLandCountChange(parsed);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Deck Format */}
@@ -84,7 +109,28 @@ export function DeckCustomizer() {
       <div>
         <div className="flex justify-between mb-2">
           <label className="text-sm font-medium">Total Lands</label>
-          <span className="text-sm font-bold">{customization.landCount}</span>
+          {editingLands ? (
+            <input
+              ref={landInputRef}
+              type="number"
+              value={landInputValue}
+              onChange={(e) => setLandInputValue(e.target.value)}
+              onBlur={commitLandInput}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitLandInput();
+                if (e.key === 'Escape') setEditingLands(false);
+              }}
+              className="w-14 text-sm font-bold text-right bg-background border border-primary rounded px-1 py-0 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          ) : (
+            <span
+              className="text-sm font-bold cursor-pointer hover:text-primary border border-transparent hover:border-primary/50 rounded px-1 transition-colors"
+              onClick={startEditingLands}
+              title="Click to set manually"
+            >
+              {customization.landCount}
+            </span>
+          )}
         </div>
         <Slider
           value={customization.landCount}

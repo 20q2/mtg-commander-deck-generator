@@ -15,9 +15,6 @@ import type {
 import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData } from '@/services/edhrec/client';
 import {
-  DECK_FORMAT_CONFIGS,
-} from '@/lib/constants/archetypes';
-import {
   calculateTypeTargets,
   calculateCurveTargets,
   hasCurveRoom,
@@ -53,13 +50,9 @@ function calculateTargetCounts(
   edhrecStats?: EDHRECCommanderStats
 ): TargetCountsResult {
   const format = customization.deckFormat;
-  const formatConfig = DECK_FORMAT_CONFIGS[format];
 
-  // Use user's land count preference, but respect format's land range
-  const landCount = Math.max(
-    formatConfig.landRange[0],
-    Math.min(formatConfig.landRange[1], customization.landCount)
-  );
+  // Use user's land count preference (allow manual overrides beyond slider range)
+  const landCount = Math.max(0, customization.landCount);
 
   // Calculate total deck cards (commander is separate for 99, included for 40/60)
   const deckCards = format === 99 ? 99 : format - 1;
@@ -464,6 +457,29 @@ const BASIC_LAND_NAMES = new Set([
   'Wastes',
 ]);
 
+// Count color pips across all cards' mana costs
+function countColorPips(cards: ScryfallCard[]): Record<string, number> {
+  const pips: Record<string, number> = {};
+  const pipPattern = /\{([WUBRG])\}/g;
+  for (const card of cards) {
+    const costs: string[] = [];
+    if (card.mana_cost) costs.push(card.mana_cost);
+    // Double-faced cards store mana cost on each face
+    if (card.card_faces) {
+      for (const face of card.card_faces) {
+        if (face.mana_cost) costs.push(face.mana_cost);
+      }
+    }
+    for (const cost of costs) {
+      let match;
+      while ((match = pipPattern.exec(cost)) !== null) {
+        pips[match[1]] = (pips[match[1]] || 0) + 1;
+      }
+    }
+  }
+  return pips;
+}
+
 // Generate lands from EDHREC data + basics
 async function generateLands(
   edhrecLands: EDHRECCard[],
@@ -472,6 +488,7 @@ async function generateLands(
   usedNames: Set<string>,
   basicCount: number,
   format: DeckFormat,
+  nonLandCards: ScryfallCard[],
   onProgress?: (message: string, percent: number) => void,
   bannedCards: Set<string> = new Set()
 ): Promise<ScryfallCard[]> {
@@ -511,7 +528,9 @@ async function generateLands(
   // If we didn't get enough from EDHREC, search Scryfall for more
   if (lands.length < nonBasicTarget) {
     onProgress?.('Exploring uncharted territories...', 87);
-    const query = `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`;
+    const query = colorIdentity.length > 0
+      ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
+      : `t:land id:c -t:basic`;
     const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards);
     lands.push(...moreLands);
   }
@@ -541,13 +560,40 @@ async function generateLands(
 
   if (colorsWithBasics.length > 0 && basicsNeeded > 0) {
     onProgress?.('Claiming territories...', 92);
-    const perColor = Math.floor(basicsNeeded / colorsWithBasics.length);
-    const remainder = basicsNeeded % colorsWithBasics.length;
 
-    for (let i = 0; i < colorsWithBasics.length; i++) {
-      const color = colorsWithBasics[i];
+    // Distribute basics proportional to mana pips in the deck
+    const pipCounts = countColorPips(nonLandCards);
+    const totalPips = colorsWithBasics.reduce((sum, c) => sum + (pipCounts[c] || 0), 0);
+
+    // Calculate proportional counts (fall back to even split if no pips found)
+    const landsPerColor: Record<string, number> = {};
+    if (totalPips > 0) {
+      let assigned = 0;
+      for (let i = 0; i < colorsWithBasics.length; i++) {
+        const color = colorsWithBasics[i];
+        if (i === colorsWithBasics.length - 1) {
+          // Last color gets the remainder to ensure exact total
+          landsPerColor[color] = basicsNeeded - assigned;
+        } else {
+          const proportion = (pipCounts[color] || 0) / totalPips;
+          landsPerColor[color] = Math.round(basicsNeeded * proportion);
+          assigned += landsPerColor[color];
+        }
+      }
+    } else {
+      // No pips found — fall back to even split
+      const perColor = Math.floor(basicsNeeded / colorsWithBasics.length);
+      const remainder = basicsNeeded % colorsWithBasics.length;
+      for (let i = 0; i < colorsWithBasics.length; i++) {
+        landsPerColor[colorsWithBasics[i]] = perColor + (i < remainder ? 1 : 0);
+      }
+    }
+
+    console.log('[DeckGen] Basic land distribution by pips:', { pipCounts, landsPerColor });
+
+    for (const color of colorsWithBasics) {
       const basicName = basicTypes[color];
-      const countForColor = perColor + (i < remainder ? 1 : 0);
+      const countForColor = landsPerColor[color];
 
       // Try to get cached basic land first (prefetched at start of deck generation)
       let basicCard = getCachedCard(basicName);
@@ -562,6 +608,22 @@ async function generateLands(
       // Add multiple copies with unique IDs
       for (let j = 0; j < countForColor; j++) {
         lands.push({ ...basicCard, id: `${basicCard.id}-${j}-${color}` });
+      }
+    }
+  } else if (colorsWithBasics.length === 0 && basicsNeeded > 0) {
+    // Colorless deck — use Wastes as the basic land
+    onProgress?.('Claiming wastelands...', 92);
+    let wastesCard = getCachedCard('Wastes');
+    if (!wastesCard) {
+      try {
+        wastesCard = await getCardByName('Wastes', true);
+      } catch {
+        // Skip if can't fetch
+      }
+    }
+    if (wastesCard) {
+      for (let j = 0; j < basicsNeeded; j++) {
+        lands.push({ ...wastesCard, id: `${wastesCard.id}-${j}-C` });
       }
     }
   }
@@ -827,7 +889,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
     // SINGLE BATCH FETCH for all non-land cards
     onProgress?.('Summoning cards from Scryfall...', 25);
-    const cardMap = await getCardsByNames([...allCardNames]);
+    const cardMap = await getCardsByNames([...allCardNames], (fetched, total) => {
+      // Scale progress from 25% to 35% during the batch fetch
+      const pct = 25 + Math.round((fetched / total) * 10);
+      onProgress?.('Summoning cards from Scryfall...', pct);
+    });
     console.log(`[DeckGen] Batch fetch returned ${cardMap.size} cards`);
 
     // Now process each type synchronously using the pre-fetched cards
@@ -971,6 +1037,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log('[DeckGen] Sample EDHREC lands:', cardlists.lands.slice(0, 3).map(l => l.name));
     }
 
+    const allNonLandCards = [
+      ...categories.creatures,
+      ...categories.ramp,
+      ...categories.cardDraw,
+      ...categories.singleRemoval,
+      ...categories.boardWipes,
+      ...categories.utility,
+      ...categories.synergy,
+    ];
     categories.lands = await generateLands(
       cardlists.lands,
       colorIdentity,
@@ -978,6 +1053,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       basicCount,
       format,
+      allNonLandCards,
       onProgress,
       bannedCards
     );
@@ -1054,6 +1130,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Use user's non-basic land preference
     const fallbackNonbasicTarget = Math.min(customization.nonBasicLandCount, targets.lands);
     const fallbackBasicCount = Math.max(0, targets.lands - fallbackNonbasicTarget);
+    const fallbackNonLandCards = [
+      ...categories.creatures,
+      ...categories.ramp,
+      ...categories.cardDraw,
+      ...categories.singleRemoval,
+      ...categories.boardWipes,
+      ...categories.utility,
+      ...categories.synergy,
+    ];
     categories.lands = await generateLands(
       [],
       colorIdentity,
@@ -1061,6 +1146,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       fallbackBasicCount,
       format,
+      fallbackNonLandCards,
       onProgress,
       bannedCards
     );
@@ -1160,27 +1246,65 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       const colorsWithBasics = colorIdentity.filter((c) => basicTypes[c]);
 
       if (colorsWithBasics.length > 0) {
-        const perColor = Math.floor(remainingShortage / colorsWithBasics.length);
-        const remainder = remainingShortage % colorsWithBasics.length;
+        // Distribute proportional to mana pips
+        const allNonLands = [
+          ...categories.creatures, ...categories.ramp, ...categories.cardDraw,
+          ...categories.singleRemoval, ...categories.boardWipes,
+          ...categories.utility, ...categories.synergy,
+        ];
+        const pipCounts = countColorPips(allNonLands);
+        const totalPips = colorsWithBasics.reduce((sum, c) => sum + (pipCounts[c] || 0), 0);
 
-        for (let i = 0; i < colorsWithBasics.length; i++) {
-          const color = colorsWithBasics[i];
+        const landsPerColor: Record<string, number> = {};
+        if (totalPips > 0) {
+          let assigned = 0;
+          for (let i = 0; i < colorsWithBasics.length; i++) {
+            const color = colorsWithBasics[i];
+            if (i === colorsWithBasics.length - 1) {
+              landsPerColor[color] = remainingShortage - assigned;
+            } else {
+              landsPerColor[color] = Math.round(remainingShortage * (pipCounts[color] || 0) / totalPips);
+              assigned += landsPerColor[color];
+            }
+          }
+        } else {
+          const perColor = Math.floor(remainingShortage / colorsWithBasics.length);
+          const remainder = remainingShortage % colorsWithBasics.length;
+          for (let i = 0; i < colorsWithBasics.length; i++) {
+            landsPerColor[colorsWithBasics[i]] = perColor + (i < remainder ? 1 : 0);
+          }
+        }
+
+        for (const color of colorsWithBasics) {
           const basicName = basicTypes[color];
-          const countForColor = perColor + (i < remainder ? 1 : 0);
+          const countForColor = landsPerColor[color];
 
-          // Try to get cached basic land first
           let basicCard = getCachedCard(basicName);
           if (!basicCard) {
             try {
               basicCard = await getCardByName(basicName, true);
             } catch {
-              continue; // Skip if can't fetch
+              continue;
             }
           }
 
-          // Add multiple copies with unique IDs
           for (let j = 0; j < countForColor; j++) {
             categories.lands.push({ ...basicCard, id: `${basicCard.id}-fill-${j}-${color}` });
+          }
+        }
+      } else {
+        // Colorless deck — use Wastes as the basic land
+        let wastesCard = getCachedCard('Wastes');
+        if (!wastesCard) {
+          try {
+            wastesCard = await getCardByName('Wastes', true);
+          } catch {
+            // Skip if can't fetch
+          }
+        }
+        if (wastesCard) {
+          for (let j = 0; j < remainingShortage; j++) {
+            categories.lands.push({ ...wastesCard, id: `${wastesCard.id}-fill-${j}-C` });
           }
         }
       }

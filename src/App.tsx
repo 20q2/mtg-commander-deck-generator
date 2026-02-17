@@ -114,6 +114,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   </p>
                 </div>
               </button>
+              <span className="text-xs text-muted-foreground/50">v{__APP_VERSION__}</span>
             </div>
           </div>
         </header>

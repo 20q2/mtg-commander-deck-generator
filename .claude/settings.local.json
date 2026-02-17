@@ -15,7 +15,8 @@
       "Bash(./node_modules/.bin/tsc:*)",
       "Bash(node ./node_modules/vite/bin/vite.js build:*)",
       "Bash(npx vue-tsc:*)",
-      "Bash(node_modules/.bin/tsc:*)"
+      "Bash(node_modules/.bin/tsc:*)",
+      "Bash(node ./node_modules/typescript/bin/tsc:*)"
     ]
   }
 }

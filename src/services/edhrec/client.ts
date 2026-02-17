@@ -7,7 +7,7 @@ import type {
   EDHRECTopCommander
 } from '@/types';
 
-const BASE_URL = 'https://json.edhrec.com';
+const BASE_URL = import.meta.env.DEV ? '/edhrec-api' : 'https://json.edhrec.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests
 
 class RateLimiter {

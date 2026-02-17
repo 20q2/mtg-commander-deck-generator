@@ -494,7 +494,7 @@ function DeckStats() {
                         <div className={`w-2.5 h-2.5 rounded-full ${MANA_COLORS[color].bgColor}`} />
                         <span>{MANA_COLORS[color].name}</span>
                       </div>
-                      <span className="text-muted-foreground">{value} sources</span>
+                      <span className="text-muted-foreground">{value} sources ({percent.toFixed(0)}%)</span>
                     </div>
                     <div className="h-1.5 bg-accent/50 rounded-full overflow-hidden">
                       <div

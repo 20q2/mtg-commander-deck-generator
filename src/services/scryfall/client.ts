@@ -1,7 +1,7 @@
 import type { ScryfallCard, ScryfallSearchResponse } from '@/types';
 import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
 
-const BASE_URL = 'https://api.scryfall.com';
+const BASE_URL = import.meta.env.DEV ? '/scryfall-api' : 'https://api.scryfall.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests (Scryfall allows 10/sec)
 const SEQUENTIAL_BATCH_SIZE = 5; // Fetch cards sequentially in smaller batches
 
@@ -165,7 +165,10 @@ async function fetchCardByNameThrottled(name: string, retries = 2): Promise<Scry
  * @param names Array of card names to fetch
  * @returns Map of card name -> ScryfallCard for found cards
  */
-export async function getCardsByNames(names: string[]): Promise<Map<string, ScryfallCard>> {
+export async function getCardsByNames(
+  names: string[],
+  onProgress?: (fetched: number, total: number) => void
+): Promise<Map<string, ScryfallCard>> {
   const result = new Map<string, ScryfallCard>();
 
   if (names.length === 0) return result;
@@ -188,6 +191,7 @@ export async function getCardsByNames(names: string[]): Promise<Map<string, Scry
 
   // Fetch cards sequentially with rate limiting to avoid 429 errors
   // Process in small batches for progress logging
+  let fetched = 0;
   for (let i = 0; i < uncachedNames.length; i += SEQUENTIAL_BATCH_SIZE) {
     const batch = uncachedNames.slice(i, i + SEQUENTIAL_BATCH_SIZE);
 
@@ -197,7 +201,11 @@ export async function getCardsByNames(names: string[]): Promise<Map<string, Scry
       if (card) {
         result.set(name, card);
       }
+      fetched++;
     }
+
+    // Report progress
+    onProgress?.(fetched, uncachedNames.length);
 
     // Log progress for large fetches
     if (uncachedNames.length > 10 && i > 0 && i % 10 === 0) {
@@ -214,7 +222,7 @@ export async function getCardsByNames(names: string[]): Promise<Map<string, Scry
  * Call this once at the start of deck generation.
  */
 export async function prefetchBasicLands(): Promise<void> {
-  const basicLands = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+  const basicLands = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'];
 
   // Check if already cached
   const uncached = basicLands.filter(name => !cardCache.has(name));
