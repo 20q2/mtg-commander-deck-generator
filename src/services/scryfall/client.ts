@@ -143,8 +143,10 @@ async function fetchCardByNameThrottled(name: string, retries = 2): Promise<Scry
     if (response.ok) {
       const searchResult = await response.json() as ScryfallSearchResponse;
       if (searchResult.data.length > 0) {
-        // Pick the first printing that has any price; fall back to first result
-        const card = searchResult.data.find(c => getCardPrice(c)) || searchResult.data[0];
+        // Prefer a printing with a normal USD price, then any price, then first result
+        const card = searchResult.data.find(c => c.prices?.usd)
+          || searchResult.data.find(c => getCardPrice(c))
+          || searchResult.data[0];
         cardCache.set(name, card);
         // Also cache under Scryfall's canonical name if different
         if (card.name !== name) cardCache.set(card.name, card);
