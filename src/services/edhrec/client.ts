@@ -112,6 +112,7 @@ interface RawEDHRECResponse {
  * Format commander name for EDHREC URL
  * "Atraxa, Praetors' Voice" -> "atraxa-praetors-voice"
  * "Venat, Heart of Hydaelyn // Hydaelyn, the Mothercrystal" -> "venat-heart-of-hydaelyn"
+ * "Clavileño, First of the Blessed" -> "clavileno-first-of-the-blessed"
  *
  * For double-faced cards (containing "//"), EDHREC uses only the front face name.
  */
@@ -120,6 +121,8 @@ export function formatCommanderNameForUrl(name: string): string {
   const frontFace = name.split(' // ')[0];
 
   return frontFace
+    .normalize('NFD')              // Decompose accented chars (ñ -> n + combining tilde)
+    .replace(/[\u0300-\u036f]/g, '') // Strip combining diacritical marks
     .toLowerCase()
     .replace(/[',]/g, '') // Remove apostrophes and commas
     .replace(/\s+/g, '-') // Replace spaces with hyphens
