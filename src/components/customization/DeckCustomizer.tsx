@@ -145,9 +145,9 @@ export function DeckCustomizer() {
 
   return (
     <div className="space-y-6">
-      {/* Deck Format */}
+      {/* Deck Size */}
       <div>
-        <label className="text-sm font-medium mb-3 block">Deck Format</label>
+        <label className="text-sm font-medium mb-3 block">Deck Size</label>
         <div className="grid grid-cols-3 gap-2">
           {/* Custom size option */}
           {editingCustomFormat ? (

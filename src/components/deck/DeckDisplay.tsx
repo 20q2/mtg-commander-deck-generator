@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import type { ScryfallCard } from '@/types';
 import {
@@ -109,12 +109,13 @@ interface CardRowProps {
   card: ScryfallCard;
   quantity: number;
   onPreview: (card: ScryfallCard) => void;
-  onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
+  onHover: (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => void;
   dimmed?: boolean;
 }
 
 function CardRow({ card, quantity, onPreview, onHover, dimmed }: CardRowProps) {
   const price = formatPrice(card.prices?.usd);
+  const isDfc = isDoubleFacedCard(card);
 
   return (
     <button
@@ -134,6 +135,19 @@ function CardRow({ card, quantity, onPreview, onHover, dimmed }: CardRowProps) {
         {card.isGameChanger && (
           <span className="ml-1 text-[10px] font-bold text-amber-500/70" title="Game Changer (EDHREC)">GC</span>
         )}
+        {isDfc && (
+          <span
+            className="ml-1 inline-flex align-text-bottom text-muted-foreground hover:text-primary transition-colors cursor-help"
+            title="Hover to see back face"
+            onMouseEnter={(e) => { e.stopPropagation(); onHover(card, e, true); }}
+            onMouseLeave={(e) => { e.stopPropagation(); onHover(card, e, false); }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+          </span>
+        )}
       </span>
       <ManaCost cost={card.mana_cost} />
       <span className="text-muted-foreground text-xs w-16 text-right shrink-0">
@@ -148,7 +162,7 @@ interface CategoryColumnProps {
   type: CardType;
   cards: Array<{ card: ScryfallCard; quantity: number }>;
   onPreview: (card: ScryfallCard) => void;
-  onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
+  onHover: (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => void;
   matchingCardIds: Set<string> | null;
 }
 
@@ -199,9 +213,13 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds }: Ca
 interface FloatingPreviewProps {
   card: ScryfallCard;
   position: { x: number; y: number };
+  showBack?: boolean;
 }
 
-function FloatingPreview({ card, position }: FloatingPreviewProps) {
+function FloatingPreview({ card, position, showBack }: FloatingPreviewProps) {
+  const backUrl = showBack ? getCardBackFaceUrl(card, 'normal') : null;
+  const imgUrl = backUrl || getCardImageUrl(card, 'normal');
+
   const style: React.CSSProperties = {
     position: 'fixed',
     left: Math.min(position.x + 20, window.innerWidth - 280),
@@ -210,12 +228,14 @@ function FloatingPreview({ card, position }: FloatingPreviewProps) {
   };
 
   return (
-    <div style={style} className="pointer-events-none card-preview-enter">
-      <img
-        src={getCardImageUrl(card, 'normal')}
-        alt={card.name}
-        className="w-64 rounded-lg shadow-2xl border border-border/50"
-      />
+    <div style={style} className="pointer-events-none">
+      <div className="card-preview-enter">
+        <img
+          src={imgUrl}
+          alt={card.name}
+          className="w-64 rounded-lg shadow-2xl border border-border/50"
+        />
+      </div>
     </div>
   );
 }
@@ -227,7 +247,27 @@ interface CardPreviewModalProps {
 }
 
 function CardPreviewModal({ card, onClose }: CardPreviewModalProps) {
+  const [showBack, setShowBack] = useState(false);
+
+  // Reset flip state when card changes
+  const cardId = card?.id;
+  const [prevCardId, setPrevCardId] = useState(cardId);
+  if (cardId !== prevCardId) {
+    setPrevCardId(cardId);
+    setShowBack(false);
+  }
+
   if (!card) return null;
+
+  const isDfc = isDoubleFacedCard(card);
+  const backUrl = isDfc ? getCardBackFaceUrl(card, 'large') : null;
+  const imgUrl = showBack && backUrl ? backUrl : getCardImageUrl(card, 'large');
+  const faceName = showBack && card.card_faces?.[1]
+    ? card.card_faces[1].name
+    : card.card_faces?.[0]?.name ?? card.name;
+  const faceType = showBack && card.card_faces?.[1]
+    ? card.card_faces[1].type_line
+    : card.type_line;
 
   return (
     <div
@@ -241,14 +281,29 @@ function CardPreviewModal({ card, onClose }: CardPreviewModalProps) {
         >
           <X className="w-6 h-6" />
         </button>
-        <img
-          src={getCardImageUrl(card, 'large')}
-          alt={card.name}
-          className="max-h-[80vh] rounded-xl shadow-2xl"
-        />
+        <div className="relative">
+          <img
+            src={imgUrl}
+            alt={faceName}
+            className="max-h-[80vh] rounded-xl shadow-2xl transition-all duration-200"
+          />
+          {isDfc && (
+            <button
+              onClick={() => setShowBack(!showBack)}
+              className="absolute bottom-4 right-4 bg-white/90 hover:bg-white text-black rounded-full px-4 py-2 flex items-center gap-2 text-sm font-semibold shadow-lg transition-colors"
+              title={showBack ? 'Show front face' : 'Show back face'}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              Flip
+            </button>
+          )}
+        </div>
         <div className="mt-4 text-center">
-          <h3 className="text-white font-bold text-lg">{card.name}</h3>
-          <p className="text-white/70 text-sm">{card.type_line}</p>
+          <h3 className="text-white font-bold text-lg">{faceName}</h3>
+          <p className="text-white/70 text-sm">{faceType}</p>
           {card.prices?.usd && (
             <p className="text-white/50 text-xs mt-1">${card.prices.usd}</p>
           )}
@@ -692,7 +747,7 @@ export function DeckDisplay() {
   const { generatedDeck, commander, customization } = useStore();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
-  const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; position: { x: number; y: number } } | null>(null);
+  const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; position: { x: number; y: number }; showBack?: boolean } | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price'>('name');
@@ -794,9 +849,9 @@ export function DeckDisplay() {
     return ids;
   }, [statsFilter, groupedCards]);
 
-  const handleHover = (card: ScryfallCard | null, e?: React.MouseEvent) => {
+  const handleHover = (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => {
     if (card && e) {
-      setHoverCard({ card, position: { x: e.clientX, y: e.clientY } });
+      setHoverCard({ card, position: { x: e.clientX, y: e.clientY }, showBack });
     } else {
       setHoverCard(null);
     }
@@ -936,6 +991,14 @@ export function DeckDisplay() {
                             {quantity}x
                           </span>
                         )}
+                        {isDoubleFacedCard(card) && (
+                          <span className="absolute bottom-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Double-faced card">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+                              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                          </span>
+                        )}
                       </button>
                     );
                   })
@@ -953,7 +1016,7 @@ export function DeckDisplay() {
 
       {/* Floating Preview */}
       {hoverCard && viewMode === 'list' && (
-        <FloatingPreview card={hoverCard.card} position={hoverCard.position} />
+        <FloatingPreview card={hoverCard.card} position={hoverCard.position} showBack={hoverCard.showBack} />
       )}
 
       {/* Modals */}

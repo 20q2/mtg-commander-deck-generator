@@ -326,6 +326,21 @@ export function getCardImageUrl(
   return 'https://cards.scryfall.io/normal/front/0/0/00000000-0000-0000-0000-000000000000.jpg';
 }
 
+// Check if a card is double-faced (has separate face images)
+export function isDoubleFacedCard(card: ScryfallCard): boolean {
+  return !card.image_uris && !!card.card_faces && card.card_faces.length >= 2
+    && !!card.card_faces[0]?.image_uris && !!card.card_faces[1]?.image_uris;
+}
+
+// Get back face image URL for a double-faced card
+export function getCardBackFaceUrl(
+  card: ScryfallCard,
+  size: 'small' | 'normal' | 'large' = 'normal'
+): string | null {
+  if (!isDoubleFacedCard(card)) return null;
+  return card.card_faces![1].image_uris![size] ?? null;
+}
+
 // Helper to get oracle text including both faces for DFCs
 export function getOracleText(card: ScryfallCard): string {
   if (card.oracle_text) {
