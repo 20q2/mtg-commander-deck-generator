@@ -64,6 +64,7 @@ const defaultCustomization: Customization = {
   budgetOption: 'any' as const, // Default to normal card pool
   gameChangerLimit: 'unlimited' as const,
   bracketLevel: 'all' as const,
+  maxRarity: null,
 };
 
 export const useStore = create<AppState>((set) => ({

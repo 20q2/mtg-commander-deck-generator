@@ -22,7 +22,8 @@
       "WebFetch(domain:api.scryfall.com)",
       "Bash(NODE_PATH=\"\" node --no-warnings ./node_modules/.bin/tsc:*)",
       "Bash(NODE_OPTIONS=\"\" npm run build:*)",
-      "Bash(npx --package typescript tsc:*)"
+      "Bash(npx --package typescript tsc:*)",
+      "Bash(NODE_OPTIONS=\"\" node ./node_modules/typescript/bin/tsc:*)"
     ]
   }
 }

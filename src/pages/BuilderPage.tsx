@@ -503,12 +503,39 @@ export function BuilderPage() {
             {/* Customization */}
             <Card className="bg-card/80 backdrop-blur-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
-                    3
-                  </div>
-                  Customize
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
+                      3
+                    </div>
+                    Customize
+                  </CardTitle>
+                  <button
+                    onClick={() => {
+                      const { bannedCards, mustIncludeCards } = useStore.getState().customization;
+                      useStore.getState().updateCustomization({
+                        deckFormat: 99,
+                        landCount: 37,
+                        nonBasicLandCount: 15,
+                        maxCardPrice: null,
+                        budgetOption: 'any',
+                        gameChangerLimit: 'unlimited',
+                        bracketLevel: 'all',
+                        maxRarity: null,
+                        bannedCards,
+                        mustIncludeCards,
+                      });
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    title="Reset all customization options to defaults"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="1 4 1 10 7 10" />
+                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                    </svg>
+                    Reset
+                  </button>
+                </div>
               </CardHeader>
               <CardContent>
                 <DeckCustomizer />

@@ -253,6 +253,9 @@ export type GameChangerLimit = 'none' | 'unlimited' | number;
 // EDHREC bracket level (power level tiers)
 export type BracketLevel = 'all' | 1 | 2 | 3 | 4 | 5;
 
+// Max card rarity filter
+export type MaxRarity = 'common' | 'uncommon' | 'rare' | 'mythic' | null;
+
 // User customization
 export interface Customization {
   deckFormat: DeckFormat;
@@ -264,6 +267,7 @@ export interface Customization {
   budgetOption: BudgetOption; // EDHREC card pool: any (normal), budget, or expensive
   gameChangerLimit: GameChangerLimit; // How many game changer cards to allow
   bracketLevel: BracketLevel; // EDHREC bracket level for power level filtering
+  maxRarity: MaxRarity; // Max card rarity, null = no limit
 }
 
 // Store state
