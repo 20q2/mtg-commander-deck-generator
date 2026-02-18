@@ -128,7 +128,7 @@ function CardRow({ card, quantity, onPreview, onHover, dimmed }: CardRowProps) {
     >
       <span className="text-muted-foreground w-4 text-right shrink-0">{quantity}</span>
       <span className="flex-1 truncate group-hover:text-primary transition-colors">
-        {card.name}
+        {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
         {card.isMustInclude && (
           <span className="ml-1 text-[10px] font-bold text-emerald-500/70" title="Must Include">MI</span>
         )}
