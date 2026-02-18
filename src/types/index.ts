@@ -51,6 +51,7 @@ export interface ScryfallCard {
   };
   // Added during deck generation
   isGameChanger?: boolean;
+  isMustInclude?: boolean;
 }
 
 export interface ScryfallSearchResponse {
@@ -249,6 +250,7 @@ export interface Customization {
   landCount: number;
   nonBasicLandCount: number; // How many non-basic lands to include (rest will be basics)
   bannedCards: string[]; // Card names to exclude from deck generation
+  mustIncludeCards: string[]; // Card names to force-include in deck generation (first priority)
   maxCardPrice: number | null; // Max USD price per card, null = no limit
 }
 

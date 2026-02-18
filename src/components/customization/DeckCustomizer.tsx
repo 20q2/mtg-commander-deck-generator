@@ -4,6 +4,7 @@ import { useStore } from '@/store';
 import type { DeckFormat } from '@/types';
 import { DECK_FORMAT_CONFIGS } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
+import { MustIncludeCards } from './MustIncludeCards';
 import { LandIcon } from '@/components/ui/mtg-icons';
 
 export function DeckCustomizer() {
@@ -201,7 +202,18 @@ export function DeckCustomizer() {
           onClick={() => setAdvancedOpen(!advancedOpen)}
           className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
         >
-          <span className="font-medium">Advanced Options</span>
+          <span className="font-medium flex items-center gap-2">
+            Advanced Options
+            {!advancedOpen && (customization.maxCardPrice !== null || customization.mustIncludeCards.length > 0 || customization.bannedCards.length > 0) && (
+              <span className="text-[10px] font-normal text-primary/70 bg-primary/10 px-1.5 py-0.5 rounded-full">
+                {[
+                  customization.maxCardPrice !== null ? `$${customization.maxCardPrice}` : null,
+                  customization.mustIncludeCards.length > 0 ? `${customization.mustIncludeCards.length} included` : null,
+                  customization.bannedCards.length > 0 ? `${customization.bannedCards.length} excluded` : null,
+                ].filter(Boolean).join(' · ')}
+              </span>
+            )}
+          </span>
           <svg
             className={`w-4 h-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
             fill="none"
@@ -276,6 +288,9 @@ export function DeckCustomizer() {
                 )}
               </div>
             </div>
+
+            {/* Must Include Cards */}
+            <MustIncludeCards />
 
             {/* Excluded Cards */}
             <BannedCards />

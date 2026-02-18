@@ -19,7 +19,8 @@
       "Bash(node ./node_modules/typescript/bin/tsc:*)",
       "WebFetch(domain:json.edhrec.com)",
       "Bash(npx vite build:*)",
-      "WebFetch(domain:api.scryfall.com)"
+      "WebFetch(domain:api.scryfall.com)",
+      "Bash(NODE_PATH=\"\" node --no-warnings ./node_modules/.bin/tsc:*)"
     ]
   }
 }

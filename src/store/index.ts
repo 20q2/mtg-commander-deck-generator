@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AppState, Customization, ArchetypeResult, Archetype, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult } from '@/types';
 
 const BANNED_CARDS_KEY = 'mtg-deck-builder-banned-cards';
+const MUST_INCLUDE_CARDS_KEY = 'mtg-deck-builder-must-include-cards';
 
 // Load banned cards from localStorage
 function loadBannedCards(): string[] {
@@ -28,11 +29,37 @@ function saveBannedCards(cards: string[]): void {
   }
 }
 
+// Load must-include cards from localStorage
+function loadMustIncludeCards(): string[] {
+  try {
+    const stored = localStorage.getItem(MUST_INCLUDE_CARDS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load must-include cards from localStorage:', e);
+  }
+  return [];
+}
+
+// Save must-include cards to localStorage
+function saveMustIncludeCards(cards: string[]): void {
+  try {
+    localStorage.setItem(MUST_INCLUDE_CARDS_KEY, JSON.stringify(cards));
+  } catch (e) {
+    console.warn('Failed to save must-include cards to localStorage:', e);
+  }
+}
+
 const defaultCustomization: Customization = {
   deckFormat: 99,
   landCount: 37,
   nonBasicLandCount: 15, // Default to 15 non-basics, rest will be basics
   bannedCards: loadBannedCards(), // Load from localStorage
+  mustIncludeCards: loadMustIncludeCards(), // Load from localStorage
   maxCardPrice: null, // No limit by default
 };
 
@@ -138,6 +165,11 @@ export const useStore = create<AppState>((set) => ({
       saveBannedCards(newCustomization.bannedCards);
     }
 
+    // Persist must-include cards to localStorage when they change
+    if (updates.mustIncludeCards !== undefined) {
+      saveMustIncludeCards(newCustomization.mustIncludeCards);
+    }
+
     return { customization: newCustomization };
   }),
 
@@ -161,10 +193,11 @@ export const useStore = create<AppState>((set) => ({
     themesLoading: false,
     themesError: null,
     themeSource: 'local',
-    // Keep banned cards from localStorage on reset
+    // Keep banned cards and must-include cards from localStorage on reset
     customization: {
       ...defaultCustomization,
       bannedCards: state.customization.bannedCards,
+      mustIncludeCards: state.customization.mustIncludeCards,
     },
     generatedDeck: null,
     isLoading: false,

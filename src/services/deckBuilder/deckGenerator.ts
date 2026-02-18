@@ -798,6 +798,77 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     utility: [],
   };
 
+  // Track current curve distribution as we add cards (moved up for must-include cards)
+  const currentCurveCounts: Record<number, number> = {};
+
+  // Process must-include cards FIRST — they get priority over all other selections
+  const mustIncludeNames = customization.mustIncludeCards?.filter(
+    name => !bannedCards.has(name) && !usedNames.has(name)
+  ) || [];
+
+  if (mustIncludeNames.length > 0) {
+    onProgress?.('Adding your must-include cards...', 3);
+    console.log(`[DeckGen] Processing ${mustIncludeNames.length} must-include cards:`, mustIncludeNames);
+
+    const mustIncludeMap = await getCardsByNames(mustIncludeNames);
+    let addedCount = 0;
+
+    for (const name of mustIncludeNames) {
+      const card = mustIncludeMap.get(name);
+      if (!card) {
+        console.warn(`[DeckGen] Must-include card not found: "${name}"`);
+        continue;
+      }
+
+      // Skip cards that don't fit the commander's color identity
+      if (!fitsColorIdentity(card, colorIdentity)) {
+        console.log(`[DeckGen] Must-include card "${name}" skipped (color identity mismatch)`);
+        continue;
+      }
+
+      usedNames.add(card.name);
+      card.isMustInclude = true;
+      addedCount++;
+
+      // Categorize by type
+      const typeLine = card.type_line.toLowerCase();
+      if (typeLine.includes('land')) {
+        categories.lands.push(card);
+      } else if (typeLine.includes('creature')) {
+        categories.creatures.push(card);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      } else if (typeLine.includes('instant')) {
+        categorizeInstants([card], categories);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      } else if (typeLine.includes('sorcery')) {
+        categorizeSorceries([card], categories);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      } else if (typeLine.includes('artifact')) {
+        categorizeArtifacts([card], categories);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      } else if (typeLine.includes('enchantment')) {
+        categorizeEnchantments([card], categories);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      } else if (typeLine.includes('planeswalker')) {
+        categories.utility.push(card);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      } else {
+        // Battle or other types
+        categories.synergy.push(card);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      }
+    }
+
+    console.log(`[DeckGen] Added ${addedCount} must-include cards to deck`);
+  }
+
   // Try to fetch EDHREC data (works for all formats)
   let edhrecData: EDHRECCommanderData | null = null;
 
@@ -868,9 +939,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   console.log('[DeckGen] Total non-land target:', totalTypeTargets, '(should be ~', format === 99 ? 99 - targets.lands : format - 1 - targets.lands, ')');
   console.log('[DeckGen] Target curve:', curveTargets);
   console.log('[DeckGen] Land target:', targets.lands);
-
-  // Track current curve distribution as we add cards
-  const currentCurveCounts: Record<number, number> = {};
 
   // If we have EDHREC data, use it as the primary source with CMC-aware selection
   if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
@@ -1064,12 +1132,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
     // 7. Lands from EDHREC
     onProgress?.('Surveying the mana base...', 78);
+    // Preserve must-include lands added earlier
+    const mustIncludeLands = categories.lands.filter(c => c.isMustInclude);
+    const adjustedLandTarget = Math.max(0, targets.lands - mustIncludeLands.length);
     // Use user's non-basic land preference from customization
-    const nonbasicTarget = Math.min(customization.nonBasicLandCount, targets.lands);
-    const basicCount = Math.max(0, targets.lands - nonbasicTarget);
+    const nonbasicTarget = Math.min(customization.nonBasicLandCount, adjustedLandTarget);
+    const basicCount = Math.max(0, adjustedLandTarget - nonbasicTarget);
 
     console.log('[DeckGen] Land targets (from user preference):', {
       totalLandTarget: targets.lands,
+      mustIncludeLands: mustIncludeLands.length,
+      adjustedLandTarget,
       nonbasicTarget,
       basicTarget: basicCount,
       edhrecLandsAvailable: cardlists.lands.length,
@@ -1088,18 +1161,21 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...categories.utility,
       ...categories.synergy,
     ];
-    categories.lands = await generateLands(
-      cardlists.lands,
-      colorIdentity,
-      targets.lands,
-      usedNames,
-      basicCount,
-      format,
-      allNonLandCards,
-      onProgress,
-      bannedCards,
-      maxCardPrice
-    );
+    categories.lands = [
+      ...mustIncludeLands,
+      ...await generateLands(
+        cardlists.lands,
+        colorIdentity,
+        adjustedLandTarget,
+        usedNames,
+        basicCount,
+        format,
+        allNonLandCards,
+        onProgress,
+        bannedCards,
+        maxCardPrice
+      ),
+    ];
 
     // Log category counts after EDHREC selection
     console.log('[DeckGen] After EDHREC selection - Category counts:', {
@@ -1176,9 +1252,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
 
     onProgress?.('Surveying the mana base...', 80);
+    // Preserve must-include lands added earlier
+    const fallbackMustIncludeLands = categories.lands.filter(c => c.isMustInclude);
+    const fallbackAdjustedLandTarget = Math.max(0, targets.lands - fallbackMustIncludeLands.length);
     // Use user's non-basic land preference
-    const fallbackNonbasicTarget = Math.min(customization.nonBasicLandCount, targets.lands);
-    const fallbackBasicCount = Math.max(0, targets.lands - fallbackNonbasicTarget);
+    const fallbackNonbasicTarget = Math.min(customization.nonBasicLandCount, fallbackAdjustedLandTarget);
+    const fallbackBasicCount = Math.max(0, fallbackAdjustedLandTarget - fallbackNonbasicTarget);
     const fallbackNonLandCards = [
       ...categories.creatures,
       ...categories.ramp,
@@ -1188,18 +1267,21 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...categories.utility,
       ...categories.synergy,
     ];
-    categories.lands = await generateLands(
-      [],
-      colorIdentity,
-      targets.lands,
-      usedNames,
-      fallbackBasicCount,
-      format,
-      fallbackNonLandCards,
-      onProgress,
-      bannedCards,
-      maxCardPrice
-    );
+    categories.lands = [
+      ...fallbackMustIncludeLands,
+      ...await generateLands(
+        [],
+        colorIdentity,
+        fallbackAdjustedLandTarget,
+        usedNames,
+        fallbackBasicCount,
+        format,
+        fallbackNonLandCards,
+        onProgress,
+        bannedCards,
+        maxCardPrice
+      ),
+    ];
   }
 
   // Calculate the target deck size (commander(s) are separate)
