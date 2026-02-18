@@ -3,8 +3,11 @@ export {
   fetchCommanderThemes,
   fetchCommanderThemeData,
   fetchPartnerThemes,
+  fetchPartnerCommanderData,
+  fetchPartnerThemeData,
   formatCommanderNameForUrl,
   clearCommanderCache,
+  fetchPartnerPopularity,
 } from './client';
 
 export {

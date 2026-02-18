@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { searchValidPartners, getCardImageUrl } from '@/services/scryfall/client';
+import { fetchPartnerPopularity } from '@/services/edhrec';
 import {
   getPartnerType,
   getPartnerWithName,
@@ -24,6 +25,10 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
   const [results, setResults] = useState<ScryfallCard[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
+  const [popularity, setPopularity] = useState<Map<string, number>>(new Map());
+
+  // Ref to persist popularity across searches (so sorting stays stable)
+  const popularityRef = useRef<Map<string, number>>(new Map());
 
   const { partnerCommander, setPartnerCommander } = useStore();
 
@@ -32,6 +37,16 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
 
   // For "Partner with X", we can show the specific partner directly
   const specificPartnerName = partnerType === 'partner-with' ? getPartnerWithName(commander) : null;
+
+  // Fetch partner popularity from EDHREC when dropdown opens
+  useEffect(() => {
+    if (isOpen && popularityRef.current.size === 0) {
+      fetchPartnerPopularity(commander.name).then((data) => {
+        popularityRef.current = data;
+        setPopularity(data);
+      });
+    }
+  }, [isOpen, commander.name]);
 
   // Load initial partner options when dropdown opens
   useEffect(() => {
@@ -48,7 +63,7 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
       setIsSearching(true);
       try {
         const searchResults = await searchValidPartners(commander, query);
-        setResults(searchResults.slice(0, 20));
+        setResults(sortByPopularity(searchResults.slice(0, 20)));
       } catch (error) {
         console.error('Partner search error:', error);
         setResults([]);
@@ -60,11 +75,24 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
     return () => clearTimeout(timer);
   }, [query, isOpen, commander.name]);
 
+  function sortByPopularity(cards: ScryfallCard[]): ScryfallCard[] {
+    const pop = popularityRef.current;
+    if (pop.size === 0) return cards;
+    return [...cards].sort((a, b) => (pop.get(b.name) || 0) - (pop.get(a.name) || 0));
+  }
+
+  // Re-sort when popularity data arrives
+  useEffect(() => {
+    if (popularity.size > 0 && results.length > 0) {
+      setResults(sortByPopularity(results));
+    }
+  }, [popularity]);
+
   async function loadInitialPartners() {
     setIsLoadingInitial(true);
     try {
       const initialResults = await searchValidPartners(commander, '');
-      setResults(initialResults.slice(0, 20));
+      setResults(sortByPopularity(initialResults.slice(0, 20)));
     } catch (error) {
       console.error('Failed to load partners:', error);
     } finally {
@@ -98,6 +126,13 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
     setPartnerCommander(null);
   };
 
+  function formatDeckCount(count: number): string {
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+    }
+    return count.toString();
+  }
+
   // Don't render if commander can't have a partner
   if (!hasPartnerAbility) {
     return null;
@@ -105,11 +140,12 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
 
   // Show selected partner
   if (partnerCommander) {
+    const deckCount = popularity.get(partnerCommander.name);
     return (
       <div className="mt-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
           <Users className="w-4 h-4" />
-          <span>Partner Commander</span>
+          <span>{getPartnerTypeLabel(partnerType)}</span>
         </div>
         <div className="flex items-center gap-3 p-3 bg-accent/30 rounded-lg">
           <img
@@ -119,8 +155,13 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
           />
           <div className="flex-1 min-w-0">
             <p className="font-semibold truncate">{partnerCommander.name}</p>
-            <div className="mt-1">
+            <div className="flex items-center gap-2 mt-1">
               <ColorIdentity colors={partnerCommander.color_identity} size="sm" />
+              {deckCount !== undefined && (
+                <span className="text-xs text-muted-foreground">
+                  {formatDeckCount(deckCount)} decks
+                </span>
+              )}
             </div>
           </div>
           <Button
@@ -199,27 +240,35 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
                   <Loader2 className="w-6 h-6 animate-spin text-primary" />
                 </div>
               ) : results.length > 0 ? (
-                results.map((card) => (
-                  <button
-                    key={card.id}
-                    onClick={() => handleSelectPartner(card)}
-                    className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-lg text-left transition-colors group"
-                  >
-                    <img
-                      src={getCardImageUrl(card, 'small')}
-                      alt={card.name}
-                      className="w-10 h-auto rounded shadow group-hover:shadow-md transition-shadow"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">
-                        {card.name}
-                      </p>
-                      <div className="mt-0.5">
-                        <ColorIdentity colors={card.color_identity} size="sm" />
+                results.map((card) => {
+                  const deckCount = popularity.get(card.name);
+                  return (
+                    <button
+                      key={card.id}
+                      onClick={() => handleSelectPartner(card)}
+                      className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-lg text-left transition-colors group"
+                    >
+                      <img
+                        src={getCardImageUrl(card, 'small')}
+                        alt={card.name}
+                        className="w-10 h-auto rounded shadow group-hover:shadow-md transition-shadow"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">
+                          {card.name}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <ColorIdentity colors={card.color_identity} size="sm" />
+                          {deckCount !== undefined && (
+                            <span className="text-xs text-muted-foreground">
+                              {formatDeckCount(deckCount)} decks
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               ) : (
                 <p className="text-center text-sm text-muted-foreground py-4">
                   {specificPartnerName

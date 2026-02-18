@@ -300,8 +300,9 @@ export async function searchValidPartners(
 
   switch (partnerType) {
     case 'partner':
-      // Generic Partner - find other commanders with Partner keyword (excluding "Partner with X")
-      query = `is:commander f:commander keyword:partner -o:"Partner with"`;
+      // Generic Partner - find other commanders with Partner keyword
+      // Exclude "Partner with X" and "Friends forever" (Scryfall lumps them all under keyword:partner)
+      query = `is:commander f:commander keyword:partner -o:"Partner with" -o:"Friends forever"`;
       break;
 
     case 'partner-with': {
@@ -317,8 +318,9 @@ export async function searchValidPartners(
     }
 
     case 'friends-forever':
-      // Friends forever - find other commanders with Friends forever keyword
-      query = `is:commander f:commander keyword:"Friends forever"`;
+      // Friends forever - find other commanders with Friends forever in oracle text
+      // Scryfall returns keyword:Partner for these, so we must use oracle text search
+      query = `is:commander f:commander o:"Friends forever"`;
       break;
 
     case 'choose-background':
@@ -329,6 +331,16 @@ export async function searchValidPartners(
     case 'background':
       // Background - find commanders with "Choose a Background"
       query = `is:commander f:commander o:"Choose a Background"`;
+      break;
+
+    case 'doctors-companion':
+      // Doctor's Companion - find Doctor creatures that are commanders
+      query = `is:commander f:commander t:doctor`;
+      break;
+
+    case 'doctor':
+      // Doctor - find creatures with Doctor's companion keyword
+      query = `is:commander f:commander keyword:"Doctor's companion"`;
       break;
 
     default:

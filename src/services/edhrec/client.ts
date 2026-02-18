@@ -31,6 +31,7 @@ const rateLimiter = new RateLimiter();
 
 // Cache for commander data
 const commanderCache = new Map<string, { data: EDHRECCommanderData; timestamp: number }>();
+const partnerPopularityCache = new Map<string, { data: Map<string, number>; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Raw EDHREC response types
@@ -58,6 +59,9 @@ interface RawCardList {
 }
 
 interface RawEDHRECResponse {
+  // EDHREC may return a redirect instead of actual data (e.g. partner name ordering)
+  redirect?: string;
+
   // Top-level stats
   avg_price?: number;
   creature?: number;
@@ -139,7 +143,14 @@ async function edhrecFetch<T>(endpoint: string): Promise<T> {
     throw new Error(`EDHREC API error: ${response.status} ${response.statusText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // EDHREC returns { redirect: "..." } instead of real data for wrong partner orderings
+  if (data.redirect) {
+    throw new Error(`EDHREC redirect to ${data.redirect}`);
+  }
+
+  return data;
 }
 
 // Tags that represent high-priority theme synergy cards
@@ -212,6 +223,226 @@ function parseManaCurve(rawCurve?: Record<string, number>): Record<number, numbe
 }
 
 /**
+ * Build both possible EDHREC slugs for partner commanders.
+ * EDHREC doesn't always use alphabetical order (e.g. commander before background),
+ * so we return both orderings to try.
+ */
+function getPartnerSlugs(commander1: string, commander2: string): [string, string] {
+  const slug1 = formatCommanderNameForUrl(commander1);
+  const slug2 = formatCommanderNameForUrl(commander2);
+  // Primary: commander1 first, secondary: commander2 first
+  return [`${slug1}-${slug2}`, `${slug2}-${slug1}`];
+}
+
+/**
+ * Parse a raw EDHREC response into structured commander data.
+ * Shared by both single-commander and partner-commander fetches.
+ */
+function parseEdhrecResponse(
+  response: RawEDHRECResponse,
+  cacheKey: string
+): EDHRECCommanderData {
+  // Parse themes from taglinks
+  const rawTaglinks = response.panels?.taglinks || [];
+  const themes: EDHRECTheme[] = rawTaglinks.map(t => ({
+    name: t.value,
+    slug: t.slug,
+    count: t.count,
+    url: `/themes/${t.slug}/${cacheKey}`,
+    popularityPercent: 0, // Will calculate below
+  }));
+
+  // Calculate popularity percentages
+  const totalThemeDecks = themes.reduce((sum, t) => sum + t.count, 0);
+  for (const theme of themes) {
+    theme.popularityPercent = totalThemeDecks > 0
+      ? (theme.count / totalThemeDecks) * 100
+      : 0;
+  }
+
+  // Sort by count (highest first)
+  themes.sort((a, b) => b.count - a.count);
+
+  // Parse stats
+  const stats: EDHRECCommanderStats = {
+    avgPrice: response.avg_price || 0,
+    numDecks: response.num_decks_avg || 0,
+    deckSize: response.deck_size || 81, // Default to 81 if missing
+    manaCurve: parseManaCurve(response.mana_curve),
+    typeDistribution: {
+      creature: response.creature || 0,
+      instant: response.instant || 0,
+      sorcery: response.sorcery || 0,
+      artifact: response.artifact || 0,
+      enchantment: response.enchantment || 0,
+      land: response.land || 0,
+      planeswalker: response.planeswalker || 0,
+      battle: response.battle || 0,
+    },
+    landDistribution: {
+      basic: response.basic || 0,
+      nonbasic: response.nonbasic || 0,
+      total: response.land || 0,
+    },
+  };
+
+  // Parse card lists directly from EDHREC tags
+  const cardlists = parseCardlists(response);
+
+  // Parse similar commanders
+  const similarCommanders: EDHRECSimilarCommander[] = (response.similar || []).map(s => ({
+    name: s.name,
+    sanitized: s.sanitized,
+    colorIdentity: s.color_identity || [],
+    cmc: s.cmc || 0,
+    imageUrl: s.image_uris?.[0]?.normal,
+    url: s.url || `/commanders/${s.sanitized}`,
+  }));
+
+  const data: EDHRECCommanderData = {
+    themes,
+    stats,
+    cardlists,
+    similarCommanders,
+  };
+
+  // Cache the result
+  commanderCache.set(cacheKey, { data, timestamp: Date.now() });
+
+  return data;
+}
+
+/**
+ * Parse cardlists from a raw EDHREC response into categorized lists.
+ * Shared by both commander data and theme data parsing.
+ */
+function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardlists'] {
+  const rawCardLists = response.container?.json_dict?.cardlists || [];
+  console.log('[EDHREC] Raw cardlists count:', rawCardLists.length);
+  console.log('[EDHREC] Available tags:', rawCardLists.map((l: RawCardList) => l.tag));
+
+  const cardlists: EDHRECCommanderData['cardlists'] = {
+    creatures: [],
+    instants: [],
+    sorceries: [],
+    artifacts: [],
+    enchantments: [],
+    planeswalkers: [],
+    lands: [],
+    allNonLand: [],
+  };
+
+  // Track cards for deduplication across lists
+  const seenCards = new Map<string, EDHRECCard>();
+
+  for (const list of rawCardLists) {
+    if (!list.cardviews || list.cardviews.length === 0) continue;
+
+    const tag = list.tag.toLowerCase();
+    console.log(`[EDHREC] Processing list "${list.tag}" with ${list.cardviews.length} cards`);
+
+    for (const rawCard of list.cardviews) {
+      // Skip if we've seen this card with higher inclusion
+      const existing = seenCards.get(rawCard.name);
+      const potentialDecks = rawCard.potential_decks || 1;
+      const inclusionPercent = potentialDecks > 0
+        ? ((rawCard.inclusion || 0) / potentialDecks) * 100
+        : 0;
+
+      if (existing && existing.inclusion >= inclusionPercent) {
+        continue;
+      }
+
+      const card = parseCard(rawCard, list.tag);
+      seenCards.set(card.name, card);
+
+      // Add to the appropriate category based on EDHREC's tag
+      if (tag === 'creatures') {
+        cardlists.creatures.push(card);
+        cardlists.allNonLand.push(card);
+      } else if (tag === 'instants') {
+        cardlists.instants.push(card);
+        cardlists.allNonLand.push(card);
+      } else if (tag === 'sorceries') {
+        cardlists.sorceries.push(card);
+        cardlists.allNonLand.push(card);
+      } else if (tag === 'utilityartifacts' || tag === 'manaartifacts') {
+        cardlists.artifacts.push(card);
+        cardlists.allNonLand.push(card);
+      } else if (tag === 'enchantments') {
+        cardlists.enchantments.push(card);
+        cardlists.allNonLand.push(card);
+      } else if (tag === 'planeswalkers') {
+        cardlists.planeswalkers.push(card);
+        cardlists.allNonLand.push(card);
+      } else if (tag === 'utilitylands' || tag === 'lands') {
+        cardlists.lands.push(card);
+      } else if (
+        tag === 'newcards' ||
+        tag === 'highsynergycards' ||
+        tag === 'topcards' ||
+        tag === 'gamechangers'
+      ) {
+        // Generic lists - add to allNonLand only (type is Unknown)
+        cardlists.allNonLand.push(card);
+      }
+    }
+  }
+
+  // Sort each category by inclusion rate (highest first)
+  for (const key of Object.keys(cardlists) as (keyof typeof cardlists)[]) {
+    cardlists[key].sort((a, b) => b.inclusion - a.inclusion);
+  }
+
+  console.log('[EDHREC] Categorized cards by tag:', {
+    creatures: cardlists.creatures.length,
+    instants: cardlists.instants.length,
+    sorceries: cardlists.sorceries.length,
+    artifacts: cardlists.artifacts.length,
+    enchantments: cardlists.enchantments.length,
+    planeswalkers: cardlists.planeswalkers.length,
+    lands: cardlists.lands.length,
+    allNonLand: cardlists.allNonLand.length,
+  });
+
+  if (cardlists.creatures.length > 0) {
+    console.log('[EDHREC] Sample creature:', cardlists.creatures[0]);
+  }
+
+  return cardlists;
+}
+
+/**
+ * Merge cardlists from two EDHREC datasets (for partner fallback)
+ */
+function mergeCardlists(
+  data1: EDHRECCommanderData,
+  data2: EDHRECCommanderData
+): EDHRECCommanderData['cardlists'] {
+  const mergeCategory = (list1: EDHRECCard[], list2: EDHRECCard[]): EDHRECCard[] => {
+    const cardMap = new Map<string, EDHRECCard>();
+    for (const card of [...list1, ...list2]) {
+      const existing = cardMap.get(card.name);
+      if (!existing || card.inclusion > existing.inclusion) {
+        cardMap.set(card.name, card);
+      }
+    }
+    return Array.from(cardMap.values()).sort((a, b) => b.inclusion - a.inclusion);
+  };
+
+  return {
+    creatures: mergeCategory(data1.cardlists.creatures, data2.cardlists.creatures),
+    instants: mergeCategory(data1.cardlists.instants, data2.cardlists.instants),
+    sorceries: mergeCategory(data1.cardlists.sorceries, data2.cardlists.sorceries),
+    artifacts: mergeCategory(data1.cardlists.artifacts, data2.cardlists.artifacts),
+    enchantments: mergeCategory(data1.cardlists.enchantments, data2.cardlists.enchantments),
+    planeswalkers: mergeCategory(data1.cardlists.planeswalkers, data2.cardlists.planeswalkers),
+    lands: mergeCategory(data1.cardlists.lands, data2.cardlists.lands),
+    allNonLand: mergeCategory(data1.cardlists.allNonLand, data2.cardlists.allNonLand),
+  };
+}
+
+/**
  * Fetch full commander data from EDHREC
  */
 export async function fetchCommanderData(commanderName: string): Promise<EDHRECCommanderData> {
@@ -228,170 +459,68 @@ export async function fetchCommanderData(commanderName: string): Promise<EDHRECC
       `/pages/commanders/${formattedName}.json`
     );
 
-    // Parse themes from taglinks
-    const rawTaglinks = response.panels?.taglinks || [];
-    const themes: EDHRECTheme[] = rawTaglinks.map(t => ({
-      name: t.value,
-      slug: t.slug,
-      count: t.count,
-      url: `/themes/${t.slug}/${formattedName}`,
-      popularityPercent: 0, // Will calculate below
-    }));
-
-    // Calculate popularity percentages
-    const totalThemeDecks = themes.reduce((sum, t) => sum + t.count, 0);
-    for (const theme of themes) {
-      theme.popularityPercent = totalThemeDecks > 0
-        ? (theme.count / totalThemeDecks) * 100
-        : 0;
-    }
-
-    // Sort by count (highest first)
-    themes.sort((a, b) => b.count - a.count);
-
-    // Parse stats
-    const stats: EDHRECCommanderStats = {
-      avgPrice: response.avg_price || 0,
-      numDecks: response.num_decks_avg || 0,
-      deckSize: response.deck_size || 81, // Default to 81 if missing
-      manaCurve: parseManaCurve(response.mana_curve),
-      typeDistribution: {
-        creature: response.creature || 0,
-        instant: response.instant || 0,
-        sorcery: response.sorcery || 0,
-        artifact: response.artifact || 0,
-        enchantment: response.enchantment || 0,
-        land: response.land || 0,
-        planeswalker: response.planeswalker || 0,
-        battle: response.battle || 0,
-      },
-      landDistribution: {
-        basic: response.basic || 0,
-        nonbasic: response.nonbasic || 0,
-        total: response.land || 0,
-      },
-    };
-
-    // Parse card lists directly from EDHREC tags
-    // EDHREC already categorizes cards into lists with tags like "creatures", "instants", etc.
-    const rawCardLists = response.container?.json_dict?.cardlists || [];
-    console.log('[EDHREC] Raw cardlists count:', rawCardLists.length);
-    console.log('[EDHREC] Available tags:', rawCardLists.map((l: RawCardList) => l.tag));
-
-    // Build cardlists directly from EDHREC's categorization
-    const cardlists: EDHRECCommanderData['cardlists'] = {
-      creatures: [],
-      instants: [],
-      sorceries: [],
-      artifacts: [],
-      enchantments: [],
-      planeswalkers: [],
-      lands: [],
-      allNonLand: [],
-    };
-
-    // Track cards for deduplication across lists
-    const seenCards = new Map<string, EDHRECCard>();
-
-    for (const list of rawCardLists) {
-      if (!list.cardviews || list.cardviews.length === 0) continue;
-
-      const tag = list.tag.toLowerCase();
-      console.log(`[EDHREC] Processing list "${list.tag}" with ${list.cardviews.length} cards`);
-
-      for (const rawCard of list.cardviews) {
-        // Skip if we've seen this card with higher inclusion
-        const existing = seenCards.get(rawCard.name);
-        const potentialDecks = rawCard.potential_decks || 1;
-        const inclusionPercent = potentialDecks > 0
-          ? ((rawCard.inclusion || 0) / potentialDecks) * 100
-          : 0;
-
-        if (existing && existing.inclusion >= inclusionPercent) {
-          continue;
-        }
-
-        const card = parseCard(rawCard, list.tag);
-        seenCards.set(card.name, card);
-
-        // Add to the appropriate category based on EDHREC's tag
-        if (tag === 'creatures') {
-          cardlists.creatures.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'instants') {
-          cardlists.instants.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'sorceries') {
-          cardlists.sorceries.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'utilityartifacts' || tag === 'manaartifacts') {
-          cardlists.artifacts.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'enchantments') {
-          cardlists.enchantments.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'planeswalkers') {
-          cardlists.planeswalkers.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'utilitylands' || tag === 'lands') {
-          cardlists.lands.push(card);
-        } else if (
-          tag === 'newcards' ||
-          tag === 'highsynergycards' ||
-          tag === 'topcards' ||
-          tag === 'gamechangers'
-        ) {
-          // Generic lists - add to allNonLand only (type is Unknown)
-          cardlists.allNonLand.push(card);
-        }
-      }
-    }
-
-    // Sort each category by inclusion rate (highest first)
-    for (const key of Object.keys(cardlists) as (keyof typeof cardlists)[]) {
-      cardlists[key].sort((a, b) => b.inclusion - a.inclusion);
-    }
-
-    console.log('[EDHREC] Categorized cards by tag:', {
-      creatures: cardlists.creatures.length,
-      instants: cardlists.instants.length,
-      sorceries: cardlists.sorceries.length,
-      artifacts: cardlists.artifacts.length,
-      enchantments: cardlists.enchantments.length,
-      planeswalkers: cardlists.planeswalkers.length,
-      lands: cardlists.lands.length,
-      allNonLand: cardlists.allNonLand.length,
-    });
-
-    if (cardlists.creatures.length > 0) {
-      console.log('[EDHREC] Sample creature:', cardlists.creatures[0]);
-    }
-
-    // Parse similar commanders
-    const similarCommanders: EDHRECSimilarCommander[] = (response.similar || []).map(s => ({
-      name: s.name,
-      sanitized: s.sanitized,
-      colorIdentity: s.color_identity || [],
-      cmc: s.cmc || 0,
-      imageUrl: s.image_uris?.[0]?.normal,
-      url: s.url || `/commanders/${s.sanitized}`,
-    }));
-
-    const data: EDHRECCommanderData = {
-      themes,
-      stats,
-      cardlists,
-      similarCommanders,
-    };
-
-    // Cache the result
-    commanderCache.set(formattedName, { data, timestamp: Date.now() });
-
-    return data;
+    return parseEdhrecResponse(response, formattedName);
   } catch (error) {
     console.error('Failed to fetch EDHREC commander data:', error);
     throw error;
   }
+}
+
+/**
+ * Fetch EDHREC data for partner commanders.
+ * Tries the combined partner page first, falls back to merging individual data.
+ */
+export async function fetchPartnerCommanderData(
+  commander1: string,
+  commander2: string
+): Promise<EDHRECCommanderData> {
+  const [slugA, slugB] = getPartnerSlugs(commander1, commander2);
+
+  // Check cache for either ordering
+  for (const slug of [slugA, slugB]) {
+    const cached = commanderCache.get(slug);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+  }
+
+  // Try both orderings - EDHREC doesn't always use alphabetical order
+  // (redirects are detected and thrown by edhrecFetch)
+  for (const slug of [slugA, slugB]) {
+    try {
+      const response = await edhrecFetch<RawEDHRECResponse>(
+        `/pages/commanders/${slug}.json`
+      );
+      console.log(`[EDHREC] Found partner page: /pages/commanders/${slug}.json`);
+      return parseEdhrecResponse(response, slug);
+    } catch {
+      console.log(`[EDHREC] No partner page at ${slug}`);
+    }
+  }
+
+  console.log(`[EDHREC] No partner page found, merging individual data`);
+
+  // Fallback: fetch both individually and merge
+  const [data1, data2] = await Promise.all([
+    fetchCommanderData(commander1).catch(() => null),
+    fetchCommanderData(commander2).catch(() => null),
+  ]);
+
+  if (data1 && data2) {
+    const mergedData: EDHRECCommanderData = {
+      themes: data1.themes,
+      stats: data1.stats,
+      cardlists: mergeCardlists(data1, data2),
+      similarCommanders: data1.similarCommanders,
+    };
+    commanderCache.set(slugA, { data: mergedData, timestamp: Date.now() });
+    return mergedData;
+  }
+
+  if (data1) return data1;
+  if (data2) return data2;
+
+  throw new Error(`Failed to fetch EDHREC data for both ${commander1} and ${commander2}`);
 }
 
 /**
@@ -409,21 +538,18 @@ export async function fetchPartnerThemes(
   commander1: string,
   commander2: string
 ): Promise<EDHRECTheme[]> {
-  // EDHREC has partner pages at /commanders/{partner1}-{partner2}
-  const name1 = formatCommanderNameForUrl(commander1);
-  const name2 = formatCommanderNameForUrl(commander2);
+  // Try both orderings - EDHREC doesn't always use alphabetical order
+  const [slugA, slugB] = getPartnerSlugs(commander1, commander2);
 
-  // Try combined partner URL first (alphabetically sorted)
-  const sortedNames = [name1, name2].sort();
-  const combinedName = sortedNames.join('-');
-
-  try {
-    const data = await fetchCommanderData(combinedName);
-    if (data.themes.length > 0) {
-      return data.themes;
+  for (const slug of [slugA, slugB]) {
+    try {
+      const data = await fetchCommanderData(slug);
+      if (data.themes.length > 0) {
+        return data.themes;
+      }
+    } catch {
+      // This ordering didn't work, try the other
     }
-  } catch {
-    // Partner combination not found, fall back to fetching individually
   }
 
   // Fallback: fetch both individually and merge themes
@@ -481,11 +607,11 @@ export async function fetchCommanderThemeData(
       `/pages/commanders/${formattedName}/${themeSlug}.json`
     );
 
-    // Parse stats (same as base commander)
+    // Parse stats
     const stats: EDHRECCommanderStats = {
       avgPrice: response.avg_price || 0,
       numDecks: response.num_decks_avg || 0,
-      deckSize: response.deck_size || 81, // Default to 81 if missing
+      deckSize: response.deck_size || 81,
       manaCurve: parseManaCurve(response.mana_curve),
       typeDistribution: {
         creature: response.creature || 0,
@@ -504,76 +630,8 @@ export async function fetchCommanderThemeData(
       },
     };
 
-    // Parse card lists directly from EDHREC tags (same approach as fetchCommanderData)
-    const rawCardLists = response.container?.json_dict?.cardlists || [];
-
-    const cardlists: EDHRECCommanderData['cardlists'] = {
-      creatures: [],
-      instants: [],
-      sorceries: [],
-      artifacts: [],
-      enchantments: [],
-      planeswalkers: [],
-      lands: [],
-      allNonLand: [],
-    };
-
-    const seenCards = new Map<string, EDHRECCard>();
-
-    for (const list of rawCardLists) {
-      if (!list.cardviews || list.cardviews.length === 0) continue;
-
-      const tag = list.tag.toLowerCase();
-
-      for (const rawCard of list.cardviews) {
-        const existing = seenCards.get(rawCard.name);
-        const potentialDecks = rawCard.potential_decks || 1;
-        const inclusionPercent = potentialDecks > 0
-          ? ((rawCard.inclusion || 0) / potentialDecks) * 100
-          : 0;
-
-        if (existing && existing.inclusion >= inclusionPercent) {
-          continue;
-        }
-
-        const card = parseCard(rawCard, list.tag);
-        seenCards.set(card.name, card);
-
-        if (tag === 'creatures') {
-          cardlists.creatures.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'instants') {
-          cardlists.instants.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'sorceries') {
-          cardlists.sorceries.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'utilityartifacts' || tag === 'manaartifacts') {
-          cardlists.artifacts.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'enchantments') {
-          cardlists.enchantments.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'planeswalkers') {
-          cardlists.planeswalkers.push(card);
-          cardlists.allNonLand.push(card);
-        } else if (tag === 'utilitylands' || tag === 'lands') {
-          cardlists.lands.push(card);
-        } else if (
-          tag === 'newcards' ||
-          tag === 'highsynergycards' ||
-          tag === 'topcards' ||
-          tag === 'gamechangers'
-        ) {
-          cardlists.allNonLand.push(card);
-        }
-      }
-    }
-
-    // Sort each category by inclusion rate
-    for (const key of Object.keys(cardlists) as (keyof typeof cardlists)[]) {
-      cardlists[key].sort((a, b) => b.inclusion - a.inclusion);
-    }
+    // Parse card lists using shared parser
+    const cardlists = parseCardlists(response);
 
     const data: EDHRECCommanderData = {
       themes: [], // Theme-specific pages don't have sub-themes
@@ -589,6 +647,120 @@ export async function fetchCommanderThemeData(
   } catch (error) {
     console.error(`Failed to fetch EDHREC theme data for ${themeSlug}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Fetch theme-specific data for partner commanders.
+ * Tries the combined partner theme page first, falls back to primary commander's theme.
+ */
+export async function fetchPartnerThemeData(
+  commander1: string,
+  commander2: string,
+  themeSlug: string
+): Promise<EDHRECCommanderData> {
+  const [slugA, slugB] = getPartnerSlugs(commander1, commander2);
+
+  // Check cache for either ordering
+  for (const slug of [slugA, slugB]) {
+    const cacheKey = `${slug}/${themeSlug}`;
+    const cached = commanderCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.data;
+    }
+  }
+
+  // Try both orderings
+  for (const slug of [slugA, slugB]) {
+    const cacheKey = `${slug}/${themeSlug}`;
+    try {
+      const response = await edhrecFetch<RawEDHRECResponse>(
+        `/pages/commanders/${slug}/${themeSlug}.json`
+      );
+      console.log(`[EDHREC] Found partner theme page: ${slug}/${themeSlug}`);
+
+      const stats: EDHRECCommanderStats = {
+        avgPrice: response.avg_price || 0,
+        numDecks: response.num_decks_avg || 0,
+        deckSize: response.deck_size || 81,
+        manaCurve: parseManaCurve(response.mana_curve),
+        typeDistribution: {
+          creature: response.creature || 0,
+          instant: response.instant || 0,
+          sorcery: response.sorcery || 0,
+          artifact: response.artifact || 0,
+          enchantment: response.enchantment || 0,
+          land: response.land || 0,
+          planeswalker: response.planeswalker || 0,
+          battle: response.battle || 0,
+        },
+        landDistribution: {
+          basic: response.basic || 0,
+          nonbasic: response.nonbasic || 0,
+          total: response.land || 0,
+        },
+      };
+
+      const cardlists = parseCardlists(response);
+
+      const data: EDHRECCommanderData = {
+        themes: [],
+        stats,
+        cardlists,
+        similarCommanders: [],
+      };
+
+      commanderCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch {
+      // This ordering didn't work, try the other
+    }
+  }
+
+  console.log(`[EDHREC] No partner theme page found, falling back to primary commander`);
+  // Fallback: use primary commander's theme data
+  return fetchCommanderThemeData(commander1, themeSlug);
+}
+
+/**
+ * Partner popularity data from EDHREC's /partners/ endpoint
+ */
+export interface PartnerPopularity {
+  name: string;       // Partner commander name
+  numDecks: number;   // Number of decks with this pairing
+}
+
+/**
+ * Fetch partner popularity data from EDHREC.
+ * Returns a map of partner name -> deck count for the given commander.
+ */
+export async function fetchPartnerPopularity(
+  commanderName: string
+): Promise<Map<string, number>> {
+  const formattedName = formatCommanderNameForUrl(commanderName);
+  const cacheKey = `partners-${formattedName}`;
+
+  // Check cache
+  const cached = partnerPopularityCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const response = await edhrecFetch<{ partnercounts?: Array<{ value: string; count: number }> }>(
+      `/pages/partners/${formattedName}.json`
+    );
+
+    const result = new Map<string, number>();
+    for (const entry of response.partnercounts || []) {
+      result.set(entry.value, entry.count);
+    }
+
+    partnerPopularityCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    return result;
+  } catch (error) {
+    console.error(`[EDHREC] Failed to fetch partner popularity for ${commanderName}:`, error);
+    return new Map();
   }
 }
 

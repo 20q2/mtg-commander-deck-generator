@@ -6,7 +6,9 @@ export type PartnerType =
   | 'partner-with'      // "Partner with [Name]"
   | 'friends-forever'   // "Friends forever" keyword
   | 'choose-background' // Commander that can choose a Background
-  | 'background';       // Background enchantment (partner for choose-background commanders)
+  | 'background'        // Background enchantment (partner for choose-background commanders)
+  | 'doctors-companion' // "Doctor's companion" keyword (pairs with a Doctor)
+  | 'doctor';           // Creature with Doctor type (pairs with Doctor's companion)
 
 // Local helper to get oracle text (avoids circular dependency with scryfall/client)
 function getOracleText(card: ScryfallCard): string {
@@ -40,8 +42,23 @@ export function getPartnerType(card: ScryfallCard): PartnerType {
     return 'choose-background';
   }
 
-  // Check for "Friends forever" keyword
-  if (keywords.includes('Friends forever')) {
+  // Check for "Doctor's companion" keyword
+  if (keywords.includes("Doctor's companion")) {
+    return 'doctors-companion';
+  }
+
+  // Check for Doctor creature type (Time Lord Doctor — pairs with Doctor's companion)
+  if (typeLine.includes('—')) {
+    const subtypes = typeLine.split('—')[1] || '';
+    if (/\bDoctor\b/.test(subtypes)) {
+      return 'doctor';
+    }
+  }
+
+  // Check for "Friends forever" in oracle text (before generic Partner check)
+  // Note: Scryfall returns keywords: ["Partner"] for Friends forever cards,
+  // so we must check oracle text to distinguish them from generic Partner
+  if (oracleText.includes('Friends forever')) {
     return 'friends-forever';
   }
 
@@ -50,7 +67,7 @@ export function getPartnerType(card: ScryfallCard): PartnerType {
     return 'partner-with';
   }
 
-  // Check for generic "Partner" keyword
+  // Check for generic "Partner" keyword (after excluding Friends forever and Partner with)
   if (keywords.includes('Partner')) {
     return 'partner';
   }
@@ -124,6 +141,14 @@ export function areValidPartners(card1: ScryfallCard, card2: ScryfallCard): bool
     return true;
   }
 
+  // Doctor's companion pairs with Doctor
+  if (type1 === 'doctors-companion' && type2 === 'doctor') {
+    return true;
+  }
+  if (type1 === 'doctor' && type2 === 'doctors-companion') {
+    return true;
+  }
+
   return false;
 }
 
@@ -142,6 +167,10 @@ export function getPartnerTypeLabel(partnerType: PartnerType): string {
       return 'Choose a Background';
     case 'background':
       return 'Background';
+    case 'doctors-companion':
+      return 'Doctor';
+    case 'doctor':
+      return "Doctor's Companion";
     default:
       return '';
   }

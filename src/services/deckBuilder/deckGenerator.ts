@@ -13,7 +13,7 @@ import type {
   EDHRECCommanderStats,
 } from '@/types';
 import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard } from '@/services/scryfall/client';
-import { fetchCommanderData, fetchCommanderThemeData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
   calculateCurveTargets,
@@ -477,10 +477,12 @@ const BASIC_LAND_NAMES = new Set([
   'Wastes',
 ]);
 
-// Count color pips across all cards' mana costs
+// Count color pips across all cards' mana costs (including hybrid mana)
 function countColorPips(cards: ScryfallCard[]): Record<string, number> {
   const pips: Record<string, number> = {};
-  const pipPattern = /\{([WUBRG])\}/g;
+  // Match any mana symbol: {W}, {U/B}, {2/R}, {G/P}, etc.
+  const symbolPattern = /\{([^}]+)\}/g;
+  const colorLetters = new Set(['W', 'U', 'B', 'R', 'G']);
   for (const card of cards) {
     const costs: string[] = [];
     if (card.mana_cost) costs.push(card.mana_cost);
@@ -492,8 +494,13 @@ function countColorPips(cards: ScryfallCard[]): Record<string, number> {
     }
     for (const cost of costs) {
       let match;
-      while ((match = pipPattern.exec(cost)) !== null) {
-        pips[match[1]] = (pips[match[1]] || 0) + 1;
+      while ((match = symbolPattern.exec(cost)) !== null) {
+        // Extract every color letter from the symbol (handles hybrid like W/U, 2/R, G/P)
+        for (const char of match[1]) {
+          if (colorLetters.has(char)) {
+            pips[char] = (pips[char] || 0) + 1;
+          }
+        }
       }
     }
   }
@@ -804,7 +811,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     onProgress?.('Seeking guidance from the oracle...', 8);
     try {
       const themeDataPromises = selectedThemesWithSlugs.map(theme =>
-        fetchCommanderThemeData(commander.name, theme.slug!)
+        partnerCommander
+          ? fetchPartnerThemeData(commander.name, partnerCommander.name, theme.slug!)
+          : fetchCommanderThemeData(commander.name, theme.slug!)
       );
       const themeDataResults = await Promise.all(themeDataPromises);
 
@@ -825,7 +834,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.warn('Failed to fetch theme-specific EDHREC data, trying base commander:', error);
       // Fall back to base commander data
       try {
-        edhrecData = await fetchCommanderData(commander.name);
+        edhrecData = partnerCommander
+          ? await fetchPartnerCommanderData(commander.name, partnerCommander.name)
+          : await fetchCommanderData(commander.name);
         onProgress?.('Consulting ancient scrolls...', 12);
       } catch {
         onProgress?.('The oracle is silent... searching the multiverse...', 12);
@@ -835,7 +846,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // No themes selected - use base commander data (top recommended cards)
     onProgress?.('Consulting the wisdom of EDHREC...', 8);
     try {
-      edhrecData = await fetchCommanderData(commander.name);
+      edhrecData = partnerCommander
+        ? await fetchPartnerCommanderData(commander.name, partnerCommander.name)
+        : await fetchCommanderData(commander.name);
       onProgress?.('Ancient knowledge acquired!', 12);
     } catch (error) {
       console.warn('Failed to fetch EDHREC data, falling back to Scryfall:', error);
