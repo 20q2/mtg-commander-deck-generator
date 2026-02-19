@@ -184,6 +184,66 @@ function exceedsCmcCap(card: ScryfallCard, maxCmc: number | null): boolean {
   return card.cmc > maxCmc;
 }
 
+/**
+ * Tracks total deck spending and dynamically adjusts per-card price cap.
+ * Hard cap — deck total will not exceed the set budget.
+ */
+class BudgetTracker {
+  remainingBudget: number;
+  cardsRemaining: number;
+
+  constructor(totalBudget: number, totalCardsToSelect: number) {
+    this.remainingBudget = totalBudget;
+    this.cardsRemaining = Math.max(1, totalCardsToSelect);
+  }
+
+  /**
+   * Get the effective per-card price cap.
+   * Uses two rules to prevent budget blowout:
+   * 1. No single card can exceed 15% of remaining budget
+   * 2. No single card can exceed 8x the per-card average
+   * This spreads the budget across all slots — key cards can still cost
+   * several times the average, but no single pick dominates.
+   */
+  getEffectiveCap(staticMax: number | null): number | null {
+    if (this.cardsRemaining <= 0) return staticMax;
+    const avg = this.remainingBudget / this.cardsRemaining;
+    const dynamicCap = Math.min(
+      this.remainingBudget * 0.15, // max 15% of remaining budget
+      avg * 8                      // max 8x average per card
+    );
+    if (staticMax === null) return Math.max(0, dynamicCap);
+    return Math.max(0, Math.min(staticMax, dynamicCap));
+  }
+
+  /** Deduct card price after adding it to the deck */
+  deductCard(card: ScryfallCard): void {
+    const priceStr = getCardPrice(card);
+    if (priceStr) {
+      const price = parseFloat(priceStr);
+      if (!isNaN(price)) {
+        this.remainingBudget -= price;
+      }
+    }
+    this.cardsRemaining = Math.max(0, this.cardsRemaining - 1);
+  }
+
+  /** Deduct cost of must-include cards upfront */
+  deductMustIncludes(cards: ScryfallCard[]): void {
+    for (const card of cards) {
+      const priceStr = getCardPrice(card);
+      if (priceStr) {
+        const price = parseFloat(priceStr);
+        if (!isNaN(price)) {
+          this.remainingBudget -= price;
+        }
+      }
+      this.cardsRemaining = Math.max(0, this.cardsRemaining - 1);
+    }
+    console.log(`[BudgetTracker] After must-includes: $${this.remainingBudget.toFixed(2)} remaining for ${this.cardsRemaining} cards`);
+  }
+}
+
 // Pick cards from a pre-fetched card map (no API calls)
 function pickFromPrefetched(
   edhrecCards: EDHRECCard[],
@@ -196,7 +256,8 @@ function pickFromPrefetched(
   maxGameChangers: number = Infinity,
   gameChangerCount: { value: number } = { value: 0 },
   maxRarity: MaxRarity = null,
-  maxCmc: number | null = null
+  maxCmc: number | null = null,
+  budgetTracker: BudgetTracker | null = null
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -220,7 +281,8 @@ function pickFromPrefetched(
       continue;
     }
 
-    if (exceedsMaxPrice(scryfallCard, maxCardPrice)) continue;
+    const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+    if (exceedsMaxPrice(scryfallCard, effectiveCap)) continue;
     if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
     if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
 
@@ -230,6 +292,7 @@ function pickFromPrefetched(
     }
     result.push(scryfallCard);
     usedNames.add(edhrecCard.name);
+    budgetTracker?.deductCard(scryfallCard);
   }
 
   return result;
@@ -282,7 +345,8 @@ function pickFromPrefetchedWithCurve(
   maxGameChangers: number = Infinity,
   gameChangerCount: { value: number } = { value: 0 },
   maxRarity: MaxRarity = null,
-  maxCmc: number | null = null
+  maxCmc: number | null = null,
+  budgetTracker: BudgetTracker | null = null
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -325,8 +389,9 @@ function pickFromPrefetchedWithCurve(
         continue;
       }
 
-      // Price limit check
-      if (exceedsMaxPrice(scryfallCard, maxCardPrice)) {
+      // Price limit check (uses dynamic cap if budget tracker is active)
+      const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+      if (exceedsMaxPrice(scryfallCard, effectiveCap)) {
         continue;
       }
 
@@ -356,6 +421,7 @@ function pickFromPrefetchedWithCurve(
       result.push(scryfallCard);
       usedNames.add(edhrecCard.name);
       currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+      budgetTracker?.deductCard(scryfallCard);
     }
   };
 
@@ -511,7 +577,8 @@ async function fillWithScryfall(
   bannedCards: Set<string> = new Set(),
   maxCardPrice: number | null = null,
   maxRarity: MaxRarity = null,
-  maxCmc: number | null = null
+  maxCmc: number | null = null,
+  budgetTracker: BudgetTracker | null = null
 ): Promise<ScryfallCard[]> {
   if (count <= 0) return [];
 
@@ -533,12 +600,14 @@ async function fillWithScryfall(
       if (result.length >= count) break;
       if (usedNames.has(card.name)) continue; // Commander format is always singleton
       if (bannedCards.has(card.name)) continue; // Skip banned cards
-      if (exceedsMaxPrice(card, maxCardPrice)) continue;
+      const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+      if (exceedsMaxPrice(card, effectiveCap)) continue;
       if (exceedsMaxRarity(card, maxRarity)) continue;
       if (exceedsCmcCap(card, maxCmc)) continue;
 
       result.push(card);
       usedNames.add(card.name);
+      budgetTracker?.deductCard(card);
     }
 
     return result;
@@ -599,7 +668,8 @@ async function generateLands(
   bannedCards: Set<string> = new Set(),
   maxCardPrice: number | null = null,
   maxRarity: MaxRarity = null,
-  maxCmc: number | null = null
+  maxCmc: number | null = null,
+  budgetTracker: BudgetTracker | null = null
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -629,7 +699,7 @@ async function generateLands(
       .map(c => c.name);
 
     const landCardMap = await getCardsByNames(landNamesToFetch);
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc);
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -640,7 +710,7 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker);
     lands.push(...moreLands);
   }
 
@@ -860,6 +930,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     : customization.gameChangerLimit === 'unlimited' ? Infinity
     : customization.gameChangerLimit;
   const gameChangerCount = { value: 0 };
+  const deckBudget = customization.deckBudget ?? null;
+  console.log(`[DeckGen] Budget settings: deckBudget=${deckBudget}, maxCardPrice=${maxCardPrice}, budgetOption=${budgetOption}`);
 
   // Log banned cards if any
   if (bannedCards.size > 0) {
@@ -1094,6 +1166,18 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   console.log('[DeckGen] Target curve:', curveTargets);
   console.log('[DeckGen] Land target:', targets.lands);
 
+  // Create budget tracker if deck budget is set
+  const mustIncludeCards = Object.values(categories).flat();
+  const nonLandSlotsTotal = totalTypeTargets - mustIncludeCards.filter(c => !c.type_line?.toLowerCase().includes('land')).length;
+  const budgetTracker = deckBudget !== null
+    ? new BudgetTracker(deckBudget, nonLandSlotsTotal + (customization.nonBasicLandCount ?? 15))
+    : null;
+
+  // Deduct must-include costs from budget (commander cost is excluded from budget)
+  if (budgetTracker && mustIncludeCards.length > 0) {
+    budgetTracker.deductMustIncludes(mustIncludeCards);
+  }
+
   // If we have EDHREC data, use it as the primary source with CMC-aware selection
   if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
     const { cardlists } = edhrecData;
@@ -1171,7 +1255,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxGameChangers,
       gameChangerCount,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
     categories.creatures.push(...creatures);
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
@@ -1188,7 +1273,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         bannedCards,
         maxCardPrice,
         maxRarity,
-        maxCmc
+        maxCmc,
+        budgetTracker
       );
       categories.creatures.push(...moreCreatures);
       console.log(`[DeckGen] FALLBACK: Got ${moreCreatures.length} creatures from Scryfall`);
@@ -1215,7 +1301,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxGameChangers,
       gameChangerCount,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeInstants(instants, categories);
@@ -1237,7 +1324,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxGameChangers,
       gameChangerCount,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeSorceries(sorceries, categories);
@@ -1259,7 +1347,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxGameChangers,
       gameChangerCount,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeArtifacts(artifacts, categories);
@@ -1281,7 +1370,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxGameChangers,
       gameChangerCount,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeEnchantments(enchantments, categories);
@@ -1304,7 +1394,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxGameChangers,
         gameChangerCount,
         maxRarity,
-        maxCmc
+        maxCmc,
+        budgetTracker
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
@@ -1355,7 +1446,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         bannedCards,
         maxCardPrice,
         maxRarity,
-        maxCmc
+        maxCmc,
+        budgetTracker
       ),
     ];
 
@@ -1382,7 +1474,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards,
       maxCardPrice,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
 
     onProgress?.('Seeking sources of knowledge...', 30);
@@ -1394,7 +1487,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards,
       maxCardPrice,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
 
     onProgress?.('Arming with removal spells...', 40);
@@ -1406,7 +1500,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards,
       maxCardPrice,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
 
     onProgress?.('Preparing mass destruction...', 50);
@@ -1418,7 +1513,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards,
       maxCardPrice,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
 
     onProgress?.('Recruiting an army...', 60);
@@ -1430,7 +1526,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards,
       maxCardPrice,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
 
     onProgress?.('Finding synergistic pieces...', 70);
@@ -1442,7 +1539,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       bannedCards,
       maxCardPrice,
       maxRarity,
-      maxCmc
+      maxCmc,
+      budgetTracker
     );
 
     onProgress?.('Surveying the mana base...', 80);
@@ -1475,7 +1573,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         bannedCards,
         maxCardPrice,
         maxRarity,
-        maxCmc
+        maxCmc,
+        budgetTracker
       ),
     ];
   }
@@ -1511,21 +1610,35 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     currentCount = countAllCards();
   }
 
-  // If we have too few cards, fill shortage from EDHREC data (not Scryfall)
+  // If we have too few cards, fill shortage — budget is best-effort here,
+  // deck size and structure are non-negotiable
   currentCount = countAllCards();
   if (currentCount < targetDeckSize) {
     const shortage = targetDeckSize - currentCount;
     console.log(`[DeckGen] Deck shortage: need ${shortage} more cards (have ${currentCount}, need ${targetDeckSize})`);
 
-    // Try to fill with remaining EDHREC cards (sorted by inclusion, less popular cards)
+    // For shortage fills: use a relaxed per-card cap derived from the budget
+    // (5x the budget average) so we don't allow $84 cards in a $25 deck,
+    // but still allow more flexibility than the strict budget tracker.
+    // Falls back to the user's static maxCardPrice if no budget is set.
+    const shortagePriceCap = deckBudget !== null
+      ? Math.max(
+          (deckBudget / Math.max(1, nonLandSlotsTotal + (customization.nonBasicLandCount ?? 15))) * 5,
+          maxCardPrice ?? 0
+        )
+      : maxCardPrice;
+    if (budgetTracker) {
+      console.log(`[DeckGen] Budget exhausted — filling remaining slots with relaxed cap: $${shortagePriceCap?.toFixed(2) ?? 'none'}`);
+    }
+
+    // Try to fill with remaining EDHREC cards (relaxed budget cap)
     if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
       const remainingEdhrecCards = edhrecData.cardlists.allNonLand
         .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
-        .sort((a, b) => b.inclusion - a.inclusion); // Still prioritize by inclusion
+        .sort((a, b) => b.inclusion - a.inclusion);
 
       console.log(`[DeckGen] Found ${remainingEdhrecCards.length} remaining EDHREC cards to fill shortage`);
 
-      // Batch fetch these cards
       const namesToFetch = remainingEdhrecCards.slice(0, shortage * 2).map(c => c.name);
       const fillCardMap = await getCardsByNames(namesToFetch);
 
@@ -1536,9 +1649,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const scryfallCard = fillCardMap.get(edhrecCard.name);
         if (!scryfallCard) continue;
 
-        // Verify color identity
         if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
-        if (exceedsMaxPrice(scryfallCard, maxCardPrice)) continue;
+        if (exceedsMaxPrice(scryfallCard, shortagePriceCap)) continue;
         if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
 
         categories.synergy.push(scryfallCard);
@@ -1549,7 +1661,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log(`[DeckGen] Filled ${filled} cards from remaining EDHREC suggestions`);
     }
 
-    // If still short after EDHREC, use Scryfall as last resort
+    // If still short after EDHREC, use Scryfall (relaxed budget cap)
     currentCount = countAllCards();
     if (currentCount < targetDeckSize) {
       const stillNeeded = targetDeckSize - currentCount;
@@ -1561,9 +1673,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         stillNeeded,
         usedNames,
         bannedCards,
-        maxCardPrice,
+        shortagePriceCap,
         maxRarity,
-        maxCmc
+        maxCmc,
+        null
       );
       categories.synergy.push(...moreSynergy);
       console.log(`[DeckGen] Filled ${moreSynergy.length} cards from Scryfall`);
@@ -1648,6 +1761,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const finalCount = countAllCards();
   if (finalCount !== targetDeckSize) {
     console.warn(`[DeckGen] Final deck size mismatch: got ${finalCount}, expected ${targetDeckSize}`);
+  }
+
+  // Log budget tracker summary
+  if (budgetTracker) {
+    const allDeckCards = Object.values(categories).flat();
+    const totalSpent = allDeckCards.reduce((sum, c) => {
+      const p = getCardPrice(c);
+      return sum + (p ? parseFloat(p) || 0 : 0);
+    }, 0);
+    console.log(`[BudgetTracker] Final: deck cards $${totalSpent.toFixed(2)} (budget: $${deckBudget}, excludes commander cost)`);
+    console.log(`[BudgetTracker] Remaining: $${budgetTracker.remainingBudget.toFixed(2)}, cards left: ${budgetTracker.cardsRemaining}`);
   }
 
   // Calculate stats

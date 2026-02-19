@@ -268,6 +268,7 @@ export interface Customization {
   bannedCards: string[]; // Card names to exclude from deck generation
   mustIncludeCards: string[]; // Card names to force-include in deck generation (first priority)
   maxCardPrice: number | null; // Max USD price per card, null = no limit
+  deckBudget: number | null; // Total deck budget in USD, null = no limit
   budgetOption: BudgetOption; // EDHREC card pool: any (normal), budget, or expensive
   gameChangerLimit: GameChangerLimit; // How many game changer cards to allow
   bracketLevel: BracketLevel; // EDHREC bracket level for power level filtering

@@ -61,6 +61,7 @@ const defaultCustomization: Customization = {
   bannedCards: loadBannedCards(), // Load from localStorage
   mustIncludeCards: loadMustIncludeCards(), // Load from localStorage
   maxCardPrice: null, // No limit by default
+  deckBudget: null, // No total deck budget by default
   budgetOption: 'any' as const, // Default to normal card pool
   gameChangerLimit: 'unlimited' as const,
   bracketLevel: 'all' as const,

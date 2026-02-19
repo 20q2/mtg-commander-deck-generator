@@ -953,11 +953,15 @@ export function DeckDisplay() {
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">
               {totalCards} cards · ${totalPrice.toFixed(2)}
-              {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null) && (
+              {customization.deckBudget !== null && (
+                <span className="ml-1 text-xs text-muted-foreground/70">(excludes commander)</span>
+              )}
+              {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
                 <span className="ml-1 text-xs">
                   ({[
                     customization.budgetOption === 'budget' ? 'Budget' : customization.budgetOption === 'expensive' ? 'Expensive' : null,
-                    customization.maxCardPrice !== null ? `<$${customization.maxCardPrice}` : null,
+                    customization.maxCardPrice !== null ? `<$${customization.maxCardPrice}/card` : null,
+                    customization.deckBudget !== null ? `${totalPrice > customization.deckBudget ? '~' : ''}$${customization.deckBudget} budget` : null,
                   ].filter(Boolean).join(' · ')})
                 </span>
               )}

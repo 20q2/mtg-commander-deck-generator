@@ -518,6 +518,7 @@ export function BuilderPage() {
                         landCount: 37,
                         nonBasicLandCount: 15,
                         maxCardPrice: null,
+                        deckBudget: null,
                         budgetOption: 'any',
                         gameChangerLimit: 'unlimited',
                         bracketLevel: 'all',

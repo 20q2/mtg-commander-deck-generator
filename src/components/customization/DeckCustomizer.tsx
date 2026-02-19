@@ -5,23 +5,27 @@ import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, MaxRarit
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 
 export function DeckCustomizer() {
   const { customization, updateCustomization, commander, partnerCommander } = useStore();
   const [editingLands, setEditingLands] = useState(false);
   const [landInputValue, setLandInputValue] = useState('');
-  const [budgetOpen, setBudgetOpen] = useState(false);
-  const [powerLevelOpen, setPowerLevelOpen] = useState(false);
-  const [otherOpen, setOtherOpen] = useState(false);
-  const [cardListsOpen, setCardListsOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(() => localStorage.getItem('accordion-budget') === 'true');
+  const [powerLevelOpen, setPowerLevelOpen] = useState(() => localStorage.getItem('accordion-power') === 'true');
+  const [otherOpen, setOtherOpen] = useState(() => localStorage.getItem('accordion-other') === 'true');
+  const [cardListsOpen, setCardListsOpen] = useState(() => localStorage.getItem('accordion-cardlists') === 'true');
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceInputValue, setPriceInputValue] = useState('');
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInputValue, setBudgetInputValue] = useState('');
   const [editingGcLimit, setEditingGcLimit] = useState(false);
   const [gcLimitInputValue, setGcLimitInputValue] = useState('');
   const [editingCustomFormat, setEditingCustomFormat] = useState(false);
   const [customFormatValue, setCustomFormatValue] = useState('');
   const priceInputRef = useRef<HTMLInputElement>(null);
+  const budgetInputRef = useRef<HTMLInputElement>(null);
   const landInputRef = useRef<HTMLInputElement>(null);
   const gcLimitInputRef = useRef<HTMLInputElement>(null);
   const customFormatInputRef = useRef<HTMLInputElement>(null);
@@ -127,6 +131,19 @@ export function DeckCustomizer() {
     const parsed = parseFloat(priceInputValue);
     if (!isNaN(parsed) && parsed > 0) {
       updateCustomization({ maxCardPrice: parsed });
+    }
+  };
+
+  const startEditingBudget = () => {
+    setBudgetInputValue(customization.deckBudget !== null ? String(customization.deckBudget) : '');
+    setEditingBudget(true);
+  };
+
+  const commitBudgetInput = () => {
+    setEditingBudget(false);
+    const parsed = parseFloat(budgetInputValue);
+    if (!isNaN(parsed) && parsed > 0) {
+      updateCustomization({ deckBudget: parsed });
     }
   };
 
@@ -280,7 +297,7 @@ export function DeckCustomizer() {
       {/* Budget Options Accordion */}
       <div className={budgetOpen ? 'pt-2 border-t border-border/50' : ''}>
         <button
-          onClick={() => setBudgetOpen(!budgetOpen)}
+          onClick={() => { const v = !budgetOpen; setBudgetOpen(v); localStorage.setItem('accordion-budget', String(v)); }}
           className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
         >
           <span className="font-medium flex items-center gap-2">
@@ -289,11 +306,12 @@ export function DeckCustomizer() {
               <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
             </svg>
             Budget Options
-            {!budgetOpen && (customization.budgetOption !== 'any' || customization.maxCardPrice !== null) && (
+            {!budgetOpen && (customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
               <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.budgetOption !== 'any' ? customization.budgetOption : null,
-                  customization.maxCardPrice !== null ? `$${customization.maxCardPrice}` : null,
+                  customization.maxCardPrice !== null ? `$${customization.maxCardPrice}/card` : null,
+                  customization.deckBudget !== null ? `$${customization.deckBudget} deck` : null,
                 ].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -309,7 +327,8 @@ export function DeckCustomizer() {
           </svg>
         </button>
 
-        {budgetOpen && (
+        <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${budgetOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div className="overflow-hidden">
           <div className="mt-3 space-y-4">
             {/* EDHREC Card Pool */}
             <div>
@@ -391,14 +410,74 @@ export function DeckCustomizer() {
                 )}
               </div>
             </div>
+
+            {/* Total Deck Budget */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  Total Deck Budget
+                  <InfoTooltip text="Sets a target budget for the deck (excluding commander). At low budgets, some expensive but high-synergy cards may be skipped in favor of cheaper alternatives. The final total may slightly exceed the target if needed to complete the deck." />
+                </label>
+                <span className="text-sm font-bold">
+                  {customization.deckBudget === null ? 'No limit' : `$${customization.deckBudget}`}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {([null, 25, 50, 100, 200] as const).map((budget) => {
+                  const isSelected = customization.deckBudget === budget;
+                  return (
+                    <button
+                      key={budget ?? 'none'}
+                      onClick={() => { setEditingBudget(false); updateCustomization({ deckBudget: budget }); }}
+                      className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                        isSelected
+                          ? 'bg-primary/10 border border-primary text-primary'
+                          : 'border border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {budget === null ? 'None' : `$${budget}`}
+                    </button>
+                  );
+                })}
+                {editingBudget ? (
+                  <input
+                    ref={budgetInputRef}
+                    type="number"
+                    placeholder="$"
+                    value={budgetInputValue}
+                    onChange={(e) => setBudgetInputValue(e.target.value)}
+                    onBlur={commitBudgetInput}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitBudgetInput();
+                      if (e.key === 'Escape') setEditingBudget(false);
+                    }}
+                    className="flex-1 py-1.5 px-1 rounded text-xs font-medium text-center bg-background border border-primary outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                ) : (
+                  <button
+                    onClick={startEditingBudget}
+                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                      customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
+                        ? 'bg-primary/10 border border-primary text-primary'
+                        : 'border border-border hover:border-primary/50'
+                    }`}
+                  >
+                    {customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
+                      ? `$${customization.deckBudget}`
+                      : 'Custom'}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        )}
+          </div>
+        </div>
       </div>
 
       {/* Power Level Accordion */}
       <div className={powerLevelOpen ? 'pt-2 border-t border-border/50' : ''}>
         <button
-          onClick={() => setPowerLevelOpen(!powerLevelOpen)}
+          onClick={() => { const v = !powerLevelOpen; setPowerLevelOpen(v); localStorage.setItem('accordion-power', String(v)); }}
           className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
         >
           <span className="font-medium flex items-center gap-2">
@@ -426,7 +505,8 @@ export function DeckCustomizer() {
           </svg>
         </button>
 
-        {powerLevelOpen && (
+        <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${powerLevelOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div className="overflow-hidden">
           <div className="mt-3 space-y-4">
             {/* Bracket Level */}
             <div>
@@ -529,13 +609,14 @@ export function DeckCustomizer() {
               </div>
             </div>
           </div>
-        )}
+          </div>
+        </div>
       </div>
 
       {/* Card Lists Accordion */}
       <div className={cardListsOpen ? 'pt-2 border-t border-border/50' : ''}>
         <button
-          onClick={() => setCardListsOpen(!cardListsOpen)}
+          onClick={() => { const v = !cardListsOpen; setCardListsOpen(v); localStorage.setItem('accordion-cardlists', String(v)); }}
           className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
         >
           <span className="font-medium flex items-center gap-2">
@@ -568,7 +649,8 @@ export function DeckCustomizer() {
           </svg>
         </button>
 
-        {cardListsOpen && (
+        <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${cardListsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div className="overflow-hidden">
           <div className="mt-3 space-y-4">
             {/* Must Include Cards */}
             <MustIncludeCards />
@@ -576,13 +658,14 @@ export function DeckCustomizer() {
             {/* Excluded Cards */}
             <BannedCards />
           </div>
-        )}
+          </div>
+        </div>
       </div>
 
       {/* Other Accordion */}
       <div className={otherOpen ? 'pt-2 border-t border-border/50' : ''}>
         <button
-          onClick={() => setOtherOpen(!otherOpen)}
+          onClick={() => { const v = !otherOpen; setOtherOpen(v); localStorage.setItem('accordion-other', String(v)); }}
           className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
         >
           <span className="font-medium flex items-center gap-2">
@@ -611,7 +694,8 @@ export function DeckCustomizer() {
           </svg>
         </button>
 
-        {otherOpen && (
+        <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${otherOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+          <div className="overflow-hidden">
           <div className="mt-3 space-y-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Max Card Rarity</label>
@@ -649,19 +733,11 @@ export function DeckCustomizer() {
                 className="rounded border-border accent-primary w-4 h-4"
               />
               <span className="text-sm font-medium group-hover:text-primary transition-colors">Tiny Leaders</span>
-              <span
-                className="text-muted-foreground hover:text-foreground transition-colors cursor-help"
-                title="Experimental: Restricts all non-land cards to converted mana cost (CMC) 3 or less. The mana curve is compressed to fit within the 0-3 range."
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 16v-4" />
-                  <path d="M12 8h.01" />
-                </svg>
-              </span>
+              <InfoTooltip text="Experimental: Restricts all non-land cards to converted mana cost (CMC) 3 or less." />
             </label>
           </div>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   );
