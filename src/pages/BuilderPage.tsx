@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { DeckDisplay } from '@/components/deck/DeckDisplay';
+import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { PartnerSelector } from '@/components/commander/PartnerSelector';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -287,6 +288,18 @@ export function BuilderPage() {
     setProgressPercent(0);
 
     try {
+      // Load collection if collection mode is enabled
+      let collectionNames: Set<string> | undefined;
+      if (customization.collectionMode) {
+        const { getCollectionNameSet } = await import('@/services/collection/db');
+        collectionNames = await getCollectionNameSet();
+        if (collectionNames.size === 0) {
+          setError('Collection mode is enabled but your collection is empty. Import your collection first.');
+          setLoading(false);
+          return;
+        }
+      }
+
       const deck = await generateDeck({
         commander,
         partnerCommander,
@@ -294,12 +307,14 @@ export function BuilderPage() {
         archetype: selectedArchetype,
         customization,
         selectedThemes,
+        collectionNames,
         onProgress: (message, percent) => {
           setProgress(message);
           setProgressPercent(percent);
         },
       });
 
+      deck.builtFromCollection = !!customization.collectionMode;
       setGeneratedDeck(deck);
     } catch (error) {
       console.error('Generation error:', error);
@@ -605,6 +620,9 @@ export function BuilderPage() {
             </div>
           </div>
           <DeckDisplay />
+          {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (
+            <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
+          )}
         </section>
       )}
     </main>

@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine } from '@/services/scryfall/client';
@@ -13,8 +14,10 @@ import {
   List,
   ArrowUpDown,
   Search,
+  AlertTriangle,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
+import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 
 // Stats filter for interactive highlighting
 type StatsFilter =
@@ -168,6 +171,8 @@ interface CategoryColumnProps {
 }
 
 function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds }: CategoryColumnProps) {
+  const [animateRef] = useAutoAnimate({ duration: 200 });
+
   if (cards.length === 0) return null;
 
   const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
@@ -194,7 +199,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds }: Ca
       </div>
 
       {/* Cards */}
-      <div className="py-1">
+      <div ref={animateRef} className="py-1">
         {cards.map(({ card, quantity }) => (
           <CardRow
             key={card.id}
@@ -236,108 +241,6 @@ function FloatingPreview({ card, position, showBack }: FloatingPreviewProps) {
           alt={card.name}
           className="w-64 rounded-lg shadow-2xl border border-border/50"
         />
-      </div>
-    </div>
-  );
-}
-
-// Card preview modal
-interface CardPreviewModalProps {
-  card: ScryfallCard | null;
-  onClose: () => void;
-}
-
-function CardPreviewModal({ card, onClose }: CardPreviewModalProps) {
-  const [showBack, setShowBack] = useState(false);
-
-  // Reset flip state when card changes
-  const cardId = card?.id;
-  const [prevCardId, setPrevCardId] = useState(cardId);
-  if (cardId !== prevCardId) {
-    setPrevCardId(cardId);
-    setShowBack(false);
-  }
-
-  if (!card) return null;
-
-  const isDfc = isDoubleFacedCard(card);
-  const backUrl = isDfc ? getCardBackFaceUrl(card, 'large') : null;
-  const imgUrl = showBack && backUrl ? backUrl : getCardImageUrl(card, 'large');
-  const faceName = showBack && card.card_faces?.[1]
-    ? card.card_faces[1].name
-    : card.card_faces?.[0]?.name ?? card.name;
-  const faceType = showBack && card.card_faces?.[1]
-    ? card.card_faces[1].type_line
-    : card.type_line;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
-      onClick={onClose}
-    >
-      <div className="relative animate-scale-in" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          className="absolute -top-10 right-0 text-white/70 hover:text-white transition-colors"
-        >
-          <X className="w-6 h-6" />
-        </button>
-        <div className="relative">
-          <img
-            src={imgUrl}
-            alt={faceName}
-            className="max-h-[80vh] rounded-xl shadow-2xl transition-all duration-200"
-          />
-          {isDfc && (
-            <button
-              onClick={() => setShowBack(!showBack)}
-              className="absolute bottom-4 right-4 bg-white/90 hover:bg-white text-black rounded-full px-4 py-2 flex items-center gap-2 text-sm font-semibold shadow-lg transition-colors"
-              title={showBack ? 'Show front face' : 'Show back face'}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-              Flip
-            </button>
-          )}
-        </div>
-        <div className="mt-4 text-center">
-          <h3 className="text-white font-bold text-lg">{faceName}</h3>
-          <p className="text-white/70 text-sm">{faceType}</p>
-          {getCardPrice(card) && (
-            <p className="text-white/50 text-xs mt-1">${getCardPrice(card)}</p>
-          )}
-          <div className="flex items-center justify-center gap-3 mt-3">
-            <a
-              href={`https://scryfall.com/search?q=!%22${encodeURIComponent(card.name)}%22`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => console.log('[CardPreview]', card.name, card)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-medium transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-              Scryfall
-            </a>
-            <a
-              href={`https://edhrec.com/cards/${card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => console.log('[CardPreview]', card.name, card)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-medium transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-              EDHREC
-            </a>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -797,6 +700,7 @@ export function DeckDisplay() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price'>('name');
+  const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -1028,6 +932,14 @@ export function DeckDisplay() {
           <div className="flex items-center gap-4">
             <div className="text-sm text-muted-foreground">
               {totalCards} cards · ${totalPrice.toFixed(2)}
+              {generatedDeck.builtFromCollection && (
+                <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  From My Collection
+                </span>
+              )}
               {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
                 <span className="ml-1 text-xs">
                   ({[
@@ -1049,6 +961,17 @@ export function DeckDisplay() {
             </Button>
           </div>
         </div>
+
+        {generatedDeck.collectionShortfall && generatedDeck.collectionShortfall > 0 && (
+          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-amber-200/90">
+              Your collection didn't have enough cards to fill the deck.{' '}
+              <span className="font-semibold">{generatedDeck.collectionShortfall} extra basic land{generatedDeck.collectionShortfall > 1 ? 's were' : ' was'}</span>{' '}
+              added to reach {totalCards} cards. Check the suggestions below for cards worth picking up!
+            </p>
+          </div>
+        )}
 
         {/* Stats - Mobile/Tablet (above deck list) */}
         <div className="xl:hidden mb-6">
@@ -1073,7 +996,7 @@ export function DeckDisplay() {
                 ))}
               </div>
             ) : (
-              <div className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+              <div ref={gridAnimateRef} className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
                 {TYPE_ORDER.flatMap((type) =>
                   (groupedCards[type] || []).map(({ card, quantity }) => {
                     const dimmed = combinedMatchingIds !== null && !combinedMatchingIds.has(card.id);

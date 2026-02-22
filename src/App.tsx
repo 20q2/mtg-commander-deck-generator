@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { HomePage } from '@/pages/HomePage';
 import { BuilderPage } from '@/pages/BuilderPage';
+import { CollectionPage } from '@/pages/CollectionPage';
 import { useStore } from '@/store';
+import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
 
 // Get art crop URL for background
@@ -80,6 +82,7 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
 // Layout wrapper with header/footer
 function Layout({ children }: { children: React.ReactNode }) {
   const { commander, generatedDeck, reset } = useStore();
+  const { count: collectionCount } = useCollection();
   const navigate = useNavigate();
 
   const handleLogoClick = () => {
@@ -114,7 +117,20 @@ function Layout({ children }: { children: React.ReactNode }) {
                   </p>
                 </div>
               </button>
-              <span className="text-xs text-muted-foreground/50">v{__APP_VERSION__}</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => navigate('/collection')}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
+                >
+                  My Collection
+                  {collectionCount > 0 && (
+                    <span className="text-[10px] font-medium bg-primary/20 text-primary px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                      {collectionCount.toLocaleString()}
+                    </span>
+                  )}
+                </button>
+                <span className="text-xs text-muted-foreground/50">v{__APP_VERSION__}</span>
+              </div>
             </div>
           </div>
         </header>
@@ -167,6 +183,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout><HomePage /></Layout>} />
         <Route path="/build/:commanderName/:partnerName?" element={<Layout><BuilderPage /></Layout>} />
+        <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
       </Routes>
     </BrowserRouter>
   );

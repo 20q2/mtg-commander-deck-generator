@@ -67,6 +67,7 @@ const defaultCustomization: Customization = {
   bracketLevel: 'all' as const,
   maxRarity: null,
   tinyLeaders: false,
+  collectionMode: false,
 };
 
 export const useStore = create<AppState>((set) => ({

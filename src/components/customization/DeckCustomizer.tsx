@@ -6,16 +6,21 @@ import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { useCollection } from '@/hooks/useCollection';
+import { useNavigate } from 'react-router-dom';
 
 
 export function DeckCustomizer() {
   const { customization, updateCustomization, commander, partnerCommander } = useStore();
+  const { count: collectionCount } = useCollection();
+  const navigate = useNavigate();
   const [editingLands, setEditingLands] = useState(false);
   const [landInputValue, setLandInputValue] = useState('');
   const [budgetOpen, setBudgetOpen] = useState(() => localStorage.getItem('accordion-budget') === 'true');
   const [powerLevelOpen, setPowerLevelOpen] = useState(() => localStorage.getItem('accordion-power') === 'true');
   const [otherOpen, setOtherOpen] = useState(() => localStorage.getItem('accordion-other') === 'true');
   const [cardListsOpen, setCardListsOpen] = useState(() => localStorage.getItem('accordion-cardlists') === 'true');
+  const [collectionOpen, setCollectionOpen] = useState(() => localStorage.getItem('accordion-collection') === 'true');
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceInputValue, setPriceInputValue] = useState('');
   const [editingBudget, setEditingBudget] = useState(false);
@@ -661,6 +666,67 @@ export function DeckCustomizer() {
           </div>
         </div>
       </div>
+
+      {/* Collection Accordion */}
+      {collectionCount > 0 && (
+        <div className={collectionOpen ? 'pt-2 border-t border-border/50' : ''}>
+          <button
+            onClick={() => { const v = !collectionOpen; setCollectionOpen(v); localStorage.setItem('accordion-collection', String(v)); }}
+            className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <span className="font-medium flex items-center gap-2">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              Collection
+              {!collectionOpen && customization.collectionMode && (
+                <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+                  Enabled
+                </span>
+              )}
+            </span>
+            <svg
+              className={`w-4 h-4 transition-transform ${collectionOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${collectionOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className="overflow-hidden">
+            <div className="mt-3 space-y-3">
+              <label className="flex items-center gap-3 cursor-pointer select-none group">
+                <input
+                  type="checkbox"
+                  checked={customization.collectionMode}
+                  onChange={(e) => updateCustomization({ collectionMode: e.target.checked })}
+                  className="rounded border-border accent-primary w-4 h-4"
+                />
+                <span className="text-sm font-medium group-hover:text-primary transition-colors">
+                  Build from My Collection
+                </span>
+                <InfoTooltip text="Only use cards you own. After generation, see suggestions for cards you're missing." />
+              </label>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{collectionCount.toLocaleString()} cards imported</span>
+                <button
+                  onClick={() => navigate('/collection')}
+                  className="text-primary hover:text-primary/80 transition-colors"
+                >
+                  Manage Collection
+                </button>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Other Accordion */}
       <div className={otherOpen ? 'pt-2 border-t border-border/50' : ''}>

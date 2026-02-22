@@ -219,12 +219,24 @@ export interface DeckComposition {
   utility: number;
 }
 
+export interface GapAnalysisCard {
+  name: string;
+  price: string | null;
+  inclusion: number;
+  synergy: number;
+  typeLine: string;
+  imageUrl?: string;
+}
+
 export interface GeneratedDeck {
   commander: ScryfallCard;
   partnerCommander: ScryfallCard | null;
   categories: Record<DeckCategory, ScryfallCard[]>;
   stats: DeckStats;
   usedThemes?: string[];
+  gapAnalysis?: GapAnalysisCard[];
+  builtFromCollection?: boolean;
+  collectionShortfall?: number;
 }
 
 export interface DeckStats {
@@ -274,6 +286,7 @@ export interface Customization {
   bracketLevel: BracketLevel; // EDHREC bracket level for power level filtering
   maxRarity: MaxRarity; // Max card rarity, null = no limit
   tinyLeaders: boolean; // Restrict all non-land cards to CMC <= 3
+  collectionMode: boolean; // When true, constrain generation to owned cards
 }
 
 // Store state
