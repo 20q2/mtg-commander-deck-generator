@@ -2,6 +2,7 @@ import type {
   ScryfallCard,
   GeneratedDeck,
   GapAnalysisCard,
+  DetectedCombo,
   DeckStats,
   DeckCategory,
   DeckComposition,
@@ -10,12 +11,13 @@ import type {
   DeckFormat,
   ThemeResult,
   EDHRECCard,
+  EDHRECCombo,
   EDHRECCommanderData,
   EDHRECCommanderStats,
   MaxRarity,
 } from '@/types';
 import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames } from '@/services/scryfall/client';
-import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
   calculateCurveTargets,
@@ -274,16 +276,19 @@ function pickFromPrefetched(
   maxRarity: MaxRarity = null,
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
-  collectionNames?: Set<string>
+  collectionNames?: Set<string>,
+  comboPriorityBoost?: Map<string, number>
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
-  // Filter candidates
-  const candidates = edhrecCards.filter(
-    c => !usedNames.has(c.name) && !bannedCards.has(c.name)
-  );
+  // Filter and sort candidates (with combo boost if provided)
+  const candidates = edhrecCards
+    .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
+    .sort((a, b) =>
+      (calculateCardPriority(b) + (comboPriorityBoost?.get(b.name) ?? 0)) -
+      (calculateCardPriority(a) + (comboPriorityBoost?.get(a.name) ?? 0))
+    );
 
-  // Process cards in order (by inclusion rate)
   for (const edhrecCard of candidates) {
     if (result.length >= count) break;
 
@@ -367,14 +372,18 @@ function pickFromPrefetchedWithCurve(
   maxRarity: MaxRarity = null,
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
-  collectionNames?: Set<string>
+  collectionNames?: Set<string>,
+  comboPriorityBoost?: Map<string, number>
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
-  // Filter and sort ALL candidates by priority (synergy-aware)
+  // Filter and sort ALL candidates by priority (synergy-aware + combo boost)
   const allCandidates = edhrecCards
     .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
-    .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a));
+    .sort((a, b) =>
+      (calculateCardPriority(b) + (comboPriorityBoost?.get(b.name) ?? 0)) -
+      (calculateCardPriority(a) + (comboPriorityBoost?.get(a.name) ?? 0))
+    );
 
   // Separate into high-synergy cards (any type) and regular cards
   const highSynergyCards = allCandidates.filter(c => isHighSynergyCard(c));
@@ -1088,12 +1097,34 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     usedNames.add(partnerCommander.name);
   }
 
-  // Pre-fetch basic lands and game changer list in parallel
+  // Pre-fetch basic lands, game changer list, and combo data in parallel
   onProgress?.('Shuffling the library...', 5);
-  const [, gameChangerNames] = await Promise.all([
+  const comboCountSetting = customization.comboCount ?? 0;
+  const [, gameChangerNames, combos] = await Promise.all([
     prefetchBasicLands(),
     maxGameChangers < Infinity ? getGameChangerNames() : Promise.resolve(new Set<string>()),
+    fetchCommanderCombos(commander.name).catch(() => [] as EDHRECCombo[]),
   ]);
+  console.log(`[DeckGen] Fetched ${combos.length} combos from EDHREC`);
+
+  // Build combo priority boost map
+  const comboPriorityBoost = new Map<string, number>();
+  const comboCardNames = new Set<string>();
+  if (comboCountSetting > 0 && combos.length > 0) {
+    // Map slider 1–3 to number of combos: 1→2, 2→4, 3→6
+    const comboSliceCount = comboCountSetting * 2;
+    const combosToAttempt = combos.slice(0, comboSliceCount);
+    for (const combo of combosToAttempt) {
+      for (const card of combo.cards) {
+        comboCardNames.add(card.name);
+        const existing = comboPriorityBoost.get(card.name) ?? 0;
+        // Boost needs to be large enough to override base priority (typically 50-200)
+        const boost = 200 * (comboCountSetting / 3);
+        comboPriorityBoost.set(card.name, existing + boost);
+      }
+    }
+    console.log(`[DeckGen] Combo priority boost applied to ${comboPriorityBoost.size} unique cards from top ${combosToAttempt.length} combos`);
+  }
 
   const categories: Record<DeckCategory, ScryfallCard[]> = {
     lands: [],
@@ -1419,6 +1450,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     addPoolNames(enchantmentPool, enchantmentTarget);
     addPoolNames(planeswalkerPool, planeswalkerTarget);
 
+    // Ensure combo piece cards are included in the batch fetch
+    for (const name of comboCardNames) {
+      allCardNames.add(name);
+    }
+
     console.log(`[DeckGen] Batch fetching ${allCardNames.size} unique card names`);
 
     // SINGLE BATCH FETCH for all non-land cards
@@ -1429,6 +1465,42 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       onProgress?.('Summoning cards from Scryfall...', pct);
     });
     console.log(`[DeckGen] Batch fetch returned ${cardMap.size} cards`);
+
+    // Inject combo pieces into the correct type pools so they can actually be picked
+    if (comboCardNames.size > 0) {
+      const poolMap: Record<string, EDHRECCard[]> = {
+        creature: creaturePool,
+        instant: instantPool,
+        sorcery: sorceryPool,
+        artifact: artifactPool,
+        enchantment: enchantmentPool,
+        planeswalker: planeswalkerPool,
+      };
+      let injected = 0;
+      for (const name of comboCardNames) {
+        const scryfallCard = cardMap.get(name);
+        if (!scryfallCard) continue;
+        const typeLine = getFrontFaceTypeLine(scryfallCard).toLowerCase();
+        for (const [type, pool] of Object.entries(poolMap)) {
+          if (typeLine.includes(type) && !pool.some(c => c.name === name)) {
+            pool.push({
+              name,
+              sanitized: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+              primary_type: type.charAt(0).toUpperCase() + type.slice(1),
+              inclusion: 50,
+              num_decks: 100,
+              synergy: 0.5,
+              isThemeSynergyCard: false,
+              isGameChanger: false,
+            });
+            injected++;
+          }
+        }
+      }
+      if (injected > 0) {
+        console.log(`[DeckGen] Injected ${injected} combo pieces into type pools`);
+      }
+    }
 
     // Now process each type synchronously using the pre-fetched cards
     // 1. Creatures
@@ -1450,7 +1522,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxRarity,
       maxCmc,
       budgetTracker,
-      context.collectionNames
+      context.collectionNames,
+      comboPriorityBoost
     );
     categories.creatures.push(...creatures);
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
@@ -1498,7 +1571,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxRarity,
       maxCmc,
       budgetTracker,
-      context.collectionNames
+      context.collectionNames,
+      comboPriorityBoost
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeInstants(instants, categories);
@@ -1522,7 +1596,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxRarity,
       maxCmc,
       budgetTracker,
-      context.collectionNames
+      context.collectionNames,
+      comboPriorityBoost
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeSorceries(sorceries, categories);
@@ -1546,7 +1621,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxRarity,
       maxCmc,
       budgetTracker,
-      context.collectionNames
+      context.collectionNames,
+      comboPriorityBoost
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeArtifacts(artifacts, categories);
@@ -1570,7 +1646,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxRarity,
       maxCmc,
       budgetTracker,
-      context.collectionNames
+      context.collectionNames,
+      comboPriorityBoost
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeEnchantments(enchantments, categories);
@@ -1595,7 +1672,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxRarity,
         maxCmc,
         budgetTracker,
-        context.collectionNames
+        context.collectionNames,
+        comboPriorityBoost
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
@@ -2032,6 +2110,37 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
   }
 
+  // Detect combos present in the generated deck
+  let detectedCombos: DetectedCombo[] | undefined;
+  if (combos.length > 0) {
+    const allDeckNames = new Set(Object.values(categories).flat().map(c => c.name));
+
+    detectedCombos = combos
+      .map(combo => {
+        const comboCardNames = combo.cards.map(c => c.name);
+        const missingCards = comboCardNames.filter(name => !allDeckNames.has(name));
+
+        return {
+          comboId: combo.comboId,
+          cards: comboCardNames,
+          results: combo.results,
+          isComplete: missingCards.length === 0,
+          missingCards,
+          deckCount: combo.deckCount,
+          bracket: combo.bracket,
+        };
+      })
+      .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
+      .sort((a, b) => {
+        if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+        return b.deckCount - a.deckCount;
+      });
+
+    console.log(`[DeckGen] Detected ${detectedCombos.filter(c => c.isComplete).length} complete combos, ${detectedCombos.filter(c => !c.isComplete).length} near-misses`);
+
+    if (detectedCombos.length === 0) detectedCombos = undefined;
+  }
+
   return {
     commander,
     partnerCommander,
@@ -2039,6 +2148,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     stats,
     usedThemes,
     gapAnalysis,
+    detectedCombos,
     collectionShortfall: context.collectionNames && basicLandFillCount > 0 ? basicLandFillCount : undefined,
   };
 }

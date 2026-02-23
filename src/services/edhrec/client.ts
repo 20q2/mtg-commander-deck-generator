@@ -1,6 +1,7 @@
 import type {
   EDHRECTheme,
   EDHRECCard,
+  EDHRECCombo,
   EDHRECCommanderData,
   EDHRECCommanderStats,
   EDHRECSimilarCommander,
@@ -909,5 +910,68 @@ export async function fetchAverageDeckMultiCopies(
   } catch (error) {
     console.warn('[EDHREC] Failed to fetch average deck multi-copies:', error);
     return null;
+  }
+}
+
+// --- Combo data ---
+
+const comboCache = new Map<string, { data: EDHRECCombo[]; timestamp: number }>();
+
+interface RawComboEntry {
+  cardviews: { name: string; id: string; sanitized: string }[];
+  combo: {
+    comboId: string;
+    count: number;
+    results: string[];
+    nonCardPrerequisiteCount: number;
+    rank: number;
+    comboVote?: { bracket: string };
+  };
+}
+
+interface RawComboResponse {
+  container?: {
+    json_dict?: {
+      cardlists?: RawComboEntry[];
+    };
+  };
+}
+
+/**
+ * Fetch known combos for a commander from EDHREC.
+ * Returns combos sorted by popularity (deckCount descending).
+ */
+export async function fetchCommanderCombos(commanderName: string): Promise<EDHRECCombo[]> {
+  const slug = formatCommanderNameForUrl(commanderName);
+
+  const cached = comboCache.get(slug);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const response = await edhrecFetch<RawComboResponse>(
+      `/pages/combos/${slug}.json`
+    );
+
+    const rawCombos = response.container?.json_dict?.cardlists || [];
+
+    const combos: EDHRECCombo[] = rawCombos.map(entry => ({
+      comboId: entry.combo.comboId,
+      cards: entry.cardviews.map(cv => ({ name: cv.name, id: cv.id })),
+      results: entry.combo.results || [],
+      deckCount: entry.combo.count || 0,
+      rank: entry.combo.rank || 0,
+      bracket: entry.combo.comboVote?.bracket || 'unknown',
+      prereqCount: entry.combo.nonCardPrerequisiteCount || 0,
+    }));
+
+    combos.sort((a, b) => b.deckCount - a.deckCount);
+
+    comboCache.set(slug, { data: combos, timestamp: Date.now() });
+    return combos;
+  } catch (error) {
+    console.error(`[EDHREC] Failed to fetch combos for ${commanderName}:`, error);
+    return [];
   }
 }

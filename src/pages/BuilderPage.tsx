@@ -4,6 +4,7 @@ import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { DeckDisplay } from '@/components/deck/DeckDisplay';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
+import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { PartnerSelector } from '@/components/commander/PartnerSelector';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -620,6 +621,14 @@ export function BuilderPage() {
             </div>
           </div>
           <DeckDisplay />
+          {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
+            <div className="flex gap-6">
+              <div className="flex-1">
+                <ComboDisplay combos={generatedDeck.detectedCombos} />
+              </div>
+              <div className="hidden xl:block w-64 shrink-0" />
+            </div>
+          )}
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
           )}

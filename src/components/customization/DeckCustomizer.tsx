@@ -490,11 +490,12 @@ export function DeckCustomizer() {
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
             </svg>
             Power Level
-            {!powerLevelOpen && (customization.gameChangerLimit !== 'unlimited' || customization.bracketLevel !== 'all') && (
+            {!powerLevelOpen && (customization.gameChangerLimit !== 'unlimited' || customization.bracketLevel !== 'all' || customization.comboCount > 0) && (
               <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.bracketLevel !== 'all' ? `Bracket ${customization.bracketLevel}` : null,
                   customization.gameChangerLimit === 'none' ? 'No GCs' : typeof customization.gameChangerLimit === 'number' ? `${customization.gameChangerLimit} GCs` : null,
+                  customization.comboCount > 0 ? `Combos: ${(['', 'A Few Extra', 'Many', 'The Most'] as const)[customization.comboCount]}` : null,
                 ].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -611,6 +612,30 @@ export function DeckCustomizer() {
                   <div className="font-medium text-xs">Unlimited</div>
                   <div className="text-[10px] text-muted-foreground">No restriction</div>
                 </button>
+              </div>
+            </div>
+
+            {/* Combos */}
+            <div>
+              <div className="flex justify-between mb-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  Combos
+                  <InfoTooltip text="How aggressively to include combos from EDHREC's combo database. At 'No Additional', no combo cards are prioritized but any that naturally end up in the deck are still detected. Higher values increasingly favor including combo piece cards." />
+                </label>
+                <span className="text-sm font-bold">{(['No Additional', 'A Few Extra', 'Many', 'The Most'] as const)[customization.comboCount]}</span>
+              </div>
+              <Slider
+                value={customization.comboCount}
+                min={0}
+                max={3}
+                step={1}
+                onChange={(value) => updateCustomization({ comboCount: value })}
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>No Additional</span>
+                <span>A Few Extra</span>
+                <span>Many</span>
+                <span>The Most</span>
               </div>
             </div>
           </div>

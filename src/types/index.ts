@@ -219,6 +219,27 @@ export interface DeckComposition {
   utility: number;
 }
 
+// EDHREC Combo types
+export interface EDHRECCombo {
+  comboId: string;
+  cards: { name: string; id: string }[];
+  results: string[];
+  deckCount: number;
+  rank: number;
+  bracket: string;
+  prereqCount: number;
+}
+
+export interface DetectedCombo {
+  comboId: string;
+  cards: string[];
+  results: string[];
+  isComplete: boolean;
+  missingCards: string[];
+  deckCount: number;
+  bracket: string;
+}
+
 export interface GapAnalysisCard {
   name: string;
   price: string | null;
@@ -237,6 +258,7 @@ export interface GeneratedDeck {
   gapAnalysis?: GapAnalysisCard[];
   builtFromCollection?: boolean;
   collectionShortfall?: number;
+  detectedCombos?: DetectedCombo[];
 }
 
 export interface DeckStats {
@@ -287,6 +309,7 @@ export interface Customization {
   maxRarity: MaxRarity; // Max card rarity, null = no limit
   tinyLeaders: boolean; // Restrict all non-land cards to CMC <= 3
   collectionMode: boolean; // When true, constrain generation to owned cards
+  comboCount: number; // 0 = no combo bias, 1-5 = increasingly prioritize combo pieces
 }
 
 // Store state

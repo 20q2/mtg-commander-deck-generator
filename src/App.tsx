@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { HomePage } from '@/pages/HomePage';
 import { BuilderPage } from '@/pages/BuilderPage';
 import { CollectionPage } from '@/pages/CollectionPage';
@@ -84,6 +84,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { commander, generatedDeck, reset } = useStore();
   const { count: collectionCount } = useCollection();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isCollectionPage = location.pathname === '/collection';
 
   const handleLogoClick = () => {
     reset();
@@ -92,8 +94,8 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
-      {/* Commander Art Background */}
-      <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />
+      {/* Commander Art Background (hidden on collection page) */}
+      {!isCollectionPage && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen">

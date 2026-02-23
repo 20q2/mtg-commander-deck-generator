@@ -68,6 +68,7 @@ const defaultCustomization: Customization = {
   maxRarity: null,
   tinyLeaders: false,
   collectionMode: false,
+  comboCount: 0,
 };
 
 export const useStore = create<AppState>((set) => ({
