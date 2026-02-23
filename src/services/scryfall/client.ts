@@ -378,7 +378,10 @@ export function getCardImageUrl(
  * Falls back through: usd → usd_foil → usd_etched → eur → eur_foil
  * Returns the price string or null if no price is available.
  */
+const BASIC_LAND_NAMES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
+
 export function getCardPrice(card: ScryfallCard): string | null {
+  if (BASIC_LAND_NAMES.has(card.name)) return '0.05';
   const p = card.prices;
   return p?.usd || p?.usd_foil || p?.usd_etched || p?.eur || p?.eur_foil || null;
 }
