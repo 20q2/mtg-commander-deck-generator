@@ -335,28 +335,62 @@ export function DeckCustomizer() {
         <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${budgetOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
           <div className="mt-3 space-y-4">
-            {/* EDHREC Card Pool */}
+            {/* Total Deck Budget */}
             <div>
-              <label className="text-sm font-medium mb-2 block">EDHREC Card Pool</label>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { value: 'any' as BudgetOption, label: 'Any', description: 'All cards' },
-                  { value: 'budget' as BudgetOption, label: 'Budget', description: 'Cheaper picks' },
-                  { value: 'expensive' as BudgetOption, label: 'Expensive', description: 'Premium picks' },
-                ] as const).map((option) => (
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  Total Deck Budget
+                  <InfoTooltip text="Sets a target budget for the deck (excluding commander). At low budgets, some expensive but high-synergy cards may be skipped in favor of cheaper alternatives. The final total may slightly exceed the target if needed to complete the deck." />
+                </label>
+                <span className="text-sm font-bold">
+                  {customization.deckBudget === null ? 'No limit' : `$${customization.deckBudget}`}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {([null, 25, 50, 100, 200] as const).map((budget) => {
+                  const isSelected = customization.deckBudget === budget;
+                  return (
+                    <button
+                      key={budget ?? 'none'}
+                      onClick={() => { setEditingBudget(false); updateCustomization({ deckBudget: budget }); }}
+                      className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                        isSelected
+                          ? 'bg-primary/10 border border-primary text-primary'
+                          : 'border border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {budget === null ? 'None' : `$${budget}`}
+                    </button>
+                  );
+                })}
+                {editingBudget ? (
+                  <input
+                    ref={budgetInputRef}
+                    type="number"
+                    placeholder="$"
+                    value={budgetInputValue}
+                    onChange={(e) => setBudgetInputValue(e.target.value)}
+                    onBlur={commitBudgetInput}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitBudgetInput();
+                      if (e.key === 'Escape') setEditingBudget(false);
+                    }}
+                    className="flex-1 py-1.5 px-1 rounded text-xs font-medium text-center bg-background border border-primary outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                ) : (
                   <button
-                    key={option.value}
-                    onClick={() => updateCustomization({ budgetOption: option.value })}
-                    className={`p-2 rounded-lg border text-center transition-colors ${
-                      customization.budgetOption === option.value
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border hover:border-primary/50'
+                    onClick={startEditingBudget}
+                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                      customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
+                        ? 'bg-primary/10 border border-primary text-primary'
+                        : 'border border-border hover:border-primary/50'
                     }`}
                   >
-                    <div className="font-medium text-xs">{option.label}</div>
-                    <div className="text-[10px] text-muted-foreground">{option.description}</div>
+                    {customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
+                      ? `$${customization.deckBudget}`
+                      : 'Custom'}
                   </button>
-                ))}
+                )}
               </div>
             </div>
 
@@ -416,62 +450,28 @@ export function DeckCustomizer() {
               </div>
             </div>
 
-            {/* Total Deck Budget */}
+            {/* EDHREC Card Pool */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium flex items-center gap-1.5">
-                  Total Deck Budget
-                  <InfoTooltip text="Sets a target budget for the deck (excluding commander). At low budgets, some expensive but high-synergy cards may be skipped in favor of cheaper alternatives. The final total may slightly exceed the target if needed to complete the deck." />
-                </label>
-                <span className="text-sm font-bold">
-                  {customization.deckBudget === null ? 'No limit' : `$${customization.deckBudget}`}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                {([null, 25, 50, 100, 200] as const).map((budget) => {
-                  const isSelected = customization.deckBudget === budget;
-                  return (
-                    <button
-                      key={budget ?? 'none'}
-                      onClick={() => { setEditingBudget(false); updateCustomization({ deckBudget: budget }); }}
-                      className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
-                        isSelected
-                          ? 'bg-primary/10 border border-primary text-primary'
-                          : 'border border-border hover:border-primary/50'
-                      }`}
-                    >
-                      {budget === null ? 'None' : `$${budget}`}
-                    </button>
-                  );
-                })}
-                {editingBudget ? (
-                  <input
-                    ref={budgetInputRef}
-                    type="number"
-                    placeholder="$"
-                    value={budgetInputValue}
-                    onChange={(e) => setBudgetInputValue(e.target.value)}
-                    onBlur={commitBudgetInput}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitBudgetInput();
-                      if (e.key === 'Escape') setEditingBudget(false);
-                    }}
-                    className="flex-1 py-1.5 px-1 rounded text-xs font-medium text-center bg-background border border-primary outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                ) : (
+              <label className="text-sm font-medium mb-2 block">EDHREC Card Pool</label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { value: 'any' as BudgetOption, label: 'Any', description: 'All cards' },
+                  { value: 'budget' as BudgetOption, label: 'Budget', description: 'Cheaper picks' },
+                  { value: 'expensive' as BudgetOption, label: 'Expensive', description: 'Premium picks' },
+                ] as const).map((option) => (
                   <button
-                    onClick={startEditingBudget}
-                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
-                      customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
-                        ? 'bg-primary/10 border border-primary text-primary'
-                        : 'border border-border hover:border-primary/50'
+                    key={option.value}
+                    onClick={() => updateCustomization({ budgetOption: option.value })}
+                    className={`p-2 rounded-lg border text-center transition-colors ${
+                      customization.budgetOption === option.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border hover:border-primary/50'
                     }`}
                   >
-                    {customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
-                      ? `$${customization.deckBudget}`
-                      : 'Custom'}
+                    <div className="font-medium text-xs">{option.label}</div>
+                    <div className="text-[10px] text-muted-foreground">{option.description}</div>
                   </button>
-                )}
+                ))}
               </div>
             </div>
           </div>
@@ -495,7 +495,7 @@ export function DeckCustomizer() {
                 {[
                   customization.bracketLevel !== 'all' ? `Bracket ${customization.bracketLevel}` : null,
                   customization.gameChangerLimit === 'none' ? 'No GCs' : typeof customization.gameChangerLimit === 'number' ? `${customization.gameChangerLimit} GCs` : null,
-                  customization.comboCount > 0 ? `Combos: ${(['', 'A Few Extra', 'Many', 'The Most'] as const)[customization.comboCount]}` : null,
+                  customization.comboCount > 0 ? `Combos: ${(['', 'A Few', 'Many'] as const)[customization.comboCount]}` : null,
                 ].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -622,22 +622,22 @@ export function DeckCustomizer() {
                   Combos
                   <InfoTooltip text="How aggressively to include combos from EDHREC's combo database. At 'No Additional', no combo cards are prioritized but any that naturally end up in the deck are still detected. Higher values increasingly favor including combo piece cards." />
                 </label>
-                <span className="text-sm font-bold">{(['No Additional', 'A Few Extra', 'Many', 'The Most'] as const)[customization.comboCount]}</span>
+                <span className="text-sm font-bold">{(['None', 'A Few', 'Many'] as const)[customization.comboCount]}</span>
               </div>
               <Slider
                 value={customization.comboCount}
                 min={0}
-                max={3}
+                max={2}
                 step={1}
                 onChange={(value) => updateCustomization({ comboCount: value })}
               />
               <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                <span>No Additional</span>
-                <span>A Few Extra</span>
+                <span>None</span>
+                <span>A Few</span>
                 <span>Many</span>
-                <span>The Most</span>
               </div>
             </div>
+
           </div>
           </div>
         </div>

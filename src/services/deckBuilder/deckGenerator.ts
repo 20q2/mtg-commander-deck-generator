@@ -1014,7 +1014,10 @@ function calculateStats(categories: Record<DeckCategory, ScryfallCard[]>): DeckS
 // Merge cardlists from multiple theme results
 function mergeThemeCardlists(
   themeDataResults: EDHRECCommanderData[]
-): EDHRECCommanderData['cardlists'] {
+): { cardlists: EDHRECCommanderData['cardlists']; themeOverlapCounts: Map<string, number> } {
+  // Track how many themes each card appears in (for hyper focus mode)
+  const themeOverlapCounts = new Map<string, number>();
+
   // Merge all cards, keeping the best version for duplicates
   // Prioritize: highest synergy first, then highest inclusion
   const mergeCards = (
@@ -1023,7 +1026,14 @@ function mergeThemeCardlists(
     const cardMap = new Map<string, EDHRECCard>();
 
     for (const cardList of cards) {
+      // Track which cards we've seen in THIS theme's list to avoid double-counting
+      const seenInThisList = new Set<string>();
       for (const card of cardList) {
+        if (!seenInThisList.has(card.name)) {
+          seenInThisList.add(card.name);
+          themeOverlapCounts.set(card.name, (themeOverlapCounts.get(card.name) ?? 0) + 1);
+        }
+
         const existing = cardMap.get(card.name);
         if (!existing) {
           cardMap.set(card.name, card);
@@ -1044,7 +1054,7 @@ function mergeThemeCardlists(
     return Array.from(cardMap.values()).sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a));
   };
 
-  return {
+  const cardlists = {
     creatures: mergeCards(themeDataResults.map(r => r.cardlists.creatures)),
     instants: mergeCards(themeDataResults.map(r => r.cardlists.instants)),
     sorceries: mergeCards(themeDataResults.map(r => r.cardlists.sorceries)),
@@ -1054,6 +1064,8 @@ function mergeThemeCardlists(
     lands: mergeCards(themeDataResults.map(r => r.cardlists.lands)),
     allNonLand: mergeCards(themeDataResults.map(r => r.cardlists.allNonLand)),
   };
+
+  return { cardlists, themeOverlapCounts };
 }
 
 // Main deck generation function
@@ -1111,15 +1123,16 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const comboPriorityBoost = new Map<string, number>();
   const comboCardNames = new Set<string>();
   if (comboCountSetting > 0 && combos.length > 0) {
-    // Map slider 1–3 to number of combos: 1→2, 2→4, 3→6
-    const comboSliceCount = comboCountSetting * 2;
+    // Scale combo attempts by deck size (baseline: 99 cards → 1→3, 2→6)
+    const sizeScale = Math.max(0.5, format / 99);
+    const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 3 * sizeScale));
     const combosToAttempt = combos.slice(0, comboSliceCount);
     for (const combo of combosToAttempt) {
       for (const card of combo.cards) {
         comboCardNames.add(card.name);
         const existing = comboPriorityBoost.get(card.name) ?? 0;
         // Boost needs to be large enough to override base priority (typically 50-200)
-        const boost = 200 * (comboCountSetting / 3);
+        const boost = 200 * (comboCountSetting / 2);
         comboPriorityBoost.set(card.name, existing + boost);
       }
     }
@@ -1251,10 +1264,96 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           ? fetchPartnerThemeData(commander.name, partnerCommander.name, theme.slug!, budgetOption, bracketLevel)
           : fetchCommanderThemeData(commander.name, theme.slug!, budgetOption, bracketLevel)
       );
-      const themeDataResults = await Promise.all(themeDataPromises);
+
+      // If hyper focus is on, also fetch base commander data in parallel to compare
+      const baseDataPromise = customization.hyperFocus
+        ? (partnerCommander
+            ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
+            : fetchCommanderData(commander.name, budgetOption, bracketLevel)
+          ).catch(() => null)
+        : Promise.resolve(null);
+
+      const [themeDataResults, baseData] = await Promise.all([
+        Promise.all(themeDataPromises),
+        baseDataPromise,
+      ]);
 
       // Merge cardlists from all themes
-      const mergedCardlists = mergeThemeCardlists(themeDataResults);
+      const { cardlists: mergedCardlists, themeOverlapCounts } = mergeThemeCardlists(themeDataResults);
+
+      // Build hyper focus boost map if enabled
+      if (customization.hyperFocus && selectedThemesWithSlugs.length >= 1) {
+        // Build a set of card names from the base (no-theme) commander pool
+        // Cards in the base pool are "generic" — they show up regardless of theme
+        const baseCardNames = new Set<string>();
+        if (baseData) {
+          for (const list of Object.values(baseData.cardlists)) {
+            for (const card of list) {
+              baseCardNames.add(card.name);
+            }
+          }
+        }
+
+        // Collect all theme cards
+        const allThemeCards = [
+          ...mergedCardlists.creatures,
+          ...mergedCardlists.instants,
+          ...mergedCardlists.sorceries,
+          ...mergedCardlists.artifacts,
+          ...mergedCardlists.enchantments,
+          ...mergedCardlists.planeswalkers,
+        ];
+
+        if (selectedThemesWithSlugs.length === 1) {
+          // Single theme: compare against base pool
+          let boosted = 0, penalized = 0;
+          for (const card of allThemeCards) {
+            const synergy = card.synergy ?? 0;
+            const inBase = baseCardNames.has(card.name);
+
+            if (!inBase && synergy >= 0.1) {
+              // NOT in base pool + has synergy — the dream cards, rocket them to the top
+              comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) + 1000);
+              boosted++;
+            } else if (!inBase) {
+              // Not in base pool but low synergy — still theme-exclusive, big boost
+              comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) + 500);
+              boosted++;
+            } else if (inBase && synergy >= 0.3) {
+              // In base pool but very high theme synergy — worth keeping
+              comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) + 200);
+              boosted++;
+            } else if (inBase && synergy < 0.1) {
+              // In base pool with low synergy — generic staple, nuke it
+              comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) - 500);
+              penalized++;
+            }
+          }
+          console.log(`[DeckGen] Hyper Focus (single theme, base pool: ${baseCardNames.size} cards): boosted ${boosted}, penalized ${penalized}`);
+        } else {
+          // Multiple themes: use overlap counts + base pool comparison
+          const numThemes = selectedThemesWithSlugs.length;
+          for (const [name, count] of themeOverlapCounts) {
+            const inBase = baseCardNames.has(name);
+            let boost = 0;
+            if (count === 1 && !inBase) {
+              // Unique to one theme AND not in base — the gems
+              boost = 1000;
+            } else if (count === 1) {
+              // Unique to one theme but in base — still good
+              boost = 300;
+            } else if (count >= numThemes || inBase) {
+              // Appears in ALL themes or in base pool — nuke it
+              boost = -500;
+            } else {
+              // Partial overlap — severe scaling penalty
+              boost = -200 * (count - 1);
+            }
+            comboPriorityBoost.set(name, (comboPriorityBoost.get(name) ?? 0) + boost);
+          }
+          console.log(`[DeckGen] Hyper Focus (${numThemes} themes, base pool: ${baseCardNames.size} cards): adjusted ${themeOverlapCounts.size} cards`);
+        }
+      }
 
       // Use the first theme's stats as representative
       edhrecData = {

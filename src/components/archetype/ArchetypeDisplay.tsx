@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useStore } from '@/store';
 import { ARCHETYPE_LABELS } from '@/lib/constants/archetypes';
 import { Archetype } from '@/types';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Crosshair } from 'lucide-react';
 
 const confidenceColors = {
   high: 'bg-green-100 text-green-800 border-green-300',
@@ -84,9 +85,15 @@ export function ArchetypeDisplay() {
     themesLoading,
     themesError,
     themeSource,
+    customization,
+    updateCustomization,
   } = useStore();
 
   const [showOtherDropdown, setShowOtherDropdown] = useState(false);
+  const [buildModesOpen, setBuildModesOpen] = useState(() => {
+    const saved = localStorage.getItem('accordion-buildmodes');
+    return saved === null ? false : saved === 'true';
+  });
 
   if (!commander) return null;
 
@@ -109,7 +116,7 @@ export function ArchetypeDisplay() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="gap-4 flex-1 flex flex-col">
       {/* EDHREC Themes Section */}
       {themesLoading && <ThemeLoadingSkeleton />}
 
@@ -258,6 +265,80 @@ export function ArchetypeDisplay() {
             <p className="text-xs text-muted-foreground mt-1">
               Change this to adjust how the deck is built
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Build Modes accordion — pinned to bottom of card */}
+      {selectedThemes.some(t => t.isSelected) && (
+        <div className={`mt-auto ${buildModesOpen ? 'pt-2 border-t border-border/50' : ''}`}>
+          <button
+            onClick={() => { const v = !buildModesOpen; setBuildModesOpen(v); localStorage.setItem('accordion-buildmodes', String(v)); }}
+            className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <span className="font-medium flex items-center gap-2">
+              <Crosshair className="w-4 h-4" />
+              Build Modes
+              {!buildModesOpen && customization.hyperFocus && (
+                <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+                  Hyper Focus
+                </span>
+              )}
+            </span>
+            <svg
+              className={`w-4 h-4 transition-transform ${buildModesOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${buildModesOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+            <div className="overflow-hidden">
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => updateCustomization({ hyperFocus: !customization.hyperFocus })}
+                  className={`
+                    w-full flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer
+                    ${customization.hyperFocus
+                      ? 'border-primary/50 bg-primary/10'
+                      : 'border-border/50 bg-accent/20 hover:border-primary/30'
+                    }
+                  `}
+                >
+                  <div className={`
+                    w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors
+                    ${customization.hyperFocus ? 'bg-primary/20 text-primary' : 'bg-accent text-muted-foreground'}
+                  `}>
+                    <Crosshair className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 text-left">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-sm font-medium ${customization.hyperFocus ? 'text-primary' : ''}`}>
+                        Hyper Focus
+                      </span>
+                      <InfoTooltip text="Experimental: Prioritizes cards unique to your selected themes and deprioritizes generic staples that appear across many archetypes. Great for discovering hidden gems specific to your strategy." />                      
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                      Discover unique cards, avoid generic staples
+                    </p>
+                  </div>
+                  <div className={`
+                    w-9 h-5 rounded-full relative transition-colors shrink-0
+                    ${customization.hyperFocus ? 'bg-primary' : 'bg-muted'}
+                  `}>
+                    <div className={`
+                      absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform
+                      ${customization.hyperFocus ? 'translate-x-4' : 'translate-x-0.5'}
+                    `} />
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

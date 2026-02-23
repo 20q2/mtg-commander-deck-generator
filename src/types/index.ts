@@ -309,7 +309,8 @@ export interface Customization {
   maxRarity: MaxRarity; // Max card rarity, null = no limit
   tinyLeaders: boolean; // Restrict all non-land cards to CMC <= 3
   collectionMode: boolean; // When true, constrain generation to owned cards
-  comboCount: number; // 0 = no combo bias, 1-5 = increasingly prioritize combo pieces
+  comboCount: number; // 0 = none, 1 = a few, 2 = many combo pieces prioritized
+  hyperFocus: boolean; // When true, boost unique theme cards and penalize generic multi-theme cards
 }
 
 // Store state

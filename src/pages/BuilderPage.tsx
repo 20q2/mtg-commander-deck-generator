@@ -504,7 +504,7 @@ export function BuilderPage() {
         <section className="mb-8 animate-slide-up">
           <div className="grid md:grid-cols-2 gap-6">
             {/* Archetype */}
-            <Card className="bg-card/80 backdrop-blur-sm">
+            <Card className="bg-card/80 backdrop-blur-sm flex flex-col">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
@@ -513,7 +513,7 @@ export function BuilderPage() {
                   Archetype
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 flex flex-col">
                 <ArchetypeDisplay />
               </CardContent>
             </Card>

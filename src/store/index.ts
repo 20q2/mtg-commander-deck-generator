@@ -69,6 +69,7 @@ const defaultCustomization: Customization = {
   tinyLeaders: false,
   collectionMode: false,
   comboCount: 0,
+  hyperFocus: false,
 };
 
 export const useStore = create<AppState>((set) => ({
