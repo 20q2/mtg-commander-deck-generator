@@ -39,11 +39,6 @@ export function CommanderSearch() {
   const navigate = useNavigate();
   const { setCommander } = useStore();
   const { cards: collectionCards, count: collectionCount } = useCollection();
-  const collectionNames = useMemo(
-    () => new Set(collectionCards.map(c => c.name)),
-    [collectionCards]
-  );
-
   // All legendary creatures in the collection
   const collectionLegends = useMemo(
     () => collectionCards.filter(isLegendaryCreature),

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { useCollection } from '@/hooks/useCollection';
-import { ColorIdentity, ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
+import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { getCardByName } from '@/services/scryfall/client';
 import {

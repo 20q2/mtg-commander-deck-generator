@@ -1,5 +1,7 @@
 # EDH Deck Builder
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A React application that generates complete Commander/EDH decks using real EDHREC data. Select your commander, choose themes, and get a deck built from the most popular cards for that commander.
 
 **[Try it live](https://20q2.github.io/mtg-commander-deck-generator/)**
@@ -160,6 +162,10 @@ src/
 - Mana symbols from [mana-font](https://github.com/andrewgioia/mana)
 - Built with [React](https://react.dev), [Vite](https://vitejs.dev), and [shadcn/ui](https://ui.shadcn.com)
 
+## Contributing
+
+Contributions are welcome! Feel free to open an issue or submit a pull request.
+
 ## License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
