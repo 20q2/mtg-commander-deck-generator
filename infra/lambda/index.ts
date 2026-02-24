@@ -96,6 +96,24 @@ async function handleGet(params: Record<string, string>) {
     const commanderCounts: Record<string, number> = {};
     const archetypeCounts: Record<string, number> = {};
     const dailyCounts: Record<string, number> = {};
+    const uniqueUsers = new Set<string>();
+    const regionCounts: Record<string, number> = {};
+    const featureAdoption = {
+      collectionMode: 0,
+      hyperFocus: 0,
+      tinyLeaders: 0,
+      hasPriceLimit: 0,
+      hasBudgetLimit: 0,
+      hasMusts: 0,
+      hasBans: 0,
+      deckCount: 0,
+    };
+    const settingsCounts: Record<string, Record<string, number>> = {
+      budgetOption: {},
+      bracketLevel: {},
+      maxRarity: {},
+      gameChangerLimit: {},
+    };
 
     for (const item of items) {
       // Event type counts
@@ -107,14 +125,44 @@ async function handleGet(params: Record<string, string>) {
 
       const meta = item.metadata as Record<string, unknown> | undefined;
 
+      // Unique users
+      if (meta?.userId && typeof meta.userId === 'string') {
+        uniqueUsers.add(meta.userId);
+      }
+
+      // Region
+      if (meta?.region && typeof meta.region === 'string') {
+        regionCounts[meta.region] = (regionCounts[meta.region] || 0) + 1;
+      }
+
       // Commander popularity
       if (meta?.commanderName && typeof meta.commanderName === 'string') {
         commanderCounts[meta.commanderName] = (commanderCounts[meta.commanderName] || 0) + 1;
       }
 
-      // Archetype distribution
-      if (meta?.archetype && typeof meta.archetype === 'string') {
+      // Archetype distribution (from deck_generated events only)
+      if (item.event === 'deck_generated' && meta?.archetype && typeof meta.archetype === 'string') {
         archetypeCounts[meta.archetype] = (archetypeCounts[meta.archetype] || 0) + 1;
+
+        // Feature adoption
+        featureAdoption.deckCount++;
+        if (meta.collectionMode === true) featureAdoption.collectionMode++;
+        if (meta.hyperFocus === true) featureAdoption.hyperFocus++;
+        if (meta.tinyLeaders === true) featureAdoption.tinyLeaders++;
+        if (meta.maxCardPrice !== null && meta.maxCardPrice !== undefined) featureAdoption.hasPriceLimit++;
+        if (meta.deckBudget !== null && meta.deckBudget !== undefined) featureAdoption.hasBudgetLimit++;
+        if (typeof meta.mustIncludeCount === 'number' && meta.mustIncludeCount > 0) featureAdoption.hasMusts++;
+        if (typeof meta.bannedCount === 'number' && meta.bannedCount > 0) featureAdoption.hasBans++;
+
+        // Settings distributions
+        const bucket = (key: string, val: unknown) => {
+          const s = String(val ?? 'unknown');
+          settingsCounts[key][s] = (settingsCounts[key][s] || 0) + 1;
+        };
+        if (meta.budgetOption !== undefined) bucket('budgetOption', meta.budgetOption);
+        if (meta.bracketLevel !== undefined) bucket('bracketLevel', meta.bracketLevel);
+        bucket('maxRarity', meta.maxRarity ?? 'none');
+        if (meta.gameChangerLimit !== undefined) bucket('gameChangerLimit', meta.gameChangerLimit);
       }
     }
 
@@ -122,10 +170,14 @@ async function handleGet(params: Record<string, string>) {
       statusCode: 200,
       body: JSON.stringify({
         totalEvents: items.length,
+        uniqueUserCount: uniqueUsers.size,
         eventCounts,
         commanderCounts,
         archetypeCounts,
         dailyCounts,
+        regionCounts,
+        featureAdoption,
+        settingsCounts,
         dateRange: { from, to },
       }),
     };

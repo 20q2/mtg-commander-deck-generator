@@ -100,13 +100,6 @@ export function BuilderPage() {
       // Detect archetypes
       const archetypes = detectArchetypes(card);
       setDetectedArchetypes(archetypes);
-      trackEvent('archetype_detected', {
-        commanderName: card.name,
-        archetypes: archetypes.slice(0, 3).map(a => ({
-          name: a.archetype,
-          confidence: a.confidence,
-        })),
-      });
 
       // Only apply archetype land-count defaults on first commander of the session
       // (when landCount is still the store default). Preserve user's choice when switching.
@@ -368,6 +361,18 @@ export function BuilderPage() {
         totalCards: deck.stats.totalCards,
         averageCmc: deck.stats.averageCmc,
         comboCount: deck.detectedCombos?.length ?? 0,
+        budgetOption: customization.budgetOption,
+        maxCardPrice: customization.maxCardPrice,
+        deckBudget: customization.deckBudget,
+        bracketLevel: customization.bracketLevel,
+        maxRarity: customization.maxRarity,
+        hyperFocus: customization.hyperFocus,
+        gameChangerLimit: customization.gameChangerLimit,
+        tinyLeaders: customization.tinyLeaders,
+        landCount: customization.landCount,
+        nonBasicLandCount: customization.nonBasicLandCount,
+        mustIncludeCount: customization.mustIncludeCards.length,
+        bannedCount: customization.bannedCards.length,
       });
     } catch (error) {
       console.error('Generation error:', error);

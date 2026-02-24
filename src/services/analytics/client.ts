@@ -2,6 +2,32 @@ import type { AnalyticsEventType, AnalyticsEventMetadata, AnalyticsEvent } from 
 
 const ANALYTICS_URL = import.meta.env.VITE_ANALYTICS_URL as string | undefined;
 const METRICS_SECRET = import.meta.env.VITE_METRICS_SECRET as string | undefined;
+
+function getUserId(): string {
+  try {
+    const KEY = 'mtg_uid';
+    let id = localStorage.getItem(KEY);
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem(KEY, id); }
+    return id;
+  } catch {
+    return 'unknown';
+  }
+}
+
+function getRegion(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz.startsWith('America/')) return 'Americas';
+    if (tz.startsWith('Europe/')) return 'Europe';
+    if (tz.startsWith('Asia/')) return 'Asia';
+    if (tz.startsWith('Australia/') || tz.startsWith('Pacific/')) return 'Oceania';
+    if (tz.startsWith('Africa/')) return 'Africa';
+    return 'Other';
+  } catch {
+    return 'Other';
+  }
+}
+
 const FLUSH_INTERVAL_MS = 5000;
 const FLUSH_THRESHOLD = 10;
 
@@ -34,7 +60,11 @@ export function trackEvent<T extends AnalyticsEventType>(
     eventQueue.push({
       event,
       timestamp: new Date().toISOString(),
-      metadata: metadata as Record<string, unknown>,
+      metadata: {
+        ...(metadata as Record<string, unknown>),
+        userId: getUserId(),
+        region: getRegion(),
+      },
     });
 
     if (!flushTimer) {

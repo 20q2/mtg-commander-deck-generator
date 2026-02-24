@@ -3,7 +3,6 @@ export type AnalyticsEventType =
   | 'commander_selected'
   | 'deck_generated'
   | 'deck_generation_failed'
-  | 'archetype_detected'
   | 'theme_toggled'
   | 'collection_imported'
   | 'combos_viewed'
@@ -22,9 +21,20 @@ export interface AnalyticsEventMetadata {
     totalCards: number;
     averageCmc: number;
     comboCount: number;
+    budgetOption: string;
+    maxCardPrice: number | null;
+    deckBudget: number | null;
+    bracketLevel: string | number;
+    maxRarity: string | null;
+    hyperFocus: boolean;
+    gameChangerLimit: string | number;
+    tinyLeaders: boolean;
+    landCount: number;
+    nonBasicLandCount: number;
+    mustIncludeCount: number;
+    bannedCount: number;
   };
   deck_generation_failed: { commanderName: string; error: string };
-  archetype_detected: { commanderName: string; archetypes: Array<{ name: string; confidence: string }> };
   theme_toggled: { commanderName: string; themeName: string; selected: boolean };
   collection_imported: { cardCount: number; added: number; updated: number };
   combos_viewed: { commanderName: string; comboCount: number };
