@@ -14,6 +14,7 @@ import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
 import { Search, Loader2 } from 'lucide-react';
+import { trackEvent } from '@/services/analytics';
 
 function isLegendaryCreature(card: CollectionCard): boolean {
   const tl = card.typeLine?.toLowerCase() ?? '';
@@ -79,6 +80,7 @@ export function CommanderSearch() {
         const searchResults = await searchCommanders(query);
         setResults(searchResults.slice(0, 10));
         setShowResults(true);
+        trackEvent('commander_searched', { query, resultCount: searchResults.length });
       } catch (error) {
         console.error('Search error:', error);
         setResults([]);
@@ -103,6 +105,11 @@ export function CommanderSearch() {
     setShowResults(false);
     setCommander(card);
     navigate(`/build/${encodeURIComponent(card.name)}`);
+    trackEvent('commander_selected', {
+      commanderName: card.name,
+      colorIdentity: card.color_identity,
+      hasPartner: false,
+    });
   };
 
   // Select a commander from the collection — fetch full ScryfallCard first

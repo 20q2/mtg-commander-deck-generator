@@ -115,11 +115,18 @@ interface CardRowProps {
   onPreview: (card: ScryfallCard) => void;
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => void;
   dimmed?: boolean;
+  avgCardPrice?: number | null;
 }
 
-function CardRow({ card, quantity, onPreview, onHover, dimmed }: CardRowProps) {
-  const price = formatPrice(getCardPrice(card));
+function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice }: CardRowProps) {
+  const rawPrice = getCardPrice(card);
+  const price = formatPrice(rawPrice);
   const isDfc = isDoubleFacedCard(card);
+  const priceNum = parseFloat(rawPrice || '0');
+  const isPriceOutlier = avgCardPrice != null &&
+    !isNaN(priceNum) && priceNum > 0 &&
+    priceNum >= avgCardPrice * 3 &&
+    priceNum >= avgCardPrice + 1;
 
   return (
     <button
@@ -153,8 +160,8 @@ function CardRow({ card, quantity, onPreview, onHover, dimmed }: CardRowProps) {
           </span>
         )}
       </span>
-      <ManaCost cost={card.mana_cost} />
-      <span className="text-muted-foreground text-xs w-16 text-right shrink-0">
+      <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
+      <span className={`text-xs w-16 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
         {price}
       </span>
     </button>
@@ -168,9 +175,10 @@ interface CategoryColumnProps {
   onPreview: (card: ScryfallCard) => void;
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => void;
   matchingCardIds: Set<string> | null;
+  avgCardPrice?: number | null;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice }: CategoryColumnProps) {
   const [animateRef] = useAutoAnimate({ duration: 200 });
 
   if (cards.length === 0) return null;
@@ -208,6 +216,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds }: Ca
             onPreview={onPreview}
             onHover={onHover}
             dimmed={matchingCardIds !== null && !matchingCardIds.has(card.id)}
+            avgCardPrice={avgCardPrice}
           />
         ))}
       </div>
@@ -864,6 +873,11 @@ export function DeckDisplay() {
     return sum + (isNaN(price) ? 0 : price * c.quantity);
   }, 0);
 
+  const budgetActive = customization.maxCardPrice !== null ||
+    customization.deckBudget !== null ||
+    customization.budgetOption !== 'any';
+  const avgCardPrice = budgetActive && totalCards > 0 ? totalPrice / totalCards : null;
+
   return (
     <>
       <div className="animate-slide-up">
@@ -992,6 +1006,7 @@ export function DeckDisplay() {
                     onPreview={setPreviewCard}
                     onHover={handleHover}
                     matchingCardIds={combinedMatchingIds}
+                    avgCardPrice={avgCardPrice}
                   />
                 ))}
               </div>

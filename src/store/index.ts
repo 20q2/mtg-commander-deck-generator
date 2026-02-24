@@ -88,6 +88,7 @@ export const useStore = create<AppState>((set) => ({
   themesLoading: false,
   themesError: null,
   themeSource: 'local',
+  edhrecLandSuggestion: null,
 
   // Customization
   customization: defaultCustomization,
@@ -116,6 +117,7 @@ export const useStore = create<AppState>((set) => ({
       themesLoading: false,
       themesError: null,
       themeSource: 'local',
+      edhrecLandSuggestion: null,
     };
   }),
 
@@ -149,6 +151,8 @@ export const useStore = create<AppState>((set) => ({
     themeSource: 'edhrec',
     themesError: null,
   }),
+
+  setEdhrecLandSuggestion: (suggestion) => set({ edhrecLandSuggestion: suggestion }),
 
   setSelectedThemes: (themes: ThemeResult[]) => set({ selectedThemes: themes }),
 

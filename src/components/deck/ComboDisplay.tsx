@@ -3,6 +3,8 @@ import type { DetectedCombo, ScryfallCard } from '@/types';
 import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { Sparkles, Check, AlertTriangle, ChevronDown, Plus } from 'lucide-react';
+import { trackEvent } from '@/services/analytics';
+import { useStore } from '@/store';
 
 interface ComboDisplayProps {
   combos: DetectedCombo[];
@@ -12,8 +14,10 @@ interface ComboDisplayProps {
 const cardDataCache = new Map<string, ScryfallCard>();
 
 export function ComboDisplay({ combos }: ComboDisplayProps) {
+  const commander = useStore(s => s.commander);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [hasTrackedView, setHasTrackedView] = useState(false);
   const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
@@ -161,7 +165,17 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
   return (
     <div className="mt-6 p-4 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          const willExpand = !expanded;
+          setExpanded(willExpand);
+          if (willExpand && !hasTrackedView) {
+            setHasTrackedView(true);
+            trackEvent('combos_viewed', {
+              commanderName: commander?.name ?? 'unknown',
+              comboCount: combos.length,
+            });
+          }
+        }}
         className="flex items-center gap-2 w-full text-left"
       >
         <Sparkles className="w-4 h-4 text-primary" />

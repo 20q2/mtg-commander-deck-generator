@@ -6,6 +6,7 @@ import { useStore } from '@/store';
 import { ARCHETYPE_LABELS } from '@/lib/constants/archetypes';
 import { Archetype } from '@/types';
 import { ChevronDown, Crosshair } from 'lucide-react';
+import { trackEvent } from '@/services/analytics';
 
 const confidenceColors = {
   high: 'bg-green-100 text-green-800 border-green-300',
@@ -112,7 +113,13 @@ export function ArchetypeDisplay() {
   };
 
   const handleThemeClick = (themeName: string) => {
+    const theme = selectedThemes.find(t => t.name === themeName);
     toggleThemeSelection(themeName);
+    trackEvent('theme_toggled', {
+      commanderName: commander.name,
+      themeName,
+      selected: !theme?.isSelected,
+    });
   };
 
   return (

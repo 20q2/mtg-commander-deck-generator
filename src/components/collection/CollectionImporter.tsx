@@ -3,6 +3,7 @@ import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { bulkImport, type BulkImportCard } from '@/services/collection/db';
 import { Upload, FileUp, Loader2, Check, AlertCircle } from 'lucide-react';
+import { trackEvent } from '@/services/analytics';
 
 interface ImportResult {
   added: number;
@@ -66,6 +67,11 @@ export function CollectionImporter() {
         setProgress(`Saving ${validated.length} cards...`);
         const { added, updated } = await bulkImport(validated);
         setResult({ added, updated, notFound });
+        trackEvent('collection_imported', {
+          cardCount: validated.length + notFound.length,
+          added,
+          updated,
+        });
       } else {
         setResult({ added: 0, updated: 0, notFound });
       }

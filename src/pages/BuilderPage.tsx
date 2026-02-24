@@ -16,11 +16,12 @@ import {
   detectArchetypes,
   getArchetypeDefaultCustomization,
 } from '@/services/deckBuilder/archetypeDetector';
-import { fetchCommanderThemes, fetchPartnerThemes, formatCommanderNameForUrl } from '@/services/edhrec';
+import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { ARCHETYPE_LABELS } from '@/lib/constants/archetypes';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { ThemeResult } from '@/types';
 import { Loader2, Wand2, ArrowLeft, ExternalLink } from 'lucide-react';
+import { trackEvent } from '@/services/analytics';
 
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
@@ -46,6 +47,7 @@ export function BuilderPage() {
     setDetectedArchetypes,
     updateCustomization,
     setEdhrecThemes,
+    setEdhrecLandSuggestion,
     setSelectedThemes,
     setThemesLoading,
     setThemesError,
@@ -98,6 +100,13 @@ export function BuilderPage() {
       // Detect archetypes
       const archetypes = detectArchetypes(card);
       setDetectedArchetypes(archetypes);
+      trackEvent('archetype_detected', {
+        commanderName: card.name,
+        archetypes: archetypes.slice(0, 3).map(a => ({
+          name: a.archetype,
+          confidence: a.confidence,
+        })),
+      });
 
       // Only apply archetype land-count defaults on first commander of the session
       // (when landCount is still the store default). Preserve user's choice when switching.
@@ -111,7 +120,23 @@ export function BuilderPage() {
       setThemesError(null);
 
       try {
-        const themes = await fetchCommanderThemes(card.name);
+        const data = await fetchCommanderData(card.name);
+        const themes = data.themes;
+
+        // Apply EDHREC land stats — more accurate than archetype-based estimates
+        const { landDistribution } = data.stats;
+        const suggestedLands = Math.round(landDistribution.total);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        if (suggestedLands > 0) {
+          updateCustomization({
+            landCount: suggestedLands,
+            nonBasicLandCount: suggestedNonBasic,
+          });
+          setEdhrecLandSuggestion({
+            landCount: suggestedLands,
+            nonBasicLandCount: suggestedNonBasic,
+          });
+        }
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
@@ -233,13 +258,29 @@ export function BuilderPage() {
       setThemesError(null);
 
       try {
-        let themes;
+        let data;
         if (partnerCommander) {
           // Fetch partner-specific themes
-          themes = await fetchPartnerThemes(commander!.name, partnerCommander.name);
+          data = await fetchPartnerCommanderData(commander!.name, partnerCommander.name);
         } else {
           // Fetch single commander themes
-          themes = await fetchCommanderThemes(commander!.name);
+          data = await fetchCommanderData(commander!.name);
+        }
+        const themes = data.themes;
+
+        // Apply EDHREC land stats for the updated commander pairing
+        const { landDistribution } = data.stats;
+        const suggestedLands = Math.round(landDistribution.total);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        if (suggestedLands > 0) {
+          updateCustomization({
+            landCount: suggestedLands,
+            nonBasicLandCount: suggestedNonBasic,
+          });
+          setEdhrecLandSuggestion({
+            landCount: suggestedLands,
+            nonBasicLandCount: suggestedNonBasic,
+          });
         }
 
         if (themes.length > 0) {
@@ -317,9 +358,24 @@ export function BuilderPage() {
 
       deck.builtFromCollection = !!customization.collectionMode;
       setGeneratedDeck(deck);
+      trackEvent('deck_generated', {
+        commanderName: commander.name,
+        partnerName: partnerCommander?.name,
+        archetype: selectedArchetype,
+        deckFormat: customization.deckFormat,
+        themes: selectedThemes.filter(t => t.isSelected).map(t => t.name),
+        collectionMode: !!customization.collectionMode,
+        totalCards: deck.stats.totalCards,
+        averageCmc: deck.stats.averageCmc,
+        comboCount: deck.detectedCombos?.length ?? 0,
+      });
     } catch (error) {
       console.error('Generation error:', error);
       setError(error instanceof Error ? error.message : 'Failed to generate deck');
+      trackEvent('deck_generation_failed', {
+        commanderName: commander.name,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     } finally {
       setLoading(false);
       setProgress('');

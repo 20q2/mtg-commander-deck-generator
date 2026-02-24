@@ -32,6 +32,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_ANALYTICS_URL: ${{ vars.VITE_ANALYTICS_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

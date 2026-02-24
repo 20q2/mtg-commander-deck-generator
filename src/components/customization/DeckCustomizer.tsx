@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 
 
 export function DeckCustomizer() {
-  const { customization, updateCustomization, commander, partnerCommander } = useStore();
+  const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
   const { count: collectionCount } = useCollection();
   const navigate = useNavigate();
   const [editingLands, setEditingLands] = useState(false);
@@ -236,7 +236,17 @@ export function DeckCustomizer() {
       {/* Land Count */}
       <div>
         <div className="flex justify-between mb-2">
-          <label className="text-sm font-medium">Total Lands</label>
+          <label className="text-sm font-medium flex items-center gap-1.5">
+            Total Lands
+            {edhrecLandSuggestion && customization.landCount === edhrecLandSuggestion.landCount && (
+              <span className="flex items-center gap-0.5 text-[11px] font-normal text-emerald-500">
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                suggested
+              </span>
+            )}
+          </label>
           {editingLands ? (
             <input
               ref={landInputRef}
@@ -277,7 +287,17 @@ export function DeckCustomizer() {
       {/* Non-Basic Land Count */}
       <div>
         <div className="flex justify-between mb-2">
-          <label className="text-sm font-medium">Non-Basic Lands</label>
+          <label className="text-sm font-medium flex items-center gap-1.5">
+            Non-Basic Lands
+            {edhrecLandSuggestion && customization.nonBasicLandCount === edhrecLandSuggestion.nonBasicLandCount && (
+              <span className="flex items-center gap-0.5 text-[11px] font-normal text-emerald-500">
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                suggested
+              </span>
+            )}
+          </label>
           <span className="text-sm font-bold">
             {customization.nonBasicLandCount}
             <span className="text-muted-foreground font-normal ml-1">

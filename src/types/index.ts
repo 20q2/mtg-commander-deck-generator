@@ -331,6 +331,9 @@ export interface AppState {
   themesError: string | null;
   themeSource: 'edhrec' | 'local';
 
+  // EDHREC land suggestion (set when commander data is fetched)
+  edhrecLandSuggestion: { landCount: number; nonBasicLandCount: number } | null;
+
   // Customization
   customization: Customization;
 
@@ -352,6 +355,7 @@ export interface AppState {
   toggleThemeSelection: (themeName: string) => void;
   setThemesLoading: (loading: boolean) => void;
   setThemesError: (error: string | null) => void;
+  setEdhrecLandSuggestion: (suggestion: { landCount: number; nonBasicLandCount: number } | null) => void;
   updateCustomization: (updates: Partial<Customization>) => void;
   setGeneratedDeck: (deck: GeneratedDeck | null) => void;
   setLoading: (loading: boolean, message?: string) => void;

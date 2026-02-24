@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { HomePage } from '@/pages/HomePage';
 import { BuilderPage } from '@/pages/BuilderPage';
 import { CollectionPage } from '@/pages/CollectionPage';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
+import { trackEvent } from '@/services/analytics';
 import type { ScryfallCard } from '@/types';
+
+// Lazy-load MetricsPage — only imported in dev, completely excluded from prod bundle
+const MetricsPage = import.meta.env.DEV
+  ? lazy(() => import('@/pages/MetricsPage').then(m => ({ default: m.MetricsPage })))
+  : null;
 
 // Get art crop URL for background
 function getArtCropUrl(card: ScryfallCard | null): string | null {
@@ -87,6 +93,14 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const isCollectionPage = location.pathname === '/collection';
 
+  // Track page views
+  useEffect(() => {
+    trackEvent('page_viewed', {
+      page: location.pathname.split('/')[1] || 'home',
+      path: location.pathname,
+    });
+  }, [location.pathname]);
+
   const handleLogoClick = () => {
     reset();
     navigate('/');
@@ -120,6 +134,14 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </button>
               <div className="flex items-center gap-3">
+                {import.meta.env.DEV && (
+                  <button
+                    onClick={() => navigate('/metrics')}
+                    className="text-xs text-amber-500/80 hover:text-amber-400 transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
+                  >
+                    Metrics
+                  </button>
+                )}
                 <button
                   onClick={() => navigate('/collection')}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
@@ -186,6 +208,9 @@ function App() {
         <Route path="/" element={<Layout><HomePage /></Layout>} />
         <Route path="/build/:commanderName/:partnerName?" element={<Layout><BuilderPage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
+        {import.meta.env.DEV && MetricsPage && (
+          <Route path="/metrics" element={<Layout><Suspense fallback={null}><MetricsPage /></Suspense></Layout>} />
+        )}
       </Routes>
     </BrowserRouter>
   );
