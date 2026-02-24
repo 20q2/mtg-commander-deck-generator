@@ -1,7 +1,7 @@
 {
   "name": "mtg-deck-builder",
   "private": true,
-  "version": "1.0.22",
+  "version": "1.0.23",
   "license": "MIT",
   "type": "module",
   "scripts": {
