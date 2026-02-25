@@ -349,13 +349,17 @@ function calculateCardPriority(card: EDHRECCard): number {
     return 100 + (synergy * 50) + inclusion;
   }
 
+  // New cards get a small relevancy boost to compensate for having fewer total decks,
+  // but not enough to override established staples with high inclusion/synergy
+  const newCardBoost = card.isNewCard ? 20 : 0;
+
   // If synergy score is high (> 0.3), boost the card
   if (synergy > 0.3) {
-    return (synergy * 100) + inclusion;
+    return (synergy * 100) + inclusion + newCardBoost;
   }
 
   // For low/no synergy cards, just use inclusion
-  return inclusion;
+  return inclusion + newCardBoost;
 }
 
 // Pick cards with curve awareness from pre-fetched map (no API calls)

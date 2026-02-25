@@ -183,7 +183,7 @@ async function edhrecFetch<T>(endpoint: string): Promise<T> {
 }
 
 // Tags that represent high-priority theme synergy cards
-const THEME_SYNERGY_TAGS = new Set(['newcards', 'highsynergycards', 'topcards', 'gamechangers']);
+const THEME_SYNERGY_TAGS = new Set(['highsynergycards', 'topcards', 'gamechangers']);
 
 /**
  * Parse raw EDHREC card into our format
@@ -212,6 +212,7 @@ function parseCard(raw: RawEDHRECCard, tagHint?: string): EDHRECCard {
 
   // Check if this card is from a high-priority synergy list
   const isThemeSynergyCard = THEME_SYNERGY_TAGS.has(tagLower);
+  const isNewCard = tagLower === 'newcards';
   const isGameChanger = tagLower === 'gamechangers';
 
   return {
@@ -222,6 +223,7 @@ function parseCard(raw: RawEDHRECCard, tagHint?: string): EDHRECCard {
     num_decks: raw.num_decks || 0,
     synergy: raw.synergy,
     isThemeSynergyCard,
+    isNewCard,
     isGameChanger,
     prices: raw.prices ? {
       tcgplayer: raw.prices.tcgplayer,

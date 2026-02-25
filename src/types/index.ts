@@ -110,7 +110,8 @@ export interface EDHRECCard {
   num_decks: number; // Number of decks with this card
   synergy?: number; // Synergy score (-1 to 1)
   // Track if this card came from a high-priority synergy list
-  isThemeSynergyCard?: boolean; // true if from highsynergycards, topcards, newcards, gamechangers
+  isThemeSynergyCard?: boolean; // true if from highsynergycards, topcards, gamechangers
+  isNewCard?: boolean; // true if from the newcards list (gets a small relevancy boost)
   isGameChanger?: boolean; // true if from the gamechangers list specifically
   prices?: {
     tcgplayer?: { price: number };
