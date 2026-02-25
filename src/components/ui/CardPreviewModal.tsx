@@ -41,7 +41,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck }: CardPreviewModa
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
     >
-      <div className="relative animate-scale-in" onClick={(e) => e.stopPropagation()}>
+      <div className="relative animate-scale-in max-w-[90vw] sm:max-w-none" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
           className="absolute -top-10 right-0 text-white/70 hover:text-white transition-colors"
@@ -52,7 +52,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck }: CardPreviewModa
           <img
             src={imgUrl}
             alt={faceName}
-            className="max-h-[80vh] rounded-xl shadow-2xl transition-all duration-200"
+            className="max-h-[75vh] max-w-full w-auto rounded-xl shadow-2xl transition-all duration-200"
           />
           {isDfc && (
             <button

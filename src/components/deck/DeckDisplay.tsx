@@ -892,7 +892,7 @@ export function DeckDisplay() {
       <div className="animate-slide-up">
         {/* Header */}
         <div className={`flex items-center justify-between mb-4 flex-wrap gap-4 ${searchQuery ? 'sticky top-[73px] z-30 bg-background/95 backdrop-blur-sm py-3 -mx-1 px-1 border-b border-border/30' : ''}`}>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-wrap">
             {/* Sort */}
             <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
@@ -933,7 +933,7 @@ export function DeckDisplay() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search cards..."
-                  className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                  className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-32 sm:w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
                 />
                 {searchQuery && (
                   <button
