@@ -15,6 +15,17 @@ function getUserId(): string {
   }
 }
 
+function getFirstSeen(): string {
+  try {
+    const KEY = 'mtg_first_seen';
+    let date = localStorage.getItem(KEY);
+    if (!date) { date = new Date().toISOString().slice(0, 10); localStorage.setItem(KEY, date); }
+    return date;
+  } catch {
+    return '';
+  }
+}
+
 const FLUSH_INTERVAL_MS = 5000;
 const FLUSH_THRESHOLD = 10;
 
@@ -50,6 +61,7 @@ export function trackEvent<T extends AnalyticsEventType>(
       metadata: {
         ...(metadata as Record<string, unknown>),
         userId: getUserId(),
+        firstSeen: getFirstSeen(),
         region: getRegion(),
       },
     });
@@ -127,11 +139,12 @@ export async function fetchMetrics(params?: {
   if (params?.from) searchParams.set('from', params.from);
   if (params?.to) searchParams.set('to', params.to);
   if (params?.eventType) searchParams.set('eventType', params.eventType);
+  searchParams.set('_t', Date.now().toString());
 
   const headers: Record<string, string> = {};
   if (METRICS_SECRET) headers['Authorization'] = `Bearer ${METRICS_SECRET}`;
 
-  const response = await fetch(`${url}?${searchParams.toString()}`, { headers });
+  const response = await fetch(`${url}?${searchParams.toString()}`, { headers, cache: 'no-store' });
   if (!response.ok) throw new Error(`Analytics fetch failed: ${response.status}`);
   return response.json();
 }

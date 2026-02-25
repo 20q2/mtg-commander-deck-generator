@@ -18,12 +18,17 @@ interface FeatureAdoption {
 interface MetricsSummary {
   totalEvents: number;
   uniqueUserCount: number;
+  newUserCount: number;
+  returningUserCount: number;
   eventCounts: Record<string, number>;
   commanderCounts: Record<string, number>;
   themeCounts: Record<string, number>;
   dailyCounts: Record<string, number>;
   dailyBreakdown: Record<string, Record<string, number>>;
   dailyUniqueUsers: Record<string, number>;
+  hourlyCounts: Record<string, number>;
+  hourlyBreakdown: Record<string, Record<string, number>>;
+  hourlyUniqueUsers: Record<string, number>;
   regionCounts: Record<string, number>;
   featureAdoption: FeatureAdoption;
   settingsCounts: Record<string, Record<string, number>>;
@@ -31,6 +36,7 @@ interface MetricsSummary {
 }
 
 const DAY_OPTIONS = [
+  { label: 'Today', value: 1 },
   { label: '7d', value: 7 },
   { label: '30d', value: 30 },
   { label: '90d', value: 90 },
@@ -157,9 +163,19 @@ export function MetricsPage() {
   const [data, setData] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(7);
+  const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
   const [dailyMetric, setDailyMetric] = useState<string>('total');
   const [showAllThemes, setShowAllThemes] = useState(false);
+
+  const handleSetDays = (d: number) => {
+    setDays(d);
+    if (d === 1) setGranularity('hourly');
+    else if (d > 7) setGranularity('daily');
+  };
+
+  // Re-fetch when the calendar date changes (e.g. tab left open overnight)
+  const today = new Date().toDateString();
 
   useEffect(() => {
     let cancelled = false;
@@ -180,7 +196,7 @@ export function MetricsPage() {
 
     load();
     return () => { cancelled = true; };
-  }, [days]);
+  }, [days, today]);
 
   const deckCount = data?.eventCounts?.deck_generated ?? 0;
   const uniqueCommanders = data ? Object.keys(data.commanderCounts).length : 0;
@@ -207,15 +223,34 @@ export function MetricsPage() {
     { key: 'commander_searched', label: 'Searches' },
   ];
 
-  const allDays = data ? Object.keys(data.dailyCounts).sort() : [];
-  const sortedDays: [string, number][] = allDays.map(day => {
-    let val = 0;
-    if (dailyMetric === 'total') val = data?.dailyCounts[day] ?? 0;
-    else if (dailyMetric === 'unique_users') val = data?.dailyUniqueUsers?.[day] ?? 0;
-    else val = data?.dailyBreakdown?.[day]?.[dailyMetric] ?? 0;
-    return [day, val];
-  });
-  const maxDailyCount = sortedDays.length > 0 ? Math.max(...sortedDays.map(([, v]) => v), 1) : 1;
+  const sortedSlots: [string, number][] = (() => {
+    if (!data) return [];
+    if (granularity === 'hourly') {
+      const slots: [string, number][] = [];
+      const fromTime = Date.now() - days * 24 * 60 * 60 * 1000;
+      const start = new Date(fromTime);
+      start.setMinutes(0, 0, 0);
+      const end = new Date();
+      for (let t = start.getTime(); t <= end.getTime(); t += 60 * 60 * 1000) {
+        const key = new Date(t).toISOString().slice(0, 13); // "YYYY-MM-DDTHH"
+        let val = 0;
+        if (dailyMetric === 'total') val = data.hourlyCounts?.[key] ?? 0;
+        else if (dailyMetric === 'unique_users') val = data.hourlyUniqueUsers?.[key] ?? 0;
+        else val = data.hourlyBreakdown?.[key]?.[dailyMetric] ?? 0;
+        slots.push([key, val]);
+      }
+      return slots;
+    } else {
+      return Object.keys(data.dailyCounts).sort().map(day => {
+        let val = 0;
+        if (dailyMetric === 'total') val = data.dailyCounts[day] ?? 0;
+        else if (dailyMetric === 'unique_users') val = data.dailyUniqueUsers?.[day] ?? 0;
+        else val = data.dailyBreakdown?.[day]?.[dailyMetric] ?? 0;
+        return [day, val] as [string, number];
+      });
+    }
+  })();
+  const maxSlotCount = sortedSlots.length > 0 ? Math.max(...sortedSlots.map(([, v]) => v), 1) : 1;
 
   const sortedRegions = data
     ? Object.entries(data.regionCounts ?? {}).sort(([, a], [, b]) => b - a)
@@ -250,7 +285,7 @@ export function MetricsPage() {
           {DAY_OPTIONS.map(opt => (
             <button
               key={opt.value}
-              onClick={() => setDays(opt.value)}
+              onClick={() => handleSetDays(opt.value)}
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
                 days === opt.value
                   ? 'bg-primary text-primary-foreground'
@@ -322,6 +357,13 @@ export function MetricsPage() {
                   <div>
                     <p className="text-2xl font-bold">{(data.uniqueUserCount ?? 0).toLocaleString()}</p>
                     <p className="text-xs text-muted-foreground">Unique Users</p>
+                    {((data.newUserCount ?? 0) + (data.returningUserCount ?? 0)) > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        <span className="text-green-500">{(data.newUserCount ?? 0).toLocaleString()} new</span>
+                        {' · '}
+                        <span>{(data.returningUserCount ?? 0).toLocaleString()} returning</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -448,11 +490,32 @@ export function MetricsPage() {
             </Card>
           </div>
 
-          {/* Daily Activity — full width */}
+          {/* Activity Chart — full width */}
           <Card className="bg-card/80 backdrop-blur-sm">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Daily Activity</CardTitle>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base">
+                    {granularity === 'hourly' ? 'Hourly Activity' : 'Daily Activity'}
+                  </CardTitle>
+                  {days <= 7 && (
+                    <div className="flex gap-0.5 bg-accent/50 rounded-md p-0.5">
+                      {(['daily', 'hourly'] as const).map(g => (
+                        <button
+                          key={g}
+                          onClick={() => setGranularity(g)}
+                          className={`px-2 py-0.5 text-[10px] rounded transition-colors capitalize ${
+                            granularity === g
+                              ? 'bg-primary text-primary-foreground'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {g === 'daily' ? 'Daily' : 'Hourly'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-1 bg-accent/50 rounded-md p-0.5">
                   {DAILY_METRICS.map(m => (
                     <button
@@ -471,37 +534,43 @@ export function MetricsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {sortedDays.length > 0 && sortedDays.some(([, v]) => v > 0) ? (
+              {sortedSlots.length > 0 && sortedSlots.some(([, v]) => v > 0) ? (
                 <div className="flex items-end gap-[2px] h-40">
-                  {sortedDays.map(([day, count]) => (
-                    <div
-                      key={day}
-                      className="flex-1 bg-primary/80 rounded-t-sm hover:bg-primary transition-colors group relative"
-                      style={{
-                        height: `${Math.max((count / maxDailyCount) * 100, count > 0 ? 0.5 : 0)}%`,
-                        minHeight: count > 0 ? 3 : 0,
-                      }}
-                      title={`${day}: ${count}`}
-                    >
-                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-popover border border-border text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-10">
-                        <span className="font-medium">{count}</span>
-                        <span className="text-muted-foreground ml-1">{day.slice(5)}</span>
+                  {sortedSlots.map(([slot, count]) => {
+                    const label = granularity === 'hourly' ? slot.slice(11) + ':00' : slot.slice(5);
+                    const tooltip = granularity === 'hourly'
+                      ? `${slot.slice(11)}:00 UTC — ${count}`
+                      : `${slot}: ${count}`;
+                    return (
+                      <div
+                        key={slot}
+                        className="flex-1 bg-primary/80 rounded-t-sm hover:bg-primary transition-colors group relative"
+                        style={{
+                          height: `${Math.max((count / maxSlotCount) * 100, count > 0 ? 0.5 : 0)}%`,
+                          minHeight: count > 0 ? 3 : 0,
+                        }}
+                        title={tooltip}
+                      >
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-popover border border-border text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-10">
+                          <span className="font-medium">{count}</span>
+                          <span className="text-muted-foreground ml-1">{label}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="h-40 flex items-center justify-center">
                   <p className="text-sm text-muted-foreground">No data yet for this metric</p>
                 </div>
               )}
-              {sortedDays.length > 0 && (
+              {sortedSlots.length > 0 && (
                 <div className="flex justify-between text-[10px] text-muted-foreground mt-2">
-                  <span>{sortedDays[0]?.[0]}</span>
-                  {sortedDays.length > 4 && (
-                    <span>{sortedDays[Math.floor(sortedDays.length / 2)]?.[0]}</span>
+                  <span>{granularity === 'hourly' ? sortedSlots[0]?.[0].slice(11) + ':00' : sortedSlots[0]?.[0]}</span>
+                  {sortedSlots.length > 4 && (
+                    <span>{granularity === 'hourly' ? sortedSlots[Math.floor(sortedSlots.length / 2)]?.[0].slice(11) + ':00' : sortedSlots[Math.floor(sortedSlots.length / 2)]?.[0]}</span>
                   )}
-                  <span>{sortedDays[sortedDays.length - 1]?.[0]}</span>
+                  <span>{granularity === 'hourly' ? sortedSlots[sortedSlots.length - 1]?.[0].slice(11) + ':00' : sortedSlots[sortedSlots.length - 1]?.[0]}</span>
                 </div>
               )}
             </CardContent>

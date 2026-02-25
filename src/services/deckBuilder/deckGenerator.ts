@@ -281,7 +281,8 @@ function pickFromPrefetched(
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
   comboPriorityBoost?: Map<string, number>,
-  currency: 'USD' | 'EUR' = 'USD'
+  currency: 'USD' | 'EUR' = 'USD',
+  gameChangerNames: Set<string> = new Set()
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -296,8 +297,10 @@ function pickFromPrefetched(
   for (const edhrecCard of candidates) {
     if (result.length >= count) break;
 
+    const isGC = gameChangerNames.has(edhrecCard.name);
+
     // Skip game changers that exceed the limit
-    if (edhrecCard.isGameChanger && gameChangerCount.value >= maxGameChangers) continue;
+    if (isGC && gameChangerCount.value >= maxGameChangers) continue;
 
     // Skip cards not in the user's collection
     if (notInCollection(edhrecCard.name, collectionNames)) continue;
@@ -315,7 +318,7 @@ function pickFromPrefetched(
     if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
     if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
 
-    if (edhrecCard.isGameChanger) {
+    if (isGC) {
       scryfallCard.isGameChanger = true;
       gameChangerCount.value++;
     }
@@ -382,7 +385,8 @@ function pickFromPrefetchedWithCurve(
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
   comboPriorityBoost?: Map<string, number>,
-  currency: 'USD' | 'EUR' = 'USD'
+  currency: 'USD' | 'EUR' = 'USD',
+  gameChangerNames: Set<string> = new Set()
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -409,8 +413,10 @@ function pickFromPrefetchedWithCurve(
     for (const edhrecCard of candidates) {
       if (result.length >= count) break;
 
+      const isGC = gameChangerNames.has(edhrecCard.name);
+
       // Skip game changers that exceed the limit
-      if (edhrecCard.isGameChanger && gameChangerCount.value >= maxGameChangers) continue;
+      if (isGC && gameChangerCount.value >= maxGameChangers) continue;
 
       // Skip cards not in the user's collection
       if (notInCollection(edhrecCard.name, collectionNames)) continue;
@@ -456,7 +462,7 @@ function pickFromPrefetchedWithCurve(
         }
       }
 
-      if (edhrecCard.isGameChanger) {
+      if (isGC) {
         scryfallCard.isGameChanger = true;
         gameChangerCount.value++;
       }
@@ -1127,7 +1133,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const comboCountSetting = customization.comboCount ?? 0;
   const [, gameChangerNames, combos] = await Promise.all([
     prefetchBasicLands(),
-    maxGameChangers < Infinity ? getGameChangerNames() : Promise.resolve(new Set<string>()),
+    getGameChangerNames(),
     fetchCommanderCombos(commander.name).catch(() => [] as EDHRECCombo[]),
   ]);
   console.log(`[DeckGen] Fetched ${combos.length} combos from EDHREC`);
@@ -1246,17 +1252,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Added ${addedCount} must-include cards to deck`);
 
     // Cross-reference must-include cards with Scryfall game changer list
-    if (gameChangerNames.size > 0) {
-      const allAdded = Object.values(categories).flat();
-      for (const card of allAdded) {
-        if (card.isMustInclude && gameChangerNames.has(card.name)) {
-          card.isGameChanger = true;
-          gameChangerCount.value++;
-        }
+    const allAdded = Object.values(categories).flat();
+    for (const card of allAdded) {
+      if (card.isMustInclude && gameChangerNames.has(card.name)) {
+        card.isGameChanger = true;
+        gameChangerCount.value++;
       }
-      if (gameChangerCount.value > 0) {
-        console.log(`[DeckGen] ${gameChangerCount.value} must-include card(s) are game changers`);
-      }
+    }
+    if (gameChangerCount.value > 0) {
+      console.log(`[DeckGen] ${gameChangerCount.value} must-include card(s) are game changers`);
     }
   }
 
@@ -1637,7 +1641,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       comboPriorityBoost,
-      currency
+      currency,
+      gameChangerNames
     );
     categories.creatures.push(...creatures);
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
@@ -1688,7 +1693,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       comboPriorityBoost,
-      currency
+      currency,
+      gameChangerNames
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeInstants(instants, categories);
@@ -1714,7 +1720,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       comboPriorityBoost,
-      currency
+      currency,
+      gameChangerNames
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeSorceries(sorceries, categories);
@@ -1740,7 +1747,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       comboPriorityBoost,
-      currency
+      currency,
+      gameChangerNames
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeArtifacts(artifacts, categories);
@@ -1766,7 +1774,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       comboPriorityBoost,
-      currency
+      currency,
+      gameChangerNames
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeEnchantments(enchantments, categories);
@@ -1793,7 +1802,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         budgetTracker,
         context.collectionNames,
         comboPriorityBoost,
-        currency
+        currency,
+        gameChangerNames
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);

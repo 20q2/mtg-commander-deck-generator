@@ -77,20 +77,30 @@ async function handleGet(params: Record<string, string>) {
   const to = params.to || new Date().toISOString();
 
   if (action === 'summary') {
-    const result = await client.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        IndexName: 'gsi-all-by-date',
-        KeyConditionExpression: 'gsiPk = :pk AND sk BETWEEN :from AND :to',
-        ExpressionAttributeValues: marshall({
-          ':pk': 'ALL',
-          ':from': from,
-          ':to': to + '\uffff',
-        }),
-      })
-    );
+    // Paginate through all results — DynamoDB returns max 1MB per query
+    const allRawItems: Record<string, unknown>[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let exclusiveStartKey: Record<string, any> | undefined;
+    do {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLE_NAME,
+          IndexName: 'gsi-all-by-date',
+          KeyConditionExpression: 'gsiPk = :pk AND sk BETWEEN :from AND :to',
+          ExpressionAttributeValues: marshall({
+            ':pk': 'ALL',
+            ':from': from,
+            ':to': to + '\uffff',
+          }),
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      allRawItems.push(...(result.Items || []).map((item: any) => unmarshall(item)));
+      exclusiveStartKey = result.LastEvaluatedKey;
+    } while (exclusiveStartKey);
 
-    const items = (result.Items || []).map((item) => unmarshall(item));
+    const items = allRawItems;
 
     const eventCounts: Record<string, number> = {};
     const commanderCounts: Record<string, number> = {};
@@ -98,7 +108,13 @@ async function handleGet(params: Record<string, string>) {
     const dailyCounts: Record<string, number> = {};
     const dailyBreakdown: Record<string, Record<string, number>> = {};
     const dailyUserSets: Record<string, Set<string>> = {};
+    const hourlyCounts: Record<string, number> = {};
+    const hourlyBreakdown: Record<string, Record<string, number>> = {};
+    const hourlyUserSets: Record<string, Set<string>> = {};
     const uniqueUsers = new Set<string>();
+    const newUsers = new Set<string>();
+    const returningUsers = new Set<string>();
+    const fromDay = from.slice(0, 10); // "YYYY-MM-DD" for firstSeen comparison
     const regionCounts: Record<string, number> = {};
     const featureAdoption = {
       collectionMode: 0,
@@ -134,14 +150,31 @@ async function handleGet(params: Record<string, string>) {
         dailyBreakdown[day][item.event] = (dailyBreakdown[day][item.event] || 0) + 1;
       }
 
+      // Hourly counts
+      const hour = item.timestamp?.slice(0, 13); // "YYYY-MM-DDTHH"
+      if (hour) {
+        hourlyCounts[hour] = (hourlyCounts[hour] || 0) + 1;
+        if (!hourlyBreakdown[hour]) hourlyBreakdown[hour] = {};
+        hourlyBreakdown[hour][item.event] = (hourlyBreakdown[hour][item.event] || 0) + 1;
+      }
+
       const meta = item.metadata as Record<string, unknown> | undefined;
 
-      // Unique users (global + per-day)
+      // Unique users (global + per-day + per-hour + new/returning)
       if (meta?.userId && typeof meta.userId === 'string') {
         uniqueUsers.add(meta.userId);
         if (day) {
           if (!dailyUserSets[day]) dailyUserSets[day] = new Set();
           dailyUserSets[day].add(meta.userId);
+        }
+        if (hour) {
+          if (!hourlyUserSets[hour]) hourlyUserSets[hour] = new Set();
+          hourlyUserSets[hour].add(meta.userId);
+        }
+        // New = first seen within the queried range; returning = before it
+        if (typeof meta.firstSeen === 'string' && meta.firstSeen) {
+          if (meta.firstSeen >= fromDay) newUsers.add(meta.userId);
+          else returningUsers.add(meta.userId);
         }
       }
 
@@ -214,17 +247,27 @@ async function handleGet(params: Record<string, string>) {
       dailyUniqueUsers[day] = set.size;
     }
 
+    const hourlyUniqueUsers: Record<string, number> = {};
+    for (const [hour, set] of Object.entries(hourlyUserSets)) {
+      hourlyUniqueUsers[hour] = set.size;
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({
         totalEvents: items.length,
         uniqueUserCount: uniqueUsers.size,
+        newUserCount: newUsers.size,
+        returningUserCount: returningUsers.size,
         eventCounts,
         commanderCounts,
         themeCounts,
         dailyCounts,
         dailyBreakdown,
         dailyUniqueUsers,
+        hourlyCounts,
+        hourlyBreakdown,
+        hourlyUniqueUsers,
         regionCounts,
         featureAdoption,
         settingsCounts,
