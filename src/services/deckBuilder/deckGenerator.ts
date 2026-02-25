@@ -351,7 +351,7 @@ function calculateCardPriority(card: EDHRECCard): number {
 
   // New cards get a small relevancy boost to compensate for having fewer total decks,
   // but not enough to override established staples with high inclusion/synergy
-  const newCardBoost = card.isNewCard ? 20 : 0;
+  const newCardBoost = card.isNewCard ? 25 : 0;
 
   // If synergy score is high (> 0.3), boost the card
   if (synergy > 0.3) {
