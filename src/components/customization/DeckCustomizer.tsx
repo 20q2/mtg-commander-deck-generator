@@ -717,9 +717,10 @@ export function DeckCustomizer() {
               <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
             Card Lists
-            {!cardListsOpen && (customization.mustIncludeCards.length > 0 || customization.bannedCards.length > 0) && (
+            {!cardListsOpen && (customization.mustIncludeCards.length > 0 || customization.bannedCards.length > 0 || customization.arenaOnly) && (
               <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
+                  customization.arenaOnly ? 'Arena' : null,
                   customization.mustIncludeCards.length > 0 ? `${customization.mustIncludeCards.length} included` : null,
                   customization.bannedCards.length > 0 ? `${customization.bannedCards.length} excluded` : null,
                 ].filter(Boolean).join(' · ')}
@@ -745,6 +746,19 @@ export function DeckCustomizer() {
 
             {/* Excluded Cards */}
             <BannedCards />
+
+            {/* Arena Only */}
+            <div className="border-t border-muted-foreground/20" />
+            <label className="flex items-center gap-3 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={customization.arenaOnly}
+                onChange={(e) => updateCustomization({ arenaOnly: e.target.checked })}
+                className="rounded border-border accent-primary w-4 h-4"
+              />
+              <span className="text-sm font-medium group-hover:text-primary transition-colors">Limit to Arena cards</span>
+              <InfoTooltip text="Only use cards available in MTG Arena. Searches and deck generation will be restricted to Arena's card pool." />
+            </label>
           </div>
           </div>
         </div>

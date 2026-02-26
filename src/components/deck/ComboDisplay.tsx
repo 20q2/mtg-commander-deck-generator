@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, Fragment } from 'react';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
+import { getCollectionNameSet } from '@/services/collection/db';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
-import { Sparkles, Check, AlertTriangle, ChevronDown, Plus } from 'lucide-react';
+import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 
@@ -21,6 +22,17 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
   const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
+  const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
+
+  // Load collection names when expanded
+  useEffect(() => {
+    if (!expanded) return;
+    let cancelled = false;
+    getCollectionNameSet().then(names => {
+      if (!cancelled && names.size > 0) setCollectionNames(names);
+    });
+    return () => { cancelled = true; };
+  }, [expanded]);
 
   // Fetch card images when expanded
   useEffect(() => {
@@ -133,8 +145,14 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                     </div>
                   )}
                   {isMissing && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-md">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md">
                       <span className="text-[9px] font-bold text-amber-400">MISSING</span>
+                      {collectionNames?.has(name) && (
+                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 mt-0.5">
+                          <Package className="w-2.5 h-2.5" />
+                          OWNED
+                        </span>
+                      )}
                     </div>
                   )}
                 </button>

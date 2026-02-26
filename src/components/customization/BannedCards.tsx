@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { useStore } from '@/store';
-import { searchCards, getCardImageUrl } from '@/services/scryfall/client';
+import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
-import { Search, Loader2, X, Upload, Trash2 } from 'lucide-react';
+import { CardTypeIcon } from '@/components/ui/mtg-icons';
+import { Search, Loader2, X, Upload, Trash2, ChevronRight } from 'lucide-react';
+
+const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land', 'Battle'];
 
 export function BannedCards() {
   const [query, setQuery] = useState('');
@@ -13,9 +16,50 @@ export function BannedCards() {
   const [showResults, setShowResults] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set());
 
   const { customization, updateCustomization, colorIdentity } = useStore();
   const bannedCards = customization.bannedCards;
+  const arenaOnly = customization.arenaOnly;
+
+  // Track card name → primary type for grouping
+  const [typeMap, setTypeMap] = useState<Record<string, string>>({});
+  const fetchingRef = useRef(false);
+
+  // Fetch type info for cards not yet in the typeMap
+  useEffect(() => {
+    const missing = bannedCards.filter(name => !(name in typeMap));
+    if (missing.length === 0 || fetchingRef.current) return;
+    fetchingRef.current = true;
+    getCardsByNames(missing).then(cardMap => {
+      const updates: Record<string, string> = {};
+      for (const [name, card] of cardMap) {
+        const typeLine = card.type_line?.toLowerCase() ?? '';
+        updates[name] = CARD_TYPES.find(t => typeLine.includes(t.toLowerCase())) ?? 'Other';
+      }
+      for (const name of missing) {
+        if (!updates[name]) updates[name] = 'Other';
+      }
+      setTypeMap(prev => ({ ...prev, ...updates }));
+    }).catch(() => {
+      // Silently fail — cards just won't be grouped
+    }).finally(() => { fetchingRef.current = false; });
+  }, [bannedCards, typeMap]);
+
+  // Group cards by type
+  const groupedCards = useMemo(() => {
+    const groups: Record<string, string[]> = {};
+    for (const name of bannedCards) {
+      const type = typeMap[name] ?? 'Other';
+      (groups[type] ??= []).push(name);
+    }
+    const sorted: [string, string[]][] = [];
+    for (const type of CARD_TYPES) {
+      if (groups[type]) sorted.push([type, groups[type]]);
+    }
+    if (groups['Other']) sorted.push(['Other', groups['Other']]);
+    return sorted;
+  }, [bannedCards, typeMap]);
 
   // Debounced search
   useEffect(() => {
@@ -28,7 +72,8 @@ export function BannedCards() {
       setIsSearching(true);
       try {
         // Search for cards matching the query within the commander's color identity
-        const searchResults = await searchCards(query, colorIdentity, { order: 'edhrec' });
+        const arenaQuery = arenaOnly ? `${query} game:arena` : query;
+        const searchResults = await searchCards(arenaQuery, colorIdentity, { order: 'edhrec' });
         // Filter out already banned cards
         const filtered = searchResults.data.filter(
           card => !bannedCards.includes(card.name)
@@ -44,13 +89,16 @@ export function BannedCards() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [query, colorIdentity, bannedCards]);
+  }, [query, colorIdentity, bannedCards, arenaOnly]);
 
   const handleBanCard = (card: ScryfallCard) => {
     if (!bannedCards.includes(card.name)) {
       updateCustomization({
         bannedCards: [...bannedCards, card.name],
       });
+      const typeLine = card.type_line?.toLowerCase() ?? '';
+      const type = CARD_TYPES.find(t => typeLine.includes(t.toLowerCase())) ?? 'Other';
+      setTypeMap(prev => ({ ...prev, [card.name]: type }));
     }
     setQuery('');
     setResults([]);
@@ -221,23 +269,63 @@ export function BannedCards() {
         )}
       </div>
 
-      {/* Banned Cards List */}
+      {/* Banned Cards List — grouped by type */}
       {bannedCards.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {bannedCards.map((cardName) => (
-            <span
-              key={cardName}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-destructive/10 text-destructive text-xs rounded-md border border-destructive/20"
-            >
-              <span className="truncate max-w-[150px]">{cardName}</span>
+        <div className="relative space-y-2">
+          {groupedCards.length > 1 && (
+            <div className="absolute right-0 top-0 flex gap-2">
               <button
-                onClick={() => handleUnbanCard(cardName)}
-                className="hover:bg-destructive/20 rounded p-0.5 transition-colors"
+                onClick={() => setCollapsedTypes(new Set())}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
               >
-                <X className="w-3 h-3" />
+                Expand all
               </button>
-            </span>
-          ))}
+              <button
+                onClick={() => setCollapsedTypes(new Set(groupedCards.map(([type]) => type)))}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Collapse all
+              </button>
+            </div>
+          )}
+          {groupedCards.map(([type, cards]) => {
+            const isCollapsed = collapsedTypes.has(type);
+            return (
+              <div key={type}>
+                <button
+                  onClick={() => setCollapsedTypes(prev => {
+                    const next = new Set(prev);
+                    next.has(type) ? next.delete(type) : next.add(type);
+                    return next;
+                  })}
+                  className="flex items-center gap-1 mb-1 group cursor-pointer select-none"
+                >
+                  <ChevronRight className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
+                  <CardTypeIcon type={type} size="sm" className="text-red-400/60" />
+                  <span className="text-[11px] text-muted-foreground font-medium group-hover:text-foreground transition-colors">{type}</span>
+                  <span className="text-[10px] text-muted-foreground/60">{cards.length}</span>
+                </button>
+                {!isCollapsed && (
+                  <div className="flex flex-wrap gap-1 ml-4">
+                    {cards.map((cardName) => (
+                      <span
+                        key={cardName}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-destructive/10 text-destructive text-[10px] rounded border border-destructive/20"
+                      >
+                        <span className="truncate max-w-[150px]">{cardName}</span>
+                        <button
+                          onClick={() => handleUnbanCard(cardName)}
+                          className="hover:bg-destructive/20 rounded p-0.5 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

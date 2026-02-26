@@ -376,6 +376,7 @@ export function BuilderPage() {
         hyperFocus: customization.hyperFocus,
         gameChangerLimit: customization.gameChangerLimit,
         tinyLeaders: customization.tinyLeaders,
+        arenaOnly: customization.arenaOnly,
         landCount: customization.landCount,
         nonBasicLandCount: customization.nonBasicLandCount,
         mustIncludeCount: customization.mustIncludeCards.length,

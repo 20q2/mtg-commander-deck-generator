@@ -24,6 +24,7 @@ import {
   hasCurveRoom,
 } from './curveUtils';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
+import { loadTaggerData, hasTaggerData, getTaggerRole } from '@/services/tagger/client';
 
 interface GenerationContext {
   commander: ScryfallCard;
@@ -194,6 +195,12 @@ function notInCollection(cardName: string, collectionNames: Set<string> | undefi
   return !collectionNames.has(cardName);
 }
 
+// Check if a card is not available on MTG Arena (for Arena-only mode)
+function notOnArena(card: ScryfallCard, arenaOnly: boolean): boolean {
+  if (!arenaOnly) return false;
+  return !card.games?.includes('arena');
+}
+
 // Check if a non-land card exceeds the CMC cap (for Tiny Leaders)
 function exceedsCmcCap(card: ScryfallCard, maxCmc: number | null): boolean {
   if (maxCmc === null) return false;
@@ -282,7 +289,8 @@ function pickFromPrefetched(
   collectionNames?: Set<string>,
   comboPriorityBoost?: Map<string, number>,
   currency: 'USD' | 'EUR' = 'USD',
-  gameChangerNames: Set<string> = new Set()
+  gameChangerNames: Set<string> = new Set(),
+  arenaOnly: boolean = false
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -317,6 +325,7 @@ function pickFromPrefetched(
     if (exceedsMaxPrice(scryfallCard, effectiveCap, currency)) continue;
     if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
     if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
+    if (notOnArena(scryfallCard, arenaOnly)) continue;
 
     if (isGC) {
       scryfallCard.isGameChanger = true;
@@ -386,7 +395,8 @@ function pickFromPrefetchedWithCurve(
   collectionNames?: Set<string>,
   comboPriorityBoost?: Map<string, number>,
   currency: 'USD' | 'EUR' = 'USD',
-  gameChangerNames: Set<string> = new Set()
+  gameChangerNames: Set<string> = new Set(),
+  arenaOnly: boolean = false
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -450,6 +460,11 @@ function pickFromPrefetchedWithCurve(
 
       // CMC cap check (Tiny Leaders)
       if (exceedsCmcCap(scryfallCard, maxCmc)) {
+        continue;
+      }
+
+      // Arena-only check
+      if (notOnArena(scryfallCard, arenaOnly)) {
         continue;
       }
 
@@ -523,27 +538,45 @@ function matchesExpectedType(typeLine: string, expectedType: string): boolean {
   return false;
 }
 
+// Categorize a card by its role using tagger data (preferred) or oracle text (fallback)
+function categorizeByRole(
+  card: ScryfallCard,
+  categories: Record<DeckCategory, ScryfallCard[]>,
+  oracleTextFallback: (text: string) => DeckCategory
+): void {
+  const taggerRole = getTaggerRole(card.name);
+  if (taggerRole) {
+    const categoryMap: Record<string, DeckCategory> = {
+      ramp: 'ramp',
+      removal: 'singleRemoval',
+      boardwipe: 'boardWipes',
+      cardDraw: 'cardDraw',
+    };
+    categories[categoryMap[taggerRole]].push(card);
+    return;
+  }
+  // Fallback to oracle text heuristics
+  const category = oracleTextFallback(card.oracle_text?.toLowerCase() || '');
+  categories[category].push(card);
+}
+
 // Categorize instants by function (removal, card draw, or synergy)
 function categorizeInstants(
   instants: ScryfallCard[],
   categories: Record<DeckCategory, ScryfallCard[]>
 ): void {
   for (const card of instants) {
-    const text = card.oracle_text?.toLowerCase() || '';
-
-    if (
-      text.includes('destroy target') ||
-      text.includes('exile target') ||
-      text.includes('counter target') ||
-      text.includes('return target') ||
-      text.includes('deals') && text.includes('damage to')
-    ) {
-      categories.singleRemoval.push(card);
-    } else if (text.includes('draw')) {
-      categories.cardDraw.push(card);
-    } else {
-      categories.synergy.push(card);
-    }
+    categorizeByRole(card, categories, (text) => {
+      if (
+        text.includes('destroy target') ||
+        text.includes('exile target') ||
+        text.includes('counter target') ||
+        text.includes('return target') ||
+        text.includes('deals') && text.includes('damage to')
+      ) return 'singleRemoval';
+      if (text.includes('draw')) return 'cardDraw';
+      return 'synergy';
+    });
   }
 }
 
@@ -553,24 +586,17 @@ function categorizeSorceries(
   categories: Record<DeckCategory, ScryfallCard[]>
 ): void {
   for (const card of sorceries) {
-    const text = card.oracle_text?.toLowerCase() || '';
-
-    if (
-      text.includes('destroy all') ||
-      text.includes('exile all') ||
-      (text.includes('each creature') && text.includes('damage')) ||
-      text.includes('all creatures get -')
-    ) {
-      categories.boardWipes.push(card);
-    } else if (
-      text.includes('search your library') && text.includes('land')
-    ) {
-      categories.ramp.push(card);
-    } else if (text.includes('draw')) {
-      categories.cardDraw.push(card);
-    } else {
-      categories.synergy.push(card);
-    }
+    categorizeByRole(card, categories, (text) => {
+      if (
+        text.includes('destroy all') ||
+        text.includes('exile all') ||
+        (text.includes('each creature') && text.includes('damage')) ||
+        text.includes('all creatures get -')
+      ) return 'boardWipes';
+      if (text.includes('search your library') && text.includes('land')) return 'ramp';
+      if (text.includes('draw')) return 'cardDraw';
+      return 'synergy';
+    });
   }
 }
 
@@ -580,18 +606,11 @@ function categorizeArtifacts(
   categories: Record<DeckCategory, ScryfallCard[]>
 ): void {
   for (const card of artifacts) {
-    const text = card.oracle_text?.toLowerCase() || '';
-
-    if (
-      text.includes('add') &&
-      (text.includes('mana') || text.match(/add \{[wubrgc]\}/i))
-    ) {
-      categories.ramp.push(card);
-    } else if (text.includes('draw')) {
-      categories.cardDraw.push(card);
-    } else {
-      categories.synergy.push(card);
-    }
+    categorizeByRole(card, categories, (text) => {
+      if (text.includes('add') && (text.includes('mana') || text.match(/add \{[wubrgc]\}/i))) return 'ramp';
+      if (text.includes('draw')) return 'cardDraw';
+      return 'synergy';
+    });
   }
 }
 
@@ -601,18 +620,11 @@ function categorizeEnchantments(
   categories: Record<DeckCategory, ScryfallCard[]>
 ): void {
   for (const card of enchantments) {
-    const text = card.oracle_text?.toLowerCase() || '';
-
-    if (text.includes('draw')) {
-      categories.cardDraw.push(card);
-    } else if (
-      text.includes('add') &&
-      (text.includes('mana') || text.match(/add \{[wubrgc]\}/i))
-    ) {
-      categories.ramp.push(card);
-    } else {
-      categories.synergy.push(card);
-    }
+    categorizeByRole(card, categories, (text) => {
+      if (text.includes('draw')) return 'cardDraw';
+      if (text.includes('add') && (text.includes('mana') || text.match(/add \{[wubrgc]\}/i))) return 'ramp';
+      return 'synergy';
+    });
   }
 }
 
@@ -628,7 +640,8 @@ async function fillWithScryfall(
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
-  currency: 'USD' | 'EUR' = 'USD'
+  currency: 'USD' | 'EUR' = 'USD',
+  arenaOnly: boolean = false
 ): Promise<ScryfallCard[]> {
   if (count <= 0) return [];
 
@@ -640,6 +653,10 @@ async function fillWithScryfall(
   // Add CMC cap to Scryfall query (Tiny Leaders)
   if (maxCmc !== null) {
     fullQuery += ` cmc<=${maxCmc}`;
+  }
+  // Restrict to Arena-available cards
+  if (arenaOnly) {
+    fullQuery += ` game:arena`;
   }
 
   try {
@@ -655,6 +672,7 @@ async function fillWithScryfall(
       if (exceedsMaxPrice(card, effectiveCap, currency)) continue;
       if (exceedsMaxRarity(card, maxRarity)) continue;
       if (exceedsCmcCap(card, maxCmc)) continue;
+      if (notOnArena(card, arenaOnly)) continue;
 
       result.push(card);
       usedNames.add(card.name);
@@ -835,7 +853,8 @@ async function generateLands(
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
-  currency: 'USD' | 'EUR' = 'USD'
+  currency: 'USD' | 'EUR' = 'USD',
+  arenaOnly: boolean = false
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -865,7 +884,7 @@ async function generateLands(
       .map(c => c.name);
 
     const landCardMap = await getCardsByNames(landNamesToFetch);
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, undefined, currency);
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, undefined, currency, new Set(), arenaOnly);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -876,7 +895,7 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency, arenaOnly);
     lands.push(...moreLands);
   }
 
@@ -1104,6 +1123,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
   const maxRarity = customization.maxRarity ?? null;
   const maxCmc = customization.tinyLeaders ? 3 : null;
+  const arenaOnly = !!customization.arenaOnly;
   const maxGameChangers = customization.gameChangerLimit === 'none' ? 0
     : customization.gameChangerLimit === 'unlimited' ? Infinity
     : customization.gameChangerLimit;
@@ -1128,15 +1148,18 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     usedNames.add(partnerCommander.name);
   }
 
-  // Pre-fetch basic lands, game changer list, and combo data in parallel
+  // Pre-fetch basic lands, game changer list, combo data, and tagger data in parallel
   onProgress?.('Shuffling the library...', 5);
   const comboCountSetting = customization.comboCount ?? 0;
   const [, gameChangerNames, combos] = await Promise.all([
     prefetchBasicLands(),
     getGameChangerNames(),
     fetchCommanderCombos(commander.name).catch(() => [] as EDHRECCombo[]),
+    loadTaggerData(), // Fetch tagger role data from S3 (cached after first load)
   ]);
+  onProgress?.('Divining card roles from the aether...', 7);
   console.log(`[DeckGen] Fetched ${combos.length} combos from EDHREC`);
+  console.log(`[DeckGen] Tagger data: ${hasTaggerData() ? 'loaded' : 'unavailable (using oracle text fallback)'}`);
 
   // Build combo priority boost map
   const comboPriorityBoost = new Map<string, number>();
@@ -1664,7 +1687,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       context.collectionNames,
       comboPriorityBoost,
       currency,
-      gameChangerNames
+      gameChangerNames,
+      arenaOnly
     );
     categories.creatures.push(...creatures);
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
@@ -1684,7 +1708,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxCmc,
         budgetTracker,
         context.collectionNames,
-        currency
+        currency,
+        arenaOnly
       );
       categories.creatures.push(...moreCreatures);
       console.log(`[DeckGen] FALLBACK: Got ${moreCreatures.length} creatures from Scryfall`);
@@ -1716,7 +1741,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       context.collectionNames,
       comboPriorityBoost,
       currency,
-      gameChangerNames
+      gameChangerNames,
+      arenaOnly
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeInstants(instants, categories);
@@ -1743,7 +1769,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       context.collectionNames,
       comboPriorityBoost,
       currency,
-      gameChangerNames
+      gameChangerNames,
+      arenaOnly
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeSorceries(sorceries, categories);
@@ -1770,7 +1797,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       context.collectionNames,
       comboPriorityBoost,
       currency,
-      gameChangerNames
+      gameChangerNames,
+      arenaOnly
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeArtifacts(artifacts, categories);
@@ -1797,7 +1825,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       context.collectionNames,
       comboPriorityBoost,
       currency,
-      gameChangerNames
+      gameChangerNames,
+      arenaOnly
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeEnchantments(enchantments, categories);
@@ -1825,7 +1854,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         context.collectionNames,
         comboPriorityBoost,
         currency,
-        gameChangerNames
+        gameChangerNames,
+        arenaOnly
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
@@ -1884,7 +1914,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxCmc,
         budgetTracker,
         context.collectionNames,
-        currency
+        currency,
+        arenaOnly
       ),
     ];
 
@@ -1914,7 +1945,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCmc,
       budgetTracker,
       context.collectionNames,
-      currency
+      currency,
+      arenaOnly
     );
 
     onProgress?.('Seeking sources of knowledge...', 30);
@@ -1929,7 +1961,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCmc,
       budgetTracker,
       context.collectionNames,
-      currency
+      currency,
+      arenaOnly
     );
 
     onProgress?.('Arming with removal spells...', 40);
@@ -1944,7 +1977,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCmc,
       budgetTracker,
       context.collectionNames,
-      currency
+      currency,
+      arenaOnly
     );
 
     onProgress?.('Preparing mass destruction...', 50);
@@ -1959,7 +1993,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCmc,
       budgetTracker,
       context.collectionNames,
-      currency
+      currency,
+      arenaOnly
     );
 
     onProgress?.('Recruiting an army...', 60);
@@ -1974,7 +2009,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCmc,
       budgetTracker,
       context.collectionNames,
-      currency
+      currency,
+      arenaOnly
     );
 
     onProgress?.('Finding synergistic pieces...', 70);
@@ -1989,7 +2025,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCmc,
       budgetTracker,
       context.collectionNames,
-      currency
+      currency,
+      arenaOnly
     );
 
     onProgress?.('Surveying the mana base...', 80);
@@ -2029,7 +2066,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxCmc,
         budgetTracker,
         context.collectionNames,
-        currency
+        currency,
+        arenaOnly
       ),
     ];
   }
@@ -2138,7 +2176,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxCmc,
         null,
         context.collectionNames,
-        currency
+        currency,
+        arenaOnly
       );
       categories.synergy.push(...moreSynergy);
       console.log(`[DeckGen] Filled ${moreSynergy.length} cards from Scryfall`);

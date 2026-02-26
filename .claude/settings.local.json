@@ -40,7 +40,9 @@
       "Bash(\"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" diff --staged infra/lambda/index.ts)",
       "Bash(NODE_PATH=\"\" NODE_OPTIONS=\"\" \"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" status --porcelain)",
       "Bash(NODE_PATH=\"\" NODE_OPTIONS=\"\" \"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" status)",
-      "Bash(NODE_PATH=\"\" \"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" log --oneline -10)"
+      "Bash(NODE_PATH=\"\" \"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" log --oneline -10)",
+      "WebFetch(domain:tagger.scryfall.com)",
+      "Bash(aws lambda invoke:*)"
     ]
   }
 }

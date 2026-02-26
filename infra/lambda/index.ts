@@ -127,6 +127,7 @@ async function handleGet(params: Record<string, string>) {
       collectionMode: 0,
       hyperFocus: 0,
       tinyLeaders: 0,
+      arenaOnly: 0,
       hasPriceLimit: 0,
       hasBudgetLimit: 0,
       hasMusts: 0,
@@ -211,6 +212,7 @@ async function handleGet(params: Record<string, string>) {
         if (meta.collectionMode === true) featureAdoption.collectionMode++;
         if (meta.hyperFocus === true) featureAdoption.hyperFocus++;
         if (meta.tinyLeaders === true) featureAdoption.tinyLeaders++;
+        if (meta.arenaOnly === true) featureAdoption.arenaOnly++;
         if (meta.maxCardPrice !== null && meta.maxCardPrice !== undefined) featureAdoption.hasPriceLimit++;
         if (meta.deckBudget !== null && meta.deckBudget !== undefined) featureAdoption.hasBudgetLimit++;
         if (typeof meta.mustIncludeCount === 'number' && meta.mustIncludeCount > 0) featureAdoption.hasMusts++;

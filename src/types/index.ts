@@ -53,6 +53,7 @@ export interface ScryfallCard {
     commander: string;
     [format: string]: string;
   };
+  games?: string[]; // Platforms: "paper", "arena", "mtgo"
   // Added during deck generation
   isGameChanger?: boolean;
   isMustInclude?: boolean;
@@ -310,6 +311,7 @@ export interface Customization {
   maxRarity: MaxRarity; // Max card rarity, null = no limit
   tinyLeaders: boolean; // Restrict all non-land cards to CMC <= 3
   collectionMode: boolean; // When true, constrain generation to owned cards
+  arenaOnly: boolean; // When true, only use cards available on MTG Arena
   comboCount: number; // 0 = none, 1 = a few, 2 = many combo pieces prioritized
   hyperFocus: boolean; // When true, boost unique theme cards and penalize generic multi-theme cards
   currency: 'USD' | 'EUR'; // Price currency for budget filtering and display

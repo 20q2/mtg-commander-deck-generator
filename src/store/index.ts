@@ -90,6 +90,7 @@ const defaultCustomization: Customization = {
   maxRarity: null,
   tinyLeaders: false,
   collectionMode: false,
+  arenaOnly: false,
   comboCount: 0,
   hyperFocus: false,
   currency: loadCurrency(),

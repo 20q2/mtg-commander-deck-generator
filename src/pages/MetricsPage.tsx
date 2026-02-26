@@ -8,6 +8,7 @@ interface FeatureAdoption {
   collectionMode: number;
   hyperFocus: number;
   tinyLeaders: number;
+  arenaOnly: number;
   hasPriceLimit: number;
   hasBudgetLimit: number;
   hasMusts: number;
@@ -119,6 +120,12 @@ function sortSettingEntries(key: string, entries: [string, number][]): [string, 
     });
   }
   return [...entries].sort(([, a], [, b]) => b - a);
+}
+
+/** Convert a UTC ISO hour key ("YYYY-MM-DDTHH") to an EST display string like "3pm" */
+function utcToEst(utcHourKey: string): string {
+  const d = new Date(utcHourKey + ':00:00Z');
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', timeZone: 'America/New_York' });
 }
 
 function pct(n: number, total: number) {
@@ -267,6 +274,7 @@ export function MetricsPage() {
     { label: 'Banned Cards', count: fa.hasBans },
     { label: 'Hyper Focus', count: fa.hyperFocus },
     { label: 'Tiny Leaders', count: fa.tinyLeaders },
+    { label: 'Arena Only', count: fa.arenaOnly },
   ].sort((a, b) => b.count - a.count) : [];
 
   const sc = data?.settingsCounts;
@@ -563,9 +571,9 @@ export function MetricsPage() {
               {sortedSlots.length > 0 && sortedSlots.some(([, v]) => v > 0) ? (
                 <div className="flex items-end gap-[2px] h-40">
                   {sortedSlots.map(([slot, count]) => {
-                    const label = granularity === 'hourly' ? slot.slice(11) + ':00' : slot.slice(5);
+                    const label = granularity === 'hourly' ? utcToEst(slot) : slot.slice(5);
                     const tooltip = granularity === 'hourly'
-                      ? `${slot.slice(11)}:00 UTC — ${count}`
+                      ? `${utcToEst(slot)} EST — ${count}`
                       : `${slot}: ${count}`;
                     return (
                       <div
@@ -592,11 +600,11 @@ export function MetricsPage() {
               )}
               {sortedSlots.length > 0 && (
                 <div className="flex justify-between text-[10px] text-muted-foreground mt-2">
-                  <span>{granularity === 'hourly' ? sortedSlots[0]?.[0].slice(11) + ':00' : sortedSlots[0]?.[0]}</span>
+                  <span>{granularity === 'hourly' ? utcToEst(sortedSlots[0]?.[0]) : sortedSlots[0]?.[0]}</span>
                   {sortedSlots.length > 4 && (
-                    <span>{granularity === 'hourly' ? sortedSlots[Math.floor(sortedSlots.length / 2)]?.[0].slice(11) + ':00' : sortedSlots[Math.floor(sortedSlots.length / 2)]?.[0]}</span>
+                    <span>{granularity === 'hourly' ? utcToEst(sortedSlots[Math.floor(sortedSlots.length / 2)]?.[0]) : sortedSlots[Math.floor(sortedSlots.length / 2)]?.[0]}</span>
                   )}
-                  <span>{granularity === 'hourly' ? sortedSlots[sortedSlots.length - 1]?.[0].slice(11) + ':00' : sortedSlots[sortedSlots.length - 1]?.[0]}</span>
+                  <span>{granularity === 'hourly' ? utcToEst(sortedSlots[sortedSlots.length - 1]?.[0]) : sortedSlots[sortedSlots.length - 1]?.[0]}</span>
                 </div>
               )}
             </CardContent>

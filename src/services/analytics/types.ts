@@ -31,6 +31,7 @@ export interface AnalyticsEventMetadata {
     hyperFocus: boolean;
     gameChangerLimit: string | number;
     tinyLeaders: boolean;
+    arenaOnly: boolean;
     landCount: number;
     nonBasicLandCount: number;
     mustIncludeCount: number;
