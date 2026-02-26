@@ -8,17 +8,45 @@ import {
   getCardByName,
   getCardImageUrl,
 } from '@/services/scryfall/client';
-import { getTopCommanders } from '@/services/edhrec/client';
+import { fetchTopCommanders } from '@/services/edhrec/client';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
 import { Search, Loader2 } from 'lucide-react';
-import { trackEvent } from '@/services/analytics';
+import { trackEvent, fetchMetrics } from '@/services/analytics';
 
 function isLegendaryCreature(card: CollectionCard): boolean {
   const tl = card.typeLine?.toLowerCase() ?? '';
   return tl.includes('legendary') && tl.includes('creature');
+}
+
+/** Map a sorted color key (e.g. "UBR") to its MTG name */
+const COLOR_COMBO_NAMES: Record<string, string> = {
+  W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless',
+  // Guilds
+  WU: 'Azorius', WB: 'Orzhov', WR: 'Boros', WG: 'Selesnya',
+  UB: 'Dimir', UR: 'Izzet', UG: 'Simic',
+  BR: 'Rakdos', BG: 'Golgari',
+  RG: 'Gruul',
+  // Shards & Wedges
+  WUB: 'Esper', WUR: 'Jeskai', WUG: 'Bant',
+  WBR: 'Mardu', WBG: 'Abzan', WRG: 'Naya',
+  UBR: 'Grixis', UBG: 'Sultai', URG: 'Temur',
+  BRG: 'Jund',
+  // Four-color (Nephilim)
+  WUBR: 'Yore-Tiller', WUBG: 'Witch-Maw', WURG: 'Ink-Treader', WBRG: 'Dune-Brood', UBRG: 'Glint-Eye',
+  // Five-color
+  WUBRG: 'Five-Color',
+};
+
+const WUBRG_ORDER = 'WUBRGC';
+
+function getColorFilterLabel(colors: Set<string>): string {
+  if (colors.size === 0) return 'Top';
+  const sorted = [...colors].sort((a, b) => WUBRG_ORDER.indexOf(a) - WUBRG_ORDER.indexOf(b)).join('');
+  const name = COLOR_COMBO_NAMES[sorted];
+  return name ? `Top ${name}` : 'Top';
 }
 
 /** Shuffle array and return first n items */
@@ -62,8 +90,45 @@ export function CommanderSearch() {
       .slice(0, 10);
   }, [ownedOnly, query, collectionLegends]);
 
-  // Get top commanders from EDHREC data
-  const topCommanders = useMemo(() => getTopCommanders(12), []);
+  // Suggestion tab: 'edhrec' or 'popular'
+  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular'>('edhrec');
+  const [colorFilter, setColorFilter] = useState<Set<string>>(new Set());
+  const [popularCommanders, setPopularCommanders] = useState<{ name: string; count: number }[]>([]);
+  const [popularLoading, setPopularLoading] = useState(false);
+
+  // Fetch top commanders from EDHREC based on color filter
+  const [edhrecCommanders, setEdhrecCommanders] = useState<import('@/types').EDHRECTopCommander[]>([]);
+  const [edhrecLoading, setEdhrecLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEdhrecLoading(true);
+    fetchTopCommanders([...colorFilter]).then(data => {
+      if (!cancelled) setEdhrecCommanders(data);
+    }).catch(() => {
+      if (!cancelled) setEdhrecCommanders([]);
+    }).finally(() => {
+      if (!cancelled) setEdhrecLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [colorFilter]);
+
+  // Fetch popular commanders from analytics
+  useEffect(() => {
+    if (suggestionTab !== 'popular' || popularCommanders.length > 0) return;
+    setPopularLoading(true);
+    fetchMetrics({ action: 'summary' })
+      .then((data) => {
+        const counts = (data as { commanderCounts?: Record<string, number> }).commanderCounts ?? {};
+        const sorted = Object.entries(counts)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 12)
+          .map(([name, count]) => ({ name, count }));
+        setPopularCommanders(sorted);
+      })
+      .catch(() => setPopularCommanders([]))
+      .finally(() => setPopularLoading(false));
+  }, [suggestionTab, popularCommanders.length]);
 
   // Debounced Scryfall search (only when NOT ownedOnly)
   useEffect(() => {
@@ -278,23 +343,127 @@ export function CommanderSearch() {
               </p>
             )
           ) : (
-            // Show EDHREC top commanders
+            // Show EDHREC or Popular commanders
             <>
-              <p className="text-muted-foreground mb-4">
-                Top commanders on EDHREC:
-              </p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {topCommanders.map((commander) => (
+              {suggestionTab === 'edhrec' ? (
+                <>
+                  <p className="text-muted-foreground">
+                    {getColorFilterLabel(colorFilter)} commanders on EDHREC:
+                  </p>
+
+                  {/* Color filter */}
+                  <div className="flex justify-center gap-1.5 mb-1.5">
+                    {(['W', 'U', 'B', 'R', 'G', 'C'] as const).map(color => (
+                      <button
+                        key={color}
+                        onClick={() => setColorFilter(prev => {
+                          const next = new Set(prev);
+                          if (next.has(color)) {
+                            next.delete(color);
+                          } else {
+                            next.add(color);
+                            // Colorless and colors are mutually exclusive
+                            if (color === 'C') {
+                              next.forEach(c => { if (c !== 'C') next.delete(c); });
+                            } else {
+                              next.delete('C');
+                            }
+                          }
+                          return next;
+                        })}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                          colorFilter.has(color)
+                            ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110'
+                            : 'opacity-50 hover:opacity-80'
+                        }`}
+                        title={color === 'C' ? 'Colorless' : color}
+                      >
+                        <i className={`ms ms-${color.toLowerCase()} ms-cost text-lg`} />
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setColorFilter(new Set())}
+                      className={`text-xs text-muted-foreground hover:text-foreground transition-all duration-200 self-center overflow-hidden whitespace-nowrap ${colorFilter.size > 0 ? 'opacity-100 max-w-[3rem] ml-1' : 'opacity-0 max-w-0 ml-0'}`}
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  {edhrecCommanders.length > 0 ? (
+                    <div className={`relative flex flex-wrap justify-center gap-2 transition-opacity ${edhrecLoading ? 'opacity-40' : ''}`}>
+                      {edhrecLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center z-10">
+                          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                        </div>
+                      )}
+                      {edhrecCommanders.filter(c => !c.name.includes('//')).map((commander, i) => (
+                        <button
+                          key={commander.sanitized}
+                          onClick={() => setQuery(commander.name)}
+                          className="animate-chip-in flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer"
+                          style={{ animationDelay: `${i * 40}ms` }}
+                        >
+                          <ColorIdentity colors={commander.colorIdentity.length > 0 ? commander.colorIdentity : ['C']} size="sm" />
+                          <span>{commander.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : edhrecLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No commanders found
+                    </p>
+                  )}
+
                   <button
-                    key={commander.sanitized}
-                    onClick={() => setQuery(commander.name)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer"
+                    onClick={() => setSuggestionTab('popular')}
+                    className="mt-4 text-xs text-muted-foreground/60 hover:text-primary transition-colors"
                   >
-                    <ColorIdentity colors={commander.colorIdentity} size="sm" />
-                    <span>{commander.name}</span>
+                    or see popular on this site &rarr;
                   </button>
-                ))}
-              </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted-foreground mb-3">
+                    Popular on this site:
+                  </p>
+
+                  {popularLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    </div>
+                  ) : popularCommanders.length > 0 ? (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {popularCommanders.map((commander) => (
+                        <button
+                          key={commander.name}
+                          onClick={() => setQuery(commander.name)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer"
+                        >
+                          <span>{commander.name}</span>
+                          <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full">
+                            {commander.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No deck data yet — generate some decks first!
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() => setSuggestionTab('edhrec')}
+                    className="mt-4 text-xs text-muted-foreground/60 hover:text-primary transition-colors"
+                  >
+                    &larr; back to EDHREC top
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>

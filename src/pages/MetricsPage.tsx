@@ -149,7 +149,7 @@ function BarRow({
       <div className="flex items-center justify-between text-sm mb-1">
         <span className="leading-tight">{label}</span>
         <span className="tabular-nums shrink-0 ml-3">
-          {count.toLocaleString()}
+          {(count ?? 0).toLocaleString()}
           {total !== undefined && total > 0 && (
             <span className="text-xs text-muted-foreground ml-1">({pct(count, total)})</span>
           )}
@@ -267,14 +267,14 @@ export function MetricsPage() {
 
   const fa = data?.featureAdoption;
   const featureRows = fa && fa.deckCount > 0 ? [
-    { label: 'Collection Mode', count: fa.collectionMode },
-    { label: 'Per-Card Price Cap', count: fa.hasPriceLimit },
-    { label: 'Total Budget Limit', count: fa.hasBudgetLimit },
-    { label: 'Must-Include Cards', count: fa.hasMusts },
-    { label: 'Banned Cards', count: fa.hasBans },
-    { label: 'Hyper Focus', count: fa.hyperFocus },
-    { label: 'Tiny Leaders', count: fa.tinyLeaders },
-    { label: 'Arena Only', count: fa.arenaOnly },
+    { label: 'Collection Mode', count: fa.collectionMode ?? 0 },
+    { label: 'Per-Card Price Cap', count: fa.hasPriceLimit ?? 0 },
+    { label: 'Total Budget Limit', count: fa.hasBudgetLimit ?? 0 },
+    { label: 'Must-Include Cards', count: fa.hasMusts ?? 0 },
+    { label: 'Banned Cards', count: fa.hasBans ?? 0 },
+    { label: 'Hyper Focus', count: fa.hyperFocus ?? 0 },
+    { label: 'Tiny Leaders', count: fa.tinyLeaders ?? 0 },
+    { label: 'Arena Only', count: fa.arenaOnly ?? 0 },
   ].sort((a, b) => b.count - a.count) : [];
 
   const sc = data?.settingsCounts;

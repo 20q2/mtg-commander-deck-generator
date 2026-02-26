@@ -819,40 +819,106 @@ export function clearCommanderCache(): void {
   commanderCache.clear();
 }
 
-/**
- * Top commanders from EDHREC (updated periodically)
- * Data source: https://edhrec.com/commanders
- * Last updated: 2025-01-17
- */
-const TOP_COMMANDERS: EDHRECTopCommander[] = [
-  { rank: 1, name: 'The Ur-Dragon', sanitized: 'the-ur-dragon', colorIdentity: ['W', 'U', 'B', 'R', 'G'], numDecks: 41822 },
-  { rank: 2, name: 'Edgar Markov', sanitized: 'edgar-markov', colorIdentity: ['W', 'B', 'R'], numDecks: 40632 },
-  { rank: 3, name: 'Atraxa, Praetors\' Voice', sanitized: 'atraxa-praetors-voice', colorIdentity: ['W', 'U', 'B', 'G'], numDecks: 37998 },
-  { rank: 4, name: 'Krenko, Mob Boss', sanitized: 'krenko-mob-boss', colorIdentity: ['R'], numDecks: 34529 },
-  { rank: 5, name: 'Kaalia of the Vast', sanitized: 'kaalia-of-the-vast', colorIdentity: ['W', 'B', 'R'], numDecks: 32559 },
-  { rank: 6, name: 'Yuriko, the Tiger\'s Shadow', sanitized: 'yuriko-the-tigers-shadow', colorIdentity: ['U', 'B'], numDecks: 30481 },
-  { rank: 7, name: 'Muldrotha, the Gravetide', sanitized: 'muldrotha-the-gravetide', colorIdentity: ['U', 'B', 'G'], numDecks: 29876 },
-  { rank: 8, name: 'Sauron, the Dark Lord', sanitized: 'sauron-the-dark-lord', colorIdentity: ['U', 'B', 'R'], numDecks: 29456 },
-  { rank: 9, name: 'Korvold, Fae-Cursed King', sanitized: 'korvold-fae-cursed-king', colorIdentity: ['B', 'R', 'G'], numDecks: 28934 },
-  { rank: 10, name: 'Lathril, Blade of the Elves', sanitized: 'lathril-blade-of-the-elves', colorIdentity: ['B', 'G'], numDecks: 27654 },
-  { rank: 11, name: 'Prosper, Tome-Bound', sanitized: 'prosper-tome-bound', colorIdentity: ['B', 'R'], numDecks: 26789 },
-  { rank: 12, name: 'Wilhelt, the Rotcleaver', sanitized: 'wilhelt-the-rotcleaver', colorIdentity: ['U', 'B'], numDecks: 25432 },
-  { rank: 13, name: 'Miirym, Sentinel Wyrm', sanitized: 'miirym-sentinel-wyrm', colorIdentity: ['U', 'R', 'G'], numDecks: 24567 },
-  { rank: 14, name: 'Isshin, Two Heavens as One', sanitized: 'isshin-two-heavens-as-one', colorIdentity: ['W', 'B', 'R'], numDecks: 23890 },
-  { rank: 15, name: 'Teysa Karlov', sanitized: 'teysa-karlov', colorIdentity: ['W', 'B'], numDecks: 23456 },
-  { rank: 16, name: 'Omnath, Locus of Creation', sanitized: 'omnath-locus-of-creation', colorIdentity: ['W', 'U', 'R', 'G'], numDecks: 22987 },
-  { rank: 17, name: 'Animar, Soul of Elements', sanitized: 'animar-soul-of-elements', colorIdentity: ['U', 'R', 'G'], numDecks: 22345 },
-  { rank: 18, name: 'Sliver Overlord', sanitized: 'sliver-overlord', colorIdentity: ['W', 'U', 'B', 'R', 'G'], numDecks: 21876 },
-  { rank: 19, name: 'Kenrith, the Returned King', sanitized: 'kenrith-the-returned-king', colorIdentity: ['W', 'U', 'B', 'R', 'G'], numDecks: 21234 },
-  { rank: 20, name: 'Breya, Etherium Shaper', sanitized: 'breya-etherium-shaper', colorIdentity: ['W', 'U', 'B', 'R'], numDecks: 20567 },
-];
+// --- Top commanders (fetched live from EDHREC) ---
+
+const WUBRG = 'WUBRG';
+
+/** Map sorted color key → EDHREC URL slug */
+const COLOR_SLUG_MAP: Record<string, string> = {
+  '': 'year',
+  C: 'colorless',
+  W: 'mono-white', U: 'mono-blue', B: 'mono-black', R: 'mono-red', G: 'mono-green',
+  WU: 'azorius', WB: 'orzhov', WR: 'boros', WG: 'selesnya',
+  UB: 'dimir', UR: 'izzet', UG: 'simic',
+  BR: 'rakdos', BG: 'golgari', RG: 'gruul',
+  WUB: 'esper', WUR: 'jeskai', WUG: 'bant',
+  WBR: 'mardu', WBG: 'abzan', WRG: 'naya',
+  UBR: 'grixis', UBG: 'sultai', URG: 'temur', BRG: 'jund',
+  WUBR: 'yore-tiller', WUBG: 'witch-maw', WURG: 'ink-treader',
+  WBRG: 'dune-brood', UBRG: 'glint-eye', WUBRG: 'five-color',
+};
+
+interface RawTopCommanderEntry {
+  name: string;
+  sanitized: string;
+  num_decks?: number;
+  inclusion?: number;
+  color_identity?: string[];
+}
+
+interface RawTopCommandersResponse {
+  container?: {
+    json_dict?: {
+      cardlists?: Array<{
+        cardviews?: RawTopCommanderEntry[];
+      }>;
+    };
+  };
+}
+
+const topCommanderCache = new Map<string, { data: EDHRECTopCommander[]; timestamp: number }>();
+const TOP_COMMANDER_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 /**
- * Get top commanders from EDHREC
- * Returns a static list that is periodically updated from https://edhrec.com/commanders
+ * Fetch top commanders from EDHREC for a given color identity.
+ * Pass an empty array for overall top commanders (past year).
+ * Results are cached for 30 minutes.
  */
-export function getTopCommanders(limit: number = 20): EDHRECTopCommander[] {
-  return TOP_COMMANDERS.slice(0, limit);
+export async function fetchTopCommanders(colors: string[]): Promise<EDHRECTopCommander[]> {
+  // Sort colors in WUBRG order and build cache key
+  const sorted = [...colors].filter(c => c !== 'C').sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
+  const key = colors.includes('C') ? 'C' : sorted.join('');
+  const slug = COLOR_SLUG_MAP[key];
+  if (!slug) return [];
+
+  const cached = topCommanderCache.get(key);
+  if (cached && Date.now() - cached.timestamp < TOP_COMMANDER_CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const response = await edhrecFetch<RawTopCommandersResponse>(
+      `/pages/commanders/${slug}.json`
+    );
+
+    const cardviews = response.container?.json_dict?.cardlists?.[0]?.cardviews ?? [];
+    const isOverall = key === '';
+    // Filter out partner pairs (e.g. "Kraum // Tymna") before taking top 12
+    const top = cardviews.filter(e => !e.name.includes('//')).slice(0, 12);
+
+    let commanders: EDHRECTopCommander[] = top.map((entry, i) => ({
+      rank: i + 1,
+      name: entry.name,
+      sanitized: entry.sanitized,
+      colorIdentity: isOverall
+        ? (entry.color_identity?.map(c => c.toUpperCase()) ?? [])
+        : (key === 'C' ? [] : sorted),
+      numDecks: entry.num_decks ?? entry.inclusion ?? 0,
+    }));
+
+    // The overall "year" endpoint doesn't include color_identity on page 1.
+    // Batch-fetch from Scryfall to fill them in.
+    if (isOverall && commanders.some(c => c.colorIdentity.length === 0)) {
+      try {
+        const { getCardsByNames } = await import('@/services/scryfall/client');
+        const names = commanders.filter(c => c.colorIdentity.length === 0).map(c => c.name);
+        const cardMap = await getCardsByNames(names);
+        commanders = commanders.map(c => {
+          if (c.colorIdentity.length > 0) return c;
+          const card = cardMap.get(c.name);
+          return { ...c, colorIdentity: card?.color_identity ?? [] };
+        });
+      } catch {
+        // Scryfall lookup failed — show without color pips
+      }
+    }
+
+    topCommanderCache.set(key, { data: commanders, timestamp: Date.now() });
+    return commanders;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch top commanders for "${slug}":`, error);
+    return cached?.data ?? [];
+  }
 }
 
 /**

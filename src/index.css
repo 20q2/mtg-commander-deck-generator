@@ -160,6 +160,21 @@
     to { opacity: 1; }
   }
 
+  .animate-chip-in {
+    animation: chipIn 0.3s ease-out both;
+  }
+
+  @keyframes chipIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
   .animate-slide-up {
     animation: slideUp 0.4s ease-out;
   }

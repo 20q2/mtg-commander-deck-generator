@@ -42,7 +42,14 @@
       "Bash(NODE_PATH=\"\" NODE_OPTIONS=\"\" \"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" status)",
       "Bash(NODE_PATH=\"\" \"F:/Program Files/Git/cmd/git.exe\" -C \"A:/Coding/MtgMakeDeckForMe\" log --oneline -10)",
       "WebFetch(domain:tagger.scryfall.com)",
-      "Bash(aws lambda invoke:*)"
+      "Bash(aws lambda invoke:*)",
+      "Bash(curl:*)",
+      "Bash(python -c:*)",
+      "Bash(for path in \"commanders/month.json\" \"commanders/week.json\" \"commanders/past2years.json\" \"commanders/2year.json\")",
+      "Bash(do echo -n \"$path: \")",
+      "Bash(done)",
+      "Bash(npm ls:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }
