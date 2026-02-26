@@ -1519,22 +1519,44 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   }
   // ---- End multi-copy pipeline ----
 
+  // Count non-land cards already added (must-includes + multi-copy) by card type
+  // so we can reduce type targets and avoid overfilling the deck
+  const preFilledTypeCounts: Record<string, number> = {};
+  for (const card of Object.values(categories).flat()) {
+    const typeLine = getFrontFaceTypeLine(card).toLowerCase();
+    if (typeLine.includes('land')) continue; // lands handled separately
+    const type = typeLine.includes('creature') ? 'creature'
+      : typeLine.includes('instant') ? 'instant'
+      : typeLine.includes('sorcery') ? 'sorcery'
+      : typeLine.includes('artifact') ? 'artifact'
+      : typeLine.includes('enchantment') ? 'enchantment'
+      : typeLine.includes('planeswalker') ? 'planeswalker'
+      : null;
+    if (type) {
+      preFilledTypeCounts[type] = (preFilledTypeCounts[type] ?? 0) + 1;
+    }
+  }
+  if (Object.keys(preFilledTypeCounts).length > 0) {
+    console.log('[DeckGen] Pre-filled type counts (must-include + multi-copy):', preFilledTypeCounts);
+  }
+
   // If we have EDHREC data, use it as the primary source with CMC-aware selection
   if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
     const { cardlists } = edhrecData;
 
-    // Build all pools first
-    const creatureTarget = typeTargets.creature || targets.creatures;
+    // Build all pools first — subtract pre-filled cards from targets
+    const originalCreatureTarget = typeTargets.creature || targets.creatures;
+    const creatureTarget = Math.max(0, originalCreatureTarget - (preFilledTypeCounts.creature ?? 0));
     const creaturePool = mergeWithAllNonLand(cardlists.creatures, cardlists.allNonLand);
-    const instantTarget = typeTargets.instant || 0;
+    const instantTarget = Math.max(0, (typeTargets.instant || 0) - (preFilledTypeCounts.instant ?? 0));
     const instantPool = mergeWithAllNonLand(cardlists.instants, cardlists.allNonLand);
-    const sorceryTarget = typeTargets.sorcery || 0;
+    const sorceryTarget = Math.max(0, (typeTargets.sorcery || 0) - (preFilledTypeCounts.sorcery ?? 0));
     const sorceryPool = mergeWithAllNonLand(cardlists.sorceries, cardlists.allNonLand);
-    const artifactTarget = typeTargets.artifact || 0;
+    const artifactTarget = Math.max(0, (typeTargets.artifact || 0) - (preFilledTypeCounts.artifact ?? 0));
     const artifactPool = mergeWithAllNonLand(cardlists.artifacts, cardlists.allNonLand);
-    const enchantmentTarget = typeTargets.enchantment || 0;
+    const enchantmentTarget = Math.max(0, (typeTargets.enchantment || 0) - (preFilledTypeCounts.enchantment ?? 0));
     const enchantmentPool = mergeWithAllNonLand(cardlists.enchantments, cardlists.allNonLand);
-    const planeswalkerTarget = typeTargets.planeswalker || 0;
+    const planeswalkerTarget = Math.max(0, (typeTargets.planeswalker || 0) - (preFilledTypeCounts.planeswalker ?? 0));
     const planeswalkerPool = mergeWithAllNonLand(cardlists.planeswalkers, cardlists.allNonLand);
 
     // Collect ALL unique card names from all pools for a single batch fetch
@@ -1647,9 +1669,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     categories.creatures.push(...creatures);
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
 
-    // Fill remaining creatures from Scryfall if needed
-    if (categories.creatures.length < creatureTarget) {
-      const needed = creatureTarget - categories.creatures.length;
+    // Fill remaining creatures from Scryfall if needed (use original target since categories include must-includes)
+    if (categories.creatures.length < originalCreatureTarget) {
+      const needed = originalCreatureTarget - categories.creatures.length;
       console.log(`[DeckGen] FALLBACK: Need ${needed} more creatures from Scryfall`);
       const moreCreatures = await fillWithScryfall(
         't:creature',
@@ -1814,8 +1836,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Preserve must-include lands added earlier
     const mustIncludeLands = categories.lands.filter(c => c.isMustInclude);
     const adjustedLandTarget = Math.max(0, targets.lands - mustIncludeLands.length);
-    // Use user's non-basic land preference from customization
-    const nonbasicTarget = Math.min(customization.nonBasicLandCount, adjustedLandTarget);
+    // Must-include lands are almost always non-basic — subtract them from the non-basic budget
+    // so the remaining slots respect the user's basic/non-basic split
+    const mustIncludeNonBasicCount = mustIncludeLands.filter(
+      c => !getFrontFaceTypeLine(c).toLowerCase().includes('basic')
+    ).length;
+    const remainingNonBasicBudget = Math.max(0, customization.nonBasicLandCount - mustIncludeNonBasicCount);
+    const nonbasicTarget = Math.min(remainingNonBasicBudget, adjustedLandTarget);
     const basicCount = Math.max(0, adjustedLandTarget - nonbasicTarget);
 
     console.log('[DeckGen] Land targets (from user preference):', {
@@ -1969,8 +1996,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Preserve must-include lands added earlier
     const fallbackMustIncludeLands = categories.lands.filter(c => c.isMustInclude);
     const fallbackAdjustedLandTarget = Math.max(0, targets.lands - fallbackMustIncludeLands.length);
-    // Use user's non-basic land preference
-    const fallbackNonbasicTarget = Math.min(customization.nonBasicLandCount, fallbackAdjustedLandTarget);
+    // Subtract must-include non-basics from the non-basic budget (same logic as EDHREC path)
+    const fallbackMustIncludeNonBasicCount = fallbackMustIncludeLands.filter(
+      c => !getFrontFaceTypeLine(c).toLowerCase().includes('basic')
+    ).length;
+    const fallbackRemainingNonBasicBudget = Math.max(0, customization.nonBasicLandCount - fallbackMustIncludeNonBasicCount);
+    const fallbackNonbasicTarget = Math.min(fallbackRemainingNonBasicBudget, fallbackAdjustedLandTarget);
     const fallbackBasicCount = Math.max(0, fallbackAdjustedLandTarget - fallbackNonbasicTarget);
     const fallbackNonLandCards = [
       ...categories.creatures,
