@@ -252,6 +252,14 @@ export interface GapAnalysisCard {
   isOwned?: boolean;
 }
 
+/** Describes which data source was ultimately used for deck generation */
+export type DeckDataSource =
+  | 'theme+bracket'   // Ideal: theme-specific data with bracket/power level
+  | 'theme'           // Theme data but without bracket filtering
+  | 'base+bracket'    // Base commander data with bracket/power level
+  | 'base'            // Base commander data, no bracket
+  | 'scryfall';       // No EDHREC data at all — pure Scryfall search
+
 export interface GeneratedDeck {
   commander: ScryfallCard;
   partnerCommander: ScryfallCard | null;
@@ -262,6 +270,8 @@ export interface GeneratedDeck {
   builtFromCollection?: boolean;
   collectionShortfall?: number;
   detectedCombos?: DetectedCombo[];
+  typeTargets?: Record<string, number>;
+  dataSource?: DeckDataSource;
 }
 
 export interface DeckStats {

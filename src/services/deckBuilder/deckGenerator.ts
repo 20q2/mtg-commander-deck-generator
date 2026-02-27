@@ -9,6 +9,7 @@ import type {
   Customization,
   Archetype,
   DeckFormat,
+  DeckDataSource,
   ThemeResult,
   EDHRECCard,
   EDHRECCombo,
@@ -86,7 +87,8 @@ function calculateTargetCounts(
     return { composition, typeTargets, curveTargets };
   }
 
-  // Fallback defaults for different formats
+  // Fallback defaults for different formats (no usable EDHREC stats)
+  console.warn('[DeckGen] FALLBACK: No EDHREC stats (numDecks=0 or missing) — using fallback type/curve targets');
   const knownDefaults: Record<number, DeckComposition> = {
     99: {
       lands: landCount,
@@ -135,15 +137,29 @@ function calculateTargetCounts(
       utility: Math.max(0, Math.round(3 * ratio)),
     };
   })();
-  const fallbackTypeTargets: Record<string, number> = {
-    creature: fallbackComposition.creatures,
-    instant: fallbackComposition.singleRemoval + Math.floor(fallbackComposition.cardDraw / 2),
-    sorcery: fallbackComposition.boardWipes + Math.floor(fallbackComposition.ramp / 2),
-    artifact: Math.floor(fallbackComposition.ramp / 2) + Math.floor(fallbackComposition.synergy / 3),
-    enchantment: Math.floor(fallbackComposition.cardDraw / 2) + Math.floor(fallbackComposition.synergy / 3),
-    planeswalker: fallbackComposition.utility,
+  // Fallback type targets — distribute nonLandCards across types using rough proportions
+  // These MUST sum to nonLandCards; previous approach double-counted functional roles
+  const rawTypeWeights = {
+    creature: 0.40,
+    instant: 0.15,
+    sorcery: 0.12,
+    artifact: 0.14,
+    enchantment: 0.12,
+    planeswalker: 0.04,
     battle: 0,
   };
+  const fallbackTypeTargets: Record<string, number> = {};
+  let fallbackAllocated = 0;
+  for (const [type, weight] of Object.entries(rawTypeWeights)) {
+    const target = Math.round(nonLandCards * weight);
+    fallbackTypeTargets[type] = target;
+    fallbackAllocated += target;
+  }
+  // Fix rounding — adjust creatures to hit exact total
+  const fallbackDiff = nonLandCards - fallbackAllocated;
+  if (fallbackDiff !== 0) {
+    fallbackTypeTargets.creature = (fallbackTypeTargets.creature || 0) + fallbackDiff;
+  }
 
   // Default balanced curve
   const fallbackCurveTargets: Record<number, number> = {
@@ -523,8 +539,8 @@ function matchesExpectedType(typeLine: string, expectedType: string): boolean {
   if (normalizedType === 'creature') return normalizedTypeLine.includes('creature');
   if (normalizedType === 'instant') return normalizedTypeLine.includes('instant');
   if (normalizedType === 'sorcery') return normalizedTypeLine.includes('sorcery');
-  if (normalizedType === 'artifact') return normalizedTypeLine.includes('artifact') && !normalizedTypeLine.includes('creature');
-  if (normalizedType === 'enchantment') return normalizedTypeLine.includes('enchantment') && !normalizedTypeLine.includes('creature');
+  if (normalizedType === 'artifact') return normalizedTypeLine.includes('artifact') && !normalizedTypeLine.includes('creature') && !normalizedTypeLine.includes('land');
+  if (normalizedType === 'enchantment') return normalizedTypeLine.includes('enchantment') && !normalizedTypeLine.includes('creature') && !normalizedTypeLine.includes('land');
   if (normalizedType === 'planeswalker') return normalizedTypeLine.includes('planeswalker');
   if (normalizedType === 'battle') return normalizedTypeLine.includes('battle');
   if (normalizedType === 'land') return normalizedTypeLine.includes('land');
@@ -1024,12 +1040,12 @@ function calculateStats(categories: Record<DeckCategory, ScryfallCard[]>): DeckS
   const typeDistribution: Record<string, number> = {};
   allCards.forEach((card) => {
     const typeLine = getFrontFaceTypeLine(card).toLowerCase();
-    if (typeLine.includes('creature')) typeDistribution['Creature'] = (typeDistribution['Creature'] || 0) + 1;
+    if (typeLine.includes('land')) typeDistribution['Land'] = (typeDistribution['Land'] || 0) + 1;
+    else if (typeLine.includes('creature')) typeDistribution['Creature'] = (typeDistribution['Creature'] || 0) + 1;
     else if (typeLine.includes('instant')) typeDistribution['Instant'] = (typeDistribution['Instant'] || 0) + 1;
     else if (typeLine.includes('sorcery')) typeDistribution['Sorcery'] = (typeDistribution['Sorcery'] || 0) + 1;
     else if (typeLine.includes('artifact')) typeDistribution['Artifact'] = (typeDistribution['Artifact'] || 0) + 1;
     else if (typeLine.includes('enchantment')) typeDistribution['Enchantment'] = (typeDistribution['Enchantment'] || 0) + 1;
-    else if (typeLine.includes('land')) typeDistribution['Land'] = (typeDistribution['Land'] || 0) + 1;
     else if (typeLine.includes('planeswalker')) typeDistribution['Planeswalker'] = (typeDistribution['Planeswalker'] || 0) + 1;
     else if (typeLine.includes('battle')) typeDistribution['Battle'] = (typeDistribution['Battle'] || 0) + 1;
   });
@@ -1309,6 +1325,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   // Try to fetch EDHREC data (works for all formats)
   let edhrecData: EDHRECCommanderData | null = null;
+  let dataSource: DeckDataSource = 'scryfall'; // pessimistic default — upgraded as fetches succeed
 
   // Check for selected themes with slugs
   const selectedThemesWithSlugs = context.selectedThemes?.filter(
@@ -1415,26 +1432,75 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         }
       }
 
-      // Use the first theme's stats as representative
+      // Use the first theme's stats as representative, but if the theme endpoint
+      // lacks type distribution data (numDecks=0), fetch base commander stats instead
+      let representativeStats = themeDataResults[0].stats;
+      if (!representativeStats.numDecks || representativeStats.numDecks === 0) {
+        console.warn('[DeckGen] FALLBACK: Theme endpoint lacks stats (numDecks=0), fetching base commander stats');
+        try {
+          const baseStatsData = partnerCommander
+            ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
+            : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+          representativeStats = baseStatsData.stats;
+          console.log('[DeckGen] FALLBACK: Got stats from base commander+bracket');
+        } catch {
+          // Try without bracket if bracket-specific base also fails
+          if (bracketLevel) {
+            console.warn('[DeckGen] FALLBACK: Base commander+bracket stats failed, trying without bracket');
+            try {
+              const fallbackData = partnerCommander
+                ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption)
+                : await fetchCommanderData(commander.name, budgetOption);
+              representativeStats = fallbackData.stats;
+              console.log('[DeckGen] FALLBACK: Got stats from base commander (no bracket)');
+            } catch {
+              console.warn('[DeckGen] FALLBACK: All stats fetches failed — will use fallback type targets');
+            }
+          } else {
+            console.warn('[DeckGen] FALLBACK: Base commander stats fetch failed — will use fallback type targets');
+          }
+        }
+      }
+
       edhrecData = {
         themes: [],
-        stats: themeDataResults[0].stats,
+        stats: representativeStats,
         cardlists: mergedCardlists,
         similarCommanders: [],
       };
 
+      dataSource = bracketLevel ? 'theme+bracket' : 'theme';
       const themeNames = selectedThemesWithSlugs.map(t => t.name).join(', ');
       onProgress?.(`The oracle speaks of ${themeNames}...`, 12);
     } catch (error) {
-      console.warn('Failed to fetch theme-specific EDHREC data, trying base commander:', error);
-      // Fall back to base commander data
+      console.warn('[DeckGen] FALLBACK: Theme-specific EDHREC fetch failed, trying base commander+bracket:', error);
+      // Fall back to base commander data (with bracket)
       try {
         edhrecData = partnerCommander
           ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
           : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+        dataSource = bracketLevel ? 'base+bracket' : 'base';
+        console.log('[DeckGen] FALLBACK: Using base commander data (with bracket)');
         onProgress?.('Consulting ancient scrolls...', 12);
       } catch {
-        onProgress?.('The oracle is silent... searching the multiverse...', 12);
+        // Fall back to base commander without bracket
+        if (bracketLevel) {
+          console.warn('[DeckGen] FALLBACK: Base commander+bracket also failed, trying without bracket');
+          try {
+            edhrecData = partnerCommander
+              ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption)
+              : await fetchCommanderData(commander.name, budgetOption);
+            dataSource = 'base';
+            console.log('[DeckGen] FALLBACK: Using base commander data (no bracket)');
+            onProgress?.('Consulting ancient scrolls...', 12);
+          } catch {
+            console.warn('[DeckGen] FALLBACK: All EDHREC fetches failed — will use Scryfall-only generation');
+            onProgress?.('The oracle is silent... searching the multiverse...', 12);
+          }
+        } else {
+          console.warn('[DeckGen] FALLBACK: Base commander fetch failed — will use Scryfall-only generation');
+          onProgress?.('The oracle is silent... searching the multiverse...', 12);
+        }
       }
     }
   } else {
@@ -1444,10 +1510,26 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       edhrecData = partnerCommander
         ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
         : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+      dataSource = bracketLevel ? 'base+bracket' : 'base';
       onProgress?.('Ancient knowledge acquired!', 12);
     } catch (error) {
-      console.warn('Failed to fetch EDHREC data, falling back to Scryfall:', error);
-      onProgress?.('The oracle is silent... searching the multiverse...', 12);
+      console.warn('[DeckGen] FALLBACK: Base commander+bracket fetch failed:', error);
+      if (bracketLevel) {
+        try {
+          edhrecData = partnerCommander
+            ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption)
+            : await fetchCommanderData(commander.name, budgetOption);
+          dataSource = 'base';
+          console.log('[DeckGen] FALLBACK: Using base commander data (no bracket)');
+          onProgress?.('Ancient knowledge acquired!', 12);
+        } catch {
+          console.warn('[DeckGen] FALLBACK: All EDHREC fetches failed — will use Scryfall-only generation');
+          onProgress?.('The oracle is silent... searching the multiverse...', 12);
+        }
+      } else {
+        console.warn('[DeckGen] FALLBACK: Base commander fetch failed — will use Scryfall-only generation');
+        onProgress?.('The oracle is silent... searching the multiverse...', 12);
+      }
     }
   }
 
@@ -1531,7 +1613,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     for (const { card, copies } of multiCopyResults) {
       // Categorize by front-face type (same pattern as must-includes)
       const typeLine = getFrontFaceTypeLine(card).toLowerCase();
-      if (typeLine.includes('creature')) {
+      if (typeLine.includes('land')) {
+        categories.lands.push(...copies);
+      } else if (typeLine.includes('creature')) {
         categories.creatures.push(...copies);
       } else if (typeLine.includes('instant')) {
         categorizeInstants(copies, categories);
@@ -1663,6 +1747,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const scryfallCard = cardMap.get(name);
         if (!scryfallCard) continue;
         const typeLine = getFrontFaceTypeLine(scryfallCard).toLowerCase();
+        if (typeLine.includes('land')) continue; // Lands are handled separately
         for (const [type, pool] of Object.entries(poolMap)) {
           if (typeLine.includes(type) && !pool.some(c => c.name === name)) {
             pool.push({
@@ -1952,7 +2037,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     });
 
   } else {
-    // Fallback to Scryfall-based generation
+    // Fallback to Scryfall-based generation (no EDHREC data available)
+    console.warn('[DeckGen] FALLBACK: No EDHREC data — using Scryfall-only generation with fallback type targets');
     onProgress?.('Gathering mana accelerants...', 20);
     categories.ramp = await fillWithScryfall(
       '(t:artifact o:"add" OR o:"search your library" o:land t:sorcery cmc<=3)',
@@ -2017,11 +2103,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly
     );
 
+    // Use typeTargets for remaining slots to get a balanced type distribution
+    const scryfallCreatureTarget = Math.max(0, (typeTargets.creature || 0) - (preFilledTypeCounts.creature ?? 0) - categories.creatures.length);
     onProgress?.('Recruiting an army...', 60);
-    categories.creatures = await fillWithScryfall(
+    const scryfallCreatures = await fillWithScryfall(
       't:creature',
       colorIdentity,
-      targets.creatures,
+      scryfallCreatureTarget,
       usedNames,
       bannedCards,
       maxCardPrice,
@@ -2032,12 +2120,14 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly
     );
+    categories.creatures.push(...scryfallCreatures);
 
-    onProgress?.('Finding synergistic pieces...', 70);
-    categories.synergy = await fillWithScryfall(
-      '(t:artifact OR t:enchantment)',
+    const scryfallArtifactTarget = Math.max(0, (typeTargets.artifact || 0) - (preFilledTypeCounts.artifact ?? 0));
+    onProgress?.('Forging artifacts...', 65);
+    const scryfallArtifacts = await fillWithScryfall(
+      't:artifact -t:creature',
       colorIdentity,
-      targets.synergy,
+      scryfallArtifactTarget,
       usedNames,
       bannedCards,
       maxCardPrice,
@@ -2048,6 +2138,65 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly
     );
+    categorizeArtifacts(scryfallArtifacts, categories);
+
+    const scryfallEnchantmentTarget = Math.max(0, (typeTargets.enchantment || 0) - (preFilledTypeCounts.enchantment ?? 0));
+    onProgress?.('Weaving enchantments...', 70);
+    const scryfallEnchantments = await fillWithScryfall(
+      't:enchantment -t:creature',
+      colorIdentity,
+      scryfallEnchantmentTarget,
+      usedNames,
+      bannedCards,
+      maxCardPrice,
+      maxRarity,
+      maxCmc,
+      budgetTracker,
+      context.collectionNames,
+      currency,
+      arenaOnly
+    );
+    categorizeEnchantments(scryfallEnchantments, categories);
+
+    const scryfallInstantTarget = Math.max(0, (typeTargets.instant || 0) - (preFilledTypeCounts.instant ?? 0) - categories.singleRemoval.length - categories.boardWipes.length);
+    if (scryfallInstantTarget > 0) {
+      onProgress?.('Preparing instants...', 72);
+      const scryfallInstants = await fillWithScryfall(
+        't:instant',
+        colorIdentity,
+        scryfallInstantTarget,
+        usedNames,
+        bannedCards,
+        maxCardPrice,
+        maxRarity,
+        maxCmc,
+        budgetTracker,
+        context.collectionNames,
+        currency,
+        arenaOnly
+      );
+      categorizeInstants(scryfallInstants, categories);
+    }
+
+    const scryfallSorceryTarget = Math.max(0, (typeTargets.sorcery || 0) - (preFilledTypeCounts.sorcery ?? 0));
+    if (scryfallSorceryTarget > 0) {
+      onProgress?.('Channeling sorceries...', 74);
+      const scryfallSorceries = await fillWithScryfall(
+        't:sorcery',
+        colorIdentity,
+        scryfallSorceryTarget,
+        usedNames,
+        bannedCards,
+        maxCardPrice,
+        maxRarity,
+        maxCmc,
+        budgetTracker,
+        context.collectionNames,
+        currency,
+        arenaOnly
+      );
+      categorizeSorceries(scryfallSorceries, categories);
+    }
 
     onProgress?.('Surveying the mana base...', 80);
     // Preserve must-include lands added earlier
@@ -2179,28 +2328,69 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log(`[DeckGen] Filled ${filled} cards from remaining EDHREC suggestions`);
     }
 
-    // If still short after EDHREC, use Scryfall (relaxed budget cap)
+    // If still short after EDHREC, use Scryfall — fill by type to stay balanced
     currentCount = countAllCards();
     if (currentCount < targetDeckSize) {
       const stillNeeded = targetDeckSize - currentCount;
       console.log(`[DeckGen] Still need ${stillNeeded} more cards, using Scryfall fallback`);
 
-      const moreSynergy = await fillWithScryfall(
-        '(t:artifact OR t:enchantment OR t:creature)',
-        colorIdentity,
-        stillNeeded,
-        usedNames,
-        bannedCards,
-        shortagePriceCap,
-        maxRarity,
-        maxCmc,
-        null,
-        context.collectionNames,
-        currency,
-        arenaOnly
-      );
-      categories.synergy.push(...moreSynergy);
-      console.log(`[DeckGen] Filled ${moreSynergy.length} cards from Scryfall`);
+      // Calculate current type counts to figure out which types are most under-target
+      const currentTypeCounts: Record<string, number> = {};
+      for (const card of Object.values(categories).flat()) {
+        const tl = getFrontFaceTypeLine(card).toLowerCase();
+        if (tl.includes('land')) continue;
+        const t = tl.includes('creature') ? 'creature'
+          : tl.includes('instant') ? 'instant'
+          : tl.includes('sorcery') ? 'sorcery'
+          : tl.includes('artifact') ? 'artifact'
+          : tl.includes('enchantment') ? 'enchantment'
+          : null;
+        if (t) currentTypeCounts[t] = (currentTypeCounts[t] ?? 0) + 1;
+      }
+
+      // Build a list of (type, deficit) sorted by largest deficit first
+      const typeDeficits: { type: string; query: string; deficit: number }[] = [
+        { type: 'creature', query: 't:creature', deficit: (typeTargets.creature || 0) - (currentTypeCounts.creature ?? 0) },
+        { type: 'instant', query: 't:instant', deficit: (typeTargets.instant || 0) - (currentTypeCounts.instant ?? 0) },
+        { type: 'sorcery', query: 't:sorcery', deficit: (typeTargets.sorcery || 0) - (currentTypeCounts.sorcery ?? 0) },
+        { type: 'artifact', query: 't:artifact -t:creature', deficit: (typeTargets.artifact || 0) - (currentTypeCounts.artifact ?? 0) },
+        { type: 'enchantment', query: 't:enchantment -t:creature', deficit: (typeTargets.enchantment || 0) - (currentTypeCounts.enchantment ?? 0) },
+      ].filter(d => d.deficit > 0).sort((a, b) => b.deficit - a.deficit);
+
+      console.log('[DeckGen] Shortfall type deficits:', typeDeficits.map(d => `${d.type}: ${d.deficit}`).join(', ') || 'none');
+
+      let filled = 0;
+      for (const { type, query, deficit } of typeDeficits) {
+        if (filled >= stillNeeded) break;
+        const toFill = Math.min(deficit, stillNeeded - filled);
+        const cards = await fillWithScryfall(
+          query, colorIdentity, toFill, usedNames, bannedCards,
+          shortagePriceCap, maxRarity, maxCmc, null,
+          context.collectionNames, currency, arenaOnly
+        );
+        if (type === 'creature') categories.creatures.push(...cards);
+        else if (type === 'instant') categorizeInstants(cards, categories);
+        else if (type === 'sorcery') categorizeSorceries(cards, categories);
+        else if (type === 'artifact') categorizeArtifacts(cards, categories);
+        else if (type === 'enchantment') categorizeEnchantments(cards, categories);
+        filled += cards.length;
+      }
+
+      // If still short after typed fills, use generic query as absolute last resort
+      if (filled < stillNeeded) {
+        const remaining = stillNeeded - filled;
+        console.warn(`[DeckGen] FALLBACK: Typed shortfall fills not enough (got ${filled}/${stillNeeded}), using generic query for ${remaining} remaining`);
+        const moreCards = await fillWithScryfall(
+          '(t:artifact OR t:enchantment OR t:creature)',
+          colorIdentity, remaining, usedNames, bannedCards,
+          shortagePriceCap, maxRarity, maxCmc, null,
+          context.collectionNames, currency, arenaOnly
+        );
+        categories.synergy.push(...moreCards);
+        filled += moreCards.length;
+      }
+
+      console.log(`[DeckGen] Filled ${filled} cards from Scryfall shortfall`);
     }
 
     // If STILL short, add basic lands as absolute last resort
@@ -2380,5 +2570,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     gapAnalysis,
     detectedCombos,
     collectionShortfall: context.collectionNames && basicLandFillCount > 0 ? basicLandFillCount : undefined,
+    typeTargets,
+    dataSource,
   };
 }

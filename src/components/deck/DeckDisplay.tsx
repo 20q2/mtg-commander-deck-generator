@@ -15,6 +15,7 @@ import {
   ArrowUpDown,
   Search,
   AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -90,6 +91,7 @@ const TYPE_ORDER: CardType[] = ['Commander', 'Planeswalker', 'Creature', 'Battle
 function getCardType(card: ScryfallCard): CardType {
   const typeLine = getFrontFaceTypeLine(card).toLowerCase();
 
+  if (typeLine.includes('land')) return 'Land';
   if (typeLine.includes('creature')) return 'Creature';
   if (typeLine.includes('planeswalker')) return 'Planeswalker';
   if (typeLine.includes('battle')) return 'Battle';
@@ -97,7 +99,6 @@ function getCardType(card: ScryfallCard): CardType {
   if (typeLine.includes('sorcery')) return 'Sorcery';
   if (typeLine.includes('artifact')) return 'Artifact';
   if (typeLine.includes('enchantment')) return 'Enchantment';
-  if (typeLine.includes('land')) return 'Land';
 
   return 'Artifact'; // Default fallback
 }
@@ -702,12 +703,22 @@ function DeckStats({ activeFilter, onFilterChange }: DeckStatsProps) {
         <div className="space-y-1">
           {Object.entries(stats.typeDistribution)
             .sort(([, a], [, b]) => b - a)
-            .map(([type, count]) => (
-              <div key={type} className="flex justify-between text-xs">
-                <span>{type}</span>
-                <span className="text-muted-foreground">{count}</span>
-              </div>
-            ))}
+            .map(([type, count]) => {
+              const target = generatedDeck.typeTargets?.[type.toLowerCase()];
+              return (
+                <div key={type} className="flex justify-between text-xs">
+                  <span>{type}</span>
+                  <span className="text-muted-foreground">
+                    {count}
+                    {import.meta.env.DEV && target != null && (
+                      <span className={`ml-1 ${count === target ? 'text-green-500' : count < target ? 'text-amber-500' : 'text-blue-400'}`}>
+                        / {target}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
         </div>
       </div>
     </div>
@@ -883,7 +894,7 @@ export function DeckDisplay() {
 
   if (!generatedDeck) return null;
 
-  const { usedThemes } = generatedDeck;
+  const { usedThemes, dataSource } = generatedDeck;
   const allGroupedCards = Object.values(groupedCards).flat();
   const totalCards = allGroupedCards.reduce((sum, c) => sum + c.quantity, 0);
   const totalPrice = allGroupedCards.reduce((sum, c) => {
@@ -896,6 +907,33 @@ export function DeckDisplay() {
     customization.deckBudget !== null ||
     customization.budgetOption !== 'any';
   const avgCardPrice = budgetActive && totalCards > 0 ? totalPrice / totalCards : null;
+
+  // Determine if we fell back from what the user asked for
+  const hadThemes = usedThemes && usedThemes.length > 0;
+  const hadBracket = customization.bracketLevel !== 'all';
+  const fallbackMessage = (() => {
+    if (!dataSource) return null;
+    // Best-case: got exactly what was requested
+    if (hadThemes && hadBracket && dataSource === 'theme+bracket') return null;
+    if (hadThemes && !hadBracket && dataSource === 'theme') return null;
+    if (!hadThemes && hadBracket && dataSource === 'base+bracket') return null;
+    if (!hadThemes && !hadBracket && dataSource === 'base') return null;
+
+    const requested: string[] = [];
+    if (hadThemes) requested.push(usedThemes!.join(' + '));
+    if (hadBracket) requested.push(`bracket ${customization.bracketLevel}`);
+
+    const got: Record<typeof dataSource, string> = {
+      'theme+bracket': 'theme + bracket data',
+      'theme': 'theme data (without bracket filtering)',
+      'base+bracket': 'general commander data with bracket filtering',
+      'base': 'general commander data',
+      'scryfall': 'Scryfall card search (no EDHREC data)',
+    };
+
+    if (requested.length === 0) return null; // nothing was requested, nothing to fall back from
+    return `EDHREC didn't have data for ${requested.join(' at ')}. Used ${got[dataSource]} instead.`;
+  })();
 
   return (
     <>
@@ -994,6 +1032,15 @@ export function DeckDisplay() {
             </Button>
           </div>
         </div>
+
+        {fallbackMessage && (
+          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 text-sm">
+            <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-blue-200/90">
+              {fallbackMessage}
+            </p>
+          </div>
+        )}
 
         {generatedDeck.collectionShortfall && generatedDeck.collectionShortfall > 0 && (
           <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
