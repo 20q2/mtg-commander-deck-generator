@@ -19,7 +19,7 @@ import {
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { ARCHETYPE_LABELS } from '@/lib/constants/archetypes';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
-import type { ThemeResult } from '@/types';
+import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
 import { Loader2, Wand2, ArrowLeft, ExternalLink } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
@@ -31,6 +31,8 @@ export function BuilderPage() {
   const [isLoadingCommander, setIsLoadingCommander] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [partnerImageLoaded, setPartnerImageLoaded] = useState(false);
+  const [deselectedThemes, setDeselectedThemes] = useState<string[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const {
     commander,
@@ -47,6 +49,7 @@ export function BuilderPage() {
     setDetectedArchetypes,
     updateCustomization,
     setEdhrecThemes,
+    setEdhrecNumDecks,
     setEdhrecLandSuggestion,
     setSelectedThemes,
     setThemesLoading,
@@ -113,7 +116,9 @@ export function BuilderPage() {
       setThemesError(null);
 
       try {
-        const data = await fetchCommanderData(card.name);
+        const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
+        // Budget option doesn't affect EDHREC theme availability — only card recommendations during generation
+        const data = await fetchCommanderData(card.name, undefined, bracketLevel);
         const themes = data.themes;
 
         // Apply EDHREC land stats — more accurate than archetype-based estimates
@@ -133,6 +138,8 @@ export function BuilderPage() {
             nonBasicLandCount: suggestedNonBasic,
           });
         }
+
+        setEdhrecNumDecks(data.stats.numDecks || null);
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
@@ -233,8 +240,10 @@ export function BuilderPage() {
     setPartnerImageLoaded(false);
   }, [partnerCommander?.id]);
 
-  // Track the previous partner to detect changes
+  // Track previous values to detect changes
   const prevPartnerRef = useRef<string | null>(null);
+  const prevBracketRef = useRef<BracketLevel>(customization.bracketLevel);
+  const prevBudgetOptRef = useRef<BudgetOption>(customization.budgetOption);
 
   // Re-fetch themes when partner commander changes
   useEffect(() => {
@@ -254,13 +263,15 @@ export function BuilderPage() {
       setThemesError(null);
 
       try {
+        const { bracketLevel: bl } = useStore.getState().customization;
+        const bracket = bl !== 'all' ? bl : undefined;
         let data;
         if (partnerCommander) {
-          // Fetch partner-specific themes
-          data = await fetchPartnerCommanderData(commander!.name, partnerCommander.name);
+          // Fetch partner-specific themes (budget doesn't affect theme lists)
+          data = await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracket);
         } else {
           // Fetch single commander themes
-          data = await fetchCommanderData(commander!.name);
+          data = await fetchCommanderData(commander!.name, undefined, bracket);
         }
         const themes = data.themes;
 
@@ -281,6 +292,8 @@ export function BuilderPage() {
             nonBasicLandCount: suggestedNonBasic,
           });
         }
+
+        setEdhrecNumDecks(data.stats.numDecks || null);
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
@@ -320,6 +333,168 @@ export function BuilderPage() {
 
     refreshThemes();
   }, [partnerCommander?.name, commander?.name]);
+
+  // Re-fetch themes when bracket level or budget option changes
+  // Bracket affects theme availability/counts; budget affects card data behind themes
+  useEffect(() => {
+    const currentBracket = customization.bracketLevel;
+    const currentBudget = customization.budgetOption;
+    const prevBracket = prevBracketRef.current;
+    const prevBudget = prevBudgetOptRef.current;
+
+    // Update refs for next comparison
+    prevBracketRef.current = currentBracket;
+    prevBudgetOptRef.current = currentBudget;
+
+    // Skip if commander not loaded yet, or if neither setting actually changed
+    if (!commander || (currentBracket === prevBracket && currentBudget === prevBudget)) return;
+
+    // Only re-fetch if we currently have EDHREC themes (don't overwrite local archetype fallback)
+    if (useStore.getState().themeSource !== 'edhrec') return;
+
+    // Clear any previous deselection notice
+    setDeselectedThemes([]);
+
+    async function refreshThemesForBracket() {
+      setThemesLoading(true);
+      setThemesError(null);
+
+      // Remember which themes the user had selected (by slug for stable matching)
+      const previouslySelectedSlugs = new Set(
+        selectedThemes.filter(t => t.isSelected && t.slug).map(t => t.slug!)
+      );
+
+      try {
+        const bracketLevel = currentBracket !== 'all' ? currentBracket : undefined;
+        const budgetOpt = currentBudget !== 'any' ? currentBudget : undefined;
+        const data = partnerCommander
+          ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, budgetOpt, bracketLevel)
+          : await fetchCommanderData(commander!.name, budgetOpt, bracketLevel);
+        const themes = data.themes;
+
+        // When budget is active, EDHREC taglink counts don't change — but numDecks does.
+        // Scale theme counts proportionally (same as EDHREC website does).
+        // Fetch the "any" version (usually cached from initial load) to get the base numDecks.
+        let scaleFactor = 1;
+        if (budgetOpt && data.stats.numDecks > 0) {
+          const anyData = partnerCommander
+            ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracketLevel)
+            : await fetchCommanderData(commander!.name, undefined, bracketLevel);
+          if (anyData.stats.numDecks > 0) {
+            scaleFactor = data.stats.numDecks / anyData.stats.numDecks;
+          }
+        }
+
+        // Update land suggestions from bracket-specific stats
+        const { landDistribution } = data.stats;
+        const suggestedLands = Math.round(landDistribution.total);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        if (suggestedLands > 0) {
+          if (!useStore.getState().userEditedLands) {
+            updateCustomization({
+              landCount: suggestedLands,
+              nonBasicLandCount: suggestedNonBasic,
+            });
+          }
+          setEdhrecLandSuggestion({
+            landCount: suggestedLands,
+            nonBasicLandCount: suggestedNonBasic,
+          });
+        }
+
+        setEdhrecNumDecks(data.stats.numDecks || null);
+
+        if (themes.length > 0) {
+          setEdhrecThemes(themes);
+
+          const newSlugs = new Set(themes.map(t => t.slug));
+
+          // Identify themes that were selected but no longer exist
+          const lost = selectedThemes
+            .filter(t => t.isSelected && t.slug && !newSlugs.has(t.slug))
+            .map(t => t.name);
+
+          if (lost.length > 0) {
+            setDeselectedThemes(lost);
+            setToastMessage(`${lost.join(', ')} ${lost.length === 1 ? 'was' : 'were'} deselected — not available with current settings`);
+          }
+
+          // Build new theme list, preserving selections where possible
+          // Apply scale factor for budget-filtered counts
+          const themeResults: ThemeResult[] = themes.map((t) => ({
+            name: t.name,
+            source: 'edhrec' as const,
+            slug: t.slug,
+            deckCount: Math.round(t.count * scaleFactor),
+            popularityPercent: t.popularityPercent,
+            isSelected: previouslySelectedSlugs.has(t.slug),
+          }));
+
+          setSelectedThemes(themeResults);
+        } else {
+          // No themes at this bracket — fall back to local archetype detection
+          setThemesError(`No EDHREC themes available at bracket ${currentBracket}`);
+          const archetypes = detectArchetypes(commander!, partnerCommander ?? undefined);
+          if (archetypes.length > 0) {
+            const localThemes: ThemeResult[] = archetypes.slice(0, 3).map((a, index) => ({
+              name: ARCHETYPE_LABELS[a.archetype],
+              source: 'local' as const,
+              archetype: a.archetype,
+              score: a.score,
+              confidence: a.confidence,
+              isSelected: index === 0,
+            }));
+            setSelectedThemes(localThemes);
+          }
+          // All previously selected themes were lost
+          const lostNames = selectedThemes.filter(t => t.isSelected).map(t => t.name);
+          if (lostNames.length > 0) {
+            setDeselectedThemes(lostNames);
+            setToastMessage(`${lostNames.join(', ')} ${lostNames.length === 1 ? 'was' : 'were'} deselected — not available with current settings`);
+          }
+        }
+      } catch {
+        // EDHREC has no data for this combination (e.g., cEDH + budget returns 403)
+        // Clear themes and show error state
+        console.warn('[BuilderPage] No EDHREC data for this bracket/budget combination');
+        setThemesError('No EDHREC data available for this combination');
+        setEdhrecNumDecks(null);
+
+        // Deselect all current themes since the data doesn't exist
+        const lostNames = selectedThemes.filter(t => t.isSelected).map(t => t.name);
+        if (lostNames.length > 0) {
+          setDeselectedThemes(lostNames);
+        }
+
+        setToastMessage('No EDHREC data for this combination of bracket and budget');
+
+        // Fall back to local archetype detection
+        const archetypes = detectArchetypes(commander!, partnerCommander ?? undefined);
+        if (archetypes.length > 0) {
+          const localThemes: ThemeResult[] = archetypes.slice(0, 3).map((a, index) => ({
+            name: ARCHETYPE_LABELS[a.archetype],
+            source: 'local' as const,
+            archetype: a.archetype,
+            score: a.score,
+            confidence: a.confidence,
+            isSelected: index === 0,
+          }));
+          setSelectedThemes(localThemes);
+        }
+      } finally {
+        setThemesLoading(false);
+      }
+    }
+
+    refreshThemesForBracket();
+  }, [customization.bracketLevel, customization.budgetOption, commander?.name]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
   const handleGenerate = async () => {
     if (!commander) return;
@@ -584,7 +759,10 @@ export function BuilderPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
-                <ArchetypeDisplay />
+                <ArchetypeDisplay
+                  deselectedThemes={deselectedThemes}
+                  onDismissDeselected={() => setDeselectedThemes([])}
+                />
               </CardContent>
             </Card>
 
@@ -711,6 +889,11 @@ export function BuilderPage() {
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
           )}
         </section>
+      )}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-2 bg-amber-500/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm">
+          {toastMessage}
+        </div>
       )}
     </main>
   );

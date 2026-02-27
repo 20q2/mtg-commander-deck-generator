@@ -5,8 +5,13 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useStore } from '@/store';
 import { ARCHETYPE_LABELS } from '@/lib/constants/archetypes';
 import { Archetype } from '@/types';
-import { ChevronDown, Crosshair } from 'lucide-react';
+import { ChevronDown, Crosshair, X } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
+
+interface ArchetypeDisplayProps {
+  deselectedThemes?: string[];
+  onDismissDeselected?: () => void;
+}
 
 const confidenceColors = {
   high: 'bg-green-100 text-green-800 border-green-300',
@@ -74,7 +79,7 @@ function ThemeChip({
   );
 }
 
-export function ArchetypeDisplay() {
+export function ArchetypeDisplay({ deselectedThemes, onDismissDeselected }: ArchetypeDisplayProps) {
   const {
     detectedArchetypes,
     selectedArchetype,
@@ -86,6 +91,7 @@ export function ArchetypeDisplay() {
     themesLoading,
     themesError,
     themeSource,
+    edhrecNumDecks,
     customization,
     updateCustomization,
   } = useStore();
@@ -131,7 +137,11 @@ export function ArchetypeDisplay() {
         <div>
           <label className="text-sm font-medium text-muted-foreground mb-2 block">
             Popular Ways to Play
-            <span className="text-xs ml-2 opacity-60">(from EDHREC)</span>
+            <span className="text-xs ml-2 opacity-60">
+              {edhrecNumDecks
+                ? `(${edhrecNumDecks.toLocaleString()} decks on EDHREC)`
+                : '(from EDHREC)'}
+            </span>
           </label>
           <div className="flex flex-wrap gap-2">
             {selectedThemes.slice(0, 8).map((theme) => (
@@ -170,26 +180,28 @@ export function ArchetypeDisplay() {
                 More Themes for {commander.name}
               </label>
               {selectedThemes.length > 8 ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedThemes.slice(8).map((theme) => (
-                    <ThemeChip
-                      key={theme.name}
-                      name={theme.name}
-                      popularityPercent={theme.popularityPercent}
-                      deckCount={theme.deckCount}
-                      isSelected={theme.isSelected}
-                      onClick={() => toggleThemeSelection(theme.name)}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedThemes.slice(8).map((theme) => (
+                      <ThemeChip
+                        key={theme.name}
+                        name={theme.name}
+                        popularityPercent={theme.popularityPercent}
+                        deckCount={theme.deckCount}
+                        isSelected={theme.isSelected}
+                        onClick={() => toggleThemeSelection(theme.name)}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Less common strategies from EDHREC
+                  </p>
+                </>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   No additional themes available for this commander
                 </p>
               )}
-              <p className="text-xs text-muted-foreground mt-2">
-                Less common strategies from EDHREC
-              </p>
             </div>
           )}
 
@@ -211,6 +223,26 @@ export function ArchetypeDisplay() {
               </svg>
               Low deck count for selected themes — results may be inconsistent
             </p>
+          )}
+
+          {/* Deselected themes notice (when bracket change removed selected themes) */}
+          {deselectedThemes && deselectedThemes.length > 0 && (
+            <div className="mt-2 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-md">
+              <svg className="w-3.5 h-3.5 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+              <span className="flex-1">
+                <strong>{deselectedThemes.join(', ')}</strong>
+                {deselectedThemes.length === 1 ? ' is' : ' are'} not available with the current settings and {deselectedThemes.length === 1 ? 'was' : 'were'} deselected.
+              </span>
+              {onDismissDeselected && (
+                <button onClick={onDismissDeselected} className="shrink-0 p-0.5 hover:bg-amber-500/20 rounded transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

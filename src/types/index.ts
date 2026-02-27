@@ -373,6 +373,7 @@ export interface AppState {
   themesLoading: boolean;
   themesError: string | null;
   themeSource: 'edhrec' | 'local';
+  edhrecNumDecks: number | null;
 
   // EDHREC land suggestion (set when commander data is fetched)
   edhrecLandSuggestion: { landCount: number; nonBasicLandCount: number } | null;
@@ -396,6 +397,7 @@ export interface AppState {
   setDetectedArchetypes: (archetypes: ArchetypeResult[]) => void;
   setSelectedArchetype: (archetype: Archetype) => void;
   setEdhrecThemes: (themes: EDHRECTheme[]) => void;
+  setEdhrecNumDecks: (count: number | null) => void;
   setSelectedThemes: (themes: ThemeResult[]) => void;
   toggleThemeSelection: (themeName: string) => void;
   setThemesLoading: (loading: boolean) => void;

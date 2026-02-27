@@ -105,6 +105,13 @@ export function DeckCustomizer() {
   }, [editingPrice]);
 
   useEffect(() => {
+    if (editingBudget && budgetInputRef.current) {
+      budgetInputRef.current.focus();
+      budgetInputRef.current.select();
+    }
+  }, [editingBudget]);
+
+  useEffect(() => {
     if (editingGcLimit && gcLimitInputRef.current) {
       gcLimitInputRef.current.focus();
       gcLimitInputRef.current.select();
@@ -368,9 +375,12 @@ export function DeckCustomizer() {
                   Total Deck Budget
                   <InfoTooltip text="Sets a target budget for the deck (excluding commander). At low budgets, some expensive but high-synergy cards may be skipped in favor of cheaper alternatives. The final total may slightly exceed the target if needed to complete the deck." />
                 </label>
-                <span className="text-sm font-bold">
+                <button
+                  onClick={startEditingBudget}
+                  className="text-sm font-bold hover:text-primary transition-colors cursor-pointer"
+                >
                   {customization.deckBudget === null ? 'No limit' : `${customization.currency === 'EUR' ? '€' : '$'}${customization.deckBudget}`}
-                </span>
+                </button>
               </div>
               <div className="flex gap-2">
                 {([null, 25, 50, 100, 200] as const).map((budget) => {
@@ -426,9 +436,12 @@ export function DeckCustomizer() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium">Max Card Price</label>
-                <span className="text-sm font-bold">
+                <button
+                  onClick={startEditingPrice}
+                  className="text-sm font-bold hover:text-primary transition-colors cursor-pointer"
+                >
                   {customization.maxCardPrice === null ? 'No limit' : `${customization.currency === 'EUR' ? '€' : '$'}${customization.maxCardPrice}`}
-                </span>
+                </button>
               </div>
               <div className="flex gap-2">
                 {([null, 1, 5, 10, 25] as const).map((price) => {
@@ -603,7 +616,9 @@ export function DeckCustomizer() {
                     }}
                     className={`p-2 rounded-lg border text-center transition-colors ${
                       customization.bracketLevel === option.value
-                        ? 'border-primary bg-primary/10 text-primary'
+                        ? option.value === 'all'
+                          ? 'border-muted-foreground/50 bg-muted text-muted-foreground'
+                          : 'border-primary bg-primary/10 text-primary'
                         : 'border-border hover:border-primary/50'
                     }`}
                   >

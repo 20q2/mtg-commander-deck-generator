@@ -189,6 +189,7 @@ export const useStore = create<AppState>((set) => ({
   themesLoading: false,
   themesError: null,
   themeSource: 'local',
+  edhrecNumDecks: null,
   edhrecLandSuggestion: null,
   userEditedLands: false,
 
@@ -219,6 +220,7 @@ export const useStore = create<AppState>((set) => ({
       themesLoading: false,
       themesError: null,
       themeSource: 'local',
+      edhrecNumDecks: null,
       edhrecLandSuggestion: null,
       userEditedLands: false,
     };
@@ -239,6 +241,7 @@ export const useStore = create<AppState>((set) => ({
       themesLoading: false,
       themesError: null,
       themeSource: 'local',
+      edhrecNumDecks: null,
     };
   }),
 
@@ -254,6 +257,8 @@ export const useStore = create<AppState>((set) => ({
     themeSource: 'edhrec',
     themesError: null,
   }),
+
+  setEdhrecNumDecks: (count) => set({ edhrecNumDecks: count }),
 
   setEdhrecLandSuggestion: (suggestion) => set({ edhrecLandSuggestion: suggestion }),
 
@@ -329,6 +334,7 @@ export const useStore = create<AppState>((set) => ({
     themesLoading: false,
     themesError: null,
     themeSource: 'local',
+    edhrecNumDecks: null,
     userEditedLands: false,
     // Preserve all customization settings when switching commanders
     customization: state.customization,

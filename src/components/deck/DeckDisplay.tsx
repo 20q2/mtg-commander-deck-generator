@@ -911,6 +911,7 @@ export function DeckDisplay() {
   // Determine if we fell back from what the user asked for
   const hadThemes = usedThemes && usedThemes.length > 0;
   const hadBracket = customization.bracketLevel !== 'all';
+  const hadBudget = customization.budgetOption !== 'any';
   const fallbackMessage = (() => {
     if (!dataSource) return null;
     // Best-case: got exactly what was requested
@@ -922,6 +923,7 @@ export function DeckDisplay() {
     const requested: string[] = [];
     if (hadThemes) requested.push(usedThemes!.join(' + '));
     if (hadBracket) requested.push(`bracket ${customization.bracketLevel}`);
+    if (hadBudget) requested.push(customization.budgetOption);
 
     const got: Record<typeof dataSource, string> = {
       'theme+bracket': 'theme + bracket data',
@@ -932,7 +934,7 @@ export function DeckDisplay() {
     };
 
     if (requested.length === 0) return null; // nothing was requested, nothing to fall back from
-    return `EDHREC didn't have data for ${requested.join(' at ')}. Used ${got[dataSource]} instead.`;
+    return `EDHREC didn't have data for the combination of ${requested.join(', ')}. Used ${got[dataSource]} instead.`;
   })();
 
   return (
