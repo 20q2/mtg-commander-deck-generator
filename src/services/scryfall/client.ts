@@ -97,12 +97,14 @@ export async function searchCards(
   options: {
     order?: 'edhrec' | 'cmc' | 'name';
     page?: number;
+    skipFormatFilter?: boolean;
   } = {}
 ): Promise<ScryfallSearchResponse> {
-  const { order = 'edhrec', page = 1 } = options;
+  const { order = 'edhrec', page = 1, skipFormatFilter = false } = options;
   const colorFilter = colorIdentity.length > 0 ? `id<=${colorIdentity.join('')}` : '';
+  const formatFilter = skipFormatFilter ? '' : 'f:commander';
   // Wrap query in parentheses so color filter applies to entire query (including OR clauses)
-  const fullQuery = `${colorFilter} (${query}) f:commander`;
+  const fullQuery = `${colorFilter} (${query}) ${formatFilter}`;
   const encodedQuery = encodeURIComponent(fullQuery.trim());
 
   return scryfallFetch<ScryfallSearchResponse>(

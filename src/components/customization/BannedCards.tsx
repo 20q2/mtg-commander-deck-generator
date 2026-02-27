@@ -6,7 +6,7 @@ import { useStore } from '@/store';
 import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
-import { Search, Loader2, X, Trash2, ChevronRight } from 'lucide-react';
+import { Search, Loader2, X, Trash2, ChevronRight, Ban } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { UserListChips } from '@/components/lists/UserListChips';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -28,6 +28,15 @@ export function BannedCards() {
   const arenaOnly = customization.arenaOnly;
   const appliedExcludeLists = customization.appliedExcludeLists || [];
   const { lists: userLists } = useUserLists();
+
+  // Build a set of all cards on any stored ban list (for marking in search results)
+  const banListCardNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const list of banLists) {
+      list.cards.forEach(c => names.add(c.toLowerCase()));
+    }
+    return names;
+  }, [banLists]);
 
   // Ref for positioning the search dropdown via portal
   const searchWrapperRef = useRef<HTMLDivElement>(null);
@@ -106,7 +115,7 @@ export function BannedCards() {
       setIsSearching(true);
       try {
         const arenaQuery = arenaOnly ? `${query} game:arena` : query;
-        const searchResults = await searchCards(arenaQuery, colorIdentity, { order: 'edhrec' });
+        const searchResults = await searchCards(arenaQuery, colorIdentity, { order: 'edhrec', skipFormatFilter: true });
         const filtered = searchResults.data.filter(
           card => !bannedCards.includes(card.name)
         );
@@ -197,28 +206,39 @@ export function BannedCards() {
               style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
             >
               <CardContent className="p-1">
-                {results.map((card) => (
-                  <button
-                    key={card.id}
-                    onClick={() => handleBanCard(card)}
-                    className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
-                  >
-                    <img
-                      src={getCardImageUrl(card, 'small')}
-                      alt={card.name}
-                      className="w-8 h-auto rounded shadow"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate group-hover:text-destructive transition-colors">
-                        {card.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {card.type_line}
-                      </p>
-                    </div>
-                    <X className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
-                  </button>
-                ))}
+                {results.map((card) => {
+                  const isBanned = banListCardNames.has(card.name.toLowerCase());
+                  return (
+                    <button
+                      key={card.id}
+                      onClick={() => handleBanCard(card)}
+                      className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
+                    >
+                      <img
+                        src={getCardImageUrl(card, 'small')}
+                        alt={card.name}
+                        className="w-8 h-auto rounded shadow"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium truncate group-hover:text-destructive transition-colors">
+                            {card.name}
+                          </p>
+                          {isBanned && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-red-500/15 text-red-500 border border-red-500/25 shrink-0">
+                              <Ban className="w-2.5 h-2.5" />
+                              Banned
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {card.type_line}
+                        </p>
+                      </div>
+                      <X className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
+                    </button>
+                  );
+                })}
               </CardContent>
             </Card>
           </>,

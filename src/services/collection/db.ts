@@ -54,7 +54,7 @@ export async function bulkImport(
       const existing = await db.cards.get(card.name);
       if (existing) {
         await db.cards.update(card.name, {
-          quantity: card.quantity,
+          quantity: existing.quantity + card.quantity,
           addedAt: Date.now(),
           typeLine: card.typeLine ?? existing.typeLine,
           colorIdentity: card.colorIdentity ?? existing.colorIdentity,

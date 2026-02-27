@@ -37,15 +37,22 @@ export function parseCollectionList(input: string): ParsedCard[] {
     // Multi-line input always uses newlines (card names like "Lutri, the Spellchaser" have commas)
     let segments: string[];
     if (!isMultiLine && rawLine.includes(',') && !/^\d/.test(rawLine.trim())) {
+      // Only comma-split when there are 2+ commas (3+ parts), since MTG card names
+      // can contain one comma (e.g. "Korvold, Fae-Cursed King") but never two.
       const parts = rawLine.split(',');
-      segments = [];
-      for (const part of parts) {
-        const t = part.trim();
-        if (segments.length > 0 && t && /^[a-z]/.test(t)) {
-          segments[segments.length - 1] += ', ' + t;
-        } else {
-          segments.push(part);
+      if (parts.length >= 3) {
+        segments = [];
+        for (const part of parts) {
+          const t = part.trim();
+          if (segments.length > 0 && t && /^[a-z]/.test(t)) {
+            segments[segments.length - 1] += ', ' + t;
+          } else {
+            segments.push(part);
+          }
         }
+      } else {
+        // 1 comma = likely a card name with a comma (e.g. "Lutri, the Spellchaser")
+        segments = [rawLine];
       }
     } else {
       segments = [rawLine];

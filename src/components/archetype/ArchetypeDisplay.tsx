@@ -218,7 +218,7 @@ export function ArchetypeDisplay() {
       {/* Fallback Notice */}
       {!themesLoading && themesError && (
         <div className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-md">
-          Using local archetype detection (EDHREC unavailable)
+          No EDHREC data available for this commander. This usually means the commander is banned or too new, or there may be a connection issue with EDHREC. Using local archetype detection as a fallback — deck quality will be significantly impacted without EDHREC data.
         </div>
       )}
 

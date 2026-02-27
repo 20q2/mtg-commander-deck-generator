@@ -49,7 +49,8 @@
       "Bash(do echo -n \"$path: \")",
       "Bash(done)",
       "Bash(npm ls:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(npx tsx:*)"
     ]
   }
 }

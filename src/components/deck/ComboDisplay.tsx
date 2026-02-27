@@ -142,7 +142,7 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                   onClick={() => handleCardClick(name)}
                   className={`relative rounded-md overflow-hidden transition-all cursor-pointer ${
                     isBanned ? 'opacity-50 ring-1 ring-red-500/60'
-                    : isMissing ? 'opacity-50 ring-1 ring-amber-500/60'
+                    : isMissing && !collectionNames?.has(name) ? 'opacity-50 ring-1 ring-amber-500/60'
                     : 'hover:scale-105'
                   }`}
                   title={name}
@@ -164,17 +164,18 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md">
                       <span className="text-[9px] font-bold text-red-400">EXCLUDED</span>
                     </div>
-                  ) : isMissing && (
+                  ) : isMissing && collectionNames?.has(name) ? (
+                    <div className="absolute inset-0 flex items-end justify-center pb-1 rounded-md">
+                      <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 bg-black/60 px-1.5 py-0.5 rounded">
+                        <Package className="w-2.5 h-2.5" />
+                        OWNED
+                      </span>
+                    </div>
+                  ) : isMissing ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md">
                       <span className="text-[9px] font-bold text-amber-400">MISSING</span>
-                      {collectionNames?.has(name) && (
-                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 mt-0.5">
-                          <Package className="w-2.5 h-2.5" />
-                          OWNED
-                        </span>
-                      )}
                     </div>
-                  )}
+                  ) : null}
                 </button>
               </Fragment>
             );

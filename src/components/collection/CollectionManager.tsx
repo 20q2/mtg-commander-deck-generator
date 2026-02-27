@@ -141,7 +141,11 @@ export function CollectionManager() {
 
     // Type filter
     if (selectedType) {
-      result = result.filter(c => matchesType(c, selectedType));
+      if (selectedType === 'Other') {
+        result = result.filter(c => !TYPES.some(t => matchesType(c, t)));
+      } else {
+        result = result.filter(c => matchesType(c, selectedType));
+      }
     }
 
     // Rarity filter
@@ -211,13 +215,24 @@ export function CollectionManager() {
     setPage(1);
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const text = cards.map(c => `${c.quantity} ${c.name}`).join('\n');
     const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedCount(totalCards);
-      setTimeout(() => setCopiedCount(null), 2000);
-    });
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for browsers/contexts where clipboard API fails
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setCopiedCount(totalCards);
+    setTimeout(() => setCopiedCount(null), 2000);
   };
 
   const handlePreview = useCallback(async (name: string) => {
