@@ -3,7 +3,7 @@ import type { DetectedCombo, ScryfallCard } from '@/types';
 import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
-import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package } from 'lucide-react';
+import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 
@@ -16,11 +16,13 @@ const cardDataCache = new Map<string, ScryfallCard>();
 
 export function ComboDisplay({ combos }: ComboDisplayProps) {
   const commander = useStore(s => s.commander);
+  const bannedCards = useStore(s => s.customization.bannedCards);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
+  const [showExcluded, setShowExcluded] = useState(false);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
 
@@ -82,23 +84,34 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
 
   if (combos.length === 0) return null;
 
-  const completeCombos = combos.filter(c => c.isComplete);
-  const nearMisses = combos.filter(c => !c.isComplete);
+  const bannedSet = new Set(bannedCards.map(n => n.toLowerCase()));
+  const hasExcludedCard = (combo: DetectedCombo) => combo.cards.some(n => bannedSet.has(n.toLowerCase()));
 
-  const renderComboCard = (combo: DetectedCombo) => {
+  const completeCombos = combos.filter(c => c.isComplete && !hasExcludedCard(c));
+  const nearMisses = combos.filter(c => !c.isComplete && !hasExcludedCard(c));
+  const excludedCombos = combos.filter(c => hasExcludedCard(c));
+
+  const renderComboCard = (combo: DetectedCombo, isExcluded = false) => {
     const isComboExpanded = expandedCombo === combo.comboId;
     return (
       <div
         key={combo.comboId}
         className={`p-3 rounded-lg border ${
-          combo.isComplete
-            ? 'border-green-500/30 bg-green-500/5'
-            : 'border-amber-500/30 bg-amber-500/5'
+          isExcluded
+            ? 'border-red-500/20 bg-red-500/5'
+            : combo.isComplete
+              ? 'border-green-500/30 bg-green-500/5'
+              : 'border-amber-500/30 bg-amber-500/5'
         }`}
       >
         {/* Title + metadata */}
         <div className="mb-2">
-          {combo.isComplete ? (
+          {isExcluded ? (
+            <span className="flex items-center gap-1 text-xs font-medium text-red-400 min-w-0">
+              <Ban className="w-3 h-3 shrink-0" />
+              <span className="truncate">{combo.cards.join(' + ')}</span>
+            </span>
+          ) : combo.isComplete ? (
             <span className="flex items-center gap-1 text-xs font-medium text-green-500 min-w-0">
               <Check className="w-3 h-3 shrink-0" />
               <span className="truncate">{combo.cards.join(' + ')}</span>
@@ -118,6 +131,7 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
         <div className="flex flex-wrap items-center gap-1.5 mb-2">
           {combo.cards.map((name, i) => {
             const isMissing = combo.missingCards.includes(name);
+            const isBanned = bannedSet.has(name.toLowerCase());
             const imgUrl = cardImages.get(name);
             return (
               <Fragment key={name}>
@@ -127,7 +141,9 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                 <button
                   onClick={() => handleCardClick(name)}
                   className={`relative rounded-md overflow-hidden transition-all cursor-pointer ${
-                    isMissing ? 'opacity-50 ring-1 ring-amber-500/60' : 'hover:scale-105'
+                    isBanned ? 'opacity-50 ring-1 ring-red-500/60'
+                    : isMissing ? 'opacity-50 ring-1 ring-amber-500/60'
+                    : 'hover:scale-105'
                   }`}
                   title={name}
                   style={{ width: 72 }}
@@ -144,7 +160,11 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                       <span className="text-[9px] text-muted-foreground text-center px-1 leading-tight">{name}</span>
                     </div>
                   )}
-                  {isMissing && (
+                  {isBanned ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md">
+                      <span className="text-[9px] font-bold text-red-400">EXCLUDED</span>
+                    </div>
+                  ) : isMissing && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md">
                       <span className="text-[9px] font-bold text-amber-400">MISSING</span>
                       {collectionNames?.has(name) && (
@@ -199,7 +219,7 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
         <Sparkles className="w-4 h-4 text-primary" />
         <h3 className="text-sm font-semibold">Combos in Your Deck</h3>
         <span className="text-xs text-muted-foreground ml-auto">
-          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}
+          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}
         </span>
         <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
@@ -231,6 +251,32 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
               >
                 Show {nearMisses.length - 10} more near-miss combo{nearMisses.length - 10 > 1 ? 's' : ''}
               </button>
+            )}
+          </>
+        )}
+
+        {/* Excluded combos */}
+        {excludedCombos.length > 0 && (
+          <>
+            <button
+              onClick={() => setShowExcluded(!showExcluded)}
+              className="flex items-center gap-2 mt-4 mb-3 w-full group"
+            >
+              <span className="text-xs font-medium text-muted-foreground">
+                Excluded ({excludedCombos.length})
+              </span>
+              <div className="flex-1 border-t border-border/30" />
+              <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform group-hover:text-foreground ${showExcluded ? 'rotate-180' : ''}`} />
+            </button>
+            {showExcluded && (
+              <>
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  These combos involve cards on your exclude list.
+                </p>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {excludedCombos.map(combo => renderComboCard(combo, true))}
+                </div>
+              </>
             )}
           </>
         )}

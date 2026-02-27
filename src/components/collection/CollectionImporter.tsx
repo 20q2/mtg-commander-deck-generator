@@ -220,10 +220,17 @@ export function CollectionImporter({ onImportCards, updatedLabel, label }: Colle
                 <AlertCircle className="w-3.5 h-3.5" />
                 {result.notFound.length} card{result.notFound.length > 1 ? 's' : ''} not found:
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {result.notFound.slice(0, 10).join(', ')}
-                {result.notFound.length > 10 && ` and ${result.notFound.length - 10} more`}
-              </p>
+              <ul className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                {result.notFound.slice(0, 10).map(name => (
+                  <li key={name} className="flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-muted-foreground shrink-0" />
+                    {name}
+                  </li>
+                ))}
+                {result.notFound.length > 10 && (
+                  <li className="text-muted-foreground/70">and {result.notFound.length - 10} more</li>
+                )}
+              </ul>
             </div>
           )}
         </div>

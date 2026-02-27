@@ -13,13 +13,13 @@ interface UserListChipsProps {
 
 const STORAGE_KEY_PREFIX = 'mtg-user-lists-collapsed-';
 
-interface PresetBanList {
+export interface PresetBanList {
   id: string;
   name: string;
   scryfallFormat: string;
 }
 
-const PRESET_BAN_LISTS: PresetBanList[] = [
+export const PRESET_BAN_LISTS: PresetBanList[] = [
   { id: 'rc-banlist', name: 'Commander Bans', scryfallFormat: 'commander' },
   { id: 'brawl-banlist', name: 'Brawl Bans', scryfallFormat: 'brawl' },
   { id: 'standardbrawl-banlist', name: 'Standard Bans', scryfallFormat: 'standard' },
@@ -103,7 +103,7 @@ export function UserListChips({ mode }: UserListChipsProps) {
       const cards = await getBanList(preset.scryfallFormat);
       const newList: BanList = {
         id: preset.id,
-        name: `${preset.name} Ban List`,
+        name: preset.name,
         cards,
         isPreset: true,
         enabled: true,

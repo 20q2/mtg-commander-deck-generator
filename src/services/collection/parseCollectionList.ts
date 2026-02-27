@@ -32,9 +32,23 @@ export function parseCollectionList(input: string): ParsedCard[] {
   const rawLines = trimmed.split('\n');
   for (const rawLine of rawLines) {
     // If a line has commas and no quantity prefix, treat commas as separators
-    const segments = rawLine.includes(',') && !/^\d/.test(rawLine.trim())
-      ? rawLine.split(',')
-      : [rawLine];
+    // Then re-merge fragments that start with lowercase (e.g. "Lutri, the Spellchaser")
+    let segments: string[];
+    if (rawLine.includes(',') && !/^\d/.test(rawLine.trim())) {
+      const parts = rawLine.split(',');
+      segments = [];
+      for (const part of parts) {
+        const t = part.trim();
+        if (segments.length > 0 && t && /^[a-z]/.test(t)) {
+          // Lowercase start = continuation of previous card name (e.g. "the Spellchaser")
+          segments[segments.length - 1] += ', ' + t;
+        } else {
+          segments.push(part);
+        }
+      }
+    } else {
+      segments = [rawLine];
+    }
 
     for (const segment of segments) {
       const line = segment.trim();

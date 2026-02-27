@@ -125,16 +125,17 @@ function getPageNumbers(current: number, total: number): (number | null)[] {
 interface ListDetailViewProps {
   list: UserCardList;
   onBack: () => void;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onExport: () => void;
-  onDelete: () => void;
-  onRemoveCard: (cardName: string) => void;
+  onEdit?: () => void;
+  onDuplicate?: () => void;
+  onExport?: () => void;
+  onDelete?: () => void;
+  onRemoveCard?: (cardName: string) => void;
+  readOnly?: boolean;
 }
 
 // --- Component ---
 
-export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard }: ListDetailViewProps) {
+export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, readOnly }: ListDetailViewProps) {
   const navigate = useNavigate();
 
   // Card data enrichment
@@ -150,7 +151,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
 
   const handleDeleteClick = () => {
     if (confirmingDelete) {
-      onDelete();
+      onDelete?.();
     } else {
       setConfirmingDelete(true);
       setTimeout(() => setConfirmingDelete(false), 3000);
@@ -340,38 +341,46 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onEdit}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              Edit
-            </button>
-            <button
-              onClick={onDuplicate}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <CopyPlus className="w-3.5 h-3.5" />
-              Duplicate
-            </button>
-            <button
-              onClick={onExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              Export
-            </button>
-            <button
-              onClick={handleDeleteClick}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                confirmingDelete
-                  ? 'border-destructive/50 bg-destructive/20 text-destructive'
-                  : 'border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
-              }`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              {confirmingDelete ? 'Confirm?' : 'Delete'}
-            </button>
+            {!readOnly && onEdit && (
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+            )}
+            {!readOnly && onDuplicate && (
+              <button
+                onClick={onDuplicate}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <CopyPlus className="w-3.5 h-3.5" />
+                Duplicate
+              </button>
+            )}
+            {onExport && (
+              <button
+                onClick={onExport}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Export
+              </button>
+            )}
+            {!readOnly && onDelete && (
+              <button
+                onClick={handleDeleteClick}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  confirmingDelete
+                    ? 'border-destructive/50 bg-destructive/20 text-destructive'
+                    : 'border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {confirmingDelete ? 'Confirm?' : 'Delete'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -580,6 +589,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           cards={paginatedCards}
           onRemove={onRemoveCard}
           onPreview={handlePreview}
+          readOnly={readOnly}
         />
       ) : (
         <ListViewTable
@@ -589,6 +599,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           sortKey={sortKey}
           sortDir={sortDir}
           onToggleSort={toggleSort}
+          readOnly={readOnly}
         />
       )}
 
@@ -606,7 +617,9 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
       )}
 
       {list.cards.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-8">This list is empty. Click Edit to add cards.</p>
+        <p className="text-sm text-muted-foreground text-center py-8">
+          {readOnly ? 'This list is empty.' : 'This list is empty. Click Edit to add cards.'}
+        </p>
       )}
 
       {/* Pagination */}
@@ -662,17 +675,19 @@ function GridView({
   cards,
   onRemove,
   onPreview,
+  readOnly,
 }: {
   cards: ListCardData[];
-  onRemove: (name: string) => void;
+  onRemove?: (name: string) => void;
   onPreview: (name: string) => void;
+  readOnly?: boolean;
 }) {
   const [parent] = useAutoAnimate({ duration: 250 });
 
   return (
     <div ref={parent} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
       {cards.map(card => (
-        <GridCard key={card.name} card={card} onRemove={onRemove} onPreview={onPreview} />
+        <GridCard key={card.name} card={card} onRemove={onRemove} onPreview={onPreview} readOnly={readOnly} />
       ))}
     </div>
   );
@@ -682,10 +697,12 @@ function GridCard({
   card,
   onRemove,
   onPreview,
+  readOnly,
 }: {
   card: ListCardData;
-  onRemove: (name: string) => void;
+  onRemove?: (name: string) => void;
   onPreview: (name: string) => void;
+  readOnly?: boolean;
 }) {
   const [showControls, setShowControls] = useState(false);
 
@@ -716,15 +733,17 @@ function GridCard({
       {showControls && (
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-2 pt-6">
           <p className="text-[10px] text-white font-medium truncate mb-1.5">{card.name}</p>
-          <div className="flex items-center justify-end">
-            <button
-              onClick={(e) => { e.stopPropagation(); onRemove(card.name); }}
-              className="p-0.5 rounded bg-white/20 text-red-300 hover:bg-red-500/50 hover:text-white transition-colors"
-              title="Remove from list"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          </div>
+          {!readOnly && onRemove && (
+            <div className="flex items-center justify-end">
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemove(card.name); }}
+                className="p-0.5 rounded bg-white/20 text-red-300 hover:bg-red-500/50 hover:text-white transition-colors"
+                title="Remove from list"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -740,13 +759,15 @@ function ListViewTable({
   sortKey,
   sortDir,
   onToggleSort,
+  readOnly,
 }: {
   cards: ListCardData[];
-  onRemove: (name: string) => void;
+  onRemove?: (name: string) => void;
   onPreview: (name: string) => void;
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
   onToggleSort: (key: SortKey) => void;
+  readOnly?: boolean;
 }) {
   const SortHeader = ({ label, field, className = '' }: { label: string; field: SortKey; className?: string }) => (
     <button
@@ -763,11 +784,11 @@ function ListViewTable({
   return (
     <div className="border border-border/50 rounded-lg overflow-hidden">
       {/* Table header */}
-      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 bg-accent/30 border-b border-border/50 items-center">
+      <div className={`grid ${readOnly ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto]'} gap-2 px-3 py-2 bg-accent/30 border-b border-border/50 items-center`}>
         <SortHeader label="Card" field="name" />
         <SortHeader label="Type" field="type" className="w-24 hidden sm:flex" />
         <SortHeader label="CMC" field="cmc" className="w-10 justify-center" />
-        <span className="w-8" />
+        {!readOnly && <span className="w-8" />}
       </div>
 
       {/* Card rows */}
@@ -775,7 +796,7 @@ function ListViewTable({
         {cards.map(card => (
           <div
             key={card.name}
-            className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-1.5 items-center hover:bg-accent/30 group transition-colors"
+            className={`grid ${readOnly ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto]'} gap-2 px-3 py-1.5 items-center hover:bg-accent/30 group transition-colors`}
           >
             {/* Name + mana cost */}
             <div
@@ -805,15 +826,17 @@ function ListViewTable({
             </span>
 
             {/* Remove */}
-            <div className="w-8 flex justify-end">
-              <button
-                onClick={() => onRemove(card.name)}
-                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
-                title="Remove from list"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            {!readOnly && onRemove && (
+              <div className="w-8 flex justify-end">
+                <button
+                  onClick={() => onRemove(card.name)}
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Remove from list"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

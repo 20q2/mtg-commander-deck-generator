@@ -1,20 +1,25 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
-import { getCardsByNames } from '@/services/scryfall/client';
+import { useStore } from '@/store';
+import { getCardsByNames, getBanList } from '@/services/scryfall/client';
 import { ListCard } from '@/components/lists/ListCard';
 import { ListDetailView } from '@/components/lists/ListDetailView';
 import { ListCreateEditForm } from '@/components/lists/ListCreateEditForm';
+import { PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { ArrowLeft, Plus, Search, X, Grid3X3, List, BookOpen } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
+import type { BanList, UserCardList } from '@/types';
 
 const TYPES = ['Battle', 'Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'];
 
 type ViewState =
   | { view: 'browse' }
   | { view: 'detail'; listId: string }
+  | { view: 'banlist-browse' }
+  | { view: 'banlist-detail'; banListId: string }
   | { view: 'create' }
   | { view: 'edit'; listId: string };
 
@@ -31,6 +36,38 @@ export function ListsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
+
+  // Ban lists from store
+  const { customization, updateCustomization } = useStore();
+  const banLists = customization.banLists || [];
+  const [banListsLoading, setBanListsLoading] = useState(false);
+
+  // Auto-fetch all preset ban lists on mount (always refresh for latest data)
+  useEffect(() => {
+    setBanListsLoading(true);
+    Promise.all(
+      PRESET_BAN_LISTS.map(preset =>
+        getBanList(preset.scryfallFormat)
+          .then(cards => ({ id: preset.id, name: preset.name, cards, isPreset: true, enabled: false } as BanList))
+          .catch(() => null)
+      )
+    ).then(results => {
+      const { customization: current } = useStore.getState();
+      const updated = [...(current.banLists || [])];
+      for (const result of results) {
+        if (!result || result.cards.length === 0) continue;
+        const idx = updated.findIndex(l => l.id === result.id);
+        if (idx !== -1) {
+          updated[idx] = { ...updated[idx], cards: result.cards, name: result.name };
+        } else {
+          updated.push(result);
+        }
+      }
+      updateCustomization({ banLists: updated });
+    }).finally(() => setBanListsLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const populatedBanLists = banLists.filter(l => l.isPreset && l.cards.length > 0);
 
   // Fetch card types + color identity for all cards across all lists (single bulk fetch, cached)
   const [cardTypeMap, setCardTypeMap] = useState<Record<string, string>>({});
@@ -174,6 +211,92 @@ export function ListsPage() {
     );
   }
 
+  // Ban list browse view
+  if (viewState.view === 'banlist-browse') {
+    return (
+      <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
+        <div className="aurora-bg" />
+        <button
+          onClick={() => setViewState({ view: 'browse' })}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to lists
+        </button>
+
+        <div className="space-y-2 mb-8">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Shield className="w-5 h-5 text-amber-500" />
+            Format Ban Lists
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Cards banned in each format. These are automatically fetched from Scryfall.
+          </p>
+        </div>
+
+        {banListsLoading && populatedBanLists.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading ban lists...
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {populatedBanLists.map(banList => (
+              <button
+                key={banList.id}
+                onClick={() => setViewState({ view: 'banlist-detail', banListId: banList.id })}
+                className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left group"
+              >
+                <Shield className="w-5 h-5 text-amber-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{banList.name}</p>
+                  <p className="text-xs text-muted-foreground">{banList.cards.length} cards</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+        {toasts}
+      </main>
+    );
+  }
+
+  // Ban list detail view
+  if (viewState.view === 'banlist-detail') {
+    const banList = banLists.find(l => l.id === viewState.banListId);
+    if (!banList || banList.cards.length === 0) {
+      setViewState({ view: 'banlist-browse' });
+      return null;
+    }
+    const asList: UserCardList = {
+      id: banList.id,
+      name: banList.name,
+      description: `${banList.cards.length} cards banned in this format`,
+      cards: banList.cards,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    return (
+      <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
+        <div className="aurora-bg" />
+        {toasts}
+        <ListDetailView
+          list={asList}
+          readOnly
+          onBack={() => setViewState({ view: 'banlist-browse' })}
+          onExport={() => {
+            const text = banList.cards.map(c => `1 ${c}`).join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+              setCopiedCount(banList.cards.length);
+              setTimeout(() => setCopiedCount(null), 2000);
+            });
+          }}
+        />
+      </main>
+    );
+  }
+
   // Create view
   if (viewState.view === 'create') {
     return (
@@ -217,13 +340,23 @@ export function ListsPage() {
   return (
     <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
       <div className="aurora-bg" />
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back
-      </button>
+      <div className="flex items-center justify-between mb-6">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+        <button
+          onClick={() => setViewState({ view: 'banlist-browse' })}
+          className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400 hover:text-amber-500 transition-colors"
+        >
+          <Shield className="w-3.5 h-3.5" />
+          Ban Lists
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       <div className="flex items-start justify-between mb-8">
         <div className="space-y-2">

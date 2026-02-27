@@ -165,7 +165,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   alt="EDH Deck Builder"
                   className="w-10 h-10 rounded-xl shadow-lg"
                 />
-                <div>
+                <div className="hidden sm:block">
                   <h1 className="text-xl font-bold">EDH Deck Builder</h1>
                   <p className="text-xs text-muted-foreground">
                     Generate Commander decks instantly
