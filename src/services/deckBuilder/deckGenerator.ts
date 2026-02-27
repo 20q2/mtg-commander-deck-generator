@@ -2313,11 +2313,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const gapCandidates = edhrecData.cardlists.allNonLand
       .filter(c =>
         !allDeckCardNames.has(c.name) &&
-        !context.collectionNames!.has(c.name) &&
         !bannedCards.has(c.name)
       )
       .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a))
-      .slice(0, 15);
+      .slice(0, 40);
 
     if (gapCandidates.length > 0) {
       const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name));
@@ -2332,11 +2331,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             synergy: c.synergy ?? 0,
             typeLine: scryfall?.type_line ?? '',
             imageUrl: scryfall?.image_uris?.small,
+            isOwned: context.collectionNames!.has(c.name),
           };
         })
         .filter(c => c.price !== null);
 
-      console.log(`[DeckGen] Gap analysis: ${gapAnalysis.length} cards suggested for purchase`);
+      console.log(`[DeckGen] Gap analysis: ${gapAnalysis.length} cards suggested (${gapAnalysis.filter(c => c.isOwned).length} owned)`);
     }
   }
 

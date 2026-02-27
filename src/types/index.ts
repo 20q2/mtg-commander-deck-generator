@@ -249,6 +249,7 @@ export interface GapAnalysisCard {
   synergy: number;
   typeLine: string;
   imageUrl?: string;
+  isOwned?: boolean;
 }
 
 export interface GeneratedDeck {

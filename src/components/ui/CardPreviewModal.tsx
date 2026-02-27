@@ -9,9 +9,10 @@ interface CardPreviewModalProps {
   card: ScryfallCard | null;
   onClose: () => void;
   onBuildDeck?: (cardName: string) => void;
+  isOwned?: boolean;
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned }: CardPreviewModalProps) {
   const currency = useStore((s) => s.customization.currency);
   const sym = currency === 'EUR' ? '€' : '$';
   const [showBack, setShowBack] = useState(false);
@@ -73,6 +74,14 @@ export function CardPreviewModal({ card, onClose, onBuildDeck }: CardPreviewModa
           <p className="text-white/70 text-sm">{faceType}</p>
           {getCardPrice(card, currency) && (
             <p className="text-white/50 text-xs mt-1">{sym}{getCardPrice(card, currency)}</p>
+          )}
+          {isOwned && (
+            <p className="text-emerald-400 text-xs mt-1.5 flex items-center justify-center gap-1">
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              In your collection
+            </p>
           )}
           <div className="flex items-center justify-center gap-3 mt-3 flex-wrap">
             {onBuildDeck && card.type_line && /legendary/i.test(card.type_line) && /creature/i.test(card.type_line) && (

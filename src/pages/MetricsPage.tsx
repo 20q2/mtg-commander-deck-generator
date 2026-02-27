@@ -191,6 +191,7 @@ export function MetricsPage() {
   const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
   const [dailyMetric, setDailyMetric] = useState<string>('total');
   const [showAllThemes, setShowAllThemes] = useState(false);
+  const [expandedSettings, setExpandedSettings] = useState<Set<string>>(new Set());
 
   const handleSetDays = (d: number) => {
     setDays(d);
@@ -687,19 +688,37 @@ export function MetricsPage() {
                     const entries = sortSettingEntries(key, raw);
                     const maxVal = entries.length > 0 ? Math.max(...entries.map(([, v]) => v)) : 1;
                     const total = fa && fa.deckCount > 0 ? fa.deckCount : undefined;
+                    const isExpanded = expandedSettings.has(key);
+                    const COLLAPSE_THRESHOLD = 10;
+                    const needsCollapse = entries.length > COLLAPSE_THRESHOLD;
+                    const visibleEntries = needsCollapse && !isExpanded ? entries.slice(0, COLLAPSE_THRESHOLD) : entries;
                     return (
                       <div key={key} className="bg-muted/30 rounded-lg p-3">
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                           {label}
                         </p>
                         <div className="space-y-2">
-                          {entries.map(([val, count]) => (
+                          {visibleEntries.map(([val, count]) => (
                             <BarRow key={val} label={val} count={count} max={maxVal} total={total} />
                           ))}
                           {entries.length === 0 && (
                             <p className="text-xs text-muted-foreground">No data yet</p>
                           )}
                         </div>
+                        {needsCollapse && (
+                          <button
+                            onClick={() => setExpandedSettings(prev => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key);
+                              else next.add(key);
+                              return next;
+                            })}
+                            className="mt-2 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            {isExpanded ? 'Show less' : `Show all ${entries.length} values`}
+                          </button>
+                        )}
                       </div>
                     );
                   })}
