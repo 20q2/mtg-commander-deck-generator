@@ -21,10 +21,12 @@ import {
   RefreshCw,
   Star,
   Pin,
+  Bookmark,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { trackEvent } from '@/services/analytics';
+import { useUserLists } from '@/hooks/useUserLists';
 
 // Stats filter for interactive highlighting
 type StatsFilter =
@@ -377,10 +379,15 @@ interface ExportModalProps {
   generateDeckList: (excludeMustIncludes: boolean) => string;
   hasMustIncludes: boolean;
   onExport: (format: 'clipboard' | 'download') => void;
+  onSaveToList: (name: string, cards: string[]) => void;
+  defaultListName: string;
 }
 
-function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExport }: ExportModalProps) {
+function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExport, onSaveToList, defaultListName }: ExportModalProps) {
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [showListNameInput, setShowListNameInput] = useState(false);
+  const [listName, setListName] = useState('');
   const [excludeMustIncludes, setExcludeMustIncludes] = useState(false);
 
   const deckList = useMemo(() => generateDeckList(excludeMustIncludes), [generateDeckList, excludeMustIncludes]);
@@ -390,6 +397,16 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
       const match = line.match(/^(\d+)\s/);
       return sum + (match ? parseInt(match[1], 10) : 1);
     }, 0);
+  }, [deckList]);
+
+  const parseCardNames = useCallback(() => {
+    return deckList.split('\n').filter(l => l.trim()).flatMap(line => {
+      const match = line.match(/^(\d+)\s+(.+)/);
+      if (!match) return [];
+      const qty = parseInt(match[1], 10);
+      const name = match[2].trim();
+      return Array(qty).fill(name);
+    });
   }, [deckList]);
 
   const handleCopy = useCallback(() => {
@@ -410,6 +427,20 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
     onExport('download');
   }, [deckList, onExport]);
 
+  const handleSaveToList = useCallback(() => {
+    if (!showListNameInput) {
+      setListName(defaultListName);
+      setShowListNameInput(true);
+      return;
+    }
+    const name = listName.trim() || defaultListName;
+    const cards = parseCardNames();
+    onSaveToList(name, cards);
+    setSaved(true);
+    setShowListNameInput(false);
+    setTimeout(() => setSaved(false), 2000);
+  }, [showListNameInput, listName, defaultListName, parseCardNames, onSaveToList]);
+
   if (!isOpen) return null;
 
   return (
@@ -429,7 +460,7 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
         </div>
 
         <div className="p-4 space-y-4">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Button onClick={handleCopy} variant="outline" className="flex-col h-auto py-3">
               {copied ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Copy className="w-5 h-5 mb-1" />}
               <span className="text-xs">{copied ? `Copied ${cardCount} cards!` : 'Copy'}</span>
@@ -438,7 +469,31 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
               <Download className="w-5 h-5 mb-1" />
               <span className="text-xs">Download</span>
             </Button>
+            <Button onClick={handleSaveToList} variant="outline" className="flex-col h-auto py-3" disabled={saved}>
+              {saved ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Bookmark className="w-5 h-5 mb-1" />}
+              <span className="text-xs">{saved ? 'Saved!' : 'Save to List'}</span>
+            </Button>
           </div>
+
+          {showListNameInput && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={listName}
+                onChange={(e) => setListName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveToList(); }}
+                placeholder="List name..."
+                autoFocus
+                className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <Button onClick={handleSaveToList} size="sm" className="shrink-0">
+                Save
+              </Button>
+              <Button onClick={() => setShowListNameInput(false)} variant="ghost" size="sm" className="shrink-0">
+                Cancel
+              </Button>
+            </div>
+          )}
 
           {hasMustIncludes && (
             <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
@@ -842,6 +897,7 @@ interface DeckDisplayProps {
 
 export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
   const { generatedDeck, commander, customization } = useStore();
+  const { createList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; position: { x: number; y: number }; showBack?: boolean } | null>(null);
@@ -1386,6 +1442,11 @@ export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
         onExport={(format) => {
           if (commander) trackEvent('deck_exported', { commanderName: commander.name, format });
         }}
+        onSaveToList={(name, cards) => {
+          createList(name, cards);
+          trackEvent('list_created', { listName: name, cardCount: cards.length });
+        }}
+        defaultListName={commander ? `${commander.name} Deck` : 'My Deck'}
       />
       {toastMessage && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">

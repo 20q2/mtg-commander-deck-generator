@@ -9,7 +9,7 @@ import { ListCreateEditForm } from '@/components/lists/ListCreateEditForm';
 import { PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { ArrowLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2 } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import type { BanList, UserCardList } from '@/types';
 
@@ -492,6 +492,18 @@ export function ListsPage() {
           </button>
         </div>
       )}
+
+      {/* Info notice */}
+      <aside className="mt-10 p-4 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm max-w-md space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Info className="w-4 h-4 text-muted-foreground" />
+          Good to know
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Your lists are stored locally in your browser and may be cleared if you clear site data.
+          You can export lists to clipboard and re-import them anytime.
+        </p>
+      </aside>
     </main>
   );
 }

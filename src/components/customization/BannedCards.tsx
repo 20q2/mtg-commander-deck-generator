@@ -20,7 +20,15 @@ export function BannedCards() {
   const [results, setResults] = useState<ScryfallCard[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set());
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('banned-collapsedTypes');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    localStorage.setItem('banned-collapsedTypes', JSON.stringify([...collapsedTypes]));
+  }, [collapsedTypes]);
 
   const { customization, updateCustomization, colorIdentity } = useStore();
   const bannedCards = customization.bannedCards;

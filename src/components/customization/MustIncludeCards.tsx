@@ -18,7 +18,15 @@ export function MustIncludeCards() {
   const [results, setResults] = useState<ScryfallCard[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set());
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('mustInclude-collapsedTypes');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
+  useEffect(() => {
+    localStorage.setItem('mustInclude-collapsedTypes', JSON.stringify([...collapsedTypes]));
+  }, [collapsedTypes]);
 
   const { customization, updateCustomization, colorIdentity } = useStore();
   const mustIncludeCards = customization.mustIncludeCards;
