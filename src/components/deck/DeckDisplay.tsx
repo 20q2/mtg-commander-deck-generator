@@ -230,34 +230,38 @@ function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, cur
       onMouseLeave={() => onHover(null)}
     >
       <span className="text-muted-foreground w-4 text-right shrink-0">{quantity}</span>
-      <span className="flex-1 truncate group-hover:text-primary transition-colors">
-        {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
-        {card.isMustInclude && (
-          <span className="ml-1 text-[10px] font-bold text-emerald-500/70" title="Must Include">MI</span>
-        )}
-        {card.isGameChanger && (
-          <span className="ml-1 text-[10px] font-bold text-amber-500/70" title="Game Changer (EDHREC)">GC</span>
-        )}
-        {combosForCard && combosForCard.length > 0 && (
-          <ComboPopover
-            combos={combosForCard}
-            cardName={card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
-            cardTypeMap={cardTypeMap}
-          />
-        )}
-        {isDfc && (
-          <span
-            className="ml-1 inline-flex align-text-bottom text-muted-foreground hover:text-primary transition-colors cursor-help"
-            title="Hover to see back face"
-            onMouseEnter={(e) => { e.stopPropagation(); onHover(card, e, true); }}
-            onMouseLeave={(e) => { e.stopPropagation(); onHover(card, e, false); }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-          </span>
-        )}
+      <span className="flex-1 min-w-0 flex items-center group-hover:text-primary transition-colors">
+        <span className="truncate">
+          {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
+        </span>
+        <span className="shrink-0 flex items-center">
+          {card.isMustInclude && (
+            <span className="ml-1 text-[10px] font-bold text-emerald-500/70" title="Must Include">MI</span>
+          )}
+          {card.isGameChanger && (
+            <span className="ml-1 text-[10px] font-bold text-amber-500/70" title="Game Changer (EDHREC)">GC</span>
+          )}
+          {combosForCard && combosForCard.length > 0 && (
+            <ComboPopover
+              combos={combosForCard}
+              cardName={card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
+              cardTypeMap={cardTypeMap}
+            />
+          )}
+          {isDfc && (
+            <span
+              className="ml-1 inline-flex align-text-bottom text-muted-foreground hover:text-primary transition-colors cursor-help"
+              title="Hover to see back face"
+              onMouseEnter={(e) => { e.stopPropagation(); onHover(card, e, true); }}
+              onMouseLeave={(e) => { e.stopPropagation(); onHover(card, e, false); }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </span>
+          )}
+        </span>
       </span>
       <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
       <span className={`text-xs w-16 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
