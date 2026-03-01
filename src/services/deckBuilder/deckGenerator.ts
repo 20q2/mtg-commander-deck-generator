@@ -2537,6 +2537,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   let detectedCombos: DetectedCombo[] | undefined;
   if (combos.length > 0) {
     const allDeckNames = new Set<string>();
+    // Include commander(s) — they're part of the deck but not in categories
+    if (commander) {
+      allDeckNames.add(commander.name);
+      if (commander.name.includes(' // ')) allDeckNames.add(commander.name.split(' // ')[0]);
+    }
+    if (partnerCommander) {
+      allDeckNames.add(partnerCommander.name);
+      if (partnerCommander.name.includes(' // ')) allDeckNames.add(partnerCommander.name.split(' // ')[0]);
+    }
     for (const c of Object.values(categories).flat()) {
       allDeckNames.add(c.name);
       if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
@@ -2557,11 +2566,25 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           bracket: combo.bracket,
         };
       })
-      .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
-      .sort((a, b) => {
-        if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
-        return b.deckCount - a.deckCount;
-      });
+      .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
+
+    // Float commander combos to the top within each completeness group
+    const commanderNames = new Set<string>();
+    if (commander) {
+      commanderNames.add(commander.name);
+      if (commander.name.includes(' // ')) commanderNames.add(commander.name.split(' // ')[0]);
+    }
+    if (partnerCommander) {
+      commanderNames.add(partnerCommander.name);
+      if (partnerCommander.name.includes(' // ')) commanderNames.add(partnerCommander.name.split(' // ')[0]);
+    }
+    detectedCombos.sort((a, b) => {
+      if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+      const aHasCommander = a.cards.some(n => commanderNames.has(n));
+      const bHasCommander = b.cards.some(n => commanderNames.has(n));
+      if (aHasCommander !== bHasCommander) return aHasCommander ? -1 : 1;
+      return b.deckCount - a.deckCount;
+    });
 
     console.log(`[DeckGen] Detected ${detectedCombos.filter(c => c.isComplete).length} complete combos, ${detectedCombos.filter(c => !c.isComplete).length} near-misses`);
 

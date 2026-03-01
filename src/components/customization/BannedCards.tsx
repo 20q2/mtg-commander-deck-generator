@@ -171,7 +171,7 @@ export function BannedCards() {
         {bannedCards.length > 0 && (
           <button
             onClick={handleClearAll}
-            className="p-1.5 rounded-md text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            className="p-1.5 rounded-md text-xs text-red-400/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Clear manual exclusions"
           >
             <Trash2 className="w-3.5 h-3.5" />

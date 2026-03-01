@@ -804,7 +804,7 @@ export function BuilderPage() {
               </h2>
             </div>
           </div>
-          <DeckDisplay />
+          <DeckDisplay onRegenerate={handleGenerate} />
           {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
             <div className="flex gap-6">
               <div className="flex-1">

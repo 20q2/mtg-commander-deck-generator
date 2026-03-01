@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,9 @@ import {
   AlertTriangle,
   Info,
   Sparkles,
+  RefreshCw,
+  Star,
+  Pin,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -183,9 +186,6 @@ function ComboPopover({ combos, cardName, cardTypeMap }: ComboPopoverProps) {
                   {combo.results[0]}
                 </p>
               )}
-              <span className="text-[9px] text-muted-foreground">
-                {combo.deckCount.toLocaleString()} decks · Bracket {combo.bracket}
-              </span>
             </div>
           ))}
           <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-border" />
@@ -296,10 +296,12 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
     return sum + (isNaN(price) ? 0 : price * c.quantity);
   }, 0);
 
+  const hasMatch = matchingCardIds === null || cards.some(({ card }) => matchingCardIds.has(card.id));
+
   return (
     <div className="break-inside-avoid-column mb-4">
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-2 border-b border-border/50">
+      <div className={`flex items-center justify-between px-2 py-2 border-b border-border/50 transition-opacity duration-200 ${!hasMatch ? 'opacity-30' : ''}`}>
         <div className="flex items-center gap-2">
           <CardTypeIcon type={type} size="md" className="text-muted-foreground" />
           <span className="font-medium text-sm uppercase tracking-wide">
@@ -834,7 +836,11 @@ function DeckStats({ activeFilter, onFilterChange }: DeckStatsProps) {
 type GroupedCards = Record<CardType, Array<{ card: ScryfallCard; quantity: number }>>;
 
 // Main component
-export function DeckDisplay() {
+interface DeckDisplayProps {
+  onRegenerate?: () => void;
+}
+
+export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
   const { generatedDeck, commander, customization } = useStore();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -845,6 +851,42 @@ export function DeckDisplay() {
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Track dirty state: snapshot mustIncludeCards at generation time
+  const [snapshotMustInclude, setSnapshotMustInclude] = useState<string[]>([]);
+  const [pendingRegenerate, setPendingRegenerate] = useState(false);
+  useEffect(() => {
+    if (generatedDeck) {
+      setSnapshotMustInclude([...customization.mustIncludeCards]);
+      if (pendingRegenerate) {
+        setPendingRegenerate(false);
+        setToastMessage('Deck regenerated!');
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generatedDeck]);
+
+  const isDirty = useMemo(() => {
+    const current = customization.mustIncludeCards;
+    if (current.length !== snapshotMustInclude.length) return true;
+    const snap = new Set(snapshotMustInclude);
+    return current.some(n => !snap.has(n));
+  }, [customization.mustIncludeCards, snapshotMustInclude]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
+  const handleRegenerate = useCallback(() => {
+    if (onRegenerate) {
+      setPendingRegenerate(true);
+      onRegenerate();
+    }
+  }, [onRegenerate]);
 
   const handleStatsFilterChange = useCallback((newFilter: StatsFilter) => {
     setStatsFilter(prev => {
@@ -1166,6 +1208,12 @@ export function DeckDisplay() {
                 </span>
               )}
             </div>
+            {isDirty && onRegenerate && (
+              <Button onClick={handleRegenerate} variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Regenerate
+              </Button>
+            )}
             <Button onClick={() => setShowExportModal(true)} className="glow">
               <Copy className="w-4 h-4 mr-2" />
               Export
@@ -1263,6 +1311,20 @@ export function DeckDisplay() {
                                   {formatPrice(getCardPrice(card, customization.currency), sym)}
                                 </span>
                               )}
+                              {(card.isGameChanger || card.isMustInclude) && (
+                                <span className="absolute bottom-1 right-1 flex gap-0.5" style={{ right: isDoubleFacedCard(card) ? 28 : 4 }}>
+                                  {card.isGameChanger && (
+                                    <span className="bg-amber-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Game Changer">
+                                      <Star className="w-2.5 h-2.5" />
+                                    </span>
+                                  )}
+                                  {card.isMustInclude && (
+                                    <span className="bg-emerald-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Must Include">
+                                      <Pin className="w-2.5 h-2.5" />
+                                    </span>
+                                  )}
+                                </span>
+                              )}
                               {isDoubleFacedCard(card) && (
                                 <span className="absolute bottom-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Double-faced card">
                                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
@@ -1314,6 +1376,7 @@ export function DeckDisplay() {
         combos={previewCard ? cardComboMap.get(previewCard.name.includes(' // ') ? previewCard.name.split(' // ')[0] : previewCard.name) : undefined}
         cardTypeMap={cardTypeMap}
         cardComboMap={cardComboMap}
+        deckOnly
       />
       <ExportModal
         isOpen={showExportModal}
@@ -1324,6 +1387,13 @@ export function DeckDisplay() {
           if (commander) trackEvent('deck_exported', { commanderName: commander.name, format });
         }}
       />
+      {toastMessage && createPortal(
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
+          <Check className="w-4 h-4 shrink-0" />
+          {toastMessage}
+        </div>,
+        document.body
+      )}
     </>
   );
 }

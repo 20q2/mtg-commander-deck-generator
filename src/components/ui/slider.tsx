@@ -11,16 +11,19 @@ interface SliderProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 
 
 const Slider = React.forwardRef<HTMLInputElement, SliderProps>(
   ({ className, value = 50, min = 0, max = 100, step = 1, onChange, ...props }, ref) => {
-    const percentage = ((value - min) / (max - min)) * 100
+    // Ensure min/max always encompass the value to avoid native range clamping issues
+    const effectiveMin = Math.min(value, min)
+    const effectiveMax = Math.max(value, max)
+    const percentage = ((value - effectiveMin) / (effectiveMax - effectiveMin)) * 100
 
     return (
       <div className={cn("relative w-full", className)}>
         <input
           type="range"
           ref={ref}
+          min={effectiveMin}
+          max={effectiveMax}
           value={value}
-          min={min}
-          max={max}
           step={step}
           onChange={(e) => onChange?.(Number(e.target.value))}
           className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"

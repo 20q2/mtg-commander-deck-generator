@@ -290,9 +290,17 @@ export function DeckCustomizer() {
           onChange={handleLandCountChange}
         />
         <div className="flex justify-between text-xs text-muted-foreground mt-1">
-          <span>{landRange[0]} (Aggro)</span>
+          {customization.landCount < landRange[0] ? (
+            <span className="text-primary font-medium">{customization.landCount} (Custom)</span>
+          ) : (
+            <span>{landRange[0]} (Aggro)</span>
+          )}
           <span>{currentFormat.defaultLands} (Standard)</span>
-          <span>{landRange[1]} (Control)</span>
+          {customization.landCount > landRange[1] ? (
+            <span className="text-primary font-medium">{customization.landCount} (Custom)</span>
+          ) : (
+            <span>{landRange[1]} (Control)</span>
+          )}
         </div>
       </div>
 
