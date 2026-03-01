@@ -131,10 +131,20 @@ export async function getCollectionSize(): Promise<number> {
   return db.cards.count();
 }
 
-/** Returns a Set<string> of all owned card names — used by the deck generator. */
+/** Returns a Set<string> of all owned card names — used by the deck generator.
+ *  For double-faced cards (e.g. "Kessig Naturalist // Lord of the Ulvenwald"),
+ *  the set includes both the full name and the front-face name so that
+ *  EDHREC's front-face-only names match correctly. */
 export async function getCollectionNameSet(): Promise<Set<string>> {
   const allCards = await db.cards.toArray();
-  return new Set(allCards.map(c => c.name));
+  const names = new Set<string>();
+  for (const c of allCards) {
+    names.add(c.name);
+    if (c.name.includes(' // ')) {
+      names.add(c.name.split(' // ')[0]);
+    }
+  }
+  return names;
 }
 
 export async function getAllCards(): Promise<CollectionCard[]> {

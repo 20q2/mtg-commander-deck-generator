@@ -697,7 +697,7 @@ export function DeckCustomizer() {
               <div className="flex justify-between mb-2">
                 <label className="text-sm font-medium flex items-center gap-1.5">
                   Combos
-                  <InfoTooltip text="How aggressively to include combos from EDHREC's combo database. At 'No Additional', no combo cards are prioritized but any that naturally end up in the deck are still detected. Higher values increasingly favor including combo piece cards." />
+                  <InfoTooltip text="How aggressively to include combos from EDHREC's combo database. At 'Normal', no combo cards are prioritized but any that naturally end up in the deck are still detected. Higher values increasingly favor including combo piece cards." />
                 </label>
                 <span className="text-sm font-bold">{(['Normal', 'A Few Extra', 'Many'] as const)[customization.comboCount]}</span>
               </div>

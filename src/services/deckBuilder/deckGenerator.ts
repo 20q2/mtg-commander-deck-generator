@@ -2496,7 +2496,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Gap analysis: find top unowned cards that would improve the deck
   let gapAnalysis: GapAnalysisCard[] | undefined;
   if (context.collectionNames && edhrecData) {
-    const allDeckCardNames = new Set(Object.values(categories).flat().map(c => c.name));
+    const allDeckCardNames = new Set<string>();
+    for (const c of Object.values(categories).flat()) {
+      allDeckCardNames.add(c.name);
+      // DFCs: also add front-face name so EDHREC's front-face-only names match
+      if (c.name.includes(' // ')) allDeckCardNames.add(c.name.split(' // ')[0]);
+    }
 
     const gapCandidates = edhrecData.cardlists.allNonLand
       .filter(c =>
@@ -2531,7 +2536,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Detect combos present in the generated deck
   let detectedCombos: DetectedCombo[] | undefined;
   if (combos.length > 0) {
-    const allDeckNames = new Set(Object.values(categories).flat().map(c => c.name));
+    const allDeckNames = new Set<string>();
+    for (const c of Object.values(categories).flat()) {
+      allDeckNames.add(c.name);
+      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
+    }
 
     detectedCombos = combos
       .map(combo => {

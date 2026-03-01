@@ -235,6 +235,12 @@ export async function getCardsByNames(
         for (const card of data.data) {
           result.set(card.name, card);
           cardCache.set(card.name, card);
+          // For DFCs, also store under front-face name so EDHREC lookups match
+          if (card.name.includes(' // ')) {
+            const frontFace = card.name.split(' // ')[0];
+            result.set(frontFace, card);
+            cardCache.set(frontFace, card);
+          }
         }
         if (data.not_found.length > 0) {
           console.warn(`[Scryfall] ${data.not_found.length} cards not found in collection batch`);
