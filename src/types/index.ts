@@ -320,6 +320,10 @@ export interface UserCardList {
   partnerCommanderName?: string;
   createdAt: number;
   updatedAt: number;
+  // Cached display data (computed on save to avoid Scryfall fetches on browse)
+  cachedTypeBreakdown?: Record<string, number>;
+  cachedColorIdentity?: string[];
+  cachedCommanderArtUrl?: string;
 }
 
 // Reference to a user list applied as exclude or include

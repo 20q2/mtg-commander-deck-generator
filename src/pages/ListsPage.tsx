@@ -1,8 +1,8 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useStore } from '@/store';
-import { getCardsByNames, getBanList } from '@/services/scryfall/client';
+import { getBanList } from '@/services/scryfall/client';
 import { ListCard } from '@/components/lists/ListCard';
 import { ListDetailView } from '@/components/lists/ListDetailView';
 import { ListDeckView } from '@/components/lists/ListDeckView';
@@ -14,26 +14,30 @@ import { ArrowLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shie
 import { trackEvent } from '@/services/analytics';
 import type { BanList, UserCardList } from '@/types';
 
-const TYPES = ['Battle', 'Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'];
-
-type ViewState =
-  | { view: 'browse' }
-  | { view: 'detail'; listId: string }
-  | { view: 'deck-view'; listId: string }
-  | { view: 'banlist-browse' }
-  | { view: 'banlist-detail'; banListId: string }
-  | { view: 'create' }
-  | { view: 'edit'; listId: string };
-
 type SortKey = 'updatedAt' | 'name' | 'size';
 type SortDir = 'asc' | 'desc';
 type TypeFilter = 'all' | 'deck' | 'list';
 
 export function ListsPage() {
   const navigate = useNavigate();
+  const { '*': splat } = useParams();
   const { lists, createList, updateList, deleteList, duplicateList, convertToList, exportList } = useUserLists();
 
-  const [viewState, setViewState] = useState<ViewState>({ view: 'browse' });
+  // Derive current view from URL segments
+  const currentView = useMemo(() => {
+    const segments = (splat || '').split('/').filter(Boolean);
+    if (segments.length === 0) return { view: 'browse' as const };
+    if (segments[0] === 'create') return { view: 'create' as const };
+    if (segments[0] === 'banlists') {
+      if (segments[1]) return { view: 'banlist-detail' as const, banListId: segments[1] };
+      return { view: 'banlist-browse' as const };
+    }
+    // segments[0] is a listId
+    const listId = segments[0];
+    if (segments[1] === 'edit') return { view: 'edit' as const, listId };
+    if (segments[1] === 'deck-view') return { view: 'deck-view' as const, listId };
+    return { view: 'detail' as const, listId };
+  }, [splat]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -73,80 +77,6 @@ export function ListsPage() {
 
   const populatedBanLists = banLists.filter(l => l.isPreset && l.cards.length > 0);
 
-  // Fetch card types + color identity + art crops for all cards across all lists (single bulk fetch, cached)
-  const [cardTypeMap, setCardTypeMap] = useState<Record<string, string>>({});
-  const [cardColorMap, setCardColorMap] = useState<Record<string, string[]>>({});
-  const [cardArtMap, setCardArtMap] = useState<Record<string, string>>({});
-  const fetchedRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    const allNames = [...new Set(lists.flatMap(l => l.cards))];
-    const missing = allNames.filter(n => !fetchedRef.current.has(n));
-    if (missing.length === 0) return;
-
-    missing.forEach(n => fetchedRef.current.add(n));
-    getCardsByNames(missing).then(cardMap => {
-      const typeUpdates: Record<string, string> = {};
-      const colorUpdates: Record<string, string[]> = {};
-      const artUpdates: Record<string, string> = {};
-      for (const [name, card] of cardMap) {
-        const typeLine = card.type_line?.toLowerCase() ?? '';
-        typeUpdates[name] = TYPES.find(t => typeLine.includes(t.toLowerCase())) ?? 'Other';
-        colorUpdates[name] = card.color_identity ?? [];
-        const artCrop = card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop;
-        if (artCrop) artUpdates[name] = artCrop;
-      }
-      for (const name of missing) {
-        if (!typeUpdates[name]) typeUpdates[name] = 'Other';
-        if (!colorUpdates[name]) colorUpdates[name] = [];
-      }
-      setCardTypeMap(prev => ({ ...prev, ...typeUpdates }));
-      setCardColorMap(prev => ({ ...prev, ...colorUpdates }));
-      setCardArtMap(prev => ({ ...prev, ...artUpdates }));
-    }).catch(() => {});
-  }, [lists]);
-
-  // Compute type breakdown + color identity per list
-  const WUBRG = ['W', 'U', 'B', 'R', 'G'];
-
-  const typeBreakdowns = useMemo(() => {
-    const map: Record<string, Record<string, number>> = {};
-    for (const list of lists) {
-      const breakdown: Record<string, number> = {};
-      for (const card of list.cards) {
-        const type = cardTypeMap[card];
-        if (type) {
-          breakdown[type] = (breakdown[type] ?? 0) + 1;
-        }
-      }
-      map[list.id] = breakdown;
-    }
-    return map;
-  }, [lists, cardTypeMap]);
-
-  const listColorIdentities = useMemo(() => {
-    const map: Record<string, string[]> = {};
-    for (const list of lists) {
-      const colors = new Set<string>();
-      for (const card of list.cards) {
-        const ci = cardColorMap[card];
-        if (ci) ci.forEach(c => colors.add(c));
-      }
-      map[list.id] = WUBRG.filter(c => colors.has(c));
-    }
-    return map;
-  }, [lists, cardColorMap]);
-
-  const listCommanderArt = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const list of lists) {
-      if (list.commanderName && cardArtMap[list.commanderName]) {
-        map[list.id] = cardArtMap[list.commanderName];
-      }
-    }
-    return map;
-  }, [lists, cardArtMap]);
-
   const filteredAndSortedLists = useMemo(() => {
     let filtered = lists;
     if (typeFilter === 'deck') filtered = filtered.filter(l => l.type === 'deck');
@@ -185,8 +115,8 @@ export function ListsPage() {
     const list = lists.find(l => l.id === listId);
     if (list) trackEvent('list_deleted', { listName: list.name, cardCount: list.cards.length });
     deleteList(listId);
-    if (viewState.view === 'detail' && viewState.listId === listId) {
-      setViewState({ view: 'browse' });
+    if (currentView.view === 'detail' && currentView.listId === listId) {
+      navigate('/lists', { replace: true });
     }
   };
 
@@ -208,28 +138,39 @@ export function ListsPage() {
     </>
   );
 
-  // Detail view
-  if (viewState.view === 'detail') {
-    const list = lists.find(l => l.id === viewState.listId);
-    if (!list) {
-      setViewState({ view: 'browse' });
-      return null;
+  // Redirect invalid list/banlist IDs
+  useEffect(() => {
+    if (currentView.view === 'detail' || currentView.view === 'edit' || currentView.view === 'deck-view') {
+      if (!lists.find(l => l.id === currentView.listId)) {
+        navigate('/lists', { replace: true });
+      }
     }
+    if (currentView.view === 'banlist-detail') {
+      if (!banLists.find(l => l.id === currentView.banListId && l.cards.length > 0)) {
+        navigate('/lists/banlists', { replace: true });
+      }
+    }
+  }, [currentView, lists, banLists, navigate]);
+
+  // Detail view
+  if (currentView.view === 'detail') {
+    const list = lists.find(l => l.id === currentView.listId);
+    if (!list) return null; // useEffect will redirect
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
         <div className="aurora-bg" />
         {toasts}
         <ListDetailView
           list={list}
-          onBack={() => setViewState({ view: 'browse' })}
-          onEdit={() => setViewState({ view: 'edit', listId: list.id })}
-          onDuplicate={() => { duplicateList(list.id); setViewState({ view: 'browse' }); }}
+          onBack={() => navigate('/lists')}
+          onEdit={() => navigate(`/lists/${list.id}/edit`)}
+          onDuplicate={() => { duplicateList(list.id); navigate('/lists'); }}
           onExport={() => handleExport(list.id)}
           onDelete={() => handleDelete(list.id)}
           onRemoveCard={(name) => handleRemoveCard(list.id, name)}
-          onViewAsDeck={() => setViewState({ view: 'deck-view', listId: list.id })}
+          onViewAsDeck={() => navigate(`/lists/${list.id}/deck-view`)}
           onConvertToDeck={() => {
-            setViewState({ view: 'edit', listId: list.id });
+            navigate(`/lists/${list.id}/edit`);
           }}
           onConvertToList={() => {
             convertToList(list.id);
@@ -240,31 +181,28 @@ export function ListsPage() {
   }
 
   // Deck view (full DeckDisplay for a list)
-  if (viewState.view === 'deck-view') {
-    const list = lists.find(l => l.id === viewState.listId);
-    if (!list) {
-      setViewState({ view: 'browse' });
-      return null;
-    }
+  if (currentView.view === 'deck-view') {
+    const list = lists.find(l => l.id === currentView.listId);
+    if (!list) return null; // useEffect will redirect
     return (
       <main className="flex-1 container mx-auto px-4 py-8">
         {toasts}
         <ListDeckView
           list={list}
-          onBack={() => setViewState(list.type === 'deck' ? { view: 'browse' } : { view: 'detail', listId: list.id })}
-          onViewAsList={() => setViewState({ view: 'detail', listId: list.id })}
+          onBack={() => navigate(list.type === 'deck' ? '/lists' : `/lists/${list.id}`)}
+          onViewAsList={() => navigate(`/lists/${list.id}`)}
         />
       </main>
     );
   }
 
   // Ban list browse view
-  if (viewState.view === 'banlist-browse') {
+  if (currentView.view === 'banlist-browse') {
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
         <div className="aurora-bg" />
         <button
-          onClick={() => setViewState({ view: 'browse' })}
+          onClick={() => navigate('/lists')}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -291,7 +229,7 @@ export function ListsPage() {
             {populatedBanLists.map(banList => (
               <button
                 key={banList.id}
-                onClick={() => setViewState({ view: 'banlist-detail', banListId: banList.id })}
+                onClick={() => navigate(`/lists/banlists/${banList.id}`)}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left group"
               >
                 <Shield className="w-5 h-5 text-amber-500 shrink-0" />
@@ -310,12 +248,9 @@ export function ListsPage() {
   }
 
   // Ban list detail view
-  if (viewState.view === 'banlist-detail') {
-    const banList = banLists.find(l => l.id === viewState.banListId);
-    if (!banList || banList.cards.length === 0) {
-      setViewState({ view: 'banlist-browse' });
-      return null;
-    }
+  if (currentView.view === 'banlist-detail') {
+    const banList = banLists.find(l => l.id === currentView.banListId);
+    if (!banList || banList.cards.length === 0) return null; // useEffect will redirect
     const asList: UserCardList = {
       id: banList.id,
       name: banList.name,
@@ -331,7 +266,7 @@ export function ListsPage() {
         <ListDetailView
           list={asList}
           readOnly
-          onBack={() => setViewState({ view: 'banlist-browse' })}
+          onBack={() => navigate('/lists/banlists')}
           onExport={() => {
             const text = banList.cards.map(c => `1 ${c}`).join('\n');
             navigator.clipboard.writeText(text).then(() => {
@@ -345,7 +280,7 @@ export function ListsPage() {
   }
 
   // Create view
-  if (viewState.view === 'create') {
+  if (currentView.view === 'create') {
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
         <div className="aurora-bg" />
@@ -357,21 +292,18 @@ export function ListsPage() {
               partnerCommanderName: commanderOptions?.partnerCommanderName,
             });
             trackEvent('list_created', { listName: name, cardCount: cards.length });
-            setViewState({ view: 'detail', listId: newList.id });
+            navigate(`/lists/${newList.id}`, { replace: true });
           }}
-          onCancel={() => setViewState({ view: 'browse' })}
+          onCancel={() => navigate('/lists')}
         />
       </main>
     );
   }
 
   // Edit view
-  if (viewState.view === 'edit') {
-    const list = lists.find(l => l.id === viewState.listId);
-    if (!list) {
-      setViewState({ view: 'browse' });
-      return null;
-    }
+  if (currentView.view === 'edit') {
+    const list = lists.find(l => l.id === currentView.listId);
+    if (!list) return null; // useEffect will redirect
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
         <div className="aurora-bg" />
@@ -386,9 +318,9 @@ export function ListsPage() {
               partnerCommanderName: commanderOptions?.partnerCommanderName,
               type: commanderOptions?.commanderName ? 'deck' : list.type,
             });
-            setViewState({ view: 'detail', listId: list.id });
+            navigate(`/lists/${list.id}`, { replace: true });
           }}
-          onCancel={() => setViewState({ view: 'detail', listId: list.id })}
+          onCancel={() => navigate(`/lists/${list.id}`)}
         />
       </main>
     );
@@ -407,7 +339,7 @@ export function ListsPage() {
           Back
         </button>
         <button
-          onClick={() => setViewState({ view: 'banlist-browse' })}
+          onClick={() => navigate('/lists/banlists')}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <Shield className="w-3.5 h-3.5" />
@@ -424,7 +356,7 @@ export function ListsPage() {
           </p>
         </div>
         <button
-          onClick={() => setViewState({ view: 'create' })}
+          onClick={() => navigate('/lists/create')}
           className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors shrink-0"
         >
           <Plus className="w-4 h-4" />
@@ -511,11 +443,11 @@ export function ListsPage() {
                 key={list.id}
                 list={list}
                 viewMode="grid"
-                typeBreakdown={typeBreakdowns[list.id]}
-                colorIdentity={listColorIdentities[list.id]}
-                commanderArtUrl={listCommanderArt[list.id]}
-                onClick={() => setViewState(list.type === 'deck' ? { view: 'deck-view', listId: list.id } : { view: 'detail', listId: list.id })}
-                onEdit={() => setViewState({ view: 'edit', listId: list.id })}
+                typeBreakdown={list.cachedTypeBreakdown}
+                colorIdentity={list.cachedColorIdentity}
+                commanderArtUrl={list.cachedCommanderArtUrl}
+                onClick={() => navigate(list.type === 'deck' ? `/lists/${list.id}/deck-view` : `/lists/${list.id}`)}
+                onEdit={() => navigate(`/lists/${list.id}/edit`)}
                 onDuplicate={() => duplicateList(list.id)}
                 onExport={() => handleExport(list.id)}
                 onDelete={() => handleDelete(list.id)}
@@ -529,11 +461,11 @@ export function ListsPage() {
                 key={list.id}
                 list={list}
                 viewMode="list"
-                typeBreakdown={typeBreakdowns[list.id]}
-                colorIdentity={listColorIdentities[list.id]}
-                commanderArtUrl={listCommanderArt[list.id]}
-                onClick={() => setViewState(list.type === 'deck' ? { view: 'deck-view', listId: list.id } : { view: 'detail', listId: list.id })}
-                onEdit={() => setViewState({ view: 'edit', listId: list.id })}
+                typeBreakdown={list.cachedTypeBreakdown}
+                colorIdentity={list.cachedColorIdentity}
+                commanderArtUrl={list.cachedCommanderArtUrl}
+                onClick={() => navigate(list.type === 'deck' ? `/lists/${list.id}/deck-view` : `/lists/${list.id}`)}
+                onEdit={() => navigate(`/lists/${list.id}/edit`)}
                 onDuplicate={() => duplicateList(list.id)}
                 onExport={() => handleExport(list.id)}
                 onDelete={() => handleDelete(list.id)}
@@ -555,7 +487,7 @@ export function ListsPage() {
             </p>
           </div>
           <button
-            onClick={() => setViewState({ view: 'create' })}
+            onClick={() => navigate('/lists/create')}
             className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
           >
             <Plus className="w-4 h-4" />

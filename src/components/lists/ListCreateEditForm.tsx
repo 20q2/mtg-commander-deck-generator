@@ -481,9 +481,9 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
         {/* Current cards as chips */}
         {cards.length > 0 && (
           <div className="flex flex-wrap gap-1.5 max-h-60 overflow-auto p-2 bg-accent/20 rounded-lg border border-border/30">
-            {cards.map(name => (
+            {cards.map((name, idx) => (
               <span
-                key={name}
+                key={`${name}-${idx}`}
                 className="inline-flex items-center gap-1 px-2 py-1 bg-accent/50 text-foreground text-xs rounded-md border border-border/30"
               >
                 <span className="truncate max-w-[180px]">{name}</span>

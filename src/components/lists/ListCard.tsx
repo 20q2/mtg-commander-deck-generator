@@ -1,6 +1,6 @@
 import type { UserCardList } from '@/types';
 import { CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
-import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil } from 'lucide-react';
+import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -81,9 +81,12 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
 
   if (viewMode === 'list') {
     return (
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onClick}
-        className="w-full flex items-center gap-4 px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+        className="w-full flex items-center gap-4 px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative cursor-pointer"
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -138,22 +141,22 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
           </button>
           {dropdownPortal}
         </div>
-      </button>
+      </div>
     );
   }
 
   return (
     <div
-      className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 hover:border-border transition-colors cursor-pointer group relative overflow-hidden"
+      className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 hover:border-border transition-colors cursor-pointer group relative overflow-hidden flex flex-col"
       onClick={onClick}
     >
       {commanderArtUrl && (
         <div className="absolute inset-0 pointer-events-none">
-          <img src={commanderArtUrl} alt="" className="w-full h-full object-cover opacity-[0.08]" />
-          <div className="absolute inset-0 bg-gradient-to-t from-card via-card/80 to-transparent" />
+          <img src={commanderArtUrl} alt="" className="w-full h-full object-cover opacity-[0.18]" />
+          <div className="absolute inset-0 bg-gradient-to-t from-card via-card/60 to-transparent" />
         </div>
       )}
-      <div className="relative">
+      <div className="relative flex flex-col flex-1">
       <div className="flex items-start justify-between mb-1">
         <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate pr-2">{list.name}</h3>
         <div className="relative">
@@ -168,10 +171,15 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         </div>
       </div>
 
-      {list.commanderName && (
+      {list.commanderName ? (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5">
           <CommanderIcon size={11} className="shrink-0" />
           <span className="truncate">{list.commanderName}{list.partnerCommanderName ? ` & ${list.partnerCommanderName}` : ''}</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5">
+          <List className="w-[11px] h-[11px] shrink-0" />
+          <span>List</span>
         </div>
       )}
 
@@ -179,20 +187,17 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         <span>{list.cards.length} cards</span>
         <span className="text-border">·</span>
         <span>{formatRelativeTime(list.updatedAt)}</span>
-        {colorIdentity && colorIdentity.length > 0 && (
+        {colorIdentity && (
           <>
             <span className="text-border">·</span>
             <span className="inline-flex items-center gap-0.5">
-              {colorIdentity.map(c => (
-                <i key={c} className={`ms ms-${c.toLowerCase()} ms-cost text-xs`} />
-              ))}
+              {colorIdentity.length > 0
+                ? colorIdentity.map(c => (
+                    <i key={c} className={`ms ms-${c.toLowerCase()} ms-cost text-xs`} />
+                  ))
+                : <i className="ms ms-c ms-cost text-xs" />
+              }
             </span>
-          </>
-        )}
-        {colorIdentity && colorIdentity.length === 0 && (
-          <>
-            <span className="text-border">·</span>
-            <i className="ms ms-c ms-cost text-xs" />
           </>
         )}
       </div>
@@ -202,7 +207,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
       )}
 
       {typeBreakdown && Object.keys(typeBreakdown).length > 0 ? (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 mt-auto">
           {Object.entries(typeBreakdown)
             .sort((a, b) => b[1] - a[1])
             .map(([type, count]) => (
@@ -216,7 +221,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
             ))}
         </div>
       ) : (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 mt-auto">
           {previewCards.map(name => (
             <span key={name} className="px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30 truncate max-w-[120px]">
               {name}

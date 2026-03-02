@@ -95,7 +95,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const userListCount = loadUserLists().length;
   const navigate = useNavigate();
   const location = useLocation();
-  const isCollectionPage = location.pathname === '/collection' || location.pathname === '/lists';
+  const isCollectionPage = location.pathname === '/collection' || location.pathname.startsWith('/lists');
 
   // Track page views
   useEffect(() => {
@@ -184,7 +184,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <button
                   onClick={() => navigate('/lists')}
                   className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
-                    location.pathname === '/lists' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                   }`}
                 >
                   My Lists
@@ -282,7 +282,7 @@ function App() {
         <Route path="/" element={<Layout><HomePage /></Layout>} />
         <Route path="/build/:commanderName/:partnerName?" element={<Layout><BuilderPage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
-        <Route path="/lists" element={<Layout><ListsPage /></Layout>} />
+        <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
         {import.meta.env.DEV && MetricsPage && (
           <Route path="/metrics" element={<Layout><Suspense fallback={null}><MetricsPage /></Suspense></Layout>} />
         )}

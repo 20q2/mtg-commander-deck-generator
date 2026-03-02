@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getCardsByNames } from '@/services/scryfall/client';
 import type { UserCardList } from '@/types';
 
 const USER_LISTS_KEY = 'mtg-deck-builder-user-lists';
+const TYPES = ['Battle', 'Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'];
+const WUBRG = ['W', 'U', 'B', 'R', 'G'];
 
 export function loadUserLists(): UserCardList[] {
   try {
@@ -24,6 +27,56 @@ function saveUserLists(lists: UserCardList[]): void {
   }
 }
 
+/** Fetch card data and compute cached display fields for a list */
+async function computeCachedFields(
+  cards: string[],
+  commanderName?: string,
+): Promise<Pick<UserCardList, 'cachedTypeBreakdown' | 'cachedColorIdentity' | 'cachedCommanderArtUrl'>> {
+  if (cards.length === 0) return {};
+  try {
+    const cardMap = await getCardsByNames(cards);
+
+    // Type breakdown
+    const typeBreakdown: Record<string, number> = {};
+    for (const name of cards) {
+      const card = cardMap.get(name);
+      if (!card) continue;
+      const typeLine = card.type_line?.toLowerCase() ?? '';
+      const type = TYPES.find(t => typeLine.includes(t.toLowerCase())) ?? 'Other';
+      typeBreakdown[type] = (typeBreakdown[type] ?? 0) + 1;
+    }
+
+    // Color identity (only meaningful with a commander)
+    let colorIdentity: string[] | undefined;
+    if (commanderName) {
+      const colors = new Set<string>();
+      for (const [, card] of cardMap) {
+        for (const c of card.color_identity ?? []) colors.add(c);
+      }
+      colorIdentity = WUBRG.filter(c => colors.has(c));
+    }
+
+    // Commander art
+    let commanderArtUrl: string | undefined;
+    if (commanderName) {
+      const cmdCard = cardMap.get(commanderName);
+      if (cmdCard) {
+        commanderArtUrl = cmdCard.image_uris?.art_crop
+          ?? cmdCard.card_faces?.[0]?.image_uris?.art_crop
+          ?? undefined;
+      }
+    }
+
+    return {
+      cachedTypeBreakdown: Object.keys(typeBreakdown).length > 0 ? typeBreakdown : undefined,
+      cachedColorIdentity: colorIdentity,
+      cachedCommanderArtUrl: commanderArtUrl,
+    };
+  } catch {
+    return {};
+  }
+}
+
 interface CreateListOptions {
   type?: 'list' | 'deck';
   commanderName?: string;
@@ -37,6 +90,21 @@ export function useUserLists() {
   useEffect(() => {
     saveUserLists(lists);
   }, [lists]);
+
+  // Helper: update cached fields for a list by id (fire-and-forget)
+  const refreshCache = useCallback((listId: string) => {
+    setLists(prev => {
+      const list = prev.find(l => l.id === listId);
+      if (!list) return prev;
+      // Fire async computation, update state when done
+      computeCachedFields(list.cards, list.commanderName).then(cached => {
+        setLists(p => p.map(l =>
+          l.id === listId ? { ...l, ...cached } : l
+        ));
+      });
+      return prev; // Return unchanged for now — async will update later
+    });
+  }, []);
 
   const createList = useCallback((name: string, cards: string[], description = '', options?: CreateListOptions) => {
     const now = Date.now();
@@ -52,6 +120,12 @@ export function useUserLists() {
       updatedAt: now,
     };
     setLists(prev => [newList, ...prev]);
+    // Compute cached fields async
+    computeCachedFields(cards, options?.commanderName).then(cached => {
+      setLists(prev => prev.map(l =>
+        l.id === newList.id ? { ...l, ...cached } : l
+      ));
+    });
     return newList;
   }, []);
 
@@ -59,7 +133,12 @@ export function useUserLists() {
     setLists(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
-  }, []);
+    // Re-compute cached fields if cards or commander changed
+    if (updates.cards || updates.commanderName !== undefined) {
+      // Use a microtask to read updated state
+      setTimeout(() => refreshCache(id), 0);
+    }
+  }, [refreshCache]);
 
   const deleteList = useCallback((id: string) => {
     setLists(prev => prev.filter(l => l.id !== id));
@@ -78,6 +157,9 @@ export function useUserLists() {
         cards: [...original.cards],
         commanderName: original.commanderName,
         partnerCommanderName: original.partnerCommanderName,
+        cachedTypeBreakdown: original.cachedTypeBreakdown,
+        cachedColorIdentity: original.cachedColorIdentity,
+        cachedCommanderArtUrl: original.cachedCommanderArtUrl,
         createdAt: now,
         updatedAt: now,
       };
@@ -93,7 +175,7 @@ export function useUserLists() {
 
   const convertToList = useCallback((id: string) => {
     setLists(prev => prev.map(l =>
-      l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, updatedAt: Date.now() } : l
+      l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, cachedColorIdentity: undefined, cachedCommanderArtUrl: undefined, updatedAt: Date.now() } : l
     ));
   }, []);
 
