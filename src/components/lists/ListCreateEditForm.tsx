@@ -2,14 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { searchCards, getCardImageUrl } from '@/services/scryfall/client';
+import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl } from '@/services/scryfall/client';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
+import { CommanderIcon } from '@/components/ui/mtg-icons';
+import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { Search, Loader2, X, Plus, ArrowLeft, Trash2 } from 'lucide-react';
 
 interface ListCreateEditFormProps {
   existingList?: UserCardList | null;
-  onSave: (name: string, cards: string[], description: string) => void;
+  onSave: (name: string, cards: string[], description: string, commanderOptions?: { commanderName?: string; partnerCommanderName?: string }) => void;
   onCancel: () => void;
 }
 
@@ -17,6 +19,37 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
   const [name, setName] = useState(existingList?.name ?? '');
   const [description, setDescription] = useState(existingList?.description ?? '');
   const [cards, setCards] = useState<string[]>(existingList?.cards ?? []);
+
+  // Commander state
+  const [commanderName, setCommanderName] = useState(existingList?.commanderName ?? '');
+  const [commanderCard, setCommanderCard] = useState<ScryfallCard | null>(null);
+  const [partnerCommanderName, setPartnerCommanderName] = useState(existingList?.partnerCommanderName ?? '');
+  const [commanderQuery, setCommanderQuery] = useState('');
+  const [commanderResults, setCommanderResults] = useState<ScryfallCard[]>([]);
+  const [isSearchingCommander, setIsSearchingCommander] = useState(false);
+  const [showCommanderResults, setShowCommanderResults] = useState(false);
+  const [commanderSearchedQuery, setCommanderSearchedQuery] = useState('');
+  const [commanderField, setCommanderField] = useState<'commander' | 'partner'>('commander');
+  const commanderSearchRef = useRef<HTMLDivElement>(null);
+  const [commanderDropdownPos, setCommanderDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Derive partner eligibility from the selected commander card
+  const partnerType = commanderCard ? getPartnerType(commanderCard) : 'none';
+  const canPartner = partnerType !== 'none';
+
+  // Human-readable search placeholder for each partner type
+  const partnerSearchPlaceholder = (() => {
+    switch (partnerType) {
+      case 'partner': return 'Search for a partner commander (optional)...';
+      case 'partner-with': return 'Search for the designated partner...';
+      case 'friends-forever': return 'Search for a friends forever partner (optional)...';
+      case 'choose-background': return 'Search for a background (optional)...';
+      case 'background': return 'Search for a commander (optional)...';
+      case 'doctors-companion': return 'Search for a doctor (optional)...';
+      case 'doctor': return "Search for a doctor's companion (optional)...";
+      default: return 'Search for a partner (optional)...';
+    }
+  })();
 
   // Search state
   const [query, setQuery] = useState('');
@@ -44,6 +77,73 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
       setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
     }
   }, []);
+
+  const updateCommanderDropdownPos = useCallback(() => {
+    if (commanderSearchRef.current) {
+      const rect = commanderSearchRef.current.getBoundingClientRect();
+      setCommanderDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+  }, []);
+
+  // Debounced commander search
+  useEffect(() => {
+    if (!commanderQuery.trim()) {
+      setCommanderResults([]);
+      setCommanderSearchedQuery('');
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingCommander(true);
+      try {
+        let results: ScryfallCard[];
+        if (commanderField === 'partner' && commanderCard) {
+          // Use searchValidPartners to only show valid partner options
+          results = await searchValidPartners(commanderCard, commanderQuery);
+        } else {
+          results = await searchCommanders(commanderQuery);
+        }
+        setCommanderResults(results.slice(0, 8));
+        setCommanderSearchedQuery(commanderQuery);
+        updateCommanderDropdownPos();
+        setShowCommanderResults(true);
+      } catch {
+        setCommanderResults([]);
+        setCommanderSearchedQuery(commanderQuery);
+      } finally {
+        setIsSearchingCommander(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [commanderQuery, commanderField, commanderCard, updateCommanderDropdownPos]);
+
+  const handleSelectCommander = (card: ScryfallCard) => {
+    if (commanderField === 'commander') {
+      // Remove old commander from cards if present
+      if (commanderName) {
+        setCards(prev => prev.filter(c => c !== commanderName));
+      }
+      // Remove old partner too since commander changed
+      if (partnerCommanderName) {
+        setCards(prev => prev.filter(c => c !== partnerCommanderName));
+      }
+      setCommanderName(card.name);
+      setCommanderCard(card);
+      setPartnerCommanderName('');
+      // Add new commander to cards
+      setCards(prev => prev.includes(card.name) ? prev : [card.name, ...prev]);
+    } else {
+      // Remove old partner from cards if present
+      if (partnerCommanderName) {
+        setCards(prev => prev.filter(c => c !== partnerCommanderName));
+      }
+      setPartnerCommanderName(card.name);
+      // Add partner to cards
+      setCards(prev => prev.includes(card.name) ? prev : [card.name, ...prev]);
+    }
+    setCommanderQuery('');
+    setCommanderResults([]);
+    setShowCommanderResults(false);
+  };
 
   // Debounced search
   useEffect(() => {
@@ -114,7 +214,10 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
 
   const handleSave = () => {
     if (!name.trim() || cards.length === 0) return;
-    onSave(name.trim(), cards, description.trim());
+    const cmdOptions = (commanderName || partnerCommanderName)
+      ? { commanderName: commanderName || undefined, partnerCommanderName: partnerCommanderName || undefined }
+      : undefined;
+    onSave(name.trim(), cards, description.trim(), cmdOptions);
   };
 
   // No results: searched but got 0 results and not currently searching
@@ -157,6 +260,131 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
             className="h-10"
           />
         </div>
+      </div>
+
+      {/* Commander (optional) */}
+      <div className="space-y-3">
+        <label className="text-sm font-medium flex items-center gap-1.5">
+          <CommanderIcon size={14} className="text-muted-foreground" />
+          Commander <span className="text-muted-foreground font-normal">(optional — set to enable deck features)</span>
+        </label>
+
+        {/* Selected commander */}
+        {commanderName ? (
+          <div className="flex items-center gap-2 px-3 py-2 bg-accent/40 rounded-lg border border-border/30">
+            <span className="text-sm font-medium flex-1 truncate">{commanderName}</span>
+            <button
+              onClick={() => {
+                // Remove commander and partner from cards list
+                setCards(prev => prev.filter(c => c !== commanderName && c !== partnerCommanderName));
+                setCommanderName(''); setCommanderCard(null); setPartnerCommanderName('');
+              }}
+              className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="relative" ref={commanderSearchRef}>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search for a commander..."
+              value={commanderField === 'commander' ? commanderQuery : ''}
+              onChange={(e) => { setCommanderField('commander'); setCommanderQuery(e.target.value); }}
+              onFocus={() => { setCommanderField('commander'); updateCommanderDropdownPos(); (commanderResults.length > 0) && setShowCommanderResults(true); }}
+              className="pl-9 pr-9 h-9 text-sm"
+            />
+            {isSearchingCommander && commanderField === 'commander' && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+            )}
+          </div>
+        )}
+
+        {/* Partner commander — only show when commander supports partners */}
+        {commanderName && canPartner && (
+          <>
+            {partnerCommanderName ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-accent/40 rounded-lg border border-border/30">
+                <span className="text-xs text-muted-foreground">{getPartnerTypeLabel(partnerType)}:</span>
+                <span className="text-sm font-medium flex-1 truncate">{partnerCommanderName}</span>
+                <button
+                  onClick={() => { setCards(prev => prev.filter(c => c !== partnerCommanderName)); setPartnerCommanderName(''); }}
+                  className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative" ref={commanderSearchRef}>
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder={partnerSearchPlaceholder}
+                  value={commanderField === 'partner' ? commanderQuery : ''}
+                  onChange={(e) => { setCommanderField('partner'); setCommanderQuery(e.target.value); }}
+                  onFocus={() => { setCommanderField('partner'); updateCommanderDropdownPos(); (commanderResults.length > 0) && setShowCommanderResults(true); }}
+                  className="pl-9 pr-9 h-9 text-sm"
+                />
+                {isSearchingCommander && commanderField === 'partner' && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Commander search dropdown */}
+        {showCommanderResults && commanderResults.length > 0 && commanderDropdownPos && createPortal(
+          <>
+            <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
+            <Card
+              className="fixed z-[999] max-h-[250px] overflow-auto shadow-xl"
+              style={{ top: commanderDropdownPos.top, left: commanderDropdownPos.left, width: commanderDropdownPos.width }}
+            >
+              <CardContent className="p-1">
+                {commanderResults.map((card) => (
+                  <button
+                    key={card.id}
+                    onClick={() => handleSelectCommander(card)}
+                    className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
+                  >
+                    <img
+                      src={getCardImageUrl(card, 'small')}
+                      alt={card.name}
+                      className="w-8 h-auto rounded shadow"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                        {card.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {card.type_line}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+          </>,
+          document.body
+        )}
+
+        {/* Commander no results */}
+        {showCommanderResults && commanderResults.length === 0 && commanderSearchedQuery.trim() && !isSearchingCommander && commanderDropdownPos && createPortal(
+          <>
+            <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
+            <Card
+              className="fixed z-[999] shadow-xl"
+              style={{ top: commanderDropdownPos.top, left: commanderDropdownPos.left, width: commanderDropdownPos.width }}
+            >
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">No commanders found for "{commanderSearchedQuery}"</p>
+              </CardContent>
+            </Card>
+          </>,
+          document.body
+        )}
       </div>
 
       {/* Import Cards — shared component */}

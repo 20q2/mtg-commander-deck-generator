@@ -697,7 +697,7 @@ export function BuilderPage() {
                   </CardTitle>
                   <button
                     onClick={() => {
-                      const { bannedCards, mustIncludeCards, banLists, currency, appliedExcludeLists, appliedIncludeLists } = useStore.getState().customization;
+                      const { bannedCards, mustIncludeCards, banLists, currency } = useStore.getState().customization;
                       useStore.getState().updateCustomization({
                         deckFormat: 99,
                         landCount: 37,
@@ -717,8 +717,8 @@ export function BuilderPage() {
                         banLists,
                         mustIncludeCards,
                         currency,
-                        appliedExcludeLists,
-                        appliedIncludeLists,
+                        appliedExcludeLists: [],
+                        appliedIncludeLists: [],
                       });
                     }}
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"

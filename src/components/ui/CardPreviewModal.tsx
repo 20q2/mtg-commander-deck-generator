@@ -22,6 +22,8 @@ interface CardPreviewModalProps {
   cardComboMap?: Map<string, DetectedCombo[]>;
   /** When true, only show complete (in-deck) combos. When false, show both sections. */
   deckOnly?: boolean;
+  /** When true, hide must-include add/remove buttons (read-only context like list deck view) */
+  hideMustInclude?: boolean;
 }
 
 function renderComboEntry(
@@ -76,7 +78,7 @@ function renderComboEntry(
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude }: CardPreviewModalProps) {
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
   const updateCustomization = useStore((s) => s.updateCustomization);
@@ -313,7 +315,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
               </svg>
               EDHREC
             </a>
-            {canMustInclude && (
+            {!hideMustInclude && canMustInclude && (
               <button
                 onClick={() => handleAddMustInclude(currentCardName)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
@@ -322,7 +324,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 Must Include
               </button>
             )}
-            {alreadyMustIncluded && (
+            {!hideMustInclude && alreadyMustIncluded && (
               <button
                 onClick={() => handleRemoveMustInclude(currentCardName)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-red-500/20 text-white/60 hover:text-red-400 text-xs font-medium transition-colors"

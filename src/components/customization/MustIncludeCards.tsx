@@ -34,7 +34,8 @@ export function MustIncludeCards() {
   const banLists = customization.banLists || [];
   const arenaOnly = customization.arenaOnly;
   const appliedIncludeLists = customization.appliedIncludeLists || [];
-  const { lists: userLists } = useUserLists();
+  const { lists: allUserLists } = useUserLists();
+  const userLists = useMemo(() => allUserLists.filter(l => l.type !== 'deck'), [allUserLists]);
 
   // Build a set of all cards on any stored ban list (for marking in search results)
   const banListCardNames = useMemo(() => {
@@ -259,18 +260,21 @@ export function MustIncludeCards() {
         <div className="relative space-y-2">
           {groupedCards.length > 1 && (
             <div className="absolute right-0 top-0 flex gap-2">
-              <button
-                onClick={() => setCollapsedTypes(new Set())}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Expand all
-              </button>
-              <button
-                onClick={() => setCollapsedTypes(new Set(groupedCards.map(([type]) => type)))}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Collapse all
-              </button>
+              {collapsedTypes.size === groupedCards.length ? (
+                <button
+                  onClick={() => setCollapsedTypes(new Set())}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Expand all
+                </button>
+              ) : (
+                <button
+                  onClick={() => setCollapsedTypes(new Set(groupedCards.map(([type]) => type)))}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Collapse all
+                </button>
+              )}
             </div>
           )}
           {groupedCards.map(([type, cards]) => {

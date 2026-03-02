@@ -28,7 +28,7 @@ const Slider = React.forwardRef<HTMLInputElement, SliderProps>(
           onChange={(e) => onChange?.(Number(e.target.value))}
           className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
           style={{
-            background: `linear-gradient(to right, hsl(var(--primary)) ${percentage}%, hsl(var(--secondary)) ${percentage}%)`,
+            background: `linear-gradient(to right, hsl(var(--primary) / 0.35) ${percentage}%, hsl(var(--secondary)) ${percentage}%)`,
           }}
           {...props}
         />

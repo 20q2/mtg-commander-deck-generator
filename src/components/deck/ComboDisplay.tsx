@@ -10,12 +10,14 @@ import { createPortal } from 'react-dom';
 
 interface ComboDisplayProps {
   combos: DetectedCombo[];
+  /** When true, hide must-include badges and controls (read-only list deck view) */
+  hideMustInclude?: boolean;
 }
 
 // Cache fetched card data across renders
 const cardDataCache = new Map<string, ScryfallCard>();
 
-export function ComboDisplay({ combos }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
@@ -180,7 +182,7 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                 {i > 0 && (
                   <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
-                <button
+                <div
                   onClick={() => handleCardClick(name)}
                   className={`relative rounded-md overflow-hidden transition-all cursor-pointer ${
                     isBanned ? 'opacity-50 ring-1 ring-red-500/60'
@@ -215,7 +217,7 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                       </span>
                     </div>
                   ) : isMissing ? (
-                    mustIncludeCards.includes(name) ? (
+                    !hideMustInclude && mustIncludeCards.includes(name) ? (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md group/added">
                         <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/added:hidden">
                           <Pin className="w-2.5 h-2.5" />
@@ -231,26 +233,28 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
                         </button>
                       </div>
                     ) : (
-                      <div className="absolute inset-0 flex flex-col items-end justify-end bg-black/40 rounded-md group/missing">
+                      <div className={`absolute inset-0 flex flex-col items-end justify-end bg-black/40 rounded-md ${hideMustInclude ? '' : 'group/missing'}`}>
                         <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-amber-400 group-hover/missing:hidden">MISSING</span>
-                        <button
-                          onClick={(e) => handleAddMustInclude(name, e)}
-                          className="hidden group-hover/missing:flex items-center gap-0.5 m-1 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
-                          title="Add to Must Include list"
-                        >
-                          <Pin className="w-2.5 h-2.5" />
-                          Must Include
-                        </button>
+                        {!hideMustInclude && (
+                          <button
+                            onClick={(e) => handleAddMustInclude(name, e)}
+                            className="hidden group-hover/missing:flex items-center gap-0.5 m-1 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
+                            title="Add to Must Include list"
+                          >
+                            <Pin className="w-2.5 h-2.5" />
+                            Must Include
+                          </button>
+                        )}
                       </div>
                     )
-                  ) : mustIncludeCards.includes(name) ? (
+                  ) : !hideMustInclude && mustIncludeCards.includes(name) ? (
                     <div className="absolute bottom-1 left-1">
                       <span className="bg-emerald-500/80 text-white rounded-full w-4 h-4 flex items-center justify-center" title="Must Include">
                         <Pin className="w-2.5 h-2.5" />
                       </span>
                     </div>
                   ) : null}
-                </button>
+                </div>
               </Fragment>
             );
           })}
@@ -362,6 +366,7 @@ export function ComboDisplay({ combos }: ComboDisplayProps) {
         onClose={() => { setPreviewCard(null); setPreviewCardName(null); }}
         combos={previewCardName ? cardComboMap.get(previewCardName) : undefined}
         cardComboMap={cardComboMap}
+        hideMustInclude={hideMustInclude}
       />
       {toastMessage && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">

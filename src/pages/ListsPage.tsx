@@ -5,6 +5,7 @@ import { useStore } from '@/store';
 import { getCardsByNames, getBanList } from '@/services/scryfall/client';
 import { ListCard } from '@/components/lists/ListCard';
 import { ListDetailView } from '@/components/lists/ListDetailView';
+import { ListDeckView } from '@/components/lists/ListDeckView';
 import { ListCreateEditForm } from '@/components/lists/ListCreateEditForm';
 import { PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ const TYPES = ['Battle', 'Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantm
 type ViewState =
   | { view: 'browse' }
   | { view: 'detail'; listId: string }
+  | { view: 'deck-view'; listId: string }
   | { view: 'banlist-browse' }
   | { view: 'banlist-detail'; banListId: string }
   | { view: 'create' }
@@ -25,16 +27,18 @@ type ViewState =
 
 type SortKey = 'updatedAt' | 'name' | 'size';
 type SortDir = 'asc' | 'desc';
+type TypeFilter = 'all' | 'deck' | 'list';
 
 export function ListsPage() {
   const navigate = useNavigate();
-  const { lists, createList, updateList, deleteList, duplicateList, exportList } = useUserLists();
+  const { lists, createList, updateList, deleteList, duplicateList, convertToList, exportList } = useUserLists();
 
   const [viewState, setViewState] = useState<ViewState>({ view: 'browse' });
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
 
   // Ban lists from store
@@ -69,9 +73,10 @@ export function ListsPage() {
 
   const populatedBanLists = banLists.filter(l => l.isPreset && l.cards.length > 0);
 
-  // Fetch card types + color identity for all cards across all lists (single bulk fetch, cached)
+  // Fetch card types + color identity + art crops for all cards across all lists (single bulk fetch, cached)
   const [cardTypeMap, setCardTypeMap] = useState<Record<string, string>>({});
   const [cardColorMap, setCardColorMap] = useState<Record<string, string[]>>({});
+  const [cardArtMap, setCardArtMap] = useState<Record<string, string>>({});
   const fetchedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -83,10 +88,13 @@ export function ListsPage() {
     getCardsByNames(missing).then(cardMap => {
       const typeUpdates: Record<string, string> = {};
       const colorUpdates: Record<string, string[]> = {};
+      const artUpdates: Record<string, string> = {};
       for (const [name, card] of cardMap) {
         const typeLine = card.type_line?.toLowerCase() ?? '';
         typeUpdates[name] = TYPES.find(t => typeLine.includes(t.toLowerCase())) ?? 'Other';
         colorUpdates[name] = card.color_identity ?? [];
+        const artCrop = card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop;
+        if (artCrop) artUpdates[name] = artCrop;
       }
       for (const name of missing) {
         if (!typeUpdates[name]) typeUpdates[name] = 'Other';
@@ -94,6 +102,7 @@ export function ListsPage() {
       }
       setCardTypeMap(prev => ({ ...prev, ...typeUpdates }));
       setCardColorMap(prev => ({ ...prev, ...colorUpdates }));
+      setCardArtMap(prev => ({ ...prev, ...artUpdates }));
     }).catch(() => {});
   }, [lists]);
 
@@ -128,11 +137,23 @@ export function ListsPage() {
     return map;
   }, [lists, cardColorMap]);
 
+  const listCommanderArt = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const list of lists) {
+      if (list.commanderName && cardArtMap[list.commanderName]) {
+        map[list.id] = cardArtMap[list.commanderName];
+      }
+    }
+    return map;
+  }, [lists, cardArtMap]);
+
   const filteredAndSortedLists = useMemo(() => {
     let filtered = lists;
+    if (typeFilter === 'deck') filtered = filtered.filter(l => l.type === 'deck');
+    else if (typeFilter === 'list') filtered = filtered.filter(l => l.type !== 'deck');
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      filtered = lists.filter(l =>
+      filtered = filtered.filter(l =>
         l.name.toLowerCase().includes(q) ||
         l.description.toLowerCase().includes(q) ||
         l.cards.some(c => c.toLowerCase().includes(q))
@@ -145,7 +166,7 @@ export function ListsPage() {
       else cmp = a.updatedAt - b.updatedAt;
       return sortDir === 'desc' ? -cmp : cmp;
     });
-  }, [lists, searchQuery, sortKey, sortDir]);
+  }, [lists, searchQuery, typeFilter, sortKey, sortDir]);
 
   const handleExport = (listId: string) => {
     const list = lists.find(l => l.id === listId);
@@ -206,6 +227,32 @@ export function ListsPage() {
           onExport={() => handleExport(list.id)}
           onDelete={() => handleDelete(list.id)}
           onRemoveCard={(name) => handleRemoveCard(list.id, name)}
+          onViewAsDeck={() => setViewState({ view: 'deck-view', listId: list.id })}
+          onConvertToDeck={() => {
+            setViewState({ view: 'edit', listId: list.id });
+          }}
+          onConvertToList={() => {
+            convertToList(list.id);
+          }}
+        />
+      </main>
+    );
+  }
+
+  // Deck view (full DeckDisplay for a list)
+  if (viewState.view === 'deck-view') {
+    const list = lists.find(l => l.id === viewState.listId);
+    if (!list) {
+      setViewState({ view: 'browse' });
+      return null;
+    }
+    return (
+      <main className="flex-1 container mx-auto px-4 py-8">
+        {toasts}
+        <ListDeckView
+          list={list}
+          onBack={() => setViewState(list.type === 'deck' ? { view: 'browse' } : { view: 'detail', listId: list.id })}
+          onViewAsList={() => setViewState({ view: 'detail', listId: list.id })}
         />
       </main>
     );
@@ -303,8 +350,12 @@ export function ListsPage() {
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
         <div className="aurora-bg" />
         <ListCreateEditForm
-          onSave={(name, cards, description) => {
-            const newList = createList(name, cards, description);
+          onSave={(name, cards, description, commanderOptions) => {
+            const newList = createList(name, cards, description, {
+              type: commanderOptions?.commanderName ? 'deck' : 'list',
+              commanderName: commanderOptions?.commanderName,
+              partnerCommanderName: commanderOptions?.partnerCommanderName,
+            });
             trackEvent('list_created', { listName: name, cardCount: cards.length });
             setViewState({ view: 'detail', listId: newList.id });
           }}
@@ -326,8 +377,15 @@ export function ListsPage() {
         <div className="aurora-bg" />
         <ListCreateEditForm
           existingList={list}
-          onSave={(name, cards, description) => {
-            updateList(list.id, { name, cards, description });
+          onSave={(name, cards, description, commanderOptions) => {
+            updateList(list.id, {
+              name,
+              cards,
+              description,
+              commanderName: commanderOptions?.commanderName,
+              partnerCommanderName: commanderOptions?.partnerCommanderName,
+              type: commanderOptions?.commanderName ? 'deck' : list.type,
+            });
             setViewState({ view: 'detail', listId: list.id });
           }}
           onCancel={() => setViewState({ view: 'detail', listId: list.id })}
@@ -362,7 +420,7 @@ export function ListsPage() {
         <div className="space-y-2">
           <h2 className="text-2xl font-bold">My Lists</h2>
           <p className="text-sm text-muted-foreground">
-            Save reusable card lists to quickly apply as exclusions or must-includes when building decks.
+            Save card lists for exclusions, must-includes, or full decks. Set a commander to unlock deck features.
           </p>
         </div>
         <button
@@ -394,6 +452,17 @@ export function ListsPage() {
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
+          </div>
+          <div className="flex items-center gap-1 border border-border/50 rounded-lg p-0.5">
+            {(['all', 'deck', 'list'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${typeFilter === t ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {t === 'all' ? 'All' : t === 'deck' ? 'Decks' : 'Lists'}
+              </button>
+            ))}
           </div>
           <Select
             value={`${sortKey}-${sortDir}`}
@@ -444,7 +513,8 @@ export function ListsPage() {
                 viewMode="grid"
                 typeBreakdown={typeBreakdowns[list.id]}
                 colorIdentity={listColorIdentities[list.id]}
-                onClick={() => setViewState({ view: 'detail', listId: list.id })}
+                commanderArtUrl={listCommanderArt[list.id]}
+                onClick={() => setViewState(list.type === 'deck' ? { view: 'deck-view', listId: list.id } : { view: 'detail', listId: list.id })}
                 onEdit={() => setViewState({ view: 'edit', listId: list.id })}
                 onDuplicate={() => duplicateList(list.id)}
                 onExport={() => handleExport(list.id)}
@@ -461,7 +531,8 @@ export function ListsPage() {
                 viewMode="list"
                 typeBreakdown={typeBreakdowns[list.id]}
                 colorIdentity={listColorIdentities[list.id]}
-                onClick={() => setViewState({ view: 'detail', listId: list.id })}
+                commanderArtUrl={listCommanderArt[list.id]}
+                onClick={() => setViewState(list.type === 'deck' ? { view: 'deck-view', listId: list.id } : { view: 'detail', listId: list.id })}
                 onEdit={() => setViewState({ view: 'edit', listId: list.id })}
                 onDuplicate={() => duplicateList(list.id)}
                 onExport={() => handleExport(list.id)}

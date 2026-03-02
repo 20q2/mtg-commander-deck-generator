@@ -32,8 +32,8 @@ export class AnalyticsStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '..', 'lambda', 'index.ts'),
       handler: 'handler',
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 512,
       environment: {
         TABLE_NAME: table.tableName,
         METRICS_SECRET: process.env.VITE_METRICS_SECRET || '',

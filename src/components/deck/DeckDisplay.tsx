@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine } from '@/services/scryfall/client';
@@ -687,7 +688,7 @@ function DeckStats({ activeFilter, onFilterChange }: DeckStatsProps) {
   if (!generatedDeck) return null;
 
   const { stats, categories, partnerCommander } = generatedDeck;
-  const commanderCount = 1 + (partnerCommander ? 1 : 0);
+  const commanderCount = (generatedDeck.commander ? 1 : 0) + (partnerCommander ? 1 : 0);
   const totalCardsWithCommander = stats.totalCards + commanderCount;
   const maxCurveCount = Math.max(...Object.values(stats.manaCurve), 1);
 
@@ -893,9 +894,12 @@ type GroupedCards = Record<CardType, Array<{ card: ScryfallCard; quantity: numbe
 // Main component
 interface DeckDisplayProps {
   onRegenerate?: () => void;
+  /** When true, hide must-include badges and controls (read-only list deck view) */
+  readOnly?: boolean;
 }
 
-export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
+  const navigate = useNavigate();
   const { generatedDeck, commander, customization } = useStore();
   const { createList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
@@ -908,6 +912,7 @@ export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showSavedToast, setShowSavedToast] = useState(false);
 
   // Track dirty state: snapshot mustIncludeCards at generation time
   const [snapshotMustInclude, setSnapshotMustInclude] = useState<string[]>([]);
@@ -930,12 +935,18 @@ export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
     return current.some(n => !snap.has(n));
   }, [customization.mustIncludeCards, snapshotMustInclude]);
 
-  // Auto-dismiss toast
+  // Auto-dismiss toasts
   useEffect(() => {
     if (!toastMessage) return;
     const timer = setTimeout(() => setToastMessage(null), 4000);
     return () => clearTimeout(timer);
   }, [toastMessage]);
+
+  useEffect(() => {
+    if (!showSavedToast) return;
+    const timer = setTimeout(() => setShowSavedToast(false), 6000);
+    return () => clearTimeout(timer);
+  }, [showSavedToast]);
 
   const handleRegenerate = useCallback(() => {
     if (onRegenerate) {
@@ -1433,18 +1444,24 @@ export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
         cardTypeMap={cardTypeMap}
         cardComboMap={cardComboMap}
         deckOnly
+        hideMustInclude={readOnly}
       />
       <ExportModal
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         generateDeckList={generateDeckList}
-        hasMustIncludes={customization.mustIncludeCards.length > 0}
+        hasMustIncludes={!readOnly && customization.mustIncludeCards.length > 0}
         onExport={(format) => {
           if (commander) trackEvent('deck_exported', { commanderName: commander.name, format });
         }}
         onSaveToList={(name, cards) => {
-          createList(name, cards);
+          createList(name, cards, '', {
+            type: 'deck',
+            commanderName: commander?.name,
+            partnerCommanderName: generatedDeck?.partnerCommander?.name,
+          });
           trackEvent('list_created', { listName: name, cardCount: cards.length });
+          setShowSavedToast(true);
         }}
         defaultListName={commander ? `${commander.name} Deck` : 'My Deck'}
       />
@@ -1452,6 +1469,19 @@ export function DeckDisplay({ onRegenerate }: DeckDisplayProps) {
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
           <Check className="w-4 h-4 shrink-0" />
           {toastMessage}
+        </div>,
+        document.body
+      )}
+      {showSavedToast && createPortal(
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
+          <Check className="w-4 h-4 shrink-0" />
+          <span>Deck saved!</span>
+          <button
+            onClick={() => { setShowSavedToast(false); navigate('/lists'); }}
+            className="underline underline-offset-2 hover:text-white/80 transition-colors font-medium"
+          >
+            View in My Lists
+          </button>
         </div>,
         document.body
       )}

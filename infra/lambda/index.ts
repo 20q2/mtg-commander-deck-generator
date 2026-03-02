@@ -83,31 +83,6 @@ async function handleGet(params: Record<string, string>) {
   const to = params.to || new Date().toISOString();
 
   if (action === 'summary') {
-    // Paginate through all results — DynamoDB returns max 1MB per query
-    const allRawItems: Record<string, unknown>[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let exclusiveStartKey: Record<string, any> | undefined;
-    do {
-      const result = await client.send(
-        new QueryCommand({
-          TableName: TABLE_NAME,
-          IndexName: 'gsi-all-by-date',
-          KeyConditionExpression: 'gsiPk = :pk AND sk BETWEEN :from AND :to',
-          ExpressionAttributeValues: marshall({
-            ':pk': 'ALL',
-            ':from': from,
-            ':to': to + '\uffff',
-          }),
-          ExclusiveStartKey: exclusiveStartKey,
-        })
-      );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      allRawItems.push(...(result.Items || []).map((item: any) => unmarshall(item)));
-      exclusiveStartKey = result.LastEvaluatedKey;
-    } while (exclusiveStartKey);
-
-    const items = allRawItems;
-
     const eventCounts: Record<string, number> = {};
     const commanderCounts: Record<string, number> = {};
     const themeCounts: Record<string, number> = {};
@@ -157,24 +132,25 @@ async function handleGet(params: Record<string, string>) {
       landCount: {},
     };
 
-    for (const item of items) {
+    // Helper to process a single item — called inline during pagination
+    const processItem = (item: Record<string, unknown>) => {
       // Event type counts
-      eventCounts[item.event] = (eventCounts[item.event] || 0) + 1;
+      eventCounts[item.event as string] = (eventCounts[item.event as string] || 0) + 1;
 
       // Daily counts
-      const day = item.timestamp?.slice(0, 10);
+      const day = (item.timestamp as string)?.slice(0, 10);
       if (day) {
         dailyCounts[day] = (dailyCounts[day] || 0) + 1;
         if (!dailyBreakdown[day]) dailyBreakdown[day] = {};
-        dailyBreakdown[day][item.event] = (dailyBreakdown[day][item.event] || 0) + 1;
+        dailyBreakdown[day][item.event as string] = (dailyBreakdown[day][item.event as string] || 0) + 1;
       }
 
       // Hourly counts
-      const hour = item.timestamp?.slice(0, 13); // "YYYY-MM-DDTHH"
+      const hour = (item.timestamp as string)?.slice(0, 13); // "YYYY-MM-DDTHH"
       if (hour) {
         hourlyCounts[hour] = (hourlyCounts[hour] || 0) + 1;
         if (!hourlyBreakdown[hour]) hourlyBreakdown[hour] = {};
-        hourlyBreakdown[hour][item.event] = (hourlyBreakdown[hour][item.event] || 0) + 1;
+        hourlyBreakdown[hour][item.event as string] = (hourlyBreakdown[hour][item.event as string] || 0) + 1;
       }
 
       const meta = item.metadata as Record<string, unknown> | undefined;
@@ -280,7 +256,33 @@ async function handleGet(params: Record<string, string>) {
         if (meta?.mode === 'include') listActivity.includeToggles++;
         if (meta?.mode === 'exclude') listActivity.excludeToggles++;
       }
-    }
+    };
+
+    // Paginate through results — process each page inline to avoid storing all items
+    let totalEvents = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let exclusiveStartKey: Record<string, any> | undefined;
+    do {
+      const result = await client.send(
+        new QueryCommand({
+          TableName: TABLE_NAME,
+          IndexName: 'gsi-all-by-date',
+          KeyConditionExpression: 'gsiPk = :pk AND sk BETWEEN :from AND :to',
+          ExpressionAttributeValues: marshall({
+            ':pk': 'ALL',
+            ':from': from,
+            ':to': to + '\uffff',
+          }),
+          ExclusiveStartKey: exclusiveStartKey,
+        })
+      );
+      for (const raw of result.Items || []) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        processItem(unmarshall(raw as any));
+        totalEvents++;
+      }
+      exclusiveStartKey = result.LastEvaluatedKey;
+    } while (exclusiveStartKey);
 
     // Classify each user exactly once: new if firstSeen is within query range, else returning
     for (const [userId, firstSeen] of userFirstSeen) {
@@ -304,7 +306,7 @@ async function handleGet(params: Record<string, string>) {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        totalEvents: items.length,
+        totalEvents,
         uniqueUserCount: uniqueUsers.size,
         newUserCount: newUsers.size,
         returningUserCount: returningUsers.size,

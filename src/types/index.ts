@@ -254,7 +254,7 @@ export type DeckDataSource =
   | 'scryfall';       // No EDHREC data at all — pure Scryfall search
 
 export interface GeneratedDeck {
-  commander: ScryfallCard;
+  commander: ScryfallCard | null;
   partnerCommander: ScryfallCard | null;
   categories: Record<DeckCategory, ScryfallCard[]>;
   stats: DeckStats;
@@ -309,12 +309,15 @@ export interface BanList {
   enabled: boolean;
 }
 
-// User-created reusable card list
+// User-created reusable card list or deck
 export interface UserCardList {
   id: string;
+  type?: 'list' | 'deck';
   name: string;
   description: string;
   cards: string[];
+  commanderName?: string;
+  partnerCommanderName?: string;
   createdAt: number;
   updatedAt: number;
 }

@@ -46,7 +46,8 @@ export function UserListChips({ mode }: UserListChipsProps) {
 
   const [loadingPresets, setLoadingPresets] = useState<Set<string>>(new Set());
 
-  const { lists } = useUserLists();
+  const { lists: allLists } = useUserLists();
+  const lists = useMemo(() => allLists.filter(l => l.type !== 'deck'), [allLists]);
   const { customization, updateCustomization } = useStore();
   const navigate = useNavigate();
 

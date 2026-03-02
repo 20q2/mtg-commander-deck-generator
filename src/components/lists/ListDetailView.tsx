@@ -3,11 +3,11 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import type { UserCardList, ScryfallCard } from '@/types';
 import { getCardsByNames, getCardImageUrl, getCardByName } from '@/services/scryfall/client';
-import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
+import { ManaCost, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import {
   ArrowLeft, Search, X, Grid3X3, List, Copy, CopyPlus, Pencil, Trash2,
-  ChevronDown, ChevronLeft, ChevronRight, Loader2,
+  ChevronDown, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
 } from 'lucide-react';
 
 // --- Constants (mirroring CollectionManager) ---
@@ -131,11 +131,14 @@ interface ListDetailViewProps {
   onDelete?: () => void;
   onRemoveCard?: (cardName: string) => void;
   readOnly?: boolean;
+  onViewAsDeck?: () => void;
+  onConvertToDeck?: () => void;
+  onConvertToList?: () => void;
 }
 
 // --- Component ---
 
-export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, readOnly }: ListDetailViewProps) {
+export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList }: ListDetailViewProps) {
   const navigate = useNavigate();
 
   // Card data enrichment
@@ -328,6 +331,12 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold">{list.name}</h2>
+            {list.commanderName && (
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
+                <CommanderIcon size={14} className="shrink-0" />
+                <span>{list.commanderName}{list.partnerCommanderName ? ` & ${list.partnerCommanderName}` : ''}</span>
+              </div>
+            )}
             {list.description && (
               <p className="text-sm text-muted-foreground mt-1">{list.description}</p>
             )}
@@ -341,6 +350,33 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {list.type === 'deck' && onViewAsDeck && list.cards.length > 0 && (
+              <button
+                onClick={onViewAsDeck}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                View as Deck
+              </button>
+            )}
+            {list.type !== 'deck' && onConvertToDeck && list.cards.length > 0 && (
+              <button
+                onClick={onConvertToDeck}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                <CommanderIcon size={14} />
+                Set Commander
+              </button>
+            )}
+            {list.type === 'deck' && onConvertToList && (
+              <button
+                onClick={onConvertToList}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Remove Commander
+              </button>
+            )}
             {!readOnly && onEdit && (
               <button
                 onClick={onEdit}
@@ -686,8 +722,8 @@ function GridView({
 
   return (
     <div ref={parent} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-      {cards.map(card => (
-        <GridCard key={card.name} card={card} onRemove={onRemove} onPreview={onPreview} readOnly={readOnly} />
+      {cards.map((card, i) => (
+        <GridCard key={`${card.name}-${i}`} card={card} onRemove={onRemove} onPreview={onPreview} readOnly={readOnly} />
       ))}
     </div>
   );
@@ -793,9 +829,9 @@ function ListViewTable({
 
       {/* Card rows */}
       <div className="divide-y divide-border/30">
-        {cards.map(card => (
+        {cards.map((card, i) => (
           <div
-            key={card.name}
+            key={`${card.name}-${i}`}
             className={`grid ${readOnly ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto]'} gap-2 px-3 py-1.5 items-center hover:bg-accent/30 group transition-colors`}
           >
             {/* Name + mana cost */}
