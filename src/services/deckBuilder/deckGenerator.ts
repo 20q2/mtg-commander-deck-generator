@@ -2568,6 +2568,24 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       })
       .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
 
+    // Deduplicate combos with identical card sets (keep higher deck count)
+    {
+      const seen = new Map<string, number>();
+      detectedCombos = detectedCombos.filter((combo, idx) => {
+        const key = [...combo.cards].sort().join('|');
+        const existing = seen.get(key);
+        if (existing !== undefined) {
+          // Keep the one with higher deck count
+          if (combo.deckCount > detectedCombos![existing].deckCount) {
+            detectedCombos![existing] = combo;
+          }
+          return false;
+        }
+        seen.set(key, idx);
+        return true;
+      });
+    }
+
     // Float commander combos to the top within each completeness group
     const commanderNames = new Set<string>();
     if (commander) {
