@@ -1043,3 +1043,54 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
     return [];
   }
 }
+
+// --- Commander Spellbook combo details ---
+
+export interface ComboDetails {
+  prerequisites: string[];
+  manaNeeded: string;
+  steps: string[];
+  results: string[];
+}
+
+const comboDetailsCache = new Map<string, ComboDetails>();
+
+/**
+ * Fetch detailed combo info (prerequisites, steps, results) from Commander Spellbook.
+ * Uses the comboId from EDHREC which maps to a Commander Spellbook variant ID.
+ */
+export async function fetchComboDetails(comboId: string): Promise<ComboDetails> {
+  const cached = comboDetailsCache.get(comboId);
+  if (cached) return cached;
+
+  const res = await fetch(`https://backend.commanderspellbook.com/variants/${comboId}`);
+  if (!res.ok) throw new Error(`Spellbook API ${res.status}`);
+
+  const data = await res.json();
+
+  const prerequisites: string[] = [];
+  if (data.easyPrerequisites) {
+    prerequisites.push(...data.easyPrerequisites.split('.').map((s: string) => s.trim()).filter(Boolean));
+  }
+  if (data.notablePrerequisites) {
+    prerequisites.push(...data.notablePrerequisites.split('.').map((s: string) => s.trim()).filter(Boolean));
+  }
+
+  const steps: string[] = data.description
+    ? data.description.split('.').map((s: string) => s.trim()).filter(Boolean)
+    : [];
+
+  const results: string[] = Array.isArray(data.produces)
+    ? data.produces.map((p: { feature?: { name?: string } }) => p.feature?.name).filter(Boolean)
+    : [];
+
+  const details: ComboDetails = {
+    prerequisites,
+    manaNeeded: data.manaNeeded || '',
+    steps,
+    results,
+  };
+
+  comboDetailsCache.set(comboId, details);
+  return details;
+}

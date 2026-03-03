@@ -2,8 +2,10 @@ import { useState, useCallback, useEffect, useMemo, Fragment } from 'react';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
+import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
-import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X } from 'lucide-react';
+import { ManaCost } from '@/components/ui/mtg-icons';
+import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 import { createPortal } from 'react-dom';
@@ -28,6 +30,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
+  const [comboDetails, setComboDetails] = useState<Map<string, ComboDetails | 'loading' | 'error'>>(new Map());
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
@@ -260,21 +263,102 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
           })}
         </div>
 
-        {/* Expandable results */}
-        {combo.results.length > 0 && (
-          <button
-            onClick={() => setExpandedCombo(isComboExpanded ? null : combo.comboId)}
-            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronDown className={`w-3 h-3 transition-transform ${isComboExpanded ? 'rotate-180' : ''}`} />
-            {isComboExpanded ? 'Hide details' : 'Show details'}
-          </button>
-        )}
-        {isComboExpanded && combo.results.length > 0 && (
-          <p className="text-[11px] text-muted-foreground leading-relaxed mt-1.5 whitespace-pre-wrap">
-            {combo.results.join('\n')}
-          </p>
-        )}
+        {/* Expandable details */}
+        <button
+          onClick={() => {
+            const willExpand = expandedCombo !== combo.comboId;
+            setExpandedCombo(willExpand ? combo.comboId : null);
+            if (willExpand && !comboDetails.has(combo.comboId)) {
+              setComboDetails(prev => new Map(prev).set(combo.comboId, 'loading'));
+              fetchComboDetails(combo.comboId)
+                .then(details => setComboDetails(prev => new Map(prev).set(combo.comboId, details)))
+                .catch(() => setComboDetails(prev => new Map(prev).set(combo.comboId, 'error')));
+            }
+          }}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronDown className={`w-3 h-3 transition-transform ${isComboExpanded ? 'rotate-180' : ''}`} />
+          {isComboExpanded ? 'Hide details' : 'Show details'}
+        </button>
+        {isComboExpanded && (() => {
+          const details = comboDetails.get(combo.comboId);
+          if (details === 'loading') {
+            return (
+              <div className="flex items-center gap-1.5 mt-2 text-[11px] text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Loading combo details...
+              </div>
+            );
+          }
+          if (details && details !== 'error') {
+            return (
+              <div className="space-y-2.5 mt-2">
+                {/* Prerequisites */}
+                {(details.manaNeeded || details.prerequisites.length > 0) && (
+                  <div>
+                    <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                      <ListChecks className="w-3 h-3" />
+                      Prerequisites
+                    </div>
+                    <div className="space-y-0.5 pl-4">
+                      {details.manaNeeded && (
+                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <ManaCost cost={details.manaNeeded} />
+                        </div>
+                      )}
+                      {details.prerequisites.map((prereq, idx) => (
+                        <div key={idx} className="text-[11px] text-muted-foreground leading-snug flex gap-1">
+                          <span className="shrink-0 opacity-50">•</span>
+                          {prereq}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Steps */}
+                <div>
+                  <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                    <Footprints className="w-3 h-3" />
+                    Steps
+                  </div>
+                  <div className="space-y-0.5 pl-4">
+                    {details.steps.map((step, idx) => (
+                      <div key={idx} className="text-[11px] text-muted-foreground leading-snug flex gap-1.5">
+                        <span className="shrink-0 w-3.5 h-3.5 rounded-full bg-muted flex items-center justify-center text-[9px] font-bold mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <span>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Results */}
+                <div>
+                  <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                    <Infinity className="w-3 h-3" />
+                    Results
+                  </div>
+                  <div className="space-y-0.5 pl-4">
+                    {details.results.map((result, idx) => (
+                      <div key={idx} className="text-[11px] text-muted-foreground leading-snug flex gap-1">
+                        <span className="shrink-0 opacity-50">∞</span>
+                        {result}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          // Error or no details — fall back to existing results text
+          return combo.results.length > 0 ? (
+            <p className="text-[11px] text-muted-foreground leading-relaxed mt-1.5 whitespace-pre-wrap">
+              {combo.results.join('\n')}
+            </p>
+          ) : null;
+        })()}
       </div>
     );
   };
