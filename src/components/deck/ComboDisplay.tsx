@@ -4,7 +4,6 @@ import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
-import { ManaCost } from '@/components/ui/mtg-icons';
 import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
@@ -294,18 +293,13 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
             return (
               <div className="space-y-2.5 mt-2">
                 {/* Prerequisites */}
-                {(details.manaNeeded || details.prerequisites.length > 0) && (
+                {details.prerequisites.length > 0 && (
                   <div>
                     <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
                       <ListChecks className="w-3 h-3" />
                       Prerequisites
                     </div>
                     <div className="space-y-0.5 pl-4">
-                      {details.manaNeeded && (
-                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <ManaCost cost={details.manaNeeded} />
-                        </div>
-                      )}
                       {details.prerequisites.map((prereq, idx) => (
                         <div key={idx} className="text-[11px] text-muted-foreground leading-snug flex gap-1">
                           <span className="shrink-0 opacity-50">•</span>

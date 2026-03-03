@@ -987,6 +987,7 @@ const comboCache = new Map<string, { data: EDHRECCombo[]; timestamp: number }>()
 
 interface RawComboEntry {
   cardviews: { name: string; id: string; sanitized: string }[];
+  href?: string;
   combo: {
     comboId: string;
     count: number;
@@ -996,6 +997,10 @@ interface RawComboEntry {
     comboVote?: { bracket: string };
   };
 }
+
+// Maps comboId → EDHREC href path (e.g. "/combos/golgari/250-779")
+// Populated when combo list is fetched, used by fetchComboDetails
+const comboHrefMap = new Map<string, string>();
 
 interface RawComboResponse {
   container?: {
@@ -1024,15 +1029,19 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
 
     const rawCombos = response.container?.json_dict?.cardlists || [];
 
-    const combos: EDHRECCombo[] = rawCombos.map(entry => ({
-      comboId: entry.combo.comboId,
-      cards: entry.cardviews.map(cv => ({ name: cv.name, id: cv.id })),
-      results: entry.combo.results || [],
-      deckCount: entry.combo.count || 0,
-      rank: entry.combo.rank || 0,
-      bracket: entry.combo.comboVote?.bracket || 'unknown',
-      prereqCount: entry.combo.nonCardPrerequisiteCount || 0,
-    }));
+    const combos: EDHRECCombo[] = rawCombos.map(entry => {
+      // Store href for later detail fetches
+      if (entry.href) comboHrefMap.set(entry.combo.comboId, entry.href);
+      return {
+        comboId: entry.combo.comboId,
+        cards: entry.cardviews.map(cv => ({ name: cv.name, id: cv.id })),
+        results: entry.combo.results || [],
+        deckCount: entry.combo.count || 0,
+        rank: entry.combo.rank || 0,
+        bracket: entry.combo.comboVote?.bracket || 'unknown',
+        prereqCount: entry.combo.nonCardPrerequisiteCount || 0,
+      };
+    });
 
     combos.sort((a, b) => b.deckCount - a.deckCount);
 
@@ -1044,68 +1053,43 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
   }
 }
 
-// --- Commander Spellbook combo details ---
+// --- EDHREC combo details ---
 
 export interface ComboDetails {
   prerequisites: string[];
-  manaNeeded: string;
   steps: string[];
   results: string[];
 }
 
 const comboDetailsCache = new Map<string, ComboDetails>();
 
+interface RawComboDetailResponse {
+  combo?: {
+    prerequisites?: { description: string; zones: string[] }[];
+    steps?: string[];
+    results?: string[];
+  };
+}
+
 /**
- * Fetch detailed combo info (prerequisites, steps, results) from Commander Spellbook.
- * Uses the comboId from EDHREC which maps to a Commander Spellbook variant ID.
+ * Fetch detailed combo info (prerequisites, steps, results) from EDHREC's
+ * combo detail page JSON. Uses the href captured during combo list fetch.
  */
 export async function fetchComboDetails(comboId: string): Promise<ComboDetails> {
   const cached = comboDetailsCache.get(comboId);
   if (cached) return cached;
 
-  const targetUrl = `https://backend.commanderspellbook.com/variants/${comboId}`;
+  const href = comboHrefMap.get(comboId);
+  if (!href) throw new Error(`No EDHREC href for combo ${comboId}`);
 
-  // Commander Spellbook doesn't set CORS headers, so we route through a proxy
-  const proxyUrls = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-    `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-  ];
-
-  let data: any;
-  let lastError: Error | null = null;
-  for (const url of proxyUrls) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Proxy ${res.status}`);
-      data = await res.json();
-      break;
-    } catch (e) {
-      lastError = e as Error;
-    }
-  }
-  if (!data) throw lastError ?? new Error('All CORS proxies failed');
-
-  const prerequisites: string[] = [];
-  if (data.easyPrerequisites) {
-    prerequisites.push(...data.easyPrerequisites.split('.').map((s: string) => s.trim()).filter(Boolean));
-  }
-  if (data.notablePrerequisites) {
-    prerequisites.push(...data.notablePrerequisites.split('.').map((s: string) => s.trim()).filter(Boolean));
-  }
-
-  const steps: string[] = data.description
-    ? data.description.split('.').map((s: string) => s.trim()).filter(Boolean)
-    : [];
-
-  const results: string[] = Array.isArray(data.produces)
-    ? data.produces.map((p: { feature?: { name?: string } }) => p.feature?.name).filter(Boolean)
-    : [];
+  const data = await edhrecFetch<RawComboDetailResponse>(`/pages${href}.json`);
+  const combo = data.combo;
+  if (!combo) throw new Error('No combo data in response');
 
   const details: ComboDetails = {
-    prerequisites,
-    manaNeeded: data.manaNeeded || '',
-    steps,
-    results,
+    prerequisites: combo.prerequisites?.map(p => p.description).filter(Boolean) ?? [],
+    steps: combo.steps ?? [],
+    results: combo.results ?? [],
   };
 
   comboDetailsCache.set(comboId, details);
