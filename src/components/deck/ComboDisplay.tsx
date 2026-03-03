@@ -4,6 +4,7 @@ import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { ManaText } from '@/components/ui/mtg-icons';
 import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
@@ -303,7 +304,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                       {details.prerequisites.map((prereq, idx) => (
                         <div key={idx} className="text-[11px] text-muted-foreground leading-snug flex gap-1">
                           <span className="shrink-0 opacity-50">•</span>
-                          {prereq}
+                          <ManaText text={prereq} />
                         </div>
                       ))}
                     </div>
@@ -322,7 +323,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                         <span className="shrink-0 w-3.5 h-3.5 rounded-full bg-muted flex items-center justify-center text-[9px] font-bold mt-0.5">
                           {idx + 1}
                         </span>
-                        <span>{step}</span>
+                        <ManaText text={step} />
                       </div>
                     ))}
                   </div>

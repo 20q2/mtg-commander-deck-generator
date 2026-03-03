@@ -112,6 +112,26 @@ export function ManaCost({ cost, className = '' }: ManaCostProps) {
   );
 }
 
+/**
+ * Renders a text string that may contain {X} mana notation with inline mana symbols.
+ * E.g. "{2}{G} plus enough mana" → <mana icons> plus enough mana
+ */
+export function ManaText({ text, className = '' }: { text: string; className?: string }) {
+  // Split on mana symbols, keeping the delimiters
+  const parts = text.split(/(\{[^}]+\})/g);
+  return (
+    <span className={`inline ${className}`}>
+      {parts.map((part, i) =>
+        /^\{[^}]+\}$/.test(part) ? (
+          <i key={i} className={`ms ms-${part.replace(/[{}]/g, '').toLowerCase().replace('/', '')} ms-cost`} />
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </span>
+  );
+}
+
 // Color identity display using mana-font
 interface ColorIdentityProps {
   colors: string[];
