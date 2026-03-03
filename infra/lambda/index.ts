@@ -258,31 +258,51 @@ async function handleGet(params: Record<string, string>) {
       }
     };
 
-    // Paginate through results — process each page inline to avoid storing all items
+    // Build per-day ranges so we can query them in parallel
+    const dayRanges: Array<{ rangeFrom: string; rangeTo: string }> = [];
+    const startDay = new Date(from.slice(0, 10) + 'T00:00:00.000Z');
+    const endDay = new Date(to.slice(0, 10) + 'T00:00:00.000Z');
+    for (let d = new Date(startDay); d <= endDay; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dayStr = d.toISOString().slice(0, 10);
+      const isFirst = d.getTime() === startDay.getTime();
+      const isLast = d.getTime() === endDay.getTime();
+      dayRanges.push({
+        rangeFrom: isFirst ? from : dayStr,
+        rangeTo: isLast ? to + '\uffff' : dayStr + '\uffff',
+      });
+    }
+
+    // Query each day in parallel, process items inline
     let totalEvents = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let exclusiveStartKey: Record<string, any> | undefined;
-    do {
-      const result = await client.send(
-        new QueryCommand({
-          TableName: TABLE_NAME,
-          IndexName: 'gsi-all-by-date',
-          KeyConditionExpression: 'gsiPk = :pk AND sk BETWEEN :from AND :to',
-          ExpressionAttributeValues: marshall({
-            ':pk': 'ALL',
-            ':from': from,
-            ':to': to + '\uffff',
-          }),
-          ExclusiveStartKey: exclusiveStartKey,
-        })
-      );
-      for (const raw of result.Items || []) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        processItem(unmarshall(raw as any));
-        totalEvents++;
-      }
-      exclusiveStartKey = result.LastEvaluatedKey;
-    } while (exclusiveStartKey);
+    const queryDayRange = async (rangeFrom: string, rangeTo: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let exclusiveStartKey: Record<string, any> | undefined;
+      do {
+        const result = await client.send(
+          new QueryCommand({
+            TableName: TABLE_NAME,
+            IndexName: 'gsi-all-by-date',
+            KeyConditionExpression: 'gsiPk = :pk AND sk BETWEEN :from AND :to',
+            ExpressionAttributeValues: marshall({
+              ':pk': 'ALL',
+              ':from': rangeFrom,
+              ':to': rangeTo,
+            }),
+            ProjectionExpression: '#evt, #ts, metadata',
+            ExpressionAttributeNames: { '#evt': 'event', '#ts': 'timestamp' },
+            ExclusiveStartKey: exclusiveStartKey,
+          })
+        );
+        for (const raw of result.Items || []) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          processItem(unmarshall(raw as any));
+          totalEvents++;
+        }
+        exclusiveStartKey = result.LastEvaluatedKey;
+      } while (exclusiveStartKey);
+    };
+
+    await Promise.all(dayRanges.map((r) => queryDayRange(r.rangeFrom, r.rangeTo)));
 
     // Classify each user exactly once: new if firstSeen is within query range, else returning
     for (const [userId, firstSeen] of userFirstSeen) {

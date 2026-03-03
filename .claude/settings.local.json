@@ -50,7 +50,8 @@
       "Bash(done)",
       "Bash(npm ls:*)",
       "Bash(npm uninstall:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(npx cdk deploy:*)"
     ]
   }
 }
