@@ -1063,10 +1063,27 @@ export async function fetchComboDetails(comboId: string): Promise<ComboDetails> 
   const cached = comboDetailsCache.get(comboId);
   if (cached) return cached;
 
-  const res = await fetch(`https://backend.commanderspellbook.com/variants/${comboId}`);
-  if (!res.ok) throw new Error(`Spellbook API ${res.status}`);
+  const targetUrl = `https://backend.commanderspellbook.com/variants/${comboId}`;
 
-  const data = await res.json();
+  // Commander Spellbook doesn't set CORS headers, so we route through a proxy
+  const proxyUrls = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+    `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+  ];
+
+  let data: any;
+  let lastError: Error | null = null;
+  for (const url of proxyUrls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Proxy ${res.status}`);
+      data = await res.json();
+      break;
+    } catch (e) {
+      lastError = e as Error;
+    }
+  }
+  if (!data) throw lastError ?? new Error('All CORS proxies failed');
 
   const prerequisites: string[] = [];
   if (data.easyPrerequisites) {
