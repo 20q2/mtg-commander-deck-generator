@@ -4,7 +4,7 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { useStore } from '@/store';
 import type { ScryfallCard } from '@/types';
-import { Plus, Shuffle, Info, Hand, ChevronDown } from 'lucide-react';
+import { Plus, Shuffle, Hand, ChevronDown } from 'lucide-react';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 
 /** Fisher-Yates shuffle (returns a new array). */
