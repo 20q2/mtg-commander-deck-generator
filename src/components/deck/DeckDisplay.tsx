@@ -1921,7 +1921,7 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
           swapDeckCard(oldCard, newCard);
           setPreviewCard(null);
         }}
-        onRegenerate={readOnly ? undefined : onRegenerate}
+        onRegenerate={readOnly ? undefined : handleRegenerate}
       />
       <ExportModal
         isOpen={showExportModal}

@@ -489,6 +489,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
         combos={previewCardName ? cardComboMap.get(previewCardName) : undefined}
         cardComboMap={cardComboMap}
         hideMustInclude={hideMustInclude}
+        onRegenerate={onRegenerate}
       />
       {toastMessage && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
