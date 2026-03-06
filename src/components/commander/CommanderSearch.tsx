@@ -507,7 +507,8 @@ export function CommanderSearch() {
             <button
               onClick={handleSurpriseMe}
               disabled={isSearching || (ownedOnly && collectionLegends.length === 0)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className="animate-chip-in flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ animationDelay: `${(ownedOnly ? ownedSuggestions.length : edhrecCommanders.filter(c => !c.name.includes('//')).length) * 40 + 80}ms` }}
             >
               <Shuffle className="w-4 h-4" />
               Surprise me!

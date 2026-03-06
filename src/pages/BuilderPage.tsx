@@ -55,6 +55,11 @@ export function BuilderPage() {
     reset,
   } = useStore();
 
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   // Load commander from URL if not already loaded
   useEffect(() => {
     async function loadCommanderFromUrl() {
