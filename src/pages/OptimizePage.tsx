@@ -78,10 +78,12 @@ export function OptimizePage() {
 
     setOptimizeList(list);
 
-    // Compute type breakdown (cards likely cached from deck view)
+    // Compute type breakdown and set land count from original deck
     if (list.cards.length > 0) {
       getCardsByNames(list.cards).then(cardMap => {
         const breakdown: Record<string, number> = {};
+        let landCount = 0;
+        let basicLandCount = 0;
         for (const name of list.cards) {
           const card = cardMap.get(name);
           if (!card) continue;
@@ -92,12 +94,25 @@ export function OptimizePage() {
           else if (typeLine.includes('sorcery')) mainType = 'Sorcery';
           else if (typeLine.includes('artifact')) mainType = 'Artifact';
           else if (typeLine.includes('enchantment')) mainType = 'Enchantment';
-          else if (typeLine.includes('land')) mainType = 'Land';
+          else if (typeLine.includes('land')) {
+            mainType = 'Land';
+            landCount++;
+            if (typeLine.includes('basic')) basicLandCount++;
+          }
           else if (typeLine.includes('planeswalker')) mainType = 'Planeswalker';
           else if (typeLine.includes('battle')) mainType = 'Battle';
           breakdown[mainType] = (breakdown[mainType] ?? 0) + 1;
         }
         setTypeBreakdown(breakdown);
+
+        // Set land count from original deck so EDHREC doesn't override it
+        if (landCount > 0) {
+          updateCustomization({
+            landCount,
+            nonBasicLandCount: landCount - basicLandCount,
+          });
+          useStore.setState({ userEditedLands: true });
+        }
       });
     }
 
@@ -323,11 +338,17 @@ export function OptimizePage() {
     if (!cmd || !optimizeList) return;
     const isRegeneration = currentDeck !== null;
 
-    // Get the deck cards (minus commander/partner) to pass as optimization cards
+    // Get the deck cards (minus commander/partner and lands) to pass as optimization cards
+    // Lands are excluded so the generator's land system can respect the user's landCount setting
     const commanderNames = new Set<string>();
     commanderNames.add(cmd.name);
     if (partner) commanderNames.add(partner.name);
-    const deckCards = optimizeList.cards.filter(name => !commanderNames.has(name));
+    const allDeckCards = optimizeList.cards.filter(name => !commanderNames.has(name));
+    const cardMap = await getCardsByNames(allDeckCards);
+    const deckCards = allDeckCards.filter(name => {
+      const card = cardMap.get(name);
+      return card ? !getFrontFaceTypeLine(card).toLowerCase().includes('land') : true;
+    });
 
     setLoading(true, 'Starting deck optimization...');
     setProgress('Initializing...');
@@ -364,13 +385,17 @@ export function OptimizePage() {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }
 
-      // Compute which original deck cards were removed
+      // Compute which original deck cards were removed (compare full original list)
       const finalCardNames = new Set(
         Object.values(deck.categories).flat().map(c => c.name)
       );
       if (deck.commander) finalCardNames.add(deck.commander.name);
       if (deck.partnerCommander) finalCardNames.add(deck.partnerCommander.name);
-      deck.removedFromDeck = deckCards.filter(name => !finalCardNames.has(name));
+      // Also match front-face names for DFCs
+      for (const name of finalCardNames) {
+        if (name.includes(' // ')) finalCardNames.add(name.split(' // ')[0]);
+      }
+      deck.removedFromDeck = optimizeList.cards.filter(name => !commanderNames.has(name) && !finalCardNames.has(name));
 
       setGeneratedDeck(deck);
       trackEvent('deck_optimized', {
