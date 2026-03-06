@@ -13,7 +13,7 @@ import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Shuffle } from 'lucide-react';
 import { trackEvent, fetchMetrics } from '@/services/analytics';
 
 function isLegendaryCreature(card: CollectionCard): boolean {
@@ -185,6 +185,39 @@ export function CommanderSearch() {
       handleSelectCommander(card);
     } catch (error) {
       console.error('Failed to fetch commander:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // All valid color keys for EDHREC top commanders
+  const COLOR_COMBOS = [
+    '', 'C',
+    'W', 'U', 'B', 'R', 'G',
+    'WU', 'WB', 'WR', 'WG', 'UB', 'UR', 'UG', 'BR', 'BG', 'RG',
+    'WUB', 'WUR', 'WUG', 'WBR', 'WBG', 'WRG', 'UBR', 'UBG', 'URG', 'BRG',
+    'WUBR', 'WUBG', 'WURG', 'WBRG', 'UBRG', 'WUBRG',
+  ];
+
+  const handleSurpriseMe = async () => {
+    if (ownedOnly && collectionLegends.length > 0) {
+      const pick = collectionLegends[Math.floor(Math.random() * collectionLegends.length)];
+      await handleSelectOwnedCommander(pick.name);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const randomKey = COLOR_COMBOS[Math.floor(Math.random() * COLOR_COMBOS.length)];
+      const colors = randomKey === 'C' ? ['C'] : randomKey.split('');
+      const commanders = await fetchTopCommanders(colors);
+      const filtered = commanders.filter(c => !c.name.includes('//'));
+      if (filtered.length === 0) return;
+      const pick = filtered[Math.floor(Math.random() * filtered.length)];
+      const card = await getCardByName(pick.name);
+      handleSelectCommander(card);
+    } catch (error) {
+      console.error('Failed to fetch random commander:', error);
     } finally {
       setIsSearching(false);
     }
@@ -468,6 +501,18 @@ export function CommanderSearch() {
               )}
             </>
           )}
+
+          {/* Surprise Me button */}
+          <div className="mt-5 flex justify-center">
+            <button
+              onClick={handleSurpriseMe}
+              disabled={isSearching || (ownedOnly && collectionLegends.length === 0)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Shuffle className="w-4 h-4" />
+              Surprise me!
+            </button>
+          </div>
         </div>
       )}
     </div>
