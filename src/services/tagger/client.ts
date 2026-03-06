@@ -135,3 +135,16 @@ export function getCardDrawSubtype(cardName: string): CardDrawSubtype | null {
   if (tagSets['draw']?.has(cardName)) return 'card-draw';
   return 'card-advantage';
 }
+
+/** Get the subtype of a card for its primary role (if any). */
+export function getCardSubtype(cardName: string): string | null {
+  const role = getCardRole(cardName);
+  if (!role) return null;
+  switch (role) {
+    case 'ramp': return getRampSubtype(cardName);
+    case 'removal': return getRemovalSubtype(cardName);
+    case 'boardwipe': return getBoardwipeSubtype(cardName);
+    case 'cardDraw': return getCardDrawSubtype(cardName);
+    default: return null;
+  }
+}

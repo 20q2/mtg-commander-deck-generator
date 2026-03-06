@@ -598,7 +598,7 @@ export function DeckCustomizer() {
                 {[
                   customization.bracketLevel !== 'all' ? `Bracket ${customization.bracketLevel}` : null,
                   customization.gameChangerLimit === 'none' ? 'No GCs' : typeof customization.gameChangerLimit === 'number' ? `${customization.gameChangerLimit} GCs` : null,
-                  customization.comboCount > 0 ? `Combos: ${(['', 'A Few', 'Many'] as const)[customization.comboCount]}` : null,
+                  customization.comboCount > 0 ? `Combos: ${(['', 'Normal', 'A Few', 'Many'] as const)[customization.comboCount]}` : null,
                 ].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -725,18 +725,19 @@ export function DeckCustomizer() {
               <div className="flex justify-between mb-2">
                 <label className="text-sm font-medium flex items-center gap-1.5">
                   Combos
-                  <InfoTooltip text="How aggressively to include combos from EDHREC's combo database. At 'Normal', no combo cards are prioritized but any that naturally end up in the deck are still detected. Higher values increasingly favor including combo piece cards." />
+                  <InfoTooltip text="How aggressively to include combos from EDHREC's combo database. 'None' applies no combo boosting — any combos that naturally end up in the deck are still detected. Higher values increasingly prioritize including combo piece cards, and dynamically boost remaining pieces when part of a combo is already selected." />
                 </label>
-                <span className="text-sm font-bold">{(['Normal', 'A Few Extra', 'Many'] as const)[customization.comboCount]}</span>
+                <span className="text-sm font-bold">{(['None', 'Normal', 'A Few Extra', 'Many'] as const)[customization.comboCount]}</span>
               </div>
               <Slider
                 value={customization.comboCount}
                 min={0}
-                max={2}
+                max={3}
                 step={1}
                 onChange={(value) => updateCustomization({ comboCount: value })}
               />
               <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>None</span>
                 <span>Normal</span>
                 <span>A Few Extra</span>
                 <span>Many</span>

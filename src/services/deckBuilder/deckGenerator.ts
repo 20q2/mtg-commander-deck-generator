@@ -25,7 +25,7 @@ import {
   calculateCurveTargets,
   hasCurveRoom,
 } from './curveUtils';
-import { loadTaggerData, hasTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
+import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { loadUserLists } from '@/hooks/useUserLists';
 
 interface GenerationContext {
@@ -667,14 +667,34 @@ function getRoleTargets(format: DeckFormat): Record<RoleKey, number> {
 }
 
 // Compute role-deficit boost map for balanced roles mode
+// Subtypes per role for diversity calculations
+const ROLE_SUBTYPES: Record<string, string[]> = {
+  ramp: ['mana-producer', 'mana-rock', 'cost-reducer', 'ramp'],
+  removal: ['counterspell', 'bounce', 'spot-removal', 'removal'],
+  boardwipe: ['bounce-wipe', 'boardwipe'],
+  cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
+};
+
 function computeRoleBoosts(
   cardRoleMap: Map<string, RoleKey>,
   roleTargets: Record<RoleKey, number>,
   currentRoleCounts: Record<RoleKey, number>,
   baseBoosts?: Map<string, number>,
-  cardCmcMap?: Map<string, number>
+  cardCmcMap?: Map<string, number>,
+  cardSubtypeMap?: Map<string, string>,
+  currentSubtypeCounts?: Record<string, number>
 ): Map<string, number> {
   const boosts = new Map<string, number>(baseBoosts ?? []);
+
+  // Pre-compute peer average counts per role for subtype diversity
+  const peerAverages: Record<string, number> = {};
+  if (cardSubtypeMap && currentSubtypeCounts) {
+    for (const [role, subtypes] of Object.entries(ROLE_SUBTYPES)) {
+      const total = subtypes.reduce((sum, st) => sum + (currentSubtypeCounts[st] ?? 0), 0);
+      peerAverages[role] = subtypes.length > 0 ? total / subtypes.length : 0;
+    }
+  }
+
   for (const [name, role] of cardRoleMap) {
     const target = roleTargets[role];
     if (target <= 0) continue;
@@ -691,7 +711,24 @@ function computeRoleBoosts(
           else if (cmc <= 3) earlyRampMultiplier = 1.2;   // Cultivate, Kodama's Reach
         }
       }
-      boosts.set(name, (boosts.get(name) ?? 0) + roleBoost * earlyRampMultiplier);
+      // Subtype diversity: penalize over-represented subtypes, bonus for unrepresented ones
+      let diversityMultiplier = 1.0;
+      if (cardSubtypeMap && currentSubtypeCounts) {
+        const subtype = cardSubtypeMap.get(name);
+        if (subtype) {
+          const subtypeCount = currentSubtypeCounts[subtype] ?? 0;
+          const avg = peerAverages[role] ?? 0;
+          const excess = subtypeCount - avg;
+          if (excess > 1) {
+            // Gradually reduce boost: 0.9x at +2, 0.8x at +3, floor at 0.4x
+            diversityMultiplier = Math.max(0.4, 1.0 - (excess - 1) * 0.1);
+          } else if (subtypeCount === 0) {
+            // Encourage picking the first of each subtype
+            diversityMultiplier = 1.25;
+          }
+        }
+      }
+      boosts.set(name, (boosts.get(name) ?? 0) + roleBoost * earlyRampMultiplier * diversityMultiplier);
     }
   }
   return boosts;
@@ -1340,26 +1377,52 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Tagger data: ${hasTaggerData() ? 'loaded' : 'unavailable (role detection disabled)'}`);
   }
 
-  // Build combo priority boost map
+  // Build combo priority boost map + combo membership index for dynamic boosting
   const comboCountSetting = customization.comboCount ?? 0;
-  const comboPriorityBoost = new Map<string, number>();
+  const staticComboBoosts = new Map<string, number>();
   const comboCardNames = new Set<string>();
+  const comboCards = new Map<string, Set<string>>(); // comboId -> card names
   if (comboCountSetting > 0 && combos.length > 0) {
-    // Scale combo attempts by deck size (baseline: 99 cards → 1→3, 2→6)
+    // Scale combo attempts by deck size (baseline: 99 cards → 1→2, 2→4, 3→7)
     const sizeScale = Math.max(0.5, format / 99);
-    const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 3 * sizeScale));
+    const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 2.33 * sizeScale));
     const combosToAttempt = combos.slice(0, comboSliceCount);
+    const staticBoost = 75 * comboCountSetting; // 1→75, 2→150, 3→225
     for (const combo of combosToAttempt) {
+      const cardSet = new Set(combo.cards.map(c => c.name));
+      comboCards.set(combo.comboId, cardSet);
       for (const card of combo.cards) {
         comboCardNames.add(card.name);
-        const existing = comboPriorityBoost.get(card.name) ?? 0;
-        // Boost needs to be large enough to override base priority (typically 50-200)
-        const boost = 200 * (comboCountSetting / 2);
-        comboPriorityBoost.set(card.name, existing + boost);
+        const existing = staticComboBoosts.get(card.name) ?? 0;
+        staticComboBoosts.set(card.name, existing + staticBoost);
       }
     }
-    console.log(`[DeckGen] Combo priority boost applied to ${comboPriorityBoost.size} unique cards from top ${combosToAttempt.length} combos`);
+    console.log(`[DeckGen] Combo priority boost applied to ${staticComboBoosts.size} unique cards from top ${combosToAttempt.length} combos (static boost: ${staticBoost}pts)`);
   }
+
+  // Dynamic combo boosts: recalculates each phase to boost remaining pieces of partially-assembled combos
+  const getComboBoosts = (): Map<string, number> => {
+    const boosts = new Map(staticComboBoosts);
+    if (comboCountSetting <= 0 || comboCards.size === 0) return boosts;
+    for (const [, cardSet] of comboCards) {
+      const totalPieces = cardSet.size;
+      if (totalPieces <= 1) continue;
+      let selectedCount = 0;
+      for (const name of cardSet) {
+        if (usedNames.has(name)) selectedCount++;
+      }
+      if (selectedCount === 0) continue;
+      // completionFraction uses totalPieces-1 so 2-of-3 = 1.0 (max urgency for last piece)
+      const completionFraction = selectedCount / (totalPieces - 1);
+      const dynamicBoost = 50 * comboCountSetting * completionFraction;
+      for (const name of cardSet) {
+        if (usedNames.has(name)) continue;
+        boosts.set(name, (boosts.get(name) ?? 0) + dynamicBoost);
+      }
+    }
+    return boosts;
+  };
+  // getComboBoosts() is called at each type phase to include dynamic boosts
 
   const categories: Record<DeckCategory, ScryfallCard[]> = {
     lands: [],
@@ -1378,6 +1441,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Balanced roles tracking — declared at outer scope so return statement can access them
   let roleTargets: Record<RoleKey, number> | null = null;
   const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  const currentSubtypeCounts: Record<string, number> = {};
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;
 
   // Process must-include cards FIRST — they get priority over all other selections
@@ -1668,16 +1732,16 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const inBase = baseCardNames.has(card.name);
 
         if (!inBase && synergy >= 0.1) {
-          comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) + 1000);
+          staticComboBoosts.set(card.name, (staticComboBoosts.get(card.name) ?? 0) + 1000);
           boosted++;
         } else if (!inBase) {
-          comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) + 500);
+          staticComboBoosts.set(card.name, (staticComboBoosts.get(card.name) ?? 0) + 500);
           boosted++;
         } else if (inBase && synergy >= 0.3) {
-          comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) + 200);
+          staticComboBoosts.set(card.name, (staticComboBoosts.get(card.name) ?? 0) + 200);
           boosted++;
         } else if (inBase && synergy < 0.1) {
-          comboPriorityBoost.set(card.name, (comboPriorityBoost.get(card.name) ?? 0) - 500);
+          staticComboBoosts.set(card.name, (staticComboBoosts.get(card.name) ?? 0) - 500);
           penalized++;
         }
       }
@@ -1696,7 +1760,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         } else {
           boost = -200 * (count - 1);
         }
-        comboPriorityBoost.set(name, (comboPriorityBoost.get(name) ?? 0) + boost);
+        staticComboBoosts.set(name, (staticComboBoosts.get(name) ?? 0) + boost);
       }
       console.log(`[DeckGen] Hyper Focus (${numThemes} themes, base pool: ${baseCardNames.size} cards): adjusted ${themeOverlapCounts.size} cards`);
     }
@@ -1965,6 +2029,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     roleTargets = customization.balancedRoles ? getRoleTargets(format) : null;
     const cardRoleMap = new Map<string, RoleKey>();
     const cardCmcMap = new Map<string, number>();
+    const cardSubtypeMap = new Map<string, string>();
 
     if (customization.balancedRoles) {
       // Pre-compute roles and CMC for all candidates in all pools
@@ -1978,10 +2043,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           if (role) {
             cardRoleMap.set(edhrecCard.name, role);
             cardCmcMap.set(edhrecCard.name, scryfallCard.cmc);
+            const subtype = getCardSubtype(scryfallCard.name);
+            if (subtype) cardSubtypeMap.set(edhrecCard.name, subtype);
             // Also store under full Scryfall name for DFCs (e.g. "A // B")
             if (scryfallCard.name !== edhrecCard.name) {
               cardRoleMap.set(scryfallCard.name, role);
               cardCmcMap.set(scryfallCard.name, scryfallCard.cmc);
+              if (subtype) cardSubtypeMap.set(scryfallCard.name, subtype);
             }
           }
         }
@@ -1990,7 +2058,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // Seed counts from pre-filled cards (must-includes + multi-copy) and stamp roles
       for (const card of Object.values(categories).flat()) {
         const role = getCardRole(card.name);
-        if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); }
+        if (role) {
+          currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card);
+          const subtype = cardSubtypeMap.get(card.name) ?? getCardSubtype(card.name);
+          if (subtype) currentSubtypeCounts[subtype] = (currentSubtypeCounts[subtype] ?? 0) + 1;
+        }
       }
 
       console.log(`[DeckGen] Balanced Roles: ${cardRoleMap.size} candidates mapped, targets:`, roleTargets);
@@ -2002,7 +2074,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // 1. Creatures
     console.log(`[DeckGen] Creatures: need ${creatureTarget}, pool has ${creaturePool.length} cards`);
     onProgress?.('Summoning creatures from the aether...', 35);
-    const creatureBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, comboPriorityBoost, cardCmcMap) : comboPriorityBoost;
+    const creatureBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
     const creatures = pickFromPrefetchedWithCurve(
       creaturePool,
       cardMap,
@@ -2026,7 +2098,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly
     );
     categories.creatures.push(...creatures);
-    for (const card of creatures) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); } }
+    for (const card of creatures) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
     console.log(`[DeckGen] Creatures: got ${creatures.length} from EDHREC`);
 
     // Fill remaining creatures from Scryfall if needed (use original target since categories include must-includes)
@@ -2058,7 +2130,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // 2. Instants
     console.log(`[DeckGen] Instants: need ${instantTarget}, pool has ${instantPool.length} cards`);
     onProgress?.('Preparing instant-speed responses...', 45);
-    const instantBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, comboPriorityBoost, cardCmcMap) : comboPriorityBoost;
+    const instantBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
     const instants = pickFromPrefetchedWithCurve(
       instantPool,
       cardMap,
@@ -2083,12 +2155,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeCards(instants, categories);
-    for (const card of instants) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); } }
+    for (const card of instants) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
 
     // 3. Sorceries
     console.log(`[DeckGen] Sorceries: need ${sorceryTarget}, pool has ${sorceryPool.length} cards`);
     onProgress?.('Channeling sorcerous power...', 55);
-    const sorceryBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, comboPriorityBoost, cardCmcMap) : comboPriorityBoost;
+    const sorceryBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
     const sorceries = pickFromPrefetchedWithCurve(
       sorceryPool,
       cardMap,
@@ -2113,12 +2185,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeCards(sorceries, categories);
-    for (const card of sorceries) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); } }
+    for (const card of sorceries) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
 
     // 4. Artifacts
     console.log(`[DeckGen] Artifacts: need ${artifactTarget}, pool has ${artifactPool.length} cards`);
     onProgress?.('Forging powerful artifacts...', 62);
-    const artifactBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, comboPriorityBoost, cardCmcMap) : comboPriorityBoost;
+    const artifactBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
     const artifacts = pickFromPrefetchedWithCurve(
       artifactPool,
       cardMap,
@@ -2143,12 +2215,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeCards(artifacts, categories);
-    for (const card of artifacts) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); } }
+    for (const card of artifacts) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
 
     // 5. Enchantments
     console.log(`[DeckGen] Enchantments: need ${enchantmentTarget}, pool has ${enchantmentPool.length} cards`);
     onProgress?.('Weaving magical enchantments...', 68);
-    const enchantmentBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, comboPriorityBoost, cardCmcMap) : comboPriorityBoost;
+    const enchantmentBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
     const enchantments = pickFromPrefetchedWithCurve(
       enchantmentPool,
       cardMap,
@@ -2173,13 +2245,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeCards(enchantments, categories);
-    for (const card of enchantments) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); } }
+    for (const card of enchantments) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
 
     // 6. Planeswalkers
     console.log(`[DeckGen] Planeswalkers: need ${planeswalkerTarget}, pool has ${planeswalkerPool.length} cards`);
     if (planeswalkerPool.length > 0 && planeswalkerTarget > 0) {
       onProgress?.('Calling upon planeswalker allies...', 72);
-      const planeswalkerBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, comboPriorityBoost, cardCmcMap) : comboPriorityBoost;
+      const planeswalkerBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
       const planeswalkers = pickFromPrefetchedWithCurve(
         planeswalkerPool,
         cardMap,
@@ -2204,7 +2276,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
-      for (const card of planeswalkers) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); } }
+      for (const card of planeswalkers) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
     }
 
     // Log balanced roles result

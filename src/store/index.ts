@@ -169,7 +169,7 @@ const defaultCustomization: Customization = {
   tinyLeaders: false,
   collectionMode: false,
   arenaOnly: false,
-  comboCount: 0,
+  comboCount: 1,
   hyperFocus: false,
   balancedRoles: true,
   currency: loadCurrency(),
