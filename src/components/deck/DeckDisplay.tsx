@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
@@ -23,17 +23,58 @@ import {
   Star,
   Pin,
   Bookmark,
+  Pencil,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
+import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
+
+// Role badge display properties for each subtype
+function getRoleBadgeProps(card: ScryfallCard): { color: string; bgColor: string; title: string; label: string } | null {
+  if (!card.deckRole) return null;
+  switch (card.deckRole) {
+    case 'ramp':
+      switch (card.rampSubtype) {
+        case 'mana-producer': return { color: 'text-lime-400/70', bgColor: 'bg-lime-500/80', title: 'Mana Producer', label: 'MANA' };
+        case 'mana-rock': return { color: 'text-yellow-400/70', bgColor: 'bg-yellow-500/80', title: 'Mana Rock', label: 'ROCK' };
+        case 'cost-reducer': return { color: 'text-teal-400/70', bgColor: 'bg-teal-500/80', title: 'Cost Reducer', label: 'COST' };
+        default: return { color: 'text-emerald-400/70', bgColor: 'bg-emerald-500/80', title: 'Ramp', label: 'RAMP' };
+      }
+    case 'removal':
+      switch (card.removalSubtype) {
+        case 'counterspell': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Counterspell', label: 'CTR' };
+        case 'bounce': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce', label: 'BNCE' };
+        case 'spot-removal': return { color: 'text-rose-400/70', bgColor: 'bg-rose-500/80', title: 'Spot Removal', label: 'SPOT' };
+        default: return { color: 'text-red-400/70', bgColor: 'bg-red-500/80', title: 'Removal', label: 'REM' };
+      }
+    case 'boardwipe':
+      switch (card.boardwipeSubtype) {
+        case 'bounce-wipe': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce Wipe', label: 'BNCE' };
+        default: return { color: 'text-orange-400/70', bgColor: 'bg-orange-500/80', title: 'Board Wipe', label: 'WIPE' };
+      }
+    case 'cardDraw':
+      switch (card.cardDrawSubtype) {
+        case 'tutor': return { color: 'text-amber-400/70', bgColor: 'bg-amber-500/80', title: 'Tutor', label: 'TUTR' };
+        case 'wheel': return { color: 'text-pink-400/70', bgColor: 'bg-pink-500/80', title: 'Wheel', label: 'WHEL' };
+        case 'cantrip': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Cantrip', label: 'TRIP' };
+        case 'card-draw': return { color: 'text-blue-400/70', bgColor: 'bg-blue-500/80', title: 'Card Draw', label: 'DRAW' };
+        default: return { color: 'text-indigo-400/70', bgColor: 'bg-indigo-500/80', title: 'Card Advantage', label: 'CA' };
+      }
+    default: return null;
+  }
+}
 
 // Stats filter for interactive highlighting
 type StatsFilter =
   | { type: 'cmc'; value: number }
   | { type: 'color'; value: string }
   | { type: 'manaProduction'; value: string }
+  | { type: 'role'; value: string }
   | null;
 
 // Check if a card matches the current stats filter
@@ -85,6 +126,10 @@ function cardMatchesFilter(card: ScryfallCard, filter: StatsFilter): boolean {
       }
       return false;
     }
+    case 'role':
+      if (card.deckRole === filter.value) return true;
+      if (card.multiRole) return cardMatchesRole(card.name, filter.value as RoleKey);
+      return false;
     default:
       return true;
   }
@@ -211,9 +256,16 @@ interface CardRowProps {
   currency?: 'USD' | 'EUR';
   combosForCard?: DetectedCombo[];
   cardTypeMap?: Map<string, CardType>;
+  showRoleColumn?: boolean;
+  showPinColumn?: boolean;
+  isRemoved?: boolean;
+  isEditMode?: boolean;
+  isSelected?: boolean;
+  isCommanderCard?: boolean;
+  onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
 }
 
-function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -224,16 +276,61 @@ function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, cur
     priceNum >= avgCardPrice + 1;
 
   return (
-    <button
-      className={`w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 group transition-all duration-200 ${
-        dimmed ? 'opacity-30' : 'hover:bg-accent/50'
+    <div
+      className={`w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 group transition-all duration-200 cursor-pointer relative ${
+        dimmed ? 'opacity-30' :
+        isRemoved ? 'opacity-40' :
+        isEditMode && isSelected ? 'bg-primary/15 hover:bg-primary/20' :
+        isEditMode && isCommanderCard ? 'opacity-60' :
+        'hover:bg-accent/50'
       }`}
-      onClick={() => onPreview(card)}
+      onClick={(e) => {
+        if (isEditMode && !isCommanderCard && onToggleSelect) {
+          onToggleSelect(card, e.shiftKey);
+        } else if (!isEditMode) {
+          onPreview(card);
+        }
+      }}
       onMouseEnter={(e) => onHover(card, e)}
       onMouseLeave={() => onHover(null)}
     >
-      <span className="text-muted-foreground w-4 text-right shrink-0">{quantity}</span>
-      <span className="flex-1 min-w-0 flex items-center group-hover:text-primary transition-colors">
+      {isEditMode && (
+        <span className="shrink-0 flex items-center justify-center w-4">
+          {isCommanderCard ? (
+            <span className="w-3.5 h-3.5 rounded border border-border/30 bg-muted/20 cursor-not-allowed" />
+          ) : (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => onToggleSelect?.(card)}
+              onClick={(e) => e.stopPropagation()}
+              className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
+            />
+          )}
+        </span>
+      )}
+      {showPinColumn && (
+        <span className="w-3 shrink-0 flex justify-center">
+          {card.isMustInclude && <Pin className="w-3 h-3 text-emerald-500/70" />}
+        </span>
+      )}
+      <span className="text-muted-foreground w-fit text-right shrink-0">{quantity}</span>
+      {showRoleColumn && (() => {
+        const badge = getRoleBadgeProps(card);
+        return badge ? (
+          <span className={`w-5 text-center shrink-0 text-[10px] font-bold ${card.multiRole ? 'text-purple-400/70' : badge.color}`} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage' })[r]).join(' + ') : badge.title}>{
+            card.multiRole ? '*' :
+            card.deckRole === 'ramp' ? 'RA' :
+            card.deckRole === 'removal' ? 'RE' :
+            card.deckRole === 'boardwipe' ? 'WI' :
+            card.deckRole === 'cardDraw' ? 'CA' :
+            badge.label.substring(0, 2)
+          }</span>
+        ) : (
+          <span className="w-5 shrink-0" />
+        );
+      })()}
+      <span className={`flex-1 min-w-0 flex items-center group-hover:text-primary transition-colors ${isRemoved ? 'line-through text-muted-foreground/50' : ''}`}>
         <span className="truncate">
           {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
         </span>
@@ -267,12 +364,12 @@ function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, cur
         </span>
       </span>
       <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
-      <span className={`text-xs w-16 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
+      <span className={`text-xs w-10 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
         {price}
       </span>
-    </button>
+    </div>
   );
-}
+});
 
 // Category column component
 interface CategoryColumnProps {
@@ -285,9 +382,15 @@ interface CategoryColumnProps {
   currency?: 'USD' | 'EUR';
   cardComboMap?: Map<string, DetectedCombo[]>;
   cardTypeMap?: Map<string, CardType>;
+  showRoleColumn?: boolean;
+  removedCards?: Set<string>;
+  isEditMode?: boolean;
+  selectedCards?: Set<string>;
+  onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
+  onToggleCategory?: (cardIds: string[]) => void;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory }: CategoryColumnProps) {
   const [animateRef] = useAutoAnimate({ duration: 200 });
 
   if (cards.length === 0) return null;
@@ -300,12 +403,29 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
   }, 0);
 
   const hasMatch = matchingCardIds === null || cards.some(({ card }) => matchingCardIds.has(card.id));
+  const hasMustInclude = cards.some(({ card }) => card.isMustInclude);
 
   return (
     <div className="break-inside-avoid-column mb-4">
       {/* Header */}
-      <div className={`flex items-center justify-between px-2 py-2 border-b border-border/50 transition-opacity duration-200 ${!hasMatch ? 'opacity-30' : ''}`}>
+      <div
+        className={`flex items-center justify-between px-2 py-2 border-b border-border/50 transition-opacity duration-200 ${!hasMatch ? 'opacity-30' : ''} ${isEditMode && type !== 'Commander' ? 'cursor-pointer hover:bg-accent/30' : ''}`}
+        onClick={() => {
+          if (isEditMode && type !== 'Commander' && onToggleCategory) {
+            onToggleCategory(cards.map(c => c.card.id));
+          }
+        }}
+      >
         <div className="flex items-center gap-2">
+          {isEditMode && type !== 'Commander' && (
+            <input
+              type="checkbox"
+              checked={cards.length > 0 && cards.every(c => selectedCards?.has(c.card.id))}
+              onChange={() => onToggleCategory?.(cards.map(c => c.card.id))}
+              onClick={(e) => e.stopPropagation()}
+              className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
+            />
+          )}
           <CardTypeIcon type={type} size="md" className="text-muted-foreground" />
           <span className="font-medium text-sm uppercase tracking-wide">
             {type} ({totalCards})
@@ -334,6 +454,13 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               currency={currency}
               combosForCard={cardComboMap?.get(normalizedName)}
               cardTypeMap={cardTypeMap}
+              showRoleColumn={showRoleColumn}
+              showPinColumn={hasMustInclude}
+              isRemoved={removedCards?.has(card.id)}
+              isEditMode={isEditMode}
+              isSelected={selectedCards?.has(card.id)}
+              isCommanderCard={type === 'Commander'}
+              onToggleSelect={onToggleSelect}
             />
           );
         })}
@@ -345,29 +472,33 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
 // Floating card preview
 interface FloatingPreviewProps {
   card: ScryfallCard;
-  position: { x: number; y: number };
+  rowRect: { right: number; top: number; height: number };
   showBack?: boolean;
 }
 
-function FloatingPreview({ card, position, showBack }: FloatingPreviewProps) {
+function FloatingPreview({ card, rowRect, showBack }: FloatingPreviewProps) {
   const backUrl = showBack ? getCardBackFaceUrl(card, 'normal') : null;
   const imgUrl = backUrl || getCardImageUrl(card, 'normal');
 
-  const style: React.CSSProperties = {
-    position: 'fixed',
-    left: Math.min(position.x + 20, window.innerWidth - 280),
-    top: Math.min(position.y - 100, window.innerHeight - 400),
-    zIndex: 100,
-  };
+  // Anchor to the right edge of the row, vertically centered on it
+  const left = rowRect.right + 12;
+  const rowCenter = rowRect.top + rowRect.height / 2;
+  const top = Math.min(Math.max(8, rowCenter - 180), window.innerHeight - 400);
 
   return (
-    <div style={style} className="pointer-events-none">
+    <div
+      className="fixed z-[100] pointer-events-none hidden lg:block"
+      style={{ left, top }}
+    >
       <div className="card-preview-enter">
         <img
           src={imgUrl}
           alt={card.name}
           className="w-64 rounded-lg shadow-2xl border border-border/50"
         />
+        <p className="text-center text-xs text-muted-foreground mt-2 truncate max-w-[256px]">
+          {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
+        </p>
       </div>
     </div>
   );
@@ -681,9 +812,11 @@ function calculateManaProduction(cards: ScryfallCard[]): Record<string, number> 
 interface DeckStatsProps {
   activeFilter: StatsFilter;
   onFilterChange: (filter: StatsFilter) => void;
+  showRoles: boolean;
+  onToggleRoles: () => void;
 }
 
-function DeckStats({ activeFilter, onFilterChange }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles }: DeckStatsProps) {
   const { generatedDeck, colorIdentity } = useStore();
   if (!generatedDeck) return null;
 
@@ -727,6 +860,9 @@ function DeckStats({ activeFilter, onFilterChange }: DeckStatsProps) {
               {activeFilter.type === 'cmc' && `CMC ${activeFilter.value === 7 ? '7+' : activeFilter.value}`}
               {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
               {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
+              {activeFilter.type === 'role' && `${
+                ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
+              }`}
             </span>
           </button>
         )}
@@ -861,6 +997,88 @@ function DeckStats({ activeFilter, onFilterChange }: DeckStatsProps) {
         </div>
       )}
 
+      {/* Deck Roles — only when balanced roles mode was active */}
+      {generatedDeck.roleTargets && generatedDeck.roleCounts && (
+        <div>
+          <button
+            type="button"
+            onClick={onToggleRoles}
+            className="flex items-center gap-1 text-xs text-muted-foreground mb-2 hover:text-foreground transition-colors cursor-pointer w-full"
+          >
+            {showRoles ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            Deck Roles
+          </button>
+          {showRoles && <div className="space-y-1.5">
+            {([
+              ['ramp', 'Ramp', 'bg-emerald-500'],
+              ['removal', 'Removal', 'bg-red-500'],
+              ['boardwipe', 'Board Wipes', 'bg-orange-500'],
+              ['cardDraw', 'Card Advantage', 'bg-blue-500'],
+            ] as const).map(([key, label, barColor]) => {
+              const count = generatedDeck.roleCounts![key] ?? 0;
+              const target = generatedDeck.roleTargets![key] ?? 0;
+              const percent = target > 0 ? Math.min(100, (count / target) * 100) : 100;
+              const met = count >= target;
+              const isActive = activeFilter?.type === 'role' && activeFilter.value === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onFilterChange({ type: 'role', value: key })}
+                  className={`w-full text-left rounded-md px-1.5 py-1 -mx-1.5 transition-colors cursor-pointer ${
+                    isActive ? 'bg-primary/15 ring-1 ring-primary/30' : 'hover:bg-accent/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs mb-0.5">
+                    <span>{label}</span>
+                    <span className={met ? 'text-emerald-500' : 'text-amber-500'}>
+                      {count}{import.meta.env.DEV && <> / {target}</>}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-accent/50 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${barColor} ${met ? 'opacity-80' : 'opacity-60'}`}
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  {count > 0 && (() => {
+                    const subtypeConfig: Record<string, { counts: Record<string, number> | undefined; entries: [string, string, string][] }> = {
+                      ramp: {
+                        counts: generatedDeck.rampSubtypeCounts,
+                        entries: [['mana-producer', 'producer', 'text-lime-400/80'], ['mana-rock', 'rock', 'text-yellow-400/80'], ['cost-reducer', 'reducer', 'text-teal-400/80'], ['ramp', 'ramp', 'text-emerald-400/80']],
+                      },
+                      removal: {
+                        counts: generatedDeck.removalSubtypeCounts,
+                        entries: [['counterspell', 'counter', 'text-sky-400/80'], ['bounce', 'bounce', 'text-cyan-400/80'], ['spot-removal', 'spot', 'text-rose-400/80'], ['removal', 'other', 'text-red-300/80']],
+                      },
+                      boardwipe: {
+                        counts: generatedDeck.boardwipeSubtypeCounts,
+                        entries: [['bounce-wipe', 'bounce', 'text-cyan-400/80'], ['boardwipe', 'other', 'text-orange-400/80']],
+                      },
+                      cardDraw: {
+                        counts: generatedDeck.cardDrawSubtypeCounts,
+                        entries: [['tutor', 'tutor', 'text-amber-400/80'], ['wheel', 'wheel', 'text-pink-400/80'], ['cantrip', 'cantrip', 'text-sky-400/80'], ['card-draw', 'draw', 'text-blue-400/80'], ['card-advantage', 'other', 'text-indigo-400/80']],
+                      },
+                    };
+                    const config = subtypeConfig[key];
+                    if (!config?.counts) return null;
+                    const visible = config.entries.filter(([k]) => (config.counts![k] ?? 0) > 0);
+                    if (visible.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-x-2 mt-0.5 text-[10px] text-muted-foreground pl-4">
+                        {visible.map(([k, label, color]) => (
+                          <span key={k} className={color}>{config.counts![k]} {label}</span>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </button>
+              );
+            })}
+          </div>}
+        </div>
+      )}
+
       {/* Type Distribution */}
       <div>
         <div className="text-xs text-muted-foreground mb-2">Types</div>
@@ -896,15 +1114,19 @@ interface DeckDisplayProps {
   onRegenerate?: () => void;
   /** When true, hide must-include badges and controls (read-only list deck view) */
   readOnly?: boolean;
+  /** Progress percentage (0-100) during regeneration */
+  regenerateProgress?: number;
+  /** Progress message during regeneration */
+  regenerateMessage?: string;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regenerateMessage }: DeckDisplayProps) {
   const navigate = useNavigate();
-  const { generatedDeck, commander, customization } = useStore();
+  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
   const { createList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
-  const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; position: { x: number; y: number }; showBack?: boolean } | null>(null);
+  const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price'>('name');
@@ -913,13 +1135,23 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showSavedToast, setShowSavedToast] = useState(false);
+  const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
+  const tempBannedRef = useRef(customization.tempBannedCards || []);
+  tempBannedRef.current = customization.tempBannedCards || [];
+  const [showRoles, setShowRoles] = useState(() => localStorage.getItem('deckRolesOpen') === 'true');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const lastSelectedIdRef = useRef<string | null>(null);
+  const flatCardOrderRef = useRef<string[]>([]);
 
-  // Track dirty state: snapshot mustIncludeCards at generation time
+  // Track dirty state: snapshot mustIncludeCards + appliedIncludeLists at generation time
   const [snapshotMustInclude, setSnapshotMustInclude] = useState<string[]>([]);
+  const [snapshotAppliedLists, setSnapshotAppliedLists] = useState('[]');
   const [pendingRegenerate, setPendingRegenerate] = useState(false);
   useEffect(() => {
     if (generatedDeck) {
       setSnapshotMustInclude([...customization.mustIncludeCards]);
+      setSnapshotAppliedLists(JSON.stringify(customization.appliedIncludeLists || []));
       if (pendingRegenerate) {
         setPendingRegenerate(false);
         setToastMessage('Deck regenerated!');
@@ -932,8 +1164,14 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
     const current = customization.mustIncludeCards;
     if (current.length !== snapshotMustInclude.length) return true;
     const snap = new Set(snapshotMustInclude);
-    return current.some(n => !snap.has(n));
-  }, [customization.mustIncludeCards, snapshotMustInclude]);
+    if (current.some(n => !snap.has(n))) return true;
+    // Check if applied include lists changed (toggled on/off or added/removed)
+    if (JSON.stringify(customization.appliedIncludeLists || []) !== snapshotAppliedLists) return true;
+    // Temp lists with entries mean we have pending changes
+    if ((customization.tempMustIncludeCards?.length ?? 0) > 0) return true;
+    if ((customization.tempBannedCards?.length ?? 0) > 0) return true;
+    return false;
+  }, [customization.mustIncludeCards, snapshotMustInclude, customization.appliedIncludeLists, snapshotAppliedLists, customization.tempMustIncludeCards, customization.tempBannedCards]);
 
   // Auto-dismiss toasts
   useEffect(() => {
@@ -947,6 +1185,71 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
     const timer = setTimeout(() => setShowSavedToast(false), 6000);
     return () => clearTimeout(timer);
   }, [showSavedToast]);
+
+  // Clear state when deck changes
+  useEffect(() => {
+    setRemovedCards(new Set());
+    setIsEditMode(false);
+    setSelectedCards(new Set());
+  }, [generatedDeck]);
+
+  const handleToggleRoles = useCallback(() => {
+    setShowRoles(prev => {
+      const next = !prev;
+      localStorage.setItem('deckRolesOpen', String(next));
+      return next;
+    });
+  }, []);
+
+  const handleExitEditMode = useCallback(() => {
+    setIsEditMode(false);
+    setSelectedCards(new Set());
+    lastSelectedIdRef.current = null;
+  }, []);
+
+  const handleToggleCardSelection = useCallback((card: ScryfallCard, shiftKey?: boolean) => {
+    setSelectedCards(prev => {
+      const next = new Set(prev);
+
+      if (shiftKey && lastSelectedIdRef.current && lastSelectedIdRef.current !== card.id) {
+        // Shift-select: select range between last and current
+        const order = flatCardOrderRef.current;
+        const startIdx = order.indexOf(lastSelectedIdRef.current);
+        const endIdx = order.indexOf(card.id);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const from = Math.min(startIdx, endIdx);
+          const to = Math.max(startIdx, endIdx);
+          for (let i = from; i <= to; i++) {
+            next.add(order[i]);
+          }
+        } else {
+          next.add(card.id);
+        }
+      } else {
+        if (next.has(card.id)) {
+          next.delete(card.id);
+        } else {
+          next.add(card.id);
+        }
+      }
+
+      lastSelectedIdRef.current = card.id;
+      return next;
+    });
+  }, []);
+
+  const handleToggleCategory = useCallback((cardIds: string[]) => {
+    setSelectedCards(prev => {
+      const next = new Set(prev);
+      const allSelected = cardIds.every(id => next.has(id));
+      if (allSelected) {
+        for (const id of cardIds) next.delete(id);
+      } else {
+        for (const id of cardIds) next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   const handleRegenerate = useCallback(() => {
     if (onRegenerate) {
@@ -1040,6 +1343,63 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
     return result;
   }, [generatedDeck, commander, sortBy, formatConfig.hasCommander]);
 
+  // Flat ordered list of non-commander card IDs for shift-select
+  flatCardOrderRef.current = useMemo(() => {
+    const ids: string[] = [];
+    for (const type of TYPE_ORDER) {
+      if (type === 'Commander') continue;
+      for (const { card } of groupedCards[type] || []) {
+        ids.push(card.id);
+      }
+    }
+    return ids;
+  }, [groupedCards]);
+
+  const handleReplaceSelected = useCallback(() => {
+    const allCards = Object.values(groupedCards).flat();
+    const namesToBan: string[] = [];
+    const idsToMark = new Set<string>();
+
+    for (const { card } of allCards) {
+      if (selectedCards.has(card.id)) {
+        namesToBan.push(card.name);
+        idsToMark.add(card.id);
+      }
+    }
+
+    if (namesToBan.length === 0) return;
+
+    const currentBanned = tempBannedRef.current;
+    const newBanned = [...currentBanned];
+    for (const name of namesToBan) {
+      if (!newBanned.includes(name)) {
+        newBanned.push(name);
+      }
+    }
+    updateCustomization({ tempBannedCards: newBanned });
+
+    setRemovedCards(prev => {
+      const next = new Set(prev);
+      for (const id of idsToMark) {
+        next.add(id);
+      }
+      return next;
+    });
+
+    setToastMessage(`${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''} will be replaced on regenerate`);
+    handleExitEditMode();
+  }, [selectedCards, groupedCards, updateCustomization, handleExitEditMode]);
+
+  // Escape key to exit edit mode
+  useEffect(() => {
+    if (!isEditMode) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleExitEditMode();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isEditMode, handleExitEditMode]);
+
   // Build map of card name -> complete combos that include it
   const cardComboMap = useMemo(() => {
     const map = new Map<string, DetectedCombo[]>();
@@ -1115,9 +1475,17 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
     return ids;
   }, [matchingCardIds, searchMatchingIds]);
 
+  // Swap candidates for the previewed card (role-based or type-based)
+  const previewSwapCandidates = useMemo(() => {
+    if (!previewCard || !generatedDeck?.swapCandidates) return undefined;
+    if (previewCard.isMustInclude) return undefined;
+    return getSwapCandidatesForCard(generatedDeck, previewCard);
+  }, [previewCard, generatedDeck]);
+
   const handleHover = (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => {
     if (card && e) {
-      setHoverCard({ card, position: { x: e.clientX, y: e.clientY }, showBack });
+      const rect = e.currentTarget.getBoundingClientRect();
+      setHoverCard({ card, rowRect: { right: rect.right, top: rect.top, height: rect.height }, showBack });
     } else {
       setHoverCard(null);
     }
@@ -1247,6 +1615,14 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
                 </span>
               )}
             </div>
+
+            {/* Edit Deck */}
+            {!readOnly && !isEditMode && onRegenerate && (
+              <Button onClick={() => setIsEditMode(true)} variant="outline" size="sm" className="border-border/50">
+                <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                Edit Deck
+              </Button>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -1275,10 +1651,10 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
                 </span>
               )}
             </div>
-            {isDirty && onRegenerate && (
-              <Button onClick={handleRegenerate} variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Regenerate
+            {(isDirty || removedCards.size > 0 || pendingRegenerate) && onRegenerate && (
+              <Button onClick={handleRegenerate} variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300" disabled={pendingRegenerate}>
+                <RefreshCw className={`w-4 h-4 mr-2 ${pendingRegenerate ? 'animate-spin' : ''}`} />
+                {pendingRegenerate ? 'Regenerating...' : 'Regenerate'}
               </Button>
             )}
             <Button onClick={() => setShowExportModal(true)} className="glow">
@@ -1287,6 +1663,20 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
             </Button>
           </div>
         </div>
+
+        {pendingRegenerate && regenerateProgress !== undefined && (
+          <div className="mb-4">
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-500 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${regenerateProgress}%` }}
+              />
+            </div>
+            {regenerateMessage && (
+              <p className="text-xs text-muted-foreground mt-1">{regenerateMessage}</p>
+            )}
+          </div>
+        )}
 
         {fallbackMessage && (
           <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-blue-500/30 bg-blue-500/10 text-sm">
@@ -1310,13 +1700,13 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
 
         {/* Stats - Mobile/Tablet (above deck list) */}
         <div className="xl:hidden mb-6">
-          <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} />
+          <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
         </div>
 
         {/* Main Content */}
         <div className="flex gap-6">
           {/* Deck List */}
-          <div className="flex-1 bg-card/30 rounded-lg border border-border/50 overflow-hidden">
+          <div className={`flex-1 bg-card/30 rounded-lg border border-border/50 overflow-hidden ${isEditMode ? 'select-none' : ''}`}>
             {viewMode === 'list' ? (
               <div className="p-4" style={{ columnWidth: '280px', columnGap: '2rem' }}>
                 {TYPE_ORDER.map((type) => (
@@ -1331,6 +1721,12 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
                     currency={customization.currency}
                     cardComboMap={cardComboMap}
                     cardTypeMap={cardTypeMap}
+                    showRoleColumn={showRoles && !!generatedDeck?.roleTargets}
+                    removedCards={removedCards}
+                    isEditMode={isEditMode && !readOnly}
+                    selectedCards={selectedCards}
+                    onToggleSelect={handleToggleCardSelection}
+                    onToggleCategory={handleToggleCategory}
                   />
                 ))}
               </div>
@@ -1338,29 +1734,28 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
               <div className="p-4 space-y-1">
                 {TYPE_ORDER.map((type) => {
                   const cards = groupedCards[type] || [];
-                  if (cards.length === 0) return null;
+                  const visibleCards = combinedMatchingIds
+                    ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
+                    : cards;
+                  if (visibleCards.length === 0) return null;
                   return (
                     <div key={type}>
                       <div className="flex items-center gap-1.5 pt-2 pb-1">
                         <CardTypeIcon type={type} size="sm" className="opacity-60" />
                         <span className="text-xs font-medium text-muted-foreground">{type}</span>
-                        <span className="text-[10px] text-muted-foreground/60">{cards.length}</span>
+                        <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
                       </div>
                       <div ref={gridAnimateRef} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                        {cards.map(({ card, quantity }) => {
-                          const dimmed = combinedMatchingIds !== null && !combinedMatchingIds.has(card.id);
-                          return (
+                        {visibleCards.map(({ card, quantity }) => (
                             <button
                               key={card.id}
                               onClick={() => setPreviewCard(card)}
-                              className={`relative group transition-opacity duration-200 ${
-                                dimmed ? 'opacity-30' : ''
-                              }`}
+                              className="relative group"
                             >
                               <img
                                 src={getCardImageUrl(card, 'small')}
                                 alt={card.name}
-                                className={`w-full rounded transition-transform ${dimmed ? '' : 'group-hover:scale-105'}`}
+                                className="w-full rounded transition-transform group-hover:scale-105"
                                 loading="lazy"
                               />
                               {quantity > 1 && (
@@ -1378,20 +1773,46 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
                                   {formatPrice(getCardPrice(card, customization.currency), sym)}
                                 </span>
                               )}
-                              {(card.isGameChanger || card.isMustInclude) && (
-                                <span className="absolute bottom-1 right-1 flex gap-0.5" style={{ right: isDoubleFacedCard(card) ? 28 : 4 }}>
-                                  {card.isGameChanger && (
-                                    <span className="bg-amber-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Game Changer">
-                                      <Star className="w-2.5 h-2.5" />
-                                    </span>
-                                  )}
-                                  {card.isMustInclude && (
-                                    <span className="bg-emerald-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Must Include">
-                                      <Pin className="w-2.5 h-2.5" />
-                                    </span>
-                                  )}
-                                </span>
-                              )}
+                              {/* Bottom-right badge stack: GC/pin icons + role badges */}
+                              {(() => {
+                                const hasGcOrPin = card.isGameChanger || card.isMustInclude;
+                                const roleBadges: { bgColor: string; title: string; label: string }[] = [];
+                                if (card.deckRole) {
+                                  if (card.multiRole) {
+                                    // Show all matching roles
+                                    for (const role of ['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]) {
+                                      if (cardMatchesRole(card.name, role)) {
+                                        // Build a pseudo-card to get badge props for each role
+                                        const badge = getRoleBadgeProps({ ...card, deckRole: role } as ScryfallCard);
+                                        if (badge) roleBadges.push(badge);
+                                      }
+                                    }
+                                  } else {
+                                    const badge = getRoleBadgeProps(card);
+                                    if (badge) roleBadges.push(badge);
+                                  }
+                                }
+                                if (!hasGcOrPin && roleBadges.length === 0) return null;
+                                return (
+                                  <span className="absolute bottom-1 flex gap-0.5" style={{ right: isDoubleFacedCard(card) ? 28 : 4 }}>
+                                    {card.isGameChanger && (
+                                      <span className="bg-amber-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Game Changer">
+                                        <Star className="w-2.5 h-2.5" />
+                                      </span>
+                                    )}
+                                    {card.isMustInclude && (
+                                      <span className="bg-emerald-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Must Include">
+                                        <Pin className="w-2.5 h-2.5" />
+                                      </span>
+                                    )}
+                                    {roleBadges.map((badge) => (
+                                      <span key={badge.label} className={`text-white rounded-full px-1.5 py-0.5 text-[8px] font-bold leading-none flex items-center ${badge.bgColor}`}
+                                        title={badge.title}
+                                      >{badge.label}</span>
+                                    ))}
+                                  </span>
+                                );
+                              })()}
                               {isDoubleFacedCard(card) && (
                                 <span className="absolute bottom-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Double-faced card">
                                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
@@ -1414,8 +1835,7 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
                                 );
                               })()}
                             </button>
-                          );
-                        })}
+                          ))}
                       </div>
                     </div>
                   );
@@ -1426,14 +1846,14 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
 
           {/* Stats Sidebar - Desktop only */}
           <div className="hidden xl:block w-64 shrink-0">
-            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} />
+            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
           </div>
         </div>
       </div>
 
       {/* Floating Preview */}
       {hoverCard && viewMode === 'list' && (
-        <FloatingPreview card={hoverCard.card} position={hoverCard.position} showBack={hoverCard.showBack} />
+        <FloatingPreview card={hoverCard.card} rowRect={hoverCard.rowRect} showBack={hoverCard.showBack} />
       )}
 
       {/* Modals */}
@@ -1445,6 +1865,11 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
         cardComboMap={cardComboMap}
         deckOnly
         hideMustInclude={readOnly}
+        swapCandidates={readOnly ? undefined : previewSwapCandidates}
+        onSwapCard={readOnly ? undefined : (oldCard, newCard) => {
+          swapDeckCard(oldCard, newCard);
+          setPreviewCard(null);
+        }}
       />
       <ExportModal
         isOpen={showExportModal}
@@ -1482,6 +1907,36 @@ export function DeckDisplay({ onRegenerate, readOnly }: DeckDisplayProps) {
           >
             View in My Lists
           </button>
+        </div>,
+        document.body
+      )}
+      {isEditMode && createPortal(
+        <div className="fixed bottom-0 left-0 right-0 z-40 animate-slide-up">
+          <div className="max-w-4xl mx-auto px-4 pb-4">
+            <div className="flex items-center justify-between gap-4 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-5 py-3">
+              <span className="text-sm font-medium">
+                {selectedCards.size > 0 ? (
+                  <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''} selected</>
+                ) : (
+                  <span className="text-muted-foreground">Click cards to select them for replacement</span>
+                )}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleReplaceSelected}
+                  disabled={selectedCards.size === 0}
+                  size="sm"
+                  className="bg-red-600 hover:bg-red-500 text-white disabled:opacity-40"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                  Replace Selected
+                </Button>
+                <Button onClick={handleExitEditMode} variant="ghost" size="sm">
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>,
         document.body
       )}

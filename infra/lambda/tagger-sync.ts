@@ -6,16 +6,29 @@ const SCRYFALL_DELAY_MS = 120; // Scryfall asks for 50-100ms between requests; b
 
 // Functional tags that matter for deck building
 const TAGS: Record<string, string> = {
+  // Ramp subtypes
   ramp: 'otag:ramp',
-  removal: 'otag:removal',
-  boardwipe: 'otag:boardwipe',
-  'card-advantage': 'otag:card-advantage',
-  tutor: 'otag:tutor',
+  'cost-reducer': 'otag:cost-reducer',
   'mana-dork': 'otag:mana-dork',
+  'mana-rock': 'otag:mana-rock',
+  // Removal subtypes
+  removal: 'otag:removal',
+  'spot-removal': 'otag:spot-removal',
+  counterspell: 'otag:counterspell',
+  bounce: 'otag:bounce',
+  // Board wipe (single tag — subtypes derived from cross-referencing removal tags)
+  boardwipe: 'otag:boardwipe',
+  // Card advantage subtypes
+  'card-advantage': 'otag:card-advantage',
+  draw: 'otag:draw',
+  tutor: 'otag:tutor',
+  cantrip: 'otag:cantrip',
+  wheel: 'otag:wheel',
+  // Utility tags
   lifegain: 'otag:lifegain',
   sacrifice: 'otag:sacrifice-outlet',
   'graveyard-hate': 'otag:graveyard-hate',
-  protection: 'otag:protection',
+  protection: 'otag:protects-permanent',
 };
 
 interface ScryfallListResponse {

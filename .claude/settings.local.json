@@ -55,7 +55,11 @@
       "WebFetch(domain:commanderspellbook.com)",
       "WebFetch(domain:backend.commanderspellbook.com)",
       "Bash(python3 -c \" import json, sys data = json.load\\(sys.stdin\\) # Look at the combo structure if ''container'' in data: combos = data[''container''].get\\(''json_dict'', {}\\).get\\(''cardlists'', []\\) for cl in combos: if ''items'' in cl and len\\(cl[''items'']\\) > 0: combo = cl[''items''][0] print\\(''=== First combo keys ===''\\) print\\(json.dumps\\(list\\(combo.keys\\(\\)\\), indent=2\\)\\) print\\(\\) print\\(''=== Full first combo ===''\\) print\\(json.dumps\\(combo, indent=2\\)\\) break \")",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npm run deploy:*)",
+      "Read(//tmp/**)",
+      "WebFetch(domain:mtg-deck-builder-tagger.s3.amazonaws.com)",
+      "Bash(aws lambda list-functions:*)"
     ]
   }
 }

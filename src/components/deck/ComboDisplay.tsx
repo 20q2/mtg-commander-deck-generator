@@ -23,6 +23,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
+  const tempMustIncludeCards = useStore(s => s.customization.tempMustIncludeCards ?? []);
   const updateCustomization = useStore(s => s.updateCustomization);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [previewCardName, setPreviewCardName] = useState<string | null>(null);
@@ -97,16 +98,20 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
 
   const handleAddMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (mustIncludeCards.includes(name)) return;
-    updateCustomization({ mustIncludeCards: [...mustIncludeCards, name] });
-    setToastMessage(`Added "${name}" to Must Include — regenerate to see changes`);
-  }, [mustIncludeCards, updateCustomization]);
+    if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
+    updateCustomization({ tempMustIncludeCards: [...tempMustIncludeCards, name] });
+    setToastMessage(`Added "${name}" to Must Include — regenerate to apply`);
+  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization]);
 
   const handleRemoveMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    updateCustomization({ mustIncludeCards: mustIncludeCards.filter(n => n !== name) });
+    if (tempMustIncludeCards.includes(name)) {
+      updateCustomization({ tempMustIncludeCards: tempMustIncludeCards.filter(n => n !== name) });
+    } else {
+      updateCustomization({ mustIncludeCards: mustIncludeCards.filter(n => n !== name) });
+    }
     setToastMessage(`Removed "${name}" from Must Include`);
-  }, [mustIncludeCards, updateCustomization]);
+  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization]);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -220,7 +225,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                       </span>
                     </div>
                   ) : isMissing ? (
-                    !hideMustInclude && mustIncludeCards.includes(name) ? (
+                    !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md group/added">
                         <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/added:hidden">
                           <Pin className="w-2.5 h-2.5" />
@@ -250,7 +255,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                         )}
                       </div>
                     )
-                  ) : !hideMustInclude && mustIncludeCards.includes(name) ? (
+                  ) : !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
                     <div className="absolute bottom-1 left-1">
                       <span className="bg-emerald-500/80 text-white rounded-full w-4 h-4 flex items-center justify-center" title="Must Include">
                         <Pin className="w-2.5 h-2.5" />

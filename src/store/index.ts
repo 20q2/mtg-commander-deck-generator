@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult } from '@/types';
 import { isEuropean } from '@/lib/region';
+import { swapCard } from '@/services/deckBuilder/cardSwap';
 
 const BANNED_CARDS_KEY = 'mtg-deck-builder-banned-cards';
 const MUST_INCLUDE_CARDS_KEY = 'mtg-deck-builder-must-include-cards';
@@ -157,6 +158,8 @@ const defaultCustomization: Customization = {
   bannedCards: loadBannedCards(), // Load from localStorage
   banLists: loadBanLists(), // Load from localStorage
   mustIncludeCards: loadMustIncludeCards(), // Load from localStorage
+  tempBannedCards: [],
+  tempMustIncludeCards: [],
   maxCardPrice: null, // No limit by default
   deckBudget: null, // No total deck budget by default
   budgetOption: 'any' as const, // Default to normal card pool
@@ -168,12 +171,13 @@ const defaultCustomization: Customization = {
   arenaOnly: false,
   comboCount: 0,
   hyperFocus: false,
+  balancedRoles: true,
   currency: loadCurrency(),
   appliedExcludeLists: loadAppliedExcludeLists(),
   appliedIncludeLists: loadAppliedIncludeLists(),
 };
 
-export const useStore = create<AppState>((set) => ({
+export const useStore = create<AppState>((set, get) => ({
   // Commander
   commander: null,
   partnerCommander: null,
@@ -304,6 +308,16 @@ export const useStore = create<AppState>((set) => ({
   }),
 
   setGeneratedDeck: (deck: GeneratedDeck | null) => set({ generatedDeck: deck }),
+  swapDeckCard: (oldCard: ScryfallCard, newCard: ScryfallCard) => {
+    const { generatedDeck } = get();
+    if (!generatedDeck) return;
+    const result = swapCard(generatedDeck, oldCard, newCard);
+    if (result.success) {
+      set({ generatedDeck: result.deck });
+    } else {
+      console.warn('[Store] Card swap failed:', result.error);
+    }
+  },
 
   setLoading: (loading: boolean, message = '') => set({
     isLoading: loading,

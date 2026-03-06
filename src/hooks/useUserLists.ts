@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getCardsByNames } from '@/services/scryfall/client';
+import { useStore } from '@/store';
 import type { UserCardList } from '@/types';
 
 const USER_LISTS_KEY = 'mtg-deck-builder-user-lists';
@@ -142,6 +143,16 @@ export function useUserLists() {
 
   const deleteList = useCallback((id: string) => {
     setLists(prev => prev.filter(l => l.id !== id));
+    // Clean up orphaned applied list references in the store
+    const { customization, updateCustomization } = useStore.getState();
+    const includes = customization.appliedIncludeLists || [];
+    const excludes = customization.appliedExcludeLists || [];
+    if (includes.some(r => r.listId === id)) {
+      updateCustomization({ appliedIncludeLists: includes.filter(r => r.listId !== id) });
+    }
+    if (excludes.some(r => r.listId === id)) {
+      updateCustomization({ appliedExcludeLists: excludes.filter(r => r.listId !== id) });
+    }
   }, []);
 
   const duplicateList = useCallback((id: string) => {

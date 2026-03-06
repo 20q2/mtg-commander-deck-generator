@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { useStore } from '@/store';
 import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, MaxRarity } from '@/types';
@@ -9,13 +9,14 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useCollection } from '@/hooks/useCollection';
 import { useNavigate } from 'react-router-dom';
 import { isEuropean } from '@/lib/region';
+import { CardTypeIcon } from '@/components/ui/mtg-icons';
 
 const IS_EU = isEuropean() || location.hostname === 'localhost';
 
 
 export function DeckCustomizer() {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
-  const { count: collectionCount } = useCollection();
+  const { count: collectionCount, cards: collectionCards } = useCollection();
   const navigate = useNavigate();
   const [editingLands, setEditingLands] = useState(false);
   const [landInputValue, setLandInputValue] = useState('');
@@ -37,6 +38,25 @@ export function DeckCustomizer() {
   const landInputRef = useRef<HTMLInputElement>(null);
   const gcLimitInputRef = useRef<HTMLInputElement>(null);
   const customFormatInputRef = useRef<HTMLInputElement>(null);
+
+  const collectionStats = useMemo(() => {
+    if (!collectionCards || collectionCards.length === 0) return null;
+
+    const typeCounts: Record<string, number> = { Creature: 0, Instant: 0, Sorcery: 0, Artifact: 0, Enchantment: 0, Land: 0, Planeswalker: 0 };
+
+    for (const card of collectionCards) {
+      if (card.typeLine) {
+        const tl = card.typeLine.split('—')[0].split('//')[0];
+        for (const type of Object.keys(typeCounts)) {
+          if (tl.toLowerCase().includes(type.toLowerCase())) {
+            typeCounts[type] += 1;
+          }
+        }
+      }
+    }
+
+    return { typeCounts };
+  }, [collectionCards]);
 
   if (!commander) return null;
 
@@ -811,6 +831,7 @@ export function DeckCustomizer() {
           <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${collectionOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="overflow-hidden">
             <div className="mt-3 space-y-3">
+              {/* Checkbox */}
               <label className="flex items-center gap-3 cursor-pointer select-none group">
                 <input
                   type="checkbox"
@@ -823,11 +844,33 @@ export function DeckCustomizer() {
                 </span>
                 <InfoTooltip text="Only use cards you own. After generation, see suggestions for cards you're missing." />
               </label>
+
+              {/* Type breakdown */}
+              {collectionStats && (() => {
+                const types = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Planeswalker'] as const;
+                const hasAny = types.some(t => collectionStats.typeCounts[t] > 0);
+                if (!hasAny) return null;
+                return (
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-1">
+                    {types.map(t => {
+                      const count = collectionStats.typeCounts[t];
+                      if (count === 0) return null;
+                      return (
+                        <span key={t} className="flex items-center gap-1 text-[11px] text-muted-foreground" title={t}>
+                          <CardTypeIcon type={t} size="sm" className="opacity-60" />
+                          {count}
+                        </span>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>{collectionCount.toLocaleString()} cards imported</span>
                 <button
                   onClick={() => navigate('/collection')}
-                  className="text-primary hover:text-primary/80 transition-colors"
+                  className="text-xs text-primary hover:text-primary/80 transition-colors"
                 >
                   Manage Collection
                 </button>

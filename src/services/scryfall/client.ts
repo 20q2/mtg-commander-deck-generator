@@ -8,6 +8,16 @@ const COLLECTION_BATCH_SIZE = 75; // Scryfall /cards/collection max per request
 // In-memory cache for fetched cards
 const cardCache = new Map<string, ScryfallCard>();
 
+// In-memory cache for search results (used by fillWithScryfall fallbacks)
+const searchCache = new Map<string, { data: ScryfallSearchResponse; timestamp: number }>();
+const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+/** Return a shallow copy with deck-generation flags stripped so cached objects stay clean. */
+function freshCopy(card: ScryfallCard): ScryfallCard {
+  const { isMustInclude, isGameChanger, deckRole, ...clean } = card;
+  return clean;
+}
+
 /**
  * Queue-based rate limiter that ensures requests are properly spaced.
  * All Scryfall requests MUST go through this to prevent 429 errors.
@@ -107,15 +117,25 @@ export async function searchCards(
   const fullQuery = `${colorFilter} (${query}) ${formatFilter}`;
   const encodedQuery = encodeURIComponent(fullQuery.trim());
 
-  return scryfallFetch<ScryfallSearchResponse>(
+  // Check search cache first
+  const cacheKey = `${encodedQuery}|${order}|${page}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
+    return cached.data;
+  }
+
+  const result = await scryfallFetch<ScryfallSearchResponse>(
     `/cards/search?q=${encodedQuery}&order=${order}&page=${page}`
   );
+
+  searchCache.set(cacheKey, { data: result, timestamp: Date.now() });
+  return result;
 }
 
 export async function getCardByName(name: string, exact = true): Promise<ScryfallCard> {
   // Check cache first
   const cached = cardCache.get(name);
-  if (cached) return cached;
+  if (cached) return freshCopy(cached);
 
   const param = exact ? 'exact' : 'fuzzy';
   const encodedName = encodeURIComponent(name);
@@ -123,7 +143,7 @@ export async function getCardByName(name: string, exact = true): Promise<Scryfal
 
   // Cache the result
   cardCache.set(card.name, card);
-  return card;
+  return freshCopy(card);
 }
 
 /**
@@ -202,7 +222,7 @@ export async function getCardsByNames(
   for (const name of names) {
     const cached = cardCache.get(name);
     if (cached) {
-      result.set(name, cached);
+      result.set(name, freshCopy(cached));
     } else {
       uncachedNames.push(name);
     }
@@ -233,12 +253,13 @@ export async function getCardsByNames(
       if (response.ok) {
         const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string }> };
         for (const card of data.data) {
-          result.set(card.name, card);
           cardCache.set(card.name, card);
+          const copy = freshCopy(card);
+          result.set(card.name, copy);
           // For DFCs, also store under front-face name so EDHREC lookups match
           if (card.name.includes(' // ')) {
             const frontFace = card.name.split(' // ')[0];
-            result.set(frontFace, card);
+            result.set(frontFace, copy);
             cardCache.set(frontFace, card);
           }
         }
@@ -270,8 +291,8 @@ export async function getCardsByNames(
     for (const name of noPriceNames) {
       const card = await fetchCardByNameThrottled(name);
       if (card && getCardPrice(card)) {
-        result.set(name, card);
         cardCache.set(name, card);
+        result.set(name, freshCopy(card));
       }
     }
   }
@@ -283,7 +304,7 @@ export async function getCardsByNames(
     for (const name of notFound) {
       const card = await fetchCardByNameThrottled(name);
       if (card) {
-        result.set(name, card);
+        result.set(name, freshCopy(card));
       }
     }
   }
@@ -310,7 +331,8 @@ export async function prefetchBasicLands(): Promise<void> {
  * Get a cached card if available (for basic lands).
  */
 export function getCachedCard(name: string): ScryfallCard | undefined {
-  return cardCache.get(name);
+  const cached = cardCache.get(name);
+  return cached ? freshCopy(cached) : undefined;
 }
 
 // Cached set of game changer card names from Scryfall

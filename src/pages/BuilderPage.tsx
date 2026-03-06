@@ -455,6 +455,9 @@ export function BuilderPage() {
       });
 
       deck.builtFromCollection = !!customization.collectionMode;
+      // Clear temporary lists before setting the deck to avoid
+      // "Cannot update component while rendering" React warning
+      updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       setGeneratedDeck(deck);
       trackEvent('deck_generated', {
         commanderName: commander.name,
@@ -805,7 +808,7 @@ export function BuilderPage() {
               </h2>
             </div>
           </div>
-          <DeckDisplay onRegenerate={handleGenerate} />
+          <DeckDisplay onRegenerate={handleGenerate} regenerateProgress={isLoading ? progressPercent : undefined} regenerateMessage={isLoading ? progress : undefined} />
           {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
             <div className="flex gap-6">
               <div className="flex-1">

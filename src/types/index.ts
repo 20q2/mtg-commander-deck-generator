@@ -57,6 +57,12 @@ export interface ScryfallCard {
   // Added during deck generation
   isGameChanger?: boolean;
   isMustInclude?: boolean;
+  deckRole?: string; // Functional role detected by tagger/oracle text (e.g., 'ramp', 'removal')
+  multiRole?: boolean; // True if card matches multiple role categories
+  rampSubtype?: 'mana-producer' | 'mana-rock' | 'cost-reducer' | 'ramp';
+  removalSubtype?: 'counterspell' | 'bounce' | 'spot-removal' | 'removal';
+  boardwipeSubtype?: 'bounce-wipe' | 'boardwipe';
+  cardDrawSubtype?: 'tutor' | 'wheel' | 'cantrip' | 'card-draw' | 'card-advantage';
 }
 
 export interface ScryfallSearchResponse {
@@ -265,6 +271,13 @@ export interface GeneratedDeck {
   detectedCombos?: DetectedCombo[];
   typeTargets?: Record<string, number>;
   dataSource?: DeckDataSource;
+  roleCounts?: Record<string, number>; // Actual role counts when balanced roles mode was active
+  roleTargets?: Record<string, number>; // Target role counts when balanced roles mode was active
+  rampSubtypeCounts?: Record<string, number>;
+  removalSubtypeCounts?: Record<string, number>;
+  boardwipeSubtypeCounts?: Record<string, number>;
+  cardDrawSubtypeCounts?: Record<string, number>;
+  swapCandidates?: Record<string, ScryfallCard[]>; // Keyed by RoleKey or 'type:{cardType}', top candidates per role/type for card swapping
 }
 
 export interface DeckStats {
@@ -340,6 +353,8 @@ export interface Customization {
   bannedCards: string[]; // Card names to exclude from deck generation
   banLists: BanList[]; // Named ban lists (preset + custom)
   mustIncludeCards: string[]; // Card names to force-include in deck generation (first priority)
+  tempBannedCards: string[]; // Temporary bans from deck toolbar (cleared on generation)
+  tempMustIncludeCards: string[]; // Temporary must-includes from combo section (cleared on generation)
   maxCardPrice: number | null; // Max USD price per card, null = no limit
   deckBudget: number | null; // Total deck budget in USD, null = no limit
   budgetOption: BudgetOption; // EDHREC card pool: any (normal), budget, or expensive
@@ -351,6 +366,7 @@ export interface Customization {
   arenaOnly: boolean; // When true, only use cards available on MTG Arena
   comboCount: number; // 0 = none, 1 = a few, 2 = many combo pieces prioritized
   hyperFocus: boolean; // When true, boost unique theme cards and penalize generic multi-theme cards
+  balancedRoles: boolean; // When true, boost cards that fill underrepresented functional roles (ramp, removal, etc.)
   currency: 'USD' | 'EUR'; // Price currency for budget filtering and display
   appliedExcludeLists: AppliedList[]; // User lists toggled on as exclude lists
   appliedIncludeLists: AppliedList[]; // User lists toggled on as must-include lists
@@ -399,6 +415,7 @@ export interface AppState {
   setEdhrecLandSuggestion: (suggestion: { landCount: number; nonBasicLandCount: number } | null) => void;
   updateCustomization: (updates: Partial<Customization>) => void;
   setGeneratedDeck: (deck: GeneratedDeck | null) => void;
+  swapDeckCard: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
   setLoading: (loading: boolean, message?: string) => void;
   setError: (error: string | null) => void;
   reset: () => void;
