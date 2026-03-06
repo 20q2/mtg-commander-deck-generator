@@ -456,9 +456,19 @@ export function BuilderPage() {
       });
 
       deck.builtFromCollection = !!customization.collectionMode;
+      // Promote temp must-includes into the permanent list so they persist across regenerations
+      const tempIncludes = customization.tempMustIncludeCards ?? [];
+      const currentMustIncludes = customization.mustIncludeCards;
+      const mergedMustIncludes = tempIncludes.length > 0
+        ? [...currentMustIncludes, ...tempIncludes.filter(n => !currentMustIncludes.includes(n))]
+        : currentMustIncludes;
       // Clear temporary lists before setting the deck to avoid
       // "Cannot update component while rendering" React warning
-      updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
+      updateCustomization({
+        tempBannedCards: [],
+        tempMustIncludeCards: [],
+        mustIncludeCards: mergedMustIncludes,
+      });
       setGeneratedDeck(deck);
       trackEvent('deck_generated', {
         commanderName: commander.name,
@@ -811,21 +821,12 @@ export function BuilderPage() {
               </h2>
             </div>
           </div>
-          <DeckDisplay onRegenerate={handleGenerate} regenerateProgress={isLoading ? progressPercent : undefined} regenerateMessage={isLoading ? progress : undefined} />
-          {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
-            <div className="flex gap-6">
-              <div className="flex-1">
-                <ComboDisplay combos={generatedDeck.detectedCombos} />
-              </div>
-              <div className="hidden xl:block w-64 shrink-0" />
-            </div>
-          )}
-          <div className="flex gap-6">
-            <div className="flex-1">
-              <TestHand />
-            </div>
-            <div className="hidden xl:block w-64 shrink-0" />
-          </div>
+          <DeckDisplay onRegenerate={handleGenerate} regenerateProgress={isLoading ? progressPercent : undefined} regenerateMessage={isLoading ? progress : undefined}>
+            {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
+              <ComboDisplay combos={generatedDeck.detectedCombos} />
+            )}
+            <TestHand />
+          </DeckDisplay>
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
           )}

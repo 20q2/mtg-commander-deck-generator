@@ -1118,9 +1118,10 @@ interface DeckDisplayProps {
   regenerateProgress?: number;
   /** Progress message during regeneration */
   regenerateMessage?: string;
+  children?: React.ReactNode;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regenerateMessage }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regenerateMessage, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
   const { createList } = useUserLists();
@@ -1619,10 +1620,13 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
 
             {/* Edit Deck */}
             {!readOnly && !isEditMode && onRegenerate && (
-              <Button onClick={() => setIsEditMode(true)} variant="outline" size="sm" className="border-border/50">
-                <Pencil className="w-3.5 h-3.5 mr-1.5" />
+              <button
+                onClick={() => setIsEditMode(true)}
+                className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
                 Edit Deck
-              </Button>
+              </button>
             )}
           </div>
 
@@ -1705,9 +1709,10 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
         </div>
 
         {/* Main Content */}
-        <div className="flex gap-6">
-          {/* Deck List */}
-          <div className={`flex-1 bg-card/30 rounded-lg border border-border/50 overflow-hidden ${isEditMode ? 'select-none' : ''}`}>
+        <div className="flex gap-6 items-start">
+          {/* Deck Column */}
+          <div className="flex-1 min-w-0">
+          <div className={`bg-card/30 rounded-lg border border-border/50 overflow-hidden ${isEditMode ? 'select-none' : ''}`}>
             {viewMode === 'list' ? (
               <div className="p-4" style={{ columnWidth: '280px', columnGap: '2rem' }}>
                 {TYPE_ORDER.map((type) => (
@@ -1843,6 +1848,10 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
                 })}
               </div>
             )}
+          </div>
+
+          {/* Below-deck content (combos, test hand) — same column as deck list */}
+          {children}
           </div>
 
           {/* Stats Sidebar - Desktop only */}
