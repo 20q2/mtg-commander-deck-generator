@@ -34,6 +34,7 @@ jobs:
         run: npm run build
         env:
           VITE_ANALYTICS_URL: ${{ vars.VITE_ANALYTICS_URL }}
+          VITE_TAG_REPO_URL: ${{ vars.VITE_TAG_REPO_URL }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
