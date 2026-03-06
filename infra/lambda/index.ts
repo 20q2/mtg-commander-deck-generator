@@ -109,6 +109,8 @@ async function handleGet(params: Record<string, string>) {
       hasMusts: 0,
       hasBans: 0,
       deckCount: 0,
+      regenerations: 0,
+      classicBuild: 0,
     };
     const listActivity = {
       created: 0,
@@ -206,6 +208,8 @@ async function handleGet(params: Record<string, string>) {
         if (meta.deckBudget !== null && meta.deckBudget !== undefined) featureAdoption.hasBudgetLimit++;
         if (typeof meta.mustIncludeCount === 'number' && meta.mustIncludeCount > 0) featureAdoption.hasMusts++;
         if (typeof meta.bannedCount === 'number' && meta.bannedCount > 0) featureAdoption.hasBans++;
+        if (meta?.isRegeneration === true) featureAdoption.regenerations++;
+        if (meta?.balancedRoles === false) featureAdoption.classicBuild++;
 
         // Settings distributions
         const bucket = (key: string, val: unknown) => {

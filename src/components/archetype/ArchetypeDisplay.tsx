@@ -308,7 +308,14 @@ export function ArchetypeDisplay({}: ArchetypeDisplayProps) {
               {/* Classic Build — disables role balancing */}
               <button
                 type="button"
-                onClick={() => updateCustomization({ balancedRoles: !customization.balancedRoles })}
+                onClick={() => {
+                  const newBalanced = !customization.balancedRoles;
+                  updateCustomization({ balancedRoles: newBalanced });
+                  trackEvent('build_mode_toggled', {
+                    commanderName: commander.name,
+                    mode: newBalanced ? 'balanced' : 'classic',
+                  });
+                }}
                 className={`
                   w-full flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer
                   ${!customization.balancedRoles

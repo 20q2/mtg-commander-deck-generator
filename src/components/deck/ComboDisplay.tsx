@@ -100,8 +100,9 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
     e.stopPropagation();
     if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
     updateCustomization({ tempMustIncludeCards: [...tempMustIncludeCards, name] });
+    trackEvent('must_include_added', { commanderName: commander?.name ?? 'unknown', cardName: name, source: 'combo' });
     setToastMessage(`Added "${name}" to Must Include — regenerate to apply`);
-  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization]);
+  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization, commander]);
 
   const handleRemoveMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();

@@ -423,6 +423,7 @@ export function BuilderPage() {
 
   const handleGenerate = async () => {
     if (!commander) return;
+    const isRegeneration = generatedDeck !== null;
 
     setLoading(true, 'Starting deck generation...');
     setProgress('Initializing...');
@@ -483,6 +484,8 @@ export function BuilderPage() {
         mustIncludeCount: customization.mustIncludeCards.length,
         bannedCount: customization.bannedCards.length,
         currency: customization.currency,
+        isRegeneration,
+        balancedRoles: customization.balancedRoles,
       });
     } catch (error) {
       console.error('Generation error:', error);

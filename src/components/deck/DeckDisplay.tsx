@@ -1377,6 +1377,7 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
       }
     }
     updateCustomization({ tempBannedCards: newBanned });
+    trackEvent('cards_removed', { commanderName: commander?.name ?? 'unknown', cardCount: namesToBan.length });
 
     setRemovedCards(prev => {
       const next = new Set(prev);

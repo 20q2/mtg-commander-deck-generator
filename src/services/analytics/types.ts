@@ -11,7 +11,11 @@ export type AnalyticsEventType =
   | 'list_created'
   | 'list_deleted'
   | 'list_exported'
-  | 'list_toggled';
+  | 'list_toggled'
+  | 'card_swapped'
+  | 'cards_removed'
+  | 'must_include_added'
+  | 'build_mode_toggled';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -40,6 +44,8 @@ export interface AnalyticsEventMetadata {
     mustIncludeCount: number;
     bannedCount: number;
     currency: string;
+    isRegeneration: boolean;
+    balancedRoles: boolean;
   };
   deck_generation_failed: { commanderName: string; error: string };
   deck_exported: { commanderName: string; format: 'clipboard' | 'download' };
@@ -51,6 +57,10 @@ export interface AnalyticsEventMetadata {
   list_deleted: { listName: string; cardCount: number };
   list_exported: { listName: string; cardCount: number };
   list_toggled: { listName: string; cardCount: number; mode: 'exclude' | 'include'; enabled: boolean };
+  card_swapped: { commanderName: string; oldCardName: string; newCardName: string; swapType: string };
+  cards_removed: { commanderName: string; cardCount: number };
+  must_include_added: { commanderName: string; cardName: string; source: 'combo' | 'modal' };
+  build_mode_toggled: { commanderName: string; mode: 'balanced' | 'classic' };
 }
 
 export interface AnalyticsEvent {

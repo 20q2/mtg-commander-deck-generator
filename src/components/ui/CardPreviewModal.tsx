@@ -4,6 +4,7 @@ import { X, Sparkles, Star, Pin, ArrowLeftRight } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import { useStore } from '@/store';
+import { trackEvent } from '@/services/analytics';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 
 type CardType = 'Commander' | 'Creature' | 'Planeswalker' | 'Battle' | 'Instant' | 'Sorcery' | 'Artifact' | 'Enchantment' | 'Land';
@@ -98,6 +99,7 @@ function renderComboEntry(
 }
 
 export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab }: CardPreviewModalProps) {
+  const commander = useStore((s) => s.commander);
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
   const tempMustIncludeCards = useStore((s) => s.customization.tempMustIncludeCards ?? []);
@@ -173,8 +175,9 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const handleAddMustInclude = useCallback((name: string) => {
     if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
     updateCustomization({ tempMustIncludeCards: [...tempMustIncludeCards, name] });
+    trackEvent('must_include_added', { commanderName: commander?.name ?? 'unknown', cardName: name, source: 'modal' });
     setToastMessage(`Added "${name}" to Must Include — regenerate to apply`);
-  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization]);
+  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization, commander]);
 
   const handleRemoveMustInclude = useCallback((name: string) => {
     // Remove from whichever list contains it
@@ -452,6 +455,12 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                       type="button"
                       onClick={() => {
                         onSwapCard!(card, swapPreview);
+                        trackEvent('card_swapped', {
+                          commanderName: commander?.name ?? 'unknown',
+                          oldCardName: card.name,
+                          newCardName: swapPreview.name,
+                          swapType: card.deckRole ?? 'type',
+                        });
                         setToastMessage(`Swapped "${card.name}" for "${swapPreview.name}"`);
                         setSwapPreview(null);
                       }}
