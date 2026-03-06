@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
-import { DeckDisplay } from '@/components/deck/DeckDisplay';
+import { DeckDisplay, RemovedCardsDialog } from '@/components/deck/DeckDisplay';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { TestHand } from '@/components/deck/TestHand';
@@ -28,6 +28,7 @@ export function OptimizePage() {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [noDataForSettings, setNoDataForSettings] = useState(false);
+  const [showRemovedCards, setShowRemovedCards] = useState(false);
   const [optimizeList, setOptimizeList] = useState<UserCardList | null>(null);
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>({});
 
@@ -362,6 +363,15 @@ export function OptimizePage() {
       if (!isRegeneration) {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }
+
+      // Compute which original deck cards were removed
+      const finalCardNames = new Set(
+        Object.values(deck.categories).flat().map(c => c.name)
+      );
+      if (deck.commander) finalCardNames.add(deck.commander.name);
+      if (deck.partnerCommander) finalCardNames.add(deck.partnerCommander.name);
+      deck.removedFromDeck = deckCards.filter(name => !finalCardNames.has(name));
+
       setGeneratedDeck(deck);
       trackEvent('deck_optimized', {
         commanderName: cmd.name,
@@ -671,7 +681,13 @@ export function OptimizePage() {
                   const originalCount = optimizeList.cards.length;
                   const finalCount = generatedDeck.stats.totalCards;
                   const diff = finalCount - originalCount;
+                  const removed = generatedDeck.removedFromDeck;
                   if (diff > 0) return <span className="text-sm font-normal text-blue-400 ml-2">+{diff} {diff === 1 ? 'card' : 'cards'} added</span>;
+                  if (diff < 0 && removed && removed.length > 0) return (
+                    <button onClick={() => setShowRemovedCards(true)} className="text-sm font-normal text-amber-400 ml-2 hover:underline cursor-pointer">
+                      {removed.length} {removed.length === 1 ? 'card' : 'cards'} removed
+                    </button>
+                  );
                   if (diff < 0) return <span className="text-sm font-normal text-amber-400 ml-2">{Math.abs(diff)} {Math.abs(diff) === 1 ? 'card' : 'cards'} removed</span>;
                   return null;
                 })()}
@@ -688,6 +704,9 @@ export function OptimizePage() {
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
           )}
         </section>
+      )}
+      {showRemovedCards && generatedDeck?.removedFromDeck && (
+        <RemovedCardsDialog removedCards={generatedDeck.removedFromDeck} onClose={() => setShowRemovedCards(false)} />
       )}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 px-4 py-2 bg-amber-500/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm">

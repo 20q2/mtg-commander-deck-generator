@@ -279,6 +279,7 @@ export interface GeneratedDeck {
   boardwipeSubtypeCounts?: Record<string, number>;
   cardDrawSubtypeCounts?: Record<string, number>;
   swapCandidates?: Record<string, ScryfallCard[]>; // Keyed by RoleKey or 'type:{cardType}', top candidates per role/type for card swapping
+  removedFromDeck?: string[]; // Cards from original deck that were cut during build-from-deck optimization
 }
 
 export interface DeckStats {

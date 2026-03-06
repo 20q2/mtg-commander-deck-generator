@@ -1107,7 +1107,61 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles }: D
             })}
         </div>
       </div>
+
     </div>
+  );
+}
+
+export function RemovedCardsDialog({ removedCards, onClose }: { removedCards: string[]; onClose: () => void }) {
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [hoverY, setHoverY] = useState(0);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        className="relative bg-card border border-border rounded-xl shadow-2xl w-full max-w-sm mx-4 max-h-[70vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+          <h3 className="text-sm font-semibold">Removed Cards ({removedCards.length})</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-4 space-y-0.5">
+          {removedCards.map(name => (
+            <div
+              key={name}
+              className="text-sm text-muted-foreground py-1 px-2 -mx-2 rounded hover:bg-accent/50 hover:text-foreground cursor-default transition-colors"
+              onMouseEnter={(e) => {
+                setHoveredCard(name);
+                setHoverY(e.currentTarget.getBoundingClientRect().top);
+              }}
+              onMouseLeave={() => setHoveredCard(null)}
+            >
+              {name.includes(' // ') ? name.split(' // ')[0] : name}
+            </div>
+          ))}
+        </div>
+      </div>
+      {hoveredCard && (
+        <div
+          className="fixed pointer-events-none hidden md:block"
+          style={{
+            top: Math.max(8, Math.min(hoverY - 100, window.innerHeight - 360)),
+            right: `calc(50% + 210px)`,
+          }}
+        >
+          <img
+            src={`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(hoveredCard)}&format=image&version=normal`}
+            alt={hoveredCard}
+            className="w-[250px] rounded-xl shadow-2xl border border-border/50"
+          />
+        </div>
+      )}
+    </div>,
+    document.body
   );
 }
 
@@ -1613,16 +1667,16 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </div>
 
             {/* View Toggle */}
-            <div className="flex bg-card/50 rounded-lg p-1 border border-border/50">
+            <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 <Grid3X3 className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 <List className="w-4 h-4" />
               </button>
@@ -1821,7 +1875,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                               {(() => {
                                 const hasGcOrPin = card.isGameChanger || card.isMustInclude;
                                 const roleBadges: { bgColor: string; title: string; label: string }[] = [];
-                                if (card.deckRole) {
+                                if (card.deckRole && showRoles) {
                                   if (card.multiRole) {
                                     // Show all matching roles
                                     for (const role of ['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]) {
