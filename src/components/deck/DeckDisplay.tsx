@@ -33,6 +33,7 @@ import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
+import { getCollectionNameSet } from '@/services/collection/db';
 
 // Role badge display properties for each subtype
 function getRoleBadgeProps(card: ScryfallCard): { color: string; bgColor: string; title: string; label: string } | null {
@@ -263,9 +264,10 @@ interface CardRowProps {
   isSelected?: boolean;
   isCommanderCard?: boolean;
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
+  isOwned?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -311,7 +313,8 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
       )}
       {showPinColumn && (
         <span className="w-3 shrink-0 flex justify-center">
-          {card.isMustInclude && <Pin className="w-3 h-3 text-emerald-500/70" />}
+          {card.isMustInclude ? <span title="Must include"><Pin className="w-3 h-3 text-emerald-500/70" /></span> :
+           isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span> : null}
         </span>
       )}
       <span className="text-muted-foreground w-fit text-right shrink-0">{quantity}</span>
@@ -388,9 +391,10 @@ interface CategoryColumnProps {
   selectedCards?: Set<string>;
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   onToggleCategory?: (cardIds: string[]) => void;
+  collectionNames?: Set<string> | null;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames }: CategoryColumnProps) {
   const [animateRef] = useAutoAnimate({ duration: 200 });
 
   if (cards.length === 0) return null;
@@ -404,6 +408,10 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
 
   const hasMatch = matchingCardIds === null || cards.some(({ card }) => matchingCardIds.has(card.id));
   const hasMustInclude = cards.some(({ card }) => card.isMustInclude);
+  const hasOwnedCard = collectionNames ? cards.some(({ card }) => {
+    const name = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+    return collectionNames.has(name);
+  }) : false;
 
   return (
     <div className="break-inside-avoid-column mb-4">
@@ -455,12 +463,13 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               combosForCard={cardComboMap?.get(normalizedName)}
               cardTypeMap={cardTypeMap}
               showRoleColumn={showRoleColumn}
-              showPinColumn={hasMustInclude}
+              showPinColumn={hasMustInclude || hasOwnedCard}
               isRemoved={removedCards?.has(card.id)}
               isEditMode={isEditMode}
               isSelected={selectedCards?.has(card.id)}
               isCommanderCard={type === 'Commander'}
               onToggleSelect={onToggleSelect}
+              isOwned={collectionNames ? collectionNames.has(card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name) : undefined}
             />
           );
         })}
@@ -1140,10 +1149,29 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
   const tempBannedRef = useRef(customization.tempBannedCards || []);
   tempBannedRef.current = customization.tempBannedCards || [];
   const [showRoles, setShowRoles] = useState(() => localStorage.getItem('deckRolesOpen') === 'true');
+  const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const lastSelectedIdRef = useRef<string | null>(null);
   const flatCardOrderRef = useRef<string[]>([]);
+
+  // Load collection names for "owned" indicators
+  useEffect(() => {
+    getCollectionNameSet().then(names => {
+      if (names.size > 0) setCollectionNames(names);
+    });
+  }, [generatedDeck]);
+
+  // Only show owned indicators if not every card in the deck is owned
+  const showOwnedIndicators = useMemo(() => {
+    if (!collectionNames || !generatedDeck) return false;
+    const allCards = Object.values(generatedDeck.categories).flat();
+    const allOwned = allCards.every(c => {
+      const name = c.name.includes(' // ') ? c.name.split(' // ')[0] : c.name;
+      return collectionNames.has(name);
+    });
+    return !allOwned;
+  }, [collectionNames, generatedDeck]);
 
   // Track dirty state: snapshot mustIncludeCards + appliedIncludeLists at generation time
   const [snapshotMustInclude, setSnapshotMustInclude] = useState<string[]>([]);
@@ -1377,7 +1405,17 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
         newBanned.push(name);
       }
     }
-    updateCustomization({ tempBannedCards: newBanned });
+    // Also remove any of these cards from both must-include lists
+    const banSet = new Set(namesToBan);
+    const currentTempIncludes = customization.tempMustIncludeCards ?? [];
+    const filteredTempIncludes = currentTempIncludes.filter(n => !banSet.has(n));
+    const currentMustIncludes = customization.mustIncludeCards;
+    const filteredMustIncludes = currentMustIncludes.filter(n => !banSet.has(n));
+    updateCustomization({
+      tempBannedCards: newBanned,
+      ...(filteredTempIncludes.length !== currentTempIncludes.length ? { tempMustIncludeCards: filteredTempIncludes } : {}),
+      ...(filteredMustIncludes.length !== currentMustIncludes.length ? { mustIncludeCards: filteredMustIncludes } : {}),
+    });
     trackEvent('cards_removed', { commanderName: commander?.name ?? 'unknown', cardCount: namesToBan.length });
 
     setRemovedCards(prev => {
@@ -1388,9 +1426,11 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
       return next;
     });
 
-    setToastMessage(`${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''} will be replaced on regenerate`);
+    setToastMessage(`Replacing ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''}...`);
     handleExitEditMode();
-  }, [selectedCards, groupedCards, updateCustomization, handleExitEditMode]);
+    // Trigger regeneration immediately
+    handleRegenerate();
+  }, [selectedCards, groupedCards, updateCustomization, handleExitEditMode, handleRegenerate]);
 
   // Escape key to exit edit mode
   useEffect(() => {
@@ -1733,6 +1773,7 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
                     selectedCards={selectedCards}
                     onToggleSelect={handleToggleCardSelection}
                     onToggleCategory={handleToggleCategory}
+                    collectionNames={showOwnedIndicators ? collectionNames : null}
                   />
                 ))}
               </div>
@@ -1880,6 +1921,7 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
           swapDeckCard(oldCard, newCard);
           setPreviewCard(null);
         }}
+        onRegenerate={readOnly ? undefined : onRegenerate}
       />
       <ExportModal
         isOpen={showExportModal}

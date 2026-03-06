@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Star, Pin, ArrowLeftRight } from 'lucide-react';
+import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import { useStore } from '@/store';
@@ -44,6 +44,8 @@ interface CardPreviewModalProps {
   onSwapCard?: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
   /** Which side panel tab to show initially */
   initialSideTab?: 'combos' | 'swaps';
+  /** Callback to trigger immediate regeneration */
+  onRegenerate?: () => void;
 }
 
 function renderComboEntry(
@@ -98,7 +100,7 @@ function renderComboEntry(
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate }: CardPreviewModalProps) {
   const commander = useStore((s) => s.commander);
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
@@ -172,22 +174,30 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     });
   }, []);
 
-  const handleAddMustInclude = useCallback((name: string) => {
-    if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
-    updateCustomization({ tempMustIncludeCards: [...tempMustIncludeCards, name] });
-    trackEvent('must_include_added', { commanderName: commander?.name ?? 'unknown', cardName: name, source: 'modal' });
-    setToastMessage(`Added "${name}" to Must Include — regenerate to apply`);
-  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization, commander]);
+  const tempBannedCards = useStore((s) => s.customization.tempBannedCards ?? []);
 
-  const handleRemoveMustInclude = useCallback((name: string) => {
-    // Remove from whichever list contains it
+  const handleAddToDeck = useCallback((name: string) => {
+    if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
+    // Remove from temp banned if previously removed via edit mode
+    const newTempBanned = tempBannedCards.filter(n => n !== name);
+    updateCustomization({
+      tempMustIncludeCards: [...tempMustIncludeCards, name],
+      ...(newTempBanned.length !== tempBannedCards.length ? { tempBannedCards: newTempBanned } : {}),
+    });
+    trackEvent('must_include_added', { commanderName: commander?.name ?? 'unknown', cardName: name, source: 'modal' });
+    setToastMessage(`Adding "${name}" to deck...`);
+    onRegenerate?.();
+  }, [mustIncludeCards, tempMustIncludeCards, tempBannedCards, updateCustomization, commander, onRegenerate]);
+
+  const handleRemoveFromDeck = useCallback((name: string) => {
     if (tempMustIncludeCards.includes(name)) {
       updateCustomization({ tempMustIncludeCards: tempMustIncludeCards.filter(n => n !== name) });
     } else {
       updateCustomization({ mustIncludeCards: mustIncludeCards.filter(n => n !== name) });
     }
-    setToastMessage(`Removed "${name}" from Must Include — regenerate to see changes`);
-  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization]);
+    setToastMessage(`Removed "${name}" from deck`);
+    onRegenerate?.();
+  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization, onRegenerate]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -357,20 +367,20 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
             </a>
             {!hideMustInclude && canMustInclude && (
               <button
-                onClick={() => handleAddMustInclude(currentCardName)}
+                onClick={() => handleAddToDeck(currentCardName)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
               >
-                <Pin className="w-3.5 h-3.5" />
-                Must Include
+                <Plus className="w-3.5 h-3.5" />
+                Add to Deck
               </button>
             )}
             {!hideMustInclude && alreadyMustIncluded && (
               <button
-                onClick={() => handleRemoveMustInclude(currentCardName)}
+                onClick={() => handleRemoveFromDeck(currentCardName)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-red-500/20 text-white/60 hover:text-red-400 text-xs font-medium transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
-                Remove Must Include
+                Remove from Deck
               </button>
             )}
             {hasSwapSection && (

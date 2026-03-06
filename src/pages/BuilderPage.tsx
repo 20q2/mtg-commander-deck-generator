@@ -422,8 +422,10 @@ export function BuilderPage() {
   }, [toastMessage]);
 
   const handleGenerate = async () => {
-    if (!commander) return;
-    const isRegeneration = generatedDeck !== null;
+    // Read fresh from store to avoid stale closures (e.g. tempBannedCards just updated)
+    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
+    if (!cmd) return;
+    const isRegeneration = currentDeck !== null;
 
     setLoading(true, 'Starting deck generation...');
     setProgress('Initializing...');
@@ -432,7 +434,7 @@ export function BuilderPage() {
     try {
       // Load collection if collection mode is enabled
       let collectionNames: Set<string> | undefined;
-      if (customization.collectionMode) {
+      if (cust.collectionMode) {
         const { getCollectionNameSet } = await import('@/services/collection/db');
         collectionNames = await getCollectionNameSet();
         if (collectionNames.size === 0) {
@@ -443,11 +445,11 @@ export function BuilderPage() {
       }
 
       const deck = await generateDeck({
-        commander,
-        partnerCommander,
-        colorIdentity,
-        customization,
-        selectedThemes,
+        commander: cmd,
+        partnerCommander: partner,
+        colorIdentity: colors,
+        customization: cust,
+        selectedThemes: themes,
         collectionNames,
         onProgress: (message, percent) => {
           setProgress(message);
@@ -455,53 +457,45 @@ export function BuilderPage() {
         },
       });
 
-      deck.builtFromCollection = !!customization.collectionMode;
-      // Promote temp must-includes into the permanent list so they persist across regenerations
-      const tempIncludes = customization.tempMustIncludeCards ?? [];
-      const currentMustIncludes = customization.mustIncludeCards;
-      const mergedMustIncludes = tempIncludes.length > 0
-        ? [...currentMustIncludes, ...tempIncludes.filter(n => !currentMustIncludes.includes(n))]
-        : currentMustIncludes;
-      // Clear temporary lists before setting the deck to avoid
-      // "Cannot update component while rendering" React warning
-      updateCustomization({
-        tempBannedCards: [],
-        tempMustIncludeCards: [],
-        mustIncludeCards: mergedMustIncludes,
-      });
+      deck.builtFromCollection = !!cust.collectionMode;
+      // On fresh generation, clear temporary lists
+      // On regeneration, keep them — user added these after seeing the deck
+      if (!isRegeneration) {
+        updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
+      }
       setGeneratedDeck(deck);
       trackEvent('deck_generated', {
-        commanderName: commander.name,
-        partnerName: partnerCommander?.name,
-        deckFormat: customization.deckFormat,
-        themes: selectedThemes.filter(t => t.isSelected).map(t => t.name),
-        collectionMode: !!customization.collectionMode,
+        commanderName: cmd.name,
+        partnerName: partner?.name,
+        deckFormat: cust.deckFormat,
+        themes: themes.filter(t => t.isSelected).map(t => t.name),
+        collectionMode: !!cust.collectionMode,
         totalCards: deck.stats.totalCards,
         averageCmc: deck.stats.averageCmc,
         comboCount: deck.detectedCombos?.length ?? 0,
-        comboPreference: customization.comboCount,
-        budgetOption: customization.budgetOption,
-        maxCardPrice: customization.maxCardPrice,
-        deckBudget: customization.deckBudget,
-        bracketLevel: customization.bracketLevel,
-        maxRarity: customization.maxRarity,
-        hyperFocus: customization.hyperFocus,
-        gameChangerLimit: customization.gameChangerLimit,
-        tinyLeaders: customization.tinyLeaders,
-        arenaOnly: customization.arenaOnly,
-        landCount: customization.landCount,
-        nonBasicLandCount: customization.nonBasicLandCount,
-        mustIncludeCount: customization.mustIncludeCards.length,
-        bannedCount: customization.bannedCards.length,
-        currency: customization.currency,
+        comboPreference: cust.comboCount,
+        budgetOption: cust.budgetOption,
+        maxCardPrice: cust.maxCardPrice,
+        deckBudget: cust.deckBudget,
+        bracketLevel: cust.bracketLevel,
+        maxRarity: cust.maxRarity,
+        hyperFocus: cust.hyperFocus,
+        gameChangerLimit: cust.gameChangerLimit,
+        tinyLeaders: cust.tinyLeaders,
+        arenaOnly: cust.arenaOnly,
+        landCount: cust.landCount,
+        nonBasicLandCount: cust.nonBasicLandCount,
+        mustIncludeCount: cust.mustIncludeCards.length,
+        bannedCount: cust.bannedCards.length,
+        currency: cust.currency,
         isRegeneration,
-        balancedRoles: customization.balancedRoles,
+        balancedRoles: cust.balancedRoles,
       });
     } catch (error) {
       console.error('Generation error:', error);
       setError(error instanceof Error ? error.message : 'Failed to generate deck');
       trackEvent('deck_generation_failed', {
-        commanderName: commander.name,
+        commanderName: cmd.name,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
@@ -823,7 +817,7 @@ export function BuilderPage() {
           </div>
           <DeckDisplay onRegenerate={handleGenerate} regenerateProgress={isLoading ? progressPercent : undefined} regenerateMessage={isLoading ? progress : undefined}>
             {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
-              <ComboDisplay combos={generatedDeck.detectedCombos} />
+              <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />
             )}
             <TestHand />
           </DeckDisplay>

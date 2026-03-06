@@ -122,6 +122,37 @@ export function swapCard(
     }
   }
 
+  // Recalculate combo completeness based on updated deck card names
+  let newDetectedCombos = deck.detectedCombos;
+  if (deck.detectedCombos && deck.detectedCombos.length > 0) {
+    const allDeckNames = new Set<string>();
+    if (deck.commander) {
+      allDeckNames.add(deck.commander.name);
+      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
+    }
+    if (deck.partnerCommander) {
+      allDeckNames.add(deck.partnerCommander.name);
+      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
+    }
+    for (const c of Object.values(newCategories).flat()) {
+      allDeckNames.add(c.name);
+      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
+    }
+
+    newDetectedCombos = deck.detectedCombos
+      .map(combo => {
+        const missingCards = combo.cards.filter(name => !allDeckNames.has(name));
+        return { ...combo, isComplete: missingCards.length === 0, missingCards };
+      })
+      .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
+      .sort((a, b) => {
+        if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+        return a.missingCards.length - b.missingCards.length;
+      });
+
+    if (newDetectedCombos.length === 0) newDetectedCombos = undefined;
+  }
+
   return {
     deck: {
       ...deck,
@@ -133,6 +164,7 @@ export function swapCard(
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      detectedCombos: newDetectedCombos,
     },
     success: true,
   };

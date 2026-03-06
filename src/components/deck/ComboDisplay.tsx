@@ -14,12 +14,14 @@ interface ComboDisplayProps {
   combos: DetectedCombo[];
   /** When true, hide must-include badges and controls (read-only list deck view) */
   hideMustInclude?: boolean;
+  /** Callback to trigger immediate regeneration */
+  onRegenerate?: () => void;
 }
 
 // Cache fetched card data across renders
 const cardDataCache = new Map<string, ScryfallCard>();
 
-export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDisplayProps) {
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
@@ -96,13 +98,21 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
     }
   }, []);
 
+  const tempBannedCards = useStore(s => s.customization.tempBannedCards ?? []);
+
   const handleAddMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
-    updateCustomization({ tempMustIncludeCards: [...tempMustIncludeCards, name] });
+    // Remove from temp banned if it was previously removed via edit mode
+    const newTempBanned = tempBannedCards.filter(n => n !== name);
+    updateCustomization({
+      tempMustIncludeCards: [...tempMustIncludeCards, name],
+      ...(newTempBanned.length !== tempBannedCards.length ? { tempBannedCards: newTempBanned } : {}),
+    });
     trackEvent('must_include_added', { commanderName: commander?.name ?? 'unknown', cardName: name, source: 'combo' });
-    setToastMessage(`Added "${name}" to Must Include — regenerate to apply`);
-  }, [mustIncludeCards, tempMustIncludeCards, updateCustomization, commander]);
+    setToastMessage(`Adding "${name}" to deck...`);
+    onRegenerate?.();
+  }, [mustIncludeCards, tempMustIncludeCards, tempBannedCards, updateCustomization, commander, onRegenerate]);
 
   const handleRemoveMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -193,7 +203,7 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                 )}
                 <div
                   onClick={() => handleCardClick(name)}
-                  className={`relative rounded-md overflow-hidden transition-all cursor-pointer ${
+                  className={`relative rounded-md overflow-hidden transition-all cursor-pointer active:scale-90 ${
                     isBanned ? 'opacity-50 ring-1 ring-red-500/60'
                     : isMissing && collectionNames?.has(name) ? 'opacity-50 ring-1 ring-emerald-500/60'
                     : isMissing ? 'opacity-50 ring-1 ring-amber-500/60'
@@ -219,12 +229,39 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                       <span className="text-[9px] font-bold text-red-400">EXCLUDED</span>
                     </div>
                   ) : isMissing && collectionNames?.has(name) ? (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-md">
-                      <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400">
-                        <Package className="w-2.5 h-2.5" />
-                        OWNED
-                      </span>
-                    </div>
+                    !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md group/added">
+                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/added:hidden">
+                          <Pin className="w-2.5 h-2.5" />
+                          Added
+                        </span>
+                        <button
+                          onClick={(e) => handleRemoveMustInclude(name, e)}
+                          className="hidden group-hover/added:flex items-center gap-0.5 px-1.5 py-1 rounded bg-red-600/90 hover:bg-red-500 text-white text-[8px] font-semibold transition-colors"
+                          title="Remove from Must Include list"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={`absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md ${hideMustInclude ? '' : 'group/owned'}`}>
+                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/owned:hidden">
+                          <Package className="w-2.5 h-2.5" />
+                          OWNED
+                        </span>
+                        {!hideMustInclude && (
+                          <button
+                            onClick={(e) => handleAddMustInclude(name, e)}
+                            className="hidden group-hover/owned:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
+                            title="Add to deck"
+                          >
+                            <Plus className="w-2.5 h-2.5" />
+                            Add to Deck
+                          </button>
+                        )}
+                      </div>
+                    )
                   ) : isMissing ? (
                     !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md group/added">
@@ -242,16 +279,16 @@ export function ComboDisplay({ combos, hideMustInclude }: ComboDisplayProps) {
                         </button>
                       </div>
                     ) : (
-                      <div className={`absolute inset-0 flex flex-col items-end justify-end bg-black/40 rounded-md ${hideMustInclude ? '' : 'group/missing'}`}>
-                        <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-amber-400 group-hover/missing:hidden">MISSING</span>
+                      <div className={`absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md ${hideMustInclude ? '' : 'group/missing'}`}>
+                        <span className="flex items-center justify-center text-[9px] font-bold text-amber-400 group-hover/missing:hidden">MISSING</span>
                         {!hideMustInclude && (
                           <button
                             onClick={(e) => handleAddMustInclude(name, e)}
-                            className="hidden group-hover/missing:flex items-center gap-0.5 m-1 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
-                            title="Add to Must Include list"
+                            className="hidden group-hover/missing:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
+                            title="Add to deck"
                           >
-                            <Pin className="w-2.5 h-2.5" />
-                            Must Include
+                            <Plus className="w-2.5 h-2.5" />
+                            Add to Deck
                           </button>
                         )}
                       </div>
