@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Loader2, List } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Wand2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { fetchCommanderCombos } from '@/services/edhrec/client';
@@ -118,6 +119,7 @@ function detectCombosInDeck(
 
 export function ListDeckView({ list, onBack, onViewAsList }: ListDeckViewProps) {
   const generatedDeck = useStore(s => s.generatedDeck);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [artUrl, setArtUrl] = useState<string | null>(null);
@@ -328,6 +330,15 @@ export function ListDeckView({ list, onBack, onViewAsList }: ListDeckViewProps) 
           </button>
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-bold">{list.name}</h2>
+            {list.commanderName && (
+              <button
+                onClick={() => navigate(`/build-from-deck/${list.id}`)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                Build From Deck
+              </button>
+            )}
             {onViewAsList && (
               <button
                 onClick={onViewAsList}

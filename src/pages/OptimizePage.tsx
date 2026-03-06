@@ -6,29 +6,30 @@ import { DeckDisplay } from '@/components/deck/DeckDisplay';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { TestHand } from '@/components/deck/TestHand';
-import { PartnerSelector } from '@/components/commander/PartnerSelector';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ManaCost, ColorIdentity } from '@/components/ui/mtg-icons';
+import { ColorIdentity, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
-import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
+import { getCardByName, getCardImageUrl, getCardsByNames, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
-import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink } from 'lucide-react';
+import { loadUserLists } from '@/hooks/useUserLists';
+import type { BracketLevel, BudgetOption, ThemeResult, UserCardList } from '@/types';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, List } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
-export function BuilderPage() {
-  const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
+export function OptimizePage() {
+  const { listId } = useParams<{ listId: string }>();
   const navigate = useNavigate();
   const [progress, setProgress] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [isLoadingCommander, setIsLoadingCommander] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [partnerImageLoaded, setPartnerImageLoaded] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [noDataForSettings, setNoDataForSettings] = useState(false);
+  const [optimizeList, setOptimizeList] = useState<UserCardList | null>(null);
+  const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>({});
 
   const {
     commander,
@@ -60,47 +61,90 @@ export function BuilderPage() {
     window.scrollTo(0, 0);
   }, []);
 
-  // Load commander from URL if not already loaded
+  // Load list and commander
   useEffect(() => {
-    async function loadCommanderFromUrl() {
-      if (!commanderName) {
-        navigate('/');
-        return;
-      }
+    if (!listId) {
+      navigate('/lists');
+      return;
+    }
 
-      const decodedName = decodeURIComponent(commanderName);
+    const lists = loadUserLists();
+    const list = lists.find(l => l.id === listId);
+    if (!list || !list.commanderName) {
+      navigate('/lists');
+      return;
+    }
 
-      // Check if we already have this commander in store (from search page)
-      const hasCommanderCached = commander?.name === decodedName;
+    setOptimizeList(list);
 
-      // Use cached commander or fetch from API
-      let card = hasCommanderCached ? commander : null;
+    // Compute type breakdown (cards likely cached from deck view)
+    if (list.cards.length > 0) {
+      getCardsByNames(list.cards).then(cardMap => {
+        const breakdown: Record<string, number> = {};
+        for (const name of list.cards) {
+          const card = cardMap.get(name);
+          if (!card) continue;
+          const typeLine = getFrontFaceTypeLine(card).toLowerCase();
+          let mainType = 'Other';
+          if (typeLine.includes('creature')) mainType = 'Creature';
+          else if (typeLine.includes('instant')) mainType = 'Instant';
+          else if (typeLine.includes('sorcery')) mainType = 'Sorcery';
+          else if (typeLine.includes('artifact')) mainType = 'Artifact';
+          else if (typeLine.includes('enchantment')) mainType = 'Enchantment';
+          else if (typeLine.includes('land')) mainType = 'Land';
+          else if (typeLine.includes('planeswalker')) mainType = 'Planeswalker';
+          else if (typeLine.includes('battle')) mainType = 'Battle';
+          breakdown[mainType] = (breakdown[mainType] ?? 0) + 1;
+        }
+        setTypeBreakdown(breakdown);
+      });
+    }
+
+    async function loadCommander() {
+      if (!list!.commanderName) return;
+
+      // Clear stale themes from any previous session immediately
+      setSelectedThemes([]);
+
+      const decodedName = list!.commanderName;
+      let card = commander?.name === decodedName ? commander : null;
 
       if (!card) {
         setIsLoadingCommander(true);
         try {
           card = await getCardByName(decodedName, true);
           if (!card) {
-            navigate('/');
+            navigate('/lists');
             return;
           }
           setCommander(card);
           setImageLoaded(false);
         } catch (error) {
           console.error('Failed to load commander:', error);
-          navigate('/');
+          navigate('/lists');
           return;
         } finally {
           setIsLoadingCommander(false);
         }
       }
 
-      // Skip if we already have themes loaded for this commander
-      if (hasCommanderCached && selectedThemes.length > 0) {
-        return;
+      // Load partner if present
+      if (list!.partnerCommanderName) {
+        const partnerName = list!.partnerCommanderName;
+        if (partnerCommander?.name !== partnerName) {
+          try {
+            const partnerCard = await getCardByName(partnerName, true);
+            if (partnerCard) {
+              setPartnerCommander(partnerCard);
+            }
+          } catch (error) {
+            console.error('Failed to load partner commander:', error);
+          }
+        }
       }
 
-      // Fetch EDHREC themes
+      // Always fetch fresh EDHREC themes for build-from-deck flow
+      // (don't skip even if commander is cached — themes may be stale from a previous session)
       setThemesLoading(true);
       setThemesError(null);
 
@@ -109,8 +153,6 @@ export function BuilderPage() {
         const data = await fetchCommanderData(card.name, undefined, bracketLevel);
         const themes = data.themes;
 
-        // Apply EDHREC land stats — more accurate than hardcoded defaults
-        // Only override if the user hasn't manually adjusted the land count
         const { landDistribution } = data.stats;
         const suggestedLands = Math.round(landDistribution.total);
         const suggestedNonBasic = Math.round(landDistribution.nonbasic);
@@ -131,7 +173,6 @@ export function BuilderPage() {
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
-
           const themeResults: ThemeResult[] = themes.map((t, index) => ({
             name: t.name,
             source: 'edhrec' as const,
@@ -140,7 +181,6 @@ export function BuilderPage() {
             popularityPercent: t.popularityPercent,
             isSelected: index < 2,
           }));
-
           setSelectedThemes(themeResults);
         } else {
           setThemesError('No themes found on EDHREC');
@@ -152,176 +192,32 @@ export function BuilderPage() {
       }
     }
 
-    loadCommanderFromUrl();
-  }, [commanderName]);
+    loadCommander();
+  }, [listId]);
 
-  // Load partner commander from URL if present
-  useEffect(() => {
-    async function loadPartnerFromUrl() {
-      if (!partnerName || !commander) return;
-
-      const decodedPartnerName = decodeURIComponent(partnerName);
-
-      // Check if we already have this partner in store
-      if (partnerCommander?.name === decodedPartnerName) return;
-
-      try {
-        const partnerCard = await getCardByName(decodedPartnerName, true);
-        if (partnerCard) {
-          setPartnerCommander(partnerCard);
-          setPartnerImageLoaded(false);
-        }
-      } catch (error) {
-        console.error('Failed to load partner commander:', error);
-      }
-    }
-
-    loadPartnerFromUrl();
-  }, [partnerName, commander?.name]);
-
-  // Update URL when partner commander changes
-  useEffect(() => {
-    if (!commander || !commanderName) return;
-
-    const currentUrlPartner = partnerName ? decodeURIComponent(partnerName) : null;
-    const storePartner = partnerCommander?.name ?? null;
-
-    // Only update URL if the partner in store differs from URL
-    if (storePartner !== currentUrlPartner) {
-      const basePath = `/build/${encodeURIComponent(commander.name)}`;
-      const newPath = storePartner
-        ? `${basePath}/${encodeURIComponent(storePartner)}`
-        : basePath;
-
-      navigate(newPath, { replace: true });
-    }
-  }, [partnerCommander?.name, commander?.name, commanderName, partnerName, navigate]);
-
-  // Apply commander color theme (uses combined color identity from both commanders)
-  useEffect(() => {
-    if (colorIdentity.length > 0) {
-      applyCommanderTheme(colorIdentity);
-    }
-
-    // Reset theme when leaving the page
-    return () => resetTheme();
-  }, [colorIdentity]);
-
-  // Reset partner image loaded state when partner changes
-  useEffect(() => {
-    setPartnerImageLoaded(false);
-  }, [partnerCommander?.id]);
-
-  // Track previous values to detect changes
-  const prevPartnerRef = useRef<string | null>(null);
+  // Re-fetch themes when bracket level or budget option changes
   const prevBracketRef = useRef<BracketLevel>(customization.bracketLevel);
   const prevBudgetOptRef = useRef<BudgetOption>(customization.budgetOption);
 
-  // Re-fetch themes when partner commander changes
-  useEffect(() => {
-    const currentPartnerName = partnerCommander?.name ?? null;
-    const prevPartnerName = prevPartnerRef.current;
-
-    // Update ref for next comparison
-    prevPartnerRef.current = currentPartnerName;
-
-    // Skip if commander not loaded yet, or if partner hasn't actually changed
-    if (!commander || currentPartnerName === prevPartnerName) {
-      return;
-    }
-
-    async function refreshThemes() {
-      setThemesLoading(true);
-      setThemesError(null);
-
-      try {
-        const { bracketLevel: bl } = useStore.getState().customization;
-        const bracket = bl !== 'all' ? bl : undefined;
-        let data;
-        if (partnerCommander) {
-          // Fetch partner-specific themes (budget doesn't affect theme lists)
-          data = await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracket);
-        } else {
-          // Fetch single commander themes
-          data = await fetchCommanderData(commander!.name, undefined, bracket);
-        }
-        const themes = data.themes;
-
-        // Apply EDHREC land stats for the updated commander pairing
-        // Only override if the user hasn't manually adjusted the land count
-        const { landDistribution } = data.stats;
-        const suggestedLands = Math.round(landDistribution.total);
-        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
-        if (suggestedLands > 0) {
-          if (!useStore.getState().userEditedLands) {
-            updateCustomization({
-              landCount: suggestedLands,
-              nonBasicLandCount: suggestedNonBasic,
-            });
-          }
-          setEdhrecLandSuggestion({
-            landCount: suggestedLands,
-            nonBasicLandCount: suggestedNonBasic,
-          });
-        }
-
-        setEdhrecNumDecks(data.stats.numDecks || null);
-
-        if (themes.length > 0) {
-          setEdhrecThemes(themes);
-
-          const themeResults: ThemeResult[] = themes.map((t, index) => ({
-            name: t.name,
-            source: 'edhrec' as const,
-            slug: t.slug,
-            deckCount: t.count,
-            popularityPercent: t.popularityPercent,
-            isSelected: index < 2,
-          }));
-
-          setSelectedThemes(themeResults);
-        } else {
-          setThemesError('No themes found on EDHREC');
-        }
-      } catch {
-        setThemesError('Could not fetch EDHREC themes');
-      } finally {
-        setThemesLoading(false);
-      }
-    }
-
-    refreshThemes();
-  }, [partnerCommander?.name, commander?.name]);
-
-  // Re-fetch themes when bracket level or budget option changes
-  // Bracket affects theme availability/counts; budget affects card data behind themes
   useEffect(() => {
     const currentBracket = customization.bracketLevel;
     const currentBudget = customization.budgetOption;
     const prevBracket = prevBracketRef.current;
     const prevBudget = prevBudgetOptRef.current;
 
-    // Update refs for next comparison
     prevBracketRef.current = currentBracket;
     prevBudgetOptRef.current = currentBudget;
 
-    // Skip if commander not loaded yet, or if neither setting actually changed
     if (!commander || (currentBracket === prevBracket && currentBudget === prevBudget)) return;
-
-    // Always clear the no-data flag when settings change so the button re-enables
     setNoDataForSettings(false);
 
-    // Only re-fetch if we have (or had) EDHREC themes (don't overwrite local archetype fallback from initial load)
     const { themeSource, themesError } = useStore.getState();
     if (themeSource !== 'edhrec' && !themesError) return;
-
-
 
     async function refreshThemesForBracket() {
       setThemesLoading(true);
       setThemesError(null);
 
-      // Remember which themes the user had selected (by slug for stable matching)
       const previouslySelectedSlugs = new Set(
         selectedThemes.filter(t => t.isSelected && t.slug).map(t => t.slug!)
       );
@@ -334,9 +230,6 @@ export function BuilderPage() {
           : await fetchCommanderData(commander!.name, budgetOpt, bracketLevel);
         const themes = data.themes;
 
-        // When budget is active, EDHREC taglink counts don't change — but numDecks does.
-        // Scale theme counts proportionally (same as EDHREC website does).
-        // Fetch the "any" version (usually cached from initial load) to get the base numDecks.
         let scaleFactor = 1;
         if (budgetOpt && data.stats.numDecks > 0) {
           const anyData = partnerCommander
@@ -347,7 +240,6 @@ export function BuilderPage() {
           }
         }
 
-        // Update land suggestions from bracket-specific stats
         const { landDistribution } = data.stats;
         const suggestedLands = Math.round(landDistribution.total);
         const suggestedNonBasic = Math.round(landDistribution.nonbasic);
@@ -370,19 +262,14 @@ export function BuilderPage() {
           setEdhrecThemes(themes);
 
           const newSlugs = new Set(themes.map(t => t.slug));
-
-          // Identify themes that were selected but no longer exist
           const lost = selectedThemes
             .filter(t => t.isSelected && t.slug && !newSlugs.has(t.slug))
             .map(t => t.name);
 
           if (lost.length > 0) {
-
             setToastMessage(`${lost.join(', ')} ${lost.length === 1 ? 'was' : 'were'} deselected — not available with current settings`);
           }
 
-          // Build new theme list, preserving selections where possible
-          // Apply scale factor for budget-filtered counts
           const themeResults: ThemeResult[] = themes.map((t) => ({
             name: t.name,
             source: 'edhrec' as const,
@@ -394,22 +281,18 @@ export function BuilderPage() {
 
           setSelectedThemes(themeResults);
         } else {
-          // No themes at this bracket/budget
           setNoDataForSettings(true);
           setThemesError('No EDHREC themes available for this combination');
           const lostNames = selectedThemes.filter(t => t.isSelected).map(t => t.name);
           if (lostNames.length > 0) {
-
             setToastMessage(`${lostNames.join(', ')} ${lostNames.length === 1 ? 'was' : 'were'} deselected — not available with current settings`);
           }
         }
       } catch {
-        // EDHREC has no data for this combination (e.g., cEDH + budget returns 403)
-        console.warn('[BuilderPage] No EDHREC data for this bracket/budget combination');
+        console.warn('[OptimizePage] No EDHREC data for this bracket/budget combination');
         setNoDataForSettings(true);
         setThemesError('No EDHREC data available for this combination');
         setEdhrecNumDecks(null);
-
         setToastMessage('No EDHREC data for this combination of bracket and budget');
       } finally {
         setThemesLoading(false);
@@ -419,6 +302,14 @@ export function BuilderPage() {
     refreshThemesForBracket();
   }, [customization.bracketLevel, customization.budgetOption, commander?.name]);
 
+  // Apply commander color theme
+  useEffect(() => {
+    if (colorIdentity.length > 0) {
+      applyCommanderTheme(colorIdentity);
+    }
+    return () => resetTheme();
+  }, [colorIdentity]);
+
   // Auto-dismiss toast
   useEffect(() => {
     if (!toastMessage) return;
@@ -427,17 +318,21 @@ export function BuilderPage() {
   }, [toastMessage]);
 
   const handleGenerate = async () => {
-    // Read fresh from store to avoid stale closures (e.g. tempBannedCards just updated)
     const { commander: cmd, partnerCommander: partner, colorIdentity: colors, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
-    if (!cmd) return;
+    if (!cmd || !optimizeList) return;
     const isRegeneration = currentDeck !== null;
 
-    setLoading(true, 'Starting deck generation...');
+    // Get the deck cards (minus commander/partner) to pass as optimization cards
+    const commanderNames = new Set<string>();
+    commanderNames.add(cmd.name);
+    if (partner) commanderNames.add(partner.name);
+    const deckCards = optimizeList.cards.filter(name => !commanderNames.has(name));
+
+    setLoading(true, 'Starting deck optimization...');
     setProgress('Initializing...');
     setProgressPercent(0);
 
     try {
-      // Load collection if collection mode is enabled
       let collectionNames: Set<string> | undefined;
       if (cust.collectionMode) {
         const { getCollectionNameSet } = await import('@/services/collection/db');
@@ -456,6 +351,7 @@ export function BuilderPage() {
         customization: cust,
         selectedThemes: themes,
         collectionNames,
+        optimizeDeckCards: deckCards,
         onProgress: (message, percent) => {
           setProgress(message);
           setProgressPercent(percent);
@@ -463,46 +359,23 @@ export function BuilderPage() {
       });
 
       deck.builtFromCollection = !!cust.collectionMode;
-      // On fresh generation, clear temporary lists
-      // On regeneration, keep them — user added these after seeing the deck
       if (!isRegeneration) {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }
       setGeneratedDeck(deck);
-      trackEvent('deck_generated', {
+      trackEvent('deck_optimized', {
         commanderName: cmd.name,
         partnerName: partner?.name,
+        listName: optimizeList.name,
+        originalCardCount: optimizeList.cards.length,
         deckFormat: cust.deckFormat,
         themes: themes.filter(t => t.isSelected).map(t => t.name),
-        collectionMode: !!cust.collectionMode,
         totalCards: deck.stats.totalCards,
-        averageCmc: deck.stats.averageCmc,
-        comboCount: deck.detectedCombos?.length ?? 0,
-        comboPreference: cust.comboCount,
-        budgetOption: cust.budgetOption,
-        maxCardPrice: cust.maxCardPrice,
-        deckBudget: cust.deckBudget,
-        bracketLevel: cust.bracketLevel,
-        maxRarity: cust.maxRarity,
-        hyperFocus: cust.hyperFocus,
-        gameChangerLimit: cust.gameChangerLimit,
-        tinyLeaders: cust.tinyLeaders,
-        arenaOnly: cust.arenaOnly,
-        landCount: cust.landCount,
-        nonBasicLandCount: cust.nonBasicLandCount,
-        mustIncludeCount: cust.mustIncludeCards.length,
-        bannedCount: cust.bannedCards.length,
-        currency: cust.currency,
         isRegeneration,
-        balancedRoles: cust.balancedRoles,
       });
     } catch (error) {
-      console.error('Generation error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to generate deck');
-      trackEvent('deck_generation_failed', {
-        commanderName: cmd.name,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
+      console.error('Optimization error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to optimize deck');
     } finally {
       setLoading(false);
       setProgress('');
@@ -511,22 +384,25 @@ export function BuilderPage() {
   };
 
   const handleBack = () => {
-    // If viewing generated deck, go back to customization (steps 2/3)
     if (generatedDeck) {
       setGeneratedDeck(null);
       return;
     }
-    // Otherwise, go back to home page (step 1)
     reset();
-    navigate('/');
+    navigate(`/lists/${listId}/deck-view`);
   };
 
-  if (isLoadingCommander) {
+  // Compute card count delta for the header
+  const targetSize = customization.deckFormat;
+  const currentCardCount = optimizeList ? optimizeList.cards.length : 0;
+  const delta = currentCardCount - targetSize;
+
+  if (isLoadingCommander || !optimizeList) {
     return (
       <main className="flex-1 container mx-auto px-4 py-8">
         <div className="flex flex-col items-center justify-center py-20">
           <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-          <p className="text-muted-foreground">Loading commander...</p>
+          <p className="text-muted-foreground">Loading deck...</p>
         </div>
       </main>
     );
@@ -545,39 +421,48 @@ export function BuilderPage() {
         className="mb-6 -ml-2"
       >
         <ArrowLeft className="w-4 h-4 mr-2" />
-        {generatedDeck ? 'Back to Settings' : 'Back to Search'}
+        {generatedDeck ? 'Back to Settings' : 'Back to Deck'}
       </Button>
 
-      {/* Commander Card Display - only show during customization */}
+      {/* Deck Info Header - only show during customization */}
       {!generatedDeck && (
         <section className="mb-8">
-          <div className={`w-full mx-auto ${partnerCommander ? 'max-w-3xl' : 'max-w-lg'}`}>
-            <div className={`grid gap-4 ${partnerCommander ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
-              {/* Primary Commander Card */}
-              <Card className="animate-scale-in overflow-hidden bg-card/80 backdrop-blur-sm">
-                <CardContent className="p-0">
-                  <div className="flex">
-                    {/* Card Image */}
-                    <div className="relative w-40 shrink-0">
-                      {!imageLoaded && (
-                        <div className="absolute inset-0 shimmer rounded-l-xl" />
-                      )}
-                      <img
-                        src={getCardImageUrl(commander, 'normal')}
-                        alt={commander.name}
-                        className={`w-full h-full object-cover rounded-l-xl transition-opacity duration-300 ${
-                          imageLoaded ? 'opacity-100' : 'opacity-0'
-                        }`}
-                        onLoad={() => setImageLoaded(true)}
-                      />
-                    </div>
+          <div className="w-full mx-auto max-w-2xl">
+            <Card className="animate-scale-in overflow-hidden bg-card/80 backdrop-blur-sm">
+              <CardContent className="p-0">
+                <div className="flex">
+                  {/* Commander Image */}
+                  <div className="relative w-40 shrink-0">
+                    {!imageLoaded && (
+                      <div className="absolute inset-0 shimmer rounded-l-xl" />
+                    )}
+                    <img
+                      src={getCardImageUrl(commander, 'normal')}
+                      alt={commander.name}
+                      className={`w-full h-full object-cover rounded-l-xl transition-opacity duration-300 ${
+                        imageLoaded ? 'opacity-100' : 'opacity-0'
+                      }`}
+                      onLoad={() => setImageLoaded(true)}
+                    />
+                  </div>
 
-                    {/* Card Details */}
-                    <div className="flex-1 p-4 flex flex-col">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-bold text-lg leading-tight">
-                          {commander.name}
+                  {/* Deck Details */}
+                  <div className="flex-1 p-4 flex flex-col">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Building from Deck</p>
+                        <h3 className="font-bold text-lg leading-tight mt-0.5">
+                          {optimizeList.name}
                         </h3>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => navigate(`/lists/${optimizeList.id}/deck-view`)}
+                          className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
+                          title="View list"
+                        >
+                          <List className="w-4 h-4" />
+                        </button>
                         <a
                           href={`https://edhrec.com/commanders/${formatCommanderNameForUrl(commander.name)}`}
                           target="_blank"
@@ -588,96 +473,62 @@ export function BuilderPage() {
                           <ExternalLink className="w-4 h-4" />
                         </a>
                       </div>
+                    </div>
 
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {commander.type_line}
-                      </p>
+                    <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
+                      <CommanderIcon size={14} className="opacity-60" />
+                      {commander.name}
+                      {partnerCommander && ` & ${partnerCommander.name}`}
+                    </p>
 
-                      {/* Color Identity - show combined when partner exists */}
-                      <div className="mt-3">
-                        <ColorIdentity colors={partnerCommander ? colorIdentity : commander.color_identity} size="lg" />
+                    {/* Type Breakdown */}
+                    {Object.keys(typeBreakdown).length > 0 && (
+                      <div className="flex items-center gap-1.5 mt-2">
+                        {Object.entries(typeBreakdown)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([type, count]) => (
+                            <span
+                              key={type}
+                              className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground/70"
+                              title={type}
+                            >
+                              <CardTypeIcon type={type} size="sm" className="opacity-50 text-[10px]" />
+                              {count}
+                            </span>
+                          ))}
                       </div>
+                    )}
 
-                      {/* Mana Cost */}
-                      {commander.mana_cost && (
-                        <div className="mt-auto pt-3 flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
-                            Mana Cost:
+                    {/* Color Identity */}
+                    <div className="mt-2">
+                      <ColorIdentity colors={colorIdentity} size="lg" />
+                    </div>
+
+                    {/* Card Count & Delta */}
+                    <div className="mt-auto pt-3">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="font-medium">{currentCardCount} cards</span>
+                        {delta > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500">
+                            {delta} {delta === 1 ? 'card' : 'cards'} will be removed
                           </span>
-                          <ManaCost cost={commander.mana_cost} />
-                        </div>
-                      )}
+                        )}
+                        {delta < 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-500">
+                            {Math.abs(delta)} new {Math.abs(delta) === 1 ? 'card' : 'cards'} will be added
+                          </span>
+                        )}
+                        {delta === 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-green-500/15 text-green-500">
+                            exactly {targetSize}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-
-              {/* Partner Commander Card (if selected) */}
-              {partnerCommander && (
-                <Card className="animate-scale-in overflow-hidden bg-card/80 backdrop-blur-sm">
-                  <CardContent className="p-0">
-                    <div className="flex">
-                      {/* Card Image */}
-                      <div className="relative w-40 shrink-0">
-                        {!partnerImageLoaded && (
-                          <div className="absolute inset-0 shimmer rounded-l-xl" />
-                        )}
-                        <img
-                          src={getCardImageUrl(partnerCommander, 'normal')}
-                          alt={partnerCommander.name}
-                          className={`w-full h-full object-cover rounded-l-xl transition-opacity duration-300 ${
-                            partnerImageLoaded ? 'opacity-100' : 'opacity-0'
-                          }`}
-                          onLoad={() => setPartnerImageLoaded(true)}
-                        />
-                      </div>
-
-                      {/* Card Details */}
-                      <div className="flex-1 p-4 flex flex-col">
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-bold text-lg leading-tight">
-                            {partnerCommander.name}
-                          </h3>
-                          <a
-                            href={`https://edhrec.com/commanders/${formatCommanderNameForUrl(partnerCommander.name)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
-                            title="View on EDHREC"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </a>
-                        </div>
-
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {partnerCommander.type_line}
-                        </p>
-
-                        {/* Partner's individual color identity */}
-                        <div className="mt-3">
-                          <ColorIdentity colors={partnerCommander.color_identity} size="lg" />
-                        </div>
-
-                        {/* Mana Cost */}
-                        {partnerCommander.mana_cost && (
-                          <div className="mt-auto pt-3 flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">
-                              Mana Cost:
-                            </span>
-                            <ManaCost cost={partnerCommander.mana_cost} />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-            {/* Partner Selector - only show for commanders that can have partners */}
-            <div className="max-w-lg mx-auto">
-              <PartnerSelector commander={commander} />
-            </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </section>
       )}
@@ -779,7 +630,7 @@ export function BuilderPage() {
               ) : (
                 <>
                   <Wand2 className="w-5 h-5 mr-2" />
-                  Generate Deck
+                  Build From Deck
                 </>
               )}
             </Button>
@@ -799,7 +650,7 @@ export function BuilderPage() {
             )}
             {!isLoading && (
               <p className="text-sm text-muted-foreground mt-3">
-                Creates a complete {customization.deckFormat - (partnerCommander ? 1 : 0)}-card deck based on your preferences
+                Keeps your cards where possible, {delta > 0 ? 'trims' : 'fills'} to {customization.deckFormat - (partnerCommander ? 1 : 0)} cards
               </p>
             )}
           </div>
@@ -815,8 +666,15 @@ export function BuilderPage() {
                 ✓
               </div>
               <h2 className="text-xl font-bold">
-                Deck generated for {commander.name}
-                {partnerCommander && ` & ${partnerCommander.name}`}
+                Built from {optimizeList.name}
+                {(() => {
+                  const originalCount = optimizeList.cards.length;
+                  const finalCount = generatedDeck.stats.totalCards;
+                  const diff = finalCount - originalCount;
+                  if (diff > 0) return <span className="text-sm font-normal text-blue-400 ml-2">+{diff} {diff === 1 ? 'card' : 'cards'} added</span>;
+                  if (diff < 0) return <span className="text-sm font-normal text-amber-400 ml-2">{Math.abs(diff)} {Math.abs(diff) === 1 ? 'card' : 'cards'} removed</span>;
+                  return null;
+                })()}
               </h2>
             </div>
           </div>

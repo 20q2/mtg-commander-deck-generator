@@ -870,7 +870,7 @@ export function DeckCustomizer() {
                 <span>{collectionCount.toLocaleString()} cards imported</span>
                 <button
                   onClick={() => navigate('/collection')}
-                  className="text-xs text-primary hover:text-primary/80 transition-colors"
+                  className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
                 >
                   Manage Collection
                 </button>

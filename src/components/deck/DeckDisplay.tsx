@@ -41,29 +41,29 @@ function getRoleBadgeProps(card: ScryfallCard): { color: string; bgColor: string
   switch (card.deckRole) {
     case 'ramp':
       switch (card.rampSubtype) {
-        case 'mana-producer': return { color: 'text-lime-400/70', bgColor: 'bg-lime-500/80', title: 'Mana Producer', label: 'MANA' };
-        case 'mana-rock': return { color: 'text-yellow-400/70', bgColor: 'bg-yellow-500/80', title: 'Mana Rock', label: 'ROCK' };
-        case 'cost-reducer': return { color: 'text-teal-400/70', bgColor: 'bg-teal-500/80', title: 'Cost Reducer', label: 'COST' };
-        default: return { color: 'text-emerald-400/70', bgColor: 'bg-emerald-500/80', title: 'Ramp', label: 'RAMP' };
+        case 'mana-producer': return { color: 'text-lime-400/70', bgColor: 'bg-lime-500/80', title: 'Mana Producer', label: 'MP' };
+        case 'mana-rock': return { color: 'text-yellow-400/70', bgColor: 'bg-yellow-500/80', title: 'Mana Rock', label: 'MR' };
+        case 'cost-reducer': return { color: 'text-teal-400/70', bgColor: 'bg-teal-500/80', title: 'Cost Reducer', label: 'CR' };
+        default: return { color: 'text-emerald-400/70', bgColor: 'bg-emerald-500/80', title: 'Ramp', label: 'RA' };
       }
     case 'removal':
       switch (card.removalSubtype) {
-        case 'counterspell': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Counterspell', label: 'CTR' };
-        case 'bounce': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce', label: 'BNCE' };
-        case 'spot-removal': return { color: 'text-rose-400/70', bgColor: 'bg-rose-500/80', title: 'Spot Removal', label: 'SPOT' };
-        default: return { color: 'text-red-400/70', bgColor: 'bg-red-500/80', title: 'Removal', label: 'REM' };
+        case 'counterspell': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Counterspell', label: 'CT' };
+        case 'bounce': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce', label: 'BN' };
+        case 'spot-removal': return { color: 'text-rose-400/70', bgColor: 'bg-rose-500/80', title: 'Spot Removal', label: 'SR' };
+        default: return { color: 'text-red-400/70', bgColor: 'bg-red-500/80', title: 'Removal', label: 'RE' };
       }
     case 'boardwipe':
       switch (card.boardwipeSubtype) {
-        case 'bounce-wipe': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce Wipe', label: 'BNCE' };
-        default: return { color: 'text-orange-400/70', bgColor: 'bg-orange-500/80', title: 'Board Wipe', label: 'WIPE' };
+        case 'bounce-wipe': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce Wipe', label: 'BW' };
+        default: return { color: 'text-orange-400/70', bgColor: 'bg-orange-500/80', title: 'Board Wipe', label: 'WI' };
       }
     case 'cardDraw':
       switch (card.cardDrawSubtype) {
-        case 'tutor': return { color: 'text-amber-400/70', bgColor: 'bg-amber-500/80', title: 'Tutor', label: 'TUTR' };
-        case 'wheel': return { color: 'text-pink-400/70', bgColor: 'bg-pink-500/80', title: 'Wheel', label: 'WHEL' };
-        case 'cantrip': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Cantrip', label: 'TRIP' };
-        case 'card-draw': return { color: 'text-blue-400/70', bgColor: 'bg-blue-500/80', title: 'Card Draw', label: 'DRAW' };
+        case 'tutor': return { color: 'text-amber-400/70', bgColor: 'bg-amber-500/80', title: 'Tutor', label: 'TU' };
+        case 'wheel': return { color: 'text-pink-400/70', bgColor: 'bg-pink-500/80', title: 'Wheel', label: 'WH' };
+        case 'cantrip': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Cantrip', label: 'CN' };
+        case 'card-draw': return { color: 'text-blue-400/70', bgColor: 'bg-blue-500/80', title: 'Card Draw', label: 'DR' };
         default: return { color: 'text-indigo-400/70', bgColor: 'bg-indigo-500/80', title: 'Card Advantage', label: 'CA' };
       }
     default: return null;
@@ -313,8 +313,11 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
       )}
       {showPinColumn && (
         <span className="w-3 shrink-0 flex justify-center">
-          {card.isMustInclude ? <span title="Must include"><Pin className="w-3 h-3 text-emerald-500/70" /></span> :
-           isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span> : null}
+          {card.isMustInclude ? (
+            card.mustIncludeSource === 'deck' ? <span title="From original deck"><Bookmark className="w-3 h-3 text-muted-foreground/50" /></span> :
+            card.mustIncludeSource === 'combo' ? <span title="Added by user"><Sparkles className="w-3 h-3 text-violet-500/70" /></span> :
+            <span title="Must include"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
+          ) : isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span> : null}
         </span>
       )}
       <span className="text-muted-foreground w-fit text-right shrink-0">{quantity}</span>
@@ -322,12 +325,7 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
         const badge = getRoleBadgeProps(card);
         return badge ? (
           <span className={`w-5 text-center shrink-0 text-[10px] font-bold ${card.multiRole ? 'text-purple-400/70' : badge.color}`} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage' })[r]).join(' + ') : badge.title}>{
-            card.multiRole ? '*' :
-            card.deckRole === 'ramp' ? 'RA' :
-            card.deckRole === 'removal' ? 'RE' :
-            card.deckRole === 'boardwipe' ? 'WI' :
-            card.deckRole === 'cardDraw' ? 'CA' :
-            badge.label.substring(0, 2)
+            card.multiRole ? '*' : badge.label
           }</span>
         ) : (
           <span className="w-5 shrink-0" />
@@ -338,9 +336,6 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
         </span>
         <span className="shrink-0 flex items-center">
-          {card.isMustInclude && (
-            <span className="ml-1 text-[10px] font-bold text-emerald-500/70" title="Must Include">MI</span>
-          )}
           {card.isGameChanger && (
             <span className="ml-1 text-[10px] font-bold text-amber-500/70" title="Game Changer (EDHREC)">GC</span>
           )}
@@ -1123,6 +1118,8 @@ interface DeckDisplayProps {
   onRegenerate?: () => void;
   /** When true, hide must-include badges and controls (read-only list deck view) */
   readOnly?: boolean;
+  /** When true, hide the regenerate button (edit mode still available) */
+  hideRegenerate?: boolean;
   /** Progress percentage (0-100) during regeneration */
   regenerateProgress?: number;
   /** Progress message during regeneration */
@@ -1130,7 +1127,7 @@ interface DeckDisplayProps {
   children?: React.ReactNode;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regenerateMessage, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
   const { createList } = useUserLists();
@@ -1696,7 +1693,7 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
                 </span>
               )}
             </div>
-            {(isDirty || removedCards.size > 0 || pendingRegenerate) && onRegenerate && (
+            {(isDirty || removedCards.size > 0 || pendingRegenerate) && onRegenerate && !hideRegenerate && (
               <Button onClick={handleRegenerate} variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300" disabled={pendingRegenerate}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${pendingRegenerate ? 'animate-spin' : ''}`} />
                 {pendingRegenerate ? 'Regenerating...' : 'Regenerate'}
@@ -1709,7 +1706,7 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
           </div>
         </div>
 
-        {pendingRegenerate && regenerateProgress !== undefined && (
+        {regenerateProgress !== undefined && (
           <div className="mb-4">
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
@@ -1848,8 +1845,16 @@ export function DeckDisplay({ onRegenerate, readOnly, regenerateProgress, regene
                                       </span>
                                     )}
                                     {card.isMustInclude && (
-                                      <span className="bg-emerald-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Must Include">
-                                        <Pin className="w-2.5 h-2.5" />
+                                      <span className={`${
+                                        card.mustIncludeSource === 'deck' ? 'bg-muted-foreground/60' :
+                                        card.mustIncludeSource === 'combo' ? 'bg-violet-500/80' :
+                                        'bg-emerald-500/80'
+                                      } text-white rounded-full w-5 h-5 flex items-center justify-center`}
+                                        title={card.mustIncludeSource === 'deck' ? 'From Original Deck' :
+                                               card.mustIncludeSource === 'combo' ? 'Added by User' : 'Must Include'}>
+                                        {card.mustIncludeSource === 'deck' ? <Bookmark className="w-2.5 h-2.5" /> :
+                                         card.mustIncludeSource === 'combo' ? <Sparkles className="w-2.5 h-2.5" /> :
+                                         <Pin className="w-2.5 h-2.5" />}
                                       </span>
                                     )}
                                     {roleBadges.map((badge) => (

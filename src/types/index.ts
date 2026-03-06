@@ -57,6 +57,7 @@ export interface ScryfallCard {
   // Added during deck generation
   isGameChanger?: boolean;
   isMustInclude?: boolean;
+  mustIncludeSource?: 'user' | 'deck' | 'combo'; // Where the must-include came from
   deckRole?: string; // Functional role detected by tagger/oracle text (e.g., 'ramp', 'removal')
   multiRole?: boolean; // True if card matches multiple role categories
   rampSubtype?: 'mana-producer' | 'mana-rock' | 'cost-reducer' | 'ramp';

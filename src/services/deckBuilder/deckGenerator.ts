@@ -35,6 +35,7 @@ interface GenerationContext {
   customization: Customization;
   selectedThemes?: ThemeResult[];
   collectionNames?: Set<string>;
+  optimizeDeckCards?: string[];
   onProgress?: (message: string, percent: number) => void;
 }
 
@@ -342,6 +343,8 @@ function pickFromPrefetched(
     }
     result.push(scryfallCard);
     usedNames.add(edhrecCard.name);
+    // Also mark full Scryfall DFC name so fillWithScryfall checks match
+    if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
     budgetTracker?.deductCard(scryfallCard);
   }
 
@@ -492,6 +495,7 @@ function pickFromPrefetchedWithCurve(
       }
       result.push(scryfallCard);
       usedNames.add(edhrecCard.name);
+      if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
       currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
       budgetTracker?.deductCard(scryfallCard);
     }
@@ -741,6 +745,8 @@ async function fillWithScryfall(
 
       result.push(card);
       usedNames.add(card.name);
+      // Also mark front-face name for DFCs so EDHREC-sourced checks match
+      if (card.name.includes(' // ')) usedNames.add(card.name.split(' // ')[0]);
       budgetTracker?.deductCard(card);
     }
 
@@ -1237,6 +1243,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   const format = customization.deckFormat;
   const usedNames = new Set<string>();
+
+  // Helper: mark a card name as used, including front-face name for DFCs
+  // EDHREC uses front-face-only names while Scryfall uses "Front // Back"
+  function markUsed(name: string) {
+    usedNames.add(name);
+    if (name.includes(' // ')) {
+      usedNames.add(name.split(' // ')[0]);
+    }
+  }
   const bannedCards = new Set(customization.bannedCards || []);
   // Merge enabled ban lists into the banned set
   for (const list of customization.banLists || []) {
@@ -1281,9 +1296,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   }
 
   // Add commander(s) to used names
-  usedNames.add(commander.name);
+  markUsed(commander.name);
   if (partnerCommander) {
-    usedNames.add(partnerCommander.name);
+    markUsed(partnerCommander.name);
   }
 
   // --- Phase A: Data Acquisition (skippable via generation cache) ---
@@ -1366,30 +1381,44 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;
 
   // Process must-include cards FIRST — they get priority over all other selections
-  const mustIncludeNames = customization.mustIncludeCards?.filter(
-    name => !bannedCards.has(name) && !usedNames.has(name)
-  ) || [];
-  // Merge applied include user lists
+  // Track where each must-include came from (first source wins)
+  const mustIncludeNames: string[] = [];
+  const mustIncludeSources = new Map<string, 'user' | 'deck' | 'combo'>();
+
+  function addMustInclude(name: string, source: 'user' | 'deck' | 'combo') {
+    if (!bannedCards.has(name) && !usedNames.has(name) && !mustIncludeNames.includes(name)) {
+      mustIncludeNames.push(name);
+      mustIncludeSources.set(name, source);
+    }
+  }
+
+  // Persistent user must-includes
+  for (const name of customization.mustIncludeCards || []) {
+    addMustInclude(name, 'user');
+  }
+  // Applied include user lists
   for (const ref of customization.appliedIncludeLists || []) {
     if (ref.enabled) {
       const list = userLists.find(l => l.id === ref.listId);
       if (list) {
         for (const name of list.cards) {
-          if (!bannedCards.has(name) && !usedNames.has(name) && !mustIncludeNames.includes(name)) {
-            mustIncludeNames.push(name);
-          }
+          addMustInclude(name, 'user');
         }
       }
     }
   }
-  // Merge temporary must-include cards
+  // Optimization deck cards (from build-from-deck flow)
+  if (context.optimizeDeckCards && context.optimizeDeckCards.length > 0) {
+    for (const name of context.optimizeDeckCards) {
+      addMustInclude(name, 'deck');
+    }
+  }
+  // Temporary must-include cards (from combo panel)
   const tempIncludes = customization.tempMustIncludeCards ?? [];
   if (tempIncludes.length > 0) {
     console.log(`[DeckGen] Temp must-include cards:`, tempIncludes);
     for (const name of tempIncludes) {
-      if (!bannedCards.has(name) && !usedNames.has(name) && !mustIncludeNames.includes(name)) {
-        mustIncludeNames.push(name);
-      }
+      addMustInclude(name, 'combo');
     }
   }
 
@@ -1425,8 +1454,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         continue;
       }
 
-      usedNames.add(card.name);
+      markUsed(card.name);
       card.isMustInclude = true;
+      card.mustIncludeSource = mustIncludeSources.get(name) ?? 'user';
       addedCount++;
 
       // Categorize by front face type (handles MDFCs like "Instant // Land")
@@ -1797,7 +1827,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       }
 
       // Prevent normal selection from picking this card again
-      usedNames.add(card.name);
+      markUsed(card.name);
     }
   }
   // ---- End multi-copy pipeline ----
@@ -2554,6 +2584,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
         categories.synergy.push(scryfallCard);
         usedNames.add(edhrecCard.name);
+        if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
         filled++;
       }
 
