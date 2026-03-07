@@ -111,6 +111,7 @@ async function handleGet(params: Record<string, string>) {
       deckCount: 0,
       regenerations: 0,
       classicBuild: 0,
+      landCountModified: 0,
     };
     const listActivity = {
       created: 0,
@@ -210,6 +211,7 @@ async function handleGet(params: Record<string, string>) {
         if (typeof meta.bannedCount === 'number' && meta.bannedCount > 0) featureAdoption.hasBans++;
         if (meta?.isRegeneration === true) featureAdoption.regenerations++;
         if (meta?.balancedRoles === false) featureAdoption.classicBuild++;
+        if (meta?.landCountModified === true) featureAdoption.landCountModified++;
 
         // Settings distributions
         const bucket = (key: string, val: unknown) => {

@@ -14,6 +14,9 @@ interface FeatureAdoption {
   hasMusts: number;
   hasBans: number;
   deckCount: number;
+  regenerations: number;
+  classicBuild: number;
+  landCountModified: number;
 }
 
 interface ListActivity {
@@ -224,6 +227,7 @@ export function MetricsPage() {
   }, [days, today]);
 
   const deckCount = data?.eventCounts?.deck_generated ?? 0;
+  const exportCount = data?.eventCounts?.deck_exported ?? 0;
   const uniqueCommanders = data ? Object.keys(data.commanderCounts).length : 0;
 
   const sortedEvents = data
@@ -290,6 +294,9 @@ export function MetricsPage() {
     { label: 'Total Budget Limit', count: fa.hasBudgetLimit ?? 0 },
     { label: 'Must-Include Cards', count: fa.hasMusts ?? 0 },
     { label: 'Banned Cards', count: fa.hasBans ?? 0 },
+    { label: 'Regenerated Deck', count: fa.regenerations ?? 0 },
+    { label: 'Modified Land Count', count: fa.landCountModified ?? 0 },
+    { label: 'Classic Build Mode', count: fa.classicBuild ?? 0 },
     { label: 'Hyper Focus', count: fa.hyperFocus ?? 0 },
     { label: 'Tiny Leaders', count: fa.tinyLeaders ?? 0 },
     { label: 'Arena Only', count: fa.arenaOnly ?? 0 },
@@ -370,6 +377,13 @@ export function MetricsPage() {
                   <div>
                     <p className="text-2xl font-bold">{deckCount.toLocaleString()}</p>
                     <p className="text-xs text-muted-foreground">Decks Generated</p>
+                    {deckCount > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        <span className="text-green-500">{exportCount.toLocaleString()} exported</span>
+                        {' · '}
+                        <span>{pct(exportCount, deckCount)} export rate</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -412,13 +426,13 @@ export function MetricsPage() {
           </div>
 
           {/* Row: Event Breakdown + Most Built Commanders */}
-          <div className="grid md:grid-cols-2 gap-6 items-start">
-            <Card className="bg-card/80 backdrop-blur-sm">
+          <div className="grid md:grid-cols-2 gap-6">
+            <Card className="bg-card/80 backdrop-blur-sm flex flex-col overflow-hidden max-h-96">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Event Breakdown</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
+              <CardContent className="flex-1 min-h-0">
+                <div className="space-y-2 h-full overflow-y-auto pr-1">
                   {sortedEvents.map(([event, count]) => (
                     <div key={event} className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
@@ -434,7 +448,7 @@ export function MetricsPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-card/80 backdrop-blur-sm">
+            <Card className="bg-card/80 backdrop-blur-sm flex flex-col overflow-hidden max-h-96">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
                   Most Built Commanders
@@ -443,8 +457,8 @@ export function MetricsPage() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+              <CardContent className="flex-1 min-h-0">
+                <div className="space-y-1.5 h-full overflow-y-auto pr-1">
                   {sortedCommanders.map(([name, count], i) => (
                     <div key={name} className="flex items-center gap-2 text-sm">
                       <span className="text-xs text-muted-foreground w-5 text-right">{i + 1}.</span>

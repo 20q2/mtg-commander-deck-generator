@@ -42,6 +42,9 @@ export interface AnalyticsEventMetadata {
     arenaOnly: boolean;
     landCount: number;
     nonBasicLandCount: number;
+    suggestedLandCount: number | null;
+    suggestedNonBasicLandCount: number | null;
+    landCountModified: boolean;
     mustIncludeCount: number;
     bannedCount: number;
     currency: string;
