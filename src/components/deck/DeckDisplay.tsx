@@ -1678,7 +1678,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {pendingRegenerate ? 'Regenerating...' : 'Regenerate'}
               </Button>
             )}
-            <Button onClick={() => setShowExportModal(true)} className="glow">
+            <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
               <Copy className="w-4 h-4 mr-2" />
               Export
             </Button>

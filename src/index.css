@@ -87,7 +87,7 @@
   }
 
   /* Glow effect */
-  .glow {
+  .btn-shimmer {
     box-shadow: 0 0 30px hsl(var(--primary) / 0.2);
   }
 
@@ -345,7 +345,7 @@
 }
 
 /* Subtle glow effect for gradient theme */
-.commander-gradient .glow {
+.commander-gradient .btn-shimmer {
   box-shadow: 0 0 20px color-mix(in srgb, var(--gradient-start) 20%, transparent);
 }
 

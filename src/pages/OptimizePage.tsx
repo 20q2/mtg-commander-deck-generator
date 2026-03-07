@@ -646,7 +646,7 @@ export function OptimizePage() {
               size="lg"
               onClick={handleGenerate}
               disabled={isLoading || themesLoading || noDataForSettings}
-              className="min-w-56 h-14 text-lg glow hover-lift"
+              className="min-w-56 h-14 text-lg btn-shimmer hover-lift"
             >
               {themesLoading ? (
                 <>
