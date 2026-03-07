@@ -360,6 +360,10 @@ export async function getGameChangerNames(): Promise<Set<string>> {
       );
       for (const card of response.data) {
         names.add(card.name);
+        // For DFCs, also index by front face so EDHREC name lookups match
+        if (card.name.includes(' // ')) {
+          names.add(card.name.split(' // ')[0]);
+        }
       }
       hasMore = response.has_more;
       page++;
