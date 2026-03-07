@@ -594,7 +594,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
             </svg>
             Power Level
-            {!powerLevelOpen && (customization.gameChangerLimit !== 'unlimited' || customization.bracketLevel !== 'all' || customization.comboCount > 0) && (
+            {!powerLevelOpen && (customization.gameChangerLimit !== 'unlimited' || customization.bracketLevel !== 'all' || customization.comboCount > 1) && (
               <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.bracketLevel !== 'all' ? `Bracket ${customization.bracketLevel}` : null,
