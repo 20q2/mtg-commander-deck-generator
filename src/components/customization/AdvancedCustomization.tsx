@@ -486,7 +486,7 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
         <div className="sticky top-0 z-10 bg-card/95 backdrop-blur-md border-b border-border px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
-            <h2 className="text-base font-semibold">Advanced Targets</h2>
+            <h2 className="text-base font-semibold">Deck Tuning</h2>
           </div>
           <div className="flex items-center gap-2">
             {hasAnyOverride && (
