@@ -16,7 +16,7 @@ import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
 export function BuilderPage() {
@@ -29,6 +29,7 @@ export function BuilderPage() {
   const [partnerImageLoaded, setPartnerImageLoaded] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [noDataForSettings, setNoDataForSettings] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const {
     commander,
@@ -46,6 +47,7 @@ export function BuilderPage() {
     setEdhrecThemes,
     setEdhrecNumDecks,
     setEdhrecLandSuggestion,
+    setEdhrecStats,
     setSelectedThemes,
     setThemesLoading,
     setThemesError,
@@ -128,6 +130,7 @@ export function BuilderPage() {
         }
 
         setEdhrecNumDecks(data.stats.numDecks || null);
+        setEdhrecStats(data.stats);
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
@@ -266,6 +269,7 @@ export function BuilderPage() {
         }
 
         setEdhrecNumDecks(data.stats.numDecks || null);
+        setEdhrecStats(data.stats);
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
@@ -365,6 +369,7 @@ export function BuilderPage() {
         }
 
         setEdhrecNumDecks(data.stats.numDecks || null);
+        setEdhrecStats(data.stats);
 
         if (themes.length > 0) {
           setEdhrecThemes(themes);
@@ -569,6 +574,7 @@ export function BuilderPage() {
                           imageLoaded ? 'opacity-100' : 'opacity-0'
                         }`}
                         onLoad={() => setImageLoaded(true)}
+                        ref={(el) => { if (el?.complete && el.naturalHeight > 0) setImageLoaded(true); }}
                       />
                     </div>
 
@@ -629,6 +635,7 @@ export function BuilderPage() {
                             partnerImageLoaded ? 'opacity-100' : 'opacity-0'
                           }`}
                           onLoad={() => setPartnerImageLoaded(true)}
+                          ref={(el) => { if (el?.complete && el.naturalHeight > 0) setPartnerImageLoaded(true); }}
                         />
                       </div>
 
@@ -711,45 +718,71 @@ export function BuilderPage() {
                     </div>
                     Customize
                   </CardTitle>
-                  <button
-                    onClick={() => {
-                      const { bannedCards, mustIncludeCards, banLists, currency } = useStore.getState().customization;
-                      useStore.getState().updateCustomization({
-                        deckFormat: 99,
-                        landCount: 37,
-                        nonBasicLandCount: 15,
-                        maxCardPrice: null,
-                        deckBudget: null,
-                        budgetOption: 'any',
-                        gameChangerLimit: 'unlimited',
-                        bracketLevel: 'all',
-                        maxRarity: null,
-                        tinyLeaders: false,
-                        collectionMode: false,
-                        arenaOnly: false,
-                        comboCount: 0,
-                        hyperFocus: false,
-                        bannedCards,
-                        banLists,
-                        mustIncludeCards,
-                        currency,
-                        appliedExcludeLists: [],
-                        appliedIncludeLists: [],
-                      });
-                    }}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                    title="Reset all customization options to defaults"
-                  >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="1 4 1 10 7 10" />
-                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                    </svg>
-                    Reset
-                  </button>
+                  <div className="flex items-center gap-5">
+                    <button
+                      onClick={() => setAdvancedOpen(true)}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                      title="Fine-tune mana curve, card types, and role targets"
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>Deck Tuning</span>
+                      {(customization.advancedTargets.curvePercentages !== null
+                        || customization.advancedTargets.typePercentages !== null
+                        || customization.advancedTargets.roleTargets !== null) && (
+                        <span className="flex items-center gap-0.5">
+                          {customization.advancedTargets.typePercentages !== null && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-ring/15 text-ring font-medium">Types</span>
+                          )}
+                          {customization.advancedTargets.curvePercentages !== null && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-ring/15 text-ring font-medium">Curve</span>
+                          )}
+                          {customization.advancedTargets.roleTargets !== null && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-ring/15 text-ring font-medium">Roles</span>
+                          )}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const { bannedCards, mustIncludeCards, banLists, currency } = useStore.getState().customization;
+                        useStore.getState().updateCustomization({
+                          deckFormat: 99,
+                          landCount: 37,
+                          nonBasicLandCount: 15,
+                          maxCardPrice: null,
+                          deckBudget: null,
+                          budgetOption: 'any',
+                          gameChangerLimit: 'unlimited',
+                          bracketLevel: 'all',
+                          maxRarity: null,
+                          tinyLeaders: false,
+                          collectionMode: false,
+                          arenaOnly: false,
+                          comboCount: 1,
+                          hyperFocus: false,
+                          bannedCards,
+                          banLists,
+                          mustIncludeCards,
+                          currency,
+                          appliedExcludeLists: [],
+                          appliedIncludeLists: [],
+                          advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null },
+                        });
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                      title="Reset all customization options to defaults"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="1 4 1 10 7 10" />
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                      </svg>
+                      Reset
+                    </button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <DeckCustomizer />
+                <DeckCustomizer advancedOpen={advancedOpen} onAdvancedClose={() => setAdvancedOpen(false)} />
               </CardContent>
             </Card>
           </div>

@@ -28,6 +28,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
+import { PieChart } from '@/components/ui/pie-chart';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
@@ -666,83 +667,7 @@ const MANA_COLORS: Record<string, { name: string; color: string; bgColor: string
 };
 
 // SVG Pie Chart Component
-function PieChart({ data, size = 120, activeColorKey, onSegmentClick }: {
-  data: Array<{ color: string; value: number; label: string; colorKey: string }>;
-  size?: number;
-  activeColorKey?: string | null;
-  onSegmentClick?: (colorKey: string) => void;
-}) {
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-  if (total === 0) return null;
-
-  const radius = size / 2;
-  const innerRadius = radius * 0.6; // Donut style
-  let currentAngle = -90; // Start from top
-
-  const segments = data.filter(d => d.value > 0).map((d) => {
-    const angle = (d.value / total) * 360;
-    const startAngle = currentAngle;
-    const endAngle = currentAngle + angle;
-    currentAngle = endAngle;
-
-    // Full circle: SVG arcs can't draw a 360° arc, so use two semicircles
-    if (angle >= 359.99) {
-      const path = `
-        M ${radius} 0
-        A ${radius} ${radius} 0 1 1 ${radius} ${size}
-        A ${radius} ${radius} 0 1 1 ${radius} 0
-        Z
-        M ${radius - innerRadius} ${radius}
-        A ${innerRadius} ${innerRadius} 0 1 0 ${radius + innerRadius} ${radius}
-        A ${innerRadius} ${innerRadius} 0 1 0 ${radius - innerRadius} ${radius}
-        Z
-      `;
-      return { ...d, path };
-    }
-
-    const startRad = (startAngle * Math.PI) / 180;
-    const endRad = (endAngle * Math.PI) / 180;
-
-    const x1 = radius + radius * Math.cos(startRad);
-    const y1 = radius + radius * Math.sin(startRad);
-    const x2 = radius + radius * Math.cos(endRad);
-    const y2 = radius + radius * Math.sin(endRad);
-
-    const ix1 = radius + innerRadius * Math.cos(startRad);
-    const iy1 = radius + innerRadius * Math.sin(startRad);
-    const ix2 = radius + innerRadius * Math.cos(endRad);
-    const iy2 = radius + innerRadius * Math.sin(endRad);
-
-    const largeArc = angle > 180 ? 1 : 0;
-
-    const path = `
-      M ${x1} ${y1}
-      A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}
-      L ${ix2} ${iy2}
-      A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${ix1} ${iy1}
-      Z
-    `;
-
-    return { ...d, path };
-  });
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="cursor-pointer">
-      {segments.map((seg, i) => (
-        <path
-          key={i}
-          d={seg.path}
-          fill={seg.color}
-          fillRule="evenodd"
-          className={`transition-opacity ${
-            activeColorKey && seg.colorKey !== activeColorKey ? 'opacity-30' : 'hover:opacity-80'
-          }`}
-          onClick={() => onSegmentClick?.(seg.colorKey)}
-        />
-      ))}
-    </svg>
-  );
-}
+// PieChart is now imported from '@/components/ui/pie-chart'
 
 // Calculate mana pip distribution from cards
 function calculateManaPips(cards: ScryfallCard[]): Record<string, number> {

@@ -5,6 +5,7 @@ import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, MaxRarit
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
+import { AdvancedCustomization } from './AdvancedCustomization';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useCollection } from '@/hooks/useCollection';
 import { useNavigate } from 'react-router-dom';
@@ -14,7 +15,7 @@ import { CardTypeIcon } from '@/components/ui/mtg-icons';
 const IS_EU = isEuropean() || location.hostname === 'localhost';
 
 
-export function DeckCustomizer() {
+export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { advancedOpen?: boolean; onAdvancedClose?: () => void } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
   const { count: collectionCount, cards: collectionCards } = useCollection();
   const navigate = useNavigate();
@@ -598,7 +599,7 @@ export function DeckCustomizer() {
                 {[
                   customization.bracketLevel !== 'all' ? `Bracket ${customization.bracketLevel}` : null,
                   customization.gameChangerLimit === 'none' ? 'No GCs' : typeof customization.gameChangerLimit === 'number' ? `${customization.gameChangerLimit} GCs` : null,
-                  customization.comboCount > 0 ? `Combos: ${(['', 'Normal', 'A Few', 'Many'] as const)[customization.comboCount]}` : null,
+                  customization.comboCount > 1 ? `Combos: ${(['', 'Normal', 'A Few', 'Many'] as const)[customization.comboCount]}` : null,
                 ].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -972,6 +973,8 @@ export function DeckCustomizer() {
           </div>
         </div>
       </div>
+
+      <AdvancedCustomization open={advancedOpen} onClose={() => onAdvancedClose?.()} />
     </div>
   );
 }

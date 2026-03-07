@@ -79,8 +79,6 @@ interface RawEDHRECResponse {
   nonbasic?: number;
   num_decks_avg?: number;
   deck_size?: number; // Non-commander deck size
-  mana_curve?: Record<string, number>; // CMC -> count (keys are strings in JSON)
-
   // Similar commanders
   similar?: Array<{
     name: string;
@@ -91,13 +89,14 @@ interface RawEDHRECResponse {
     url?: string;
   }>;
 
-  // Panels with themes
+  // Panels with themes, mana curve, etc.
   panels?: {
     taglinks?: Array<{
       value: string;
       slug: string;
       count: number;
     }>;
+    mana_curve?: Record<string, number>; // CMC -> count (keys are strings in JSON)
   };
 
   // Card lists
@@ -294,12 +293,12 @@ function parseEdhrecResponse(
   // Sort by count (highest first)
   themes.sort((a, b) => b.count - a.count);
 
-  // Parse stats
+  // Parse stats — mana_curve lives inside panels, not at the top level
   const stats: EDHRECCommanderStats = {
     avgPrice: response.avg_price || 0,
     numDecks: response.num_decks_avg || 0,
     deckSize: response.deck_size || 81, // Default to 81 if missing
-    manaCurve: parseManaCurve(response.mana_curve),
+    manaCurve: parseManaCurve(response.panels?.mana_curve),
     typeDistribution: {
       creature: response.creature || 0,
       instant: response.instant || 0,
@@ -656,7 +655,7 @@ export async function fetchCommanderThemeData(
       avgPrice: response.avg_price || 0,
       numDecks: response.num_decks_avg || 0,
       deckSize: response.deck_size || 81,
-      manaCurve: parseManaCurve(response.mana_curve),
+      manaCurve: parseManaCurve(response.panels?.mana_curve),
       typeDistribution: {
         creature: response.creature || 0,
         instant: response.instant || 0,
@@ -731,7 +730,7 @@ export async function fetchPartnerThemeData(
         avgPrice: response.avg_price || 0,
         numDecks: response.num_decks_avg || 0,
         deckSize: response.deck_size || 81,
-        manaCurve: parseManaCurve(response.mana_curve),
+        manaCurve: parseManaCurve(response.panels?.mana_curve),
         typeDistribution: {
           creature: response.creature || 0,
           instant: response.instant || 0,

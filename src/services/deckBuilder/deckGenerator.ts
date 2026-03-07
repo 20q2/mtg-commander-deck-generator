@@ -53,15 +53,57 @@ interface TargetCountsResult {
   curveTargets: Record<number, number>;
 }
 
+// Apply user's advanced target overrides (curve percentages, type percentages)
+function applyAdvancedOverrides(
+  customization: Customization,
+  typeTargets: Record<string, number>,
+  curveTargets: Record<number, number>,
+  nonLandCards: number
+): void {
+  const adv = customization.advancedTargets;
+
+  if (adv?.curvePercentages) {
+    const pcts = adv.curvePercentages;
+    const total = Object.values(pcts).reduce((s, v) => s + v, 0) || 100;
+    let allocated = 0;
+    const cmcKeys = Object.keys(pcts).map(Number).sort((a, b) => a - b);
+    for (const cmc of cmcKeys) {
+      curveTargets[cmc] = Math.round((pcts[cmc] / total) * nonLandCards);
+      allocated += curveTargets[cmc];
+    }
+    const diff = nonLandCards - allocated;
+    if (diff !== 0) {
+      const largest = cmcKeys.reduce((m, c) => (curveTargets[c] > curveTargets[m]) ? c : m, cmcKeys[0]);
+      curveTargets[largest] += diff;
+    }
+  }
+
+  if (adv?.typePercentages) {
+    const pcts = adv.typePercentages;
+    const total = Object.values(pcts).reduce((s, v) => s + v, 0) || 100;
+    let allocated = 0;
+    for (const type of Object.keys(pcts)) {
+      typeTargets[type] = Math.round((pcts[type] / total) * nonLandCards);
+      allocated += typeTargets[type];
+    }
+    const diff = nonLandCards - allocated;
+    if (diff !== 0) {
+      typeTargets.creature = (typeTargets.creature ?? 0) + diff;
+    }
+  }
+}
+
 // Calculate target counts for each category based on EDHREC stats or fallback defaults
 function calculateTargetCounts(
   customization: Customization,
-  edhrecStats?: EDHRECCommanderStats
+  edhrecStats?: EDHRECCommanderStats,
+  hasPartner?: boolean
 ): TargetCountsResult {
   const format = customization.deckFormat;
 
-  // Calculate total deck cards (commander is separate for 99, included for 40/60)
-  const deckCards = format === 99 ? 99 : format - 1;
+  // Calculate total deck cards — account for partner commanders taking an extra slot
+  const commanderCount = hasPartner ? 2 : 1;
+  const deckCards = format === 99 ? (100 - commanderCount) : (format - commanderCount);
 
   // Respect the user's land count — clamp only to sane absolute bounds
   const landCount = Math.min(Math.max(1, customization.landCount), deckCards - 1);
@@ -75,15 +117,18 @@ function calculateTargetCounts(
     // Composition is now just for tracking - actual selection uses typeTargets
     const composition: DeckComposition = {
       lands: landCount,
-      creatures: typeTargets.creature || 0,
+      creatures: typeTargets.creature ?? 0,
       // These will be populated during card categorization
       singleRemoval: 0,
       boardWipes: 0,
       ramp: 0,
       cardDraw: 0,
       synergy: 0,
-      utility: typeTargets.planeswalker || 0,
+      utility: typeTargets.planeswalker ?? 0,
     };
+
+    // Apply advanced target overrides if set
+    applyAdvancedOverrides(customization, typeTargets, curveTargets, nonLandCards);
 
     return { composition, typeTargets, curveTargets };
   }
@@ -173,6 +218,9 @@ function calculateTargetCounts(
     6: Math.round(nonLandCards * 0.06),
     7: Math.round(nonLandCards * 0.05),
   };
+
+  // Apply advanced target overrides if set
+  applyAdvancedOverrides(customization, fallbackTypeTargets, fallbackCurveTargets, nonLandCards);
 
   return {
     composition: fallbackComposition,
@@ -408,7 +456,8 @@ function pickFromPrefetchedWithCurve(
   comboPriorityBoost?: Map<string, number>,
   currency: 'USD' | 'EUR' = 'USD',
   gameChangerNames: Set<string> = new Set(),
-  arenaOnly: boolean = false
+  arenaOnly: boolean = false,
+  strictCurve: boolean = false
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -483,6 +532,10 @@ function pickFromPrefetchedWithCurve(
       // Curve enforcement - but high synergy cards get more leniency
       const cmc = Math.min(Math.floor(scryfallCard.cmc), 7);
       if (!hasCurveRoom(cmc, curveTargets, currentCurveCounts)) {
+        if (strictCurve) {
+          // User explicitly set curve targets — respect them strictly
+          continue;
+        }
         // High synergy cards or high inclusion (> 40%) can break curve
         if (!isHighSynergyCard(edhrecCard) && edhrecCard.inclusion < 40) {
           continue;
@@ -682,7 +735,8 @@ function computeRoleBoosts(
   baseBoosts?: Map<string, number>,
   cardCmcMap?: Map<string, number>,
   cardSubtypeMap?: Map<string, string>,
-  currentSubtypeCounts?: Record<string, number>
+  currentSubtypeCounts?: Record<string, number>,
+  strictRoles: boolean = false
 ): Map<string, number> {
   const boosts = new Map<string, number>(baseBoosts ?? []);
 
@@ -697,10 +751,30 @@ function computeRoleBoosts(
 
   for (const [name, role] of cardRoleMap) {
     const target = roleTargets[role];
-    if (target <= 0) continue;
-    const deficit = Math.max(0, target - (currentRoleCounts[role] ?? 0));
+    const current = currentRoleCounts[role] ?? 0;
+
+    // When user explicitly set role targets, penalize roles that are at or over target
+    if (strictRoles) {
+      if (target <= 0) {
+        // Target is 0 — strongly penalize cards with this role
+        boosts.set(name, (boosts.get(name) ?? 0) - 100);
+        continue;
+      }
+      if (current >= target) {
+        // Already met target — penalize further cards with this role
+        const surplus = current - target;
+        boosts.set(name, (boosts.get(name) ?? 0) - 50 - (surplus * 15));
+        continue;
+      }
+    } else {
+      if (target <= 0) continue;
+    }
+
+    const deficit = Math.max(0, target - current);
     if (deficit > 0) {
-      const roleBoost = (deficit / target) * 75; // 75-point max boost
+      // Stronger boost when user explicitly set targets (up to 120 vs 75)
+      const maxBoost = strictRoles ? 120 : 75;
+      const roleBoost = (deficit / target) * maxBoost;
       // Early ramp bonus: prefer low-CMC mana producers for reliable early acceleration
       let earlyRampMultiplier = 1.0;
       if (role === 'ramp' && cardCmcMap) {
@@ -1786,7 +1860,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Calculate target counts with type and curve targets
   const { composition: targets, typeTargets, curveTargets } = calculateTargetCounts(
     customization,
-    edhrecData?.stats
+    edhrecData?.stats,
+    !!partnerCommander
   );
 
   // Compress curve targets for Tiny Leaders (CMC cap at 3)
@@ -1922,18 +1997,19 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const { cardlists } = edhrecData;
 
     // Build all pools first — subtract pre-filled cards from targets
-    const originalCreatureTarget = typeTargets.creature || targets.creatures;
+    // Use ?? instead of || so that 0 targets (from advanced overrides) are respected
+    const originalCreatureTarget = typeTargets.creature ?? targets.creatures;
     const creatureTarget = Math.max(0, originalCreatureTarget - (preFilledTypeCounts.creature ?? 0));
     const creaturePool = mergeWithAllNonLand(cardlists.creatures, cardlists.allNonLand);
-    const instantTarget = Math.max(0, (typeTargets.instant || 0) - (preFilledTypeCounts.instant ?? 0));
+    const instantTarget = Math.max(0, (typeTargets.instant ?? 0) - (preFilledTypeCounts.instant ?? 0));
     const instantPool = mergeWithAllNonLand(cardlists.instants, cardlists.allNonLand);
-    const sorceryTarget = Math.max(0, (typeTargets.sorcery || 0) - (preFilledTypeCounts.sorcery ?? 0));
+    const sorceryTarget = Math.max(0, (typeTargets.sorcery ?? 0) - (preFilledTypeCounts.sorcery ?? 0));
     const sorceryPool = mergeWithAllNonLand(cardlists.sorceries, cardlists.allNonLand);
-    const artifactTarget = Math.max(0, (typeTargets.artifact || 0) - (preFilledTypeCounts.artifact ?? 0));
+    const artifactTarget = Math.max(0, (typeTargets.artifact ?? 0) - (preFilledTypeCounts.artifact ?? 0));
     const artifactPool = mergeWithAllNonLand(cardlists.artifacts, cardlists.allNonLand);
-    const enchantmentTarget = Math.max(0, (typeTargets.enchantment || 0) - (preFilledTypeCounts.enchantment ?? 0));
+    const enchantmentTarget = Math.max(0, (typeTargets.enchantment ?? 0) - (preFilledTypeCounts.enchantment ?? 0));
     const enchantmentPool = mergeWithAllNonLand(cardlists.enchantments, cardlists.allNonLand);
-    const planeswalkerTarget = Math.max(0, (typeTargets.planeswalker || 0) - (preFilledTypeCounts.planeswalker ?? 0));
+    const planeswalkerTarget = Math.max(0, (typeTargets.planeswalker ?? 0) - (preFilledTypeCounts.planeswalker ?? 0));
     const planeswalkerPool = mergeWithAllNonLand(cardlists.planeswalkers, cardlists.allNonLand);
 
     // Collect ALL unique card names from all pools for a single batch fetch
@@ -2026,12 +2102,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
 
     // ---- Balanced Roles: pre-compute role map and seed counts ----
-    roleTargets = customization.balancedRoles ? getRoleTargets(format) : null;
+    if (customization.advancedTargets?.roleTargets) {
+      // Advanced override always takes precedence
+      roleTargets = customization.advancedTargets.roleTargets as Record<RoleKey, number>;
+    } else {
+      roleTargets = customization.balancedRoles ? getRoleTargets(format) : null;
+    }
     const cardRoleMap = new Map<string, RoleKey>();
     const cardCmcMap = new Map<string, number>();
     const cardSubtypeMap = new Map<string, string>();
 
-    if (customization.balancedRoles) {
+    if (roleTargets) {
       // Pre-compute roles and CMC for all candidates in all pools
       const allPools = [creaturePool, instantPool, sorceryPool, artifactPool, enchantmentPool, planeswalkerPool];
       for (const pool of allPools) {
@@ -2070,11 +2151,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
     // ---- End balanced roles setup ----
 
+    // When the user has explicitly set curve/role targets, enforce them strictly
+    const strictCurve = !!customization.advancedTargets?.curvePercentages;
+    const strictRoles = !!customization.advancedTargets?.roleTargets;
+
     // Now process each type synchronously using the pre-fetched cards
     // 1. Creatures
     console.log(`[DeckGen] Creatures: need ${creatureTarget}, pool has ${creaturePool.length} cards`);
     onProgress?.('Summoning creatures from the aether...', 35);
-    const creatureBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
+    const creatureBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts, strictRoles) : getComboBoosts();
     const creatures = pickFromPrefetchedWithCurve(
       creaturePool,
       cardMap,
@@ -2095,7 +2180,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       creatureBoosts,
       currency,
       gameChangerNames,
-      arenaOnly
+      arenaOnly,
+      strictCurve
     );
     categories.creatures.push(...creatures);
     for (const card of creatures) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
@@ -2130,7 +2216,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // 2. Instants
     console.log(`[DeckGen] Instants: need ${instantTarget}, pool has ${instantPool.length} cards`);
     onProgress?.('Preparing instant-speed responses...', 45);
-    const instantBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
+    const instantBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts, strictRoles) : getComboBoosts();
     const instants = pickFromPrefetchedWithCurve(
       instantPool,
       cardMap,
@@ -2151,7 +2237,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       instantBoosts,
       currency,
       gameChangerNames,
-      arenaOnly
+      arenaOnly,
+      strictCurve
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeCards(instants, categories);
@@ -2160,7 +2247,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // 3. Sorceries
     console.log(`[DeckGen] Sorceries: need ${sorceryTarget}, pool has ${sorceryPool.length} cards`);
     onProgress?.('Channeling sorcerous power...', 55);
-    const sorceryBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
+    const sorceryBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts, strictRoles) : getComboBoosts();
     const sorceries = pickFromPrefetchedWithCurve(
       sorceryPool,
       cardMap,
@@ -2181,7 +2268,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       sorceryBoosts,
       currency,
       gameChangerNames,
-      arenaOnly
+      arenaOnly,
+      strictCurve
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeCards(sorceries, categories);
@@ -2190,7 +2278,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // 4. Artifacts
     console.log(`[DeckGen] Artifacts: need ${artifactTarget}, pool has ${artifactPool.length} cards`);
     onProgress?.('Forging powerful artifacts...', 62);
-    const artifactBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
+    const artifactBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts, strictRoles) : getComboBoosts();
     const artifacts = pickFromPrefetchedWithCurve(
       artifactPool,
       cardMap,
@@ -2211,7 +2299,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       artifactBoosts,
       currency,
       gameChangerNames,
-      arenaOnly
+      arenaOnly,
+      strictCurve
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeCards(artifacts, categories);
@@ -2220,7 +2309,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // 5. Enchantments
     console.log(`[DeckGen] Enchantments: need ${enchantmentTarget}, pool has ${enchantmentPool.length} cards`);
     onProgress?.('Weaving magical enchantments...', 68);
-    const enchantmentBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
+    const enchantmentBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts, strictRoles) : getComboBoosts();
     const enchantments = pickFromPrefetchedWithCurve(
       enchantmentPool,
       cardMap,
@@ -2241,7 +2330,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       enchantmentBoosts,
       currency,
       gameChangerNames,
-      arenaOnly
+      arenaOnly,
+      strictCurve
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeCards(enchantments, categories);
@@ -2251,7 +2341,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Planeswalkers: need ${planeswalkerTarget}, pool has ${planeswalkerPool.length} cards`);
     if (planeswalkerPool.length > 0 && planeswalkerTarget > 0) {
       onProgress?.('Calling upon planeswalker allies...', 72);
-      const planeswalkerBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts) : getComboBoosts();
+      const planeswalkerBoosts = roleTargets ? computeRoleBoosts(cardRoleMap, roleTargets, currentRoleCounts, getComboBoosts(), cardCmcMap, cardSubtypeMap, currentSubtypeCounts, strictRoles) : getComboBoosts();
       const planeswalkers = pickFromPrefetchedWithCurve(
         planeswalkerPool,
         cardMap,
@@ -2272,7 +2362,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         planeswalkerBoosts,
         currency,
         gameChangerNames,
-        arenaOnly
+        arenaOnly,
+        strictCurve
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
@@ -2438,7 +2529,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
 
     // Use typeTargets for remaining slots to get a balanced type distribution
-    const scryfallCreatureTarget = Math.max(0, (typeTargets.creature || 0) - (preFilledTypeCounts.creature ?? 0) - categories.creatures.length);
+    const scryfallCreatureTarget = Math.max(0, (typeTargets.creature ?? 0) - (preFilledTypeCounts.creature ?? 0) - categories.creatures.length);
     onProgress?.('Recruiting an army...', 60);
     const scryfallCreatures = await fillWithScryfall(
       't:creature',
@@ -2456,7 +2547,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     categories.creatures.push(...scryfallCreatures);
 
-    const scryfallArtifactTarget = Math.max(0, (typeTargets.artifact || 0) - (preFilledTypeCounts.artifact ?? 0));
+    const scryfallArtifactTarget = Math.max(0, (typeTargets.artifact ?? 0) - (preFilledTypeCounts.artifact ?? 0));
     onProgress?.('Forging artifacts...', 65);
     const scryfallArtifacts = await fillWithScryfall(
       't:artifact -t:creature',
@@ -2474,7 +2565,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     categorizeCards(scryfallArtifacts, categories);
 
-    const scryfallEnchantmentTarget = Math.max(0, (typeTargets.enchantment || 0) - (preFilledTypeCounts.enchantment ?? 0));
+    const scryfallEnchantmentTarget = Math.max(0, (typeTargets.enchantment ?? 0) - (preFilledTypeCounts.enchantment ?? 0));
     onProgress?.('Weaving enchantments...', 70);
     const scryfallEnchantments = await fillWithScryfall(
       't:enchantment -t:creature',
@@ -2492,7 +2583,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     );
     categorizeCards(scryfallEnchantments, categories);
 
-    const scryfallInstantTarget = Math.max(0, (typeTargets.instant || 0) - (preFilledTypeCounts.instant ?? 0) - categories.singleRemoval.length - categories.boardWipes.length);
+    const scryfallInstantTarget = Math.max(0, (typeTargets.instant ?? 0) - (preFilledTypeCounts.instant ?? 0) - categories.singleRemoval.length - categories.boardWipes.length);
     if (scryfallInstantTarget > 0) {
       onProgress?.('Preparing instants...', 72);
       const scryfallInstants = await fillWithScryfall(
@@ -2512,7 +2603,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       categorizeCards(scryfallInstants, categories);
     }
 
-    const scryfallSorceryTarget = Math.max(0, (typeTargets.sorcery || 0) - (preFilledTypeCounts.sorcery ?? 0));
+    const scryfallSorceryTarget = Math.max(0, (typeTargets.sorcery ?? 0) - (preFilledTypeCounts.sorcery ?? 0));
     if (scryfallSorceryTarget > 0) {
       onProgress?.('Channeling sorceries...', 74);
       const scryfallSorceries = await fillWithScryfall(
@@ -2631,6 +2722,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
 
     // Try to fill with remaining EDHREC cards (relaxed budget cap)
+    // Respect type distribution targets when filling
     if (edhrecData && edhrecData.cardlists.allNonLand.length > 0) {
       const remainingEdhrecCards = edhrecData.cardlists.allNonLand
         .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
@@ -2638,8 +2730,30 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
       console.log(`[DeckGen] Found ${remainingEdhrecCards.length} remaining EDHREC cards to fill shortage`);
 
-      const namesToFetch = remainingEdhrecCards.slice(0, shortage * 2).map(c => c.name);
+      const namesToFetch = remainingEdhrecCards.slice(0, shortage * 3).map(c => c.name);
       const fillCardMap = await getCardsByNames(namesToFetch);
+
+      // Calculate current type counts to prioritize types with the largest deficit
+      const currentTypeCounts: Record<string, number> = {};
+      for (const card of Object.values(categories).flat()) {
+        const tl = getFrontFaceTypeLine(card).toLowerCase();
+        if (tl.includes('land')) continue;
+        const t = tl.includes('creature') ? 'creature'
+          : tl.includes('instant') ? 'instant'
+          : tl.includes('sorcery') ? 'sorcery'
+          : tl.includes('artifact') ? 'artifact'
+          : tl.includes('enchantment') ? 'enchantment'
+          : tl.includes('planeswalker') ? 'planeswalker'
+          : null;
+        if (t) currentTypeCounts[t] = (currentTypeCounts[t] ?? 0) + 1;
+      }
+
+      // Determine which types still need cards
+      const typeNeed: Record<string, number> = {};
+      for (const type of ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker']) {
+        typeNeed[type] = Math.max(0, (typeTargets[type] ?? 0) - (currentTypeCounts[type] ?? 0));
+      }
+      const totalTypeNeed = Object.values(typeNeed).reduce((s, v) => s + v, 0);
 
       let filled = 0;
       for (const edhrecCard of remainingEdhrecCards) {
@@ -2654,10 +2768,48 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
         if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
 
+        // If advanced type overrides are active, prioritize cards that fill type deficits
+        if (customization.advancedTargets?.typePercentages && totalTypeNeed > 0) {
+          const tl = getFrontFaceTypeLine(scryfallCard).toLowerCase();
+          const cardType = tl.includes('creature') ? 'creature'
+            : tl.includes('instant') ? 'instant'
+            : tl.includes('sorcery') ? 'sorcery'
+            : tl.includes('artifact') ? 'artifact'
+            : tl.includes('enchantment') ? 'enchantment'
+            : tl.includes('planeswalker') ? 'planeswalker'
+            : null;
+          // Skip cards of types the user set to 0 (or already at target)
+          if (cardType && typeNeed[cardType] <= 0) continue;
+          // Track the fill
+          if (cardType && typeNeed[cardType] > 0) typeNeed[cardType]--;
+        }
+
         categories.synergy.push(scryfallCard);
         usedNames.add(edhrecCard.name);
         if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
         filled++;
+      }
+
+      // If we still have shortage after type-respecting fill, do a second pass without type filter
+      if (filled < shortage) {
+        for (const edhrecCard of remainingEdhrecCards) {
+          if (filled >= shortage) break;
+          if (usedNames.has(edhrecCard.name)) continue;
+
+          const scryfallCard = fillCardMap.get(edhrecCard.name);
+          if (!scryfallCard) continue;
+
+          if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
+          if (notInCollection(edhrecCard.name, context.collectionNames)) continue;
+          if (exceedsMaxPrice(scryfallCard, shortagePriceCap, currency)) continue;
+          if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
+          if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
+
+          categories.synergy.push(scryfallCard);
+          usedNames.add(edhrecCard.name);
+          if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
+          filled++;
+        }
       }
 
       console.log(`[DeckGen] Filled ${filled} cards from remaining EDHREC suggestions`);
@@ -2685,11 +2837,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
       // Build a list of (type, deficit) sorted by largest deficit first
       const typeDeficits: { type: string; query: string; deficit: number }[] = [
-        { type: 'creature', query: 't:creature', deficit: (typeTargets.creature || 0) - (currentTypeCounts.creature ?? 0) },
-        { type: 'instant', query: 't:instant', deficit: (typeTargets.instant || 0) - (currentTypeCounts.instant ?? 0) },
-        { type: 'sorcery', query: 't:sorcery', deficit: (typeTargets.sorcery || 0) - (currentTypeCounts.sorcery ?? 0) },
-        { type: 'artifact', query: 't:artifact -t:creature', deficit: (typeTargets.artifact || 0) - (currentTypeCounts.artifact ?? 0) },
-        { type: 'enchantment', query: 't:enchantment -t:creature', deficit: (typeTargets.enchantment || 0) - (currentTypeCounts.enchantment ?? 0) },
+        { type: 'creature', query: 't:creature', deficit: (typeTargets.creature ?? 0) - (currentTypeCounts.creature ?? 0) },
+        { type: 'instant', query: 't:instant', deficit: (typeTargets.instant ?? 0) - (currentTypeCounts.instant ?? 0) },
+        { type: 'sorcery', query: 't:sorcery', deficit: (typeTargets.sorcery ?? 0) - (currentTypeCounts.sorcery ?? 0) },
+        { type: 'artifact', query: 't:artifact -t:creature', deficit: (typeTargets.artifact ?? 0) - (currentTypeCounts.artifact ?? 0) },
+        { type: 'enchantment', query: 't:enchantment -t:creature', deficit: (typeTargets.enchantment ?? 0) - (currentTypeCounts.enchantment ?? 0) },
       ].filter(d => d.deficit > 0).sort((a, b) => b.deficit - a.deficit);
 
       console.log('[DeckGen] Shortfall type deficits:', typeDeficits.map(d => `${d.type}: ${d.deficit}`).join(', ') || 'none');

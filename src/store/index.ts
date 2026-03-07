@@ -175,6 +175,7 @@ const defaultCustomization: Customization = {
   currency: loadCurrency(),
   appliedExcludeLists: loadAppliedExcludeLists(),
   appliedIncludeLists: loadAppliedIncludeLists(),
+  advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null },
 };
 
 export const useStore = create<AppState>((set, get) => ({
@@ -191,6 +192,7 @@ export const useStore = create<AppState>((set, get) => ({
   themeSource: 'local',
   edhrecNumDecks: null,
   edhrecLandSuggestion: null,
+  edhrecStats: null,
   userEditedLands: false,
 
   // Customization
@@ -222,6 +224,7 @@ export const useStore = create<AppState>((set, get) => ({
       themeSource: 'local',
       edhrecNumDecks: null,
       edhrecLandSuggestion: null,
+      edhrecStats: null,
       userEditedLands: false,
     };
   }),
@@ -242,6 +245,7 @@ export const useStore = create<AppState>((set, get) => ({
       themesError: null,
       themeSource: 'local',
       edhrecNumDecks: null,
+      edhrecStats: null,
     };
   }),
 
@@ -254,6 +258,7 @@ export const useStore = create<AppState>((set, get) => ({
   setEdhrecNumDecks: (count) => set({ edhrecNumDecks: count }),
 
   setEdhrecLandSuggestion: (suggestion) => set({ edhrecLandSuggestion: suggestion }),
+  setEdhrecStats: (stats) => set({ edhrecStats: stats }),
 
   setSelectedThemes: (themes: ThemeResult[]) => set({ selectedThemes: themes }),
 

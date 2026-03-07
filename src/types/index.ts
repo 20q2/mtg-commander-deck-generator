@@ -347,6 +347,13 @@ export interface AppliedList {
   enabled: boolean;
 }
 
+// Advanced deck framework targets — null fields mean "use EDHREC/fallback defaults"
+export interface AdvancedTargets {
+  curvePercentages: Record<number, number> | null;   // CMC bucket → percentage of non-land cards
+  typePercentages: Record<string, number> | null;    // card type → percentage of non-land cards
+  roleTargets: Record<string, number> | null;        // role → absolute count target
+}
+
 // User customization
 export interface Customization {
   deckFormat: DeckFormat;
@@ -372,6 +379,7 @@ export interface Customization {
   currency: 'USD' | 'EUR'; // Price currency for budget filtering and display
   appliedExcludeLists: AppliedList[]; // User lists toggled on as exclude lists
   appliedIncludeLists: AppliedList[]; // User lists toggled on as must-include lists
+  advancedTargets: AdvancedTargets; // Advanced framework overrides (null = use defaults)
 }
 
 // Store state
@@ -391,6 +399,8 @@ export interface AppState {
 
   // EDHREC land suggestion (set when commander data is fetched)
   edhrecLandSuggestion: { landCount: number; nonBasicLandCount: number } | null;
+  // Full EDHREC stats for seeding advanced customization defaults
+  edhrecStats: EDHRECCommanderStats | null;
   // True when the user has manually adjusted land count (prevents EDHREC from overriding)
   userEditedLands: boolean;
 
@@ -415,6 +425,7 @@ export interface AppState {
   setThemesLoading: (loading: boolean) => void;
   setThemesError: (error: string | null) => void;
   setEdhrecLandSuggestion: (suggestion: { landCount: number; nonBasicLandCount: number } | null) => void;
+  setEdhrecStats: (stats: EDHRECCommanderStats | null) => void;
   updateCustomization: (updates: Partial<Customization>) => void;
   setGeneratedDeck: (deck: GeneratedDeck | null) => void;
   swapDeckCard: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;

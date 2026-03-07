@@ -142,6 +142,45 @@
 
 @layer utilities {
   /* Explicit spin animation for loaders */
+  /* Colored slider for Advanced Targets */
+  .slider-colored {
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 9999px;
+  }
+  .slider-colored::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid hsl(var(--primary));
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transition: transform 0.1s;
+  }
+  .slider-colored::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+  .slider-colored::-webkit-slider-thumb:active {
+    transform: scale(1.15);
+    border-color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.15);
+  }
+  .slider-colored::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid hsl(var(--primary));
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .slider-colored::-moz-range-thumb:hover {
+    transform: scale(1.2);
+  }
+
   .animate-spin {
     animation: spin 1s linear infinite;
   }
@@ -206,14 +245,39 @@
   }
 
   @keyframes slideInRight {
-    from {
-      opacity: 0;
-      transform: translateX(40px) scale(0.9);
-    }
-    to {
-      opacity: 1;
-      transform: translateX(0) scale(1);
-    }
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+
+  @keyframes slideOutRight {
+    from { transform: translateX(0); }
+    to { transform: translateX(100%); }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.25s ease-out;
+  }
+
+  .animate-slide-out-right {
+    animation: slideOutRight 0.25s ease-in forwards;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .animate-fade-out {
+    animation: fadeOut 0.2s ease-in forwards;
   }
 }
 
