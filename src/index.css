@@ -279,6 +279,22 @@
   .animate-fade-out {
     animation: fadeOut 0.2s ease-in forwards;
   }
+
+  /* Card preview navigation slide animations */
+  @keyframes cardSlideInFromRight {
+    from { transform: translateX(60px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes cardSlideInFromLeft {
+    from { transform: translateX(-60px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  .animate-card-slide-from-right {
+    animation: cardSlideInFromRight 0.2s ease-out;
+  }
+  .animate-card-slide-from-left {
+    animation: cardSlideInFromLeft 0.2s ease-out;
+  }
 }
 
 /* Aurora background for collection page */

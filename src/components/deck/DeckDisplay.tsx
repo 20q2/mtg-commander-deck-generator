@@ -1360,6 +1360,36 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return ids;
   }, [groupedCards]);
 
+  // Flat ordered list of all cards (including commanders) for preview navigation
+  const flatCardList = useMemo(() => {
+    const cards: ScryfallCard[] = [];
+    for (const type of TYPE_ORDER) {
+      for (const { card } of groupedCards[type] || []) {
+        cards.push(card);
+      }
+    }
+    return cards;
+  }, [groupedCards]);
+
+  const handlePreviewNavigate = useCallback((direction: 'prev' | 'next') => {
+    if (!previewCard || flatCardList.length === 0) return;
+    const idx = flatCardList.findIndex(c => c.id === previewCard.id);
+    if (idx === -1) return;
+    const nextIdx = direction === 'next' ? idx + 1 : idx - 1;
+    if (nextIdx >= 0 && nextIdx < flatCardList.length) {
+      setPreviewCard(flatCardList[nextIdx]);
+    }
+  }, [previewCard, flatCardList]);
+
+  const previewCardIndex = useMemo(() => {
+    if (!previewCard || flatCardList.length === 0) return -1;
+    return flatCardList.findIndex(c => c.id === previewCard.id);
+  }, [previewCard, flatCardList]);
+
+  const previewCanNavigate = useMemo(() => {
+    return { prev: previewCardIndex > 0, next: previewCardIndex >= 0 && previewCardIndex < flatCardList.length - 1 };
+  }, [previewCardIndex, flatCardList.length]);
+
   const handleReplaceSelected = useCallback(() => {
     const allCards = Object.values(groupedCards).flat();
     const namesToBan: string[] = [];
@@ -1906,6 +1936,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           setPreviewCard(null);
         }}
         onRegenerate={readOnly ? undefined : handleRegenerate}
+        onNavigate={handlePreviewNavigate}
+        canNavigate={previewCanNavigate}
+        cardIndex={previewCardIndex >= 0 ? previewCardIndex : undefined}
+        totalCards={flatCardList.length}
       />
       <ExportModal
         isOpen={showExportModal}

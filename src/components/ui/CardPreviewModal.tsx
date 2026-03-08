@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus } from 'lucide-react';
+import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import { useStore } from '@/store';
@@ -46,6 +46,14 @@ interface CardPreviewModalProps {
   initialSideTab?: 'combos' | 'swaps';
   /** Callback to trigger immediate regeneration */
   onRegenerate?: () => void;
+  /** Navigate to prev/next card in the deck */
+  onNavigate?: (direction: 'prev' | 'next') => void;
+  /** Whether prev/next navigation is available */
+  canNavigate?: { prev: boolean; next: boolean };
+  /** Current card index (0-based) for position indicator */
+  cardIndex?: number;
+  /** Total navigable cards for position indicator */
+  totalCards?: number;
 }
 
 function renderComboEntry(
@@ -100,7 +108,7 @@ function renderComboEntry(
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards }: CardPreviewModalProps) {
   const commander = useStore((s) => s.commander);
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
@@ -118,6 +126,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     return stored === null ? true : stored === 'true';
   });
 
+  // Track which direction the new card should slide in from
+  const slideDirectionRef = useRef<'next' | 'prev' | null>(null);
+  const [slideClass, setSlideClass] = useState('');
+
   // Reset flip state and override when prop card changes
   const cardId = card?.id;
   const [prevCardId, setPrevCardId] = useState(cardId);
@@ -132,7 +144,22 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       const stored = localStorage.getItem('showSwapCandidates');
       setShowSwaps(stored === null ? true : stored === 'true');
     }
+    // Apply slide-in animation synchronously so it's ready on the very first render
+    const dir = slideDirectionRef.current;
+    if (dir) {
+      setSlideClass(dir === 'next' ? 'animate-card-slide-from-right' : 'animate-card-slide-from-left');
+      slideDirectionRef.current = null;
+    } else {
+      setSlideClass('');
+    }
   }
+
+  // Clear slide class after animation completes so it doesn't replay on re-render
+  useEffect(() => {
+    if (!slideClass) return;
+    const timer = setTimeout(() => setSlideClass(''), 250);
+    return () => clearTimeout(timer);
+  }, [slideClass]);
 
   // Lock body scroll while modal is open
   useEffect(() => {
@@ -140,6 +167,94 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, [card]);
+
+  // Keyboard navigation (ArrowLeft/ArrowRight)
+  useEffect(() => {
+    if (!card || !onNavigate) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (cardOverride) return; // don't navigate while viewing a combo pill card
+      if (e.key === 'ArrowLeft' && canNavigate?.prev) {
+        e.preventDefault();
+        slideDirectionRef.current = 'prev';
+        onNavigate('prev');
+      } else if (e.key === 'ArrowRight' && canNavigate?.next) {
+        e.preventDefault();
+        slideDirectionRef.current = 'next';
+        onNavigate('next');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [card, onNavigate, canNavigate, cardOverride]);
+
+  // Touch drag-to-swipe navigation — card follows finger, then navigates or snaps back
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragOffsetRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!onNavigate || cardOverride) return;
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    dragOffsetRef.current = 0;
+    isDraggingRef.current = false;
+  }, [onNavigate, cardOverride]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || !onNavigate || cardOverride) return;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    // Lock into horizontal drag once movement is clearly horizontal
+    if (!isDraggingRef.current) {
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        isDraggingRef.current = true;
+      } else if (Math.abs(dy) > 10) {
+        // Vertical scroll — abort drag tracking
+        touchStartRef.current = null;
+        return;
+      } else {
+        return; // Not enough movement to decide yet
+      }
+    }
+    // Dampen the drag if moving in a direction we can't navigate
+    let offset = dx;
+    if ((dx < 0 && !canNavigate?.next) || (dx > 0 && !canNavigate?.prev)) {
+      offset = dx * 0.2; // rubber band effect
+    }
+    dragOffsetRef.current = offset;
+    if (contentRef.current) {
+      contentRef.current.style.transform = `translateX(${offset}px)`;
+      contentRef.current.style.opacity = `${1 - Math.min(Math.abs(offset) / 400, 0.4)}`;
+    }
+  }, [onNavigate, canNavigate, cardOverride]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!touchStartRef.current && !isDraggingRef.current) return;
+    const offset = dragOffsetRef.current;
+    const navigated = isDraggingRef.current && Math.abs(offset) > 60;
+    touchStartRef.current = null;
+    isDraggingRef.current = false;
+    dragOffsetRef.current = 0;
+    if (navigated && onNavigate && !cardOverride) {
+      if (offset < -60 && canNavigate?.next) {
+        slideDirectionRef.current = 'next';
+        onNavigate('next');
+      } else if (offset > 60 && canNavigate?.prev) {
+        slideDirectionRef.current = 'prev';
+        onNavigate('prev');
+      }
+    }
+    // Snap back with transition
+    if (contentRef.current) {
+      contentRef.current.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+      contentRef.current.style.transform = '';
+      contentRef.current.style.opacity = '';
+      // Clean up transition after it completes
+      const el = contentRef.current;
+      const cleanup = () => { el.style.transition = ''; el.removeEventListener('transitionend', cleanup); };
+      el.addEventListener('transitionend', cleanup);
+    }
+  }, [onNavigate, canNavigate, cardOverride]);
 
   const handlePillHover = useCallback((name: string, e: React.MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -255,12 +370,45 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const canMustInclude = isMissingComboCard && !isInMustInclude;
   const alreadyMustIncluded = isInMustInclude;
 
+  const hasNav = !!(onNavigate && canNavigate && !cardOverride);
+
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto"
       onClick={onClose}
+      onTouchStart={onNavigate ? handleTouchStart : undefined}
+      onTouchMove={onNavigate ? handleTouchMove : undefined}
+      onTouchEnd={onNavigate ? handleTouchEnd : undefined}
     >
-      <div className="relative animate-scale-in w-fit max-w-[90vw] card-preview-content m-auto py-4" onClick={(e) => e.stopPropagation()}>
+      {/* Navigation arrows — always visible, including mobile */}
+      {hasNav && canNavigate.prev && (
+        <button
+          onClick={(e) => { e.stopPropagation(); slideDirectionRef.current = 'prev'; onNavigate!('prev'); }}
+          className="fixed left-1 sm:left-4 top-1/2 -translate-y-1/2 z-[55] bg-black/60 hover:bg-black/80 active:bg-black/90 text-white/70 hover:text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg"
+          title="Previous card"
+        >
+          <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+        </button>
+      )}
+      {hasNav && canNavigate.next && (
+        <button
+          onClick={(e) => { e.stopPropagation(); slideDirectionRef.current = 'next'; onNavigate!('next'); }}
+          className="fixed right-1 sm:right-4 top-1/2 -translate-y-1/2 z-[55] bg-black/60 hover:bg-black/80 active:bg-black/90 text-white/70 hover:text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg"
+          title="Next card"
+        >
+          <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+        </button>
+      )}
+      {/* Card position indicator */}
+      {hasNav && cardIndex != null && totalCards != null && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] bg-black/60 backdrop-blur-sm text-white/70 text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {cardIndex + 1} / {totalCards}
+        </div>
+      )}
+      <div ref={contentRef} className={`relative w-fit max-w-[90vw] card-preview-content m-auto py-4 ${slideClass || 'animate-scale-in'}`} onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
           className="absolute top-2 right-2 bg-black/60 rounded-full p-1.5 text-white/70 hover:text-white transition-colors z-10"
