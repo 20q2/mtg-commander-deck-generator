@@ -1749,6 +1749,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
         )}
 
+        {generatedDeck.filterShortfall && generatedDeck.filterShortfall > 0 && (
+          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-amber-200/90">
+              Your Scryfall filters reduced the available card pool.{' '}
+              <span className="font-semibold">{generatedDeck.filterShortfall} extra basic land{generatedDeck.filterShortfall > 1 ? 's were' : ' was'}</span>{' '}
+              added to reach {totalCards} cards. Try broadening your filters for more variety.
+            </p>
+          </div>
+        )}
+
         {/* Stats - Mobile/Tablet (above deck list) */}
         <div className="xl:hidden mb-6">
           <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />

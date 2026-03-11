@@ -895,12 +895,13 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
             Other
-            {!otherOpen && (customization.maxRarity !== null || customization.tinyLeaders || customization.arenaOnly) && (
+            {!otherOpen && (customization.maxRarity !== null || customization.tinyLeaders || customization.arenaOnly || customization.scryfallQuery) && (
               <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.arenaOnly ? 'Arena' : null,
                   customization.maxRarity !== null ? `${customization.maxRarity} max` : null,
                   customization.tinyLeaders ? 'Tiny Leaders' : null,
+                  customization.scryfallQuery ? 'Custom query' : null,
                 ].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -969,6 +970,24 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
               <span className="text-sm font-medium group-hover:text-primary transition-colors">Limit to Arena cards</span>
               <InfoTooltip text="Only use cards available in MTG Arena. Searches and deck generation will be restricted to Arena's card pool." />
             </label>
+
+            {/* Additional Scryfall Query */}
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                Additional Scryfall Filters
+                <InfoTooltip text='Appended to every card search query. Uses Scryfall search syntax — e.g. "set:mkm" to limit to a set, "is:full-art" for full-art cards, or "frame:extendedart". Multiple filters can be combined with spaces.' />
+              </label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Extra <a href="https://scryfall.com/docs/syntax" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">Scryfall search syntax</a> appended to all card queries.
+              </p>
+              <input
+                type="text"
+                value={customization.scryfallQuery}
+                onChange={(e) => updateCustomization({ scryfallQuery: e.target.value })}
+                placeholder='e.g. set:mkm, is:full-art, frame:extendedart'
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              />
+            </div>
           </div>
           </div>
         </div>

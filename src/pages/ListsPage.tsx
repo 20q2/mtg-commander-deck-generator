@@ -355,13 +355,15 @@ export function ListsPage() {
             Save card lists for exclusions, must-includes, or full decks. Set a commander to unlock deck features.
           </p>
         </div>
-        <button
-          onClick={() => navigate('/lists/create')}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          New List
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => navigate('/lists/create')}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New List
+          </button>
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -507,6 +509,7 @@ export function ListsPage() {
           You can export lists to clipboard and re-import them anytime.
         </p>
       </aside>
+
     </main>
   );
 }

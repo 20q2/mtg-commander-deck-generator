@@ -169,6 +169,7 @@ const defaultCustomization: Customization = {
   tinyLeaders: false,
   collectionMode: false,
   arenaOnly: false,
+  scryfallQuery: '',
   comboCount: 1,
   hyperFocus: false,
   balancedRoles: true,

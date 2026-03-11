@@ -269,6 +269,7 @@ export interface GeneratedDeck {
   gapAnalysis?: GapAnalysisCard[];
   builtFromCollection?: boolean;
   collectionShortfall?: number;
+  filterShortfall?: number; // Extra basic lands added because scryfallQuery filters reduced the available card pool
   detectedCombos?: DetectedCombo[];
   typeTargets?: Record<string, number>;
   dataSource?: DeckDataSource;
@@ -373,6 +374,7 @@ export interface Customization {
   tinyLeaders: boolean; // Restrict all non-land cards to CMC <= 3
   collectionMode: boolean; // When true, constrain generation to owned cards
   arenaOnly: boolean; // When true, only use cards available on MTG Arena
+  scryfallQuery: string; // Additional Scryfall search syntax appended to all card queries (e.g. "set:mkm", "is:full-art")
   comboCount: number; // 0 = none, 1 = normal, 2 = a few extra, 3 = many combo pieces prioritized
   hyperFocus: boolean; // When true, boost unique theme cards and penalize generic multi-theme cards
   balancedRoles: boolean; // When true, boost cards that fill underrepresented functional roles (ramp, removal, etc.)

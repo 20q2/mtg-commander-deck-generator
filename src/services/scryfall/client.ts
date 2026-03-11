@@ -12,6 +12,16 @@ const cardCache = new Map<string, ScryfallCard>();
 const searchCache = new Map<string, { data: ScryfallSearchResponse; timestamp: number }>();
 const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
+/**
+ * Extract a set code from a scryfallQuery string.
+ * Recognizes: set:xxx, s:xxx, e:xxx, edition:xxx (with or without quotes).
+ */
+export function parseSetFromQuery(scryfallQuery: string): string | undefined {
+  if (!scryfallQuery) return undefined;
+  const match = scryfallQuery.match(/\b(?:set|s|e|edition):["']?([a-zA-Z0-9_]+)["']?/i);
+  return match ? match[1].toLowerCase() : undefined;
+}
+
 /** Return a shallow copy with deck-generation flags stripped so cached objects stay clean. */
 function freshCopy(card: ScryfallCard): ScryfallCard {
   const { isMustInclude, isGameChanger, deckRole, ...clean } = card;
@@ -211,7 +221,8 @@ async function fetchCardByNameThrottled(name: string, retries = 2): Promise<Scry
  */
 export async function getCardsByNames(
   names: string[],
-  onProgress?: (fetched: number, total: number) => void
+  onProgress?: (fetched: number, total: number) => void,
+  preferredSet?: string
 ): Promise<Map<string, ScryfallCard>> {
   const result = new Map<string, ScryfallCard>();
 
@@ -220,7 +231,9 @@ export async function getCardsByNames(
   // Check cache first and collect uncached names
   const uncachedNames: string[] = [];
   for (const name of names) {
-    const cached = cardCache.get(name);
+    // When a preferred set is specified, use a composite cache key
+    const cacheKey = preferredSet ? `${name}|${preferredSet}` : name;
+    const cached = cardCache.get(cacheKey);
     if (cached) {
       result.set(name, freshCopy(cached));
     } else {
@@ -231,12 +244,17 @@ export async function getCardsByNames(
   // If all cards were cached, return early
   if (uncachedNames.length === 0) return result;
 
-  console.log(`[Scryfall] Fetching ${uncachedNames.length} cards via /cards/collection...`);
+  console.log(`[Scryfall] Fetching ${uncachedNames.length} cards via /cards/collection${preferredSet ? ` (set: ${preferredSet})` : ''}...`);
+
+  // Track names not found in the preferred set for a fallback pass
+  const setNotFoundNames: string[] = [];
 
   // Use Scryfall's /cards/collection endpoint (up to 75 per request)
   for (let i = 0; i < uncachedNames.length; i += COLLECTION_BATCH_SIZE) {
     const batch = uncachedNames.slice(i, i + COLLECTION_BATCH_SIZE);
-    const identifiers = batch.map(name => ({ name }));
+    const identifiers = preferredSet
+      ? batch.map(name => ({ name, set: preferredSet }))
+      : batch.map(name => ({ name }));
 
     await rateLimiter.acquire();
 
@@ -251,20 +269,30 @@ export async function getCardsByNames(
       });
 
       if (response.ok) {
-        const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string }> };
+        const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string; set?: string }> };
         for (const card of data.data) {
-          cardCache.set(card.name, card);
+          const cacheKey = preferredSet ? `${card.name}|${preferredSet}` : card.name;
+          cardCache.set(cacheKey, card);
+          if (!preferredSet) cardCache.set(card.name, card); // also cache under plain name when no set preference
           const copy = freshCopy(card);
           result.set(card.name, copy);
           // For DFCs, also store under front-face name so EDHREC lookups match
           if (card.name.includes(' // ')) {
             const frontFace = card.name.split(' // ')[0];
             result.set(frontFace, copy);
-            cardCache.set(frontFace, card);
+            if (preferredSet) cardCache.set(`${frontFace}|${preferredSet}`, card);
+            else cardCache.set(frontFace, card);
           }
         }
         if (data.not_found.length > 0) {
-          console.warn(`[Scryfall] ${data.not_found.length} cards not found in collection batch`);
+          if (preferredSet) {
+            // Collect not-found names for fallback pass without set constraint
+            for (const nf of data.not_found) {
+              if (nf.name) setNotFoundNames.push(nf.name);
+            }
+          } else {
+            console.warn(`[Scryfall] ${data.not_found.length} cards not found in collection batch`);
+          }
         }
       } else if (response.status === 429) {
         // Rate limited - back off and retry this batch
@@ -280,19 +308,64 @@ export async function getCardsByNames(
     onProgress?.(Math.min(i + COLLECTION_BATCH_SIZE, uncachedNames.length), uncachedNames.length);
   }
 
+  // Fallback pass: re-fetch cards not found in the preferred set without set constraint
+  if (preferredSet && setNotFoundNames.length > 0) {
+    console.log(`[Scryfall] ${setNotFoundNames.length} cards not in set "${preferredSet}", re-fetching without set constraint...`);
+    for (let i = 0; i < setNotFoundNames.length; i += COLLECTION_BATCH_SIZE) {
+      const batch = setNotFoundNames.slice(i, i + COLLECTION_BATCH_SIZE);
+      const identifiers = batch.map(name => ({ name }));
+
+      await rateLimiter.acquire();
+
+      try {
+        const response = await fetch(`${BASE_URL}/cards/collection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({ identifiers }),
+        });
+
+        if (response.ok) {
+          const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string }> };
+          for (const card of data.data) {
+            cardCache.set(card.name, card);
+            const copy = freshCopy(card);
+            result.set(card.name, copy);
+            if (card.name.includes(' // ')) {
+              const frontFace = card.name.split(' // ')[0];
+              result.set(frontFace, copy);
+              cardCache.set(frontFace, card);
+            }
+          }
+        } else if (response.status === 429) {
+          console.warn('[Scryfall] Rate limited on fallback collection fetch, backing off...');
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          i -= COLLECTION_BATCH_SIZE;
+          continue;
+        }
+      } catch (err) {
+        console.warn('[Scryfall] Fallback collection batch failed:', err);
+      }
+    }
+  }
+
   // Re-fetch cards that came back with no price (e.g. unreleased reprints)
-  // fetchCardByNameThrottled searches across all printings sorted by price
-  const noPriceNames = uncachedNames.filter(name => {
-    const card = result.get(name);
-    return card && !getCardPrice(card);
-  });
-  if (noPriceNames.length > 0) {
-    console.log(`[Scryfall] Re-fetching ${noPriceNames.length} cards with no price for older printings...`);
-    for (const name of noPriceNames) {
-      const card = await fetchCardByNameThrottled(name);
-      if (card && getCardPrice(card)) {
-        cardCache.set(name, card);
-        result.set(name, freshCopy(card));
+  // Skip when user specified a preferred set — they want that set's printing, not the cheapest
+  if (!preferredSet) {
+    const noPriceNames = uncachedNames.filter(name => {
+      const card = result.get(name);
+      return card && !getCardPrice(card);
+    });
+    if (noPriceNames.length > 0) {
+      console.log(`[Scryfall] Re-fetching ${noPriceNames.length} cards with no price for older printings...`);
+      for (const name of noPriceNames) {
+        const card = await fetchCardByNameThrottled(name);
+        if (card && getCardPrice(card)) {
+          cardCache.set(name, card);
+          result.set(name, freshCopy(card));
+        }
       }
     }
   }
@@ -311,6 +384,125 @@ export async function getCardsByNames(
 
   console.log(`[Scryfall] Batch fetch complete: ${result.size} cards found`);
   return result;
+}
+
+const UPGRADE_BATCH_SIZE = 15; // Card names per search query for printing upgrades
+
+/**
+ * Upgrade card printings in a map to match non-set Scryfall filters (e.g. is:full-art, frame:extendedart).
+ * Searches for matching printings in batches and replaces entries in-place.
+ * Set-based filters (set:xxx) are stripped since those are handled by getCardsByNames.
+ * When strict=true, cards without a matching printing are REMOVED from the map.
+ */
+export async function upgradeCardPrintings(
+  cards: Map<string, ScryfallCard>,
+  scryfallQuery: string,
+  strict: boolean = false
+): Promise<void> {
+  if (!scryfallQuery) return;
+
+  // Strip set filters — already handled by getCardsByNames' preferredSet
+  const filters = scryfallQuery.replace(/\b(?:set|s|e|edition):["']?[a-zA-Z0-9_]+["']?/gi, '').trim();
+  if (!filters) return;
+
+  // Collect card names, using front-face name for DFCs in search queries
+  const entries: { searchName: string; mapKey: string }[] = [];
+  for (const [key, card] of cards) {
+    const searchName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+    entries.push({ searchName, mapKey: key });
+  }
+
+  if (entries.length === 0) return;
+
+  console.log(`[Scryfall] Upgrading printings for ${entries.length} cards with filters: ${filters}${strict ? ' (strict)' : ''}`);
+  const cacheKeyPrefix = `upgrade|${filters}|`;
+  let upgraded = 0;
+  const matchedKeys = new Set<string>();
+
+  for (let i = 0; i < entries.length; i += UPGRADE_BATCH_SIZE) {
+    const batch = entries.slice(i, i + UPGRADE_BATCH_SIZE);
+
+    // Check cache first and separate cached vs uncached
+    const uncached: typeof batch = [];
+    for (const entry of batch) {
+      const cached = cardCache.get(`${cacheKeyPrefix}${entry.searchName}`);
+      if (cached) {
+        cards.set(entry.mapKey, freshCopy(cached));
+        matchedKeys.add(entry.mapKey);
+        upgraded++;
+      } else {
+        uncached.push(entry);
+      }
+    }
+
+    if (uncached.length === 0) continue;
+
+    // Build OR query: (!"Card1" OR !"Card2" OR ...) <filters>
+    const nameQuery = uncached.map(e => `!"${e.searchName}"`).join(' OR ');
+    const fullQuery = `(${nameQuery}) ${filters}`;
+    const encodedQuery = encodeURIComponent(fullQuery);
+
+    await rateLimiter.acquire();
+
+    try {
+      const response = await fetch(`${BASE_URL}/cards/search?q=${encodedQuery}&unique=prints&order=released&dir=desc`, {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (response.ok) {
+        const data = await response.json() as ScryfallSearchResponse;
+        // Build a name -> first matching card map (most recent printing first due to order=released desc)
+        const matchMap = new Map<string, ScryfallCard>();
+        for (const card of data.data) {
+          const frontName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+          if (!matchMap.has(card.name) && !matchMap.has(frontName)) {
+            matchMap.set(card.name, card);
+            if (frontName !== card.name) matchMap.set(frontName, card);
+          }
+        }
+
+        // Replace matching cards in the result map and cache them
+        for (const entry of uncached) {
+          const match = matchMap.get(entry.searchName) ?? matchMap.get(cards.get(entry.mapKey)?.name ?? '');
+          if (match) {
+            cardCache.set(`${cacheKeyPrefix}${entry.searchName}`, match);
+            cards.set(entry.mapKey, freshCopy(match));
+            matchedKeys.add(entry.mapKey);
+            // Also update front-face key if it exists
+            if (match.name.includes(' // ')) {
+              const frontFace = match.name.split(' // ')[0];
+              if (cards.has(frontFace)) {
+                cards.set(frontFace, freshCopy(match));
+                matchedKeys.add(frontFace);
+              }
+            }
+            upgraded++;
+          }
+        }
+      }
+      // 404 = no results for this batch, not an error — just means no matching printings
+    } catch {
+      // Search failed, skip this batch — cards keep their default printings
+    }
+  }
+
+  // In strict mode, remove cards that had no matching printing
+  if (strict) {
+    const removed: string[] = [];
+    for (const entry of entries) {
+      if (!matchedKeys.has(entry.mapKey)) {
+        cards.delete(entry.mapKey);
+        removed.push(entry.searchName);
+      }
+    }
+    if (removed.length > 0) {
+      console.log(`[Scryfall] Strict filter removed ${removed.length} cards with no "${filters}" printing`);
+    }
+  }
+
+  if (upgraded > 0) {
+    console.log(`[Scryfall] Upgraded ${upgraded}/${entries.length} cards to match "${filters}"`);
+  }
 }
 
 /**

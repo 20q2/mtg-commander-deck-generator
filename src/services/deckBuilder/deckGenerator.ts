@@ -18,7 +18,7 @@ import type {
   BracketLevel,
   BudgetOption,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
@@ -821,7 +821,8 @@ async function fillWithScryfall(
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
   currency: 'USD' | 'EUR' = 'USD',
-  arenaOnly: boolean = false
+  arenaOnly: boolean = false,
+  scryfallQuery: string = ''
 ): Promise<ScryfallCard[]> {
   if (count <= 0) return [];
 
@@ -837,6 +838,10 @@ async function fillWithScryfall(
   // Restrict to Arena-available cards
   if (arenaOnly) {
     fullQuery += ` game:arena`;
+  }
+  // Append user's additional Scryfall filters
+  if (scryfallQuery.trim()) {
+    fullQuery += ` ${scryfallQuery.trim()}`;
   }
 
   try {
@@ -1036,7 +1041,9 @@ async function generateLands(
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
   currency: 'USD' | 'EUR' = 'USD',
-  arenaOnly: boolean = false
+  arenaOnly: boolean = false,
+  scryfallQuery: string = '',
+  preferredSet?: string
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1065,7 +1072,13 @@ async function generateLands(
       .slice(0, nonBasicTarget * 2)  // Fetch more than needed to account for filtering
       .map(c => c.name);
 
-    const landCardMap = await getCardsByNames(landNamesToFetch);
+    const landCardMap = await getCardsByNames(landNamesToFetch, undefined, preferredSet);
+    if (preferredSet) {
+      for (const [name, card] of landCardMap) {
+        if (card.set !== preferredSet) landCardMap.delete(name);
+      }
+    }
+    await upgradeCardPrintings(landCardMap, scryfallQuery, true);
     const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, undefined, currency, new Set(), arenaOnly);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
@@ -1077,7 +1090,7 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency, arenaOnly);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery);
     lands.push(...moreLands);
   }
 
@@ -1388,6 +1401,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const maxRarity = customization.maxRarity ?? null;
   const maxCmc = customization.tinyLeaders ? 3 : null;
   const arenaOnly = !!customization.arenaOnly;
+  const scryfallQuery = customization.scryfallQuery ?? '';
+  const preferredSet = parseSetFromQuery(scryfallQuery);
   const maxGameChangers = customization.gameChangerLimit === 'none' ? 0
     : customization.gameChangerLimit === 'unlimited' ? Infinity
     : customization.gameChangerLimit;
@@ -1564,7 +1579,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     onProgress?.('Adding your must-include cards...', 3);
     console.log(`[DeckGen] Processing ${mustIncludeNames.length} must-include cards:`, mustIncludeNames);
 
-    const mustIncludeMap = await getCardsByNames(mustIncludeNames);
+    const mustIncludeMap = await getCardsByNames(mustIncludeNames, undefined, preferredSet);
     let addedCount = 0;
 
     for (const name of mustIncludeNames) {
@@ -2055,8 +2070,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // Scale progress from 25% to 35% during the batch fetch
       const pct = 25 + Math.round((fetched / total) * 10);
       onProgress?.('Summoning cards from Scryfall...', pct);
-    });
-    console.log(`[DeckGen] Batch fetch returned ${cardMap.size} cards`);
+    }, preferredSet);
+    // Post-filter: remove cards that don't match the scryfallQuery filter
+    if (preferredSet) {
+      for (const [name, card] of cardMap) {
+        if (card.set !== preferredSet) cardMap.delete(name);
+      }
+    }
+    await upgradeCardPrintings(cardMap, scryfallQuery, true);
+    console.log(`[DeckGen] Batch fetch returned ${cardMap.size} cards (after filtering)`);
 
     // Update generation cache with the cardMap (not used on fast path currently,
     // but kept for potential future use)
@@ -2203,7 +2225,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         budgetTracker,
         context.collectionNames,
         currency,
-        arenaOnly
+        arenaOnly,
+        scryfallQuery
       );
       categories.creatures.push(...moreCreatures);
       console.log(`[DeckGen] FALLBACK: Got ${moreCreatures.length} creatures from Scryfall`);
@@ -2429,7 +2452,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         budgetTracker,
         context.collectionNames,
         currency,
-        arenaOnly
+        arenaOnly,
+        scryfallQuery,
+        preferredSet
       ),
     ];
 
@@ -2477,7 +2502,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
 
     onProgress?.('Seeking sources of knowledge...', 30);
@@ -2493,7 +2519,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
 
     onProgress?.('Arming with removal spells...', 40);
@@ -2509,7 +2536,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
 
     onProgress?.('Preparing mass destruction...', 50);
@@ -2525,7 +2553,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
 
     // Use typeTargets for remaining slots to get a balanced type distribution
@@ -2543,7 +2572,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
     categories.creatures.push(...scryfallCreatures);
 
@@ -2561,7 +2591,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
     categorizeCards(scryfallArtifacts, categories);
 
@@ -2579,7 +2610,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       budgetTracker,
       context.collectionNames,
       currency,
-      arenaOnly
+      arenaOnly,
+      scryfallQuery
     );
     categorizeCards(scryfallEnchantments, categories);
 
@@ -2598,7 +2630,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         budgetTracker,
         context.collectionNames,
         currency,
-        arenaOnly
+        arenaOnly,
+        scryfallQuery
       );
       categorizeCards(scryfallInstants, categories);
     }
@@ -2618,7 +2651,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         budgetTracker,
         context.collectionNames,
         currency,
-        arenaOnly
+        arenaOnly,
+        scryfallQuery
       );
       categorizeCards(scryfallSorceries, categories);
     }
@@ -2661,7 +2695,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         budgetTracker,
         context.collectionNames,
         currency,
-        arenaOnly
+        arenaOnly,
+        scryfallQuery,
+        preferredSet
       ),
     ];
   }
@@ -2731,7 +2767,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log(`[DeckGen] Found ${remainingEdhrecCards.length} remaining EDHREC cards to fill shortage`);
 
       const namesToFetch = remainingEdhrecCards.slice(0, shortage * 3).map(c => c.name);
-      const fillCardMap = await getCardsByNames(namesToFetch);
+      const fillCardMap = await getCardsByNames(namesToFetch, undefined, preferredSet);
+      if (preferredSet) {
+        for (const [name, card] of fillCardMap) {
+          if (card.set !== preferredSet) fillCardMap.delete(name);
+        }
+      }
+      await upgradeCardPrintings(fillCardMap, scryfallQuery, true);
 
       // Calculate current type counts to prioritize types with the largest deficit
       const currentTypeCounts: Record<string, number> = {};
@@ -2853,7 +2895,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const cards = await fillWithScryfall(
           query, colorIdentity, toFill, usedNames, bannedCards,
           shortagePriceCap, maxRarity, maxCmc, null,
-          context.collectionNames, currency, arenaOnly
+          context.collectionNames, currency, arenaOnly, scryfallQuery
         );
         if (type === 'creature') categories.creatures.push(...cards);
         else if (type === 'instant') categorizeCards(cards, categories);
@@ -2871,7 +2913,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           '(t:artifact OR t:enchantment OR t:creature)',
           colorIdentity, remaining, usedNames, bannedCards,
           shortagePriceCap, maxRarity, maxCmc, null,
-          context.collectionNames, currency, arenaOnly
+          context.collectionNames, currency, arenaOnly, scryfallQuery
         );
         categories.synergy.push(...moreCards);
         filled += moreCards.length;
@@ -3001,7 +3043,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       .slice(0, 40);
 
     if (gapCandidates.length > 0) {
-      const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name));
+      const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name), undefined, preferredSet);
 
       gapAnalysis = gapCandidates
         .map(c => {
@@ -3107,6 +3149,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     gapAnalysis,
     detectedCombos,
     collectionShortfall: context.collectionNames && basicLandFillCount > 0 ? basicLandFillCount : undefined,
+    filterShortfall: scryfallQuery && !context.collectionNames && basicLandFillCount > 0 ? basicLandFillCount : undefined,
     typeTargets,
     dataSource,
     roleCounts: roleTargets ? { ...currentRoleCounts } : undefined,

@@ -16,7 +16,8 @@ export type AnalyticsEventType =
   | 'cards_removed'
   | 'must_include_added'
   | 'build_mode_toggled'
-  | 'deck_optimized';
+  | 'deck_optimized'
+  | 'deck_imported';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -66,6 +67,7 @@ export interface AnalyticsEventMetadata {
   must_include_added: { commanderName: string; cardName: string; source: 'combo' | 'modal' };
   build_mode_toggled: { commanderName: string; mode: 'balanced' | 'classic' };
   deck_optimized: { commanderName: string; partnerName?: string; listName: string; originalCardCount: number; deckFormat: number; themes: string[]; totalCards: number; isRegeneration: boolean };
+  deck_imported: { source: string; cardCount: number; deckName: string };
 }
 
 export interface AnalyticsEvent {
