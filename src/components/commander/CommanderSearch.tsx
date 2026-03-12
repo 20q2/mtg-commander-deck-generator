@@ -17,7 +17,8 @@ import { Search, Loader2, Shuffle } from 'lucide-react';
 import { trackEvent, fetchMetrics } from '@/services/analytics';
 
 function isLegendaryCreature(card: CollectionCard): boolean {
-  const tl = card.typeLine?.toLowerCase() ?? '';
+  // Use only the front face type line to avoid matching DFC back faces (e.g. Battles)
+  const tl = (card.typeLine?.split(' // ')[0] ?? '').toLowerCase();
   return tl.includes('legendary') && tl.includes('creature');
 }
 

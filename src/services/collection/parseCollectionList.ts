@@ -1,6 +1,7 @@
 export interface ParsedCard {
   name: string;
   quantity: number;
+  isCommander?: boolean;
 }
 
 /**
@@ -74,12 +75,16 @@ export function parseCollectionList(input: string): ParsedCard[] {
         cardName = line;
       }
 
-      // Strip MTGA set/collector suffix: "(M21) 123" or "(DMU) 45"
-      cardName = cardName.replace(/\s*\([A-Z0-9]+\)\s*\d+\s*$/, '').trim();
+      // Detect and strip *CMDR* marker
+      const isCommander = /\*CMDR\*/i.test(cardName);
+      cardName = cardName.replace(/\s*\*CMDR\*\s*/gi, '').trim();
+
+      // Strip set/collector suffix: "(M21) 123", "(DMU) 45", or just "(JMP)"
+      cardName = cardName.replace(/\s*\([A-Z0-9]+\)\s*\d*\s*$/, '').trim();
 
       if (cardName && !seen.has(cardName.toLowerCase())) {
         seen.add(cardName.toLowerCase());
-        result.push({ name: cardName, quantity });
+        result.push({ name: cardName, quantity, ...(isCommander && { isCommander: true }) });
       }
     }
   }

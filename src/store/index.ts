@@ -168,6 +168,8 @@ const defaultCustomization: Customization = {
   maxRarity: null,
   tinyLeaders: false,
   collectionMode: false,
+  collectionStrategy: 'full' as const,
+  collectionOwnedPercent: 75,
   arenaOnly: false,
   scryfallQuery: '',
   comboCount: 1,

@@ -474,7 +474,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
             </p>
           )}
           <div className="flex items-center justify-center gap-3 mt-3 flex-wrap">
-            {onBuildDeck && displayCard.type_line && /legendary/i.test(displayCard.type_line) && /creature/i.test(displayCard.type_line) && (
+            {onBuildDeck && displayCard.type_line && (() => { const front = displayCard.type_line!.split(' // ')[0]; return /legendary/i.test(front) && /creature/i.test(front); })() && (
               <button
                 onClick={() => { onBuildDeck(displayCard.name); onClose(); }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground text-xs font-medium transition-colors"

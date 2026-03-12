@@ -15,7 +15,7 @@ import { CardTypeIcon } from '@/components/ui/mtg-icons';
 const IS_EU = isEuropean() || location.hostname === 'localhost';
 
 
-export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { advancedOpen?: boolean; onAdvancedClose?: () => void } = {}) {
+export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
   const { count: collectionCount, cards: collectionCards } = useCollection();
   const navigate = useNavigate();
@@ -396,7 +396,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
 
         <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${budgetOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
-          <div className="mt-3 space-y-6">
+          <div className="mt-3 space-y-6 px-3">
             {/* Total Deck Budget */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -617,14 +617,14 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
 
         <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${powerLevelOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
-          <div className="mt-3 space-y-6">
+          <div className="mt-3 space-y-6 px-3">
             {/* Bracket Level */}
             <div>
               <label className="text-sm font-medium mb-2 block">Bracket Level</label>
               <p className="text-xs text-muted-foreground mb-2">
                 Filter EDHREC data by power level bracket.
               </p>
-              <div className="grid grid-cols-6 gap-2">
+              <div className="flex gap-2">
                 {([
                   { value: 'all' as BracketLevel, label: 'All' },
                   { value: 1 as BracketLevel, label: '1' },
@@ -642,16 +642,17 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
                         : option.value === 3 ? 3
                         : 'unlimited';
                       updateCustomization({ bracketLevel: option.value, gameChangerLimit: gcLimit });
+                      onToast?.('Archetype and recommended lands updated');
                     }}
-                    className={`p-2 rounded-lg border text-center transition-colors ${
+                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
                       customization.bracketLevel === option.value
                         ? option.value === 'all'
-                          ? 'border-muted-foreground/50 bg-muted text-muted-foreground'
-                          : 'border-primary bg-primary/10 text-primary'
-                        : 'border-border hover:border-primary/50'
+                          ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
+                          : 'bg-primary/10 border border-primary text-primary'
+                        : 'border border-border hover:border-primary/50'
                     }`}
                   >
-                    <div className="font-medium text-xs">{option.label}</div>
+                    {option.label}
                   </button>
                 ))}
               </div>
@@ -788,7 +789,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
 
         <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${cardListsOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
-          <div className="mt-3 space-y-6">
+          <div className="mt-3 space-y-6 px-3">
             {/* Must Include Cards */}
             <MustIncludeCards />
 
@@ -815,7 +816,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
               Collection
               {!collectionOpen && customization.collectionMode && (
                 <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
-                  Enabled
+                  {customization.collectionStrategy === 'partial' ? `Prioritize (${customization.collectionOwnedPercent}%)` : 'Only'}
                 </span>
               )}
             </span>
@@ -832,7 +833,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
 
           <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${collectionOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
             <div className="overflow-hidden">
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 space-y-3 px-3">
               {/* Checkbox */}
               <label className="flex items-center gap-3 cursor-pointer select-none group">
                 <input
@@ -844,8 +845,54 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
                 <span className="text-sm font-medium group-hover:text-primary transition-colors">
                   Build from My Collection
                 </span>
-                <InfoTooltip text="Only use cards you own. After generation, see suggestions for cards you're missing." />
+                <InfoTooltip text="Use your card collection when generating decks. Choose to build entirely from your cards, or prioritize them while filling gaps with recommendations." />
               </label>
+
+              {/* Collection strategy toggle */}
+              {customization.collectionMode && (
+                <div className="ml-7 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { value: 'full' as const, label: 'Only My Cards', desc: 'Exclusively your collection' },
+                      { value: 'partial' as const, label: 'Prioritize Mine', desc: 'Fill gaps with recommendations' },
+                    ]).map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => updateCustomization({ collectionStrategy: option.value })}
+                        className={`p-2 rounded-lg border text-center transition-colors ${
+                          customization.collectionStrategy === option.value
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border hover:border-primary/50'
+                        }`}
+                      >
+                        <div className="font-medium text-xs">{option.label}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{option.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Owned percentage slider (partial mode only) */}
+                  {customization.collectionStrategy === 'partial' && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-muted-foreground">Collection %</span>
+                        <span className="text-xs font-medium text-primary">{customization.collectionOwnedPercent}%</span>
+                      </div>
+                      <Slider
+                        value={customization.collectionOwnedPercent}
+                        min={25}
+                        max={100}
+                        step={5}
+                        onChange={(v) => updateCustomization({ collectionOwnedPercent: v })}
+                      />
+                      <div className="flex justify-between mt-1">
+                        <span className="text-[10px] text-muted-foreground">More Recs</span>
+                        <span className="text-[10px] text-muted-foreground">More Owned</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Type breakdown */}
               {collectionStats && (() => {
@@ -919,7 +966,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
 
         <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${otherOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
-          <div className="mt-3 space-y-6">
+          <div className="mt-3 space-y-6 px-3">
             <div>
               <label className="text-sm font-medium mb-2 block">Max Card Rarity</label>
               <p className="text-xs text-muted-foreground mb-2">
@@ -973,7 +1020,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose }: { adva
 
             {/* Additional Scryfall Query */}
             <div>
-              <label className="text-sm font-medium mb-1 block">
+              <label className="text-sm font-medium mb-1 flex items-center gap-1">
                 Additional Scryfall Filters
                 <InfoTooltip text='Appended to every card search query. Uses Scryfall search syntax — e.g. "set:mkm" to limit to a set, "is:full-art" for full-art cards, or "frame:extendedart". Multiple filters can be combined with spaces.' />
               </label>

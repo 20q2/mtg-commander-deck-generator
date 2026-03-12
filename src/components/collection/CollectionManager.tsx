@@ -156,7 +156,7 @@ export function CollectionManager() {
     // Commanders only
     if (commandersOnly) {
       result = result.filter(c => {
-        const t = c.typeLine?.toLowerCase() ?? '';
+        const t = (c.typeLine?.split(' // ')[0] ?? '').toLowerCase();
         return t.includes('legendary') && t.includes('creature');
       });
     }

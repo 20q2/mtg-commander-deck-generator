@@ -316,6 +316,8 @@ export type BracketLevel = 'all' | 1 | 2 | 3 | 4 | 5;
 // Max card rarity filter
 export type MaxRarity = 'common' | 'uncommon' | 'rare' | 'mythic' | null;
 
+export type CollectionStrategy = 'full' | 'partial';
+
 // Ban list (preset or custom)
 export interface BanList {
   id: string;
@@ -373,6 +375,8 @@ export interface Customization {
   maxRarity: MaxRarity; // Max card rarity, null = no limit
   tinyLeaders: boolean; // Restrict all non-land cards to CMC <= 3
   collectionMode: boolean; // When true, constrain generation to owned cards
+  collectionStrategy: CollectionStrategy; // 'full' = only owned cards, 'partial' = prioritize owned then fill with recommended
+  collectionOwnedPercent: number; // 25-100, target % of non-land cards from collection in partial mode
   arenaOnly: boolean; // When true, only use cards available on MTG Arena
   scryfallQuery: string; // Additional Scryfall search syntax appended to all card queries (e.g. "set:mkm", "is:full-art")
   comboCount: number; // 0 = none, 1 = normal, 2 = a few extra, 3 = many combo pieces prioritized

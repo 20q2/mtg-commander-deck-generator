@@ -184,6 +184,14 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
     setCards(prev => prev.filter(n => n !== cardName));
   };
 
+  // Auto-set commander when *CMDR* marker is detected during import
+  const handleCommanderDetected = useCallback((card: ScryfallCard) => {
+    // Only auto-set if no commander is currently selected
+    if (commanderName) return;
+    setCommanderName(card.name);
+    setCommanderCard(card);
+  }, [commanderName]);
+
   // Use a ref to always have the latest cards for the import callback
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
@@ -193,12 +201,27 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
     const newCards: string[] = [];
     let dupeCount = 0;
 
-    for (const cardName of validatedNames) {
-      if (current.includes(cardName) || newCards.includes(cardName)) {
-        dupeCount++;
-      } else {
-        newCards.push(cardName);
+    // Count how many of each card already exist in the list
+    const currentCounts = new Map<string, number>();
+    for (const name of current) {
+      currentCounts.set(name, (currentCounts.get(name) ?? 0) + 1);
+    }
+    // Count how many of each card are being imported
+    const importCounts = new Map<string, number>();
+    for (const name of validatedNames) {
+      importCounts.set(name, (importCounts.get(name) ?? 0) + 1);
+    }
+
+    for (const [cardName, importQty] of importCounts) {
+      const existingQty = currentCounts.get(cardName) ?? 0;
+      const toAdd = Math.max(0, importQty - existingQty);
+      if (toAdd > 0) {
+        for (let i = 0; i < toAdd; i++) {
+          newCards.push(cardName);
+        }
       }
+      const skipped = importQty - toAdd;
+      if (skipped > 0) dupeCount += skipped;
     }
 
     if (newCards.length > 0) {
@@ -391,6 +414,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
       <CollectionImporter
         label="Import Cards"
         onImportCards={handleImportCards}
+        onCommanderDetected={handleCommanderDetected}
         updatedLabel="duplicates skipped"
       />
 

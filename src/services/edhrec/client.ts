@@ -125,9 +125,9 @@ export function formatCommanderNameForUrl(name: string): string {
     .replace(/[\u0300-\u036f]/g, '') // Strip combining diacritical marks
     .toLowerCase()
     .replace(/[',]/g, '') // Remove apostrophes and commas
+    .replace(/[^a-z0-9\s-]/g, '') // Remove other special characters (& etc.) before spacing
     .replace(/\s+/g, '-') // Replace spaces with hyphens
-    .replace(/-+/g, '-') // Collapse multiple hyphens
-    .replace(/[^a-z0-9-]/g, ''); // Remove other special characters
+    .replace(/-+/g, '-'); // Collapse multiple hyphens
 }
 
 /**

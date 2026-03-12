@@ -785,7 +785,7 @@ export function BuilderPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <DeckCustomizer advancedOpen={advancedOpen} onAdvancedClose={() => setAdvancedOpen(false)} />
+                <DeckCustomizer advancedOpen={advancedOpen} onAdvancedClose={() => setAdvancedOpen(false)} onToast={setToastMessage} />
               </CardContent>
             </Card>
           </div>

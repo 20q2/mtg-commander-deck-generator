@@ -19,13 +19,15 @@ interface CollectionImporterProps {
    * Return { added, updated } counts for display in the result card.
    */
   onImportCards?: (validatedNames: string[]) => { added: number; updated: number };
+  /** Called when a *CMDR* marker is detected during import, with the validated Scryfall card */
+  onCommanderDetected?: (card: import('@/types').ScryfallCard) => void;
   /** Label for the "updated" count (default: "cards updated") */
   updatedLabel?: string;
   /** Header label (default: "Import Collection") */
   label?: string;
 }
 
-export function CollectionImporter({ onImportCards, updatedLabel, label }: CollectionImporterProps = {}) {
+export function CollectionImporter({ onImportCards, onCommanderDetected, updatedLabel, label }: CollectionImporterProps = {}) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState('');
@@ -60,11 +62,14 @@ export function CollectionImporter({ onImportCards, updatedLabel, label }: Colle
       const validatedNames: string[] = [];
       const validatedParsed: { name: string; quantity: number; card: typeof cardMap extends Map<string, infer V> ? V : never }[] = [];
 
-      for (const { name, quantity } of parsed) {
+      for (const { name, quantity, isCommander } of parsed) {
         const scryfallCard = cardMap.get(name);
         if (scryfallCard) {
           validatedNames.push(scryfallCard.name);
           validatedParsed.push({ name: scryfallCard.name, quantity, card: scryfallCard });
+          if (isCommander && onCommanderDetected) {
+            onCommanderDetected(scryfallCard);
+          }
         } else {
           notFound.push(name);
         }
@@ -72,7 +77,14 @@ export function CollectionImporter({ onImportCards, updatedLabel, label }: Colle
 
       if (onImportCards) {
         // Custom handler (e.g. adding to a list)
-        const counts = onImportCards(validatedNames);
+        // Expand quantities so "5x Forest" becomes 5 entries (for basic lands etc.)
+        const expandedNames: string[] = [];
+        for (const { name, quantity } of validatedParsed) {
+          for (let i = 0; i < quantity; i++) {
+            expandedNames.push(name);
+          }
+        }
+        const counts = onImportCards(expandedNames);
         setResult({ ...counts, updatedLabel, notFound });
       } else {
         // Default: import to collection DB

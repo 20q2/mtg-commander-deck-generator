@@ -338,17 +338,13 @@ export function OptimizePage() {
     if (!cmd || !optimizeList) return;
     const isRegeneration = currentDeck !== null;
 
-    // Get the deck cards (minus commander/partner and lands) to pass as optimization cards
-    // Lands are excluded so the generator's land system can respect the user's landCount setting
+    // Get the deck cards (minus commander/partner) to pass as optimization cards
+    // Lands are included so the user's original land base is preserved as must-includes;
+    // the generator will only fill remaining land slots with generated lands.
     const commanderNames = new Set<string>();
     commanderNames.add(cmd.name);
     if (partner) commanderNames.add(partner.name);
-    const allDeckCards = optimizeList.cards.filter(name => !commanderNames.has(name));
-    const cardMap = await getCardsByNames(allDeckCards);
-    const deckCards = allDeckCards.filter(name => {
-      const card = cardMap.get(name);
-      return card ? !getFrontFaceTypeLine(card).toLowerCase().includes('land') : true;
-    });
+    const deckCards = optimizeList.cards.filter(name => !commanderNames.has(name));
 
     setLoading(true, 'Starting deck optimization...');
     setProgress('Initializing...');
