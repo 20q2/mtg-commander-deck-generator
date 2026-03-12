@@ -2244,6 +2244,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   </button>
                   {showAddToDropdown && (() => {
                     const hasDeckTab = !!(onMoveToSideboard || onMoveToMaybeboard);
+                    const activeTab = hasDeckTab ? addToTab : 'lists';
                     const listsOnly = userLists.filter(l => l.type !== 'deck');
                     const filtered = listSearchQuery
                       ? listsOnly.filter(l => l.name.toLowerCase().includes(listSearchQuery.toLowerCase()))
@@ -2255,20 +2256,20 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           <div className="flex border-b border-border">
                             <button
                               onClick={() => { setAddToTab('deck'); setListSearchQuery(''); }}
-                              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${addToTab === 'deck' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === 'deck' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                               Deck
                             </button>
                             <button
                               onClick={() => { setAddToTab('lists'); setListSearchQuery(''); }}
-                              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${addToTab === 'lists' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === 'lists' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                               Lists
                             </button>
                           </div>
                         )}
                         {/* Deck tab */}
-                        {addToTab === 'deck' && hasDeckTab && (
+                        {activeTab === 'deck' && hasDeckTab && (
                           <div className="py-1">
                             {onMoveToSideboard && (
                               <button
@@ -2291,7 +2292,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           </div>
                         )}
                         {/* Lists tab */}
-                        {addToTab === 'lists' && (
+                        {activeTab === 'lists' && (
                           <>
                             {listsOnly.length >= 5 && (
                               <div className="px-2 pt-1 pb-1">

@@ -19,13 +19,14 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
   const [previewOwned, setPreviewOwned] = useState(false);
   const [hideOwned, setHideOwned] = useState(false);
 
-  const hasAnyOwned = useMemo(() => cards.some(c => c.isOwned), [cards]);
-
   const MAX_SUGGESTIONS = 15;
 
+  const topCards = useMemo(() => cards.slice(0, MAX_SUGGESTIONS), [cards]);
+  const hasAnyOwned = useMemo(() => topCards.some(c => c.isOwned), [topCards]);
+
   const visibleCards = useMemo(
-    () => hideOwned ? cards.filter(c => !c.isOwned).slice(0, MAX_SUGGESTIONS) : cards.slice(0, MAX_SUGGESTIONS),
-    [cards, hideOwned]
+    () => hideOwned ? cards.filter(c => !c.isOwned).slice(0, MAX_SUGGESTIONS) : topCards,
+    [cards, topCards, hideOwned]
   );
 
   if (cards.length === 0) return null;
@@ -55,20 +56,27 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
           ~${totalCost.toFixed(2)} to buy
         </span>
       </div>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-muted-foreground">
-          Top cards that would strengthen this deck.
-        </p>
+      <div className="mb-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            Top cards that would strengthen this deck.
+          </p>
+          {hasAnyOwned && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none shrink-0 ml-4">
+              <input
+                type="checkbox"
+                checked={hideOwned}
+                onChange={(e) => setHideOwned(e.target.checked)}
+                className="rounded border-border accent-purple-500"
+              />
+              Hide owned
+            </label>
+          )}
+        </div>
         {hasAnyOwned && (
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none shrink-0 ml-4">
-            <input
-              type="checkbox"
-              checked={hideOwned}
-              onChange={(e) => setHideOwned(e.target.checked)}
-              className="rounded border-border accent-purple-500"
-            />
-            Hide owned
-          </label>
+          <p className="text-xs text-muted-foreground mt-1">
+            Cards marked <PackageCheck className="w-3 h-3 text-emerald-500 inline align-text-top mx-0.5" /> are in your collection but weren&apos;t selected&mdash;your deck already uses the cards that best fit your commander, strategy, and customization settings. These are potential swaps.
+          </p>
         )}
       </div>
 
