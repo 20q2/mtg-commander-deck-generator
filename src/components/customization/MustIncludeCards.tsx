@@ -6,7 +6,7 @@ import { useStore } from '@/store';
 import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
-import { Search, Loader2, X, Trash2, Plus, ChevronRight, Ban } from 'lucide-react';
+import { Search, Loader2, X, Trash2, Plus, ChevronRight, Ban, ListPlus, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { UserListChips } from '@/components/lists/UserListChips';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -36,6 +36,42 @@ export function MustIncludeCards() {
   const appliedIncludeLists = customization.appliedIncludeLists || [];
   const { lists: allUserLists } = useUserLists();
   const userLists = useMemo(() => allUserLists.filter(l => l.type !== 'deck'), [allUserLists]);
+
+  const [showListPicker, setShowListPicker] = useState(false);
+  const [listPickerSearch, setListPickerSearch] = useState('');
+  const listPickerBtnRef = useRef<HTMLButtonElement>(null);
+  const listPickerDropdownRef = useRef<HTMLDivElement>(null);
+  const [listPickerPos, setListPickerPos] = useState<{ top: number; right: number } | null>(null);
+
+  const updateListPickerPos = useCallback(() => {
+    if (listPickerBtnRef.current) {
+      const rect = listPickerBtnRef.current.getBoundingClientRect();
+      setListPickerPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showListPicker) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        listPickerBtnRef.current?.contains(e.target as Node) ||
+        listPickerDropdownRef.current?.contains(e.target as Node)
+      ) return;
+      setShowListPicker(false);
+      setListPickerSearch('');
+    };
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [showListPicker]);
+
+  const handlePickerToggleUserList = (listId: string) => {
+    const existing = appliedIncludeLists.find(r => r.listId === listId);
+    if (existing) {
+      updateCustomization({ appliedIncludeLists: appliedIncludeLists.map(r => r.listId === listId ? { ...r, enabled: !r.enabled } : r) });
+    } else {
+      updateCustomization({ appliedIncludeLists: [...appliedIncludeLists, { listId, enabled: true }] });
+    }
+  };
 
   // Build a set of all cards on any stored ban list (for marking in search results)
   const banListCardNames = useMemo(() => {
@@ -188,20 +224,77 @@ export function MustIncludeCards() {
         )}
       </div>
 
-      {/* Search Input */}
-      <div className="relative" ref={searchWrapperRef}>
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          type="text"
-          placeholder="Search cards to include..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => { updateDropdownPos(); results.length > 0 && setShowResults(true); }}
-          className="pl-9 pr-9 h-9 text-sm rounded-lg"
-        />
-        {isSearching && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+      {/* Search Input + List Picker */}
+      <div className="flex gap-1.5">
+        <div className="relative flex-1" ref={searchWrapperRef}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search cards to include..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => { updateDropdownPos(); results.length > 0 && setShowResults(true); }}
+            className="pl-9 pr-9 h-9 text-sm rounded-lg"
+          />
+          {isSearching && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+          )}
+        </div>
+        {userLists.length > 0 && (
+          <button
+            ref={listPickerBtnRef}
+            onClick={() => { setShowListPicker(prev => { if (!prev) updateListPickerPos(); return !prev; }); setListPickerSearch(''); }}
+            className={`h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${showListPicker ? 'bg-accent border-border text-foreground' : 'border-border hover:bg-accent text-muted-foreground'}`}
+            title="Apply a list as must-includes"
+          >
+            <ListPlus className="w-4 h-4" />
+          </button>
         )}
+        {showListPicker && listPickerPos && createPortal(
+          (() => {
+            const filtered = listPickerSearch
+              ? userLists.filter(l => l.name.toLowerCase().includes(listPickerSearch.toLowerCase()))
+              : userLists;
+            return (
+              <div ref={listPickerDropdownRef} className="fixed w-64 bg-card border border-border rounded-lg shadow-2xl py-1 z-[999] max-h-72 flex flex-col" style={{ top: listPickerPos.top, right: listPickerPos.right }}>
+                {userLists.length >= 5 && (
+                  <div className="px-2 pt-1 pb-1">
+                    <input
+                      type="text"
+                      placeholder="Search lists..."
+                      value={listPickerSearch}
+                      onChange={e => setListPickerSearch(e.target.value)}
+                      className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
+                      autoFocus
+                      onClick={e => e.stopPropagation()}
+                    />
+                  </div>
+                )}
+                <div className="overflow-y-auto">
+                  {filtered.map(list => (
+                    <button
+                      key={list.id}
+                      onClick={() => handlePickerToggleUserList(list.id)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
+                    >
+                      <ListPlus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate flex-1">{list.name}</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">({list.cards.length})</span>
+                      {(appliedIncludeLists.find(r => r.listId === list.id)?.enabled ?? false) && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                    </button>
+                  ))}
+                  {filtered.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">No matching lists</p>
+                  )}
+                </div>
+              </div>
+            );
+          })(),
+          document.body
+        )}
+      </div>
+      <div className="relative">
+        {/* Anchor for search results portal */}
 
         {/* Search Results Dropdown — rendered via portal to escape overflow-hidden */}
         {showResults && results.length > 0 && dropdownPos && createPortal(
@@ -297,18 +390,15 @@ export function MustIncludeCards() {
                 {!isCollapsed && (
                   <div className="flex flex-wrap gap-1 ml-4">
                     {cards.map((cardName) => (
-                      <span
+                      <button
                         key={cardName}
-                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] rounded border border-emerald-500/20"
+                        onClick={() => handleRemoveCard(cardName)}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] rounded border border-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-500/40 transition-colors cursor-pointer"
+                        title={`Remove "${cardName}" from must-includes`}
                       >
                         <span className="truncate max-w-[150px]">{cardName}</span>
-                        <button
-                          onClick={() => handleRemoveCard(cardName)}
-                          className="hover:bg-emerald-500/20 rounded p-0.5 transition-colors"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
+                        <X className="w-3 h-3 opacity-60" />
+                      </button>
                     ))}
                   </div>
                 )}

@@ -21,13 +21,15 @@ interface CollectionImporterProps {
   onImportCards?: (validatedNames: string[]) => { added: number; updated: number };
   /** Called when a *CMDR* marker is detected during import, with the validated Scryfall card */
   onCommanderDetected?: (card: import('@/types').ScryfallCard) => void;
+  /** Called when deck metadata (name, etc.) is detected during import (e.g. MTGGoldfish format) */
+  onMetaDetected?: (meta: { deckName?: string }) => void;
   /** Label for the "updated" count (default: "cards updated") */
   updatedLabel?: string;
   /** Header label (default: "Import Collection") */
   label?: string;
 }
 
-export function CollectionImporter({ onImportCards, onCommanderDetected, updatedLabel, label }: CollectionImporterProps = {}) {
+export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label }: CollectionImporterProps = {}) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState('');
@@ -42,11 +44,16 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, updated
 
     try {
       // Parse the input
-      const parsed = parseCollectionList(text);
+      const { cards: parsed, meta } = parseCollectionList(text);
       if (parsed.length === 0) {
         setProgress('No cards found in input.');
         setIsImporting(false);
         return;
+      }
+
+      // Auto-fill metadata (deck name, etc.) immediately while validation runs
+      if (meta && onMetaDetected) {
+        onMetaDetected(meta);
       }
 
       setProgress(`Parsed ${parsed.length} cards. Validating with Scryfall...`);
@@ -171,7 +178,7 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, updated
           value={importText}
           onChange={(e) => setImportText(e.target.value)}
           disabled={isImporting}
-          placeholder={"1 Sol Ring\n4 Lightning Bolt\n1 Rhystic Study\n...\n\nAlso supports CSV and MTGA exports"}
+          placeholder={"1 Sol Ring\n4 Lightning Bolt\n1 Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports"}
           className="w-full h-36 px-3 py-2 text-sm bg-background border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
         />
 

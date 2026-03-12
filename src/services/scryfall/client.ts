@@ -24,7 +24,7 @@ export function parseSetFromQuery(scryfallQuery: string): string | undefined {
 
 /** Return a shallow copy with deck-generation flags stripped so cached objects stay clean. */
 function freshCopy(card: ScryfallCard): ScryfallCard {
-  const { isMustInclude, isGameChanger, deckRole, ...clean } = card;
+  const { isMustInclude, isGameChanger, deckRole, isMdfcLand: _mdfc, ...clean } = card;
   return clean;
 }
 
@@ -668,6 +668,21 @@ export function getFrontFaceTypeLine(card: ScryfallCard): string {
 export function isDoubleFacedCard(card: ScryfallCard): boolean {
   return !card.image_uris && !!card.card_faces && card.card_faces.length >= 2
     && !!card.card_faces[0]?.image_uris && !!card.card_faces[1]?.image_uris;
+}
+
+// Check if a card is a Modal Double-Faced Card with a land on the back face.
+// Spell/land MDFCs like "Jwari Disruption // Jwari Ruins" (Instant // Land) can be
+// played as either face from hand — they're effectively spells that double as lands.
+// Excludes: pathway lands (Land // Land), transform DFCs, split cards.
+export function isMdfcLand(card: ScryfallCard): boolean {
+  if (!card.card_faces || card.card_faces.length < 2) return false;
+  // Primary check: use layout field from Scryfall API
+  if (card.layout && card.layout !== 'modal_dfc') return false;
+  // Fallback for missing layout: require combined type_line pattern
+  if (!card.layout && !card.type_line?.includes(' // ')) return false;
+  const frontType = card.card_faces[0].type_line?.toLowerCase() ?? '';
+  const backType = card.card_faces[1].type_line?.toLowerCase() ?? '';
+  return !frontType.includes('land') && backType.includes('land');
 }
 
 // Get back face image URL for a double-faced card

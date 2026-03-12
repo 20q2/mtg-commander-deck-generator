@@ -4,6 +4,13 @@ export interface ParsedCard {
   isCommander?: boolean;
 }
 
+export interface ParsedCollectionResult {
+  cards: ParsedCard[];
+  meta?: {
+    deckName?: string;
+  };
+}
+
 /**
  * Parse a collection list from text input.
  * Supports:
@@ -14,15 +21,20 @@ export interface ParsedCard {
  * - Comma-separated: "Sol Ring, Mana Crypt"
  * - Comments: lines starting with // or #
  */
-export function parseCollectionList(input: string): ParsedCard[] {
+export function parseCollectionList(input: string): ParsedCollectionResult {
   const trimmed = input.trim();
-  if (!trimmed) return [];
+  if (!trimmed) return { cards: [] };
 
   // Detect CSV with headers (first line contains "name" column)
   const lines = trimmed.split('\n');
   const firstLine = lines[0].toLowerCase();
   if (firstLine.includes(',') && (firstLine.includes('name') || firstLine.includes('card'))) {
-    return parseCSV(lines);
+    return { cards: parseCSV(lines) };
+  }
+
+  // Detect MTGGoldfish / section-based format (has "Commander" + "Deck" headers)
+  if (isGoldfishSectionFormat(lines)) {
+    return parseGoldfishSections(lines);
   }
 
   // Standard text parsing
@@ -89,7 +101,76 @@ export function parseCollectionList(input: string): ParsedCard[] {
     }
   }
 
-  return result;
+  return { cards: result };
+}
+
+function isGoldfishSectionFormat(lines: string[]): boolean {
+  let hasCommander = false;
+  let hasDeck = false;
+  for (const line of lines) {
+    const t = line.trim().toLowerCase();
+    if (t === 'commander') hasCommander = true;
+    if (t === 'deck') hasDeck = true;
+    if (hasCommander && hasDeck) return true;
+  }
+  return false;
+}
+
+function parseGoldfishSections(lines: string[]): ParsedCollectionResult {
+  let deckName: string | undefined;
+  let currentSection: string | null = null;
+  const cards: ParsedCard[] = [];
+  const seen = new Set<string>();
+  const sectionHeaders = new Set(['about', 'commander', 'deck', 'sideboard', 'maybeboard']);
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const lower = line.toLowerCase();
+
+    // Check for section header
+    if (sectionHeaders.has(lower)) {
+      currentSection = lower;
+      continue;
+    }
+
+    // Extract deck name from "Name ..." in about section
+    if (currentSection === 'about' && lower.startsWith('name ')) {
+      deckName = line.slice(5).trim();
+      continue;
+    }
+
+    // Skip other about section lines or lines before any section
+    if (currentSection === 'about' || !currentSection) continue;
+
+    const isCommander = currentSection === 'commander';
+
+    // Parse quantity + card name
+    const match = line.match(/^(\d+)x?\s+(.+)/i);
+    let quantity = 1;
+    let cardName: string;
+
+    if (match) {
+      quantity = parseInt(match[1], 10) || 1;
+      cardName = match[2];
+    } else {
+      cardName = line;
+    }
+
+    // Strip set/collector suffix
+    cardName = cardName.replace(/\s*\([A-Z0-9]+\)\s*\d*\s*$/, '').trim();
+
+    if (cardName && !seen.has(cardName.toLowerCase())) {
+      seen.add(cardName.toLowerCase());
+      cards.push({ name: cardName, quantity, ...(isCommander && { isCommander: true }) });
+    }
+  }
+
+  return {
+    cards,
+    ...(deckName && { meta: { deckName } }),
+  };
 }
 
 function parseCSV(lines: string[]): ParsedCard[] {

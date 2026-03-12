@@ -191,6 +191,61 @@ export function ListsPage() {
           list={list}
           onBack={() => navigate(list.type === 'deck' ? '/lists' : `/lists/${list.id}`)}
           onViewAsList={() => navigate(`/lists/${list.id}`)}
+          onEdit={() => navigate(`/lists/${list.id}/edit`)}
+          onDuplicate={() => { duplicateList(list.id); navigate('/lists'); }}
+          onRemoveCards={(names) => {
+            const updated = list.cards.filter(c => !names.includes(c));
+            updateList(list.id, { cards: updated });
+          }}
+          onAddCards={(names, destination) => {
+            if (destination === 'deck') {
+              const existing = new Set(list.cards);
+              updateList(list.id, { cards: [...list.cards, ...names.filter(n => !existing.has(n))] });
+            } else if (destination === 'sideboard') {
+              const existing = new Set(list.sideboard || []);
+              updateList(list.id, { sideboard: [...(list.sideboard || []), ...names.filter(n => !existing.has(n))] });
+            } else {
+              const existing = new Set(list.maybeboard || []);
+              updateList(list.id, { maybeboard: [...(list.maybeboard || []), ...names.filter(n => !existing.has(n))] });
+            }
+          }}
+          onMoveToSideboard={(names) => {
+            const updatedCards = list.cards.filter(c => !names.includes(c));
+            const existingSb = new Set(list.sideboard || []);
+            updateList(list.id, { cards: updatedCards, sideboard: [...(list.sideboard || []), ...names.filter(n => !existingSb.has(n))] });
+          }}
+          onMoveToMaybeboard={(names) => {
+            const updatedCards = list.cards.filter(c => !names.includes(c));
+            const existingMb = new Set(list.maybeboard || []);
+            updateList(list.id, { cards: updatedCards, maybeboard: [...(list.maybeboard || []), ...names.filter(n => !existingMb.has(n))] });
+          }}
+          onMoveToDeck={(names, source) => {
+            const existing = new Set(list.cards);
+            const newCards = [...list.cards, ...names.filter(n => !existing.has(n))];
+            if (source === 'sideboard') {
+              updateList(list.id, { cards: newCards, sideboard: (list.sideboard || []).filter(c => !names.includes(c)) });
+            } else {
+              updateList(list.id, { cards: newCards, maybeboard: (list.maybeboard || []).filter(c => !names.includes(c)) });
+            }
+          }}
+          onRemoveFromBoard={(name, source) => {
+            if (source === 'sideboard') {
+              updateList(list.id, { sideboard: (list.sideboard || []).filter(c => c !== name) });
+            } else {
+              updateList(list.id, { maybeboard: (list.maybeboard || []).filter(c => c !== name) });
+            }
+          }}
+          onMoveBetweenBoards={(name, from) => {
+            if (from === 'sideboard') {
+              const newSb = (list.sideboard || []).filter(c => c !== name);
+              const existingMb = new Set(list.maybeboard || []);
+              updateList(list.id, { sideboard: newSb, maybeboard: existingMb.has(name) ? [...(list.maybeboard || [])] : [...(list.maybeboard || []), name] });
+            } else {
+              const newMb = (list.maybeboard || []).filter(c => c !== name);
+              const existingSb = new Set(list.sideboard || []);
+              updateList(list.id, { maybeboard: newMb, sideboard: existingSb.has(name) ? [...(list.sideboard || [])] : [...(list.sideboard || []), name] });
+            }
+          }}
         />
       </main>
     );

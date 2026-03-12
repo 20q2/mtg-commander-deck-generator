@@ -26,6 +26,9 @@ import {
   Pencil,
   ChevronDown,
   ChevronRight,
+  Ban,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { PieChart } from '@/components/ui/pie-chart';
@@ -1092,6 +1095,9 @@ export function RemovedCardsDialog({ removedCards, onClose }: { removedCards: st
 
 type GroupedCards = Record<CardType, Array<{ card: ScryfallCard; quantity: number }>>;
 
+// Persist the last-used "Add to" tab across open/close
+let lastAddToTab: 'lists' | 'deck' = 'deck';
+
 // Main component
 interface DeckDisplayProps {
   onRegenerate?: () => void;
@@ -1103,13 +1109,24 @@ interface DeckDisplayProps {
   regenerateProgress?: number;
   /** Progress message during regeneration */
   regenerateMessage?: string;
+  /** Callback to remove cards from a saved list (used in list deck view) */
+  onRemoveCards?: (cardNames: string[]) => void;
+  /** Callbacks to move cards to sideboard/maybeboard (used in list deck view) */
+  onMoveToSideboard?: (cardNames: string[]) => void;
+  onMoveToMaybeboard?: (cardNames: string[]) => void;
+  /** Slot rendered in toolbar next to Edit Deck button (e.g. add-card search) */
+  toolbarExtra?: React.ReactNode;
+  /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
+  boardCounts?: { sideboard: number; maybeboard: number };
+  /** Content rendered inside the deck card (e.g. boards) */
+  deckFooter?: React.ReactNode;
   children?: React.ReactNode;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
-  const { createList } = useUserLists();
+  const { lists: userLists, createList, updateList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
@@ -1125,11 +1142,30 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const tempBannedRef = useRef(customization.tempBannedCards || []);
   tempBannedRef.current = customization.tempBannedCards || [];
   const [showRoles, setShowRoles] = useState(() => localStorage.getItem('deckRolesOpen') === 'true');
+  const [showCollectionChecks, setShowCollectionChecks] = useState(
+    () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
+  );
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const [showAddToDropdown, setShowAddToDropdown] = useState(false);
+  const [addToTab, setAddToTabRaw] = useState<'lists' | 'deck'>(lastAddToTab);
+  const setAddToTab = useCallback((tab: 'lists' | 'deck') => { lastAddToTab = tab; setAddToTabRaw(tab); }, []);
+  const [listSearchQuery, setListSearchQuery] = useState('');
+  const addToDropdownRef = useRef<HTMLDivElement>(null);
   const lastSelectedIdRef = useRef<string | null>(null);
   const flatCardOrderRef = useRef<string[]>([]);
+
+  // Listen for preference changes from the gear menu
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && typeof detail.showCollectionChecks === 'boolean')
+        setShowCollectionChecks(detail.showCollectionChecks);
+    };
+    window.addEventListener('prefs-changed', handler);
+    return () => window.removeEventListener('prefs-changed', handler);
+  }, []);
 
   // Load collection names for "owned" indicators
   useEffect(() => {
@@ -1191,12 +1227,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return () => clearTimeout(timer);
   }, [showSavedToast]);
 
-  // Clear state when deck changes
+  // Clear state when a completely different deck is loaded (not incremental updates)
+  const deckIdentity = generatedDeck?.commander?.name ?? null;
+  const prevDeckIdentityRef = useRef(deckIdentity);
   useEffect(() => {
-    setRemovedCards(new Set());
-    setIsEditMode(false);
-    setSelectedCards(new Set());
-  }, [generatedDeck]);
+    if (prevDeckIdentityRef.current !== deckIdentity) {
+      prevDeckIdentityRef.current = deckIdentity;
+      setRemovedCards(new Set());
+      setIsEditMode(false);
+      setSelectedCards(new Set());
+    }
+  }, [deckIdentity]);
 
   const handleToggleRoles = useCallback(() => {
     setShowRoles(prev => {
@@ -1438,15 +1479,137 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     handleRegenerate();
   }, [selectedCards, groupedCards, updateCustomization, handleExitEditMode, handleRegenerate]);
 
+  const handleBanSelected = useCallback(() => {
+    const allCards = Object.values(groupedCards).flat();
+    const namesToBan: string[] = [];
+    const idsToMark = new Set<string>();
+
+    for (const { card } of allCards) {
+      if (selectedCards.has(card.id)) {
+        namesToBan.push(card.name);
+        idsToMark.add(card.id);
+      }
+    }
+
+    if (namesToBan.length === 0) return;
+
+    // Add to persistent ban list (not temp)
+    const currentBanned = [...customization.bannedCards];
+    for (const name of namesToBan) {
+      if (!currentBanned.includes(name)) {
+        currentBanned.push(name);
+      }
+    }
+    // Also remove from must-include lists
+    const banSet = new Set(namesToBan);
+    const currentTempIncludes = customization.tempMustIncludeCards ?? [];
+    const filteredTempIncludes = currentTempIncludes.filter(n => !banSet.has(n));
+    const currentMustIncludes = customization.mustIncludeCards;
+    const filteredMustIncludes = currentMustIncludes.filter(n => !banSet.has(n));
+    updateCustomization({
+      bannedCards: currentBanned,
+      ...(filteredTempIncludes.length !== currentTempIncludes.length ? { tempMustIncludeCards: filteredTempIncludes } : {}),
+      ...(filteredMustIncludes.length !== currentMustIncludes.length ? { mustIncludeCards: filteredMustIncludes } : {}),
+    });
+    trackEvent('cards_removed', { commanderName: commander?.name ?? 'unknown', cardCount: namesToBan.length });
+
+    setRemovedCards(prev => {
+      const next = new Set(prev);
+      for (const id of idsToMark) next.add(id);
+      return next;
+    });
+
+    setToastMessage(`Banned ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''} — regenerating...`);
+    handleExitEditMode();
+    handleRegenerate();
+  }, [selectedCards, groupedCards, customization, updateCustomization, handleExitEditMode, handleRegenerate, commander]);
+
+  const getSelectedCardNames = useCallback((): string[] => {
+    const allCards = Object.values(groupedCards).flat();
+    const names: string[] = [];
+    for (const { card } of allCards) {
+      if (selectedCards.has(card.id) && !names.includes(card.name)) {
+        names.push(card.name);
+      }
+    }
+    return names;
+  }, [selectedCards, groupedCards]);
+
+  const handleRemoveFromList = useCallback(() => {
+    if (!onRemoveCards) return;
+    const names = getSelectedCardNames();
+    if (names.length === 0) return;
+    onRemoveCards(names);
+    setSelectedCards(new Set());
+  }, [onRemoveCards, getSelectedCardNames]);
+
+  const handleMoveToSideboard = useCallback(() => {
+    if (!onMoveToSideboard) return;
+    const names = getSelectedCardNames();
+    if (names.length === 0) return;
+    onMoveToSideboard(names);
+    setSelectedCards(new Set());
+    setShowAddToDropdown(false);
+  }, [onMoveToSideboard, getSelectedCardNames]);
+
+  const handleMoveToMaybeboard = useCallback(() => {
+    if (!onMoveToMaybeboard) return;
+    const names = getSelectedCardNames();
+    if (names.length === 0) return;
+    onMoveToMaybeboard(names);
+    setSelectedCards(new Set());
+    setShowAddToDropdown(false);
+  }, [onMoveToMaybeboard, getSelectedCardNames]);
+
+  const handleAddToExistingList = useCallback((listId: string) => {
+    const names = getSelectedCardNames();
+    if (names.length === 0) return;
+    const list = userLists.find(l => l.id === listId);
+    if (!list) return;
+    const existing = new Set(list.cards);
+    const newCards = [...list.cards, ...names.filter(n => !existing.has(n))];
+    updateList(listId, { cards: newCards });
+    setToastMessage(`Added ${names.length} card${names.length !== 1 ? 's' : ''} to "${list.name}"`);
+    setShowAddToDropdown(false);
+    setListSearchQuery('');
+    setSelectedCards(new Set());
+  }, [getSelectedCardNames, userLists, updateList]);
+
+  const handleAddToNewList = useCallback(() => {
+    const names = getSelectedCardNames();
+    if (names.length === 0) return;
+    createList(`Selected Cards`, names);
+    setToastMessage(`Created new list with ${names.length} card${names.length !== 1 ? 's' : ''}`);
+    setShowAddToDropdown(false);
+    setListSearchQuery('');
+    setSelectedCards(new Set());
+  }, [getSelectedCardNames, createList]);
+
+  // Close add-to dropdown on outside click
+  useEffect(() => {
+    if (!showAddToDropdown) return;
+    const handleClick = (e: MouseEvent) => {
+      if (addToDropdownRef.current && !addToDropdownRef.current.contains(e.target as Node)) {
+        setShowAddToDropdown(false);
+        setListSearchQuery('');
+      }
+    };
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [showAddToDropdown]);
+
   // Escape key to exit edit mode
   useEffect(() => {
     if (!isEditMode) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleExitEditMode();
+      if (e.key === 'Escape') {
+        if (showAddToDropdown) setShowAddToDropdown(false);
+        else handleExitEditMode();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditMode, handleExitEditMode]);
+  }, [isEditMode, handleExitEditMode, showAddToDropdown]);
 
   // Build map of card name -> complete combos that include it
   const cardComboMap = useMemo(() => {
@@ -1604,8 +1767,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     <>
       <div className="animate-slide-up">
         {/* Header */}
-        <div className={`flex items-center justify-between mb-4 flex-wrap gap-4 ${searchQuery ? 'sticky top-[73px] z-30 bg-background/95 backdrop-blur-sm py-3 -mx-1 px-1 border-b border-border/30' : ''}`}>
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className={`flex items-center justify-between mb-4 flex-wrap gap-3 ${searchQuery ? 'sticky top-[73px] z-30 bg-background/95 backdrop-blur-sm py-3 -mx-1 px-1 border-b border-border/30' : ''}`}>
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             {/* Sort */}
             <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
@@ -1665,20 +1828,32 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </div>
 
             {/* Edit Deck */}
-            {!readOnly && !isEditMode && onRegenerate && (
+            {!readOnly && !isEditMode && (
               <button
                 onClick={() => setIsEditMode(true)}
                 className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                title="Edit Deck"
               >
                 <Pencil className="w-3.5 h-3.5" />
-                Edit Deck
+                <span className="hidden sm:inline">Edit Deck</span>
               </button>
             )}
+            {/* Toolbar extra (e.g. add-card search) — only in edit mode */}
+            {!readOnly && isEditMode && toolbarExtra}
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             <div className="text-sm text-muted-foreground">
               {totalCards} cards · {sym}{totalPrice.toFixed(2)}
+              {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
+                <span className="text-xs">
+                  {' · '}
+                  {[
+                    boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
+                    boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              )}
               {generatedDeck.builtFromCollection && (
                 <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                   <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
@@ -1790,7 +1965,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     selectedCards={selectedCards}
                     onToggleSelect={handleToggleCardSelection}
                     onToggleCategory={handleToggleCategory}
-                    collectionNames={showOwnedIndicators ? collectionNames : null}
+                    collectionNames={showOwnedIndicators && showCollectionChecks ? collectionNames : null}
                   />
                 ))}
               </div>
@@ -1810,18 +1985,36 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                         <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
                       </div>
                       <div ref={gridAnimateRef} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                        {visibleCards.map(({ card, quantity }) => (
+                        {visibleCards.map(({ card, quantity }) => {
+                          const isCommanderType = type === 'Commander';
+                          const canSelect = isEditMode && !readOnly && !isCommanderType;
+                          const isSelected = selectedCards.has(card.id);
+                          return (
                             <button
                               key={card.id}
-                              onClick={() => setPreviewCard(card)}
-                              className="relative group"
+                              onClick={(e) => {
+                                if (canSelect) {
+                                  handleToggleCardSelection(card, e.shiftKey);
+                                } else {
+                                  setPreviewCard(card);
+                                }
+                              }}
+                              className={`relative group ${canSelect ? 'cursor-pointer' : ''} ${isSelected ? 'ring-2 ring-primary rounded' : ''} ${canSelect && isCommanderType ? 'opacity-60' : ''}`}
                             >
                               <img
                                 src={getCardImageUrl(card, 'small')}
                                 alt={card.name}
-                                className="w-full rounded transition-transform group-hover:scale-105"
+                                className={`w-full rounded transition-transform ${canSelect ? '' : 'group-hover:scale-105'} ${isSelected ? 'brightness-75' : ''}`}
                                 loading="lazy"
                               />
+                              {/* Selection checkbox overlay */}
+                              {canSelect && (
+                                <span className={`absolute top-1 left-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                  isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-white/70 bg-black/30'
+                                }`}>
+                                  {isSelected && <Check className="w-3 h-3" />}
+                                </span>
+                              )}
                               {quantity > 1 && (
                                 <span className="absolute top-1 right-1 bg-black/80 text-white text-xs px-1.5 rounded">
                                   {quantity}x
@@ -1907,16 +2100,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                 );
                               })()}
                             </button>
-                          ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
+          {deckFooter}
           </div>
 
-          {/* Below-deck content (combos, test hand) — same column as deck list */}
+          {/* Below-deck content (combos, etc.) */}
           {children}
           </div>
 
@@ -1994,27 +2189,159 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       {isEditMode && createPortal(
         <div className="fixed bottom-0 left-0 right-0 z-40 animate-slide-up">
           <div className="max-w-4xl mx-auto px-4 pb-4">
-            <div className="flex items-center justify-between gap-4 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-5 py-3">
-              <span className="text-sm font-medium">
+            <div className="flex items-center justify-between gap-2 sm:gap-4 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-3 sm:px-5 py-3">
+              <span className="text-xs sm:text-sm font-medium shrink-0">
                 {selectedCards.size > 0 ? (
-                  <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''} selected</>
+                  <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''}<span className="hidden sm:inline"> selected</span></>
                 ) : (
-                  <span className="text-muted-foreground">Click cards to select them for replacement</span>
+                  <span className="text-muted-foreground">Select cards</span>
                 )}
               </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleReplaceSelected}
-                  disabled={selectedCards.size === 0}
-                  size="sm"
-                  className="bg-red-600 hover:bg-red-500 text-white disabled:opacity-40"
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {onRemoveCards && (
+                  <button
+                    onClick={handleRemoveFromList}
+                    disabled={selectedCards.size === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                    title="Remove"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Remove</span>
+                  </button>
+                )}
+                {onRegenerate && (
+                  <>
+                    <button
+                      onClick={handleBanSelected}
+                      disabled={selectedCards.size === 0}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      title="Quick Ban"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Quick Ban</span>
+                    </button>
+                    <button
+                      onClick={handleReplaceSelected}
+                      disabled={selectedCards.size === 0}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                      title="Replace"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Replace</span>
+                    </button>
+                  </>
+                )}
+                <div className="relative" ref={addToDropdownRef}>
+                  <button
+                    onClick={() => setShowAddToDropdown(prev => !prev)}
+                    disabled={selectedCards.size === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                    title="Add to"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Add to</span>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {showAddToDropdown && (() => {
+                    const hasDeckTab = !!(onMoveToSideboard || onMoveToMaybeboard);
+                    const listsOnly = userLists.filter(l => l.type !== 'deck');
+                    const filtered = listSearchQuery
+                      ? listsOnly.filter(l => l.name.toLowerCase().includes(listSearchQuery.toLowerCase()))
+                      : listsOnly;
+                    return (
+                      <div className="absolute bottom-full mb-1 right-0 w-60 bg-card border border-border rounded-lg shadow-2xl z-50 max-h-80 flex flex-col">
+                        {/* Tabs */}
+                        {hasDeckTab && (
+                          <div className="flex border-b border-border">
+                            <button
+                              onClick={() => { setAddToTab('deck'); setListSearchQuery(''); }}
+                              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${addToTab === 'deck' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                              Deck
+                            </button>
+                            <button
+                              onClick={() => { setAddToTab('lists'); setListSearchQuery(''); }}
+                              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${addToTab === 'lists' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                              Lists
+                            </button>
+                          </div>
+                        )}
+                        {/* Deck tab */}
+                        {addToTab === 'deck' && hasDeckTab && (
+                          <div className="py-1">
+                            {onMoveToSideboard && (
+                              <button
+                                onClick={handleMoveToSideboard}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
+                              >
+                                <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Sideboard</span>
+                              </button>
+                            )}
+                            {onMoveToMaybeboard && (
+                              <button
+                                onClick={handleMoveToMaybeboard}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
+                              >
+                                <Bookmark className="w-3.5 h-3.5 text-purple-400" />
+                                <span>Maybeboard</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {/* Lists tab */}
+                        {addToTab === 'lists' && (
+                          <>
+                            {listsOnly.length >= 5 && (
+                              <div className="px-2 pt-1 pb-1">
+                                <input
+                                  type="text"
+                                  placeholder="Search lists..."
+                                  value={listSearchQuery}
+                                  onChange={e => setListSearchQuery(e.target.value)}
+                                  className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
+                                  autoFocus
+                                  onClick={e => e.stopPropagation()}
+                                />
+                              </div>
+                            )}
+                            <div className="overflow-y-auto py-1">
+                              <button
+                                onClick={handleAddToNewList}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 text-primary"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                New list
+                              </button>
+                              {filtered.length > 0 && <div className="border-t border-border my-1" />}
+                              {filtered.map(list => (
+                                <button
+                                  key={list.id}
+                                  onClick={() => handleAddToExistingList(list.id)}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent truncate"
+                                  title={`${list.name} (${list.cards.length} cards)`}
+                                >
+                                  {list.name}
+                                  <span className="text-muted-foreground ml-1">({list.cards.length})</span>
+                                </button>
+                              ))}
+                              {listSearchQuery && filtered.length === 0 && (
+                                <p className="px-3 py-2 text-xs text-muted-foreground">No matching lists</p>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <button
+                  onClick={handleExitEditMode}
+                  className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                  Replace Selected
-                </Button>
-                <Button onClick={handleExitEditMode} variant="ghost" size="sm">
                   Cancel
-                </Button>
+                </button>
               </div>
             </div>
           </div>

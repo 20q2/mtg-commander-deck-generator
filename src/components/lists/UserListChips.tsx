@@ -1,17 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
-import { getBanList } from '@/services/scryfall/client';
-import type { BanList } from '@/types';
-import { ChevronRight, List, X, Shield, Loader2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { List, X, Shield } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
 interface UserListChipsProps {
   mode: 'exclude' | 'include';
 }
-
-const STORAGE_KEY_PREFIX = 'mtg-user-lists-collapsed-';
 
 export interface PresetBanList {
   id: string;
@@ -29,27 +24,9 @@ export const PRESET_BAN_LISTS: PresetBanList[] = [
 const ALWAYS_ACTIVE_ID = 'rc-banlist';
 
 export function UserListChips({ mode }: UserListChipsProps) {
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY_PREFIX + mode);
-      return stored !== null ? stored === 'true' : true;
-    } catch {
-      return true;
-    }
-  });
-
-  const toggleCollapsed = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    try { localStorage.setItem(STORAGE_KEY_PREFIX + mode, String(next)); } catch {}
-  };
-
-  const [loadingPresets, setLoadingPresets] = useState<Set<string>>(new Set());
-
   const { lists: allLists } = useUserLists();
   const lists = useMemo(() => allLists.filter(l => l.type !== 'deck'), [allLists]);
   const { customization, updateCustomization } = useStore();
-  const navigate = useNavigate();
 
   const appliedLists = mode === 'exclude'
     ? customization.appliedExcludeLists || []
@@ -88,42 +65,11 @@ export function UserListChips({ mode }: UserListChipsProps) {
 
   // --- Ban list handlers (exclude mode only) ---
 
-  const handleTogglePreset = async (preset: PresetBanList) => {
-    const existing = banLists.find(l => l.id === preset.id);
-
-    if (existing && existing.cards.length > 0) {
-      const updated = banLists.map(l =>
-        l.id === preset.id ? { ...l, enabled: !l.enabled } : l
-      );
-      updateCustomization({ banLists: updated });
-      return;
-    }
-
-    setLoadingPresets(prev => new Set(prev).add(preset.id));
-    try {
-      const cards = await getBanList(preset.scryfallFormat);
-      const newList: BanList = {
-        id: preset.id,
-        name: preset.name,
-        cards,
-        isPreset: true,
-        enabled: true,
-      };
-      if (existing) {
-        const updated = banLists.map(l => l.id === preset.id ? newList : l);
-        updateCustomization({ banLists: updated });
-      } else {
-        updateCustomization({ banLists: [...banLists, newList] });
-      }
-    } catch (err) {
-      console.error(`Failed to fetch ${preset.name} ban list:`, err);
-    } finally {
-      setLoadingPresets(prev => {
-        const next = new Set(prev);
-        next.delete(preset.id);
-        return next;
-      });
-    }
+  const handleTogglePreset = (preset: PresetBanList) => {
+    const updated = banLists.map(l =>
+      l.id === preset.id ? { ...l, enabled: !l.enabled } : l
+    );
+    updateCustomization({ banLists: updated });
   };
 
   const handleToggleBanList = (listId: string) => {
@@ -147,139 +93,104 @@ export function UserListChips({ mode }: UserListChipsProps) {
 
   // --- Active count ---
 
-  const userListActiveCount = appliedLists.filter(r => r.enabled && lists.some(l => l.id === r.listId)).length;
-  const banListActiveCount = mode === 'exclude'
-    ? banLists.filter(l => l.enabled && l.id !== ALWAYS_ACTIVE_ID).length
-    : 0;
-  const activeCount = userListActiveCount + banListActiveCount;
-
   const enabledColor = mode === 'exclude'
     ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
     : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
 
+  // Collect only active items
+  const activePresets = mode === 'exclude'
+    ? PRESET_BAN_LISTS.filter(p => {
+        if (p.id === ALWAYS_ACTIVE_ID) return false; // Commander Bans now shown in dropdown only
+        const existing = banLists.find(l => l.id === p.id);
+        return existing?.enabled ?? false;
+      })
+    : [];
+  const activeCustomBans = mode === 'exclude'
+    ? banLists.filter(l => l.enabled && !presetIds.has(l.id))
+    : [];
+  const activeUserLists = lists.filter(l => {
+    const applied = appliedLists.find(r => r.listId === l.id);
+    return applied?.enabled ?? false;
+  });
+
+  const hasActiveItems = activePresets.length > 0 || activeCustomBans.length > 0 || activeUserLists.length > 0;
+
+  if (!hasActiveItems) return null;
+
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center">
-        <button
-          onClick={toggleCollapsed}
-          className="flex items-center gap-1 group cursor-pointer select-none"
-        >
-          <ChevronRight className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsed ? '' : 'rotate-90'}`} />
-          <span className="text-[11px] text-muted-foreground font-medium group-hover:text-foreground transition-colors">Saved Lists</span>
-          {activeCount > 0 && (
-            <span className="text-[10px] text-muted-foreground/60">
-              ({activeCount} active)
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => navigate('/lists')}
-          className="ml-auto text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
-          title="Manage lists"
-        >
-          Manage Lists
-        </button>
-      </div>
-
-      {!collapsed && (
-        <div className="flex flex-wrap gap-1.5">
-          {/* Ban list chips (exclude mode only) */}
-          {mode === 'exclude' && (
-            <>
-              {/* Preset ban lists */}
-              {PRESET_BAN_LISTS.map(preset => {
-                const isAlwaysActive = preset.id === ALWAYS_ACTIVE_ID;
-                const existing = banLists.find(l => l.id === preset.id);
-                const enabled = existing?.enabled ?? false;
-                const loading = loadingPresets.has(preset.id);
-
-                if (isAlwaysActive) {
-                  return (
-                    <span
-                      key={preset.id}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 cursor-help"
-                      title="Always in effect — EDHRec data already excludes commander-banned cards"
-                    >
-                      <Shield className="w-3 h-3" />
-                      <span>{preset.name}</span>
-                      <span className="text-[10px] opacity-60">Always active</span>
-                    </span>
-                  );
-                }
-
-                return (
-                  <button
-                    key={preset.id}
-                    onClick={() => handleTogglePreset(preset)}
-                    disabled={loading}
-                    className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border transition-colors ${
-                      enabled
-                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                        : 'bg-muted/30 text-muted-foreground border-border/50 hover:border-border'
-                    }`}
-                  >
-                    {loading ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Shield className="w-3 h-3" />
-                    )}
-                    <span>{preset.name}</span>
-                    {existing && (
-                      <span className="text-[10px] opacity-60">({existing.cards.length})</span>
-                    )}
-                  </button>
-                );
-              })}
-
-              {/* Custom ban lists */}
-              {banLists.filter(l => !presetIds.has(l.id)).map(list => (
-                <div key={list.id} className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border transition-colors ${
-                  list.enabled
-                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
-                    : 'bg-muted/30 text-muted-foreground border-border/50'
-                }`}>
-                  <button
-                    onClick={() => handleToggleBanList(list.id)}
-                    className="inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
-                    title={list.enabled ? 'Click to disable' : 'Click to enable'}
-                  >
-                    <List className="w-3 h-3" />
-                    <span>{list.name}</span>
-                    <span className="text-[10px] opacity-60">({list.cards.length})</span>
-                  </button>
-                  <button
-                    onClick={() => handleRemoveBanList(list.id)}
-                    className="hover:text-destructive transition-colors ml-0.5"
-                    title="Remove list"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </>
-          )}
-
-          {/* User lists */}
-          {lists.map(list => {
-            const applied = appliedLists.find(r => r.listId === list.id);
-            const enabled = applied?.enabled ?? false;
-            return (
+      <div className="flex flex-wrap gap-1.5">
+        {/* Active preset ban lists (exclude mode only) */}
+        {activePresets.map(preset => {
+          const existing = banLists.find(l => l.id === preset.id);
+          return (
+            <div key={preset.id} className="group inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 transition-colors">
               <button
-                key={list.id}
-                onClick={() => handleToggle(list.id)}
-                className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border transition-colors ${
-                  enabled ? enabledColor : 'bg-muted/30 text-muted-foreground border-border/50 hover:border-border'
-                }`}
-                title={enabled ? 'Click to disable' : 'Click to enable'}
+                onClick={() => handleTogglePreset(preset)}
+                className="inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
+                title="Click to disable"
               >
-                <List className="w-3 h-3" />
-                <span>{list.name}</span>
-                <span className="text-[10px] opacity-60">({list.cards.length})</span>
+                <Shield className="w-3 h-3" />
+                <span>{preset.name}</span>
+                {existing && <span className="text-[10px] opacity-60">({existing.cards.length})</span>}
               </button>
-            );
-          })}
-        </div>
-      )}
+              <button
+                onClick={() => handleTogglePreset(preset)}
+                className="hidden group-hover:inline-flex hover:text-destructive transition-colors ml-0.5"
+                title="Disable"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        })}
+
+        {/* Active custom ban lists */}
+        {activeCustomBans.map(list => (
+          <div key={list.id} className="group inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 transition-colors">
+            <button
+              onClick={() => handleToggleBanList(list.id)}
+              className="inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
+              title="Click to disable"
+            >
+              <List className="w-3 h-3" />
+              <span>{list.name}</span>
+              <span className="text-[10px] opacity-60">({list.cards.length})</span>
+            </button>
+            <button
+              onClick={() => handleRemoveBanList(list.id)}
+              className="hidden group-hover:inline-flex hover:text-destructive transition-colors ml-0.5"
+              title="Remove list"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+
+        {/* Active user lists */}
+        {activeUserLists.map(list => (
+          <div key={list.id} className={`group inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border transition-colors ${enabledColor}`}>
+            <button
+              onClick={() => handleToggle(list.id)}
+              className="inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
+              title="Click to disable"
+            >
+              <List className="w-3 h-3" />
+              <span>{list.name}</span>
+              <span className="text-[10px] opacity-60">({list.cards.length})</span>
+            </button>
+            <button
+              onClick={() => updateCustomization({
+                [appliedKey]: appliedLists.filter(r => r.listId !== list.id),
+              })}
+              className="hidden group-hover:inline-flex hover:text-destructive transition-colors ml-0.5"
+              title="Remove from applied lists"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

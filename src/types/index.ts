@@ -15,6 +15,7 @@ export interface ScryfallCard {
   toughness?: string;
   loyalty?: string;
   rarity: string;
+  layout?: string; // Scryfall layout: "normal", "modal_dfc", "transform", etc.
   set: string;
   set_name: string;
   edhrec_rank?: number;
@@ -64,6 +65,7 @@ export interface ScryfallCard {
   removalSubtype?: 'counterspell' | 'bounce' | 'spot-removal' | 'removal';
   boardwipeSubtype?: 'bounce-wipe' | 'boardwipe';
   cardDrawSubtype?: 'tutor' | 'wheel' | 'cantrip' | 'card-draw' | 'card-advantage';
+  isMdfcLand?: boolean; // True if this is an MDFC with a land back face
 }
 
 export interface ScryfallSearchResponse {
@@ -334,6 +336,8 @@ export interface UserCardList {
   name: string;
   description: string;
   cards: string[];
+  sideboard?: string[];
+  maybeboard?: string[];
   commanderName?: string;
   partnerCommanderName?: string;
   createdAt: number;

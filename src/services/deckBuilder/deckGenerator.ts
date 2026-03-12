@@ -19,7 +19,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
@@ -532,6 +532,7 @@ function pickFromPrefetchedWithCurve(
   const processCards = (candidates: EDHRECCard[], requireTypeCheckForUnknown: boolean): void => {
     for (const edhrecCard of candidates) {
       if (result.length >= count) break;
+      if (usedNames.has(edhrecCard.name)) continue;
 
       const isGC = gameChangerNames.has(edhrecCard.name);
 
@@ -1305,6 +1306,8 @@ export function calculateStats(categories: Record<DeckCategory, ScryfallCard[]>)
     else if (typeLine.includes('enchantment')) typeDistribution['Enchantment'] = (typeDistribution['Enchantment'] || 0) + 1;
     else if (typeLine.includes('planeswalker')) typeDistribution['Planeswalker'] = (typeDistribution['Planeswalker'] || 0) + 1;
     else if (typeLine.includes('battle')) typeDistribution['Battle'] = (typeDistribution['Battle'] || 0) + 1;
+    // MDFC lands also count toward Land type (they can be played as lands)
+    if (card.isMdfcLand) typeDistribution['Land'] = (typeDistribution['Land'] || 0) + 1;
   });
 
   return {
@@ -2158,6 +2161,23 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // but kept for potential future use)
     if (generationCache) {
       generationCache.cardMap = cardMap;
+    }
+
+    // MDFC land boost: prioritize spell/land MDFCs in spell pools.
+    // These are strictly better than their spell-only equivalents since they can
+    // also be played as lands. A modest +30 boost makes them appear more often
+    // without overwhelming synergy/combo picks.
+    let mdfcLandCount = 0;
+    for (const [name, card] of cardMap) {
+      if (isMdfcLand(card)) {
+        card.isMdfcLand = true;
+        const existing = staticComboBoosts.get(name) ?? 0;
+        staticComboBoosts.set(name, existing + 30);
+        mdfcLandCount++;
+      }
+    }
+    if (mdfcLandCount > 0) {
+      console.log(`[DeckGen] MDFC land boost applied to ${mdfcLandCount} spell/land cards (+30 priority)`);
     }
 
     // Inject combo pieces into the correct type pools so they can actually be picked

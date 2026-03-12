@@ -130,7 +130,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'sideboard' | 'maybeboard'>>) => {
     setLists(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
@@ -166,6 +166,8 @@ export function useUserLists() {
         name: `${original.name} (Copy)`,
         description: original.description,
         cards: [...original.cards],
+        sideboard: original.sideboard ? [...original.sideboard] : undefined,
+        maybeboard: original.maybeboard ? [...original.maybeboard] : undefined,
         commanderName: original.commanderName,
         partnerCommanderName: original.partnerCommanderName,
         cachedTypeBreakdown: original.cachedTypeBreakdown,
@@ -193,7 +195,16 @@ export function useUserLists() {
   const exportList = useCallback((id: string): string => {
     const list = lists.find(l => l.id === id);
     if (!list) return '';
-    return list.cards.map(c => `1 ${c}`).join('\n');
+    const lines = list.cards.map(c => `1 ${c}`);
+    if (list.sideboard && list.sideboard.length > 0) {
+      lines.push('', 'Sideboard');
+      lines.push(...list.sideboard.map(c => `1 ${c}`));
+    }
+    if (list.maybeboard && list.maybeboard.length > 0) {
+      lines.push('', 'Maybeboard');
+      lines.push(...list.maybeboard.map(c => `1 ${c}`));
+    }
+    return lines.join('\n');
   }, [lists]);
 
   const getListById = useCallback((id: string) => {

@@ -65,7 +65,7 @@ export function CommanderSearch() {
   const [results, setResults] = useState<ScryfallCard[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [ownedOnly, setOwnedOnly] = useState(false);
+  const [ownedOnly, setOwnedOnly] = useState(() => localStorage.getItem('ownedCommandersOnly') === 'true');
   const navigate = useNavigate();
   const { setCommander } = useStore();
   const { cards: collectionCards, count: collectionCount } = useCollection();
@@ -259,7 +259,7 @@ export function CommanderSearch() {
             <input
               type="checkbox"
               checked={ownedOnly}
-              onChange={(e) => { setOwnedOnly(e.target.checked); setResults([]); setShowResults(false); }}
+              onChange={(e) => { setOwnedOnly(e.target.checked); localStorage.setItem('ownedCommandersOnly', String(e.target.checked)); setResults([]); setShowResults(false); }}
               className="rounded border-border accent-primary w-3.5 h-3.5"
             />
             <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">

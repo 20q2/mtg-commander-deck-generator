@@ -1,5 +1,7 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Settings } from 'lucide-react';
 import { HomePage } from '@/pages/HomePage';
 import { BuilderPage } from '@/pages/BuilderPage';
 import { OptimizePage } from '@/pages/OptimizePage';
@@ -86,6 +88,85 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
         }}
       />
     </div>
+  );
+}
+
+// Preferences gear dropdown
+function PreferencesDropdown() {
+  const [open, setOpen] = useState(false);
+  const [showCollectionChecks, setShowCollectionChecks] = useState(
+    () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
+  );
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+
+  const handleOpen = useCallback(() => {
+    if (open) { setOpen(false); return; }
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+    setOpen(true);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: MouseEvent) => {
+      if (!panelRef.current?.contains(e.target as Node) && !btnRef.current?.contains(e.target as Node))
+        setOpen(false);
+    };
+    window.addEventListener('mousedown', handle);
+    return () => window.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [open]);
+
+  const handleToggle = () => {
+    const next = !showCollectionChecks;
+    setShowCollectionChecks(next);
+    localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next));
+    window.dispatchEvent(new CustomEvent('prefs-changed', { detail: { showCollectionChecks: next } }));
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={handleOpen}
+        className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-accent"
+        title="Preferences"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-[100] w-64 rounded-lg bg-popover border border-border px-4 py-3 shadow-lg animate-fade-in"
+          style={{ top: pos.top, right: pos.right }}
+        >
+          <div className="text-xs font-semibold text-foreground mb-2">Preferences</div>
+          <label className="flex items-center gap-2.5 cursor-pointer text-sm text-foreground/90 hover:text-foreground transition-colors">
+            <input
+              type="checkbox"
+              checked={showCollectionChecks}
+              onChange={handleToggle}
+              className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
+            />
+            Show collection checkmarks
+          </label>
+          <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
+            Display green checkmarks next to cards you own in deck lists.
+          </p>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -208,6 +289,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                     </span>
                   )}
                 </button>
+                <PreferencesDropdown />
                 <span className="text-xs text-muted-foreground/50">v{__APP_VERSION__}</span>
               </div>
             </div>

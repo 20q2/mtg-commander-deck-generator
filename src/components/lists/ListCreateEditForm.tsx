@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,6 +8,14 @@ import { CommanderIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { Search, Loader2, X, Plus, ArrowLeft, Trash2 } from 'lucide-react';
+
+function getArtCropUrl(card: ScryfallCard | null): string | null {
+  if (!card) return null;
+  if (card.image_uris?.art_crop) return card.image_uris.art_crop;
+  if (card.card_faces?.[0]?.image_uris?.art_crop) return card.card_faces[0].image_uris.art_crop;
+  if (card.image_uris?.normal) return card.image_uris.normal;
+  return null;
+}
 
 interface ListCreateEditFormProps {
   existingList?: UserCardList | null;
@@ -192,6 +200,13 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
     setCommanderCard(card);
   }, [commanderName]);
 
+  // Auto-fill name/description from detected metadata (e.g. MTGGoldfish format)
+  const handleMetaDetected = useCallback((meta: { deckName?: string }) => {
+    if (meta.deckName) {
+      setName(prev => prev || meta.deckName!);
+    }
+  }, []);
+
   // Use a ref to always have the latest cards for the import callback
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
@@ -246,8 +261,31 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
   // No results: searched but got 0 results and not currently searching
   const showNoResults = showResults && results.length === 0 && searchedQuery.trim() && !isSearching;
 
+  // Commander art background
+  const artUrl = useMemo(() => getArtCropUrl(commanderCard), [commanderCard]);
+  const [artLoaded, setArtLoaded] = useState(false);
+  useEffect(() => { setArtLoaded(false); }, [artUrl]);
+
   return (
     <div className="space-y-6">
+      {/* Commander art background — portal to body so it sits behind all content */}
+      {artUrl && createPortal(
+        <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+          <div className={`absolute inset-0 transition-all duration-1000 ${artLoaded ? 'opacity-100' : 'opacity-0'}`}>
+            <img
+              src={artUrl}
+              alt=""
+              className="w-full h-[70vh] object-cover object-top blur-xl scale-110"
+              onLoad={() => setArtLoaded(true)}
+            />
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/70 to-background" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/30" />
+          <div className="absolute inset-0 bg-background/15" />
+          <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center top, transparent 0%, hsl(var(--background)) 70%)' }} />
+        </div>,
+        document.body
+      )}
       {/* Header */}
       <div>
         <button
@@ -270,7 +308,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
             placeholder="e.g. My Salt List, Staples, Pet Cards..."
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="h-10"
+            className="h-10 bg-background"
           />
         </div>
         <div>
@@ -280,7 +318,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
             placeholder="What is this list for?"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="h-10"
+            className="h-10 bg-background"
           />
         </div>
       </div>
@@ -294,7 +332,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
 
         {/* Selected commander */}
         {commanderName ? (
-          <div className="flex items-center gap-2 px-3 py-2 bg-accent/40 rounded-lg border border-border/30">
+          <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border border-border/30">
             <span className="text-sm font-medium flex-1 truncate">{commanderName}</span>
             <button
               onClick={() => {
@@ -316,7 +354,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
               value={commanderField === 'commander' ? commanderQuery : ''}
               onChange={(e) => { setCommanderField('commander'); setCommanderQuery(e.target.value); }}
               onFocus={() => { setCommanderField('commander'); updateCommanderDropdownPos(); (commanderResults.length > 0) && setShowCommanderResults(true); }}
-              className="pl-9 pr-9 h-9 text-sm"
+              className="pl-9 pr-9 h-9 text-sm bg-background"
             />
             {isSearchingCommander && commanderField === 'commander' && (
               <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
@@ -328,7 +366,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
         {commanderName && canPartner && (
           <>
             {partnerCommanderName ? (
-              <div className="flex items-center gap-2 px-3 py-2 bg-accent/40 rounded-lg border border-border/30">
+              <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border border-border/30">
                 <span className="text-xs text-muted-foreground">{getPartnerTypeLabel(partnerType)}:</span>
                 <span className="text-sm font-medium flex-1 truncate">{partnerCommanderName}</span>
                 <button
@@ -347,7 +385,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
                   value={commanderField === 'partner' ? commanderQuery : ''}
                   onChange={(e) => { setCommanderField('partner'); setCommanderQuery(e.target.value); }}
                   onFocus={() => { setCommanderField('partner'); updateCommanderDropdownPos(); (commanderResults.length > 0) && setShowCommanderResults(true); }}
-                  className="pl-9 pr-9 h-9 text-sm"
+                  className="pl-9 pr-9 h-9 text-sm bg-background"
                 />
                 {isSearchingCommander && commanderField === 'partner' && (
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
@@ -415,6 +453,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
         label="Import Cards"
         onImportCards={handleImportCards}
         onCommanderDetected={handleCommanderDetected}
+        onMetaDetected={handleMetaDetected}
         updatedLabel="duplicates skipped"
       />
 
@@ -442,7 +481,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => { updateDropdownPos(); (results.length > 0 || showNoResults) && setShowResults(true); }}
-            className="pl-9 pr-9 h-9 text-sm"
+            className="pl-9 pr-9 h-9 text-sm bg-background"
           />
           {isSearching && (
             <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
@@ -504,7 +543,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
 
         {/* Current cards as chips */}
         {cards.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 max-h-60 overflow-auto p-2 bg-accent/20 rounded-lg border border-border/30">
+          <div className="flex flex-wrap gap-1.5 max-h-60 overflow-auto p-2 bg-background rounded-lg border border-border/30">
             {cards.map((name, idx) => (
               <span
                 key={`${name}-${idx}`}
