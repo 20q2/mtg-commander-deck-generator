@@ -269,9 +269,10 @@ interface CardRowProps {
   isCommanderCard?: boolean;
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   isOwned?: boolean;
+  isMustIncludeLive?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -308,8 +309,8 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
             <input
               type="checkbox"
               checked={isSelected}
-              onChange={() => onToggleSelect?.(card)}
-              onClick={(e) => e.stopPropagation()}
+              onChange={() => {/* handled by onClick */}}
+              onClick={(e) => { e.stopPropagation(); onToggleSelect?.(card, e.shiftKey); }}
               className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
             />
           )}
@@ -317,7 +318,7 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
       )}
       {showPinColumn && (
         <span className="w-3 shrink-0 flex justify-center">
-          {card.isMustInclude ? (
+          {isMustIncludeLive ? (
             card.mustIncludeSource === 'deck' ? <span title="From original deck"><Bookmark className="w-3 h-3 text-muted-foreground/50" /></span> :
             card.mustIncludeSource === 'combo' ? <span title="Added by user"><Sparkles className="w-3 h-3 text-violet-500/70" /></span> :
             <span title="Must include"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
@@ -391,9 +392,10 @@ interface CategoryColumnProps {
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   onToggleCategory?: (cardIds: string[]) => void;
   collectionNames?: Set<string> | null;
+  mustIncludeNames?: Set<string>;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames }: CategoryColumnProps) {
   const [animateRef] = useAutoAnimate({ duration: 200 });
 
   if (cards.length === 0) return null;
@@ -406,7 +408,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
   }, 0);
 
   const hasMatch = matchingCardIds === null || cards.some(({ card }) => matchingCardIds.has(card.id));
-  const hasMustInclude = cards.some(({ card }) => card.isMustInclude);
+  const hasMustInclude = cards.some(({ card }) => mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude);
   const hasOwnedCard = collectionNames ? cards.some(({ card }) => {
     const name = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
     return collectionNames.has(name);
@@ -469,6 +471,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               isCommanderCard={type === 'Commander'}
               onToggleSelect={onToggleSelect}
               isOwned={collectionNames ? collectionNames.has(card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name) : undefined}
+              isMustIncludeLive={mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude}
             />
           );
         })}
@@ -1254,19 +1257,27 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   }, []);
 
   const handleToggleCardSelection = useCallback((card: ScryfallCard, shiftKey?: boolean) => {
+    const lastId = lastSelectedIdRef.current;
+    lastSelectedIdRef.current = card.id;
+
     setSelectedCards(prev => {
       const next = new Set(prev);
 
-      if (shiftKey && lastSelectedIdRef.current && lastSelectedIdRef.current !== card.id) {
-        // Shift-select: select range between last and current
+      if (shiftKey && lastId && lastId !== card.id) {
+        // Shift-select: select or deselect range between last and current
         const order = flatCardOrderRef.current;
-        const startIdx = order.indexOf(lastSelectedIdRef.current);
+        const startIdx = order.indexOf(lastId);
         const endIdx = order.indexOf(card.id);
         if (startIdx !== -1 && endIdx !== -1) {
           const from = Math.min(startIdx, endIdx);
           const to = Math.max(startIdx, endIdx);
+          const shouldDeselect = prev.has(card.id);
           for (let i = from; i <= to; i++) {
-            next.add(order[i]);
+            if (shouldDeselect) {
+              next.delete(order[i]);
+            } else {
+              next.add(order[i]);
+            }
           }
         } else {
           next.add(card.id);
@@ -1279,7 +1290,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         }
       }
 
-      lastSelectedIdRef.current = card.id;
       return next;
     });
   }, []);
@@ -1535,6 +1545,45 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return names;
   }, [selectedCards, groupedCards]);
 
+  const allSelectedAreMustInclude = useMemo(() => {
+    if (selectedCards.size === 0) return false;
+    const miSet = new Set(customization.mustIncludeCards);
+    const allCards = Object.values(groupedCards).flat();
+    return allCards
+      .filter(({ card }) => selectedCards.has(card.id))
+      .every(({ card }) => miSet.has(card.name));
+  }, [selectedCards, groupedCards, customization.mustIncludeCards]);
+
+  const handleToggleMustInclude = useCallback(() => {
+    const names = getSelectedCardNames();
+    if (names.length === 0) return;
+    const current = customization.mustIncludeCards;
+    const currentSet = new Set(current);
+    const allIncluded = names.every(n => currentSet.has(n));
+    if (allIncluded) {
+      // Remove from must-include
+      const nameSet = new Set(names);
+      updateCustomization({ mustIncludeCards: current.filter(n => !nameSet.has(n)) });
+      setToastMessage(`Unpinned ${names.length} card${names.length > 1 ? 's' : ''}`);
+    } else {
+      // Add to must-include, and remove from ban lists if present
+      const newMI = [...current];
+      for (const name of names) {
+        if (!currentSet.has(name)) newMI.push(name);
+      }
+      const nameSet = new Set(names);
+      const currentBanned = customization.bannedCards.filter(n => !nameSet.has(n));
+      const currentTempBanned = (customization.tempBannedCards ?? []).filter(n => !nameSet.has(n));
+      updateCustomization({
+        mustIncludeCards: newMI,
+        ...(currentBanned.length !== customization.bannedCards.length ? { bannedCards: currentBanned } : {}),
+        ...(currentTempBanned.length !== (customization.tempBannedCards ?? []).length ? { tempBannedCards: currentTempBanned } : {}),
+      });
+      setToastMessage(`Pinned ${names.length} card${names.length > 1 ? 's' : ''} as must-include`);
+    }
+    setSelectedCards(new Set());
+  }, [getSelectedCardNames, customization, updateCustomization]);
+
   const handleRemoveFromList = useCallback(() => {
     if (!onRemoveCards) return;
     const names = getSelectedCardNames();
@@ -1733,6 +1782,12 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     customization.deckBudget !== null ||
     customization.budgetOption !== 'any';
   const avgCardPrice = budgetActive && totalCards > 0 ? totalPrice / totalCards : null;
+
+  const mustIncludeNames = useMemo(() => {
+    const set = new Set(customization.mustIncludeCards);
+    for (const n of customization.tempMustIncludeCards ?? []) set.add(n);
+    return set;
+  }, [customization.mustIncludeCards, customization.tempMustIncludeCards]);
 
   // Determine if we fell back from what the user asked for
   const hadThemes = usedThemes && usedThemes.length > 0;
@@ -1966,6 +2021,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     onToggleSelect={handleToggleCardSelection}
                     onToggleCategory={handleToggleCategory}
                     collectionNames={showOwnedIndicators && showCollectionChecks ? collectionNames : null}
+                    mustIncludeNames={mustIncludeNames}
                   />
                 ))}
               </div>
@@ -2032,7 +2088,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                               )}
                               {/* Bottom-right badge stack: GC/pin icons + role badges */}
                               {(() => {
-                                const hasGcOrPin = card.isGameChanger || card.isMustInclude;
+                                const isMLive = mustIncludeNames.has(card.name);
+                                const hasGcOrPin = card.isGameChanger || isMLive;
                                 const roleBadges: { bgColor: string; title: string; label: string }[] = [];
                                 if (card.deckRole && showRoles) {
                                   if (card.multiRole) {
@@ -2057,7 +2114,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                         <Star className="w-2.5 h-2.5" />
                                       </span>
                                     )}
-                                    {card.isMustInclude && (
+                                    {isMLive && (
                                       <span className={`${
                                         card.mustIncludeSource === 'deck' ? 'bg-muted-foreground/60' :
                                         card.mustIncludeSource === 'combo' ? 'bg-violet-500/80' :
@@ -2212,14 +2269,28 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {onRegenerate && (
                   <>
                     <button
+                      onClick={handleToggleMustInclude}
+                      disabled={selectedCards.size === 0}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+                        allSelectedAreMustInclude
+                          ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                          : 'border-border hover:bg-accent text-muted-foreground hover:text-foreground'
+                      }`}
+                      title={allSelectedAreMustInclude ? 'Unpin must-include' : 'Must Include'}
+                    >
+                      <Pin className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">{allSelectedAreMustInclude ? 'Unpin' : 'Must Include'}</span>
+                    </button>
+                    <button
                       onClick={handleBanSelected}
                       disabled={selectedCards.size === 0}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                      title="Quick Ban"
+                      title="Exclude"
                     >
                       <Ban className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Quick Ban</span>
+                      <span className="hidden sm:inline">Exclude</span>
                     </button>
+                    <div className="w-px h-5 bg-border mx-0.5" />
                     <button
                       onClick={handleReplaceSelected}
                       disabled={selectedCards.size === 0}
