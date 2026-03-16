@@ -18,6 +18,7 @@ import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
 import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
+import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
@@ -30,6 +31,7 @@ export function BuilderPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [noDataForSettings, setNoDataForSettings] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [previewCard, setPreviewCard] = useState<import('@/types').ScryfallCard | null>(null);
 
   const {
     commander,
@@ -566,7 +568,10 @@ export function BuilderPage() {
                 <CardContent className="p-0">
                   <div className="flex">
                     {/* Card Image */}
-                    <div className="relative w-40 shrink-0">
+                    <div
+                      className="relative w-40 shrink-0 cursor-pointer"
+                      onClick={() => setPreviewCard(commander)}
+                    >
                       {!imageLoaded && (
                         <div className="absolute inset-0 shimmer rounded-l-xl" />
                       )}
@@ -627,7 +632,10 @@ export function BuilderPage() {
                   <CardContent className="p-0">
                     <div className="flex">
                       {/* Card Image */}
-                      <div className="relative w-40 shrink-0">
+                      <div
+                        className="relative w-40 shrink-0 cursor-pointer"
+                        onClick={() => setPreviewCard(partnerCommander)}
+                      >
                         {!partnerImageLoaded && (
                           <div className="absolute inset-0 shimmer rounded-l-xl" />
                         )}
@@ -872,6 +880,7 @@ export function BuilderPage() {
           {toastMessage}
         </div>
       )}
+      <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
     </main>
   );
 }

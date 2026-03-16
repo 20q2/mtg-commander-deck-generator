@@ -6,7 +6,7 @@ import { useStore } from '@/store';
 import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
-import { Search, Loader2, X, Trash2, ChevronRight, Ban, ListPlus, Check, Shield, Info } from 'lucide-react';
+import { Search, Loader2, X, Trash2, ChevronRight, Ban, ListPlus, Check, Shield, Info, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { UserListChips, PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -380,7 +380,7 @@ export function BannedCards() {
                           {card.type_line}
                         </p>
                       </div>
-                      <X className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
+                      <Plus className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
                     </button>
                   );
                 })}
@@ -454,7 +454,7 @@ export function BannedCards() {
       {bannedCards.length === 0 && banLists.filter(l => l.enabled).length === 0 && (
         <p className="text-xs text-muted-foreground">
           Search cards to exclude{userLists.length > 0
-            ? ', or import a List below'
+            ? ', or import a List'
             : <>, or <Link to="/lists" className="text-primary hover:text-primary/80 transition-colors">create a list</Link> to import</>
           }
         </p>

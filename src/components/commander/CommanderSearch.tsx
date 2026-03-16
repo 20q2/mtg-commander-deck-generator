@@ -8,7 +8,7 @@ import {
   getCardByName,
   getCardImageUrl,
 } from '@/services/scryfall/client';
-import { fetchTopCommanders } from '@/services/edhrec/client';
+import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors } from '@/services/edhrec/client';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
@@ -93,7 +93,19 @@ export function CommanderSearch() {
 
   // Suggestion tab: 'edhrec' or 'popular'
   const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular'>('edhrec');
-  const [colorFilter, setColorFilter] = useState<Set<string>>(new Set());
+  const [colorFilter, setColorFilterRaw] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('mtg-color-filter');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
+  const setColorFilter = (update: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    setColorFilterRaw(prev => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      localStorage.setItem('mtg-color-filter', JSON.stringify([...next]));
+      return next;
+    });
+  };
   const [popularCommanders, setPopularCommanders] = useState<{ name: string; count: number }[]>([]);
   const [popularLoading, setPopularLoading] = useState(false);
 
@@ -191,15 +203,6 @@ export function CommanderSearch() {
     }
   };
 
-  // All valid color keys for EDHREC top commanders
-  const COLOR_COMBOS = [
-    '', 'C',
-    'W', 'U', 'B', 'R', 'G',
-    'WU', 'WB', 'WR', 'WG', 'UB', 'UR', 'UG', 'BR', 'BG', 'RG',
-    'WUB', 'WUR', 'WUG', 'WBR', 'WBG', 'WRG', 'UBR', 'UBG', 'URG', 'BRG',
-    'WUBR', 'WUBG', 'WURG', 'WBRG', 'UBRG', 'WUBRG',
-  ];
-
   const handleSurpriseMe = async () => {
     if (ownedOnly && collectionLegends.length > 0) {
       const pick = collectionLegends[Math.floor(Math.random() * collectionLegends.length)];
@@ -209,14 +212,22 @@ export function CommanderSearch() {
 
     setIsSearching(true);
     try {
-      const randomKey = COLOR_COMBOS[Math.floor(Math.random() * COLOR_COMBOS.length)];
-      const colors = randomKey === 'C' ? ['C'] : randomKey.split('');
-      const commanders = await fetchTopCommanders(colors);
-      const filtered = commanders.filter(c => !c.name.includes('//'));
-      if (filtered.length === 0) return;
-      const pick = filtered[Math.floor(Math.random() * filtered.length)];
-      const card = await getCardByName(pick.name);
-      handleSelectCommander(card);
+      if (colorFilter.size > 0) {
+        // Color filter active — fetch from all EDHREC color combos that include the selected colors
+        const commanders = await fetchCommandersIncludingColors([...colorFilter]);
+        if (commanders.length === 0) return;
+        const pick = commanders[Math.floor(Math.random() * commanders.length)];
+        const card = await getCardByName(pick.name);
+        handleSelectCommander(card);
+      } else {
+        // No filter — pick from full EDHREC commander typeahead list
+        const allNames = await fetchAllCommanderNames();
+        const filtered = allNames.filter(n => !n.includes('//'));
+        if (filtered.length === 0) return;
+        const pick = filtered[Math.floor(Math.random() * filtered.length)];
+        const card = await getCardByName(pick);
+        handleSelectCommander(card);
+      }
     } catch (error) {
       console.error('Failed to fetch random commander:', error);
     } finally {

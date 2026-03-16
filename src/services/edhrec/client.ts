@@ -859,6 +859,21 @@ const topCommanderCache = new Map<string, { data: EDHRECTopCommander[]; timestam
 const TOP_COMMANDER_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 /**
+ * Fetch the full EDHREC commander typeahead list (all commander names).
+ * Cached for the session lifetime.
+ */
+let allCommanderNamesCache: string[] | null = null;
+export async function fetchAllCommanderNames(): Promise<string[]> {
+  if (allCommanderNamesCache) return allCommanderNamesCache;
+  await rateLimiter.throttle();
+  const res = await fetch(`${BASE_URL}/static/typeahead/commanders`);
+  if (!res.ok) throw new Error(`EDHREC typeahead failed: ${res.status}`);
+  const names: string[] = await res.json();
+  allCommanderNamesCache = names;
+  return names;
+}
+
+/**
  * Fetch top commanders from EDHREC for a given color identity.
  * Pass an empty array for overall top commanders (past year).
  * Results are cached for 30 minutes.
@@ -916,6 +931,87 @@ export async function fetchTopCommanders(colors: string[]): Promise<EDHRECTopCom
     return commanders;
   } catch (error) {
     console.warn(`[EDHREC] Failed to fetch top commanders for "${slug}":`, error);
+    return cached?.data ?? [];
+  }
+}
+
+/** All color combo keys (excluding '' for overall and 'C' for colorless) */
+const ALL_COLOR_KEYS = Object.keys(COLOR_SLUG_MAP).filter(k => k !== '' && k !== 'C');
+
+/**
+ * Fetch commanders from EDHREC for all color combos that *include* the given colors.
+ * E.g. colors=['G'] returns commanders from mono-green, golgari, simic, ..., WUBRG.
+ * Returns all entries (not capped to 12) sorted by deck count, with duplicates removed.
+ */
+export async function fetchCommandersIncludingColors(colors: string[]): Promise<EDHRECTopCommander[]> {
+  // Colorless is its own identity — doesn't combine with other colors
+  if (colors.includes('C')) {
+    return fetchAllCommandersForColor(['C']);
+  }
+
+  const required = new Set(colors.map(c => c.toUpperCase()));
+  // Find all color keys that contain every required color
+  const matchingKeys = ALL_COLOR_KEYS.filter(key =>
+    [...required].every(c => key.includes(c))
+  );
+  if (matchingKeys.length === 0) return [];
+
+  // Fetch all matching combos in parallel (uses cache internally)
+  const results = await Promise.all(
+    matchingKeys.map(key => fetchAllCommandersForColor(key.split('')))
+  );
+
+  // Union + dedupe by name, keeping the entry with the highest deck count
+  const map = new Map<string, EDHRECTopCommander>();
+  for (const list of results) {
+    for (const cmd of list) {
+      const existing = map.get(cmd.name);
+      if (!existing || cmd.numDecks > existing.numDecks) {
+        map.set(cmd.name, cmd);
+      }
+    }
+  }
+
+  return [...map.values()].sort((a, b) => b.numDecks - a.numDecks);
+}
+
+/**
+ * Fetch ALL commanders (up to 100) for an exact color combo from EDHREC.
+ * Unlike fetchTopCommanders which returns top 12, this returns the full page.
+ * Results are cached for 30 minutes.
+ */
+const fullCommanderCache = new Map<string, { data: EDHRECTopCommander[]; timestamp: number }>();
+
+async function fetchAllCommandersForColor(colors: string[]): Promise<EDHRECTopCommander[]> {
+  const sorted = [...colors].filter(c => c !== 'C').sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
+  const key = colors.includes('C') ? 'C' : sorted.join('');
+  const slug = COLOR_SLUG_MAP[key];
+  if (!slug) return [];
+
+  const cached = fullCommanderCache.get(key);
+  if (cached && Date.now() - cached.timestamp < TOP_COMMANDER_CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const response = await edhrecFetch<RawTopCommandersResponse>(
+      `/pages/commanders/${slug}.json`
+    );
+    const cardviews = response.container?.json_dict?.cardlists?.[0]?.cardviews ?? [];
+    const commanders: EDHRECTopCommander[] = cardviews
+      .filter(e => !e.name.includes('//'))
+      .map((entry, i) => ({
+        rank: i + 1,
+        name: entry.name,
+        sanitized: entry.sanitized,
+        colorIdentity: key === 'C' ? [] : sorted,
+        numDecks: entry.num_decks ?? entry.inclusion ?? 0,
+      }));
+
+    fullCommanderCache.set(key, { data: commanders, timestamp: Date.now() });
+    return commanders;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch all commanders for "${slug}":`, error);
     return cached?.data ?? [];
   }
 }

@@ -411,7 +411,7 @@ export function MustIncludeCards() {
       {mustIncludeCards.length === 0 && (
         <p className="text-xs text-muted-foreground">
           Search cards to include{userLists.length > 0
-            ? ', or import a List below'
+            ? ', or import a List'
             : <>, or <Link to="/lists" className="text-primary hover:text-primary/80 transition-colors">create a list</Link> to import</>
           }
         </p>
