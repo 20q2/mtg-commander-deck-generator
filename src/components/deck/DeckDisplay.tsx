@@ -2026,6 +2026,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             )}
             {/* Toolbar extra (e.g. add-card search) — only in edit mode */}
             {!readOnly && isEditMode && toolbarExtra}
+            {!readOnly && isEditMode && (
+              <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+                Exit Edit
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
@@ -2261,6 +2266,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </button>
           )}
           {!readOnly && isEditMode && toolbarExtra}
+          {!readOnly && isEditMode && (
+            <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+              Exit Edit
+            </button>
+          )}
         </div>
 
         {/* Main Content */}
@@ -2520,6 +2530,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             type: 'deck',
             commanderName: commander?.name,
             partnerCommanderName: generatedDeck?.partnerCommander?.name,
+            deckSize: cards.length,
           });
           trackEvent('list_created', { listName: name, cardCount: cards.length });
           setShowSavedToast(true);

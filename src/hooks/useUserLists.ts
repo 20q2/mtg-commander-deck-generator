@@ -82,6 +82,7 @@ interface CreateListOptions {
   type?: 'list' | 'deck';
   commanderName?: string;
   partnerCommanderName?: string;
+  deckSize?: number;
 }
 
 export function useUserLists() {
@@ -117,6 +118,7 @@ export function useUserLists() {
       cards,
       commanderName: options?.commanderName,
       partnerCommanderName: options?.partnerCommanderName,
+      deckSize: options?.deckSize,
       createdAt: now,
       updatedAt: now,
     };
@@ -130,7 +132,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'sideboard' | 'maybeboard'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard'>>) => {
     setLists(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));

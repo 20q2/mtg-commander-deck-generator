@@ -345,6 +345,7 @@ export function ListsPage() {
               type: commanderOptions?.commanderName ? 'deck' : 'list',
               commanderName: commanderOptions?.commanderName,
               partnerCommanderName: commanderOptions?.partnerCommanderName,
+              deckSize: commanderOptions?.deckSize,
             });
             trackEvent('list_created', { listName: name, cardCount: cards.length });
             navigate(`/lists/${newList.id}`, { replace: true });
@@ -371,6 +372,7 @@ export function ListsPage() {
               description,
               commanderName: commanderOptions?.commanderName,
               partnerCommanderName: commanderOptions?.partnerCommanderName,
+              deckSize: commanderOptions?.deckSize,
               type: commanderOptions?.commanderName ? 'deck' : list.type,
             });
             navigate(`/lists/${list.id}`, { replace: true });

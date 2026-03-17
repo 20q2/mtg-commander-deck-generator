@@ -342,6 +342,7 @@ export interface UserCardList {
   maybeboard?: string[];
   commanderName?: string;
   partnerCommanderName?: string;
+  deckSize?: number; // Total intended deck size including commander(s)
   createdAt: number;
   updatedAt: number;
   // Cached display data (computed on save to avoid Scryfall fetches on browse)

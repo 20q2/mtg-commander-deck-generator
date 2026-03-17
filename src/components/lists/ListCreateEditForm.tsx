@@ -2,12 +2,19 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl } from '@/services/scryfall/client';
+import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
-import { CommanderIcon } from '@/components/ui/mtg-icons';
+import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { Search, Loader2, X, Plus, ArrowLeft, Trash2 } from 'lucide-react';
+
+const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'] as const;
+
+function classifyCardType(typeLine: string): string {
+  const lower = typeLine.toLowerCase();
+  return CARD_TYPES.find(t => lower.includes(t.toLowerCase())) ?? 'Other';
+}
 
 function getArtCropUrl(card: ScryfallCard | null): string | null {
   if (!card) return null;
@@ -19,7 +26,7 @@ function getArtCropUrl(card: ScryfallCard | null): string | null {
 
 interface ListCreateEditFormProps {
   existingList?: UserCardList | null;
-  onSave: (name: string, cards: string[], description: string, commanderOptions?: { commanderName?: string; partnerCommanderName?: string }) => void;
+  onSave: (name: string, cards: string[], description: string, commanderOptions?: { commanderName?: string; partnerCommanderName?: string; deckSize?: number }) => void;
   onCancel: () => void;
 }
 
@@ -27,6 +34,13 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
   const [name, setName] = useState(existingList?.name ?? '');
   const [description, setDescription] = useState(existingList?.description ?? '');
   const [cards, setCards] = useState<string[]>(existingList?.cards ?? []);
+
+  // Deck size state
+  const [deckSize, setDeckSize] = useState<number | ''>(existingList?.deckSize ?? (existingList?.commanderName ? 100 : ''));
+
+  // Card type tracking for live breakdown badges
+  const cardTypeMapRef = useRef<Map<string, string>>(new Map());
+  const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>(() => existingList?.cachedTypeBreakdown ?? {});
 
   // Commander state
   const [commanderName, setCommanderName] = useState(existingList?.commanderName ?? '');
@@ -68,6 +82,35 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
   const nameInputRef = useRef<HTMLInputElement>(null);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const isEditing = !!existingList;
+
+  // Recompute type breakdown from the type map and current card list
+  const recomputeBreakdown = useCallback((currentCards: string[]) => {
+    const breakdown: Record<string, number> = {};
+    for (const name of currentCards) {
+      const type = cardTypeMapRef.current.get(name);
+      if (type) breakdown[type] = (breakdown[type] ?? 0) + 1;
+    }
+    setTypeBreakdown(breakdown);
+  }, []);
+
+  // Fetch types for cards not yet in the type map (after import or initial load)
+  const fetchMissingTypes = useCallback(async (currentCards: string[]) => {
+    const missing = currentCards.filter(n => !cardTypeMapRef.current.has(n));
+    if (missing.length === 0) { recomputeBreakdown(currentCards); return; }
+    try {
+      const cardMap = await getCardsByNames(missing);
+      for (const [name, card] of cardMap) {
+        cardTypeMapRef.current.set(name, classifyCardType(card.type_line ?? ''));
+      }
+    } catch { /* ignore */ }
+    recomputeBreakdown(currentCards);
+  }, [recomputeBreakdown]);
+
+  // On initial mount, populate type map for existing cards
+  useEffect(() => {
+    if (cards.length > 0) fetchMissingTypes(cards);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-focus name field on create
   useEffect(() => {
@@ -119,6 +162,8 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
       setCommanderName(card.name);
       setCommanderCard(card);
       setPartnerCommanderName('');
+      // Default deck size when first commander is set
+      if (!deckSize) setDeckSize(100);
       // Add new commander to cards
       setCards(prev => prev.includes(card.name) ? prev : [card.name, ...prev]);
     } else {
@@ -162,7 +207,10 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
 
   const handleAddCard = (card: ScryfallCard) => {
     if (!cards.includes(card.name)) {
-      setCards(prev => [...prev, card.name]);
+      cardTypeMapRef.current.set(card.name, classifyCardType(card.type_line ?? ''));
+      const newCards = [...cards, card.name];
+      setCards(newCards);
+      recomputeBreakdown(newCards);
     }
     setQuery('');
     setResults([]);
@@ -170,7 +218,9 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
   };
 
   const handleRemoveCard = (cardName: string) => {
-    setCards(prev => prev.filter(n => n !== cardName));
+    const newCards = cards.filter(n => n !== cardName);
+    setCards(newCards);
+    recomputeBreakdown(newCards);
   };
 
   // Auto-set commander when *CMDR* marker is detected during import
@@ -179,6 +229,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
     if (commanderName) return;
     setCommanderName(card.name);
     setCommanderCard(card);
+    setDeckSize(prev => prev || 100);
   }, [commanderName]);
 
   // Auto-fill name/description from detected metadata (e.g. MTGGoldfish format)
@@ -221,20 +272,27 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
     }
 
     if (newCards.length > 0) {
-      setCards(prev => [...prev, ...newCards]);
+      setCards(prev => {
+        const updated = [...prev, ...newCards];
+        // Fetch types for newly imported cards (async)
+        fetchMissingTypes(updated);
+        return updated;
+      });
     }
 
     return { added: newCards.length, updated: dupeCount };
-  }, []);
+  }, [fetchMissingTypes]);
 
   const handleClearAll = () => {
     setCards([]);
+    cardTypeMapRef.current.clear();
+    setTypeBreakdown({});
   };
 
   const handleSave = () => {
     if (!name.trim() || cards.length === 0) return;
     const cmdOptions = (commanderName || partnerCommanderName)
-      ? { commanderName: commanderName || undefined, partnerCommanderName: partnerCommanderName || undefined }
+      ? { commanderName: commanderName || undefined, partnerCommanderName: partnerCommanderName || undefined, deckSize: deckSize || undefined }
       : undefined;
     onSave(name.trim(), cards, description.trim(), cmdOptions);
   };
@@ -319,7 +377,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
               onClick={() => {
                 // Remove commander and partner from cards list
                 setCards(prev => prev.filter(c => c !== commanderName && c !== partnerCommanderName));
-                setCommanderName(''); setCommanderCard(null); setPartnerCommanderName('');
+                setCommanderName(''); setCommanderCard(null); setPartnerCommanderName(''); setDeckSize('');
               }}
               className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
             >
@@ -409,6 +467,23 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
           commanderSearchRef.current
         )}
 
+        {/* Deck size — only shown when a commander is set */}
+        {commanderName && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground whitespace-nowrap">Deck size</label>
+            <input
+              type="number"
+              min={1}
+              max={999}
+              value={deckSize}
+              onChange={(e) => setDeckSize(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 0))}
+              className="w-20 px-2 py-1 text-sm bg-background border border-border/30 rounded-lg focus:outline-none focus:border-primary text-center"
+              placeholder="100"
+            />
+            <span className="text-xs text-muted-foreground">cards (including commander{canPartner ? 's' : ''})</span>
+          </div>
+        )}
+
         {/* Commander no results */}
         {showCommanderResults && commanderResults.length === 0 && commanderSearchedQuery.trim() && !isSearchingCommander && commanderSearchRef.current && createPortal(
           <>
@@ -444,6 +519,22 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
+          )}
+          {Object.keys(typeBreakdown).length > 0 && (
+            <div className="flex items-end gap-1.5 ml-auto">
+              {Object.entries(typeBreakdown)
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, count]) => (
+                  <span
+                    key={type}
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground/70 rounded border border-border/30"
+                    title={type}
+                  >
+                    <CardTypeIcon type={type} size="sm" className="opacity-50 text-[10px]" />
+                    {count}
+                  </span>
+                ))}
+            </div>
           )}
         </div>
 
