@@ -1160,16 +1160,18 @@ interface DeckDisplayProps {
   /** Callbacks to move cards to sideboard/maybeboard (used in list deck view) */
   onMoveToSideboard?: (cardNames: string[]) => void;
   onMoveToMaybeboard?: (cardNames: string[]) => void;
-  /** Slot rendered in toolbar next to Edit Deck button (e.g. add-card search) */
+  /** Slot rendered in toolbar next to Modify Deck button (e.g. add-card search) */
   toolbarExtra?: React.ReactNode;
   /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
   boardCounts?: { sideboard: number; maybeboard: number };
   /** Content rendered inside the deck card (e.g. boards) */
   deckFooter?: React.ReactNode;
+  /** Render prop for header-level actions (e.g. export, save). Receives onExport trigger. When provided, the Export button is removed from the summary row. */
+  renderHeaderActions?: (actions: { onExport: () => void }) => React.ReactNode;
   children?: React.ReactNode;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
   const { lists: userLists, createList, updateList } = useUserLists();
@@ -2013,25 +2015,27 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               )}
             </div>
 
-            {/* Edit Deck */}
+            {/* Modify Deck */}
             {!readOnly && !isEditMode && (
               <button
                 onClick={() => setIsEditMode(true)}
                 className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                title="Edit Deck"
+                title="Modify Deck"
               >
                 <Pencil className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Edit Deck</span>
+                <span className="hidden sm:inline">Modify Deck</span>
               </button>
             )}
             {/* Toolbar extra (e.g. add-card search) — only in edit mode */}
             {!readOnly && isEditMode && toolbarExtra}
             {!readOnly && isEditMode && (
               <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-                Exit Edit
+                Exit Modify
               </button>
             )}
           </div>
+
+          {renderHeaderActions && renderHeaderActions({ onExport: () => setShowExportModal(true) })}
 
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             <div className="text-sm text-muted-foreground">
@@ -2080,10 +2084,12 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     : 'From My Collection'}
                 </span>
               )}
-              <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
-                <Copy className="w-4 h-4 mr-2" />
-                Export
-              </Button>
+              {!renderHeaderActions && (
+                <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
+                  <Copy className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -2255,12 +2261,12 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             )}
           </div>
 
-          {/* Edit Deck */}
+          {/* Modify Deck */}
           {!readOnly && !isEditMode && (
             <button
               onClick={() => setIsEditMode(true)}
               className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Edit Deck"
+              title="Modify Deck"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -2268,7 +2274,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           {!readOnly && isEditMode && toolbarExtra}
           {!readOnly && isEditMode && (
             <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-              Exit Edit
+              Exit Modify
             </button>
           )}
         </div>

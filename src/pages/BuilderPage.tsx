@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
@@ -16,9 +17,10 @@ import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { useUserLists } from '@/hooks/useUserLists';
 
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
@@ -32,6 +34,12 @@ export function BuilderPage() {
   const [noDataForSettings, setNoDataForSettings] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [previewCard, setPreviewCard] = useState<import('@/types').ScryfallCard | null>(null);
+  const [savedToList, setSavedToList] = useState(false);
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [saveListName, setSaveListName] = useState('');
+  const saveInputRef = useRef<HTMLInputElement>(null);
+  const { createList } = useUserLists();
+  const exportTriggerRef = useRef<(() => void) | null>(null);
 
   const {
     commander,
@@ -476,6 +484,7 @@ export function BuilderPage() {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }
       setGeneratedDeck(deck);
+      setSavedToList(false);
       trackEvent('deck_generated', {
         commanderName: cmd.name,
         partnerName: partner?.name,
@@ -853,7 +862,7 @@ export function BuilderPage() {
       {/* Deck Display */}
       {generatedDeck && (
         <section>
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-500 font-bold text-sm">
                 ✓
@@ -863,8 +872,82 @@ export function BuilderPage() {
                 {partnerCommander && ` & ${partnerCommander.name}`}
               </h2>
             </div>
+            <div className="flex items-center gap-2">
+              {showSaveInput && !savedToList ? (
+                <form
+                  className="flex items-center gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!generatedDeck) return;
+                    const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
+                    const deckName = saveListName.trim() || defaultName;
+                    const allCards: string[] = [];
+                    if (commander) allCards.push(commander.name);
+                    if (partnerCommander) allCards.push(partnerCommander.name);
+                    for (const cards of Object.values(generatedDeck.categories)) {
+                      for (const card of cards) allCards.push(card.name);
+                    }
+                    createList(deckName, allCards, '', {
+                      type: 'deck',
+                      commanderName: commander?.name,
+                      partnerCommanderName: partnerCommander?.name,
+                      deckSize: allCards.length,
+                    });
+                    trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
+                    setSavedToList(true);
+                    setShowSaveInput(false);
+                  }}
+                >
+                  <input
+                    ref={saveInputRef}
+                    type="text"
+                    value={saveListName}
+                    onChange={(e) => setSaveListName(e.target.value)}
+                    placeholder={`${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`}
+                    className="bg-card/50 border border-border/50 rounded-md px-2.5 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                    onKeyDown={(e) => { if (e.key === 'Escape') { setShowSaveInput(false); setSaveListName(''); } }}
+                  />
+                  <button
+                    type="submit"
+                    className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    title="Save"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                </form>
+              ) : (
+                <button
+                  disabled={savedToList}
+                  onClick={() => {
+                    if (savedToList) return;
+                    const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
+                    setSaveListName(defaultName);
+                    setShowSaveInput(true);
+                    setTimeout(() => saveInputRef.current?.select(), 0);
+                  }}
+                  className={`p-1.5 rounded-md border transition-colors ${
+                    savedToList
+                      ? 'border-green-500/50 bg-green-500/10 text-green-500'
+                      : 'bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent'
+                  } disabled:cursor-default`}
+                  title={savedToList ? 'Saved!' : 'Save as list'}
+                >
+                  {savedToList ? <Check className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                </button>
+              )}
+              <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
+                <Copy className="w-4 h-4 mr-2" />
+                Export
+              </Button>
+            </div>
           </div>
-          <DeckDisplay onRegenerate={handleGenerate} hideRegenerate regenerateProgress={isLoading ? progressPercent : undefined} regenerateMessage={isLoading ? progress : undefined}>
+          <DeckDisplay
+            onRegenerate={handleGenerate}
+            hideRegenerate
+            regenerateProgress={isLoading ? progressPercent : undefined}
+            regenerateMessage={isLoading ? progress : undefined}
+            renderHeaderActions={({ onExport }) => { exportTriggerRef.current = onExport; return null; }}
+          >
             {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
               <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />
             )}
@@ -881,6 +964,19 @@ export function BuilderPage() {
         </div>
       )}
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
+      {savedToList && createPortal(
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
+          <Check className="w-4 h-4 shrink-0" />
+          <span>Deck saved!</span>
+          <button
+            onClick={() => { setSavedToList(false); navigate('/lists'); }}
+            className="underline underline-offset-2 hover:text-white/80 transition-colors font-medium"
+          >
+            View in My Lists
+          </button>
+        </div>,
+        document.body
+      )}
     </main>
   );
 }
