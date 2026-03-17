@@ -91,8 +91,8 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
   );
 }
 
-// Preferences gear dropdown
-function PreferencesDropdown() {
+// Preferences gear dropdown (currently unused — will be wired into header later)
+export function PreferencesDropdown() {
   const [open, setOpen] = useState(false);
   const [showCollectionChecks, setShowCollectionChecks] = useState(
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
