@@ -254,6 +254,11 @@ function notInCollection(cardName: string, collectionNames: Set<string> | undefi
   return !collectionNames.has(cardName);
 }
 
+// Check if an owned card is exempt from budget constraints
+function isOwnedBudgetExempt(cardName: string, collectionNames: Set<string> | undefined, ignoreOwnedBudget: boolean): boolean {
+  return ignoreOwnedBudget && !!collectionNames && collectionNames.has(cardName);
+}
+
 // Check if a card is not available on MTG Arena (for Arena-only mode)
 function notOnArena(card: ScryfallCard, arenaOnly: boolean): boolean {
   if (!arenaOnly) return false;
@@ -351,7 +356,8 @@ function pickFromPrefetched(
   gameChangerNames: Set<string> = new Set(),
   arenaOnly: boolean = false,
   collectionStrategy: CollectionStrategy = 'full',
-  collectionOwnedPercent: number = 100
+  collectionOwnedPercent: number = 100,
+  ignoreOwnedBudget: boolean = false
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -372,8 +378,11 @@ function pickFromPrefetched(
     if (!scryfallCard) return false;
     if (!fitsColorIdentity(scryfallCard, colorIdentity)) return false;
 
-    const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
-    if (exceedsMaxPrice(scryfallCard, effectiveCap, currency)) return false;
+    const ownedExempt = isOwnedBudgetExempt(edhrecCard.name, collectionNames, ignoreOwnedBudget);
+    if (!ownedExempt) {
+      const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+      if (exceedsMaxPrice(scryfallCard, effectiveCap, currency)) return false;
+    }
     if (exceedsMaxRarity(scryfallCard, maxRarity)) return false;
     if (exceedsCmcCap(scryfallCard, maxCmc)) return false;
     if (notOnArena(scryfallCard, arenaOnly)) return false;
@@ -385,7 +394,7 @@ function pickFromPrefetched(
     result.push(scryfallCard);
     usedNames.add(edhrecCard.name);
     if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
-    budgetTracker?.deductCard(scryfallCard);
+    if (!ownedExempt) budgetTracker?.deductCard(scryfallCard);
     return true;
   };
 
@@ -498,7 +507,8 @@ function pickFromPrefetchedWithCurve(
   arenaOnly: boolean = false,
   strictCurve: boolean = false,
   collectionStrategy: CollectionStrategy = 'full',
-  collectionOwnedPercent: number = 100
+  collectionOwnedPercent: number = 100,
+  ignoreOwnedBudget: boolean = false
 ): ScryfallCard[] {
   const result: ScryfallCard[] = [];
 
@@ -564,9 +574,12 @@ function pickFromPrefetchedWithCurve(
       }
 
       // Price limit check (uses dynamic cap if budget tracker is active)
-      const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
-      if (exceedsMaxPrice(scryfallCard, effectiveCap, currency)) {
-        continue;
+      const ownedExempt = isOwnedBudgetExempt(edhrecCard.name, collectionNames, ignoreOwnedBudget);
+      if (!ownedExempt) {
+        const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+        if (exceedsMaxPrice(scryfallCard, effectiveCap, currency)) {
+          continue;
+        }
       }
 
       // Rarity limit check
@@ -605,7 +618,7 @@ function pickFromPrefetchedWithCurve(
       usedNames.add(edhrecCard.name);
       if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
       currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
-      budgetTracker?.deductCard(scryfallCard);
+      if (!ownedExempt) budgetTracker?.deductCard(scryfallCard);
 
       // Track ownership for quota enforcement
       if (isPartialMode) {
@@ -893,7 +906,8 @@ async function fillWithScryfall(
   currency: 'USD' | 'EUR' = 'USD',
   arenaOnly: boolean = false,
   scryfallQuery: string = '',
-  collectionStrategy: CollectionStrategy = 'full'
+  collectionStrategy: CollectionStrategy = 'full',
+  ignoreOwnedBudget: boolean = false
 ): Promise<ScryfallCard[]> {
   if (count <= 0) return [];
 
@@ -924,8 +938,11 @@ async function fillWithScryfall(
       if (usedNames.has(card.name)) continue; // Commander format is always singleton
       if (bannedCards.has(card.name)) continue; // Skip banned cards
       if (collectionStrategy === 'full' && notInCollection(card.name, collectionNames)) continue;
-      const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
-      if (exceedsMaxPrice(card, effectiveCap, currency)) continue;
+      const ownedExempt = isOwnedBudgetExempt(card.name, collectionNames, ignoreOwnedBudget);
+      if (!ownedExempt) {
+        const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+        if (exceedsMaxPrice(card, effectiveCap, currency)) continue;
+      }
       if (exceedsMaxRarity(card, maxRarity)) continue;
       if (exceedsCmcCap(card, maxCmc)) continue;
       if (notOnArena(card, arenaOnly)) continue;
@@ -934,7 +951,7 @@ async function fillWithScryfall(
       usedNames.add(card.name);
       // Also mark front-face name for DFCs so EDHREC-sourced checks match
       if (card.name.includes(' // ')) usedNames.add(card.name.split(' // ')[0]);
-      budgetTracker?.deductCard(card);
+      if (!ownedExempt) budgetTracker?.deductCard(card);
     }
 
     return result;
@@ -1116,7 +1133,8 @@ async function generateLands(
   scryfallQuery: string = '',
   preferredSet?: string,
   collectionStrategy: CollectionStrategy = 'full',
-  collectionOwnedPercent: number = 100
+  collectionOwnedPercent: number = 100,
+  ignoreOwnedBudget: boolean = false
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1152,7 +1170,7 @@ async function generateLands(
       }
     }
     await upgradeCardPrintings(landCardMap, scryfallQuery, true);
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent);
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -1163,7 +1181,7 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy, ignoreOwnedBudget);
     lands.push(...moreLands);
   }
 
@@ -1295,7 +1313,7 @@ export function calculateStats(categories: Record<DeckCategory, ScryfallCard[]>)
   });
 
   // Type distribution (use front face for MDFCs like "Instant // Land")
-  const typeDistribution: Record<string, number> = {};
+  const typeDistribution: Record<string, number> = { Planeswalker: 0 };
   allCards.forEach((card) => {
     const typeLine = getFrontFaceTypeLine(card).toLowerCase();
     if (typeLine.includes('land')) typeDistribution['Land'] = (typeDistribution['Land'] || 0) + 1;
@@ -1451,24 +1469,33 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames.add(name.split(' // ')[0]);
     }
   }
-  const bannedCards = new Set(customization.bannedCards || []);
+  const bannedCards = new Set<string>();
+  // Helper: ban a card name, including front-face name for DFCs
+  // EDHREC uses front-face-only names while Scryfall uses "Front // Back"
+  function markBanned(name: string) {
+    bannedCards.add(name);
+    if (name.includes(' // ')) {
+      bannedCards.add(name.split(' // ')[0]);
+    }
+  }
+  (customization.bannedCards || []).forEach(markBanned);
   // Merge enabled ban lists into the banned set
   for (const list of customization.banLists || []) {
-    if (list.enabled) list.cards.forEach(c => bannedCards.add(c));
+    if (list.enabled) list.cards.forEach(markBanned);
   }
   // Merge applied exclude user lists
   const userLists = loadUserLists();
   for (const ref of customization.appliedExcludeLists || []) {
     if (ref.enabled) {
       const list = userLists.find(l => l.id === ref.listId);
-      if (list) list.cards.forEach(c => bannedCards.add(c));
+      if (list) list.cards.forEach(markBanned);
     }
   }
   // Merge temporary banned cards
   const tempBanned = customization.tempBannedCards ?? [];
   if (tempBanned.length > 0) {
     console.log(`[DeckGen] Temp banned cards:`, tempBanned);
-    tempBanned.forEach(c => bannedCards.add(c));
+    tempBanned.forEach(markBanned);
   }
   const maxCardPrice = customization.maxCardPrice ?? null;
   const budgetOption = customization.budgetOption !== 'any' ? customization.budgetOption : undefined;
@@ -1484,7 +1511,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const gameChangerCount = { value: 0 };
   const deckBudget = customization.deckBudget ?? null;
   const currency = customization.currency ?? 'USD';
-  console.log(`[DeckGen] Budget settings: deckBudget=${deckBudget}, maxCardPrice=${maxCardPrice}, budgetOption=${budgetOption}, currency=${currency}`);
+  const ignoreOwnedBudget = !!(customization.ignoreOwnedBudget && context.collectionNames);
+  console.log(`[DeckGen] Budget settings: deckBudget=${deckBudget}, maxCardPrice=${maxCardPrice}, budgetOption=${budgetOption}, currency=${currency}${ignoreOwnedBudget ? ', ignoring owned for budget' : ''}`);
 
   // Log banned cards if any
   if (bannedCards.size > 0) {
@@ -1681,6 +1709,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // Skip non-land cards that exceed the CMC cap (Tiny Leaders)
       if (exceedsCmcCap(card, maxCmc)) {
         console.warn(`[DeckGen] Must-include card "${name}" skipped (CMC ${card.cmc} exceeds max ${maxCmc})`);
+        continue;
+      }
+
+      // Skip cards not available on Arena when arena-only mode is enabled
+      if (notOnArena(card, arenaOnly)) {
+        console.warn(`[DeckGen] Must-include card "${name}" skipped (not available on Arena)`);
         continue;
       }
 
@@ -2008,7 +2042,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   // Deduct must-include costs from budget (commander cost is excluded from budget)
   if (budgetTracker && mustIncludeCards.length > 0) {
-    budgetTracker.deductMustIncludes(mustIncludeCards);
+    const cardsToDeduct = ignoreOwnedBudget
+      ? mustIncludeCards.filter(c => !isOwnedBudgetExempt(c.name, context.collectionNames, true))
+      : mustIncludeCards;
+    if (cardsToDeduct.length > 0) budgetTracker.deductMustIncludes(cardsToDeduct);
   }
 
   // ---- Multi-copy card pipeline (self-contained, no impact if nothing found) ----
@@ -2299,7 +2336,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly,
       strictCurve,
       collectionStrategy,
-      collectionOwnedPercent
+      collectionOwnedPercent,
+      ignoreOwnedBudget
     );
     categories.creatures.push(...creatures);
     for (const card of creatures) { const role = cardRoleMap.get(card.name); if (role) { currentRoleCounts[role]++; card.deckRole = role; stampRoleSubtypes(card); const st = cardSubtypeMap.get(card.name); if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1; } }
@@ -2323,7 +2361,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         currency,
         arenaOnly,
         scryfallQuery,
-        collectionStrategy
+        collectionStrategy,
+        ignoreOwnedBudget
       );
       categories.creatures.push(...moreCreatures);
       console.log(`[DeckGen] FALLBACK: Got ${moreCreatures.length} creatures from Scryfall`);
@@ -2360,7 +2399,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly,
       strictCurve,
       collectionStrategy,
-      collectionOwnedPercent
+      collectionOwnedPercent,
+      ignoreOwnedBudget
     );
     console.log(`[DeckGen] Instants: got ${instants.length} from EDHREC`);
     categorizeCards(instants, categories);
@@ -2393,7 +2433,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly,
       strictCurve,
       collectionStrategy,
-      collectionOwnedPercent
+      collectionOwnedPercent,
+      ignoreOwnedBudget
     );
     console.log(`[DeckGen] Sorceries: got ${sorceries.length} from EDHREC`);
     categorizeCards(sorceries, categories);
@@ -2426,7 +2467,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly,
       strictCurve,
       collectionStrategy,
-      collectionOwnedPercent
+      collectionOwnedPercent,
+      ignoreOwnedBudget
     );
     console.log(`[DeckGen] Artifacts: got ${artifacts.length} from EDHREC`);
     categorizeCards(artifacts, categories);
@@ -2459,7 +2501,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       arenaOnly,
       strictCurve,
       collectionStrategy,
-      collectionOwnedPercent
+      collectionOwnedPercent,
+      ignoreOwnedBudget
     );
     console.log(`[DeckGen] Enchantments: got ${enchantments.length} from EDHREC`);
     categorizeCards(enchantments, categories);
@@ -2493,7 +2536,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         arenaOnly,
         strictCurve,
         collectionStrategy,
-        collectionOwnedPercent
+        collectionOwnedPercent,
+        ignoreOwnedBudget
       );
       console.log(`[DeckGen] Planeswalkers: got ${planeswalkers.length} from EDHREC`);
       categories.utility.push(...planeswalkers);
@@ -2563,7 +2607,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         scryfallQuery,
         preferredSet,
         collectionStrategy,
-        collectionOwnedPercent
+        collectionOwnedPercent,
+        ignoreOwnedBudget
       ),
     ];
 
@@ -2614,7 +2659,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
 
     onProgress?.('Seeking sources of knowledge...', 30);
@@ -2632,7 +2678,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
 
     onProgress?.('Arming with removal spells...', 40);
@@ -2650,7 +2697,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
 
     onProgress?.('Preparing mass destruction...', 50);
@@ -2668,7 +2716,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
 
     // Use typeTargets for remaining slots to get a balanced type distribution
@@ -2688,7 +2737,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
     categories.creatures.push(...scryfallCreatures);
 
@@ -2708,7 +2758,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
     categorizeCards(scryfallArtifacts, categories);
 
@@ -2728,7 +2779,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       arenaOnly,
       scryfallQuery,
-      collectionStrategy
+      collectionStrategy,
+      ignoreOwnedBudget
     );
     categorizeCards(scryfallEnchantments, categories);
 
@@ -2749,7 +2801,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         currency,
         arenaOnly,
         scryfallQuery,
-        collectionStrategy
+        collectionStrategy,
+        ignoreOwnedBudget
       );
       categorizeCards(scryfallInstants, categories);
     }
@@ -2771,7 +2824,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         currency,
         arenaOnly,
         scryfallQuery,
-        collectionStrategy
+        collectionStrategy,
+        ignoreOwnedBudget
       );
       categorizeCards(scryfallSorceries, categories);
     }
@@ -2818,7 +2872,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         scryfallQuery,
         preferredSet,
         collectionStrategy,
-        collectionOwnedPercent
+        collectionOwnedPercent,
+        ignoreOwnedBudget
       ),
     ];
   }
@@ -3017,7 +3072,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           query, colorIdentity, toFill, usedNames, bannedCards,
           shortagePriceCap, maxRarity, maxCmc, null,
           context.collectionNames, currency, arenaOnly, scryfallQuery,
-          collectionStrategy
+          collectionStrategy, ignoreOwnedBudget
         );
         if (type === 'creature') categories.creatures.push(...cards);
         else if (type === 'instant') categorizeCards(cards, categories);
@@ -3036,7 +3091,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           colorIdentity, remaining, usedNames, bannedCards,
           shortagePriceCap, maxRarity, maxCmc, null,
           context.collectionNames, currency, arenaOnly, scryfallQuery,
-          collectionStrategy
+          collectionStrategy, ignoreOwnedBudget
         );
         categories.synergy.push(...moreCards);
         filled += moreCards.length;
@@ -3263,6 +3318,62 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (detectedCombos.length === 0) detectedCombos = undefined;
   }
 
+  // Build deck score from EDHREC inclusion percentages
+  let deckScore: number | undefined;
+  let cardInclusionMap: Record<string, number> | undefined;
+  if (edhrecData) {
+    // Index all EDHREC cards by name for O(1) lookup
+    const inclusionIndex = new Map<string, number>();
+    for (const c of edhrecData.cardlists.allNonLand) {
+      inclusionIndex.set(c.name, c.inclusion);
+    }
+    for (const c of edhrecData.cardlists.lands) {
+      if (!BASIC_LAND_NAMES.has(c.name)) {
+        inclusionIndex.set(c.name, c.inclusion);
+      }
+    }
+
+    const inclMap: Record<string, number> = {};
+    let score = 0;
+    for (const cards of Object.values(categories)) {
+      for (const card of cards) {
+        if (BASIC_LAND_NAMES.has(card.name)) continue;
+        // Try full name first, then front-face for DFCs
+        let incl = inclusionIndex.get(card.name);
+        if (incl === undefined && card.name.includes(' // ')) {
+          incl = inclusionIndex.get(card.name.split(' // ')[0]);
+        }
+        const val = incl ?? 0;
+        inclMap[card.name] = val;
+        score += val;
+      }
+    }
+    // Also index swap candidates so the UI can show their inclusion %
+    if (swapCandidates) {
+      for (const cards of Object.values(swapCandidates)) {
+        for (const card of cards) {
+          if (inclMap[card.name] !== undefined) continue;
+          let incl = inclusionIndex.get(card.name);
+          if (incl === undefined && card.name.includes(' // ')) {
+            incl = inclusionIndex.get(card.name.split(' // ')[0]);
+          }
+          if (incl !== undefined) inclMap[card.name] = incl;
+        }
+      }
+    }
+    // Also index gap analysis cards
+    if (gapAnalysis) {
+      for (const g of gapAnalysis) {
+        if (inclMap[g.name] === undefined) inclMap[g.name] = g.inclusion;
+      }
+    }
+    deckScore = Math.round(score);
+    cardInclusionMap = inclMap;
+    const nonBasicCount = Object.keys(inclMap).length - (swapCandidates ? Object.values(swapCandidates).flat().length : 0) - (gapAnalysis?.length ?? 0);
+    const avg = nonBasicCount > 0 ? score / nonBasicCount : 0;
+    console.log(`[DeckGen] Deck score: ${deckScore} (avg ${avg.toFixed(1)}% across ${nonBasicCount} deck cards)`);
+  }
+
   return {
     commander,
     partnerCommander,
@@ -3298,5 +3409,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       };
     })() : {},
     swapCandidates,
+    deckScore,
+    cardInclusionMap,
   };
 }

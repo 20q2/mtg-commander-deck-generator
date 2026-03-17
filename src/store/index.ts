@@ -9,6 +9,7 @@ const CURRENCY_KEY = 'mtg-deck-builder-currency';
 const BAN_LISTS_KEY = 'mtg-deck-builder-ban-lists';
 const APPLIED_EXCLUDE_LISTS_KEY = 'mtg-deck-builder-applied-exclude-lists';
 const APPLIED_INCLUDE_LISTS_KEY = 'mtg-deck-builder-applied-include-lists';
+const ARENA_ONLY_KEY = 'mtg-deck-builder-arena-only';
 
 // Load banned cards from localStorage
 function loadBannedCards(): string[] {
@@ -151,6 +152,24 @@ function saveAppliedIncludeLists(lists: AppliedList[]): void {
   }
 }
 
+// Load arena-only setting from localStorage
+function loadArenaOnly(): boolean {
+  try {
+    return localStorage.getItem(ARENA_ONLY_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+// Save arena-only setting to localStorage
+function saveArenaOnly(value: boolean): void {
+  try {
+    localStorage.setItem(ARENA_ONLY_KEY, String(value));
+  } catch {
+    // ignore
+  }
+}
+
 const defaultCustomization: Customization = {
   deckFormat: 99,
   landCount: 37,
@@ -167,10 +186,11 @@ const defaultCustomization: Customization = {
   bracketLevel: 'all' as const,
   maxRarity: null,
   tinyLeaders: false,
+  ignoreOwnedBudget: false,
   collectionMode: false,
   collectionStrategy: 'full' as const,
   collectionOwnedPercent: 75,
-  arenaOnly: false,
+  arenaOnly: loadArenaOnly(),
   scryfallQuery: '',
   comboCount: 1,
   hyperFocus: false,
@@ -310,6 +330,11 @@ export const useStore = create<AppState>((set, get) => ({
     // Persist applied include lists to localStorage when they change
     if (updates.appliedIncludeLists !== undefined) {
       saveAppliedIncludeLists(newCustomization.appliedIncludeLists);
+    }
+
+    // Persist arena-only setting to localStorage when it changes
+    if (updates.arenaOnly !== undefined) {
+      saveArenaOnly(newCustomization.arenaOnly);
     }
 
     return { customization: newCustomization };

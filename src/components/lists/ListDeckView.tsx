@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { ArrowLeft, Loader2, List, Wand2, Pencil, CopyPlus, X, Plus, ArrowUpDown, MoreHorizontal, ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
@@ -52,7 +51,7 @@ function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
     }
   });
 
-  const typeDistribution: Record<string, number> = {};
+  const typeDistribution: Record<string, number> = { Planeswalker: 0 };
   allCards.forEach(card => {
     const typeLine = getFrontFaceTypeLine(card).toLowerCase();
     if (typeLine.includes('land')) typeDistribution['Land'] = (typeDistribution['Land'] || 0) + 1;
@@ -337,11 +336,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
-  const [searchDropdownPos, setSearchDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Destination picker state
   const [pendingCard, setPendingCard] = useState<ScryfallCard | null>(null);
-  const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null);
 
   // Track previous cards for incremental updates
   const prevCardsRef = useRef<string[]>(list.cards);
@@ -648,10 +645,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         ]);
         const filtered = results.data.filter(card => !allExisting.has(card.name));
         setSearchResults(filtered.slice(0, 8));
-        if (searchWrapperRef.current) {
-          const rect = searchWrapperRef.current.getBoundingClientRect();
-          setSearchDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-        }
         setShowSearchResults(true);
       } catch {
         setSearchResults([]);
@@ -670,7 +663,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
   const handleShowBoardPicker = useCallback((card: ScryfallCard, event: React.MouseEvent) => {
     event.stopPropagation();
-    setPickerPos({ top: event.clientY, left: event.clientX });
     setPendingCard(card);
   }, []);
 
@@ -824,70 +816,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           </div>
         </div>
 
-        {/* Search Results Dropdown (portal) */}
-        {showSearchResults && searchResults.length > 0 && searchDropdownPos && createPortal(
-          <>
-            <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
-            <div
-              className="fixed z-[999] max-h-[280px] overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1"
-              style={{ top: searchDropdownPos.top, left: searchDropdownPos.left, width: Math.max(searchDropdownPos.width, 320) }}
-            >
-              {searchResults.map((card) => (
-                <div
-                  key={card.id}
-                  onClick={() => handleAddToDeck(card)}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors cursor-pointer group"
-                >
-                  <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{card.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{card.type_line}</p>
-                  </div>
-                  <span className="shrink-0" title="Add to deck">
-                    <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </span>
-                  {(onMoveToSideboard || onMoveToMaybeboard) && (
-                    <button
-                      onClick={(e) => handleShowBoardPicker(card, e)}
-                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-                      title="Add to sideboard or maybeboard"
-                    >
-                      <MoreHorizontal className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>,
-          document.body
-        )}
-
-        {/* Board Picker (portal) — sideboard/maybeboard only */}
-        {pendingCard && pickerPos && createPortal(
-          <>
-            <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
-            <div
-              className="fixed z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44"
-              style={{ top: pickerPos.top, left: Math.min(pickerPos.left, window.innerWidth - 200) }}
-            >
-              <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
-              <button
-                onClick={() => handleDestinationPick('sideboard')}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-amber-400"
-              >
-                Add to Sideboard
-              </button>
-              <button
-                onClick={() => handleDestinationPick('maybeboard')}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-purple-400"
-              >
-                Add to Maybeboard
-              </button>
-            </div>
-          </>,
-          document.body
-        )}
-
         <DeckDisplay
           onRemoveCards={onRemoveCards}
           onMoveToSideboard={onMoveToSideboard}
@@ -902,10 +830,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => {
-                  if (searchWrapperRef.current) {
-                    const rect = searchWrapperRef.current.getBoundingClientRect();
-                    setSearchDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-                  }
                   if (searchResults.length > 0) setShowSearchResults(true);
                 }}
                 className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-44 sm:w-64 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
@@ -920,6 +844,60 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
+              )}
+              {/* Search Results Dropdown */}
+              {showSearchResults && searchResults.length > 0 && (
+                <>
+                  <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
+                  <div className="absolute top-full left-0 mt-1 z-[999] max-h-[280px] min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
+                    {searchResults.map((card) => (
+                      <div
+                        key={card.id}
+                        onClick={() => handleAddToDeck(card)}
+                        className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors cursor-pointer group"
+                      >
+                        <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{card.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{card.type_line}</p>
+                        </div>
+                        <span className="shrink-0" title="Add to deck">
+                          <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                        </span>
+                        {(onMoveToSideboard || onMoveToMaybeboard) && (
+                          <button
+                            onClick={(e) => handleShowBoardPicker(card, e)}
+                            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                            title="Add to sideboard or maybeboard"
+                          >
+                            <MoreHorizontal className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {/* Board Picker — sideboard/maybeboard */}
+              {pendingCard && (
+                <>
+                  <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
+                  <div className="absolute top-full left-0 mt-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
+                    <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
+                    <button
+                      onClick={() => handleDestinationPick('sideboard')}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-amber-400"
+                    >
+                      Add to Sideboard
+                    </button>
+                    <button
+                      onClick={() => handleDestinationPick('maybeboard')}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-purple-400"
+                    >
+                      Add to Maybeboard
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           ) : undefined}

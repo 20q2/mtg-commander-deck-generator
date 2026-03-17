@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useStore } from '@/store';
 import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
@@ -39,30 +38,6 @@ export function MustIncludeCards() {
 
   const [showListPicker, setShowListPicker] = useState(false);
   const [listPickerSearch, setListPickerSearch] = useState('');
-  const listPickerBtnRef = useRef<HTMLButtonElement>(null);
-  const listPickerDropdownRef = useRef<HTMLDivElement>(null);
-  const [listPickerPos, setListPickerPos] = useState<{ top: number; right: number } | null>(null);
-
-  const updateListPickerPos = useCallback(() => {
-    if (listPickerBtnRef.current) {
-      const rect = listPickerBtnRef.current.getBoundingClientRect();
-      setListPickerPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!showListPicker) return;
-    const handleClick = (e: MouseEvent) => {
-      if (
-        listPickerBtnRef.current?.contains(e.target as Node) ||
-        listPickerDropdownRef.current?.contains(e.target as Node)
-      ) return;
-      setShowListPicker(false);
-      setListPickerSearch('');
-    };
-    window.addEventListener('mousedown', handleClick);
-    return () => window.removeEventListener('mousedown', handleClick);
-  }, [showListPicker]);
 
   const handlePickerToggleUserList = (listId: string) => {
     const existing = appliedIncludeLists.find(r => r.listId === listId);
@@ -81,17 +56,6 @@ export function MustIncludeCards() {
     }
     return names;
   }, [banLists]);
-
-  // Ref for positioning the search dropdown via portal
-  const searchWrapperRef = useRef<HTMLDivElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  const updateDropdownPos = useCallback(() => {
-    if (searchWrapperRef.current) {
-      const rect = searchWrapperRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-  }, []);
 
   // Track card name → primary type for grouping
   const [typeMap, setTypeMap] = useState<Record<string, string>>({});
@@ -164,11 +128,10 @@ export function MustIncludeCards() {
           card => !mustIncludeCards.includes(card.name) && !bannedCards.includes(card.name)
         );
         setResults(filtered.slice(0, 8));
-        updateDropdownPos();
         setShowResults(true);
-      } catch (error) {
-        console.error('Search error:', error);
+      } catch {
         setResults([]);
+        setShowResults(true);
       } finally {
         setIsSearching(false);
       }
@@ -226,125 +189,107 @@ export function MustIncludeCards() {
 
       {/* Search Input + List Picker */}
       <div className="flex gap-1.5">
-        <div className="relative flex-1" ref={searchWrapperRef}>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search cards to include..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => { updateDropdownPos(); results.length > 0 && setShowResults(true); }}
-            className="pl-9 pr-9 h-9 text-sm rounded-lg"
-          />
-          {isSearching && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
-          )}
-        </div>
-        {userLists.length > 0 && (
-          <button
-            ref={listPickerBtnRef}
-            onClick={() => { setShowListPicker(prev => { if (!prev) updateListPickerPos(); return !prev; }); setListPickerSearch(''); }}
-            className={`h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${showListPicker ? 'bg-accent border-border text-foreground' : 'border-border hover:bg-accent text-muted-foreground'}`}
-            title="Apply a list as must-includes"
-          >
-            <ListPlus className="w-4 h-4" />
-          </button>
-        )}
-        {showListPicker && listPickerPos && createPortal(
-          (() => {
-            const filtered = listPickerSearch
-              ? userLists.filter(l => l.name.toLowerCase().includes(listPickerSearch.toLowerCase()))
-              : userLists;
-            return (
-              <div ref={listPickerDropdownRef} className="fixed w-64 bg-card border border-border rounded-lg shadow-2xl py-1 z-[999] max-h-72 flex flex-col" style={{ top: listPickerPos.top, right: listPickerPos.right }}>
-                {userLists.length >= 5 && (
-                  <div className="px-2 pt-1 pb-1">
-                    <input
-                      type="text"
-                      placeholder="Search lists..."
-                      value={listPickerSearch}
-                      onChange={e => setListPickerSearch(e.target.value)}
-                      className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
-                      autoFocus
-                      onClick={e => e.stopPropagation()}
-                    />
+        <Popover open={showResults && (results.length > 0 || (query.trim().length > 0 && !isSearching))} onOpenChange={(open) => { if (!open) setShowResults(false); }}>
+          <PopoverTrigger asChild>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search cards to include..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => { results.length > 0 && setShowResults(true); }}
+                className="pl-9 pr-9 h-9 text-sm rounded-lg"
+              />
+              {isSearching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+              )}
+            </div>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1 max-h-[250px] overflow-auto">
+            {results.length === 0 && query.trim() && !isSearching && (
+              <p className="px-3 py-2.5 text-xs text-muted-foreground text-center">
+                No valid cards found for your commander matching "{query.trim()}"
+              </p>
+            )}
+            {results.map((card) => {
+              const isBanned = banListCardNames.has(card.name.toLowerCase());
+              return (
+                <button
+                  key={card.id}
+                  onClick={() => handleAddCard(card)}
+                  className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
+                >
+                  <img
+                    src={getCardImageUrl(card, 'small')}
+                    alt={card.name}
+                    className="w-8 h-auto rounded shadow"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium truncate group-hover:text-emerald-500 transition-colors">
+                        {card.name}
+                      </p>
+                      {isBanned && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-red-500/15 text-red-500 border border-red-500/25 shrink-0">
+                          <Ban className="w-2.5 h-2.5" />
+                          Banned
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {card.type_line}
+                    </p>
                   </div>
-                )}
-                <div className="overflow-y-auto">
-                  {filtered.map(list => (
-                    <button
-                      key={list.id}
-                      onClick={() => handlePickerToggleUserList(list.id)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
-                    >
-                      <ListPlus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate flex-1">{list.name}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">({list.cards.length})</span>
-                      {(appliedIncludeLists.find(r => r.listId === list.id)?.enabled ?? false) && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-                    </button>
-                  ))}
-                  {filtered.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">No matching lists</p>
-                  )}
+                  <Plus className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
+                </button>
+              );
+            })}
+          </PopoverContent>
+        </Popover>
+        {userLists.length > 0 && (
+          <Popover open={showListPicker} onOpenChange={(open: boolean) => { setShowListPicker(open); if (!open) setListPickerSearch(''); }}>
+            <PopoverTrigger asChild>
+              <button
+                className="h-9 w-9 flex items-center justify-center rounded-lg border-2 border-input transition-colors focus:outline-none focus-visible:ring-0 hover:bg-accent text-muted-foreground"
+                title="Apply a list as must-includes"
+              >
+                <ListPlus className="w-4 h-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 py-1 max-h-72 flex flex-col">
+              {userLists.length >= 5 && (
+                <div className="px-2 pt-1 pb-1">
+                  <input
+                    type="text"
+                    placeholder="Search lists..."
+                    value={listPickerSearch}
+                    onChange={e => setListPickerSearch(e.target.value)}
+                    className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
+                    autoFocus
+                    onClick={e => e.stopPropagation()}
+                  />
                 </div>
+              )}
+              <div className="overflow-y-auto">
+                {(listPickerSearch
+                  ? userLists.filter(l => l.name.toLowerCase().includes(listPickerSearch.toLowerCase()))
+                  : userLists
+                ).map(list => (
+                  <button
+                    key={list.id}
+                    onClick={() => handlePickerToggleUserList(list.id)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
+                  >
+                    <ListPlus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate flex-1">{list.name}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">({list.cards.length})</span>
+                    {(appliedIncludeLists.find(r => r.listId === list.id)?.enabled ?? false) && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                  </button>
+                ))}
               </div>
-            );
-          })(),
-          document.body
-        )}
-      </div>
-      <div className="relative">
-        {/* Anchor for search results portal */}
-
-        {/* Search Results Dropdown — rendered via portal to escape overflow-hidden */}
-        {showResults && results.length > 0 && dropdownPos && createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[998]"
-              onClick={() => setShowResults(false)}
-            />
-            <Card
-              className="fixed z-[999] max-h-[250px] overflow-auto shadow-xl"
-              style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
-            >
-              <CardContent className="p-1">
-                {results.map((card) => {
-                  const isBanned = banListCardNames.has(card.name.toLowerCase());
-                  return (
-                    <button
-                      key={card.id}
-                      onClick={() => handleAddCard(card)}
-                      className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
-                    >
-                      <img
-                        src={getCardImageUrl(card, 'small')}
-                        alt={card.name}
-                        className="w-8 h-auto rounded shadow"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium truncate group-hover:text-emerald-500 transition-colors">
-                            {card.name}
-                          </p>
-                          {isBanned && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-red-500/15 text-red-500 border border-red-500/25 shrink-0">
-                              <Ban className="w-2.5 h-2.5" />
-                              Banned
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {card.type_line}
-                        </p>
-                      </div>
-                      <Plus className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
-                    </button>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </>,
-          document.body
+            </PopoverContent>
+          </Popover>
         )}
       </div>
 
@@ -408,7 +353,7 @@ export function MustIncludeCards() {
         </div>
       )}
 
-      {mustIncludeCards.length === 0 && (
+      {mustIncludeCards.length === 0 && !appliedIncludeLists.some(r => r.enabled) && (
         <p className="text-xs text-muted-foreground">
           Search cards to include{userLists.length > 0
             ? ', or import a List'

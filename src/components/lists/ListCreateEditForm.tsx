@@ -39,7 +39,6 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
   const [commanderSearchedQuery, setCommanderSearchedQuery] = useState('');
   const [commanderField, setCommanderField] = useState<'commander' | 'partner'>('commander');
   const commanderSearchRef = useRef<HTMLDivElement>(null);
-  const [commanderDropdownPos, setCommanderDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   // Derive partner eligibility from the selected commander card
   const partnerType = commanderCard ? getPartnerType(commanderCard) : 'none';
@@ -68,8 +67,6 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
   const isEditing = !!existingList;
 
   // Auto-focus name field on create
@@ -78,20 +75,6 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
       nameInputRef.current?.focus();
     }
   }, [isEditing]);
-
-  const updateDropdownPos = useCallback(() => {
-    if (searchWrapperRef.current) {
-      const rect = searchWrapperRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-  }, []);
-
-  const updateCommanderDropdownPos = useCallback(() => {
-    if (commanderSearchRef.current) {
-      const rect = commanderSearchRef.current.getBoundingClientRect();
-      setCommanderDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-  }, []);
 
   // Debounced commander search
   useEffect(() => {
@@ -112,7 +95,6 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
         }
         setCommanderResults(results.slice(0, 8));
         setCommanderSearchedQuery(commanderQuery);
-        updateCommanderDropdownPos();
         setShowCommanderResults(true);
       } catch {
         setCommanderResults([]);
@@ -122,7 +104,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [commanderQuery, commanderField, commanderCard, updateCommanderDropdownPos]);
+  }, [commanderQuery, commanderField, commanderCard]);
 
   const handleSelectCommander = (card: ScryfallCard) => {
     if (commanderField === 'commander') {
@@ -167,7 +149,6 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
         const filtered = searchResults.data.filter(card => !cards.includes(card.name));
         setResults(filtered.slice(0, 8));
         setSearchedQuery(query);
-        updateDropdownPos();
         setShowResults(true);
       } catch {
         setResults([]);
@@ -177,7 +158,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, cards, updateDropdownPos]);
+  }, [query, cards]);
 
   const handleAddCard = (card: ScryfallCard) => {
     if (!cards.includes(card.name)) {
@@ -353,7 +334,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
               placeholder="Search for a commander..."
               value={commanderField === 'commander' ? commanderQuery : ''}
               onChange={(e) => { setCommanderField('commander'); setCommanderQuery(e.target.value); }}
-              onFocus={() => { setCommanderField('commander'); updateCommanderDropdownPos(); (commanderResults.length > 0) && setShowCommanderResults(true); }}
+              onFocus={() => { setCommanderField('commander'); (commanderResults.length > 0) && setShowCommanderResults(true); }}
               className="pl-9 pr-9 h-9 text-sm bg-background"
             />
             {isSearchingCommander && commanderField === 'commander' && (
@@ -384,7 +365,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
                   placeholder={partnerSearchPlaceholder}
                   value={commanderField === 'partner' ? commanderQuery : ''}
                   onChange={(e) => { setCommanderField('partner'); setCommanderQuery(e.target.value); }}
-                  onFocus={() => { setCommanderField('partner'); updateCommanderDropdownPos(); (commanderResults.length > 0) && setShowCommanderResults(true); }}
+                  onFocus={() => { setCommanderField('partner'); (commanderResults.length > 0) && setShowCommanderResults(true); }}
                   className="pl-9 pr-9 h-9 text-sm bg-background"
                 />
                 {isSearchingCommander && commanderField === 'partner' && (
@@ -395,14 +376,11 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
           </>
         )}
 
-        {/* Commander search dropdown */}
-        {showCommanderResults && commanderResults.length > 0 && commanderDropdownPos && createPortal(
+        {/* Commander search dropdown — anchored to commanderSearchRef */}
+        {showCommanderResults && commanderResults.length > 0 && commanderSearchRef.current && createPortal(
           <>
             <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
-            <Card
-              className="fixed z-[999] max-h-[250px] overflow-auto shadow-xl"
-              style={{ top: commanderDropdownPos.top, left: commanderDropdownPos.left, width: commanderDropdownPos.width }}
-            >
+            <Card className="absolute top-full left-0 right-0 mt-1 z-[999] max-h-[250px] overflow-auto shadow-xl">
               <CardContent className="p-1">
                 {commanderResults.map((card) => (
                   <button
@@ -428,23 +406,20 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
               </CardContent>
             </Card>
           </>,
-          document.body
+          commanderSearchRef.current
         )}
 
         {/* Commander no results */}
-        {showCommanderResults && commanderResults.length === 0 && commanderSearchedQuery.trim() && !isSearchingCommander && commanderDropdownPos && createPortal(
+        {showCommanderResults && commanderResults.length === 0 && commanderSearchedQuery.trim() && !isSearchingCommander && commanderSearchRef.current && createPortal(
           <>
             <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
-            <Card
-              className="fixed z-[999] shadow-xl"
-              style={{ top: commanderDropdownPos.top, left: commanderDropdownPos.left, width: commanderDropdownPos.width }}
-            >
+            <Card className="absolute top-full left-0 right-0 mt-1 z-[999] shadow-xl">
               <CardContent className="p-4 text-center">
                 <p className="text-sm text-muted-foreground">No commanders found for "{commanderSearchedQuery}"</p>
               </CardContent>
             </Card>
           </>,
-          document.body
+          commanderSearchRef.current
         )}
       </div>
 
@@ -480,7 +455,7 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
             placeholder="Search cards to add..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => { updateDropdownPos(); (results.length > 0 || showNoResults) && setShowResults(true); }}
+            onFocus={() => { (results.length > 0 || showNoResults) && setShowResults(true); }}
             className="pl-9 pr-9 h-9 text-sm bg-background"
           />
           {isSearching && (
@@ -488,13 +463,10 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
           )}
 
           {/* Search Results Dropdown */}
-          {showResults && results.length > 0 && dropdownPos && createPortal(
+          {showResults && results.length > 0 && (
             <>
               <div className="fixed inset-0 z-[998]" onClick={() => setShowResults(false)} />
-              <Card
-                className="fixed z-[999] max-h-[250px] overflow-auto shadow-xl"
-                style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
-              >
+              <Card className="absolute top-full left-0 right-0 mt-1 z-[999] max-h-[250px] overflow-auto shadow-xl">
                 <CardContent className="p-1">
                   {results.map((card) => (
                     <button
@@ -520,24 +492,19 @@ export function ListCreateEditForm({ existingList, onSave, onCancel }: ListCreat
                   ))}
                 </CardContent>
               </Card>
-            </>,
-            document.body
+            </>
           )}
 
           {/* No results state */}
-          {showNoResults && dropdownPos && createPortal(
+          {showNoResults && (
             <>
               <div className="fixed inset-0 z-[998]" onClick={() => setShowResults(false)} />
-              <Card
-                className="fixed z-[999] shadow-xl"
-                style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
-              >
+              <Card className="absolute top-full left-0 right-0 mt-1 z-[999] shadow-xl">
                 <CardContent className="p-4 text-center">
                   <p className="text-sm text-muted-foreground">No cards found for "{searchedQuery}"</p>
                 </CardContent>
               </Card>
-            </>,
-            document.body
+            </>
           )}
         </div>
 

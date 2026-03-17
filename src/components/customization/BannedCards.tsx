@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useStore } from '@/store';
 import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
@@ -16,6 +15,80 @@ import type { BanList } from '@/types';
 const CARD_TYPES = ['Battle', 'Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'];
 
 const ALWAYS_ACTIVE_ID = 'rc-banlist';
+
+function BanListPickerContent({ banLists, appliedExcludeLists, userLists, listPickerSearch, setListPickerSearch, onTogglePreset, onToggleBanList, onToggleUserList }: {
+  banLists: BanList[];
+  appliedExcludeLists: { listId: string; enabled: boolean }[];
+  userLists: { id: string; name: string; cards: string[] }[];
+  listPickerSearch: string;
+  setListPickerSearch: (v: string) => void;
+  onTogglePreset: (id: string) => void;
+  onToggleBanList: (id: string) => void;
+  onToggleUserList: (id: string) => void;
+}) {
+  const ALWAYS_ACTIVE = 'rc-banlist';
+  const presets = PRESET_BAN_LISTS.filter(p => p.id !== ALWAYS_ACTIVE);
+  const customBans = banLists.filter(l => !PRESET_BAN_LISTS.some(p => p.id === l.id));
+  const allItems = [
+    ...presets.map(p => ({ id: p.id, name: p.name, count: banLists.find(l => l.id === p.id)?.cards.length ?? 0, enabled: banLists.find(l => l.id === p.id)?.enabled ?? false, kind: 'preset' as const })),
+    ...customBans.map(l => ({ id: l.id, name: l.name, count: l.cards.length, enabled: l.enabled, kind: 'banlist' as const })),
+    ...userLists.map(l => ({ id: l.id, name: l.name, count: l.cards.length, enabled: appliedExcludeLists.find(r => r.listId === l.id)?.enabled ?? false, kind: 'userlist' as const })),
+  ];
+  const filtered = listPickerSearch
+    ? allItems.filter(i => i.name.toLowerCase().includes(listPickerSearch.toLowerCase()))
+    : allItems;
+  return (
+    <>
+      {/* Commander Bans — always active, non-toggleable */}
+      <div className="px-3 py-2 text-sm flex items-center gap-2 opacity-70 cursor-default">
+        <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+        <span className="flex-1">Commander Bans</span>
+        <span className="text-[10px] text-amber-500 shrink-0">Always active</span>
+        <span className="relative group/info">
+          <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+          <span className="absolute bottom-full mb-1 right-0 w-48 px-2 py-1 text-[10px] text-muted-foreground bg-popover border border-border rounded shadow-lg opacity-0 pointer-events-none group-hover/info:opacity-100 transition-opacity leading-tight">
+            EDHREC data already excludes banned cards, so this is always in effect
+          </span>
+        </span>
+      </div>
+      <div className="border-t border-border my-1" />
+      {allItems.length >= 5 && (
+        <div className="px-2 pt-1 pb-1">
+          <input
+            type="text"
+            placeholder="Search lists..."
+            value={listPickerSearch}
+            onChange={e => setListPickerSearch(e.target.value)}
+            className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
+            autoFocus
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
+      <div className="overflow-y-auto">
+        {filtered.map(item => (
+          <button
+            key={item.id}
+            onClick={() => {
+              if (item.kind === 'preset') onTogglePreset(item.id);
+              else if (item.kind === 'banlist') onToggleBanList(item.id);
+              else onToggleUserList(item.id);
+            }}
+            className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
+          >
+            {item.kind === 'preset' ? <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" /> : <ListPlus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+            <span className="truncate flex-1">{item.name}</span>
+            {item.count > 0 && <span className="text-[10px] text-muted-foreground shrink-0">({item.count})</span>}
+            {item.enabled && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+          </button>
+        ))}
+        {filtered.length === 0 && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">No matching lists</p>
+        )}
+      </div>
+    </>
+  );
+}
 
 export function BannedCards() {
   const [query, setQuery] = useState('');
@@ -42,31 +115,6 @@ export function BannedCards() {
 
   const [showListPicker, setShowListPicker] = useState(false);
   const [listPickerSearch, setListPickerSearch] = useState('');
-  const listPickerBtnRef = useRef<HTMLButtonElement>(null);
-  const listPickerDropdownRef = useRef<HTMLDivElement>(null);
-  const [listPickerPos, setListPickerPos] = useState<{ top: number; right: number } | null>(null);
-
-  const updateListPickerPos = useCallback(() => {
-    if (listPickerBtnRef.current) {
-      const rect = listPickerBtnRef.current.getBoundingClientRect();
-      setListPickerPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-    }
-  }, []);
-
-  // Close list picker on outside click
-  useEffect(() => {
-    if (!showListPicker) return;
-    const handleClick = (e: MouseEvent) => {
-      if (
-        listPickerBtnRef.current?.contains(e.target as Node) ||
-        listPickerDropdownRef.current?.contains(e.target as Node)
-      ) return;
-      setShowListPicker(false);
-      setListPickerSearch('');
-    };
-    window.addEventListener('mousedown', handleClick);
-    return () => window.removeEventListener('mousedown', handleClick);
-  }, [showListPicker]);
 
   const handlePickerTogglePreset = async (presetId: string) => {
     const preset = PRESET_BAN_LISTS.find(p => p.id === presetId);
@@ -103,16 +151,6 @@ export function BannedCards() {
     return names;
   }, [banLists]);
 
-  // Ref for positioning the search dropdown via portal
-  const searchWrapperRef = useRef<HTMLDivElement>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
-
-  const updateDropdownPos = useCallback(() => {
-    if (searchWrapperRef.current) {
-      const rect = searchWrapperRef.current.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-  }, []);
 
   // Track card name → primary type for grouping
   const [typeMap, setTypeMap] = useState<Record<string, string>>({});
@@ -185,11 +223,10 @@ export function BannedCards() {
           card => !bannedCards.includes(card.name)
         );
         setResults(filtered.slice(0, 8));
-        updateDropdownPos();
         setShowResults(true);
-      } catch (error) {
-        console.error('Search error:', error);
+      } catch {
         setResults([]);
+        setShowResults(true);
       } finally {
         setIsSearching(false);
       }
@@ -246,149 +283,86 @@ export function BannedCards() {
 
       {/* Search Input + List Picker */}
       <div className="flex gap-1.5">
-        <div className="relative flex-1" ref={searchWrapperRef}>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search cards to exclude..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => { updateDropdownPos(); results.length > 0 && setShowResults(true); }}
-            className="pl-9 pr-9 h-9 text-sm rounded-lg"
-          />
-          {isSearching && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
-          )}
-        </div>
-        <button
-          ref={listPickerBtnRef}
-          onClick={() => { setShowListPicker(prev => { if (!prev) updateListPickerPos(); return !prev; }); setListPickerSearch(''); }}
-          className={`h-9 w-9 flex items-center justify-center rounded-lg border transition-colors ${showListPicker ? 'bg-accent border-border text-foreground' : 'border-border hover:bg-accent text-muted-foreground'}`}
-          title="Apply a list or ban list"
-        >
-          <ListPlus className="w-4 h-4" />
-        </button>
-        {showListPicker && listPickerPos && createPortal(
-          (() => {
-            const ALWAYS_ACTIVE = 'rc-banlist';
-            const presets = PRESET_BAN_LISTS.filter(p => p.id !== ALWAYS_ACTIVE);
-            const customBans = banLists.filter(l => !PRESET_BAN_LISTS.some(p => p.id === l.id));
-            const allItems = [
-              ...presets.map(p => ({ id: p.id, name: p.name, count: banLists.find(l => l.id === p.id)?.cards.length ?? 0, enabled: banLists.find(l => l.id === p.id)?.enabled ?? false, kind: 'preset' as const })),
-              ...customBans.map(l => ({ id: l.id, name: l.name, count: l.cards.length, enabled: l.enabled, kind: 'banlist' as const })),
-              ...userLists.map(l => ({ id: l.id, name: l.name, count: l.cards.length, enabled: appliedExcludeLists.find(r => r.listId === l.id)?.enabled ?? false, kind: 'userlist' as const })),
-            ];
-            const filtered = listPickerSearch
-              ? allItems.filter(i => i.name.toLowerCase().includes(listPickerSearch.toLowerCase()))
-              : allItems;
-            return (
-              <div ref={listPickerDropdownRef} className="fixed w-64 bg-card border border-border rounded-lg shadow-2xl py-1 z-[999] max-h-72 flex flex-col" style={{ top: listPickerPos.top, right: listPickerPos.right }}>
-                {/* Commander Bans — always active, non-toggleable */}
-                <div className="px-3 py-2 text-sm flex items-center gap-2 opacity-70 cursor-default">
-                  <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span className="flex-1">Commander Bans</span>
-                  <span className="text-[10px] text-amber-500 shrink-0">Always active</span>
-                  <span className="relative group/info">
-                    <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                    <span className="absolute bottom-full mb-1 right-0 w-48 px-2 py-1 text-[10px] text-muted-foreground bg-popover border border-border rounded shadow-lg opacity-0 pointer-events-none group-hover/info:opacity-100 transition-opacity leading-tight">
-                      EDHREC data already excludes banned cards, so this is always in effect
-                    </span>
-                  </span>
-                </div>
-                <div className="border-t border-border my-1" />
-                {allItems.length >= 5 && (
-                  <div className="px-2 pt-1 pb-1">
-                    <input
-                      type="text"
-                      placeholder="Search lists..."
-                      value={listPickerSearch}
-                      onChange={e => setListPickerSearch(e.target.value)}
-                      className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
-                      autoFocus
-                      onClick={e => e.stopPropagation()}
-                    />
+        <Popover open={showResults && (results.length > 0 || (query.trim().length > 0 && !isSearching))} onOpenChange={(open) => { if (!open) setShowResults(false); }}>
+          <PopoverTrigger asChild>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search cards to exclude..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => { results.length > 0 && setShowResults(true); }}
+                className="pl-9 pr-9 h-9 text-sm rounded-lg"
+              />
+              {isSearching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+              )}
+            </div>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1 max-h-[250px] overflow-auto">
+            {results.length === 0 && query.trim() && !isSearching && (
+              <p className="px-3 py-2.5 text-xs text-muted-foreground text-center">
+                No valid cards found for your commander matching "{query.trim()}"
+              </p>
+            )}
+            {results.map((card) => {
+              const isBanned = banListCardNames.has(card.name.toLowerCase());
+              return (
+                <button
+                  key={card.id}
+                  onClick={() => handleBanCard(card)}
+                  className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
+                >
+                  <img
+                    src={getCardImageUrl(card, 'small')}
+                    alt={card.name}
+                    className="w-8 h-auto rounded shadow"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium truncate group-hover:text-destructive transition-colors">
+                        {card.name}
+                      </p>
+                      {isBanned && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-red-500/15 text-red-500 border border-red-500/25 shrink-0">
+                          <Ban className="w-2.5 h-2.5" />
+                          Banned
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {card.type_line}
+                    </p>
                   </div>
-                )}
-                <div className="overflow-y-auto">
-                  {filtered.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        if (item.kind === 'preset') handlePickerTogglePreset(item.id);
-                        else if (item.kind === 'banlist') updateCustomization({ banLists: banLists.map(l => l.id === item.id ? { ...l, enabled: !l.enabled } : l) });
-                        else handlePickerToggleUserList(item.id);
-                      }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
-                    >
-                      {item.kind === 'preset' ? <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" /> : <ListPlus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                      <span className="truncate flex-1">{item.name}</span>
-                      {item.count > 0 && <span className="text-[10px] text-muted-foreground shrink-0">({item.count})</span>}
-                      {item.enabled && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
-                    </button>
-                  ))}
-                  {filtered.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">No matching lists</p>
-                  )}
-                </div>
-              </div>
-            );
-          })(),
-          document.body
-        )}
-      </div>
-      <div className="relative">
-        {/* Anchor for search results portal */}
-
-        {/* Search Results Dropdown — rendered via portal to escape overflow-hidden */}
-        {showResults && results.length > 0 && dropdownPos && createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[998]"
-              onClick={() => setShowResults(false)}
-            />
-            <Card
-              className="fixed z-[999] max-h-[250px] overflow-auto shadow-xl"
-              style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+                  <Plus className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
+                </button>
+              );
+            })}
+          </PopoverContent>
+        </Popover>
+        <Popover open={showListPicker} onOpenChange={(open) => { setShowListPicker(open); if (!open) setListPickerSearch(''); }}>
+          <PopoverTrigger asChild>
+            <button
+              className="h-9 w-9 flex items-center justify-center rounded-lg border-2 border-input transition-colors focus:outline-none focus-visible:ring-0 hover:bg-accent text-muted-foreground"
+              title="Apply a list or ban list"
             >
-              <CardContent className="p-1">
-                {results.map((card) => {
-                  const isBanned = banListCardNames.has(card.name.toLowerCase());
-                  return (
-                    <button
-                      key={card.id}
-                      onClick={() => handleBanCard(card)}
-                      className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
-                    >
-                      <img
-                        src={getCardImageUrl(card, 'small')}
-                        alt={card.name}
-                        className="w-8 h-auto rounded shadow"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium truncate group-hover:text-destructive transition-colors">
-                            {card.name}
-                          </p>
-                          {isBanned && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold rounded bg-red-500/15 text-red-500 border border-red-500/25 shrink-0">
-                              <Ban className="w-2.5 h-2.5" />
-                              Banned
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {card.type_line}
-                        </p>
-                      </div>
-                      <Plus className="w-4 h-4 text-muted-foreground group-hover:text-destructive transition-colors" />
-                    </button>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </>,
-          document.body
-        )}
+              <ListPlus className="w-4 h-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 py-1 max-h-72 flex flex-col">
+            <BanListPickerContent
+              banLists={banLists}
+              appliedExcludeLists={appliedExcludeLists}
+              userLists={userLists}
+              listPickerSearch={listPickerSearch}
+              setListPickerSearch={setListPickerSearch}
+              onTogglePreset={handlePickerTogglePreset}
+              onToggleBanList={(id) => updateCustomization({ banLists: banLists.map(l => l.id === id ? { ...l, enabled: !l.enabled } : l) })}
+              onToggleUserList={handlePickerToggleUserList}
+            />
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Banned Cards List — grouped by type */}
@@ -451,7 +425,7 @@ export function BannedCards() {
         </div>
       )}
 
-      {bannedCards.length === 0 && banLists.filter(l => l.enabled).length === 0 && (
+      {bannedCards.length === 0 && banLists.filter(l => l.enabled).length === 0 && !appliedExcludeLists.some(r => r.enabled) && (
         <p className="text-xs text-muted-foreground">
           Search cards to exclude{userLists.length > 0
             ? ', or import a List'

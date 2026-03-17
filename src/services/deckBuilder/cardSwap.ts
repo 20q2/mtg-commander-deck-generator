@@ -83,17 +83,16 @@ export function swapCard(
   // Recalculate stats
   const newStats = calculateStats(newCategories);
 
-  // Update swap candidates: remove new card, add old card back
+  // Update swap candidates: remove new card from the pool (don't add old card back —
+  // the user explicitly replaced it, so it shouldn't resurface as a suggestion for other cards)
   let newSwapCandidates = deck.swapCandidates;
   if (deck.swapCandidates) {
     newSwapCandidates = { ...deck.swapCandidates };
-    const key = oldCard.deckRole ?? getPrimaryTypeKey(oldCard);
-    if (key) {
-      const pool = newSwapCandidates[key] ?? [];
-      newSwapCandidates[key] = [
-        ...pool.filter(c => c.name !== newCard.name),
-        oldCard,
-      ];
+    for (const key of Object.keys(newSwapCandidates)) {
+      const pool = newSwapCandidates[key];
+      if (pool.some(c => c.name === newCard.name)) {
+        newSwapCandidates[key] = pool.filter(c => c.name !== newCard.name);
+      }
     }
   }
 
@@ -153,6 +152,29 @@ export function swapCard(
     if (newDetectedCombos.length === 0) newDetectedCombos = undefined;
   }
 
+  // Update inclusion map and deck score
+  let newCardInclusionMap = deck.cardInclusionMap;
+  let newDeckScore = deck.deckScore;
+  if (deck.cardInclusionMap) {
+    newCardInclusionMap = { ...deck.cardInclusionMap };
+    const oldName = oldCard.name;
+    const oldNorm = oldName.includes(' // ') ? oldName.split(' // ')[0] : oldName;
+    const oldIncl = newCardInclusionMap[oldName] ?? newCardInclusionMap[oldNorm] ?? 0;
+    delete newCardInclusionMap[oldName];
+    delete newCardInclusionMap[oldNorm];
+
+    // Look up new card's inclusion from gap analysis
+    const newName = newCard.name;
+    const newNorm = newName.includes(' // ') ? newName.split(' // ')[0] : newName;
+    const gapEntry = deck.gapAnalysis?.find(g => g.name === newName || g.name === newNorm);
+    const newIncl = gapEntry ? gapEntry.inclusion : 0;
+    newCardInclusionMap[newName] = newIncl;
+
+    if (newDeckScore !== undefined) {
+      newDeckScore = Math.round(newDeckScore - oldIncl + newIncl);
+    }
+  }
+
   return {
     deck: {
       ...deck,
@@ -165,6 +187,8 @@ export function swapCard(
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
       detectedCombos: newDetectedCombos,
+      cardInclusionMap: newCardInclusionMap,
+      deckScore: newDeckScore,
     },
     success: true,
   };
@@ -184,7 +208,8 @@ function getPrimaryTypeKey(card: ScryfallCard): string | null {
 }
 
 /**
- * Get swap candidates for a card based on its deckRole or card type.
+ * Get swap candidates for a card based on its deckRole and/or card type.
+ * Tries role bucket first, then type bucket, then merges both if primary is thin.
  * Returns empty array if deck has no candidates.
  */
 export function getSwapCandidatesForCard(
@@ -192,10 +217,35 @@ export function getSwapCandidatesForCard(
   card: ScryfallCard,
 ): ScryfallCard[] {
   if (!deck.swapCandidates) return [];
-  // Role-based lookup for tagged cards
-  if (card.deckRole) return deck.swapCandidates[card.deckRole] ?? [];
-  // Type-based fallback for non-role cards
+
+  // Build a set of name variants to exclude (handles DFC "Front // Back" vs "Front")
+  const selfNames = new Set<string>([card.name]);
+  if (card.name.includes(' // ')) selfNames.add(card.name.split(' // ')[0]);
+
+  const isSelf = (c: ScryfallCard) => selfNames.has(c.name);
+  const roleCandidates = card.deckRole
+    ? (deck.swapCandidates[card.deckRole] ?? []).filter(c => !isSelf(c))
+    : [];
   const typeKey = getPrimaryTypeKey(card);
-  if (typeKey) return deck.swapCandidates[typeKey] ?? [];
+  const typeCandidates = typeKey
+    ? (deck.swapCandidates[typeKey] ?? []).filter(c => !isSelf(c))
+    : [];
+
+  // If role bucket has enough candidates, use it
+  if (roleCandidates.length >= 3) return roleCandidates;
+
+  // If role bucket is thin/empty, merge with type bucket (role first, then type, deduped)
+  if (roleCandidates.length > 0 || typeCandidates.length > 0) {
+    const seen = new Set(roleCandidates.map(c => c.name));
+    const merged = [...roleCandidates];
+    for (const c of typeCandidates) {
+      if (!seen.has(c.name)) {
+        seen.add(c.name);
+        merged.push(c);
+      }
+    }
+    return merged;
+  }
+
   return [];
 }

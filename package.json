@@ -1,7 +1,7 @@
 {
   "name": "mtg-deck-builder",
   "private": true,
-  "version": "1.2.10",
+  "version": "1.2.11",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "^5.60.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

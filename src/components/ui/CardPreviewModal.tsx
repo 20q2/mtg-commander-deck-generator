@@ -54,6 +54,10 @@ interface CardPreviewModalProps {
   cardIndex?: number;
   /** Total navigable cards for position indicator */
   totalCards?: number;
+  /** EDHREC inclusion % map for showing scores on swap candidates */
+  cardInclusionMap?: Record<string, number> | null;
+  /** Whether to show price overlays on swap candidate thumbnails */
+  showPrice?: boolean;
 }
 
 function renderComboEntry(
@@ -108,7 +112,7 @@ function renderComboEntry(
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, showPrice }: CardPreviewModalProps) {
   const commander = useStore((s) => s.commander);
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
@@ -399,11 +403,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
           <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
       )}
-      {/* Card position indicator */}
-      {hasNav && cardIndex != null && totalCards != null && (
+      {/* Card position indicator — fixed when swap section is closed */}
+      {hasNav && cardIndex != null && totalCards != null && !(hasSwapSection && showSwaps) && (
         <div
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] bg-black/60 backdrop-blur-sm text-white/70 text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
-          onClick={(e) => e.stopPropagation()}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[55] bg-black/60 backdrop-blur-sm text-white/70 text-xs font-medium px-3 py-1.5 rounded-full shadow-lg pointer-events-none"
         >
           {cardIndex + 1} / {totalCards}
         </div>
@@ -631,27 +634,55 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 </div>
                 <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
                   {/* Original card — highlighted */}
-                  <button
-                    type="button"
-                    onClick={() => setSwapPreview(null)}
-                    className={`text-center transition-opacity ${
-                      !swapPreview ? '' : 'opacity-60 hover:opacity-100'
-                    }`}
-                  >
-                    <img
-                      src={getCardImageUrl(card, 'small')}
-                      alt={card.name}
-                      className={`w-full rounded-lg border-2 transition-colors ${
-                        !swapPreview ? 'border-cyan-400' : 'border-cyan-400/40'
-                      }`}
-                    />
-                    <div className={`text-[10px] mt-1 truncate flex items-center justify-center gap-1 ${!swapPreview ? 'text-cyan-300 font-medium' : 'text-white/70'}`}>
-                      <CardTypeIcon type={getCardType(card)} size="sm" className="opacity-60 shrink-0" />
-                      {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
-                    </div>
-                  </button>
+                  {(() => {
+                    const origNorm = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+                    const origIncl = cardInclusionMap ? (cardInclusionMap[card.name] ?? cardInclusionMap[origNorm] ?? null) : null;
+                    const origPct = origIncl != null ? Math.round(origIncl) : null;
+                    const origPrice = showPrice ? getCardPrice(card, currency) : null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setSwapPreview(null)}
+                        className={`text-center transition-opacity ${
+                          !swapPreview ? '' : 'opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <div className="relative">
+                          <img
+                            src={getCardImageUrl(card, 'small')}
+                            alt={card.name}
+                            className={`w-full rounded-lg border-2 transition-colors ${
+                              !swapPreview ? 'border-cyan-400' : 'border-cyan-400/40'
+                            }`}
+                          />
+                          {origPct != null && (
+                            <span
+                              className="absolute top-1 left-1 bg-black/80 text-[9px] px-1 rounded font-medium"
+                              style={{ color: `hsl(${(origPct / 100) * 120}, 70%, 55%)` }}
+                            >
+                              {origPct}%
+                            </span>
+                          )}
+                          {origPrice && (
+                            <span className="absolute bottom-1 right-1 bg-black/80 text-white/80 text-[9px] px-1 rounded font-medium">
+                              {sym}{parseFloat(origPrice).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                        <div className={`text-[10px] mt-1 truncate flex items-center justify-center gap-1 ${!swapPreview ? 'text-cyan-300 font-medium' : 'text-white/70'}`}>
+                          <CardTypeIcon type={getCardType(card)} size="sm" className="opacity-60 shrink-0" />
+                          {origNorm}
+                        </div>
+                      </button>
+                    );
+                  })()}
                   {/* Candidates */}
-                  {sortedSwapCandidates?.map((candidate) => (
+                  {sortedSwapCandidates?.map((candidate) => {
+                    const candNorm = candidate.name.includes(' // ') ? candidate.name.split(' // ')[0] : candidate.name;
+                    const candIncl = cardInclusionMap ? (cardInclusionMap[candidate.name] ?? cardInclusionMap[candNorm] ?? null) : null;
+                    const candPct = candIncl != null ? Math.round(candIncl) : null;
+                    const candPrice = showPrice ? getCardPrice(candidate, currency) : null;
+                    return (
                     <button
                       key={candidate.id}
                       type="button"
@@ -660,27 +691,51 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                         swapPreview && swapPreview.id !== candidate.id ? 'opacity-60 hover:opacity-100' : ''
                       }`}
                     >
-                      <img
-                        src={getCardImageUrl(candidate, 'small')}
-                        alt={candidate.name}
-                        className={`w-full rounded-lg border-2 transition-colors ${
-                          swapPreview?.id === candidate.id
-                            ? 'border-cyan-400'
-                            : 'border-white/10 group-hover:border-cyan-400/40'
-                        }`}
-                      />
+                      <div className="relative">
+                        <img
+                          src={getCardImageUrl(candidate, 'small')}
+                          alt={candidate.name}
+                          className={`w-full rounded-lg border-2 transition-colors ${
+                            swapPreview?.id === candidate.id
+                              ? 'border-cyan-400'
+                              : 'border-white/10 group-hover:border-cyan-400/40'
+                          }`}
+                        />
+                        {candPct != null && (
+                          <span
+                            className="absolute top-1 left-1 bg-black/80 text-[9px] px-1 rounded font-medium"
+                            style={{ color: `hsl(${(candPct / 100) * 120}, 70%, 55%)` }}
+                          >
+                            {candPct}%
+                          </span>
+                        )}
+                        {candPrice && (
+                          <span className="absolute bottom-1 right-1 bg-black/80 text-white/80 text-[9px] px-1 rounded font-medium">
+                            {sym}{parseFloat(candPrice).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
                       <div className={`text-[10px] mt-1 truncate transition-colors flex items-center justify-center gap-1 ${
                         swapPreview?.id === candidate.id
                           ? 'text-cyan-300 font-medium'
                           : 'text-white/70 group-hover:text-cyan-300'
                       }`}>
                         <CardTypeIcon type={getCardType(candidate)} size="sm" className="opacity-60 shrink-0" />
-                        {candidate.name.includes(' // ') ? candidate.name.split(' // ')[0] : candidate.name}
+                        {candNorm}
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
+              {/* Inline card position indicator when swaps are open */}
+              {hasNav && cardIndex != null && totalCards != null && (
+                <div className="text-center mt-3">
+                  <span className="bg-black/60 backdrop-blur-sm text-white/70 text-xs font-medium px-3 py-1.5 rounded-full">
+                    {cardIndex + 1} / {totalCards}
+                  </span>
+                </div>
+              )}
           </div>
         )}
 

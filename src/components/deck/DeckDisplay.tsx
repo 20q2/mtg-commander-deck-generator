@@ -29,10 +29,12 @@ import {
   Ban,
   Plus,
   Trash2,
+  Eye,
 } from 'lucide-react';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { PieChart } from '@/components/ui/pie-chart';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
@@ -270,9 +272,11 @@ interface CardRowProps {
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   isOwned?: boolean;
   isMustIncludeLive?: boolean;
+  inclusionPercent?: number | null;
+  showPrice?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, inclusionPercent, showPrice = true }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -367,9 +371,20 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
         </span>
       </span>
       <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
-      <span className={`text-xs w-10 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
-        {price}
-      </span>
+      {inclusionPercent != null && (() => {
+        const pct = Math.round(inclusionPercent);
+        const hue = (pct / 100) * 120; // 0%=red, 50%=yellow, 100%=green
+        return (
+          <span className="text-[10px] w-7 text-right shrink-0" style={{ color: `hsl(${hue}, 70%, 55%)` }} title={`${pct}% of EDHREC decks include this card`}>
+            {pct}%
+          </span>
+        );
+      })()}
+      {showPrice && (
+        <span className={`text-xs w-10 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
+          {price}
+        </span>
+      )}
     </div>
   );
 });
@@ -393,9 +408,11 @@ interface CategoryColumnProps {
   onToggleCategory?: (cardIds: string[]) => void;
   collectionNames?: Set<string> | null;
   mustIncludeNames?: Set<string>;
+  cardInclusionMap?: Record<string, number> | null;
+  showPrice?: boolean;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, cardInclusionMap, showPrice = true }: CategoryColumnProps) {
   const [animateRef] = useAutoAnimate({ duration: 200 });
 
   if (cards.length === 0) return null;
@@ -440,7 +457,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
             {type} ({totalCards})
           </span>
         </div>
-        {totalPrice > 0 && (
+        {showPrice && totalPrice > 0 && (
           <span className="text-muted-foreground text-xs">
             {sym}{totalPrice.toFixed(2)}
           </span>
@@ -472,6 +489,8 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               onToggleSelect={onToggleSelect}
               isOwned={collectionNames ? collectionNames.has(card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name) : undefined}
               isMustIncludeLive={mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude}
+              inclusionPercent={cardInclusionMap ? (cardInclusionMap[card.name] ?? cardInclusionMap[normalizedName] ?? null) : null}
+              showPrice={showPrice}
             />
           );
         })}
@@ -749,9 +768,10 @@ interface DeckStatsProps {
   onFilterChange: (filter: StatsFilter) => void;
   showRoles: boolean;
   onToggleRoles: () => void;
+  hideHeader?: boolean;
 }
 
-function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader }: DeckStatsProps) {
   const { generatedDeck, colorIdentity } = useStore();
   if (!generatedDeck) return null;
 
@@ -783,9 +803,43 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles }: D
 
   return (
     <div className="bg-card/50 rounded-lg border border-border/50 p-4 space-y-5">
-      <div className="flex items-center justify-between">
-        <h3 className="font-medium text-sm uppercase tracking-wide text-muted-foreground">Statistics</h3>
-        {activeFilter && (
+      {!hideHeader && (
+        <>
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium text-sm uppercase tracking-wide text-muted-foreground">Statistics</h3>
+            {activeFilter && (
+              <button
+                onClick={() => onFilterChange(activeFilter)}
+                className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 rounded-full px-2.5 py-0.5 hover:bg-primary/20 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                <span>
+                  {activeFilter.type === 'cmc' && `CMC ${activeFilter.value === 7 ? '7+' : activeFilter.value}`}
+                  {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
+                  {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
+                  {activeFilter.type === 'role' && `${
+                    ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
+                  }`}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {/* Basic Stats */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-accent/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-primary">{totalCardsWithCommander}</div>
+              <div className="text-xs text-muted-foreground">Cards</div>
+            </div>
+            <div className="bg-accent/30 rounded-lg p-3 text-center">
+              <div className="text-2xl font-bold text-primary">{stats.averageCmc}</div>
+              <div className="text-xs text-muted-foreground">Avg CMC</div>
+            </div>
+          </div>
+        </>
+      )}
+      {hideHeader && activeFilter && (
+        <div className="flex justify-end">
           <button
             onClick={() => onFilterChange(activeFilter)}
             className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 rounded-full px-2.5 py-0.5 hover:bg-primary/20 transition-colors"
@@ -800,20 +854,9 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles }: D
               }`}
             </span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Basic Stats */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-accent/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-primary">{totalCardsWithCommander}</div>
-          <div className="text-xs text-muted-foreground">Cards</div>
-        </div>
-        <div className="bg-accent/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-primary">{stats.averageCmc}</div>
-          <div className="text-xs text-muted-foreground">Avg CMC</div>
-        </div>
-      </div>
 
       {/* Mana Curve */}
       <div>
@@ -1135,7 +1178,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price' | 'score'>('name');
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1145,9 +1188,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const tempBannedRef = useRef(customization.tempBannedCards || []);
   tempBannedRef.current = customization.tempBannedCards || [];
   const [showRoles, setShowRoles] = useState(() => localStorage.getItem('deckRolesOpen') === 'true');
+  const [showPrice, setShowPrice] = useState(() => localStorage.getItem('mtg-deck-show-price') !== 'false');
+  const [showInclusion, setShowInclusion] = useState(() => localStorage.getItem('mtg-deck-show-inclusion') === 'true');
   const [showCollectionChecks, setShowCollectionChecks] = useState(
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
+  const [showMenu, setShowMenu] = useState(false);
+  const showMenuRef = useRef<HTMLDivElement>(null);
+  const showMenuMobileRef = useRef<HTMLDivElement>(null);
+  const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
@@ -1155,6 +1204,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [addToTab, setAddToTabRaw] = useState<'lists' | 'deck'>(lastAddToTab);
   const setAddToTab = useCallback((tab: 'lists' | 'deck') => { lastAddToTab = tab; setAddToTabRaw(tab); }, []);
   const [listSearchQuery, setListSearchQuery] = useState('');
+  const [newListName, setNewListName] = useState('');
+  const [showNewListInput, setShowNewListInput] = useState(false);
+  const newListInputRef = useRef<HTMLInputElement>(null);
   const addToDropdownRef = useRef<HTMLDivElement>(null);
   const lastSelectedIdRef = useRef<string | null>(null);
   const flatCardOrderRef = useRef<string[]>([]);
@@ -1169,6 +1221,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     window.addEventListener('prefs-changed', handler);
     return () => window.removeEventListener('prefs-changed', handler);
   }, []);
+
+  // Close show menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        showMenuRef.current && !showMenuRef.current.contains(e.target as Node) &&
+        (!showMenuMobileRef.current || !showMenuMobileRef.current.contains(e.target as Node))
+      ) { setShowMenu(false); }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showMenu]);
 
   // Load collection names for "owned" indicators
   useEffect(() => {
@@ -1232,15 +1297,21 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
   // Clear state when a completely different deck is loaded (not incremental updates)
   const deckIdentity = generatedDeck?.commander?.name ?? null;
+  const prevDeckRef = useRef(generatedDeck);
   const prevDeckIdentityRef = useRef(deckIdentity);
   useEffect(() => {
-    if (prevDeckIdentityRef.current !== deckIdentity) {
-      prevDeckIdentityRef.current = deckIdentity;
-      setRemovedCards(new Set());
+    const commanderChanged = prevDeckIdentityRef.current !== deckIdentity;
+    const deckRegenerated = prevDeckRef.current !== generatedDeck;
+    prevDeckIdentityRef.current = deckIdentity;
+    prevDeckRef.current = generatedDeck;
+    if (commanderChanged) {
       setIsEditMode(false);
       setSelectedCards(new Set());
     }
-  }, [deckIdentity]);
+    if (commanderChanged || deckRegenerated) {
+      setRemovedCards(new Set());
+    }
+  }, [deckIdentity, generatedDeck]);
 
   const handleToggleRoles = useCallback(() => {
     setShowRoles(prev => {
@@ -1390,6 +1461,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           const priceB = parseFloat(getCardPrice(b.card, customization.currency) || '0');
           return priceB - priceA;
         }
+        if (sortBy === 'score') {
+          const inclMap = generatedDeck?.cardInclusionMap;
+          const getIncl = (name: string) => {
+            if (!inclMap) return 0;
+            return inclMap[name] ?? (name.includes(' // ') ? inclMap[name.split(' // ')[0]] : 0) ?? 0;
+          };
+          return getIncl(b.card.name) - getIncl(a.card.name) || a.card.name.localeCompare(b.card.name);
+        }
         return 0;
       });
 
@@ -1484,10 +1563,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
 
     setToastMessage(`Replacing ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''}...`);
-    handleExitEditMode();
+    setSelectedCards(new Set());
     // Trigger regeneration immediately
     handleRegenerate();
-  }, [selectedCards, groupedCards, updateCustomization, handleExitEditMode, handleRegenerate]);
+  }, [selectedCards, groupedCards, updateCustomization, handleRegenerate]);
 
   const handleBanSelected = useCallback(() => {
     const allCards = Object.values(groupedCards).flat();
@@ -1530,9 +1609,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
 
     setToastMessage(`Banned ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''} — regenerating...`);
-    handleExitEditMode();
+    setSelectedCards(new Set());
     handleRegenerate();
-  }, [selectedCards, groupedCards, customization, updateCustomization, handleExitEditMode, handleRegenerate, commander]);
+  }, [selectedCards, groupedCards, customization, updateCustomization, handleRegenerate, commander]);
 
   const getSelectedCardNames = useCallback((): string[] => {
     const allCards = Object.values(groupedCards).flat();
@@ -1624,12 +1703,16 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     setSelectedCards(new Set());
   }, [getSelectedCardNames, userLists, updateList]);
 
-  const handleAddToNewList = useCallback(() => {
+  const handleAddToNewList = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
     const names = getSelectedCardNames();
     if (names.length === 0) return;
-    createList(`Selected Cards`, names);
-    setToastMessage(`Created new list with ${names.length} card${names.length !== 1 ? 's' : ''}`);
+    createList(trimmed, names);
+    setToastMessage(`Created "${trimmed}" with ${names.length} card${names.length !== 1 ? 's' : ''}`);
     setShowAddToDropdown(false);
+    setShowNewListInput(false);
+    setNewListName('');
     setListSearchQuery('');
     setSelectedCards(new Set());
   }, [getSelectedCardNames, createList]);
@@ -1640,6 +1723,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const handleClick = (e: MouseEvent) => {
       if (addToDropdownRef.current && !addToDropdownRef.current.contains(e.target as Node)) {
         setShowAddToDropdown(false);
+        setShowNewListInput(false);
+        setNewListName('');
         setListSearchQuery('');
       }
     };
@@ -1776,6 +1861,12 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const price = parseFloat(getCardPrice(c.card, customization.currency) || '0');
     return sum + (isNaN(price) ? 0 : price * c.quantity);
   }, 0);
+  const nonOwnedPrice = (customization.ignoreOwnedBudget && collectionNames) ? allGroupedCards.reduce((sum, c) => {
+    const name = c.card.name.includes(' // ') ? c.card.name.split(' // ')[0] : c.card.name;
+    if (collectionNames.has(name)) return sum;
+    const price = parseFloat(getCardPrice(c.card, customization.currency) || '0');
+    return sum + (isNaN(price) ? 0 : price * c.quantity);
+  }, 0) : null;
   const sym = customization.currency === 'EUR' ? '€' : '$';
 
   const budgetActive = customization.maxCardPrice !== null ||
@@ -1821,22 +1912,62 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   return (
     <>
       <div className="animate-slide-up">
-        {/* Header */}
-        <div className={`flex items-center justify-between mb-4 flex-wrap gap-3 ${searchQuery ? 'sticky top-[73px] z-30 bg-background/95 backdrop-blur-sm py-3 -mx-1 px-1 border-b border-border/30' : ''}`}>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+        {/* Header + Mobile Stats combined card */}
+        <div className="bg-card/50 rounded-lg border border-border/50 mb-4 xl:contents">
+        <div className="flex items-center justify-between p-3 xl:p-0 xl:mb-4 flex-wrap gap-3">
+          <div className="hidden xl:flex items-center gap-2 sm:gap-3 flex-wrap">
             {/* Sort */}
             <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">SORT:</span>
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price')}
+                onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price' | 'score')}
                 className="bg-transparent text-xs text-primary font-medium focus:outline-none cursor-pointer"
               >
                 <option value="name">NAME</option>
                 <option value="cmc">CMC</option>
                 <option value="price">PRICE</option>
+                {showInclusion && generatedDeck?.cardInclusionMap && <option value="score">INCLUSION</option>}
               </select>
+            </div>
+
+            {/* Show Toggles */}
+            <div className="relative" ref={showMenuRef}>
+              <button
+                onClick={() => setShowMenu(v => !v)}
+                className={`flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs transition-colors ${showMenu ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Eye className="w-4 h-4" />
+                <span className="hidden sm:inline">Show</span>
+              </button>
+              {showMenu && (
+                <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 space-y-1 min-w-[160px]">
+                  {[
+                    { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
+                    { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, hasInfo: true },
+                    { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
+                    { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
+                  ].filter(o => !o.hide).map(opt => (
+                    <div key={opt.key} className="relative flex items-center">
+                      <button
+                        onClick={opt.toggle}
+                        className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${opt.value ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                      >
+                        <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${opt.value ? 'bg-primary border-primary' : 'border-border'}`}>
+                          {opt.value && <Check className="w-2 h-2 text-primary-foreground" />}
+                        </span>
+                        {opt.label}
+                      </button>
+                      {'hasInfo' in opt && opt.hasInfo && (
+                        <InfoTooltip text="Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick.">
+                          <Info className="w-3 h-3" />
+                        </InfoTooltip>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* View Toggle */}
@@ -1899,7 +2030,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
             <div className="text-sm text-muted-foreground">
-              {totalCards} cards · {sym}{totalPrice.toFixed(2)}
+              {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
+              {showPrice && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
+                <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
+              )}
               {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
                 <span className="text-xs">
                   {' · '}
@@ -1907,14 +2041,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
                     boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
                   ].filter(Boolean).join(' · ')}
-                </span>
-              )}
-              {generatedDeck.builtFromCollection && (
-                <span className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                  From My Collection
                 </span>
               )}
               {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
@@ -1938,12 +2064,48 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {pendingRegenerate ? 'Regenerating...' : 'Regenerate'}
               </Button>
             )}
-            <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
-              <Copy className="w-4 h-4 mr-2" />
-              Export
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              {generatedDeck.builtFromCollection && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  {customization.collectionStrategy === 'partial'
+                    ? `Collection (${customization.collectionOwnedPercent}% owned)`
+                    : 'From My Collection'}
+                </span>
+              )}
+              <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
+                <Copy className="w-4 h-4 mr-2" />
+                Export
+              </Button>
+            </div>
           </div>
         </div>
+
+        {/* Stats - Mobile/Tablet (inside combined card) */}
+        <div className="xl:hidden border-t border-border/30">
+          <button
+            onClick={() => setMobileStatsOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-card/70"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Statistics</span>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
+                <span>{(generatedDeck.stats.totalCards + (generatedDeck.commander ? 1 : 0) + (generatedDeck.partnerCommander ? 1 : 0))} cards</span>
+                <span>·</span>
+                <span>{generatedDeck.stats.averageCmc} avg CMC</span>
+              </div>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${mobileStatsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {mobileStatsOpen && (
+            <div className="px-4 pb-3">
+              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader />
+            </div>
+          )}
+        </div>
+        </div>{/* end combined card */}
 
         {regenerateProgress !== undefined && (
           <div className="mb-4">
@@ -1990,9 +2152,115 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
         )}
 
-        {/* Stats - Mobile/Tablet (above deck list) */}
-        <div className="xl:hidden mb-6">
-          <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
+        {/* Toolbar - Mobile/Tablet (below stats, above deck) */}
+        <div className="xl:hidden flex items-center gap-2 flex-wrap mb-4">
+          {/* Sort */}
+          <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
+            <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price' | 'score')}
+              className="bg-transparent text-xs text-primary font-medium focus:outline-none cursor-pointer"
+            >
+              <option value="name">NAME</option>
+              <option value="cmc">CMC</option>
+              <option value="price">PRICE</option>
+              {showInclusion && generatedDeck?.cardInclusionMap && <option value="score">INCLUSION</option>}
+            </select>
+          </div>
+
+          {/* Show Toggles */}
+          <div className="relative" ref={showMenuMobileRef}>
+            <button
+              onClick={() => setShowMenu(v => !v)}
+              className={`flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs transition-colors ${showMenu ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <Eye className="w-4 h-4" />
+              Show
+            </button>
+            {showMenu && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 space-y-1 min-w-[160px]">
+                {[
+                  { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
+                  { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, hasInfo: true },
+                  { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
+                  { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
+                ].filter(o => !o.hide).map(opt => (
+                  <div key={opt.key} className="relative flex items-center">
+                    <button
+                      onClick={opt.toggle}
+                      className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${opt.value ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                    >
+                      <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${opt.value ? 'bg-primary border-primary' : 'border-border'}`}>
+                        {opt.value && <Check className="w-2 h-2 text-primary-foreground" />}
+                      </span>
+                      {opt.label}
+                    </button>
+                    {'hasInfo' in opt && opt.hasInfo && (
+                      <InfoTooltip text="Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick.">
+                        <Info className="w-3 h-3" />
+                      </InfoTooltip>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* View Toggle */}
+          <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <Grid3X3 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="relative flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search..."
+                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {searchMatchingIds && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {searchMatchingIds.size} match{searchMatchingIds.size !== 1 ? 'es' : ''}
+              </span>
+            )}
+          </div>
+
+          {/* Edit Deck */}
+          {!readOnly && !isEditMode && (
+            <button
+              onClick={() => setIsEditMode(true)}
+              className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Edit Deck"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {!readOnly && isEditMode && toolbarExtra}
         </div>
 
         {/* Main Content */}
@@ -2022,6 +2290,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     onToggleCategory={handleToggleCategory}
                     collectionNames={showOwnedIndicators && showCollectionChecks ? collectionNames : null}
                     mustIncludeNames={mustIncludeNames}
+                    cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
+                    showPrice={showPrice}
                   />
                 ))}
               </div>
@@ -2081,11 +2351,35 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                   {card.cmc}
                                 </span>
                               )}
-                              {sortBy === 'price' && (
+                              {sortBy === 'price' && showPrice && (
                                 <span className="absolute top-1 left-1 bg-black/80 text-white text-[10px] px-1 rounded">
                                   {formatPrice(getCardPrice(card, customization.currency), sym)}
                                 </span>
                               )}
+                              {sortBy === 'score' && generatedDeck?.cardInclusionMap && (() => {
+                                const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+                                const incl = generatedDeck.cardInclusionMap![card.name] ?? generatedDeck.cardInclusionMap![normalizedName];
+                                if (incl == null) return null;
+                                const pct = Math.round(incl);
+                                const hue = (pct / 100) * 120;
+                                return (
+                                  <span className="absolute top-1 left-1 bg-black/80 text-[10px] px-1 rounded font-medium" style={{ color: `hsl(${hue}, 70%, 55%)` }}>
+                                    {pct}%
+                                  </span>
+                                );
+                              })()}
+                              {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && !isEditMode && showInclusion && generatedDeck?.cardInclusionMap && (() => {
+                                const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+                                const incl = generatedDeck.cardInclusionMap![card.name] ?? generatedDeck.cardInclusionMap![normalizedName];
+                                if (incl == null) return null;
+                                const pct = Math.round(incl);
+                                const hue = (pct / 100) * 120;
+                                return (
+                                  <span className="absolute top-1 left-1 bg-black/80 text-[10px] px-1 rounded font-medium" style={{ color: `hsl(${hue}, 70%, 55%)` }} title={`${pct}% EDHREC inclusion`}>
+                                    {pct}%
+                                  </span>
+                                );
+                              })()}
                               {/* Bottom-right badge stack: GC/pin icons + role badges */}
                               {(() => {
                                 const isMLive = mustIncludeNames.has(card.name);
@@ -2196,6 +2490,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         swapCandidates={readOnly ? undefined : previewSwapCandidates}
         onSwapCard={readOnly ? undefined : (oldCard, newCard) => {
           swapDeckCard(oldCard, newCard);
+          // Clear the swapped-out card from removedCards so it doesn't show struck-through
+          setRemovedCards(prev => {
+            if (!prev.has(oldCard.id)) return prev;
+            const next = new Set(prev);
+            next.delete(oldCard.id);
+            return next;
+          });
           setPreviewCard(null);
         }}
         onRegenerate={readOnly ? undefined : handleRegenerate}
@@ -2203,6 +2504,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         canNavigate={previewCanNavigate}
         cardIndex={previewCardIndex >= 0 ? previewCardIndex : undefined}
         totalCards={flatCardList.length}
+        cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
+        showPrice={showPrice}
       />
       <ExportModal
         isOpen={showExportModal}
@@ -2379,13 +2682,39 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                               </div>
                             )}
                             <div className="overflow-y-auto py-1">
-                              <button
-                                onClick={handleAddToNewList}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 text-primary"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                New list
-                              </button>
+                              {showNewListInput ? (
+                                <form
+                                  className="px-2 py-1.5 flex items-center gap-1.5"
+                                  onSubmit={(e) => { e.preventDefault(); handleAddToNewList(newListName); }}
+                                >
+                                  <input
+                                    ref={newListInputRef}
+                                    type="text"
+                                    placeholder="List name..."
+                                    value={newListName}
+                                    onChange={e => setNewListName(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Escape') { setShowNewListInput(false); setNewListName(''); } }}
+                                    className="flex-1 min-w-0 px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
+                                    autoFocus
+                                    onClick={e => e.stopPropagation()}
+                                  />
+                                  <button
+                                    type="submit"
+                                    disabled={!newListName.trim()}
+                                    className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:pointer-events-none"
+                                  >
+                                    Create
+                                  </button>
+                                </form>
+                              ) : (
+                                <button
+                                  onClick={() => { setShowNewListInput(true); setTimeout(() => newListInputRef.current?.focus(), 0); }}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 text-primary"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  New list
+                                </button>
+                              )}
                               {filtered.length > 0 && <div className="border-t border-border my-1" />}
                               {filtered.map(list => (
                                 <button
@@ -2410,7 +2739,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 </div>
                 <button
                   onClick={handleExitEditMode}
-                  className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors"
                 >
                   Cancel
                 </button>

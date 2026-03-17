@@ -44,6 +44,10 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
     if (!collectionCards || collectionCards.length === 0) return null;
 
     const typeCounts: Record<string, number> = { Creature: 0, Instant: 0, Sorcery: 0, Artifact: 0, Enchantment: 0, Land: 0, Planeswalker: 0 };
+    const typeColorCounts: Record<string, Record<string, number>> = {};
+    for (const type of Object.keys(typeCounts)) {
+      typeColorCounts[type] = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+    }
 
     for (const card of collectionCards) {
       if (card.typeLine) {
@@ -51,12 +55,18 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
         for (const type of Object.keys(typeCounts)) {
           if (tl.toLowerCase().includes(type.toLowerCase())) {
             typeCounts[type] += 1;
+            const ci = card.colorIdentity;
+            if (!ci || ci.length === 0) {
+              typeColorCounts[type].C += 1;
+            } else {
+              for (const c of ci) typeColorCounts[type][c] = (typeColorCounts[type][c] || 0) + 1;
+            }
           }
         }
       }
     }
 
-    return { typeCounts };
+    return { typeCounts, typeColorCounts };
   }, [collectionCards]);
 
   if (!commander) return null;
@@ -850,7 +860,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
 
               {/* Collection strategy toggle */}
               {customization.collectionMode && (
-                <div className="ml-7 space-y-3">
+                <div className="space-y-3 px-2">
                   <div className="grid grid-cols-2 gap-2">
                     {([
                       { value: 'full' as const, label: 'Only My Cards', desc: 'Exclusively your collection' },
@@ -876,7 +886,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-xs text-muted-foreground">Collection %</span>
-                        <span className="text-xs font-medium text-primary">{customization.collectionOwnedPercent}%</span>
+                        <span className="text-xs font-medium text-foreground">{customization.collectionOwnedPercent}%</span>
                       </div>
                       <Slider
                         value={customization.collectionOwnedPercent}
@@ -894,35 +904,65 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                 </div>
               )}
 
-              {/* Type breakdown */}
-              {collectionStats && (() => {
-                const types = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Planeswalker'] as const;
-                const hasAny = types.some(t => collectionStats.typeCounts[t] > 0);
-                if (!hasAny) return null;
-                return (
-                  <div className="flex flex-wrap gap-x-2.5 gap-y-1">
-                    {types.map(t => {
-                      const count = collectionStats.typeCounts[t];
-                      if (count === 0) return null;
-                      return (
-                        <span key={t} className="flex items-center gap-1 text-[11px] text-muted-foreground" title={t}>
-                          <CardTypeIcon type={t} size="sm" className="opacity-60" />
-                          {count}
-                        </span>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
+              {/* Ignore owned cards for budget */}
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-3 select-none group cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={customization.ignoreOwnedBudget}
+                    onChange={(e) => updateCustomization({ ignoreOwnedBudget: e.target.checked })}
+                    className="rounded border-border accent-primary w-4 h-4"
+                  />
+                  <span className="text-sm font-medium group-hover:text-primary transition-colors">
+                    Owned Cards Skip Budget
+                  </span>
+                </label>
+                <InfoTooltip text="Owned cards won't count against your per-card price limit or total deck budget. Useful when you already own expensive staples." />
+              </div>
 
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{collectionCount.toLocaleString()} cards imported</span>
-                <button
-                  onClick={() => navigate('/collection')}
-                  className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
-                >
-                  Manage Collection
-                </button>
+              {/* Collection summary card */}
+              <div className="rounded-lg border border-border/50 bg-accent/20 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
+                  <span className="text-xs font-medium text-foreground">{collectionCount.toLocaleString()} cards</span>
+                  <button
+                    onClick={() => navigate('/collection')}
+                    className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
+                  >
+                    Manage
+                  </button>
+                </div>
+                {collectionStats && (() => {
+                  const types = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Planeswalker'] as const;
+                  const hasAny = types.some(t => collectionStats.typeCounts[t] > 0);
+                  if (!hasAny) return null;
+                  const maxCount = Math.max(...types.map(t => collectionStats.typeCounts[t]));
+                  const colorHex: Record<string, string> = { W: '#C8C3B0', U: '#4B8BBE', B: '#9B7FBF', R: '#C75C5C', G: '#5A9A6E', C: '#6B7280' };
+                  const colorOrder = ['W', 'U', 'B', 'R', 'G', 'C'];
+                  return (
+                    <div className="px-3 py-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                      {types.map(t => {
+                        const count = collectionStats.typeCounts[t];
+                        if (count === 0) return null;
+                        const fillPct = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                        const cc = collectionStats.typeColorCounts[t];
+                        const totalPips = colorOrder.reduce((s, c) => s + (cc[c] || 0), 0);
+                        return (
+                          <div key={t} className="flex items-center gap-1.5 text-[11px]">
+                            <span title={t} className="shrink-0"><CardTypeIcon type={t} size="sm" className="opacity-60" /></span>
+                            <div className="flex-1 h-2 bg-border/30 rounded-full overflow-hidden flex">
+                              {totalPips > 0 && colorOrder.map(c => {
+                                const segPct = (cc[c] || 0) / totalPips * fillPct;
+                                if (segPct === 0) return null;
+                                return <div key={c} className="h-full" style={{ width: `${segPct}%`, backgroundColor: colorHex[c] }} />;
+                              })}
+                            </div>
+                            <span className="text-muted-foreground tabular-nums w-5 text-right shrink-0">{count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             </div>
@@ -972,23 +1012,25 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
               <p className="text-xs text-muted-foreground mb-2">
                 Restrict cards to a maximum rarity level.
               </p>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="flex gap-2">
                 {([
                   { value: 'common' as MaxRarity, label: 'Common' },
                   { value: 'uncommon' as MaxRarity, label: 'Uncommon' },
                   { value: 'rare' as MaxRarity, label: 'Rare' },
-                  { value: null as MaxRarity, label: 'Mythic (All)' },
+                  { value: null as MaxRarity, label: 'All' },
                 ] as const).map((option) => (
                   <button
                     key={option.label}
                     onClick={() => updateCustomization({ maxRarity: option.value })}
-                    className={`p-2 rounded-lg border text-center transition-colors ${
+                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
                       customization.maxRarity === option.value
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border hover:border-primary/50'
+                        ? option.value === null
+                          ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
+                          : 'border-primary bg-primary/10 text-primary border'
+                        : 'border border-border hover:border-primary/50'
                     }`}
                   >
-                    <div className="font-medium text-xs">{option.label}</div>
+                    {option.label}
                   </button>
                 ))}
               </div>

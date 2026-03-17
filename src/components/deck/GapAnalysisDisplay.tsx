@@ -19,7 +19,7 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
   const [previewOwned, setPreviewOwned] = useState(false);
   const [hideOwned, setHideOwned] = useState(false);
 
-  const MAX_SUGGESTIONS = 15;
+  const MAX_SUGGESTIONS = 20;
 
   const topCards = useMemo(() => cards.slice(0, MAX_SUGGESTIONS), [cards]);
   const hasAnyOwned = useMemo(() => topCards.some(c => c.isOwned), [topCards]);

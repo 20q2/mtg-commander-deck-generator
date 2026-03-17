@@ -283,6 +283,8 @@ export interface GeneratedDeck {
   cardDrawSubtypeCounts?: Record<string, number>;
   swapCandidates?: Record<string, ScryfallCard[]>; // Keyed by RoleKey or 'type:{cardType}', top candidates per role/type for card swapping
   removedFromDeck?: string[]; // Cards from original deck that were cut during build-from-deck optimization
+  deckScore?: number; // Sum of EDHREC inclusion % for all non-land cards
+  cardInclusionMap?: Record<string, number>; // cardName → EDHREC inclusion %
 }
 
 export interface DeckStats {
@@ -386,6 +388,7 @@ export interface Customization {
   comboCount: number; // 0 = none, 1 = normal, 2 = a few extra, 3 = many combo pieces prioritized
   hyperFocus: boolean; // When true, boost unique theme cards and penalize generic multi-theme cards
   balancedRoles: boolean; // When true, boost cards that fill underrepresented functional roles (ramp, removal, etc.)
+  ignoreOwnedBudget: boolean; // When true, owned cards don't count against budget limits
   currency: 'USD' | 'EUR'; // Price currency for budget filtering and display
   appliedExcludeLists: AppliedList[]; // User lists toggled on as exclude lists
   appliedIncludeLists: AppliedList[]; // User lists toggled on as must-include lists
