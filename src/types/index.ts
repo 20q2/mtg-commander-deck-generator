@@ -252,6 +252,8 @@ export interface GapAnalysisCard {
   typeLine: string;
   imageUrl?: string;
   isOwned?: boolean;
+  role?: string;       // Functional role from tagger (e.g. 'ramp', 'removal')
+  roleLabel?: string;  // Display label (e.g. 'Ramp', 'Card Draw')
 }
 
 /** Describes which data source was ultimately used for deck generation */
@@ -343,6 +345,7 @@ export interface UserCardList {
   commanderName?: string;
   partnerCommanderName?: string;
   deckSize?: number; // Total intended deck size including commander(s)
+  primer?: string; // Strategy notes / deck primer (deck type only)
   createdAt: number;
   updatedAt: number;
   // Cached display data (computed on save to avoid Scryfall fetches on browse)

@@ -17,7 +17,8 @@ import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -862,7 +863,7 @@ export function BuilderPage() {
       {/* Deck Display */}
       {generatedDeck && (
         <section>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-500 font-bold text-sm">
                 ✓
@@ -872,73 +873,13 @@ export function BuilderPage() {
                 {partnerCommander && ` & ${partnerCommander.name}`}
               </h2>
             </div>
-            <div className="flex items-center gap-2">
-              {showSaveInput && !savedToList ? (
-                <form
-                  className="flex items-center gap-1.5"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!generatedDeck) return;
-                    const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
-                    const deckName = saveListName.trim() || defaultName;
-                    const allCards: string[] = [];
-                    if (commander) allCards.push(commander.name);
-                    if (partnerCommander) allCards.push(partnerCommander.name);
-                    for (const cards of Object.values(generatedDeck.categories)) {
-                      for (const card of cards) allCards.push(card.name);
-                    }
-                    createList(deckName, allCards, '', {
-                      type: 'deck',
-                      commanderName: commander?.name,
-                      partnerCommanderName: partnerCommander?.name,
-                      deckSize: allCards.length,
-                    });
-                    trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
-                    setSavedToList(true);
-                    setShowSaveInput(false);
-                  }}
-                >
-                  <input
-                    ref={saveInputRef}
-                    type="text"
-                    value={saveListName}
-                    onChange={(e) => setSaveListName(e.target.value)}
-                    placeholder={`${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`}
-                    className="bg-card/50 border border-border/50 rounded-md px-2.5 py-1 text-xs w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-                    onKeyDown={(e) => { if (e.key === 'Escape') { setShowSaveInput(false); setSaveListName(''); } }}
-                  />
-                  <button
-                    type="submit"
-                    className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    title="Save"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                </form>
-              ) : (
-                <button
-                  disabled={savedToList}
-                  onClick={() => {
-                    if (savedToList) return;
-                    const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
-                    setSaveListName(defaultName);
-                    setShowSaveInput(true);
-                    setTimeout(() => saveInputRef.current?.select(), 0);
-                  }}
-                  className={`p-1.5 rounded-md border transition-colors ${
-                    savedToList
-                      ? 'border-green-500/50 bg-green-500/10 text-green-500'
-                      : 'bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent'
-                  } disabled:cursor-default`}
-                  title={savedToList ? 'Saved!' : 'Save as list'}
-                >
-                  {savedToList ? <Check className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
-                </button>
+            <div className="text-sm text-muted-foreground">
+              {generatedDeck.stats.totalCards} cards
+              {generatedDeck.usedThemes && generatedDeck.usedThemes.length > 0 && (
+                <span className="ml-1">
+                  · Built with: <span className="font-medium">{generatedDeck.usedThemes.join(', ')}</span>
+                </span>
               )}
-              <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
-                <Copy className="w-4 h-4 mr-2" />
-                Export
-              </Button>
             </div>
           </div>
           <DeckDisplay
@@ -947,6 +888,87 @@ export function BuilderPage() {
             regenerateProgress={isLoading ? progressPercent : undefined}
             regenerateMessage={isLoading ? progress : undefined}
             renderHeaderActions={({ onExport }) => { exportTriggerRef.current = onExport; return null; }}
+            sidebarHeader={
+              <div className="flex items-center justify-end gap-2">
+                <Popover open={showSaveInput && !savedToList} onOpenChange={(open) => { if (!open) { setShowSaveInput(false); setSaveListName(''); } }}>
+                  <PopoverTrigger asChild>
+                    <button
+                      disabled={savedToList}
+                      onClick={() => {
+                        if (savedToList) return;
+                        const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
+                        setSaveListName(defaultName);
+                        setShowSaveInput(true);
+                        setTimeout(() => saveInputRef.current?.select(), 0);
+                      }}
+                      className={`p-1.5 rounded-md border transition-colors ${
+                        savedToList
+                          ? 'border-green-500/50 bg-green-500/10 text-green-500'
+                          : 'bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent'
+                      } disabled:cursor-default`}
+                      title={savedToList ? 'Saved!' : 'Save as list'}
+                    >
+                      {savedToList ? <Check className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="left" className="w-auto p-2">
+                    <form
+                      className="flex items-center gap-1.5"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!generatedDeck) return;
+                        const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
+                        const deckName = saveListName.trim() || defaultName;
+                        const allCards: string[] = [];
+                        if (commander) allCards.push(commander.name);
+                        if (partnerCommander) allCards.push(partnerCommander.name);
+                        for (const cards of Object.values(generatedDeck.categories)) {
+                          for (const card of cards) allCards.push(card.name);
+                        }
+                        createList(deckName, allCards, '', {
+                          type: 'deck',
+                          commanderName: commander?.name,
+                          partnerCommanderName: partnerCommander?.name,
+                          deckSize: allCards.length,
+                        });
+                        trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
+                        setSavedToList(true);
+                        setShowSaveInput(false);
+                      }}
+                    >
+                      <input
+                        ref={saveInputRef}
+                        type="text"
+                        value={saveListName}
+                        onChange={(e) => setSaveListName(e.target.value)}
+                        placeholder={`${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`}
+                        className="bg-card/50 border border-border/50 rounded-md px-2.5 py-1.5 text-xs w-52 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                        onKeyDown={(e) => { if (e.key === 'Escape') { setShowSaveInput(false); setSaveListName(''); } }}
+                      />
+                      <button
+                        type="submit"
+                        className="p-1.5 rounded-md text-emerald-400 hover:text-emerald-300 hover:bg-accent transition-colors"
+                        title="Save"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowSaveInput(false); setSaveListName(''); }}
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors"
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </form>
+                  </PopoverContent>
+                </Popover>
+                <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
+                  <Copy className="w-4 h-4 mr-2" />
+                  Export
+                </Button>
+              </div>
+            }
           >
             {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
               <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />

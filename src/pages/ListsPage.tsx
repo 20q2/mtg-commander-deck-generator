@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useStore } from '@/store';
 import { getBanList } from '@/services/scryfall/client';
@@ -21,6 +21,7 @@ type TypeFilter = 'all' | 'deck' | 'list';
 export function ListsPage() {
   const navigate = useNavigate();
   const { '*': splat } = useParams();
+  const [searchParams] = useSearchParams();
   const { lists, createList, updateList, deleteList, duplicateList, convertToList, exportList } = useUserLists();
 
   // Derive current view from URL segments
@@ -246,6 +247,31 @@ export function ListsPage() {
               updateList(list.id, { maybeboard: newMb, sideboard: existingSb.has(name) ? [...(list.sideboard || [])] : [...(list.sideboard || []), name] });
             }
           }}
+          onUpdatePrimer={(primer) => updateList(list.id, { primer })}
+          onRename={(newName) => updateList(list.id, { name: newName })}
+          onUpdateDeckSize={(newSize) => updateList(list.id, { deckSize: newSize })}
+          onSetSideboard={(names) => updateList(list.id, { sideboard: names })}
+          onSetMaybeboard={(names) => updateList(list.id, { maybeboard: names })}
+          onChangeQuantity={(cardName, newQuantity) => {
+            const currentCount = list.cards.filter(c => c === cardName).length;
+            if (newQuantity === currentCount) return;
+            if (newQuantity === 0) {
+              // Remove all copies
+              updateList(list.id, { cards: list.cards.filter(c => c !== cardName) });
+            } else if (newQuantity > currentCount) {
+              // Add copies
+              const toAdd = Array(newQuantity - currentCount).fill(cardName);
+              updateList(list.id, { cards: [...list.cards, ...toAdd] });
+            } else {
+              // Remove some copies
+              let toRemove = currentCount - newQuantity;
+              const updated = list.cards.filter(c => {
+                if (c === cardName && toRemove > 0) { toRemove--; return false; }
+                return true;
+              });
+              updateList(list.id, { cards: updated });
+            }
+          }}
         />
       </main>
     );
@@ -336,19 +362,23 @@ export function ListsPage() {
 
   // Create view
   if (currentView.view === 'create') {
+    const createMode = searchParams.get('type') === 'deck' ? 'deck' : 'list';
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
         <div className="aurora-bg" />
         <ListCreateEditForm
+          mode={createMode}
           onSave={(name, cards, description, commanderOptions) => {
             const newList = createList(name, cards, description, {
-              type: commanderOptions?.commanderName ? 'deck' : 'list',
+              type: createMode === 'deck' || commanderOptions?.commanderName ? 'deck' : 'list',
               commanderName: commanderOptions?.commanderName,
               partnerCommanderName: commanderOptions?.partnerCommanderName,
               deckSize: commanderOptions?.deckSize,
+              primer: commanderOptions?.primer,
             });
             trackEvent('list_created', { listName: name, cardCount: cards.length });
-            navigate(`/lists/${newList.id}`, { replace: true });
+            const isDeck = createMode === 'deck' || !!commanderOptions?.commanderName;
+            navigate(`/lists/${newList.id}${isDeck ? '/deck-view' : ''}`, { replace: true });
           }}
           onCancel={() => navigate('/lists')}
         />
@@ -373,9 +403,11 @@ export function ListsPage() {
               commanderName: commanderOptions?.commanderName,
               partnerCommanderName: commanderOptions?.partnerCommanderName,
               deckSize: commanderOptions?.deckSize,
+              primer: commanderOptions?.primer,
               type: commanderOptions?.commanderName ? 'deck' : list.type,
             });
-            navigate(`/lists/${list.id}`, { replace: true });
+            const isDeck = list.type === 'deck' || !!commanderOptions?.commanderName;
+            navigate(`/lists/${list.id}${isDeck ? '/deck-view' : ''}`, { replace: true });
           }}
           onCancel={() => navigate(`/lists/${list.id}`)}
         />
@@ -414,8 +446,15 @@ export function ListsPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => navigate('/lists/create')}
+            onClick={() => navigate('/lists/create?type=deck')}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Deck
+          </button>
+          <button
+            onClick={() => navigate('/lists/create?type=list')}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors"
           >
             <Plus className="w-4 h-4" />
             New List

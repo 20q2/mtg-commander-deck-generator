@@ -1,13 +1,15 @@
-import { useState, useCallback, useEffect, useMemo, Fragment } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaText } from '@/components/ui/mtg-icons';
 import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
+import { useUserLists } from '@/hooks/useUserLists';
 import { createPortal } from 'react-dom';
 
 interface ComboDisplayProps {
@@ -16,12 +18,17 @@ interface ComboDisplayProps {
   hideMustInclude?: boolean;
   /** Callback to trigger immediate regeneration */
   onRegenerate?: () => void;
+  /** List deck view callbacks */
+  onAddToDeck?: (cardNames: string[]) => void;
+  onRemoveFromDeck?: (cardNames: string[]) => void;
+  onMoveToSideboard?: (cardNames: string[]) => void;
+  onMoveToMaybeboard?: (cardNames: string[]) => void;
 }
 
 // Cache fetched card data across renders
 const cardDataCache = new Map<string, ScryfallCard>();
 
-export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard }: ComboDisplayProps) {
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
@@ -36,8 +43,19 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
   const [comboDetails, setComboDetails] = useState<Map<string, ComboDetails | 'loading' | 'error'>>(new Map());
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('popularity');
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
+  const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const { lists: userLists, updateList } = useUserLists();
+
+  // When right-click sets contextMenuCard, click the trigger button after render
+  useEffect(() => {
+    if (!contextMenuCard || !contextMenuRef.current) return;
+    const el = contextMenuRef.current.querySelector<HTMLButtonElement>('[data-combo-menu-trigger] button');
+    el?.click();
+  }, [contextMenuCard]);
 
   // Load collection names when expanded
   useEffect(() => {
@@ -124,6 +142,47 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
     setToastMessage(`Removed "${name}" from Must Include`);
   }, [mustIncludeCards, tempMustIncludeCards, updateCustomization]);
 
+  const handleComboCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    const name = card.name;
+    switch (action.type) {
+      case 'remove':
+        onRemoveFromDeck?.([name]);
+        setToastMessage(`Removed "${name}" from deck`);
+        break;
+      case 'addToDeck':
+        onAddToDeck?.([name]);
+        setToastMessage(`Added "${name}" to deck`);
+        break;
+      case 'sideboard':
+        onMoveToSideboard?.([name]);
+        setToastMessage(`Moved "${name}" to sideboard`);
+        break;
+      case 'maybeboard':
+        onMoveToMaybeboard?.([name]);
+        setToastMessage(`Moved "${name}" to maybeboard`);
+        break;
+      case 'mustInclude': {
+        const current = mustIncludeCards;
+        const has = current.includes(name);
+        updateCustomization({ mustIncludeCards: has ? current.filter(n => n !== name) : [...current, name] });
+        setToastMessage(has ? `Removed "${name}" from Must Include` : `Added "${name}" to Must Include`);
+        break;
+      }
+      case 'exclude':
+        updateCustomization({ bannedCards: [...bannedCards, name] });
+        setToastMessage(`Excluded "${name}"`);
+        break;
+      case 'addToList': {
+        const list = userLists.find(l => l.id === action.listId);
+        if (list && !list.cards.includes(name)) {
+          updateList(action.listId, { cards: [...list.cards, name] });
+          setToastMessage(`Added "${name}" to "${list.name}"`);
+        }
+        break;
+      }
+    }
+  }, [mustIncludeCards, bannedCards, updateCustomization, userLists, updateList, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard]);
+
   // Auto-dismiss toast
   useEffect(() => {
     if (!toastMessage) return;
@@ -150,8 +209,20 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
   const bannedSet = new Set(bannedCards.map(n => n.toLowerCase()));
   const hasExcludedCard = (combo: DetectedCombo) => combo.cards.some(n => bannedSet.has(n.toLowerCase()));
 
-  const completeCombos = combos.filter(c => c.isComplete && !hasExcludedCard(c));
-  const nearMisses = combos.filter(c => !c.isComplete && !hasExcludedCard(c));
+  const sortCombos = (list: DetectedCombo[]) => {
+    if (comboSort === 'relevance') {
+      return [...list].sort((a, b) => {
+        const aMissing = a.missingCards.length;
+        const bMissing = b.missingCards.length;
+        if (aMissing !== bMissing) return aMissing - bMissing;
+        return b.deckCount - a.deckCount;
+      });
+    }
+    return [...list].sort((a, b) => b.deckCount - a.deckCount);
+  };
+
+  const completeCombos = sortCombos(combos.filter(c => c.isComplete && !hasExcludedCard(c)));
+  const nearMisses = sortCombos(combos.filter(c => !c.isComplete && !hasExcludedCard(c)));
   const excludedCombos = combos.filter(c => hasExcludedCard(c));
 
   const renderComboCard = (combo: DetectedCombo, isExcluded = false) => {
@@ -202,6 +273,24 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
                   <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
                 <div
+                  className="group/combo relative"
+                  style={{ width: 72 }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    contextMenuRef.current = e.currentTarget as HTMLDivElement;
+                    if (cardDataCache.has(name)) {
+                      setContextMenuCard(name);
+                    } else {
+                      getCardByName(name).then(card => {
+                        if (card) {
+                          cardDataCache.set(name, card);
+                          setContextMenuCard(name);
+                        }
+                      });
+                    }
+                  }}
+                >
+                <div
                   onClick={() => handleCardClick(name)}
                   className={`relative rounded-md overflow-hidden transition-all cursor-pointer active:scale-90 ${
                     isBanned ? 'opacity-50 ring-1 ring-red-500/60'
@@ -210,7 +299,6 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
                     : 'hover:scale-105'
                   }`}
                   title={name}
-                  style={{ width: 72 }}
                 >
                   {imgUrl ? (
                     <img
@@ -300,6 +388,22 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
                       </span>
                     </div>
                   ) : null}
+                </div>
+                  {cardDataCache.has(name) && (
+                    <span data-combo-menu-trigger className={`absolute top-0.5 right-0.5 z-10 transition-opacity ${contextMenuCard === name ? 'opacity-100' : 'opacity-0 group-hover/combo:opacity-100'}`}>
+                      <CardContextMenu
+                        card={cardDataCache.get(name)!}
+                        onAction={handleComboCardAction}
+                        hasRemove={!isMissing && !!onRemoveFromDeck}
+                        hasAddToDeck={isMissing && !!onAddToDeck}
+                        hasSideboard={!!onMoveToSideboard}
+                        hasMaybeboard={!!onMoveToMaybeboard}
+                        isMustInclude={mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)}
+                        userLists={userLists}
+                        onForceClose={() => setContextMenuCard(null)}
+                      />
+                    </span>
+                  )}
                 </div>
               </Fragment>
             );
@@ -403,7 +507,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
 
   return (
     <div className="mt-6 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
-      <button
+      <div
+        role="button"
         onClick={() => {
           const willExpand = !expanded;
           setExpanded(willExpand);
@@ -415,15 +520,28 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate }: ComboDis
             });
           }
         }}
-        className="flex items-center gap-2 w-full text-left p-4"
+        className="flex items-center gap-2 w-full text-left p-4 cursor-pointer"
       >
         <Sparkles className="w-4 h-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold truncate">Combos in Your Deck</h3>
         <span className="text-xs text-muted-foreground ml-auto shrink-0 whitespace-nowrap">
           {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}
         </span>
+        {expanded && (
+          <span className="flex items-center rounded-md border border-border overflow-hidden shrink-0" onClick={(e) => e.stopPropagation()}>
+            {(['popularity', 'relevance'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setComboSort(mode)}
+                className={`px-2 py-1 text-[10px] transition-colors ${comboSort === mode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+              >
+                {mode === 'popularity' ? 'Popular' : 'Relevant'}
+              </button>
+            ))}
+          </span>
+        )}
         <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
+      </div>
 
       <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[8000px] opacity-100' : 'max-h-0 opacity-0'}`}>
         {/* Complete combos */}

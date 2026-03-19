@@ -347,7 +347,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                feedback
+                Feedback
               </a>
             </p>
           </div>

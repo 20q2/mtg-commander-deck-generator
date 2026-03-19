@@ -83,6 +83,7 @@ interface CreateListOptions {
   commanderName?: string;
   partnerCommanderName?: string;
   deckSize?: number;
+  primer?: string;
 }
 
 export function useUserLists() {
@@ -119,6 +120,7 @@ export function useUserLists() {
       commanderName: options?.commanderName,
       partnerCommanderName: options?.partnerCommanderName,
       deckSize: options?.deckSize,
+      primer: options?.primer,
       createdAt: now,
       updatedAt: now,
     };
@@ -132,7 +134,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer'>>) => {
     setLists(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
@@ -172,6 +174,7 @@ export function useUserLists() {
         maybeboard: original.maybeboard ? [...original.maybeboard] : undefined,
         commanderName: original.commanderName,
         partnerCommanderName: original.partnerCommanderName,
+        primer: original.primer,
         cachedTypeBreakdown: original.cachedTypeBreakdown,
         cachedColorIdentity: original.cachedColorIdentity,
         cachedCommanderArtUrl: original.cachedCommanderArtUrl,

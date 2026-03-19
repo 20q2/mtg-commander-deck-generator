@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
-import type { ScryfallCard, DetectedCombo } from '@/types';
+import { getMaxCopies } from '@/lib/utils';
+import type { ScryfallCard, DetectedCombo, UserCardList } from '@/types';
 import {
   Copy,
   Check,
@@ -30,10 +31,21 @@ import {
   Plus,
   Trash2,
   Eye,
+  MoreVertical,
+  ListPlus,
+  FileText,
+  Loader2 as Loader2Icon,
+  TrendingUp,
+  Swords,
+  Flame,
+  BookOpen,
 } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { PieChart } from '@/components/ui/pie-chart';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { parseCollectionList } from '@/services/collection/parseCollectionList';
+import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
@@ -252,7 +264,130 @@ function ComboPopover({ combos, cardName, cardTypeMap }: ComboPopoverProps) {
   );
 }
 
+// Card context menu types and component
+export type CardAction =
+  | { type: 'remove' }
+  | { type: 'addToDeck' }
+  | { type: 'sideboard' }
+  | { type: 'maybeboard' }
+  | { type: 'mustInclude' }
+  | { type: 'exclude' }
+  | { type: 'addToList'; listId: string };
+
+export interface CardContextMenuProps {
+  card: ScryfallCard;
+  onAction: (card: ScryfallCard, action: CardAction) => void;
+  hasRemove?: boolean;
+  hasAddToDeck?: boolean;
+  hasSideboard?: boolean;
+  hasMaybeboard?: boolean;
+  isInSideboard?: boolean;
+  isInMaybeboard?: boolean;
+  isMustInclude?: boolean;
+  isBanned?: boolean;
+  userLists: UserCardList[];
+  forceOpen?: boolean;
+  onForceClose?: () => void;
+}
+
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose }: CardContextMenuProps) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const [showLists, setShowLists] = React.useState(false);
+  const open = forceOpen || internalOpen;
+
+  const handleOpenChange = (v: boolean) => {
+    setInternalOpen(v);
+    if (!v) {
+      setShowLists(false);
+      onForceClose?.();
+    }
+  };
+
+  const fire = (action: CardAction) => {
+    onAction(card, action);
+    handleOpenChange(false);
+  };
+
+  const menuBtn = 'group/item w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2 rounded transition-colors';
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          onClick={(e) => { e.stopPropagation(); }}
+          className="p-0.5 rounded hover:bg-accent/80 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <MoreVertical className="w-3.5 h-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" side="bottom" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
+        {hasRemove && (
+          <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
+            <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
+            Remove from Deck
+          </button>
+        )}
+        {hasAddToDeck && (
+          <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
+            <Plus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-emerald-400 transition-colors" />
+            Add to Deck
+          </button>
+        )}
+        {hasSideboard && (
+          <button className={menuBtn} onClick={() => fire({ type: 'sideboard' })}>
+            <ArrowUpDown className={`w-3.5 h-3.5 transition-colors ${isInSideboard ? 'text-amber-400' : 'text-muted-foreground group-hover/item:text-amber-400'}`} />
+            {isInSideboard ? 'Remove from Sideboard' : 'Move to Sideboard'}
+          </button>
+        )}
+        {hasMaybeboard && (
+          <button className={menuBtn} onClick={() => fire({ type: 'maybeboard' })}>
+            <Bookmark className={`w-3.5 h-3.5 transition-colors ${isInMaybeboard ? 'text-purple-400' : 'text-muted-foreground group-hover/item:text-purple-400'}`} />
+            {isInMaybeboard ? 'Remove from Maybeboard' : 'Move to Maybeboard'}
+          </button>
+        )}
+        {(hasRemove || hasAddToDeck || hasSideboard || hasMaybeboard) && (
+          <div className="h-px bg-border my-1" />
+        )}
+        <button className={menuBtn} onClick={() => fire({ type: 'mustInclude' })}>
+          <Pin className={`w-3.5 h-3.5 transition-colors ${isMustInclude ? 'text-emerald-400' : 'text-muted-foreground group-hover/item:text-emerald-400'}`} />
+          {isMustInclude ? 'Remove Must Include' : 'Must Include'}
+        </button>
+        <button className={menuBtn} onClick={() => fire({ type: 'exclude' })}>
+          <Ban className={`w-3.5 h-3.5 transition-colors ${isBanned ? 'text-red-400' : 'text-muted-foreground group-hover/item:text-red-400/70'}`} />
+          {isBanned ? 'Remove Exclude' : 'Exclude'}
+        </button>
+        {userLists.length > 0 && (
+          <>
+            <div className="h-px bg-border my-1" />
+            {!showLists ? (
+              <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowLists(true); }}>
+                <ListPlus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-blue-400 transition-colors" />
+                Add to List...
+              </button>
+            ) : (
+              <div className="max-h-32 overflow-y-auto">
+                <p className="px-3 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Add to list</p>
+                {userLists.map(list => (
+                  <button
+                    key={list.id}
+                    className={menuBtn}
+                    onClick={() => fire({ type: 'addToList', listId: list.id })}
+                  >
+                    <List className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <span className="truncate">{list.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // Card row component
+
 interface CardRowProps {
   card: ScryfallCard;
   quantity: number;
@@ -272,11 +407,17 @@ interface CardRowProps {
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   isOwned?: boolean;
   isMustIncludeLive?: boolean;
+  isBannedLive?: boolean;
   inclusionPercent?: number | null;
   showPrice?: boolean;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  showCardMenu?: boolean;
+  cardMenuProps?: Omit<CardContextMenuProps, 'card' | 'onAction'>;
+  onChangeQuantity?: (cardName: string, newQuantity: number) => void;
+  isSingleton?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, inclusionPercent, showPrice = true }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -285,6 +426,33 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
     !isNaN(priceNum) && priceNum > 0 &&
     priceNum >= avgCardPrice * 3 &&
     priceNum >= avgCardPrice + 1;
+  const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
+  const [editingQuantity, setEditingQuantity] = React.useState(false);
+  const [quantityInput, setQuantityInput] = React.useState(String(quantity));
+  const quantityInputRef = React.useRef<HTMLInputElement>(null);
+
+  const maxQuantity = isSingleton ? getMaxCopies(card) : 99;
+
+  const commitQuantityChange = React.useCallback(() => {
+    const parsed = parseInt(quantityInput, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      setQuantityInput(String(quantity));
+      setEditingQuantity(false);
+      return;
+    }
+    const clamped = Math.min(Math.max(parsed, 0), maxQuantity);
+    if (clamped !== quantity) {
+      onChangeQuantity?.(card.name, clamped);
+    }
+    setEditingQuantity(false);
+  }, [quantityInput, quantity, maxQuantity, onChangeQuantity, card.name]);
+
+  React.useEffect(() => {
+    if (editingQuantity && quantityInputRef.current) {
+      quantityInputRef.current.focus();
+      quantityInputRef.current.select();
+    }
+  }, [editingQuantity]);
 
   return (
     <div
@@ -295,6 +463,12 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
         isEditMode && isCommanderCard ? 'opacity-60' :
         'hover:bg-accent/50'
       }`}
+      onContextMenu={(e) => {
+        if (showCardMenu && !isCommanderCard && onCardAction && cardMenuProps) {
+          e.preventDefault();
+          setContextMenuOpen(true);
+        }
+      }}
       onClick={(e) => {
         if (isEditMode && !isCommanderCard && onToggleSelect) {
           onToggleSelect(card, e.shiftKey);
@@ -322,14 +496,41 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
       )}
       {showPinColumn && (
         <span className="w-3 shrink-0 flex justify-center">
-          {isMustIncludeLive ? (
+          {isBannedLive ? (
+            <span title="Excluded" className="animate-pop-in"><Ban className="w-3 h-3 text-red-400/70" /></span>
+          ) : isMustIncludeLive ? (
             card.mustIncludeSource === 'deck' ? <span title="From original deck"><Bookmark className="w-3 h-3 text-muted-foreground/50" /></span> :
             card.mustIncludeSource === 'combo' ? <span title="Added by user"><Sparkles className="w-3 h-3 text-violet-500/70" /></span> :
-            <span title="Must include"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
+            <span title="Must include" className="animate-pop-in"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
           ) : isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span> : null}
         </span>
       )}
-      <span className="text-muted-foreground w-fit text-right shrink-0">{quantity}</span>
+      {editingQuantity ? (
+        <input
+          ref={quantityInputRef}
+          type="number"
+          min={0}
+          max={maxQuantity}
+          value={quantityInput}
+          onChange={(e) => setQuantityInput(e.target.value)}
+          onBlur={commitQuantityChange}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitQuantityChange();
+            if (e.key === 'Escape') { setQuantityInput(String(quantity)); setEditingQuantity(false); }
+            e.stopPropagation();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-6 h-5 text-center text-xs bg-accent border border-border rounded px-0 py-0 text-foreground shrink-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+      ) : (
+        <span
+          className={`text-muted-foreground w-fit text-right shrink-0 ${onChangeQuantity && !isCommanderCard ? 'cursor-pointer hover:text-foreground hover:bg-accent rounded px-0.5 transition-colors' : ''}`}
+          onClick={onChangeQuantity && !isCommanderCard ? (e) => { e.stopPropagation(); setQuantityInput(String(quantity)); setEditingQuantity(true); } : undefined}
+          title={onChangeQuantity && !isCommanderCard ? (maxQuantity === 1 ? 'Singleton — only 1 copy allowed' : 'Click to change quantity') : undefined}
+        >
+          {quantity}
+        </span>
+      )}
       {showRoleColumn && (() => {
         const badge = getRoleBadgeProps(card);
         return badge ? (
@@ -380,6 +581,11 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           </span>
         );
       })()}
+      {showCardMenu && !isCommanderCard && onCardAction && cardMenuProps && (
+        <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <CardContextMenu card={card} onAction={onCardAction} {...cardMenuProps} isMustInclude={isMustIncludeLive} isBanned={isBannedLive} forceOpen={contextMenuOpen} onForceClose={() => setContextMenuOpen(false)} />
+        </span>
+      )}
       {showPrice && (
         <span className={`text-xs w-10 text-right shrink-0 ${isPriceOutlier ? 'text-amber-400' : 'text-muted-foreground'}`}>
           {price}
@@ -408,12 +614,17 @@ interface CategoryColumnProps {
   onToggleCategory?: (cardIds: string[]) => void;
   collectionNames?: Set<string> | null;
   mustIncludeNames?: Set<string>;
+  bannedNames?: Set<string>;
   cardInclusionMap?: Record<string, number> | null;
   showPrice?: boolean;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  showCardMenu?: boolean;
+  cardMenuProps?: Omit<CardContextMenuProps, 'card' | 'onAction'>;
+  onChangeQuantity?: (cardName: string, newQuantity: number) => void;
+  isSingleton?: boolean;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, cardInclusionMap, showPrice = true }: CategoryColumnProps) {
-  const [animateRef] = useAutoAnimate({ duration: 200 });
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -426,6 +637,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
 
   const hasMatch = matchingCardIds === null || cards.some(({ card }) => matchingCardIds.has(card.id));
   const hasMustInclude = cards.some(({ card }) => mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude);
+  const hasBanned = bannedNames ? cards.some(({ card }) => bannedNames.has(card.name)) : false;
   const hasOwnedCard = collectionNames ? cards.some(({ card }) => {
     const name = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
     return collectionNames.has(name);
@@ -465,7 +677,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
       </div>
 
       {/* Cards */}
-      <div ref={animateRef} className="py-1">
+      <div className="py-1">
         {cards.map(({ card, quantity }) => {
           const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
           return (
@@ -481,7 +693,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               combosForCard={cardComboMap?.get(normalizedName)}
               cardTypeMap={cardTypeMap}
               showRoleColumn={showRoleColumn}
-              showPinColumn={hasMustInclude || hasOwnedCard}
+              showPinColumn={hasMustInclude || hasBanned || hasOwnedCard}
               isRemoved={removedCards?.has(card.id)}
               isEditMode={isEditMode}
               isSelected={selectedCards?.has(card.id)}
@@ -489,8 +701,14 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               onToggleSelect={onToggleSelect}
               isOwned={collectionNames ? collectionNames.has(card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name) : undefined}
               isMustIncludeLive={mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude}
+              isBannedLive={bannedNames ? bannedNames.has(card.name) : false}
               inclusionPercent={cardInclusionMap ? (cardInclusionMap[card.name] ?? cardInclusionMap[normalizedName] ?? null) : null}
               showPrice={showPrice}
+              onCardAction={onCardAction}
+              showCardMenu={showCardMenu}
+              cardMenuProps={cardMenuProps}
+              onChangeQuantity={onChangeQuantity}
+              isSingleton={isSingleton}
             />
           );
         })}
@@ -681,6 +899,467 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
   );
 }
 
+// ─── Text Editor View ─────────────────────────────────────────────────
+interface TextEditorViewProps {
+  generateDeckList: () => string;
+  onAddCards?: (cardNames: string[], destination: 'deck') => void;
+  onRemoveCards?: (cardNames: string[]) => void;
+  onChangeQuantity?: (cardName: string, newQuantity: number) => void;
+  onClose?: () => void;
+  readOnly?: boolean;
+  sideboardNames?: string[];
+  maybeboardNames?: string[];
+  onSetSideboard?: (names: string[]) => void;
+  onSetMaybeboard?: (names: string[]) => void;
+}
+
+function sortDeckListAlpha(raw: string): string {
+  return raw.split('\n').filter(Boolean).sort((a, b) => {
+    const nameA = a.replace(/^\d+\s+/, '').toLowerCase();
+    const nameB = b.replace(/^\d+\s+/, '').toLowerCase();
+    return nameA.localeCompare(nameB);
+  }).join('\n');
+}
+
+function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQuantity, readOnly, onClose, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard }: TextEditorViewProps) {
+  const canEdit = !readOnly && (!!onAddCards || !!onRemoveCards);
+  const hasSideboard = !!onSetSideboard;
+  const hasMaybeboard = !!onSetMaybeboard;
+  const hasBoards = hasSideboard || hasMaybeboard;
+
+  type BoardTab = 'deck' | 'sideboard' | 'maybeboard';
+  const [activeTab, setActiveTab] = useState<BoardTab>('deck');
+
+  const [text, setText] = useState(() => sortDeckListAlpha(generateDeckList()));
+  const [sbText, setSbText] = useState(() => sortDeckListAlpha((sideboardNames || []).map(n => '1 ' + n).join('\n')));
+  const [mbText, setMbText] = useState(() => sortDeckListAlpha((maybeboardNames || []).map(n => '1 ' + n).join('\n')));
+
+  const [applying, setApplying] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [addQuery, setAddQuery] = useState('');
+  const [addSuggestions, setAddSuggestions] = useState<string[]>([]);
+  const [showAddSearch, setShowAddSearch] = useState(false);
+  const addSearchRef = useRef<HTMLDivElement>(null);
+  const addInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync sideboard/maybeboard text when external data changes
+  const sbKey = (sideboardNames || []).join(',');
+  const mbKey = (maybeboardNames || []).join(',');
+  const prevSbKeyRef = useRef(sbKey);
+  const prevMbKeyRef = useRef(mbKey);
+  useEffect(() => {
+    if (sbKey !== prevSbKeyRef.current) {
+      setSbText(sortDeckListAlpha((sideboardNames || []).map(n => '1 ' + n).join('\n')));
+      prevSbKeyRef.current = sbKey;
+    }
+  }, [sbKey, sideboardNames]);
+  useEffect(() => {
+    if (mbKey !== prevMbKeyRef.current) {
+      setMbText(sortDeckListAlpha((maybeboardNames || []).map(n => '1 ' + n).join('\n')));
+      prevMbKeyRef.current = mbKey;
+    }
+  }, [mbKey, maybeboardNames]);
+
+  // Autocomplete search
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (addQuery.length < 2) { setAddSuggestions([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      const results = await autocompleteCardName(addQuery);
+      setAddSuggestions(results.slice(0, 8));
+    }, 200);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [addQuery]);
+
+  const handleAddCard = useCallback((name: string) => {
+    if (activeTab === 'deck') {
+      setText(prev => sortDeckListAlpha(prev + '\n1 ' + name));
+    } else if (activeTab === 'sideboard') {
+      setSbText(prev => sortDeckListAlpha(prev + '\n1 ' + name));
+    } else {
+      setMbText(prev => sortDeckListAlpha(prev + '\n1 ' + name));
+    }
+    setAddQuery('');
+    setAddSuggestions([]);
+    setTimeout(() => addInputRef.current?.focus(), 0);
+  }, [activeTab]);
+  const [lastAppliedDeckList, setLastAppliedDeckList] = useState(() => generateDeckList());
+
+  // Re-sync text when deck changes externally (e.g. after apply, or switching back)
+  const currentDeckList = generateDeckList();
+  useEffect(() => {
+    if (currentDeckList !== lastAppliedDeckList) {
+      setText(sortDeckListAlpha(currentDeckList));
+      setLastAppliedDeckList(currentDeckList);
+      setErrors([]);
+    }
+  }, [currentDeckList, lastAppliedDeckList]);
+
+  // Parse current text into a name→quantity map
+  const parsedText = useMemo(() => {
+    const result = parseCollectionList(text);
+    const map = new Map<string, number>();
+    for (const { name, quantity } of result.cards) {
+      const lower = name.toLowerCase();
+      map.set(lower, (map.get(lower) || 0) + quantity);
+    }
+    return map;
+  }, [text]);
+
+  // Parse current deck into a name→quantity map
+  const currentDeckMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const line of currentDeckList.split('\n')) {
+      const match = line.match(/^(\d+)\s+(.+)/);
+      if (!match) continue;
+      const qty = parseInt(match[1], 10);
+      const name = match[2].trim().toLowerCase();
+      map.set(name, (map.get(name) || 0) + qty);
+    }
+    return map;
+  }, [currentDeckList]);
+
+  // Compute diff
+  const diff = useMemo(() => {
+    const additions: string[] = [];
+    const removals: string[] = [];
+    const qtyChanges: { name: string; newQty: number }[] = [];
+
+    // Check for additions & quantity increases
+    for (const [name, newQty] of parsedText) {
+      const oldQty = currentDeckMap.get(name) || 0;
+      if (oldQty === 0) {
+        for (let i = 0; i < newQty; i++) additions.push(name);
+      } else if (newQty !== oldQty) {
+        qtyChanges.push({ name, newQty });
+      }
+    }
+
+    // Check for removals
+    for (const [name, oldQty] of currentDeckMap) {
+      if (!parsedText.has(name)) {
+        for (let i = 0; i < oldQty; i++) removals.push(name);
+      }
+    }
+
+    return { additions, removals, qtyChanges, hasChanges: additions.length > 0 || removals.length > 0 || qtyChanges.length > 0 };
+  }, [parsedText, currentDeckMap]);
+
+  const textCardCount = useMemo(() => {
+    let count = 0;
+    for (const qty of parsedText.values()) count += qty;
+    return count;
+  }, [parsedText]);
+
+  const handleApply = useCallback(async () => {
+    if (!diff.hasChanges) return;
+    setApplying(true);
+    setErrors([]);
+
+    try {
+      // Validate new card names with Scryfall
+      const newNames = [...new Set(diff.additions)];
+      const notFound: string[] = [];
+
+      if (newNames.length > 0) {
+        const found = await getCardsByNames(newNames);
+        for (const name of newNames) {
+          // getCardsByNames returns a Map keyed by original name
+          if (!found.has(name)) {
+            // Try case-insensitive match
+            const match = [...found.keys()].find(k => k.toLowerCase() === name.toLowerCase());
+            if (!match) notFound.push(name);
+          }
+        }
+      }
+
+      if (notFound.length > 0) {
+        setErrors(notFound.map(n => `Card not found: "${n}"`));
+        setApplying(false);
+        return;
+      }
+
+      // Apply removals
+      if (diff.removals.length > 0 && onRemoveCards) {
+        // Need original-cased names for removal
+        const originalNames: string[] = [];
+        for (const line of currentDeckList.split('\n')) {
+          const match = line.match(/^(\d+)\s+(.+)/);
+          if (!match) continue;
+          const name = match[2].trim();
+          if (diff.removals.includes(name.toLowerCase())) {
+            originalNames.push(name);
+          }
+        }
+        if (originalNames.length > 0) onRemoveCards(originalNames);
+      }
+
+      // Apply quantity changes
+      if (diff.qtyChanges.length > 0 && onChangeQuantity) {
+        for (const { name, newQty } of diff.qtyChanges) {
+          // Find original-cased name
+          for (const line of currentDeckList.split('\n')) {
+            const match = line.match(/^(\d+)\s+(.+)/);
+            if (match && match[2].trim().toLowerCase() === name) {
+              onChangeQuantity(match[2].trim(), newQty);
+              break;
+            }
+          }
+        }
+      }
+
+      // Apply additions
+      if (diff.additions.length > 0 && onAddCards) {
+        // Use validated names (proper casing) from Scryfall
+        const validatedNames = await getCardsByNames([...new Set(diff.additions)]);
+        const toAdd: string[] = [];
+        for (const name of diff.additions) {
+          const found = validatedNames.get(name) || [...validatedNames.values()].find(c => c.name.toLowerCase() === name.toLowerCase());
+          if (found) toAdd.push(found.name);
+        }
+        if (toAdd.length > 0) onAddCards(toAdd, 'deck');
+      }
+
+      setLastAppliedDeckList(text);
+    } catch (err) {
+      setErrors(['Failed to validate cards. Please try again.']);
+    } finally {
+      setApplying(false);
+    }
+  }, [diff, onAddCards, onRemoveCards, onChangeQuantity, currentDeckList, text]);
+
+  // Board diffs (sideboard/maybeboard)
+  const parseBoardText = useCallback((boardText: string) => {
+    const result = parseCollectionList(boardText);
+    return result.cards.map(c => c.name);
+  }, []);
+
+  const sbParsedNames = useMemo(() => parseBoardText(sbText), [sbText, parseBoardText]);
+  const mbParsedNames = useMemo(() => parseBoardText(mbText), [mbText, parseBoardText]);
+
+  const sbDiff = useMemo(() => {
+    const oldSet = new Set((sideboardNames || []).map(n => n.toLowerCase()));
+    const newSet = new Set(sbParsedNames.map(n => n.toLowerCase()));
+    const added = sbParsedNames.filter(n => !oldSet.has(n.toLowerCase()));
+    const removed = (sideboardNames || []).filter(n => !newSet.has(n.toLowerCase()));
+    return { added, removed, hasChanges: added.length > 0 || removed.length > 0 };
+  }, [sbParsedNames, sideboardNames]);
+
+  const mbDiff = useMemo(() => {
+    const oldSet = new Set((maybeboardNames || []).map(n => n.toLowerCase()));
+    const newSet = new Set(mbParsedNames.map(n => n.toLowerCase()));
+    const added = mbParsedNames.filter(n => !oldSet.has(n.toLowerCase()));
+    const removed = (maybeboardNames || []).filter(n => !newSet.has(n.toLowerCase()));
+    return { added, removed, hasChanges: added.length > 0 || removed.length > 0 };
+  }, [mbParsedNames, maybeboardNames]);
+
+  const handleApplyBoard = useCallback(async (board: 'sideboard' | 'maybeboard') => {
+    const names = board === 'sideboard' ? sbParsedNames : mbParsedNames;
+    const setter = board === 'sideboard' ? onSetSideboard : onSetMaybeboard;
+    if (!setter) return;
+    setApplying(true);
+    setErrors([]);
+    try {
+      // Validate new card names
+      const boardDiff = board === 'sideboard' ? sbDiff : mbDiff;
+      if (boardDiff.added.length > 0) {
+        const found = await getCardsByNames(boardDiff.added);
+        const notFound = boardDiff.added.filter(n => !found.has(n) && ![...found.keys()].some(k => k.toLowerCase() === n.toLowerCase()));
+        if (notFound.length > 0) {
+          setErrors(notFound.map(n => `Card not found: "${n}"`));
+          setApplying(false);
+          return;
+        }
+        // Use validated names
+        const validated = names.map(n => {
+          const match = found.get(n) || [...found.values()].find(c => c.name.toLowerCase() === n.toLowerCase());
+          return match ? match.name : n;
+        });
+        setter(validated);
+      } else {
+        setter(names);
+      }
+    } catch {
+      setErrors(['Failed to validate cards. Please try again.']);
+    } finally {
+      setApplying(false);
+    }
+  }, [sbParsedNames, mbParsedNames, sbDiff, mbDiff, onSetSideboard, onSetMaybeboard]);
+
+  const handleReset = useCallback(() => {
+    if (activeTab === 'deck') {
+      setText(sortDeckListAlpha(currentDeckList));
+    } else if (activeTab === 'sideboard') {
+      setSbText(sortDeckListAlpha((sideboardNames || []).map(n => '1 ' + n).join('\n')));
+    } else {
+      setMbText(sortDeckListAlpha((maybeboardNames || []).map(n => '1 ' + n).join('\n')));
+    }
+    setErrors([]);
+  }, [activeTab, currentDeckList, sideboardNames, maybeboardNames]);
+
+  // Active tab helpers
+  const activeText = activeTab === 'deck' ? text : activeTab === 'sideboard' ? sbText : mbText;
+  const activeSetText = activeTab === 'deck' ? setText : activeTab === 'sideboard' ? setSbText : setMbText;
+  const activeDiff = activeTab === 'deck' ? diff : activeTab === 'sideboard' ? sbDiff : mbDiff;
+  const activeCardCount = activeTab === 'deck' ? textCardCount : activeTab === 'sideboard' ? sbParsedNames.length : mbParsedNames.length;
+  const activeHandleApply = activeTab === 'deck' ? handleApply : () => handleApplyBoard(activeTab);
+
+  return (
+    <div className="p-3 flex flex-col gap-2 h-full">
+      {/* Header — add search + close */}
+      <div className="flex items-center gap-1.5">
+        {canEdit && (
+          <div className="relative flex-1" ref={addSearchRef}>
+            {showAddSearch ? (
+              <>
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                <input
+                  ref={addInputRef}
+                  type="text"
+                  value={addQuery}
+                  onChange={(e) => setAddQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') { setShowAddSearch(false); setAddQuery(''); setAddSuggestions([]); }
+                    if (e.key === 'Enter' && addSuggestions.length > 0) { handleAddCard(addSuggestions[0]); }
+                  }}
+                  placeholder="Add a card..."
+                  className="w-full bg-background border border-border rounded-md pl-7 pr-7 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                  autoFocus
+                />
+                <button
+                  onClick={() => { setShowAddSearch(false); setAddQuery(''); setAddSuggestions([]); }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+                {addSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 mt-1 z-50 w-full max-h-[240px] overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
+                    {addSuggestions.map((name) => (
+                      <button
+                        key={name}
+                        onClick={() => handleAddCard(name)}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/50 transition-colors truncate"
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={() => { setShowAddSearch(true); setTimeout(() => addInputRef.current?.focus(), 0); }}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                title="Add a card"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 ml-auto"
+            title="Close text editor"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+      {/* Board Tabs */}
+      {hasBoards && (
+        <div className="flex border-b border-border/50 -mx-3 px-3">
+          {(['deck', ...(hasSideboard ? ['sideboard'] : []), ...(hasMaybeboard ? ['maybeboard'] : [])] as BoardTab[]).map(tab => {
+            const count = tab === 'deck' ? textCardCount : tab === 'sideboard' ? sbParsedNames.length : mbParsedNames.length;
+            const label = tab === 'deck' ? 'Deck' : tab === 'sideboard' ? 'Sideboard' : 'Maybe';
+            const color = tab === 'sideboard' ? 'text-amber-400' : tab === 'maybeboard' ? 'text-purple-400' : '';
+            return (
+              <button
+                key={tab}
+                onClick={() => { setActiveTab(tab); setErrors([]); }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors relative ${
+                  activeTab === tab
+                    ? `${color || 'text-foreground'} after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-current`
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}{count > 0 ? ` (${count}${(tab === 'deck' ? diff.hasChanges : tab === 'sideboard' ? sbDiff.hasChanges : mbDiff.hasChanges) ? '*' : ''})` : ''}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Textarea */}
+      <textarea
+        value={activeText}
+        onChange={canEdit ? (e) => activeSetText(e.target.value) : undefined}
+        readOnly={!canEdit}
+        onClick={!canEdit ? (e) => (e.target as HTMLTextAreaElement).select() : undefined}
+        spellCheck={false}
+        className="w-full flex-1 min-h-[600px] bg-background border border-border rounded-none p-3 font-mono text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary/50 leading-tight"
+        placeholder="1 Card Name&#10;2 Another Card&#10;..."
+      />
+
+      {/* Errors */}
+      {errors.length > 0 && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2 space-y-0.5">
+          {errors.map((err, i) => (
+            <p key={i} className="text-xs text-red-400 flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              {err}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Toolbar — bottom */}
+      {canEdit ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground tabular-nums">{activeCardCount} cards</span>
+
+          {activeDiff.hasChanges && (() => {
+            const addCount = activeTab === 'deck' ? diff.additions.length : (activeTab === 'sideboard' ? sbDiff.added.length : mbDiff.added.length);
+            const removeCount = activeTab === 'deck' ? diff.removals.length : (activeTab === 'sideboard' ? sbDiff.removed.length : mbDiff.removed.length);
+            const qtyCount = activeTab === 'deck' ? diff.qtyChanges.length : 0;
+            return (
+              <span className="text-xs text-muted-foreground">
+                {addCount > 0 && <span className="text-emerald-400">+{addCount}</span>}
+                {addCount > 0 && removeCount > 0 && ' '}
+                {removeCount > 0 && <span className="text-red-400">-{removeCount}</span>}
+                {qtyCount > 0 && <span className="text-sky-400"> {qtyCount} changed</span>}
+              </span>
+            );
+          })()}
+
+          <div className="ml-auto flex items-center gap-1.5">
+            {activeDiff.hasChanges && (
+              <button
+                onClick={handleReset}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              onClick={activeHandleApply}
+              disabled={!activeDiff.hasChanges || applying}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            >
+              {applying && <Loader2Icon className="w-3 h-3 animate-spin" />}
+              Apply Changes
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground/60 italic">Read-only — switch to a saved list to edit via text</p>
+      )}
+    </div>
+  );
+}
+
 // Mana color configuration
 const MANA_COLORS: Record<string, { name: string; color: string; bgColor: string }> = {
   W: { name: 'White', color: '#F9FAF4', bgColor: 'bg-amber-100' },
@@ -828,11 +1507,11 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
           {/* Basic Stats */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-accent/30 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-primary">{totalCardsWithCommander}</div>
+              <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
               <div className="text-xs text-muted-foreground">Cards</div>
             </div>
             <div className="bg-accent/30 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-primary">{stats.averageCmc}</div>
+              <div className="text-2xl font-bold text-foreground">{stats.averageCmc}</div>
               <div className="text-xs text-muted-foreground">Avg CMC</div>
             </div>
           </div>
@@ -988,11 +1667,11 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
           </button>
           {showRoles && <div className="space-y-1.5">
             {([
-              ['ramp', 'Ramp', 'bg-emerald-500'],
-              ['removal', 'Removal', 'bg-red-500'],
-              ['boardwipe', 'Board Wipes', 'bg-orange-500'],
-              ['cardDraw', 'Card Advantage', 'bg-blue-500'],
-            ] as const).map(([key, label, barColor]) => {
+              ['ramp', 'Ramp', 'bg-emerald-500', TrendingUp],
+              ['removal', 'Removal', 'bg-red-500', Swords],
+              ['boardwipe', 'Board Wipes', 'bg-orange-500', Flame],
+              ['cardDraw', 'Card Advantage', 'bg-blue-500', BookOpen],
+            ] as [string, string, string, typeof TrendingUp][]).map(([key, label, barColor, Icon]) => {
               const count = generatedDeck.roleCounts![key] ?? 0;
               const target = generatedDeck.roleTargets![key] ?? 0;
               const percent = target > 0 ? Math.min(100, (count / target) * 100) : 100;
@@ -1008,7 +1687,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs mb-0.5">
-                    <span>{label}</span>
+                    <span className="flex items-center gap-1.5"><Icon className="w-3 h-3 text-muted-foreground" />{label}</span>
                     <span className={met ? 'text-emerald-500' : 'text-amber-500'}>
                       {count}{import.meta.env.DEV && <> / {target}</>}
                     </span>
@@ -1157,6 +1836,8 @@ interface DeckDisplayProps {
   regenerateMessage?: string;
   /** Callback to remove cards from a saved list (used in list deck view) */
   onRemoveCards?: (cardNames: string[]) => void;
+  /** Callback to add cards (used in text view to apply edits) */
+  onAddCards?: (cardNames: string[], destination: 'deck') => void;
   /** Callbacks to move cards to sideboard/maybeboard (used in list deck view) */
   onMoveToSideboard?: (cardNames: string[]) => void;
   onMoveToMaybeboard?: (cardNames: string[]) => void;
@@ -1168,10 +1849,21 @@ interface DeckDisplayProps {
   deckFooter?: React.ReactNode;
   /** Render prop for header-level actions (e.g. export, save). Receives onExport trigger. When provided, the Export button is removed from the summary row. */
   renderHeaderActions?: (actions: { onExport: () => void }) => React.ReactNode;
+  /** Callback to change the quantity of a card (for list deck views) */
+  onChangeQuantity?: (cardName: string, newQuantity: number) => void;
+  /** Called when edit mode is toggled */
+  onEditModeChange?: (editing: boolean) => void;
+  /** Content rendered above the Statistics sidebar on desktop (e.g. Export/Save buttons) */
+  sidebarHeader?: React.ReactNode;
+  /** Sideboard/maybeboard card names for text editor tabs */
+  sideboardNames?: string[];
+  maybeboardNames?: string[];
+  onSetSideboard?: (names: string[]) => void;
+  onSetMaybeboard?: (names: string[]) => void;
   children?: React.ReactNode;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
   const { lists: userLists, createList, updateList } = useUserLists();
@@ -1180,6 +1872,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [showTextEditor, _setShowTextEditor] = useState(() => localStorage.getItem('mtg-deck-show-text-editor') === 'true');
+  const setShowTextEditor = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    _setShowTextEditor(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      localStorage.setItem('mtg-deck-show-text-editor', String(next));
+      return next;
+    });
+  }, []);
   const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price' | 'score'>('name');
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
@@ -1200,9 +1900,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const showMenuMobileRef = useRef<HTMLDivElement>(null);
   const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditMode, _setIsEditMode] = useState(false);
+  const setIsEditMode = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
+    _setIsEditMode(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      if (next !== prev) onEditModeChange?.(next);
+      return next;
+    });
+  }, [onEditModeChange]);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
+  const [collapsedGridCategories, setCollapsedGridCategories] = useState<Set<CardType>>(new Set());
   const [addToTab, setAddToTabRaw] = useState<'lists' | 'deck'>(lastAddToTab);
   const setAddToTab = useCallback((tab: 'lists' | 'deck') => { lastAddToTab = tab; setAddToTabRaw(tab); }, []);
   const [listSearchQuery, setListSearchQuery] = useState('');
@@ -1719,6 +2427,49 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     setSelectedCards(new Set());
   }, [getSelectedCardNames, createList]);
 
+  // Single-card context menu handler
+  const handleCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    const name = card.name;
+    switch (action.type) {
+      case 'remove':
+        onRemoveCards?.([name]);
+        break;
+      case 'sideboard':
+        onMoveToSideboard?.([name]);
+        break;
+      case 'maybeboard':
+        onMoveToMaybeboard?.([name]);
+        break;
+      case 'mustInclude': {
+        const current = customization.mustIncludeCards;
+        const has = current.includes(name);
+        updateCustomization({ mustIncludeCards: has ? current.filter(n => n !== name) : [...current, name] });
+        break;
+      }
+      case 'exclude': {
+        const currentBanned = customization.bannedCards;
+        const hasBan = currentBanned.includes(name);
+        updateCustomization({ bannedCards: hasBan ? currentBanned.filter(n => n !== name) : [...currentBanned, name] });
+        break;
+      }
+      case 'addToList': {
+        const list = userLists.find(l => l.id === action.listId);
+        if (list && !list.cards.includes(name)) {
+          updateList(action.listId, { cards: [...list.cards, name] });
+          setToastMessage(`Added "${name}" to "${list.name}"`);
+        }
+        break;
+      }
+    }
+  }, [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList]);
+
+  const cardMenuProps: Omit<CardContextMenuProps, 'card' | 'onAction'> = useMemo(() => ({
+    hasRemove: !!onRemoveCards,
+    hasSideboard: !!onMoveToSideboard,
+    hasMaybeboard: !!onMoveToMaybeboard,
+    userLists,
+  }), [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, userLists]);
+
   // Close add-to dropdown on outside click
   useEffect(() => {
     if (!showAddToDropdown) return;
@@ -1854,11 +2605,23 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return lines.join('\n');
   }, [groupedCards]);
 
+  const mustIncludeNames = useMemo(() => {
+    const set = new Set(customization.mustIncludeCards);
+    for (const n of customization.tempMustIncludeCards ?? []) set.add(n);
+    return set;
+  }, [customization.mustIncludeCards, customization.tempMustIncludeCards]);
+
+  const bannedNames = useMemo(() => {
+    const set = new Set(customization.bannedCards);
+    for (const n of customization.tempBannedCards ?? []) set.add(n);
+    return set;
+  }, [customization.bannedCards, customization.tempBannedCards]);
+
   if (!generatedDeck) return null;
 
   const { usedThemes, dataSource } = generatedDeck;
   const allGroupedCards = Object.values(groupedCards).flat();
-  const totalCards = allGroupedCards.reduce((sum, c) => sum + c.quantity, 0);
+  const totalCards = allGroupedCards.reduce((sum, c) => sum + c.quantity, 0) + (commander ? 1 : 0) + (generatedDeck.partnerCommander ? 1 : 0);
   const totalPrice = allGroupedCards.reduce((sum, c) => {
     const price = parseFloat(getCardPrice(c.card, customization.currency) || '0');
     return sum + (isNaN(price) ? 0 : price * c.quantity);
@@ -1875,12 +2638,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     customization.deckBudget !== null ||
     customization.budgetOption !== 'any';
   const avgCardPrice = budgetActive && totalCards > 0 ? totalPrice / totalCards : null;
-
-  const mustIncludeNames = useMemo(() => {
-    const set = new Set(customization.mustIncludeCards);
-    for (const n of customization.tempMustIncludeCards ?? []) set.add(n);
-    return set;
-  }, [customization.mustIncludeCards, customization.tempMustIncludeCards]);
 
   // Determine if we fell back from what the user asked for
   const hadThemes = usedThemes && usedThemes.length > 0;
@@ -1911,13 +2668,74 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return `EDHREC didn't have data for the combination of ${requested.join(', ')}. Used ${got[dataSource]} instead.`;
   })();
 
+  const deckSummary = (
+    <>
+      {renderHeaderActions && renderHeaderActions({ onExport: () => setShowExportModal(true) })}
+      <div className="flex items-center justify-end gap-2 sm:gap-4 xl:gap-3 flex-wrap">
+        <div className="text-sm text-muted-foreground xl:hidden">
+          {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
+          {showPrice && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
+            <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
+          )}
+          {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
+            <span className="text-xs">
+              {' · '}
+              {[
+                boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
+                boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
+              ].filter(Boolean).join(' · ')}
+            </span>
+          )}
+          {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
+            <span className="ml-1 text-xs">
+              ({[
+                customization.budgetOption === 'budget' ? 'Budget' : customization.budgetOption === 'expensive' ? 'Expensive' : null,
+                customization.maxCardPrice !== null ? `<${sym}${customization.maxCardPrice}/card` : null,
+                customization.deckBudget !== null ? `${totalPrice > customization.deckBudget ? '~' : ''}${sym}${customization.deckBudget} budget, excludes commander` : null,
+              ].filter(Boolean).join(' · ')})
+            </span>
+          )}
+          {usedThemes && usedThemes.length > 0 && (
+            <span className="ml-2">
+              · Built with: <span className="font-medium">{usedThemes.join(', ')}</span>
+            </span>
+          )}
+        </div>
+        {(isDirty || removedCards.size > 0 || pendingRegenerate) && onRegenerate && !hideRegenerate && (
+          <Button onClick={handleRegenerate} variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300" disabled={pendingRegenerate}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${pendingRegenerate ? 'animate-spin' : ''}`} />
+            {pendingRegenerate ? 'Regenerating...' : 'Regenerate'}
+          </Button>
+        )}
+        <div className="flex flex-col items-end gap-1">
+          {generatedDeck.builtFromCollection && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              {customization.collectionStrategy === 'partial'
+                ? `Collection (${customization.collectionOwnedPercent}% owned)`
+                : 'From My Collection'}
+            </span>
+          )}
+          {!renderHeaderActions && (
+            <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
+              <Copy className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <>
       <div className="animate-slide-up">
         {/* Header + Mobile Stats combined card */}
-        <div className="bg-card/50 rounded-lg border border-border/50 mb-4 xl:contents">
-        <div className="flex items-center justify-between p-3 xl:p-0 xl:mb-4 flex-wrap gap-3">
-          <div className="hidden xl:flex items-center gap-2 sm:gap-3 flex-wrap">
+        <div className="bg-card/50 rounded-lg border border-border/50 mb-4 xl:hidden">
+        <div className="flex items-center justify-between p-3 flex-wrap gap-3">
+          <div className="hidden flex-1 items-center gap-2 sm:gap-3 flex-wrap">
             {/* Sort */}
             <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
               <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
@@ -1972,22 +2790,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               )}
             </div>
 
-            {/* View Toggle */}
-            <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                <Grid3X3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                <List className="w-4 h-4" />
-              </button>
-            </div>
-
             {/* Search */}
             <div className="relative flex items-center gap-2">
               <div className="relative">
@@ -2026,72 +2828,40 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 <span className="hidden sm:inline">Modify Deck</span>
               </button>
             )}
-            {/* Toolbar extra (e.g. add-card search) — only in edit mode */}
-            {!readOnly && isEditMode && toolbarExtra}
             {!readOnly && isEditMode && (
               <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
                 Exit Modify
               </button>
             )}
-          </div>
 
-          {renderHeaderActions && renderHeaderActions({ onExport: () => setShowExportModal(true) })}
-
-          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
-            <div className="text-sm text-muted-foreground">
-              {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
-              {showPrice && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
-                <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
-              )}
-              {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
-                <span className="text-xs">
-                  {' · '}
-                  {[
-                    boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
-                    boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
-                  ].filter(Boolean).join(' · ')}
-                </span>
-              )}
-              {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
-                <span className="ml-1 text-xs">
-                  ({[
-                    customization.budgetOption === 'budget' ? 'Budget' : customization.budgetOption === 'expensive' ? 'Expensive' : null,
-                    customization.maxCardPrice !== null ? `<${sym}${customization.maxCardPrice}/card` : null,
-                    customization.deckBudget !== null ? `${totalPrice > customization.deckBudget ? '~' : ''}${sym}${customization.deckBudget} budget, excludes commander` : null,
-                  ].filter(Boolean).join(' · ')})
-                </span>
-              )}
-              {usedThemes && usedThemes.length > 0 && (
-                <span className="ml-2">
-                  · Built with: <span className="font-medium">{usedThemes.join(', ')}</span>
-                </span>
-              )}
-            </div>
-            {(isDirty || removedCards.size > 0 || pendingRegenerate) && onRegenerate && !hideRegenerate && (
-              <Button onClick={handleRegenerate} variant="outline" className="border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300" disabled={pendingRegenerate}>
-                <RefreshCw className={`w-4 h-4 mr-2 ${pendingRegenerate ? 'animate-spin' : ''}`} />
-                {pendingRegenerate ? 'Regenerating...' : 'Regenerate'}
-              </Button>
-            )}
-            <div className="flex flex-col items-end gap-1">
-              {generatedDeck.builtFromCollection && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                  {customization.collectionStrategy === 'partial'
-                    ? `Collection (${customization.collectionOwnedPercent}% owned)`
-                    : 'From My Collection'}
-                </span>
-              )}
-              {!renderHeaderActions && (
-                <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
-                  <Copy className="w-4 h-4 mr-2" />
-                  Export
-                </Button>
-              )}
+            {/* View Toggle + Text Editor — pushed to flex-end */}
+            <div className="ml-auto flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+              <button
+                onClick={() => setShowTextEditor(v => !v)}
+                className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+              <div className="w-px h-4 bg-border/60 mx-1" />
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title="Grid view"
+              >
+                <Grid3X3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title="List view"
+              >
+                <List className="w-4 h-4" />
+              </button>
             </div>
           </div>
+
+          {deckSummary}
         </div>
 
         {/* Stats - Mobile/Tablet (inside combined card) */}
@@ -2163,8 +2933,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
         )}
 
+        {/* Main Content — two-column layout */}
+        <div className="flex gap-6 items-start">
+          {/* Deck Column */}
+          <div className="flex-1 min-w-0">
+
         {/* Toolbar - Mobile/Tablet (below stats, above deck) */}
-        <div className="xl:hidden flex items-center gap-2 flex-wrap mb-4">
+        <div className="flex items-center gap-2 flex-wrap mb-4">
           {/* Sort */}
           <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
             <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
@@ -2218,22 +2993,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             )}
           </div>
 
-          {/* View Toggle */}
-          <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              <Grid3X3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              <List className="w-4 h-4" />
-            </button>
-          </div>
-
           {/* Search */}
           <div className="relative flex items-center gap-2">
             <div className="relative">
@@ -2243,7 +3002,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search..."
-                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-40 sm:w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
               />
               {searchQuery && (
                 <button
@@ -2261,29 +3020,76 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             )}
           </div>
 
-          {/* Modify Deck */}
+          {/* Modify Deck — mobile/tablet only (on xl it's in sidebar) */}
           {!readOnly && !isEditMode && (
             <button
               onClick={() => setIsEditMode(true)}
-              className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="xl:hidden flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
               title="Modify Deck"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
           )}
-          {!readOnly && isEditMode && toolbarExtra}
           {!readOnly && isEditMode && (
-            <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+            <button onClick={handleExitEditMode} className="xl:hidden px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
               Exit Modify
             </button>
           )}
+
+          {/* View Toggle + Text Editor — pushed to flex-end */}
+          <div className="ml-auto flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+            <button
+              onClick={() => setShowTextEditor(v => !v)}
+              className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
+            >
+              <FileText className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-border/60 mx-1" />
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="Grid view"
+            >
+              <Grid3X3 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="List view"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Main Content */}
-        <div className="flex gap-6 items-start">
-          {/* Deck Column */}
-          <div className="flex-1 min-w-0">
-          <div className={`bg-card/30 rounded-lg border border-border/50 overflow-hidden ${isEditMode ? 'select-none' : ''}`}>
+          <div className={`flex flex-col lg:flex-row ${showTextEditor ? 'gap-4' : 'gap-0'}`}>
+          {/* Text Editor Panel — animated side-by-side */}
+          <div
+            className={`lg:sticky lg:top-[84px] lg:self-start transition-all duration-300 ease-in-out overflow-hidden ${
+              showTextEditor
+                ? 'lg:w-[380px] lg:shrink-0 lg:opacity-100 max-lg:opacity-100 max-lg:max-h-[800px]'
+                : 'lg:w-0 lg:opacity-0 max-lg:max-h-0 max-lg:opacity-0'
+            }`}
+          >
+            <div className={`bg-card/30 rounded-lg border border-border/50 overflow-hidden ${showTextEditor ? '' : 'lg:hidden max-lg:hidden'}`} style={{ minWidth: showTextEditor ? 380 : 0 }}>
+              <TextEditorView
+                generateDeckList={generateDeckList}
+                onAddCards={onAddCards}
+                onRemoveCards={onRemoveCards}
+                onChangeQuantity={onChangeQuantity}
+                readOnly={readOnly || (!onAddCards && !onRemoveCards)}
+                onClose={() => setShowTextEditor(false)}
+                sideboardNames={sideboardNames}
+                maybeboardNames={maybeboardNames}
+                onSetSideboard={onSetSideboard}
+                onSetMaybeboard={onSetMaybeboard}
+              />
+            </div>
+          </div>
+
+          {/* Deck View */}
+          <div className={`bg-card/30 rounded-lg border border-border/50 overflow-hidden flex-1 min-w-0 ${isEditMode ? 'select-none' : ''}`}>
             {viewMode === 'list' ? (
               <div className="p-4" style={{ columnWidth: '280px', columnGap: '2rem' }}>
                 {TYPE_ORDER.map((type) => (
@@ -2306,8 +3112,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     onToggleCategory={handleToggleCategory}
                     collectionNames={showOwnedIndicators && showCollectionChecks ? collectionNames : null}
                     mustIncludeNames={mustIncludeNames}
+                    bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
                     showPrice={showPrice}
+                    onCardAction={!readOnly ? handleCardAction : undefined}
+                    showCardMenu={!readOnly}
+                    cardMenuProps={cardMenuProps}
+                    onChangeQuantity={onChangeQuantity}
+                    isSingleton={formatConfig.hasCommander}
                   />
                 ))}
               </div>
@@ -2321,11 +3133,20 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   if (visibleCards.length === 0) return null;
                   return (
                     <div key={type}>
-                      <div className="flex items-center gap-1.5 pt-2 pb-1">
+                      <button
+                        onClick={() => setCollapsedGridCategories(prev => {
+                          const next = new Set(prev);
+                          next.has(type) ? next.delete(type) : next.add(type);
+                          return next;
+                        })}
+                        className="flex items-center gap-1.5 pt-2 pb-1 w-full text-left group"
+                      >
+                        <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsedGridCategories.has(type) ? '-rotate-90' : ''}`} />
                         <CardTypeIcon type={type} size="sm" className="opacity-60" />
                         <span className="text-xs font-medium text-muted-foreground">{type}</span>
                         <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
-                      </div>
+                      </button>
+                      {!collapsedGridCategories.has(type) && (
                       <div ref={gridAnimateRef} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
                         {visibleCards.map(({ card, quantity }) => {
                           const isCommanderType = type === 'Commander';
@@ -2362,6 +3183,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                   {quantity}x
                                 </span>
                               )}
+                              {!readOnly && !isCommanderType && (
+                                <span className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10" style={quantity > 1 ? { top: '1.75rem' } : undefined}>
+                                  <CardContextMenu card={card} onAction={handleCardAction} {...cardMenuProps} isMustInclude={mustIncludeNames.has(card.name)} isBanned={bannedNames.has(card.name)} />
+                                </span>
+                              )}
                               {sortBy === 'cmc' && (
                                 <span className="absolute top-1 left-1 bg-black/80 text-white text-[10px] px-1 rounded">
                                   {card.cmc}
@@ -2396,10 +3222,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                   </span>
                                 );
                               })()}
-                              {/* Bottom-right badge stack: GC/pin icons + role badges */}
+                              {/* Bottom-right badge stack: GC/pin/ban icons + role badges */}
                               {(() => {
                                 const isMLive = mustIncludeNames.has(card.name);
-                                const hasGcOrPin = card.isGameChanger || isMLive;
+                                const isBLive = bannedNames.has(card.name);
+                                const hasGcOrPin = card.isGameChanger || isMLive || isBLive;
                                 const roleBadges: { bgColor: string; title: string; label: string }[] = [];
                                 if (card.deckRole && showRoles) {
                                   if (card.multiRole) {
@@ -2424,12 +3251,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                         <Star className="w-2.5 h-2.5" />
                                       </span>
                                     )}
+                                    {isBLive && (
+                                      <span className="bg-red-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center animate-pop-in" title="Excluded">
+                                        <Ban className="w-2.5 h-2.5" />
+                                      </span>
+                                    )}
                                     {isMLive && (
                                       <span className={`${
                                         card.mustIncludeSource === 'deck' ? 'bg-muted-foreground/60' :
                                         card.mustIncludeSource === 'combo' ? 'bg-violet-500/80' :
                                         'bg-emerald-500/80'
-                                      } text-white rounded-full w-5 h-5 flex items-center justify-center`}
+                                      } text-white rounded-full w-5 h-5 flex items-center justify-center ${
+                                        card.mustIncludeSource === 'deck' || card.mustIncludeSource === 'combo' ? '' : 'animate-pop-in'
+                                      }`}
                                         title={card.mustIncludeSource === 'deck' ? 'From Original Deck' :
                                                card.mustIncludeSource === 'combo' ? 'Added by User' : 'Must Include'}>
                                         {card.mustIncludeSource === 'deck' ? <Bookmark className="w-2.5 h-2.5" /> :
@@ -2470,20 +3304,39 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           );
                         })}
                       </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
           {deckFooter}
-          </div>
+          </div>{/* end Deck View */}
+          </div>{/* end flex wrapper (text + deck) */}
 
           {/* Below-deck content (combos, etc.) */}
-          {children}
-          </div>
+          {children && <div className="mt-4 space-y-4">{children}</div>}
+          </div>{/* end Deck Column */}
 
           {/* Stats Sidebar - Desktop only */}
           <div className="hidden xl:block w-64 shrink-0">
+            <div className="mb-4 flex items-center justify-end gap-2 flex-wrap">
+              {!readOnly && !isEditMode && (
+                <button
+                  onClick={() => setIsEditMode(true)}
+                  className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title="Modify Deck"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+              {!readOnly && isEditMode && (
+                <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+                  Exit Modify
+                </button>
+              )}
+              {sidebarHeader || deckSummary}
+            </div>
             <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
           </div>
         </div>
@@ -2574,6 +3427,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   <span className="text-muted-foreground">Select cards</span>
                 )}
               </span>
+              {toolbarExtra}
               <div className="flex items-center gap-1.5 sm:gap-2">
                 {onRemoveCards && (
                   <button

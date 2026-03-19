@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
-import { CardTypeIcon } from '@/components/ui/mtg-icons';
+import { CardTypeIcon, ManaText } from '@/components/ui/mtg-icons';
 
 type CardType = 'Commander' | 'Creature' | 'Planeswalker' | 'Battle' | 'Instant' | 'Sorcery' | 'Artifact' | 'Enchantment' | 'Land';
 
@@ -60,17 +61,39 @@ interface CardPreviewModalProps {
   showPrice?: boolean;
 }
 
-function renderComboEntry(
-  combo: DetectedCombo,
-  currentCardName: string,
-  cardTypeMap: Map<string, CardType> | undefined,
-  handlePillHover: (name: string, e: React.MouseEvent) => void,
-  setHoverPreview: (v: null) => void,
-  handlePillClick: (name: string) => void,
-  isKnown?: boolean,
-) {
+function ComboEntry({
+  combo,
+  currentCardName,
+  cardTypeMap,
+  handlePillHover,
+  setHoverPreview,
+  handlePillClick,
+  isKnown,
+}: {
+  combo: DetectedCombo;
+  currentCardName: string;
+  cardTypeMap: Map<string, CardType> | undefined;
+  handlePillHover: (name: string, e: React.MouseEvent) => void;
+  setHoverPreview: (v: null) => void;
+  handlePillClick: (name: string) => void;
+  isKnown?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [details, setDetails] = useState<ComboDetails | 'loading' | 'error' | null>(null);
+
+  const handleToggle = () => {
+    const willExpand = !expanded;
+    setExpanded(willExpand);
+    if (willExpand && !details) {
+      setDetails('loading');
+      fetchComboDetails(combo.comboId)
+        .then(d => setDetails(d))
+        .catch(() => setDetails('error'));
+    }
+  };
+
   return (
-    <div key={combo.comboId} className="rounded-lg bg-white/5 border border-white/10 px-3 py-2.5">
+    <div className="rounded-lg bg-white/5 border border-white/10 px-3 py-2.5">
       <div className={`flex items-center gap-1.5 text-[11px] font-semibold mb-1.5 ${isKnown ? 'text-amber-400' : 'text-violet-400'}`}>
         <Sparkles className="w-3 h-3" />
         Combo
@@ -103,11 +126,88 @@ function renderComboEntry(
           );
         })}
       </div>
-      {combo.results.length > 0 && (
+      {/* Inline results summary when collapsed */}
+      {!expanded && combo.results.length > 0 && (
         <p className="text-white/50 text-[11px] leading-relaxed">
           {combo.results.join('. ')}
         </p>
       )}
+      {/* Expandable details toggle */}
+      <button
+        onClick={handleToggle}
+        className="flex items-center gap-1 text-[11px] text-white/40 hover:text-white/70 transition-colors mt-1"
+      >
+        <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        {expanded ? 'Hide details' : 'Show details'}
+      </button>
+      {expanded && (() => {
+        if (details === 'loading') {
+          return (
+            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-white/40">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Loading combo details...
+            </div>
+          );
+        }
+        if (details && details !== 'error') {
+          return (
+            <div className="space-y-2.5 mt-2">
+              {details.prerequisites.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white/40 mb-1">
+                    <ListChecks className="w-3 h-3" />
+                    Prerequisites
+                  </div>
+                  <div className="space-y-0.5 pl-4">
+                    {details.prerequisites.map((prereq, idx) => (
+                      <div key={idx} className="text-[11px] text-white/50 leading-snug flex gap-1">
+                        <span className="shrink-0 opacity-50">&bull;</span>
+                        <ManaText text={prereq} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white/40 mb-1">
+                  <Footprints className="w-3 h-3" />
+                  Steps
+                </div>
+                <div className="space-y-0.5 pl-4">
+                  {details.steps.map((step, idx) => (
+                    <div key={idx} className="text-[11px] text-white/50 leading-snug flex gap-1.5">
+                      <span className="shrink-0 w-3.5 h-3.5 rounded-full bg-white/10 flex items-center justify-center text-[9px] font-bold mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <ManaText text={step} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white/40 mb-1">
+                  <Infinity className="w-3 h-3" />
+                  Results
+                </div>
+                <div className="space-y-0.5 pl-4">
+                  {details.results.map((result, idx) => (
+                    <div key={idx} className="text-[11px] text-white/50 leading-snug flex gap-1">
+                      <span className="shrink-0 opacity-50">&infin;</span>
+                      {result}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        // Error or no details — fall back to results text
+        return combo.results.length > 0 ? (
+          <p className="text-white/50 text-[11px] leading-relaxed mt-1.5 whitespace-pre-wrap">
+            {combo.results.join('\n')}
+          </p>
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -567,7 +667,9 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                     <span className="ml-auto text-[10px] font-medium text-violet-400/60 bg-violet-500/10 px-1.5 py-0.5 rounded-full">{deckCombos.length}</span>
                   </div>
                   <div className="space-y-2">
-                    {deckCombos.map((combo) => renderComboEntry(combo, currentCardName, cardTypeMap, handlePillHover, setHoverPreview, handlePillClick))}
+                    {deckCombos.map((combo) => (
+                      <ComboEntry key={combo.comboId} combo={combo} currentCardName={currentCardName} cardTypeMap={cardTypeMap} handlePillHover={handlePillHover} setHoverPreview={setHoverPreview} handlePillClick={handlePillClick} />
+                    ))}
                   </div>
                 </>
               )}
@@ -579,7 +681,9 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                     <span className="ml-auto text-[10px] font-medium text-amber-400/60 bg-amber-500/10 px-1.5 py-0.5 rounded-full">{knownCombos.length}</span>
                   </div>
                   <div className="space-y-2">
-                    {knownCombos.map((combo) => renderComboEntry(combo, currentCardName, cardTypeMap, handlePillHover, setHoverPreview, handlePillClick, true))}
+                    {knownCombos.map((combo) => (
+                      <ComboEntry key={combo.comboId} combo={combo} currentCardName={currentCardName} cardTypeMap={cardTypeMap} handlePillHover={handlePillHover} setHoverPreview={setHoverPreview} handlePillClick={handlePillClick} isKnown />
+                    ))}
                   </div>
                 </>
               )}

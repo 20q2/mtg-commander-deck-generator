@@ -39,8 +39,15 @@ export function calculateCurvePercentages(manaCurve: Record<number, number>): Re
   const total = Object.values(manaCurve).reduce((sum, count) => sum + count, 0);
   if (total === 0) return {};
 
-  const percentages: Record<number, number> = {};
+  // Clamp to 7+ bucket (EDHREC groups everything 7+ together)
+  const clamped: Record<number, number> = {};
   for (const [cmc, count] of Object.entries(manaCurve)) {
+    const key = Math.min(parseInt(cmc), 7);
+    clamped[key] = (clamped[key] || 0) + count;
+  }
+
+  const percentages: Record<number, number> = {};
+  for (const [cmc, count] of Object.entries(clamped)) {
     percentages[parseInt(cmc)] = (count / total) * 100;
   }
   return percentages;

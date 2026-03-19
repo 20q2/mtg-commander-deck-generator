@@ -708,7 +708,7 @@ function categorizeCards(
 }
 
 // Stamp all role subtypes on a card based on its deckRole
-function stampRoleSubtypes(card: ScryfallCard): void {
+export function stampRoleSubtypes(card: ScryfallCard): void {
   card.multiRole = hasMultipleRoles(card.name);
   switch (card.deckRole) {
     case 'ramp': card.rampSubtype = getRampSubtype(card.name) ?? undefined; break;
@@ -788,7 +788,7 @@ function collectSwapCandidates(
 }
 
 // Role targets by deck size — used by balanced roles mode
-function getRoleTargets(format: DeckFormat): Record<RoleKey, number> {
+export function getRoleTargets(format: DeckFormat): Record<RoleKey, number> {
   if (format >= 99) return { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10 };
   if (format >= 60) return { ramp: 4, removal: 5, boardwipe: 2, cardDraw: 4 };
   if (format >= 40) return { ramp: 2, removal: 3, boardwipe: 1, cardDraw: 2 };
@@ -1580,7 +1580,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Scale combo attempts by deck size (baseline: 99 cards → 1→2, 2→4, 3→7)
     const sizeScale = Math.max(0.5, format / 99);
     const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 2.33 * sizeScale));
-    const combosToAttempt = combos.slice(0, comboSliceCount);
+    const combosToAttempt = combos.slice(0, comboSliceCount)
+      .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)));
     const staticBoost = 75 * comboCountSetting; // 1→75, 2→150, 3→225
     for (const combo of combosToAttempt) {
       const cardSet = new Set(combo.cards.map(c => c.name));
@@ -3223,9 +3224,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (gapCandidates.length > 0) {
       const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name), undefined, preferredSet);
 
+      const ROLE_LABELS: Record<string, string> = { ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' };
       gapAnalysis = gapCandidates
         .map(c => {
           const scryfall = gapCardMap.get(c.name);
+          const role = getCardRole(c.name) || undefined;
           return {
             name: c.name,
             price: scryfall ? getCardPrice(scryfall, currency) : null,
@@ -3234,6 +3237,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             typeLine: scryfall?.type_line ?? '',
             imageUrl: scryfall?.image_uris?.small,
             isOwned: context.collectionNames!.has(c.name),
+            role,
+            roleLabel: role ? ROLE_LABELS[role] : undefined,
           };
         })
         .filter(c => c.price !== null);
@@ -3261,6 +3266,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
 
     detectedCombos = combos
+      .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)))
       .map(combo => {
         const comboCardNames = combo.cards.map(c => c.name);
         const missingCards = comboCardNames.filter(name => !allDeckNames.has(name));

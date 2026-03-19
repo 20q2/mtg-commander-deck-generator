@@ -1,14 +1,21 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowLeft, Loader2, List, Wand2, Pencil, CopyPlus, X, Plus, ArrowUpDown, MoreHorizontal, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { ArrowLeft, Loader2, List, Wand2, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
 import { fetchCommanderCombos } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
-import { DeckDisplay } from '@/components/deck/DeckDisplay';
+import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
-import type { UserCardList, ScryfallCard, GeneratedDeck, DeckCategory, DeckStats, DetectedCombo } from '@/types';
+import { TestHand } from '@/components/deck/TestHand';
+import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
+import { CollectionImporter } from '@/components/collection/CollectionImporter';
+import { DeckOptimizer } from '@/components/deck/DeckOptimizer';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';
+import { useUserLists } from '@/hooks/useUserLists';
 
 interface ListDeckViewProps {
   list: UserCardList;
@@ -23,6 +30,12 @@ interface ListDeckViewProps {
   onMoveToDeck?: (cardNames: string[], source: 'sideboard' | 'maybeboard') => void;
   onRemoveFromBoard?: (cardName: string, source: 'sideboard' | 'maybeboard') => void;
   onMoveBetweenBoards?: (cardName: string, from: 'sideboard' | 'maybeboard') => void;
+  onUpdatePrimer?: (primer: string) => void;
+  onChangeQuantity?: (cardName: string, newQuantity: number) => void;
+  onRename?: (newName: string) => void;
+  onUpdateDeckSize?: (newSize: number) => void;
+  onSetSideboard?: (names: string[]) => void;
+  onSetMaybeboard?: (names: string[]) => void;
 }
 
 function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
@@ -71,6 +84,64 @@ function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
     colorDistribution,
     typeDistribution,
   };
+}
+
+/** Lightweight markdown → HTML for primer display (bold, italic, headings, lists, hr) */
+function renderSimpleMarkdown(md: string): string {
+  const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lines = md.split('\n');
+  const out: string[] = [];
+  let inUl = false;
+  let inOl = false;
+
+  const closeList = () => {
+    if (inUl) { out.push('</ul>'); inUl = false; }
+    if (inOl) { out.push('</ol>'); inOl = false; }
+  };
+
+  const inlineFormat = (text: string) =>
+    escape(text)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+
+    if (line === '---' || line === '***' || line === '___') {
+      closeList();
+      out.push('<hr class="my-2 border-border/50" />');
+      continue;
+    }
+
+    const h2 = line.match(/^##\s+(.+)/);
+    if (h2) { closeList(); out.push(`<h4 class="font-semibold text-foreground mt-2 mb-0.5">${inlineFormat(h2[1])}</h4>`); continue; }
+
+    const h1 = line.match(/^#\s+(.+)/);
+    if (h1) { closeList(); out.push(`<h3 class="font-bold text-foreground mt-2 mb-0.5">${inlineFormat(h1[1])}</h3>`); continue; }
+
+    const ul = line.match(/^[-*]\s+(.+)/);
+    if (ul) {
+      if (inOl) { out.push('</ol>'); inOl = false; }
+      if (!inUl) { out.push('<ul class="list-disc list-inside space-y-0.5">'); inUl = true; }
+      out.push(`<li>${inlineFormat(ul[1])}</li>`);
+      continue;
+    }
+
+    const ol = line.match(/^\d+\.\s+(.+)/);
+    if (ol) {
+      if (inUl) { out.push('</ul>'); inUl = false; }
+      if (!inOl) { out.push('<ol class="list-decimal list-inside space-y-0.5">'); inOl = true; }
+      out.push(`<li>${inlineFormat(ol[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+    if (line === '') { out.push('<br />'); }
+    else { out.push(`<p>${inlineFormat(line)}</p>`); }
+  }
+
+  closeList();
+  return out.join('\n');
 }
 
 function getArtCropUrl(card: ScryfallCard | null): string | null {
@@ -126,20 +197,97 @@ function detectCombosInDeck(
   return detected.length > 0 ? detected : undefined;
 }
 
+// --- Board Card Row (with context menu) ---
+
+function BoardCardRow({
+  card, boardType, onCardAction, menuProps, handleHover,
+}: {
+  card: ScryfallCard;
+  boardType: 'sideboard' | 'maybeboard';
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
+  handleHover: (card: ScryfallCard | null, e?: React.MouseEvent, showBack?: boolean) => void;
+}) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const rawPrice = getCardPrice(card);
+  const price = rawPrice ? `$${parseFloat(rawPrice).toFixed(2)}` : '';
+  const isDfc = isDoubleFacedCard(card);
+
+  return (
+    <div
+      className="w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-all duration-200 cursor-pointer hover:bg-accent/50 group"
+      onMouseEnter={(e) => handleHover(card, e)}
+      onMouseLeave={() => handleHover(null)}
+      onContextMenu={(e) => {
+        if (onCardAction && menuProps) {
+          e.preventDefault();
+          setContextMenuOpen(true);
+        }
+      }}
+    >
+      <span className="flex-1 min-w-0 flex items-center hover:text-primary transition-colors">
+        <span className="truncate">
+          {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
+        </span>
+        <span className="shrink-0 flex items-center">
+          {isDfc && (
+            <span
+              className="ml-1 inline-flex align-text-bottom text-muted-foreground hover:text-primary transition-colors cursor-help"
+              title="Hover to see back face"
+              onMouseEnter={(e) => { e.stopPropagation(); handleHover(card, e, true); }}
+              onMouseLeave={(e) => { e.stopPropagation(); handleHover(card, e, false); }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </span>
+          )}
+        </span>
+      </span>
+      <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
+      <span className="text-xs w-10 text-right shrink-0 text-muted-foreground">{price}</span>
+      {onCardAction && menuProps && (
+        <span
+          className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <CardContextMenu
+            card={card}
+            onAction={onCardAction}
+            hasRemove
+            hasAddToDeck
+            hasSideboard={boardType === 'maybeboard'}
+            hasMaybeboard={boardType === 'sideboard'}
+            userLists={menuProps.userLists}
+            isMustInclude={menuProps.mustIncludeNames.has(card.name)}
+            isBanned={menuProps.bannedNames.has(card.name)}
+            forceOpen={contextMenuOpen}
+            onForceClose={() => setContextMenuOpen(false)}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
 // --- Board Section (Sideboard / Maybeboard) ---
 
-function BoardSection({ title, cards, boardType, onRemove, onMoveToDeck, onMoveToOtherBoard, otherBoardLabel }: {
+function BoardSection({ title, cards, boardType, onCardAction, menuProps }: {
   title: string;
   cards: ScryfallCard[];
   boardType: 'sideboard' | 'maybeboard';
-  onRemove?: (cardName: string) => void;
-  onMoveToDeck?: (cardName: string) => void;
-  onMoveToOtherBoard?: (cardName: string) => void;
-  otherBoardLabel: string;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
 }) {
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
 
-  if (cards.length === 0) return null;
+  // Clear hover when cards change (card moved/removed)
+  useEffect(() => {
+    if (hoverCard && !cards.some(c => c.name === hoverCard.card.name)) {
+      setHoverCard(null);
+    }
+  }, [cards, hoverCard]);
 
   const headerColor = boardType === 'sideboard' ? 'text-amber-400' : 'text-purple-400';
 
@@ -166,71 +314,19 @@ function BoardSection({ title, cards, boardType, onRemove, onMoveToDeck, onMoveT
         <span className="text-xs text-muted-foreground">${totalPrice.toFixed(2)}</span>
       </div>
       <div>
-        {cards.map(card => {
-          const rawPrice = getCardPrice(card);
-          const price = rawPrice ? `$${parseFloat(rawPrice).toFixed(2)}` : '';
-          const isDfc = isDoubleFacedCard(card);
-          return (
-            <div
-              key={card.name}
-              className="w-full text-left px-2 py-1 rounded text-sm flex items-center gap-2 transition-all duration-200 cursor-pointer hover:bg-accent/50"
-              onMouseEnter={(e) => handleHover(card, e)}
-              onMouseLeave={() => handleHover(null)}
-            >
-              <span className="flex-1 min-w-0 flex items-center hover:text-primary transition-colors">
-                <span className="truncate">
-                  {card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}
-                </span>
-                <span className="shrink-0 flex items-center">
-                  {isDfc && (
-                    <span
-                      className="ml-1 inline-flex align-text-bottom text-muted-foreground hover:text-primary transition-colors cursor-help"
-                      title="Hover to see back face"
-                      onMouseEnter={(e) => { e.stopPropagation(); handleHover(card, e, true); }}
-                      onMouseLeave={(e) => { e.stopPropagation(); handleHover(card, e, false); }}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                        <path d="M3 3v5h5" />
-                      </svg>
-                    </span>
-                  )}
-                </span>
-              </span>
-              <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
-              <div className="flex items-center gap-0.5 shrink-0">
-                {onMoveToDeck && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onMoveToDeck(card.name); }}
-                    className="p-0.5 rounded text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                    title="Move to deck"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {onMoveToOtherBoard && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onMoveToOtherBoard(card.name); }}
-                    className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    title={`Move to ${otherBoardLabel}`}
-                  >
-                    <ArrowUpDown className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {onRemove && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRemove(card.name); }}
-                    className="p-0.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    title="Remove"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-              <span className="text-xs w-10 text-right shrink-0 text-muted-foreground">{price}</span>
-            </div>
-          );
-        })}
+        {cards.length === 0 && (
+          <div className="px-2 py-3 text-xs text-muted-foreground/50 italic">Empty</div>
+        )}
+        {cards.map(card => (
+          <BoardCardRow
+            key={card.name}
+            card={card}
+            boardType={boardType}
+            onCardAction={onCardAction}
+            menuProps={menuProps}
+            handleHover={handleHover}
+          />
+        ))}
       </div>
       {/* Floating Preview */}
       {hoverCard && (
@@ -256,12 +352,11 @@ function BoardSection({ title, cards, boardType, onRemove, onMoveToDeck, onMoveT
 
 // --- Collapsible Boards Wrapper ---
 
-function BoardsCollapsible({ sideboardCards, maybeboardCards, onRemoveFromBoard, onMoveToDeck, onMoveBetweenBoards }: {
+function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction, menuProps }: {
   sideboardCards: ScryfallCard[];
   maybeboardCards: ScryfallCard[];
-  onRemoveFromBoard?: (cardName: string, source: 'sideboard' | 'maybeboard') => void;
-  onMoveToDeck?: (cardNames: string[], source: 'sideboard' | 'maybeboard') => void;
-  onMoveBetweenBoards?: (cardName: string, from: 'sideboard' | 'maybeboard') => void;
+  onBoardCardAction?: (card: ScryfallCard, action: CardAction, boardType: 'sideboard' | 'maybeboard') => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
 }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('mtg-deck-builder-boards-collapsed') === 'true');
 
@@ -272,6 +367,14 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onRemoveFromBoard,
   };
 
   const totalCount = sideboardCards.length + maybeboardCards.length;
+
+  const handleSBAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    onBoardCardAction?.(card, action, 'sideboard');
+  }, [onBoardCardAction]);
+
+  const handleMBAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    onBoardCardAction?.(card, action, 'maybeboard');
+  }, [onBoardCardAction]);
 
   return (
     <div className="border-t border-border/30">
@@ -286,24 +389,20 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onRemoveFromBoard,
         <span className="text-[10px] text-muted-foreground">({totalCount})</span>
       </button>
       {!collapsed && (
-        <div className={`px-4 pb-4 ${sideboardCards.length > 0 && maybeboardCards.length > 0 ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}`}>
+        <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <BoardSection
             title="Sideboard"
             cards={sideboardCards}
             boardType="sideboard"
-            onRemove={onRemoveFromBoard ? (name) => onRemoveFromBoard(name, 'sideboard') : undefined}
-            onMoveToDeck={onMoveToDeck ? (name) => onMoveToDeck([name], 'sideboard') : undefined}
-            onMoveToOtherBoard={onMoveBetweenBoards ? (name) => onMoveBetweenBoards(name, 'sideboard') : undefined}
-            otherBoardLabel="Maybeboard"
+            onCardAction={handleSBAction}
+            menuProps={menuProps}
           />
           <BoardSection
             title="Maybeboard"
             cards={maybeboardCards}
             boardType="maybeboard"
-            onRemove={onRemoveFromBoard ? (name) => onRemoveFromBoard(name, 'maybeboard') : undefined}
-            onMoveToDeck={onMoveToDeck ? (name) => onMoveToDeck([name], 'maybeboard') : undefined}
-            onMoveToOtherBoard={onMoveBetweenBoards ? (name) => onMoveBetweenBoards(name, 'maybeboard') : undefined}
-            otherBoardLabel="Sideboard"
+            onCardAction={handleMBAction}
+            menuProps={menuProps}
           />
         </div>
       )}
@@ -313,14 +412,21 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onRemoveFromBoard,
 
 // --- Main Component ---
 
-export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards }: ListDeckViewProps) {
+export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
   const generatedDeck = useStore(s => s.generatedDeck);
   const colorIdentity = useStore(s => s.colorIdentity) || [];
+  const customization = useStore(s => s.customization);
+  const updateCustomization = useStore(s => s.updateCustomization);
+  const { lists: userLists, updateList } = useUserLists();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [artUrl, setArtUrl] = useState<string | null>(null);
   const [artLoaded, setArtLoaded] = useState(false);
+  const [deckEditMode, setDeckEditMode] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(list.name);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Board card data
   const [sideboardCards, setSideboardCards] = useState<ScryfallCard[]>([]);
@@ -339,6 +445,47 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
   // Destination picker state
   const [pendingCard, setPendingCard] = useState<ScryfallCard | null>(null);
+
+  // Bulk add state
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
+
+  // Primer inline editing state
+  const [editingPrimer, setEditingPrimer] = useState(false);
+  const [primerDraft, setPrimerDraft] = useState('');
+  const primerRef = useRef<HTMLTextAreaElement>(null);
+
+  const insertFormat = useCallback((prefix: string, suffix: string = '') => {
+    const ta = primerRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = primerDraft.substring(start, end);
+    const before = primerDraft.substring(0, start);
+    const after = primerDraft.substring(end);
+    const replacement = selected ? `${prefix}${selected}${suffix}` : `${prefix}${suffix}`;
+    const newValue = `${before}${replacement}${after}`;
+    setPrimerDraft(newValue);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const cursorPos = selected ? start + prefix.length + selected.length + suffix.length : start + prefix.length;
+      ta.setSelectionRange(cursorPos, cursorPos);
+    });
+  }, [primerDraft]);
+
+  const insertLinePrefix = useCallback((prefix: string) => {
+    const ta = primerRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const lineStart = primerDraft.lastIndexOf('\n', start - 1) + 1;
+    const before = primerDraft.substring(0, lineStart);
+    const after = primerDraft.substring(lineStart);
+    const newValue = `${before}${prefix}${after}`;
+    setPrimerDraft(newValue);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + prefix.length, start + prefix.length);
+    });
+  }, [primerDraft]);
 
   // Track previous cards for incremental updates
   const prevCardsRef = useRef<string[]>(list.cards);
@@ -444,23 +591,20 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
         if (cancelled) return;
 
-        const categories: Record<DeckCategory, ScryfallCard[]> = {
-          lands: [],
-          ramp: [],
-          cardDraw: [],
-          singleRemoval: [],
-          boardWipes: [],
-          creatures: [],
-          synergy: deckCards,
-          utility: [],
-        };
+        const enrichResult = await enrichDeckCards(deckCards, list.deckSize || list.cards.length);
 
         const syntheticDeck: GeneratedDeck = {
           commander: commanderCard,
           partnerCommander: partnerCard,
-          categories,
+          categories: enrichResult.categories,
           stats,
           detectedCombos,
+          roleCounts: enrichResult.roleCounts,
+          roleTargets: enrichResult.roleTargets,
+          rampSubtypeCounts: enrichResult.rampSubtypeCounts,
+          removalSubtypeCounts: enrichResult.removalSubtypeCounts,
+          boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
+          cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
         };
 
         const allColors = new Set<string>();
@@ -510,8 +654,24 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     if (prev.length === current.length && prev.every((c, i) => c === current[i])) return;
     prevCardsRef.current = current;
 
-    const removed = new Set(prev.filter(c => !current.includes(c)));
-    const added = current.filter(c => !prev.includes(c));
+    // Build count maps to detect additions, removals, AND quantity changes
+    const prevCounts = new Map<string, number>();
+    for (const c of prev) prevCounts.set(c, (prevCounts.get(c) || 0) + 1);
+    const currentCounts = new Map<string, number>();
+    for (const c of current) currentCounts.set(c, (currentCounts.get(c) || 0) + 1);
+
+    // Cards fully removed (count went to 0)
+    const removed = new Set<string>();
+    for (const name of prevCounts.keys()) {
+      if (!currentCounts.has(name)) removed.add(name);
+    }
+    // Cards newly added (didn't exist before) — need to fetch from Scryfall
+    const newlyAdded: string[] = [];
+    for (const [name, count] of currentCounts) {
+      if (!prevCounts.has(name)) {
+        for (let i = 0; i < count; i++) newlyAdded.push(name);
+      }
+    }
 
     const deck = useStore.getState().generatedDeck;
     if (!deck) return;
@@ -520,83 +680,77 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     if (deck.commander) commanderNames.add(deck.commander.name);
     if (deck.partnerCommander) commanderNames.add(deck.partnerCommander.name);
 
-    // Handle removals: filter out from synergy
-    let updatedSynergy = deck.categories.synergy.filter(c => !removed.has(c.name));
+    // Rebuild the full card list respecting current quantities
+    // For existing cards (in deck already), adjust counts; for new cards, fetch them
+    const existingCardMap = new Map<string, ScryfallCard>();
+    for (const c of Object.values(deck.categories).flat()) {
+      if (!removed.has(c.name)) existingCardMap.set(c.name, c);
+    }
 
-    // Handle additions: fetch new cards and append
-    if (added.length > 0) {
-      getCardsByNames(added).then(cardMap => {
-        const currentDeck = useStore.getState().generatedDeck;
-        if (!currentDeck) return;
-
-        const newCards: ScryfallCard[] = [];
-        for (const name of added) {
-          const card = cardMap.get(name);
-          if (card && !commanderNames.has(card.name)) newCards.push(card);
+    const buildDeckCards = (fetchedCards?: Map<string, ScryfallCard>): ScryfallCard[] => {
+      const result: ScryfallCard[] = [];
+      for (const [name, count] of currentCounts) {
+        if (commanderNames.has(name)) continue;
+        const card = existingCardMap.get(name) || fetchedCards?.get(name);
+        if (card) {
+          for (let i = 0; i < count; i++) result.push(card);
         }
+      }
+      return result;
+    };
 
-        const synergy = [...currentDeck.categories.synergy, ...newCards];
-        const stats = computeStatsFromCards(synergy);
+    // Helper: re-enrich all cards and update store
+    const reEnrich = async (allDeckCards: ScryfallCard[]) => {
+      const currentDeck = useStore.getState().generatedDeck;
+      if (!currentDeck) return;
 
-        // Re-evaluate combo completeness
-        const allDeckNames = new Set<string>();
-        if (currentDeck.commander) {
-          allDeckNames.add(currentDeck.commander.name);
-          if (currentDeck.commander.name.includes(' // ')) allDeckNames.add(currentDeck.commander.name.split(' // ')[0]);
-        }
-        if (currentDeck.partnerCommander) {
-          allDeckNames.add(currentDeck.partnerCommander.name);
-          if (currentDeck.partnerCommander.name.includes(' // ')) allDeckNames.add(currentDeck.partnerCommander.name.split(' // ')[0]);
-        }
-        for (const c of synergy) {
-          allDeckNames.add(c.name);
-          if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-        }
-        const detectedCombos = rawCombosRef.current.length > 0
-          ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
-          : currentDeck.detectedCombos;
+      const enrichResult = await enrichDeckCards(allDeckCards, list.deckSize || list.cards.length);
+      const stats = computeStatsFromCards(allDeckCards);
 
-        useStore.setState({
-          generatedDeck: {
-            ...currentDeck,
-            categories: { ...currentDeck.categories, synergy },
-            stats,
-            detectedCombos,
-          },
-        });
+      // Re-evaluate combo completeness
+      const allDeckNames = new Set<string>();
+      if (currentDeck.commander) {
+        allDeckNames.add(currentDeck.commander.name);
+        if (currentDeck.commander.name.includes(' // ')) allDeckNames.add(currentDeck.commander.name.split(' // ')[0]);
+      }
+      if (currentDeck.partnerCommander) {
+        allDeckNames.add(currentDeck.partnerCommander.name);
+        if (currentDeck.partnerCommander.name.includes(' // ')) allDeckNames.add(currentDeck.partnerCommander.name.split(' // ')[0]);
+      }
+      for (const c of allDeckCards) {
+        allDeckNames.add(c.name);
+        if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
+      }
+      const detectedCombos = rawCombosRef.current.length > 0
+        ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
+        : currentDeck.detectedCombos;
+
+      useStore.setState({
+        generatedDeck: {
+          ...currentDeck,
+          categories: enrichResult.categories,
+          stats,
+          detectedCombos,
+          roleCounts: enrichResult.roleCounts,
+          roleTargets: enrichResult.roleTargets,
+          rampSubtypeCounts: enrichResult.rampSubtypeCounts,
+          removalSubtypeCounts: enrichResult.removalSubtypeCounts,
+          boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
+          cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+        },
       });
-      return; // additions are async — they'll update when ready
+    };
+
+    if (newlyAdded.length > 0) {
+      const uniqueNew = [...new Set(newlyAdded)];
+      getCardsByNames(uniqueNew).then(cardMap => {
+        reEnrich(buildDeckCards(cardMap));
+      });
+      return;
     }
 
-    // Removals only (synchronous)
-    const stats = computeStatsFromCards(updatedSynergy);
-
-    // Re-evaluate combo completeness
-    const allDeckNames = new Set<string>();
-    if (deck.commander) {
-      allDeckNames.add(deck.commander.name);
-      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
-    }
-    if (deck.partnerCommander) {
-      allDeckNames.add(deck.partnerCommander.name);
-      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
-    }
-    for (const c of updatedSynergy) {
-      allDeckNames.add(c.name);
-      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-    }
-    const detectedCombos = rawCombosRef.current.length > 0
-      ? detectCombosInDeck(rawCombosRef.current, allDeckNames, deck.commander, deck.partnerCommander)
-      : deck.detectedCombos;
-
-    useStore.setState({
-      generatedDeck: {
-        ...deck,
-        categories: { ...deck.categories, synergy: updatedSynergy },
-        stats,
-        detectedCombos,
-      },
-    });
+    // Removals or quantity changes only — no fetch needed
+    reEnrich(buildDeckCards());
   }, [list.cards]);
 
   // Separate effect for board-only changes (lighter than full rebuild)
@@ -677,6 +831,75 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     setPendingCard(null);
   }, []);
 
+  const handleBulkImport = useCallback((validatedNames: string[]) => {
+    if (!onAddCards) return { added: 0, updated: 0 };
+    const current = list.cards;
+    const currentCounts = new Map<string, number>();
+    for (const name of current) {
+      currentCounts.set(name, (currentCounts.get(name) ?? 0) + 1);
+    }
+    const importCounts = new Map<string, number>();
+    for (const name of validatedNames) {
+      importCounts.set(name, (importCounts.get(name) ?? 0) + 1);
+    }
+    const newCards: string[] = [];
+    let dupeCount = 0;
+    for (const [cardName, importQty] of importCounts) {
+      const existingQty = currentCounts.get(cardName) ?? 0;
+      const toAdd = Math.max(0, importQty - existingQty);
+      for (let i = 0; i < toAdd; i++) newCards.push(cardName);
+      dupeCount += importQty - toAdd;
+    }
+    if (newCards.length > 0) onAddCards(newCards, 'deck');
+    return { added: newCards.length, updated: dupeCount };
+  }, [onAddCards, list.cards]);
+
+  // Board context menu handler
+  const handleBoardCardAction = useCallback((card: ScryfallCard, action: CardAction, boardType: 'sideboard' | 'maybeboard') => {
+    const name = card.name;
+    switch (action.type) {
+      case 'remove':
+        onRemoveFromBoard?.(name, boardType);
+        break;
+      case 'addToDeck':
+        onMoveToDeck?.([name], boardType);
+        break;
+      case 'sideboard':
+        // Card is in maybeboard → move to sideboard
+        onMoveBetweenBoards?.(name, boardType);
+        break;
+      case 'maybeboard':
+        // Card is in sideboard → move to maybeboard
+        onMoveBetweenBoards?.(name, boardType);
+        break;
+      case 'mustInclude': {
+        const current = customization.mustIncludeCards;
+        const has = current.includes(name);
+        updateCustomization({ mustIncludeCards: has ? current.filter(n => n !== name) : [...current, name] });
+        break;
+      }
+      case 'exclude': {
+        const currentBanned = customization.bannedCards;
+        const hasBan = currentBanned.includes(name);
+        updateCustomization({ bannedCards: hasBan ? currentBanned.filter(n => n !== name) : [...currentBanned, name] });
+        break;
+      }
+      case 'addToList': {
+        const targetList = userLists.find(l => l.id === action.listId);
+        if (targetList && !targetList.cards.includes(name)) {
+          updateList(action.listId, { cards: [...targetList.cards, name] });
+        }
+        break;
+      }
+    }
+  }, [onRemoveFromBoard, onMoveToDeck, onMoveBetweenBoards, customization, updateCustomization, userLists, updateList]);
+
+  const boardMenuProps = useMemo(() => ({
+    userLists,
+    mustIncludeNames: new Set(customization.mustIncludeCards),
+    bannedNames: new Set(customization.bannedCards),
+  }), [userLists, customization.mustIncludeCards, customization.bannedCards]);
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -714,7 +937,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     <>
       {/* Commander art background */}
       {artUrl && (
-        <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+        <div className={`fixed inset-0 z-0 overflow-hidden pointer-events-none transition-opacity duration-500 ${deckEditMode ? 'opacity-20' : ''}`}>
           <div className={`absolute inset-0 transition-all duration-1000 ${artLoaded ? 'opacity-100' : 'opacity-0'}`}>
             <img
               src={artUrl}
@@ -734,40 +957,66 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       )}
 
       <div className="relative z-10 space-y-4">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          {editingName ? (
+            <input
+              ref={nameInputRef}
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onBlur={() => {
+                const trimmed = nameInput.trim();
+                if (trimmed && trimmed !== list.name) onRename?.(trimmed);
+                else setNameInput(list.name);
+                setEditingName(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                if (e.key === 'Escape') { setNameInput(list.name); setEditingName(false); }
+              }}
+              className="text-lg font-bold bg-accent border border-border rounded px-2 py-0.5 min-w-0 w-full outline-none text-foreground"
+              autoFocus
+            />
+          ) : (
+            <h2
+              className="text-lg font-bold truncate min-w-0 cursor-pointer hover:text-muted-foreground transition-colors"
+              onClick={() => { setNameInput(list.name); setEditingName(true); }}
+              title="Click to rename"
             >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="hidden sm:inline">Back</span>
-            </button>
-            <h2 className="text-lg font-bold truncate">{list.name}</h2>
-          </div>
+              {list.name}
+            </h2>
+          )}
           <div className="flex items-center gap-2 shrink-0">
             {list.commanderName && (
-              <button
-                onClick={() => navigate(`/build-from-deck/${list.id}`)}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Wand2 className="w-3.5 h-3.5" />
-                Build From Deck
-              </button>
-            )}
-            {onViewAsList && (
-              <button
-                onClick={onViewAsList}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <List className="w-3.5 h-3.5" />
-                View as List
-              </button>
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => navigate(`/build-from-deck/${list.id}`)}
+                      className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" />
+                      Build From Deck
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[240px] text-center">
+                    {list.deckSize && list.cards.length !== list.deckSize
+                      ? `${list.cards.length}/${list.deckSize} cards — re-generate with the deck builder to ${list.cards.length < list.deckSize ? 'fill the remaining slots' : 'trim to size'} using EDHREC data`
+                      : 'Re-generate this deck using the deck builder — keeps your cards as a starting point and optimizes with EDHREC data'}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
             <div className="relative" ref={overflowRef}>
               <button
                 onClick={() => setShowOverflow(prev => !prev)}
-                className="flex items-center justify-center w-8 h-8 rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
                 <MoreHorizontal className="w-4 h-4" />
               </button>
@@ -786,7 +1035,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                   {onViewAsList && (
                     <button
                       onClick={() => { setShowOverflow(false); onViewAsList(); }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 sm:hidden"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
                     >
                       <List className="w-3.5 h-3.5" />
                       View as List
@@ -817,117 +1066,250 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         </div>
 
         {list.deckSize && list.cards.length !== list.deckSize && (
-          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm">
+          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm flex-wrap">
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
               <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            Deck has {list.cards.length} card{list.cards.length !== 1 ? 's' : ''} (expected {list.deckSize})
-            {list.cards.length < list.deckSize
-              ? ` — ${list.deckSize - list.cards.length} short`
-              : ` — ${list.cards.length - list.deckSize} over`}
+            <span>
+              Deck has {list.cards.length} card{list.cards.length !== 1 ? 's' : ''} (expected {list.deckSize})
+              {list.cards.length < list.deckSize
+                ? ` — ${list.deckSize - list.cards.length} short`
+                : ` — ${list.cards.length - list.deckSize} over`}
+            </span>
+            {onUpdateDeckSize && (
+              <button
+                onClick={() => onUpdateDeckSize(list.cards.length)}
+                className="ml-auto text-xs text-amber-400 hover:text-amber-200 underline underline-offset-2 transition-colors whitespace-nowrap"
+              >
+                Set expected to {list.cards.length}
+              </button>
+            )}
           </div>
         )}
 
         <DeckDisplay
           onRemoveCards={onRemoveCards}
+          onAddCards={onAddCards ? (names, _dest) => onAddCards(names, 'deck') : undefined}
           onMoveToSideboard={onMoveToSideboard}
           onMoveToMaybeboard={onMoveToMaybeboard}
+          onChangeQuantity={onChangeQuantity}
           boardCounts={{ sideboard: sideboardCards.length, maybeboard: maybeboardCards.length }}
+          sideboardNames={list.sideboard}
+          maybeboardNames={list.maybeboard}
+          onSetSideboard={onSetSideboard}
+          onSetMaybeboard={onSetMaybeboard}
           toolbarExtra={onAddCards ? (
-            <div className="relative" ref={searchWrapperRef}>
-              <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Add a card..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => {
-                  if (searchResults.length > 0) setShowSearchResults(true);
-                }}
-                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-44 sm:w-64 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-              />
-              {isSearching && (
-                <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-primary" />
-              )}
-              {!isSearching && searchQuery && (
-                <button
-                  onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchResults(false); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-              {/* Search Results Dropdown */}
-              {showSearchResults && searchResults.length > 0 && (
-                <>
-                  <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
-                  <div className="absolute top-full left-0 mt-1 z-[999] max-h-[280px] min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
-                    {searchResults.map((card) => (
-                      <div
-                        key={card.id}
-                        onClick={() => handleAddToDeck(card)}
-                        className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors cursor-pointer group"
-                      >
-                        <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{card.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{card.type_line}</p>
+            <div className="flex items-center gap-2">
+              <div className="relative" ref={searchWrapperRef}>
+                <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Add a card..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => {
+                    if (searchResults.length > 0) setShowSearchResults(true);
+                  }}
+                  className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-44 sm:w-64 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                />
+                {isSearching && (
+                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-primary" />
+                )}
+                {!isSearching && searchQuery && (
+                  <button
+                    onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchResults(false); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {/* Search Results Dropdown */}
+                {showSearchResults && searchResults.length > 0 && (
+                  <>
+                    <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
+                    <div className="absolute top-full left-0 mt-1 z-[999] max-h-[280px] min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
+                      {searchResults.map((card) => (
+                        <div
+                          key={card.id}
+                          onClick={() => handleAddToDeck(card)}
+                          className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors cursor-pointer group"
+                        >
+                          <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{card.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{card.type_line}</p>
+                          </div>
+                          <span className="shrink-0" title="Add to deck">
+                            <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                          </span>
+                          {(onMoveToSideboard || onMoveToMaybeboard) && (
+                            <button
+                              onClick={(e) => handleShowBoardPicker(card, e)}
+                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                              title="Add to sideboard or maybeboard"
+                            >
+                              <MoreHorizontal className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
-                        <span className="shrink-0" title="Add to deck">
-                          <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                        </span>
-                        {(onMoveToSideboard || onMoveToMaybeboard) && (
-                          <button
-                            onClick={(e) => handleShowBoardPicker(card, e)}
-                            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-                            title="Add to sideboard or maybeboard"
-                          >
-                            <MoreHorizontal className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-              {/* Board Picker — sideboard/maybeboard */}
-              {pendingCard && (
-                <>
-                  <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
-                  <div className="absolute top-full left-0 mt-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
-                    <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
-                    <button
-                      onClick={() => handleDestinationPick('sideboard')}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-amber-400"
-                    >
-                      Add to Sideboard
-                    </button>
-                    <button
-                      onClick={() => handleDestinationPick('maybeboard')}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-purple-400"
-                    >
-                      Add to Maybeboard
-                    </button>
-                  </div>
-                </>
-              )}
+                      ))}
+                    </div>
+                  </>
+                )}
+                {/* Board Picker — sideboard/maybeboard */}
+                {pendingCard && (
+                  <>
+                    <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
+                    <div className="absolute top-full left-0 mt-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
+                      <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
+                      <button
+                        onClick={() => handleDestinationPick('sideboard')}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-amber-400"
+                      >
+                        Add to Sideboard
+                      </button>
+                      <button
+                        onClick={() => handleDestinationPick('maybeboard')}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-purple-400"
+                      >
+                        Add to Maybeboard
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Bulk Add */}
+              <Popover open={showBulkAdd} onOpenChange={setShowBulkAdd}>
+                <PopoverTrigger asChild>
+                  <button
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/50 hover:bg-accent transition-colors ${showBulkAdd ? 'text-foreground bg-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                    title="Bulk add cards from a list"
+                  >
+                    <ClipboardPaste className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Bulk Add</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent side="top" className="w-80 sm:w-96 p-4">
+                  <CollectionImporter
+                    onImportCards={handleBulkImport}
+                    label="Bulk Add Cards"
+                    updatedLabel="already in deck"
+                    onCancel={() => setShowBulkAdd(false)}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
           ) : undefined}
-          deckFooter={(sideboardCards.length > 0 || maybeboardCards.length > 0) ? (
+          onEditModeChange={setDeckEditMode}
+          deckFooter={
             <BoardsCollapsible
               sideboardCards={sideboardCards}
               maybeboardCards={maybeboardCards}
-              onRemoveFromBoard={onRemoveFromBoard}
-              onMoveToDeck={onMoveToDeck}
-              onMoveBetweenBoards={onMoveBetweenBoards}
+              onBoardCardAction={handleBoardCardAction}
+              menuProps={boardMenuProps}
             />
-          ) : undefined}
+          }
         >
-          {generatedDeck?.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
-            <ComboDisplay combos={generatedDeck.detectedCombos} hideMustInclude />
+          {/* Primer */}
+          {(list.primer || onUpdatePrimer) && (
+            <div className="relative mt-3 rounded-lg border border-border/50 bg-card/30 px-4 py-3">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Primer</h3>
+              {onUpdatePrimer && !editingPrimer && (
+                <button
+                  onClick={() => { setPrimerDraft(list.primer || ''); setEditingPrimer(true); }}
+                  className="absolute top-2.5 right-2.5 p-1.5 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+                  title={list.primer ? 'Edit primer' : 'Add primer'}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {editingPrimer ? (
+                <div className="space-y-2">
+                  <div className="border border-border rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-primary">
+                    <div className="flex items-center gap-0.5 px-2 py-1 bg-accent/30 border-b border-border/50">
+                      {[
+                        { icon: Bold, action: () => insertFormat('**', '**'), title: 'Bold' },
+                        { icon: Italic, action: () => insertFormat('*', '*'), title: 'Italic' },
+                        { icon: Heading2, action: () => insertLinePrefix('## '), title: 'Heading' },
+                        { icon: List, action: () => insertLinePrefix('- '), title: 'Bullet list' },
+                        { icon: ListOrdered, action: () => insertLinePrefix('1. '), title: 'Numbered list' },
+                        { icon: Minus, action: () => insertFormat('\n---\n'), title: 'Divider' },
+                      ].map(({ icon: Icon, action, title }) => (
+                        <button
+                          key={title}
+                          type="button"
+                          onClick={action}
+                          title={title}
+                          className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      ref={primerRef}
+                      value={primerDraft}
+                      onChange={(e) => setPrimerDraft(e.target.value)}
+                      placeholder="Describe your deck's strategy, key combos, win conditions..."
+                      className="w-full h-32 px-3 py-2 text-sm bg-background resize-y focus:outline-none"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setEditingPrimer(false)}
+                      className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        onUpdatePrimer?.(primerDraft.trim());
+                        setEditingPrimer(false);
+                      }}
+                      className="px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : list.primer ? (
+                <div className="text-sm text-muted-foreground [&_strong]:text-foreground [&_em]:italic [&_h3]:text-base [&_h4]:text-sm" dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(list.primer) }} />
+              ) : (
+                <p className="text-sm text-muted-foreground/50 italic">No primer written yet.</p>
+              )}
+            </div>
           )}
+          {generatedDeck?.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
+            <ComboDisplay
+              combos={generatedDeck.detectedCombos}
+              hideMustInclude
+              onAddToDeck={onAddCards ? (names) => onAddCards(names, 'deck') : undefined}
+              onRemoveFromDeck={onRemoveCards}
+              onMoveToSideboard={onMoveToSideboard}
+              onMoveToMaybeboard={onMoveToMaybeboard}
+            />
+          )}
+          <TestHand />
         </DeckDisplay>
+
+        {list.commanderName && generatedDeck && (
+          <DeckOptimizer
+            commanderName={list.commanderName}
+            partnerCommanderName={list.partnerCommanderName}
+            currentCards={Object.values(generatedDeck.categories).flat()}
+            deckSize={list.deckSize || list.cards.length}
+            roleCounts={generatedDeck.roleCounts || {}}
+            roleTargets={generatedDeck.roleTargets || {}}
+            categories={generatedDeck.categories}
+            cardInclusionMap={generatedDeck.cardInclusionMap}
+            onAddCards={onAddCards}
+            onRemoveFromBoard={onRemoveFromBoard}
+            sideboardNames={list.sideboard}
+            maybeboardNames={list.maybeboard}
+          />
+        )}
       </div>
     </>
   );

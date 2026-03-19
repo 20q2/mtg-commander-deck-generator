@@ -59,7 +59,8 @@
       "Bash(npm run deploy:*)",
       "Read(//tmp/**)",
       "WebFetch(domain:mtg-deck-builder-tagger.s3.amazonaws.com)",
-      "Bash(aws lambda list-functions:*)"
+      "Bash(aws lambda list-functions:*)",
+      "Bash(grep:*)"
     ]
   }
 }

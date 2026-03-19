@@ -364,6 +364,8 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
 
   // Track cards for deduplication across lists
   const seenCards = new Map<string, EDHRECCard>();
+  // Track known types from typed lists (creatures, instants, etc.) even for deduped cards
+  const knownTypes = new Map<string, string>();
 
   for (const list of rawCardLists) {
     if (!list.cardviews || list.cardviews.length === 0) continue;
@@ -371,7 +373,21 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
     const tag = list.tag.toLowerCase();
     console.log(`[EDHREC] Processing list "${list.tag}" with ${list.cardviews.length} cards`);
 
+    // Determine the type this tag implies (if any)
+    const TAG_TYPE_MAP: Record<string, string> = {
+      creatures: 'Creature', instants: 'Instant', sorceries: 'Sorcery',
+      utilityartifacts: 'Artifact', manaartifacts: 'Artifact',
+      enchantments: 'Enchantment', planeswalkers: 'Planeswalker',
+      utilitylands: 'Land', lands: 'Land',
+    };
+    const impliedType = TAG_TYPE_MAP[tag];
+
     for (const rawCard of list.cardviews) {
+      // Record known type from typed lists — even if the card gets deduped
+      if (impliedType) {
+        knownTypes.set(rawCard.name, impliedType);
+      }
+
       // Skip if we've seen this card with higher inclusion
       const existing = seenCards.get(rawCard.name);
       const potentialDecks = rawCard.potential_decks || 1;
@@ -384,6 +400,13 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
       }
 
       const card = parseCard(rawCard, list.tag);
+
+      // Preserve known primary_type when a generic list (Unknown) replaces a typed entry
+      if (card.primary_type === 'Unknown') {
+        const known = existing?.primary_type !== 'Unknown' ? existing?.primary_type : knownTypes.get(card.name);
+        if (known) card.primary_type = known;
+      }
+
       seenCards.set(card.name, card);
 
       // Add to the appropriate category based on EDHREC's tag
@@ -413,9 +436,16 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
         tag === 'topcards' ||
         tag === 'gamechangers'
       ) {
-        // Generic lists - add to allNonLand only (type is Unknown)
         cardlists.allNonLand.push(card);
       }
+    }
+  }
+
+  // Final pass: backfill any remaining Unknown types from knownTypes map
+  for (const card of cardlists.allNonLand) {
+    if (card.primary_type === 'Unknown') {
+      const known = knownTypes.get(card.name);
+      if (known) card.primary_type = known;
     }
   }
 

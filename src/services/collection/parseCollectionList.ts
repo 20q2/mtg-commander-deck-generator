@@ -91,8 +91,7 @@ export function parseCollectionList(input: string): ParsedCollectionResult {
       const isCommander = /\*CMDR\*/i.test(cardName);
       cardName = cardName.replace(/\s*\*CMDR\*\s*/gi, '').trim();
 
-      // Strip set/collector suffix: "(M21) 123", "(DMU) 45", or just "(JMP)"
-      cardName = cardName.replace(/\s*\([A-Z0-9]+\)\s*\d*\s*$/, '').trim();
+      cardName = stripSuffixes(cardName);
 
       if (cardName && !seen.has(cardName.toLowerCase())) {
         seen.add(cardName.toLowerCase());
@@ -158,8 +157,7 @@ function parseGoldfishSections(lines: string[]): ParsedCollectionResult {
       cardName = line;
     }
 
-    // Strip set/collector suffix
-    cardName = cardName.replace(/\s*\([A-Z0-9]+\)\s*\d*\s*$/, '').trim();
+    cardName = stripSuffixes(cardName);
 
     if (cardName && !seen.has(cardName.toLowerCase())) {
       seen.add(cardName.toLowerCase());
@@ -209,6 +207,8 @@ function parseCSV(lines: string[]): ParsedCard[] {
       quantity = qtyIdx >= 0 ? parseInt(cols[qtyIdx]?.replace(/"/g, '').trim(), 10) || 1 : 1;
     }
 
+    name = stripSuffixes(name);
+
     if (name && !seen.has(name.toLowerCase())) {
       seen.add(name.toLowerCase());
       result.push({ name, quantity });
@@ -216,6 +216,17 @@ function parseCSV(lines: string[]): ParsedCard[] {
   }
 
   return result;
+}
+
+/** Strip common card name suffixes: tags (*f*, *F*), set/collector codes, trailing IDs */
+function stripSuffixes(cardName: string): string {
+  // Strip tags like *f* (foil), *e* (etched), *s* (showcase), *F*, *Foil*, etc.
+  cardName = cardName.replace(/\s*\*[a-zA-Z]+\*\s*/g, '').trim();
+  // Strip set/collector suffix: "(M21) 123", "(cmr) 45", or just "(JMP)"
+  cardName = cardName.replace(/\s*\([A-Za-z0-9]+\)\s*\d*\s*$/, '').trim();
+  // Strip trailing collector number alone: "Sol Ring 472"
+  cardName = cardName.replace(/\s+#?\d{2,}$/, '').trim();
+  return cardName;
 }
 
 function splitCSVLine(line: string): string[] {

@@ -27,9 +27,13 @@ interface CollectionImporterProps {
   updatedLabel?: string;
   /** Header label (default: "Import Collection") */
   label?: string;
+  /** Called when the textarea content changes (has pending text or not) */
+  onPendingChange?: (hasPending: boolean) => void;
+  /** Called when the user clicks Cancel — use to close a surrounding popover */
+  onCancel?: () => void;
 }
 
-export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label }: CollectionImporterProps = {}) {
+export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, onPendingChange, onCancel }: CollectionImporterProps = {}) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState('');
@@ -120,6 +124,7 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
       }
 
       setImportText('');
+      onPendingChange?.(false);
     } catch (error) {
       console.error('Import failed:', error);
       setProgress('Import failed. Please try again.');
@@ -176,13 +181,22 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
 
         <textarea
           value={importText}
-          onChange={(e) => setImportText(e.target.value)}
+          onChange={(e) => { setImportText(e.target.value); onPendingChange?.(!!e.target.value.trim()); }}
           disabled={isImporting}
           placeholder={"1 Sol Ring\n4 Lightning Bolt\n1 Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports"}
-          className="w-full h-36 px-3 py-2 text-sm bg-background border border-border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+          className="w-full h-48 px-3 py-2 text-sm bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
         />
 
         <div className="flex justify-end gap-2 mt-2">
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              disabled={isImporting}
+              className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
           {importText.trim() && (
             <button
               onClick={() => setImportText('')}
@@ -194,7 +208,7 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
           )}
           <button
             onClick={() => handleImport(importText)}
-            disabled={isImporting || !importText.trim()}
+            disabled={isImporting}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isImporting ? (

@@ -1,5 +1,6 @@
 import type { UserCardList } from '@/types';
 import { CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
+import { stripMarkdown } from '@/lib/utils';
 import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -88,6 +89,17 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
         className="w-full flex items-center gap-4 px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative cursor-pointer"
       >
+        {commanderArtUrl ? (
+          <img
+            src={commanderArtUrl}
+            alt=""
+            className="w-14 h-10 rounded-md object-cover shrink-0"
+          />
+        ) : (
+          <div className="w-14 h-10 rounded-md bg-accent/40 shrink-0 flex items-center justify-center">
+            <List className="w-4 h-4 text-muted-foreground/40" />
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium group-hover:text-primary transition-colors truncate">{list.name}</span>
@@ -101,8 +113,8 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
                 }
               </span>
             )}
-            {list.description && (
-              <span className="text-xs text-muted-foreground truncate">{list.description}</span>
+            {(list.description || list.primer) && (
+              <span className="text-xs text-muted-foreground truncate">{list.description || stripMarkdown(list.primer!)}</span>
             )}
           </div>
           {list.commanderName && (
@@ -202,8 +214,8 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         )}
       </div>
 
-      {list.description && (
-        <p className="text-xs text-muted-foreground/80 mb-3 line-clamp-2">{list.description}</p>
+      {(list.description || list.primer) && (
+        <p className="text-xs text-muted-foreground/80 mb-3 line-clamp-2">{list.description || stripMarkdown(list.primer!)}</p>
       )}
 
       {typeBreakdown && Object.keys(typeBreakdown).length > 0 ? (

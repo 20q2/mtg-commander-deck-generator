@@ -10,6 +10,13 @@ const RANK_STYLES = [
   { bg: 'bg-orange-700/15', border: 'border-orange-700/40', badge: 'bg-orange-700 text-orange-100', label: '3rd' },
 ];
 
+const ROLE_BADGE_COLORS: Record<string, string> = {
+  ramp: 'bg-emerald-500/20 text-emerald-400',
+  removal: 'bg-rose-500/20 text-rose-400',
+  boardwipe: 'bg-orange-500/20 text-orange-400',
+  cardDraw: 'bg-sky-500/20 text-sky-400',
+};
+
 interface GapAnalysisDisplayProps {
   cards: GapAnalysisCard[];
 }
@@ -88,6 +95,7 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
           {visibleCards.map((card, i) => {
             const rank = i < 3 ? RANK_STYLES[i] : null;
+            const badgeColor = card.role ? ROLE_BADGE_COLORS[card.role] : null;
 
             return (
               <div
@@ -122,6 +130,11 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
                     {card.isOwned && (
                       <span title="In your collection">
                         <PackageCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      </span>
+                    )}
+                    {card.roleLabel && badgeColor && (
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${badgeColor}`}>
+                        {card.roleLabel}
                       </span>
                     )}
                   </div>

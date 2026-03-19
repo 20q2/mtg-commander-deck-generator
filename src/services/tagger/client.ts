@@ -98,6 +98,17 @@ export function hasMultipleRoles(cardName: string): boolean {
   return count > 1;
 }
 
+/** Get ALL roles a card matches (not just the primary one). */
+export function getAllCardRoles(cardName: string): RoleKey[] {
+  if (!tagSets) return [];
+  const roles: RoleKey[] = [];
+  if (tagSets['boardwipe']?.has(cardName)) roles.push('boardwipe');
+  if (tagSets['removal']?.has(cardName)) roles.push('removal');
+  if (tagSets['ramp']?.has(cardName) || tagSets['cost-reducer']?.has(cardName) || tagSets['mana-dork']?.has(cardName) || tagSets['mana-rock']?.has(cardName)) roles.push('ramp');
+  if (tagSets['card-advantage']?.has(cardName) || tagSets['tutor']?.has(cardName) || tagSets['draw']?.has(cardName) || tagSets['wheel']?.has(cardName) || tagSets['looting']?.has(cardName) || tagSets['cantrip']?.has(cardName)) roles.push('cardDraw');
+  return roles;
+}
+
 /** For cards with the 'ramp' role, return the specific subtype. */
 export function getRampSubtype(cardName: string): RampSubtype | null {
   if (!tagSets) return null;
