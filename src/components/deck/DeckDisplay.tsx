@@ -622,9 +622,10 @@ interface CategoryColumnProps {
   cardMenuProps?: Omit<CardContextMenuProps, 'card' | 'onAction'>;
   onChangeQuantity?: (cardName: string, newQuantity: number) => void;
   isSingleton?: boolean;
+  showPinBan?: boolean;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -693,7 +694,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               combosForCard={cardComboMap?.get(normalizedName)}
               cardTypeMap={cardTypeMap}
               showRoleColumn={showRoleColumn}
-              showPinColumn={hasMustInclude || hasBanned || hasOwnedCard}
+              showPinColumn={showPinBan !== false && (hasMustInclude || hasBanned || hasOwnedCard)}
               isRemoved={removedCards?.has(card.id)}
               isEditMode={isEditMode}
               isSelected={selectedCards?.has(card.id)}
@@ -1895,6 +1896,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [showCollectionChecks, setShowCollectionChecks] = useState(
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
+  const [showPinBan, setShowPinBan] = useState(() => localStorage.getItem('mtg-deck-show-pin-ban') !== 'false');
   const [showMenu, setShowMenu] = useState(false);
   const showMenuRef = useRef<HTMLDivElement>(null);
   const showMenuMobileRef = useRef<HTMLDivElement>(null);
@@ -2621,7 +2623,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
   const { usedThemes, dataSource } = generatedDeck;
   const allGroupedCards = Object.values(groupedCards).flat();
-  const totalCards = allGroupedCards.reduce((sum, c) => sum + c.quantity, 0) + (commander ? 1 : 0) + (generatedDeck.partnerCommander ? 1 : 0);
+  const totalCards = allGroupedCards.reduce((sum, c) => sum + c.quantity, 0);
   const totalPrice = allGroupedCards.reduce((sum, c) => {
     const price = parseFloat(getCardPrice(c.card, customization.currency) || '0');
     return sum + (isNaN(price) ? 0 : price * c.quantity);
@@ -2768,6 +2770,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, hasInfo: true },
                     { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                     { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
+                    { key: 'pinban', label: 'Pin / Ban Icons', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
                   ].filter(o => !o.hide).map(opt => (
                     <div key={opt.key} className="relative flex items-center">
                       <button
@@ -2971,6 +2974,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, hasInfo: true },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                   { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
+                  { key: 'pinban', label: 'Pin / Ban Icons', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
                 ].filter(o => !o.hide).map(opt => (
                   <div key={opt.key} className="relative flex items-center">
                     <button
@@ -3120,6 +3124,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     cardMenuProps={cardMenuProps}
                     onChangeQuantity={onChangeQuantity}
                     isSingleton={formatConfig.hasCommander}
+                    showPinBan={showPinBan}
                   />
                 ))}
               </div>

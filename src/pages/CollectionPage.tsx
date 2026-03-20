@@ -1,12 +1,13 @@
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { CollectionManager } from '@/components/collection/CollectionManager';
+import { CollectionStats } from '@/components/collection/CollectionStats';
 import { useCollection } from '@/hooks/useCollection';
 import { ArrowLeft, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export function CollectionPage() {
   const navigate = useNavigate();
-  const { count } = useCollection();
+  const { count, cards } = useCollection();
 
   return (
     <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
@@ -54,6 +55,9 @@ export function CollectionPage() {
             </div>
           </aside>
         </div>
+
+        {/* Collection Stats */}
+        {count > 0 && <CollectionStats cards={cards} />}
 
         {/* Collection List */}
         {count > 0 && (

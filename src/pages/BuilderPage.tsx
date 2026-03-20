@@ -874,7 +874,7 @@ export function BuilderPage() {
               </h2>
             </div>
             <div className="text-sm text-muted-foreground">
-              {generatedDeck.stats.totalCards} cards
+              {generatedDeck.stats.totalCards + (commander ? 1 : 0) + (partnerCommander ? 1 : 0)} cards
               {generatedDeck.usedThemes && generatedDeck.usedThemes.length > 0 && (
                 <span className="ml-1">
                   · Built with: <span className="font-medium">{generatedDeck.usedThemes.join(', ')}</span>

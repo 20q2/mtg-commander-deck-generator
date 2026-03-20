@@ -1,6 +1,6 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
-import { getCardRole, cardMatchesRole, getAllCardRoles, type RoleKey } from '@/services/tagger/client';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, type RoleKey } from '@/services/tagger/client';
+import { getFrontFaceTypeLine, isMdfcLand, getCachedCard } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 
 export interface RoleDeficit {
@@ -32,6 +32,12 @@ export interface ManaBaseAnalysis {
   manaProducerCount: number; // mana dorks + mana rocks specifically
   verdict: LandVerdict;
   verdictMessage: string;
+  // Starting hand probabilities (hypergeometric, 7-card hand)
+  probLand0: number;
+  probLand1: number;
+  probLand2to3: number;
+  probLand4plus: number;
+  deckSize: number;
 }
 
 export interface TypeSlot {
@@ -52,7 +58,9 @@ export interface RecommendedCard {
   fillsDeficit: boolean;
   primaryType: string;
   imageUrl?: string;
+  backImageUrl?: string;
   price?: string;
+  producedColors?: string[];
 }
 
 export interface AnalyzedCard {
@@ -82,10 +90,40 @@ export interface CurveBreakdown {
   cards: AnalyzedCard[];
 }
 
+export interface ColorFixingAnalysis {
+  colorsNeeded: string[];
+  sourcesPerColor: Record<string, number>;
+  fixingLands: AnalyzedCard[];   // lands producing 2+ of needed colors
+  colorlessOnly: AnalyzedCard[]; // utility lands producing only colorless
+  manaFixCards: AnalyzedCard[];  // non-land cards with mana-fix tag (actually fix colors)
+  nonFixRampCards: AnalyzedCard[]; // non-land ramp (dorks, rocks, cost-reducers) without mana-fix tag
+  pipDemand: Record<string, number>;           // colored pip count per color across non-land cards
+  pipDemandTotal: number;                      // sum of all colored pips
+  demandVsSupplyRatio: Record<string, number>; // (demand% - supply%) per color; positive = underserved
+  weakestColor: string | null;                 // color with highest positive ratio
+  anyColorLandCount: number;                   // lands with "any color"/"any type" in oracle
+  fixingScore: number;                         // 0-100 composite score
+  fixingGrade: 'A' | 'B' | 'C' | 'D' | 'F';
+  fixingGradeMessage: string;
+  fixingRecommendations: RecommendedCard[];    // suggested non-land mana fixers from EDHREC
+}
+
+export interface ManaSourcesAnalysis {
+  totalRamp: number;
+  producers: number;        // dorks + rocks
+  reducers: number;         // cost-reducer subtype
+  otherRamp: number;        // everything else
+  avgRampCmc: number;       // average CMC of ramp cards
+  earlyRamp: number;        // ramp at CMC ≤ 2
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  message: string;
+}
+
 export interface DeckAnalysis {
   roleDeficits: RoleDeficit[];
   curveAnalysis: CurveSlot[];
   manaBase: ManaBaseAnalysis;
+  manaSources: ManaSourcesAnalysis;
   typeAnalysis: TypeSlot[];
   recommendations: RecommendedCard[];
   roleBreakdowns: RoleBreakdown[];
@@ -93,6 +131,8 @@ export interface DeckAnalysis {
   landCards: AnalyzedCard[];
   rampCards: AnalyzedCard[];
   landRecommendations: RecommendedCard[];
+  colorFixing: ColorFixingAnalysis;
+  mdfcsInDeck: AnalyzedCard[];
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -101,6 +141,71 @@ const ROLE_LABELS: Record<string, string> = {
   boardwipe: 'Board Wipes',
   cardDraw: 'Card Advantage',
 };
+
+// Binomial coefficient C(n, k)
+function binomial(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  let result = 1;
+  for (let i = 0; i < k; i++) {
+    result = result * (n - i) / (i + 1);
+  }
+  return result;
+}
+
+// Hypergeometric PMF: P(X=k) drawing n from N total with K successes
+function hypergeoPmf(N: number, K: number, n: number, k: number): number {
+  return (binomial(K, k) * binomial(N - K, n - k)) / binomial(N, n);
+}
+
+// Determine which colors a land produces from produced_mana + oracle text fallback
+function getLandProducedColors(card: ScryfallCard): string[] {
+  const colors: Set<string> = new Set();
+  const producedMana = card.produced_mana || [];
+  const oracleText = (card.oracle_text || '').toLowerCase();
+  const typeLine = (card.type_line || '').toLowerCase();
+
+  for (const mana of producedMana) {
+    if (['W', 'U', 'B', 'R', 'G'].includes(mana)) colors.add(mana);
+  }
+
+  // Fallback: check basic land types and oracle text
+  if (colors.size === 0) {
+    if (typeLine.includes('plains') || oracleText.includes('add {w}')) colors.add('W');
+    if (typeLine.includes('island') || oracleText.includes('add {u}')) colors.add('U');
+    if (typeLine.includes('swamp') || oracleText.includes('add {b}')) colors.add('B');
+    if (typeLine.includes('mountain') || oracleText.includes('add {r}')) colors.add('R');
+    if (typeLine.includes('forest') || oracleText.includes('add {g}')) colors.add('G');
+    // "any color" / "any type" patterns
+    if (oracleText.includes('any color') || oracleText.includes('any type')) {
+      for (const c of ['W', 'U', 'B', 'R', 'G']) colors.add(c);
+    }
+  }
+
+  return [...colors];
+}
+
+/** Resolve produced colors for a recommendation card via Scryfall cache, with EDHREC color_identity fallback. */
+function getRecommendationColors(cardName: string, edhrecColorIdentity?: string[]): string[] {
+  const cached = getCachedCard(cardName);
+  if (cached) {
+    // Use the full Scryfall logic for lands, or produced_mana for others
+    const typeLine = (cached.type_line || '').toLowerCase();
+    if (typeLine.includes('land')) return getLandProducedColors(cached);
+    const produced = cached.produced_mana || [];
+    const colors = produced.filter(c => ['W', 'U', 'B', 'R', 'G'].includes(c));
+    if (colors.length > 0) return [...new Set(colors)];
+    // Fall back to Scryfall color_identity
+    if (cached.color_identity && cached.color_identity.length > 0) {
+      return cached.color_identity.map(c => c.toUpperCase());
+    }
+  }
+  // Fall back to EDHREC color_identity
+  if (edhrecColorIdentity && edhrecColorIdentity.length > 0) {
+    return edhrecColorIdentity.map(c => c.toUpperCase());
+  }
+  return [];
+}
 
 /**
  * Analyze a deck against EDHREC data.
@@ -113,6 +218,7 @@ export function analyzeDeck(
   roleTargets: Record<string, number>,
   deckSize: number,
   cardInclusionMap?: Record<string, number>,
+  colorIdentity?: string[],
 ): DeckAnalysis {
   // --- Role Deficits ---
   const roleDeficits: RoleDeficit[] = Object.entries(roleTargets).map(([role, target]) => {
@@ -155,7 +261,7 @@ export function analyzeDeck(
 
   // --- Mana Base (with smart land assessment) ---
   const landCards = currentCards.filter(
-    c => getFrontFaceTypeLine(c).toLowerCase().includes('land')
+    c => getFrontFaceTypeLine(c).toLowerCase().includes('land') || isMdfcLand(c)
   );
   const currentLands = landCards.length;
   const edhrecLands = edhrecData.stats.landDistribution.total || Math.round(deckSize * 0.37);
@@ -220,6 +326,12 @@ export function analyzeDeck(
       : `${currentLands} lands looks good for this deck.`;
   }
 
+  // Starting hand probabilities (7-card hand)
+  const probLand0 = hypergeoPmf(deckSize, currentLands, 7, 0);
+  const probLand1 = hypergeoPmf(deckSize, currentLands, 7, 1);
+  const probLand2to3 = hypergeoPmf(deckSize, currentLands, 7, 2) + hypergeoPmf(deckSize, currentLands, 7, 3);
+  const probLand4plus = 1 - (probLand0 + probLand1 + probLand2to3);
+
   const manaBase: ManaBaseAnalysis = {
     currentLands,
     suggestedLands: edhrecLands,
@@ -232,6 +344,11 @@ export function analyzeDeck(
     manaProducerCount,
     verdict,
     verdictMessage,
+    probLand0,
+    probLand1,
+    probLand2to3,
+    probLand4plus,
+    deckSize,
   };
 
   // --- Type Distribution ---
@@ -263,7 +380,13 @@ export function analyzeDeck(
     .filter(t => t.target > 0 || t.current > 0);
 
   // --- Recommendations ---
-  const currentCardNames = new Set(currentCards.map(c => c.name));
+  // Include both full name ("A // B") and front face name ("A") so DFCs are matched
+  const currentCardNames = new Set(currentCards.flatMap(c => {
+    const names = [c.name];
+    if (c.name.includes(' // ')) names.push(c.name.split(' // ')[0]);
+    if (c.card_faces?.[0]?.name && c.card_faces[0].name !== c.name) names.push(c.card_faces[0].name);
+    return names;
+  }));
   const deficitRoles = new Set(roleDeficits.filter(d => d.deficit > 0).map(d => d.role));
 
   const candidateMap = new Map<string, { card: EDHRECCard; source: 'nonland' | 'land' }>();
@@ -433,11 +556,55 @@ export function analyzeDeck(
     .map(makeAnalyzedCard)
     .sort(sortByInclusion);
 
+  // Mana sources analysis
+  const msProducers = rampCards.filter(ac => ac.card.rampSubtype === 'mana-producer' || ac.card.rampSubtype === 'mana-rock').length;
+  const msReducers = rampCards.filter(ac => ac.card.rampSubtype === 'cost-reducer').length;
+  const msOther = rampCards.length - msProducers - msReducers;
+  const msEarly = rampCards.filter(ac => ac.card.cmc <= 2).length;
+  const msAvgCmc = rampCards.length > 0
+    ? rampCards.reduce((sum, ac) => sum + ac.card.cmc, 0) / rampCards.length
+    : 0;
+  const msTotal = rampCards.length;
+
+  let msGrade: ManaSourcesAnalysis['grade'];
+  let msMessage: string;
+  if (msTotal >= 10 && msEarly >= 5 && msProducers >= 6) {
+    msGrade = 'A';
+    msMessage = `${msTotal} ramp with ${msEarly} early pieces — fast and reliable.`;
+  } else if (msTotal >= 8 && msEarly >= 3 && msProducers >= 4) {
+    msGrade = 'B';
+    msMessage = `${msTotal} ramp with ${msProducers} producers — solid acceleration.`;
+  } else if (msTotal >= 6) {
+    msGrade = 'C';
+    msMessage = msEarly < 3
+      ? `${msTotal} ramp but only ${msEarly} early pieces — slow to accelerate.`
+      : `${msTotal} ramp is decent. A couple more would smooth things out.`;
+  } else if (msTotal >= 4) {
+    msGrade = 'D';
+    msMessage = `Only ${msTotal} ramp cards — this deck will fall behind.`;
+  } else {
+    msGrade = 'F';
+    msMessage = msTotal === 0
+      ? 'No ramp cards. This deck has no acceleration.'
+      : `Only ${msTotal} ramp card${msTotal > 1 ? 's' : ''}. This deck will struggle to keep pace.`;
+  }
+
+  const manaSources: ManaSourcesAnalysis = {
+    totalRamp: msTotal,
+    producers: msProducers,
+    reducers: msReducers,
+    otherRamp: msOther,
+    avgRampCmc: msAvgCmc,
+    earlyRamp: msEarly,
+    grade: msGrade,
+    message: msMessage,
+  };
+
   // Land recommendations from EDHREC
   const landRecommendations: RecommendedCard[] = edhrecData.cardlists.lands
     .filter(c => !currentCardNames.has(c.name))
     .sort((a, b) => b.inclusion - a.inclusion)
-    .slice(0, 10)
+    .slice(0, 15)
     .map(card => {
       const role = getCardRole(card.name);
       const price = card.prices?.tcgplayer?.price
@@ -455,13 +622,264 @@ export function analyzeDeck(
         primaryType: card.primary_type,
         imageUrl: card.image_uris?.[0]?.normal,
         price,
+        producedColors: getRecommendationColors(card.name, card.color_identity),
       };
     });
+
+  // --- Color Fixing Analysis ---
+  const ci = colorIdentity || [];
+  const sourcesPerColor: Record<string, number> = {};
+  for (const color of ci) sourcesPerColor[color] = 0;
+
+  const fixingLands: AnalyzedCard[] = [];
+  const colorlessOnly: AnalyzedCard[] = [];
+
+  for (const card of landCards) {
+    const produced = getLandProducedColors(card);
+    const matchedColors = produced.filter(c => ci.includes(c));
+    for (const color of matchedColors) {
+      sourcesPerColor[color] = (sourcesPerColor[color] || 0) + 1;
+    }
+    const ac = makeAnalyzedCard(card);
+    if (matchedColors.length >= 2) {
+      fixingLands.push(ac);
+    } else if (matchedColors.length === 0) {
+      colorlessOnly.push(ac);
+    }
+  }
+
+  // Also count mana producers (dorks/rocks) as color sources
+  for (const card of currentCards) {
+    if (card.rampSubtype !== 'mana-producer' && card.rampSubtype !== 'mana-rock') continue;
+    const produced = card.produced_mana || [];
+    for (const mana of produced) {
+      if (ci.includes(mana)) {
+        sourcesPerColor[mana] = (sourcesPerColor[mana] || 0) + 1;
+      }
+    }
+  }
+
+  // Collect non-land ramp producers — split into true mana fixers vs other ramp
+  const allNonLandRamp: AnalyzedCard[] = currentCards
+    .filter(c => {
+      const tl = getFrontFaceTypeLine(c).toLowerCase();
+      if (tl.includes('land')) return false;
+      return c.rampSubtype === 'mana-producer' || c.rampSubtype === 'mana-rock' || c.rampSubtype === 'cost-reducer'
+        || hasTag(c.name, 'mana-dork') || hasTag(c.name, 'mana-rock') || hasTag(c.name, 'cost-reducer');
+    })
+    .map(makeAnalyzedCard)
+    .sort(sortByInclusion);
+  const manaFixCards = allNonLandRamp.filter(ac => hasTag(ac.card.name, 'mana-fix'));
+  const nonFixRampCards = allNonLandRamp.filter(ac => !hasTag(ac.card.name, 'mana-fix'));
+
+  // --- Pip Demand Analysis ---
+  const pipDemand: Record<string, number> = {};
+  const symbolPattern = /\{([^}]+)\}/g;
+  const colorLetters = new Set(['W', 'U', 'B', 'R', 'G']);
+  for (const card of nonLandCards) {
+    const costs: string[] = [];
+    if (card.mana_cost) costs.push(card.mana_cost);
+    if (card.card_faces) {
+      for (const face of card.card_faces) {
+        if (face.mana_cost) costs.push(face.mana_cost);
+      }
+    }
+    for (const cost of costs) {
+      let match;
+      while ((match = symbolPattern.exec(cost)) !== null) {
+        for (const char of match[1]) {
+          if (colorLetters.has(char)) {
+            pipDemand[char] = (pipDemand[char] || 0) + 1;
+          }
+        }
+      }
+    }
+  }
+  const pipDemandTotal = Object.values(pipDemand).reduce((s, v) => s + v, 0);
+
+  // Demand vs supply ratios
+  const totalSources = Object.values(sourcesPerColor).reduce((s, v) => s + v, 0);
+  const demandVsSupplyRatio: Record<string, number> = {};
+  let weakestColor: string | null = null;
+  let maxImbalance = 0;
+  for (const color of ci) {
+    const demandPct = pipDemandTotal > 0 ? (pipDemand[color] || 0) / pipDemandTotal : 0;
+    const supplyPct = totalSources > 0 ? (sourcesPerColor[color] || 0) / totalSources : 0;
+    const ratio = demandPct - supplyPct;
+    demandVsSupplyRatio[color] = ratio;
+    if (ratio > maxImbalance) {
+      maxImbalance = ratio;
+      weakestColor = color;
+    }
+  }
+
+  // Any-color land count
+  let anyColorLandCount = 0;
+  for (const card of landCards) {
+    const oracle = (card.oracle_text || '').toLowerCase();
+    if (oracle.includes('any color') || oracle.includes('any type')) {
+      anyColorLandCount++;
+    }
+  }
+
+  // --- Fixing Score (0-100 composite) ---
+  // Three components:
+  //   1. Coverage alignment (50%) — are sources distributed proportionally to pip demand?
+  //   2. Worst-color penalty (25%) — is any single color critically underserved?
+  //   3. Absolute adequacy (25%) — does every color meet a minimum source count?
+  let fixingScore: number;
+  let fixingGrade: 'A' | 'B' | 'C' | 'D' | 'F';
+  let fixingGradeMessage: string;
+  const numColors = ci.length;
+
+  if (numColors <= 1) {
+    fixingScore = 100;
+  } else {
+    // Per-color coverage: actual sources vs expected (based on pip demand proportion)
+    const coverages: { color: string; coverage: number; pips: number; sources: number }[] = [];
+    for (const color of ci) {
+      const pips = pipDemand[color] || 0;
+      const sources = sourcesPerColor[color] || 0;
+      // Expected = totalSources * demandPct, floored at 3 so splash colors aren't trivially "covered"
+      const expectedFromDemand = pipDemandTotal > 0
+        ? totalSources * (pips / pipDemandTotal)
+        : totalSources / numColors;
+      const expected = Math.max(expectedFromDemand, 3);
+      // Cap at 1.3 so oversupplying one color can't fully mask another's deficit
+      const coverage = expected > 0 ? Math.min(sources / expected, 1.3) : 1.0;
+      coverages.push({ color, coverage, pips, sources });
+    }
+
+    // 1. Weighted average coverage (weighted by pip demand — heavier colors matter more)
+    const totalPipWeight = coverages.reduce((s, c) => s + Math.max(c.pips, 1), 0);
+    const weightedCoverage = coverages.reduce((s, c) => s + c.coverage * Math.max(c.pips, 1), 0) / totalPipWeight;
+    const normalizedCoverage = Math.min(weightedCoverage / 1.3, 1.0); // normalize to 0-1
+
+    // 2. Worst-color penalty: linear penalty if any color is below 60% coverage
+    const worstCoverage = Math.min(...coverages.map(c => c.coverage));
+    const worstPenalty = worstCoverage >= 0.6 ? 1.0 : worstCoverage / 0.6;
+
+    // 3. Absolute adequacy: minimum sources across all colors vs a target
+    //    Target scales with color count (5-color decks can get by with fewer per color thanks to 5c lands)
+    const minSources = Math.min(...coverages.map(c => c.sources));
+    const adequacyTarget = numColors >= 4 ? 5 : numColors >= 3 ? 6 : 8;
+    const adequacy = Math.min(minSources / adequacyTarget, 1.0);
+
+    // Composite: 50% alignment + 25% worst-color + 25% absolute adequacy
+    fixingScore = (normalizedCoverage * 50 + worstPenalty * 25 + adequacy * 25);
+    fixingScore = Math.max(0, Math.min(100, Math.round(fixingScore)));
+  }
+
+  // Map score to grade + generate contextual message explaining why
+  const colorName = (c: string) => ({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' }[c] || c);
+  const minSourceCount = ci.length > 0 ? Math.min(...ci.map(c => sourcesPerColor[c] || 0)) : 0;
+  const weakColorName = weakestColor ? colorName(weakestColor) : null;
+  const weakColorSources = weakestColor ? (sourcesPerColor[weakestColor] || 0) : 0;
+
+  if (fixingScore >= 85) {
+    fixingGrade = 'A';
+    fixingGradeMessage = numColors <= 1
+      ? 'No color fixing needed.'
+      : `Sources match pip demand across all ${numColors} colors.`;
+  } else if (fixingScore >= 70) {
+    fixingGrade = 'B';
+    fixingGradeMessage = weakColorName
+      ? `Solid base — ${weakColorName} is slightly underrepresented (${weakColorSources} sources).`
+      : `Solid base with minor distribution imbalance.`;
+  } else if (fixingScore >= 50) {
+    fixingGrade = 'C';
+    fixingGradeMessage = weakColorName
+      ? `${weakColorName[0].toUpperCase() + weakColorName.slice(1)} only has ${weakColorSources} sources for ${pipDemand[weakestColor!] || 0} pips of demand.`
+      : `Source distribution doesn't match pip demand well.`;
+  } else if (fixingScore >= 30) {
+    fixingGrade = 'D';
+    fixingGradeMessage = weakColorName
+      ? `${weakColorName[0].toUpperCase() + weakColorName.slice(1)} has just ${weakColorSources} source${weakColorSources !== 1 ? 's' : ''} — most ${weakColorName} spells will be hard to cast on curve.`
+      : `Multiple colors lack the sources to cast spells reliably.`;
+  } else {
+    fixingGrade = 'F';
+    fixingGradeMessage = minSourceCount === 0
+      ? `At least one color has zero sources — those spells are uncastable.`
+      : `Too few sources across the board (worst: ${minSourceCount}). Consider more dual lands and mana rocks.`;
+  }
+
+  // Build fixing recommendations: non-land mana fixers from EDHREC candidates
+  const fixingRecommendations: RecommendedCard[] = [];
+  for (const [name, { card }] of candidateMap) {
+    // Only non-land cards that are mana-dorks, mana-rocks, or cost-reducers
+    if (card.primary_type === 'Land') continue;
+    const isFixer = hasTag(name, 'mana-dork') || hasTag(name, 'mana-rock') || hasTag(name, 'cost-reducer') || hasTag(name, 'ramp');
+    if (!isFixer) continue;
+    const cardColors = getRecommendationColors(name, card.color_identity);
+    // Prefer cards that can produce multiple needed colors
+    const relevantColors = cardColors.filter(c => ci.includes(c));
+    const role = getCardRole(name);
+    const allRoles = getAllCardRoles(name);
+    const price = card.prices?.tcgplayer?.price
+      ? card.prices.tcgplayer.price.toFixed(2)
+      : card.prices?.cardkingdom?.price
+        ? card.prices.cardkingdom.price.toFixed(2)
+        : undefined;
+    // Score: weakness coverage (multi-color) + inclusion
+    const weaknessScore = ci.length >= 2
+      ? relevantColors.reduce((s, c) => s + (demandVsSupplyRatio[c] || 0), 0)
+      : 0;
+    fixingRecommendations.push({
+      name,
+      inclusion: card.inclusion,
+      synergy: card.synergy || 0,
+      role: role || undefined,
+      roleLabel: role ? ROLE_LABELS[role] : undefined,
+      allRoles: allRoles.length > 0 ? allRoles : undefined,
+      allRoleLabels: allRoles.length > 0 ? allRoles.map(r => ROLE_LABELS[r] || r) : undefined,
+      fillsDeficit: false,
+      primaryType: card.primary_type,
+      imageUrl: card.image_uris?.[0]?.normal,
+      price,
+      producedColors: cardColors,
+      _weaknessScore: weaknessScore,
+    } as any);
+  }
+  // Sort by weakness coverage descending, then inclusion
+  fixingRecommendations.sort((a, b) => {
+    const wA = (a as any)._weaknessScore || 0;
+    const wB = (b as any)._weaknessScore || 0;
+    if (wB !== wA) return wB - wA;
+    return b.inclusion - a.inclusion;
+  });
+  // Clean up temp field and limit
+  for (const r of fixingRecommendations) delete (r as any)._weaknessScore;
+  fixingRecommendations.splice(15);
+
+  const colorFixing: ColorFixingAnalysis = {
+    colorsNeeded: ci,
+    sourcesPerColor,
+    fixingLands: fixingLands.sort(sortByInclusion),
+    colorlessOnly: colorlessOnly.sort(sortByInclusion),
+    manaFixCards,
+    nonFixRampCards,
+    pipDemand,
+    pipDemandTotal,
+    demandVsSupplyRatio,
+    weakestColor,
+    anyColorLandCount,
+    fixingScore,
+    fixingGrade,
+    fixingGradeMessage,
+    fixingRecommendations,
+  };
+
+  // --- MDFCs in Deck ---
+  const mdfcsInDeck: AnalyzedCard[] = currentCards
+    .filter(c => isMdfcLand(c))
+    .map(makeAnalyzedCard)
+    .sort(sortByInclusion);
 
   return {
     roleDeficits,
     curveAnalysis,
     manaBase,
+    manaSources,
     typeAnalysis,
     recommendations,
     roleBreakdowns,
@@ -469,5 +887,7 @@ export function analyzeDeck(
     landCards: analyzedLandCards,
     rampCards,
     landRecommendations,
+    colorFixing,
+    mdfcsInDeck,
   };
 }

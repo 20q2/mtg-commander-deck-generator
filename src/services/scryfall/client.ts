@@ -685,6 +685,25 @@ export function isMdfcLand(card: ScryfallCard): boolean {
   return !frontType.includes('land') && backType.includes('land');
 }
 
+// Search Scryfall for MDFC spell/lands matching a commander's color identity.
+// Returns ALL cards where front face is a spell and back face is a land.
+// Paginates through all results so nothing is missed.
+export async function searchMdfcLands(colorIdentity: string[]): Promise<ScryfallCard[]> {
+  const query = 'is:mdfc t:land';
+  const allCards: ScryfallCard[] = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const result = await searchCards(query, colorIdentity, { order: 'edhrec', page });
+    allCards.push(...result.data);
+    hasMore = result.has_more;
+    page++;
+  }
+
+  return allCards.filter(card => isMdfcLand(card));
+}
+
 // Get back face image URL for a double-faced card
 export function getCardBackFaceUrl(
   card: ScryfallCard,

@@ -604,7 +604,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
               Scryfall
             </a>
             <a
-              href={`https://edhrec.com/cards/${displayCard.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
+              href={`https://edhrec.com/cards/${(displayCard.name.split(' // ')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-medium transition-colors"

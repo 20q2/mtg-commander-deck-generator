@@ -1305,6 +1305,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             categories={generatedDeck.categories}
             cardInclusionMap={generatedDeck.cardInclusionMap}
             onAddCards={onAddCards}
+            onRemoveCards={onRemoveCards}
             onRemoveFromBoard={onRemoveFromBoard}
             sideboardNames={list.sideboard}
             maybeboardNames={list.maybeboard}

@@ -250,7 +250,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <div className="hidden sm:block">
                   <h1 className="text-xl font-bold">EDH Deck Builder</h1>
                   <p className="text-xs text-muted-foreground">
-                    Generate Commander decks instantly
+                    Generate, analyze, and optimize Commander decks instantly
                   </p>
                 </div>
               </button>

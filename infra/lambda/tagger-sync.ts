@@ -29,6 +29,7 @@ const TAGS: Record<string, string> = {
   sacrifice: 'otag:sacrifice-outlet',
   'graveyard-hate': 'otag:graveyard-hate',
   protection: 'otag:protects-permanent',
+  'mana-fix': 'otag:mana-fix',
 };
 
 interface ScryfallListResponse {
