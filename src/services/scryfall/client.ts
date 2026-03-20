@@ -685,6 +685,28 @@ export function isMdfcLand(card: ScryfallCard): boolean {
   return !frontType.includes('land') && backType.includes('land');
 }
 
+// The 5 Kamigawa: Neon Dynasty channel lands — legendary lands with Channel abilities.
+// These are format staples: lands that double as spells via discard, with no downside.
+export const CHANNEL_LANDS: Record<string, string> = {
+  'Boseiju, Who Endures': 'G',
+  'Otawara, Soaring City': 'U',
+  'Eiganjo, Seat of the Empire': 'W',
+  'Takenuma, Abandoned Mire': 'B',
+  'Sokenzan, Crucible of Defiance': 'R',
+};
+
+/** Check if a card is one of the 5 Kamigawa channel lands. */
+export function isChannelLand(card: ScryfallCard): boolean {
+  return card.name in CHANNEL_LANDS;
+}
+
+/** Get channel lands that match a given color identity. */
+export function getChannelLandsForColors(colorIdentity: string[]): { name: string; color: string }[] {
+  return Object.entries(CHANNEL_LANDS)
+    .filter(([, color]) => colorIdentity.includes(color))
+    .map(([name, color]) => ({ name, color }));
+}
+
 // Search Scryfall for MDFC spell/lands matching a commander's color identity.
 // Returns ALL cards where front face is a spell and back face is a land.
 // Paginates through all results so nothing is missed.

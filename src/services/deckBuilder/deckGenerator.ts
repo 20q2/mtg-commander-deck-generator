@@ -19,7 +19,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
@@ -2216,6 +2216,21 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
     if (mdfcLandCount > 0) {
       console.log(`[DeckGen] MDFC land boost applied to ${mdfcLandCount} spell/land cards (+30 priority)`);
+    }
+
+    // Channel land boost: Kamigawa channel lands are strictly better than basic
+    // lands in their color — enter untapped and offer a free spell mode via discard.
+    let channelLandCount = 0;
+    for (const [name, card] of cardMap) {
+      if (isChannelLand(card)) {
+        card.isChannelLand = true;
+        const existing = staticComboBoosts.get(name) ?? 0;
+        staticComboBoosts.set(name, existing + 40);
+        channelLandCount++;
+      }
+    }
+    if (channelLandCount > 0) {
+      console.log(`[DeckGen] Channel land boost applied to ${channelLandCount} Kamigawa lands (+40 priority)`);
     }
 
     // Inject combo pieces into the correct type pools so they can actually be picked

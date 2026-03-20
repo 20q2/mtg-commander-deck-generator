@@ -1307,6 +1307,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             onAddCards={onAddCards}
             onRemoveCards={onRemoveCards}
             onRemoveFromBoard={onRemoveFromBoard}
+            onAddBasicLand={onChangeQuantity ? (name) => {
+              const count = list.cards.filter(c => c === name).length;
+              onChangeQuantity(name, count + 1);
+            } : undefined}
+            onRemoveBasicLand={onChangeQuantity ? (name) => {
+              const count = list.cards.filter(c => c === name).length;
+              if (count > 0) onChangeQuantity(name, count - 1);
+            } : undefined}
             sideboardNames={list.sideboard}
             maybeboardNames={list.maybeboard}
           />

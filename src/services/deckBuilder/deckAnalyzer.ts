@@ -1,6 +1,6 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
 import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, type RoleKey } from '@/services/tagger/client';
-import { getFrontFaceTypeLine, isMdfcLand, getCachedCard } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 
 export interface RoleDeficit {
@@ -119,6 +119,11 @@ export interface ManaSourcesAnalysis {
   message: string;
 }
 
+export interface GradeResult {
+  letter: string;
+  message: string;
+}
+
 export interface DeckAnalysis {
   roleDeficits: RoleDeficit[];
   curveAnalysis: CurveSlot[];
@@ -133,6 +138,10 @@ export interface DeckAnalysis {
   landRecommendations: RecommendedCard[];
   colorFixing: ColorFixingAnalysis;
   mdfcsInDeck: AnalyzedCard[];
+  channelLandsInDeck: AnalyzedCard[];
+  rolesGrade: GradeResult;
+  manaGrade: GradeResult;
+  curveGrade: GradeResult;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -205,6 +214,175 @@ function getRecommendationColors(cardName: string, edhrecColorIdentity?: string[
     return edhrecColorIdentity.map(c => c.toUpperCase());
   }
   return [];
+}
+
+// ─── Macro Grading Functions ─────────────────────────────────────
+
+const GRADE_SCORES: Record<string, number> = { A: 4, B: 3, C: 2, D: 1, F: 0 };
+
+function letterFromScore(score: number): string {
+  if (score >= 3.5) return 'A';
+  if (score >= 2.5) return 'B';
+  if (score >= 1.5) return 'C';
+  if (score >= 0.75) return 'D';
+  return 'F';
+}
+
+export function getRolesGrade(roleDeficits: RoleDeficit[]): GradeResult {
+  const totalDeficit = roleDeficits.reduce((sum, rd) => sum + rd.deficit, 0);
+  const maxSingleDeficit = Math.max(...roleDeficits.map(rd => rd.deficit), 0);
+  const rolesMet = roleDeficits.filter(rd => rd.current >= rd.target).length;
+  const totalRoles = roleDeficits.length;
+  const worstRole = roleDeficits.reduce((worst, rd) => rd.deficit > worst.deficit ? rd : worst, roleDeficits[0]);
+
+  if (totalDeficit === 0)
+    return { letter: 'A', message: 'All roles on target — well-balanced deck.' };
+  if (totalDeficit <= 3 && maxSingleDeficit <= 2)
+    return { letter: 'B', message: `Nearly balanced, ${totalDeficit} card${totalDeficit > 1 ? 's' : ''} short across roles.` };
+  if (totalDeficit <= 6 && rolesMet >= 2)
+    return { letter: 'C', message: `${rolesMet}/${totalRoles} roles met. Consider more ${worstRole?.label?.toLowerCase() || 'role cards'}.` };
+  if (totalDeficit <= 10 || rolesMet >= 1)
+    return { letter: 'D', message: `Significant gaps — ${worstRole?.label || 'a role'} is ${worstRole?.deficit || 0} short.` };
+  return { letter: 'F', message: `Deck is severely unbalanced. Missing ${totalDeficit} role cards.` };
+}
+
+export function getManaGrade(
+  manaBase: ManaBaseAnalysis,
+  manaSources: ManaSourcesAnalysis,
+  colorFixing: ColorFixingAnalysis,
+  flexCount: number,
+): GradeResult {
+  // Convert each sub-grade to numeric
+  const landGradeLetter = getManaBaseGradeLetter(manaBase);
+  const sourceGrade = manaSources.grade;
+  const fixingGrade = colorFixing.fixingGrade;
+  const flexGrade = getFlexGradeLetter(flexCount);
+
+  const scores = {
+    lands: GRADE_SCORES[landGradeLetter] ?? 0,
+    sources: GRADE_SCORES[sourceGrade] ?? 0,
+    fixing: GRADE_SCORES[fixingGrade] ?? 0,
+    flex: GRADE_SCORES[flexGrade] ?? 0,
+  };
+
+  // Weighted average: lands 30%, sources 30%, fixing 25%, flex 15%
+  const composite = scores.lands * 0.30 + scores.sources * 0.30 + scores.fixing * 0.25 + scores.flex * 0.15;
+  const letter = letterFromScore(composite);
+
+  // Find weakest sub-grade for message
+  const subGrades = [
+    { label: 'Land count', score: scores.lands },
+    { label: 'Ramp', score: scores.sources },
+    { label: 'Color fixing', score: scores.fixing },
+    { label: 'Flex lands', score: scores.flex },
+  ];
+  const weakest = subGrades.reduce((w, s) => s.score < w.score ? s : w, subGrades[0]);
+  const allGood = subGrades.every(s => s.score >= 3);
+
+  let message: string;
+  if (allGood) {
+    message = 'Mana base is solid across the board.';
+  } else if (letter === 'A' || letter === 'B') {
+    message = `Looking good — ${weakest.label.toLowerCase()} could use a small bump.`;
+  } else {
+    message = `${weakest.label} is the weak spot.`;
+  }
+
+  return { letter, message };
+}
+
+/** Land count grade letter (mirrors getManaBaseGrade in DeckOptimizer) */
+function getManaBaseGradeLetter(mb: ManaBaseAnalysis): string {
+  const sweetSpot = mb.probLand2to3;
+  if (mb.verdict === 'ok' && sweetSpot >= 0.48) return 'A';
+  if (mb.verdict === 'ok' || (mb.verdict === 'slightly-low' && sweetSpot >= 0.45)) return 'B';
+  if (mb.verdict === 'slightly-low' || mb.verdict === 'high') return 'C';
+  if (mb.verdict === 'low') return 'D';
+  return 'F';
+}
+
+/** Flex land grade letter (mirrors getMdfcGrade in DeckOptimizer) */
+function getFlexGradeLetter(count: number): string {
+  if (count >= 6) return 'A';
+  if (count >= 3) return 'B';
+  if (count >= 1) return 'C';
+  return 'F';
+}
+
+export function getCurveGrade(curveAnalysis: CurveSlot[]): GradeResult {
+  const totalDeviation = curveAnalysis.reduce((sum, s) => sum + Math.abs(s.delta), 0);
+  const totalCards = curveAnalysis.reduce((sum, s) => sum + s.current, 0);
+  if (totalCards === 0) return { letter: 'F', message: 'No non-land cards to evaluate.' };
+
+  const deviationPct = totalDeviation / totalCards;
+
+  // Detect direction: top-heavy or bottom-heavy
+  const highEnd = curveAnalysis.filter(s => s.cmc >= 5).reduce((sum, s) => sum + s.delta, 0);
+  const lowEnd = curveAnalysis.filter(s => s.cmc <= 2).reduce((sum, s) => sum + s.delta, 0);
+  const shape = highEnd > 3 ? 'top-heavy' : lowEnd > 3 ? 'bottom-heavy' : 'uneven';
+
+  if (deviationPct <= 0.10)
+    return { letter: 'A', message: 'Curve closely matches the average — well-distributed.' };
+  if (deviationPct <= 0.20)
+    return { letter: 'B', message: 'Curve is solid with minor deviations.' };
+  if (deviationPct <= 0.30)
+    return { letter: 'C', message: `Curve is a bit ${shape}.` };
+  if (deviationPct <= 0.40)
+    return { letter: 'D', message: `Curve is significantly ${shape}.` };
+  return { letter: 'F', message: 'Curve is far from average — expect inconsistent draws.' };
+}
+
+/** Generate a short algo-generated summary sentence about the deck's health. */
+export function getDeckSummary(analysis: DeckAnalysis): string {
+  const grades = [analysis.rolesGrade, analysis.manaGrade, analysis.curveGrade];
+  const avgScore = grades.reduce((s, g) => s + (GRADE_SCORES[g.letter] ?? 0), 0) / grades.length;
+  const worst = grades.reduce((w, g) => (GRADE_SCORES[g.letter] ?? 0) < (GRADE_SCORES[w.letter] ?? 0) ? g : w, grades[0]);
+
+  // Compute avg CMC from curve data
+  const totalCards = analysis.curveAnalysis.reduce((s, c) => s + c.current, 0);
+  const weightedCmc = analysis.curveAnalysis.reduce((s, c) => s + c.cmc * c.current, 0);
+  const avgCmc = totalCards > 0 ? weightedCmc / totalCards : 0;
+
+  // Creature density from type analysis
+  const creatureSlot = analysis.typeAnalysis.find(t => t.type === 'creature');
+  const creaturePct = totalCards > 0 && creatureSlot ? Math.round((creatureSlot.current / totalCards) * 100) : 0;
+
+  // Role coverage
+  const rolesMet = analysis.roleDeficits.filter(rd => rd.current >= rd.target).length;
+  const totalRoles = analysis.roleDeficits.length;
+
+  // Land count
+  const { currentLands, adjustedSuggestion } = analysis.manaBase;
+
+  // Build sentences
+  const parts: string[] = [];
+
+  // Overall opener
+  if (avgScore >= 3.5) {
+    parts.push('This deck is in great shape overall.');
+  } else if (avgScore >= 2.5) {
+    parts.push('Solid foundation with room for improvement.');
+  } else if (avgScore >= 1.5) {
+    parts.push('Several areas need attention.');
+  } else {
+    parts.push('This deck needs significant work.');
+  }
+
+  // Key stats line
+  const statsFragments: string[] = [];
+  statsFragments.push(`${currentLands} lands (${currentLands >= adjustedSuggestion ? 'on target' : `${adjustedSuggestion - currentLands} below target`})`);
+  statsFragments.push(`${avgCmc.toFixed(1)} avg CMC`);
+  statsFragments.push(`${creaturePct}% creatures`);
+  statsFragments.push(`${rolesMet}/${totalRoles} roles met`);
+  parts.push(statsFragments.join(' · '));
+
+  // Call out biggest weakness if not all A's
+  if (avgScore < 3.5) {
+    const worstLabel = worst === analysis.rolesGrade ? 'role balance' : worst === analysis.manaGrade ? 'mana base' : 'mana curve';
+    parts.push(`Biggest area to improve: ${worstLabel}.`);
+  }
+
+  return parts.join(' ');
 }
 
 /**
@@ -875,6 +1053,18 @@ export function analyzeDeck(
     .map(makeAnalyzedCard)
     .sort(sortByInclusion);
 
+  // --- Channel Lands in Deck ---
+  const channelLandsInDeck: AnalyzedCard[] = currentCards
+    .filter(c => isChannelLand(c))
+    .map(makeAnalyzedCard)
+    .sort(sortByInclusion);
+
+  // --- Macro Grades ---
+  const rolesGrade = getRolesGrade(roleDeficits);
+  const flexCount = mdfcsInDeck.length + channelLandsInDeck.length;
+  const manaGrade = getManaGrade(manaBase, manaSources, colorFixing, flexCount);
+  const curveGrade = getCurveGrade(curveAnalysis);
+
   return {
     roleDeficits,
     curveAnalysis,
@@ -889,5 +1079,9 @@ export function analyzeDeck(
     landRecommendations,
     colorFixing,
     mdfcsInDeck,
+    channelLandsInDeck,
+    rolesGrade,
+    manaGrade,
+    curveGrade,
   };
 }

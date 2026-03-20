@@ -66,6 +66,7 @@ export interface ScryfallCard {
   boardwipeSubtype?: 'bounce-wipe' | 'boardwipe';
   cardDrawSubtype?: 'tutor' | 'wheel' | 'cantrip' | 'card-draw' | 'card-advantage';
   isMdfcLand?: boolean; // True if this is an MDFC with a land back face
+  isChannelLand?: boolean; // True if this is a Kamigawa channel land
 }
 
 export interface ScryfallSearchResponse {

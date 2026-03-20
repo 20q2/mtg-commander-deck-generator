@@ -5,15 +5,15 @@ import {
   TrendingUp, TrendingDown,
   ChevronDown, ChevronRight,
   LayoutDashboard, Mountain, BarChart3, Layers,
-  AlertTriangle, Palette, FlipHorizontal2, RotateCcw, Info,
+  AlertTriangle, Palette, FlipHorizontal2, RotateCcw, Info, Scissors,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, DeckCategory, UserCardList } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
 import { loadTaggerData, getCardRole, getAllCardRoles } from '@/services/tagger/client';
-import { analyzeDeck, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type RoleBreakdown, type CurveBreakdown, type ManaBaseAnalysis, type ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
-import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand, searchMdfcLands } from '@/services/scryfall/client';
+import { analyzeDeck, getDeckSummary, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type RoleBreakdown, type CurveBreakdown, type ManaBaseAnalysis, type ManaSourcesAnalysis, type GradeResult } from '@/services/deckBuilder/deckAnalyzer';
+import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -32,6 +32,8 @@ interface DeckOptimizerProps {
   onAddCards?: (cardNames: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => void;
   onRemoveCards?: (cardNames: string[]) => void;
   onRemoveFromBoard?: (cardName: string, source: 'sideboard' | 'maybeboard') => void;
+  onAddBasicLand?: (name: string) => void;
+  onRemoveBasicLand?: (name: string) => void;
   sideboardNames?: string[];
   maybeboardNames?: string[];
 }
@@ -136,12 +138,13 @@ const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
 
 // ─── Shared: Analyzed Card Row (compact, for curve/lands/types) ──────
 function AnalyzedCardRow({
-  ac, onPreview, warning, showDetails, onCardAction, menuProps,
+  ac, onPreview, warning, showDetails, showProducedMana, onCardAction, menuProps,
 }: {
   ac: AnalyzedCard;
   onPreview: (name: string) => void;
   warning?: string;
   showDetails?: boolean;
+  showProducedMana?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; isMustInclude?: boolean; isBanned?: boolean; isInSideboard?: boolean; isInMaybeboard?: boolean };
 }) {
@@ -159,6 +162,23 @@ function AnalyzedCardRow({
     : 'artifact';
 
   const primaryType = cardType.charAt(0).toUpperCase() + cardType.slice(1);
+
+  const producedColors = showProducedMana ? (() => {
+    const WUBRG = ['W', 'U', 'B', 'R', 'G'];
+    const produced = ac.card.produced_mana || [];
+    const colors = [...new Set(produced.filter(c => WUBRG.includes(c)))];
+    if (colors.length > 0) return colors.sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
+    const oracle = (ac.card.oracle_text || '').toLowerCase();
+    if (oracle.includes('any color') || oracle.includes('any type')) return WUBRG;
+    const found: string[] = [];
+    if (oracle.includes('add {w}')) found.push('W');
+    if (oracle.includes('add {u}')) found.push('U');
+    if (oracle.includes('add {b}')) found.push('B');
+    if (oracle.includes('add {r}')) found.push('R');
+    if (oracle.includes('add {g}')) found.push('G');
+    if (found.length === 0 && produced.includes('C')) return ['C'];
+    return found;
+  })() : null;
 
   return (
     <div
@@ -195,7 +215,20 @@ function AnalyzedCardRow({
             );
           })()}
         </div>
-        <span className="text-[10px] text-muted-foreground/60 truncate block">{primaryType}</span>
+        <span className="text-[10px] text-muted-foreground/60 truncate block">
+          {primaryType}
+          {producedColors && producedColors.length > 0 && (
+            <>
+              <span className="mx-0.5 opacity-40">&bull;</span>
+              <span className="inline-flex items-center gap-px align-middle">
+                <span className="mr-1">Produces</span>
+                {producedColors.map(c => (
+                  <i key={c} className={`ms ms-${c.toLowerCase()} ms-cost text-[9px] ml-0.5`} />
+                ))}
+              </span>
+            </>
+          )}
+        </span>
       </div>
       {showDetails && ac.card.mana_cost && (
         <ManaCost cost={ac.card.mana_cost} className="text-[10px] shrink-0" />
@@ -368,12 +401,14 @@ function SuggestionCardItem({
       </button>
       {/* Row 1: inclusion, name, price */}
       <div className="flex items-center gap-1 px-4 -mt-0.5 min-w-0">
-        <span
-          className="text-[10px] font-bold tabular-nums shrink-0"
-          style={{ color: `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` }}
-        >
-          {pct}%
-        </span>
+        {pct >= 0 && (
+          <span
+            className="text-[10px] font-bold tabular-nums shrink-0"
+            style={{ color: `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` }}
+          >
+            {pct}%
+          </span>
+        )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{rec.name}</span>
         {rec.price && (
           <span className="text-[10px] text-muted-foreground/60 shrink-0">${rec.price}</span>
@@ -394,6 +429,137 @@ function SuggestionCardItem({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Shared: Cut Card Grid (for lands to remove) ─────────────────────
+function CutCardGrid({
+  cards, onRemove, onPreview, removedCards, excess, onCardAction, menuProps, cardInclusionMap,
+}: {
+  cards: AnalyzedCard[];
+  onRemove: (card: ScryfallCard) => void;
+  onPreview: (name: string) => void;
+  removedCards: Set<string>;
+  excess: number;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  cardInclusionMap?: Record<string, number>;
+}) {
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 gap-3">
+      {cards.map((ac, i) => (
+        <CutCardItem
+          key={ac.card.name}
+          ac={ac}
+          removed={removedCards.has(ac.card.name)}
+          highlighted={excess > 0 && i < excess && !removedCards.has(ac.card.name)}
+          onRemove={onRemove}
+          onPreview={onPreview}
+          onCardAction={onCardAction}
+          menuProps={menuProps}
+          cardInclusionMap={cardInclusionMap}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CutCardItem({
+  ac, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap,
+}: {
+  ac: AnalyzedCard;
+  removed: boolean;
+  highlighted: boolean;
+  onRemove: (card: ScryfallCard) => void;
+  onPreview: (name: string) => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  cardInclusionMap?: Record<string, number>;
+}) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? null;
+  const pct = rawInclusion != null ? Math.round(rawInclusion) : null;
+  const price = getCardPrice(ac.card);
+  const imgUrl = ac.card.image_uris?.normal
+    || ac.card.card_faces?.[0]?.image_uris?.normal
+    || scryfallImg(ac.card.name, 'normal');
+
+  return (
+    <div
+      className={`group ${removed ? 'opacity-40' : ''}`}
+      onContextMenu={(e) => {
+        if (onCardAction && menuProps) {
+          e.preventDefault();
+          setContextMenuOpen(true);
+        }
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => !removed && onPreview(ac.card.name)}
+        className="w-full text-left relative"
+        disabled={removed}
+      >
+        <img
+          src={imgUrl}
+          alt={ac.card.name}
+          className={`w-full rounded-lg shadow ${highlighted ? 'border border-red-500/60' : ''}`}
+          loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(ac.card.name, 'normal'); }}
+        />
+        {highlighted && (
+          <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold uppercase tracking-wider px-1.5 py-px rounded-full bg-red-600 text-white shadow whitespace-nowrap">
+            Recommended Cut
+          </span>
+        )}
+        {/* Remove button overlay */}
+        {!removed ? (
+          <span
+            onClick={(e) => { e.stopPropagation(); onRemove(ac.card); }}
+            className="absolute top-0 left-0 rounded-tl-lg rounded-br-lg bg-red-900/70 hover:bg-red-900/90 text-white p-2 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+            title="Remove from deck"
+          >
+            <Minus className="w-5 h-5" />
+          </span>
+        ) : (
+          <span className="absolute top-0 left-0 rounded-tl-lg rounded-br-lg bg-black/60 text-white p-2">
+            <Check className="w-5 h-5" />
+          </span>
+        )}
+        {/* Context menu */}
+        {onCardAction && menuProps && (
+          <span className={`absolute top-1 right-1 z-10 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+            <CardContextMenu
+              card={ac.card}
+              onAction={onCardAction}
+              hasRemove
+              hasSideboard
+              hasMaybeboard
+              isInSideboard={menuProps.sideboardNames.has(ac.card.name)}
+              isInMaybeboard={menuProps.maybeboardNames.has(ac.card.name)}
+              userLists={menuProps.userLists}
+              isMustInclude={menuProps.mustIncludeNames.has(ac.card.name)}
+              isBanned={menuProps.bannedNames.has(ac.card.name)}
+              forceOpen={contextMenuOpen}
+              onForceClose={() => setContextMenuOpen(false)}
+            />
+          </span>
+        )}
+      </button>
+      {/* Row 1: inclusion, name, price */}
+      <div className="flex items-center gap-1 px-1 -mt-0.5 min-w-0">
+        <span
+          className="text-[10px] font-bold tabular-nums shrink-0"
+          style={{ color: pct ? `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` : undefined }}
+        >
+          {pct ?? '?'}%
+        </span>
+        <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{ac.card.name}</span>
+        {price && (
+          <span className="text-[10px] text-muted-foreground/60 shrink-0">${price}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -450,6 +616,59 @@ function SuggestionRow({ card, onAdd, onPreview, added }: {
       ) : (
         <span className="p-0.5 text-emerald-400 shrink-0"><Check className="w-3.5 h-3.5" /></span>
       )}
+    </div>
+  );
+}
+
+// ─── Overview: Deck Health Strip ───────────────────────────────────
+
+const HEALTH_GRADE_STYLES: Record<string, { color: string; badgeBg: string }> = {
+  A: { color: 'text-emerald-400', badgeBg: 'bg-emerald-500/15' },
+  B: { color: 'text-sky-400', badgeBg: 'bg-sky-500/15' },
+  C: { color: 'text-amber-400', badgeBg: 'bg-amber-500/15' },
+  D: { color: 'text-orange-400', badgeBg: 'bg-orange-500/15' },
+  F: { color: 'text-red-400', badgeBg: 'bg-red-500/15' },
+};
+
+function DeckHealthStrip({ analysis, onNavigate }: {
+  analysis: DeckAnalysis;
+  onNavigate: (tab: TabKey) => void;
+}) {
+  const grades: { key: TabKey; label: string; icon: typeof Shield; grade: GradeResult }[] = [
+    { key: 'roles', label: 'Roles', icon: Shield, grade: analysis.rolesGrade },
+    { key: 'lands', label: 'Mana', icon: Mountain, grade: analysis.manaGrade },
+    { key: 'curve', label: 'Curve', icon: BarChart3, grade: analysis.curveGrade },
+  ];
+
+  const summary = getDeckSummary(analysis);
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        {grades.map(({ key, label, icon: Icon, grade }) => {
+          const style = HEALTH_GRADE_STYLES[grade.letter] || HEALTH_GRADE_STYLES.C;
+          return (
+            <button
+              key={key}
+              onClick={() => onNavigate(key)}
+              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-lg sm:text-xl font-bold ${style.color} ${style.badgeBg} px-2 py-0.5 rounded`}>{grade.letter}</span>
+                <div className="flex items-center gap-1">
+                  <Icon className={`w-3.5 h-3.5 ${style.color} opacity-70`} />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
+                </div>
+              </div>
+              <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{grade.message}</p>
+            </button>
+          );
+        })}
+      </div>
+      <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Summary</span>
+        <p className="text-xs text-muted-foreground leading-relaxed mt-1">{summary}</p>
+      </div>
     </div>
   );
 }
@@ -672,12 +891,13 @@ function getMdfcGrade(count: number): { letter: string; color: string } {
 }
 
 function LandSummaryStrip({
-  analysis, activeSection, onSectionClick, mdfcInDeckCount,
+  analysis, activeSection, onSectionClick, mdfcInDeckCount, channelLandCount,
 }: {
   analysis: DeckAnalysis;
   activeSection: LandSection | null;
   onSectionClick: (section: LandSection) => void;
   mdfcInDeckCount: number;
+  channelLandCount: number;
 }) {
   const mb = analysis.manaBase;
   const cf = analysis.colorFixing;
@@ -689,32 +909,45 @@ function LandSummaryStrip({
   const sourceGradeColor = (FIXING_GRADE_STYLES[ms.grade] || FIXING_GRADE_STYLES.C).color;
   const fixGrade = cf.fixingGrade || 'C';
   const fixColor = (FIXING_GRADE_STYLES[fixGrade] || FIXING_GRADE_STYLES.C).color;
-  const mdfcGrade = getMdfcGrade(mdfcInDeckCount);
+  const flexCount = mdfcInDeckCount + channelLandCount;
+  const mdfcGrade = getMdfcGrade(flexCount);
 
-  const tiles: { key: LandSection; icon: typeof Mountain; label: string; value: number; sub: string; grade: string; gradeColor: string }[] = [
+  const tileGradeStyles = (letter: string) => FIXING_GRADE_STYLES[letter] || FIXING_GRADE_STYLES.C;
+
+  const tiles: { key: LandSection; icon: typeof Mountain; label: string; value: number; sub: string; grade: string; gradeColor: string; gradeBg: string; gradeBadgeBg: string }[] = [
     {
       key: 'landCount', icon: Mountain, label: 'Land Count',
       value: mb.currentLands,
       sub: `of ${mb.adjustedSuggestion} suggested`,
       grade: landGrade.letter, gradeColor: landGrade.color,
+      gradeBg: tileGradeStyles(landGrade.letter).bg,
+      gradeBadgeBg: tileGradeStyles(landGrade.letter).bgColor,
     },
     {
-      key: 'manaSources', icon: TrendingUp, label: 'Mana Sources',
+      key: 'manaSources', icon: TrendingUp, label: 'Mana Production',
       value: ms.totalRamp,
       sub: `${ms.producers} producers · ${ms.earlyRamp} early`,
       grade: ms.grade, gradeColor: sourceGradeColor,
+      gradeBg: tileGradeStyles(ms.grade).bg,
+      gradeBadgeBg: tileGradeStyles(ms.grade).bgColor,
     },
     {
-      key: 'fixing', icon: Palette, label: 'Mana Fixing',
+      key: 'fixing', icon: Palette, label: 'Color Fixing',
       value: cf.fixingLands.length + cf.manaFixCards.length,
       sub: totalColors > 0 ? `${coveredColors}/${totalColors} colors covered` : 'colorless deck',
       grade: totalColors > 0 ? fixGrade : '-', gradeColor: totalColors > 0 ? fixColor : 'text-muted-foreground',
+      gradeBg: totalColors > 0 ? tileGradeStyles(fixGrade).bg : '',
+      gradeBadgeBg: totalColors > 0 ? tileGradeStyles(fixGrade).bgColor : '',
     },
     {
-      key: 'mdfc', icon: FlipHorizontal2, label: 'MDFC Lands',
-      value: mdfcInDeckCount,
-      sub: mdfcInDeckCount >= 3 ? 'good flexibility' : mdfcInDeckCount > 0 ? 'room to add more' : 'none yet',
+      key: 'mdfc', icon: FlipHorizontal2, label: 'Flex Lands',
+      value: flexCount,
+      sub: channelLandCount > 0 && mdfcInDeckCount > 0
+        ? `${mdfcInDeckCount} MDFC · ${channelLandCount} channel`
+        : flexCount >= 3 ? 'good flexibility' : flexCount > 0 ? 'room to add more' : 'none yet',
       grade: mdfcGrade.letter, gradeColor: mdfcGrade.color,
+      gradeBg: tileGradeStyles(mdfcGrade.letter).bg,
+      gradeBadgeBg: tileGradeStyles(mdfcGrade.letter).bgColor,
     },
   ];
 
@@ -731,18 +964,18 @@ function LandSummaryStrip({
               i % 2 !== 0 ? 'border-l border-l-border/30' : ''
             } ${i < 2 ? 'border-b border-b-border/30 sm:border-b-0' : ''} ${
               i > 0 ? 'sm:border-l sm:border-l-border/30' : ''
-            } ${isActive ? 'bg-card/60' : ''}`}
+            } ${isActive ? tile.gradeBg : ''}`}
           >
             <div className="flex items-center gap-1.5 mb-1.5">
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-foreground/70' : 'text-muted-foreground'}`} />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">{tile.label}</span>
-              <span className={`text-sm font-black ml-auto ${tile.gradeColor}`}>{tile.grade}</span>
+              <Icon className={`w-4 h-4 ${isActive ? tile.gradeColor : 'text-muted-foreground'}`} />
+              <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>{tile.label}</span>
+              <span className={`text-sm font-black ml-auto px-1.5 py-0.5 rounded ${tile.gradeColor} ${tile.gradeBadgeBg}`}>{tile.grade}</span>
             </div>
-            <div className="flex items-baseline gap-1.5">
+            <div className="flex items-baseline gap-1.5 mb-1.5">
               <span className={`text-xl font-bold tabular-nums leading-none ${tile.gradeColor}`}>
                 {tile.value}
               </span>
-              <span className="text-[10px] text-muted-foreground/60 truncate">{tile.sub}</span>
+              <span className="text-xs text-muted-foreground/60 truncate">{tile.sub}</span>
             </div>
           </button>
         );
@@ -850,7 +1083,7 @@ function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
               <span className={`text-2xl font-black leading-none ${grade.color}`}>{grade.letter}</span>
             </div>
             <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground/80 leading-snug text-center">{mb.verdictMessage}</p>
+              <p className="text-sm text-muted-foreground leading-snug text-center">{mb.verdictMessage}</p>
             </div>
           </div>
         </div>
@@ -879,7 +1112,7 @@ function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
 }
 
 function LandCountDetail({
-  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand,
+  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap,
 }: {
   analysis: DeckAnalysis;
   onPreview: (name: string) => void;
@@ -890,9 +1123,16 @@ function LandCountDetail({
   colorIdentity: string[];
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
+  cardInclusionMap?: Record<string, number>;
 }) {
   const mb = analysis.manaBase;
   const hasSuggestions = analysis.landRecommendations.length > 0;
+  const isOverTarget = mb.verdict === 'high';
+  const excess = Math.max(0, mb.currentLands - mb.adjustedSuggestion);
+
+  // Resolve inclusion map: prop > store > empty
+  const storeInclusionMap = useStore(s => s.generatedDeck?.cardInclusionMap);
+  const resolvedInclusionMap = cardInclusionMap || storeInclusionMap || {};
 
   // Split lands into MDFC, nonbasic, and basic groups
   const mdfcLands = analysis.landCards.filter(ac => isMdfcLand(ac.card))
@@ -900,8 +1140,16 @@ function LandCountDetail({
 
   const mdfcNames = new Set(mdfcLands.map(ac => ac.card.name));
 
+  const channelLands = analysis.landCards.filter(ac => {
+    if (mdfcNames.has(ac.card.name)) return false;
+    return isChannelLand(ac.card);
+  }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
+
+  const channelNames = new Set(channelLands.map(ac => ac.card.name));
+
   const nonbasicLands = analysis.landCards.filter(ac => {
     if (mdfcNames.has(ac.card.name)) return false;
+    if (channelNames.has(ac.card.name)) return false;
     const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
     return !/\bbasic\b/.test(tl);
   }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
@@ -910,6 +1158,27 @@ function LandCountDetail({
     const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
     return /\bbasic\b/.test(tl);
   });
+
+  // Cut candidates: nonbasic lands excluding MDFCs and channel lands, sorted by inclusion ascending (weakest first)
+  const cutCandidates = useMemo(() => {
+    const filtered = nonbasicLands
+      .filter(ac => !isChannelLand(ac.card))
+      .sort((a, b) =>
+        (a.inclusion ?? resolvedInclusionMap[a.card.name] ?? 0) - (b.inclusion ?? resolvedInclusionMap[b.card.name] ?? 0)
+      );
+    const limit = Math.min(Math.max(excess + 4, 5), 15);
+    return filtered.slice(0, limit);
+  }, [nonbasicLands, resolvedInclusionMap, excess]);
+
+  const [showCuts, setShowCuts] = useState(isOverTarget);
+  const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
+
+  const handleRemoveCard = useCallback((card: ScryfallCard) => {
+    onCardAction?.(card, { type: 'remove' });
+    setRemovedCards(prev => new Set([...prev, card.name]));
+  }, [onCardAction]);
+
+  const hasRightColumn = hasSuggestions || (isOverTarget && cutCandidates.length > 0);
 
   // Group basics by name with count, including ×0 entries for all colors in identity
   const COLOR_TO_BASIC: Record<string, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
@@ -930,14 +1199,15 @@ function LandCountDetail({
   const totalBasicCount = basicGroups.reduce((sum, bg) => sum + bg.count, 0);
 
   const [mdfcOpen, setMdfcOpen] = useState(true);
+  const [channelOpen, setChannelOpen] = useState(true);
   const [nonbasicOpen, setNonbasicOpen] = useState(true);
   const [basicOpen, setBasicOpen] = useState(true);
 
   return (
     <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
-      <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
+      <div className={`${hasRightColumn ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: rating summary + lands list */}
-        <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
+        <div className={`${hasRightColumn ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
               <LandRatingSummary analysis={analysis} />
               <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1 px-0.5 flex items-center gap-1">
                 <Check className="w-3 h-3" />
@@ -962,6 +1232,41 @@ function LandCountDetail({
                       {mdfcOpen && (
                         <div className="space-y-0.5">
                           {mdfcLands.map(ac => (
+                            <AnalyzedCardRow
+                              key={ac.card.name}
+                              ac={ac}
+                              onPreview={onPreview}
+                              showDetails
+                              onCardAction={onCardAction}
+                              menuProps={menuProps ? {
+                                userLists: menuProps.userLists,
+                                isMustInclude: menuProps.mustIncludeNames.has(ac.card.name),
+                                isBanned: menuProps.bannedNames.has(ac.card.name),
+                                isInSideboard: menuProps.sideboardNames.has(ac.card.name),
+                                isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name),
+                              } : undefined}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Channel lands */}
+                  {channelLands.length > 0 && (
+                    <div>
+                      <button
+                        onClick={() => setChannelOpen(v => !v)}
+                        className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+                      >
+                        {channelOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                          Channel ({channelLands.length})
+                        </span>
+                      </button>
+                      {channelOpen && (
+                        <div className="space-y-0.5">
+                          {channelLands.map(ac => (
                             <AnalyzedCardRow
                               key={ac.card.name}
                               ac={ac}
@@ -1112,24 +1417,66 @@ function LandCountDetail({
         </div>
 
         {/* Vertical divider */}
-        {hasSuggestions && <div className="hidden md:block w-px bg-border/30 shrink-0 -my-3" />}
+        {(hasSuggestions || (isOverTarget && cutCandidates.length > 0)) && <div className="hidden md:block w-px bg-border/30 shrink-0 -my-3" />}
 
-        {/* Right: land suggestions */}
-        {hasSuggestions && (
+        {/* Right: cut candidates or land suggestions */}
+        {(hasSuggestions || (isOverTarget && cutCandidates.length > 0)) && (
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
-              Suggested Lands ({analysis.landRecommendations.length})
-            </p>
-            <SuggestionCardGrid
-              cards={analysis.landRecommendations}
-              onAdd={onAdd}
-              onPreview={onPreview}
-              addedCards={addedCards}
-              deficit={Math.max(0, mb.adjustedSuggestion - mb.currentLands)}
-              onCardAction={onCardAction}
-              menuProps={menuProps}
-            />
+            {showCuts && cutCandidates.length > 0 ? (
+              <>
+                <div className="flex items-center gap-2 mb-2 px-0.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
+                    <Scissors className="w-3 h-3" />
+                    Lands to Cut ({cutCandidates.length})
+                  </p>
+                  <span className="text-[9px] text-muted-foreground/40 ml-1">sorted by inclusion %</span>
+                  {hasSuggestions && (
+                    <button
+                      onClick={() => setShowCuts(false)}
+                      className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      View suggestions →
+                    </button>
+                  )}
+                </div>
+                <CutCardGrid
+                  cards={cutCandidates}
+                  onRemove={handleRemoveCard}
+                  onPreview={onPreview}
+                  removedCards={removedCards}
+                  excess={excess}
+                  onCardAction={onCardAction}
+                  menuProps={menuProps}
+                  cardInclusionMap={resolvedInclusionMap}
+                />
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 mb-2 px-0.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    Suggested Lands ({analysis.landRecommendations.length})
+                  </p>
+                  {isOverTarget && cutCandidates.length > 0 && (
+                    <button
+                      onClick={() => setShowCuts(true)}
+                      className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      View cut candidates →
+                    </button>
+                  )}
+                </div>
+                <SuggestionCardGrid
+                  cards={analysis.landRecommendations}
+                  onAdd={onAdd}
+                  onPreview={onPreview}
+                  addedCards={addedCards}
+                  deficit={Math.max(0, mb.adjustedSuggestion - mb.currentLands)}
+                  onCardAction={onCardAction}
+                  menuProps={menuProps}
+                />
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1137,7 +1484,7 @@ function LandCountDetail({
   );
 }
 
-// ─── Mana Sources Detail Panel ───────────────────────────────────
+// ─── Mana Production Detail Panel ───────────────────────────────────
 function ManaSourcesSummary({ ms }: { ms: ManaSourcesAnalysis }) {
   const [expanded, setExpanded] = useState(true);
   const gs = FIXING_GRADE_STYLES[ms.grade] || FIXING_GRADE_STYLES.C;
@@ -1154,7 +1501,7 @@ function ManaSourcesSummary({ ms }: { ms: ManaSourcesAnalysis }) {
         <TrendingUp className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
-          <p className="font-semibold text-foreground/80">Mana Sources Grading</p>
+          <p className="font-semibold text-foreground/80">Mana Production Grading</p>
           <p>Evaluates ramp count, early-game availability (CMC ≤ 2), and how many are mana producers (dorks/rocks).</p>
           <p><span className="font-semibold text-emerald-400">A</span> — 10+ ramp, 5+ early, 6+ producers</p>
           <p><span className="font-semibold text-sky-400">B</span> — 8+ ramp, 3+ early, 4+ producers</p>
@@ -1170,7 +1517,7 @@ function ManaSourcesSummary({ ms }: { ms: ManaSourcesAnalysis }) {
               <span className={`text-2xl font-black leading-none ${gs.color}`}>{ms.grade}</span>
             </div>
             <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground/80 leading-snug text-center">{ms.message}</p>
+              <p className="text-sm text-muted-foreground leading-snug text-center">{ms.message}</p>
             </div>
           </div>
         </div>
@@ -1328,7 +1675,7 @@ function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
         <Palette className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
-          <p className="font-semibold text-foreground/80">Mana Fixing Grading</p>
+          <p className="font-semibold text-foreground/80">Color Fixing Grading</p>
           <p>Mono-color decks get auto-A. For 2+ colors, a composite 0–100 score from three factors:</p>
           <p><span className="text-foreground/70 font-medium">50%</span> — Color coverage (sources vs pip demand per color, capped at 130%)</p>
           <p><span className="text-foreground/70 font-medium">25%</span> — Worst-color penalty (any color below 60% of expected)</p>
@@ -1343,7 +1690,7 @@ function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
               <span className={`text-2xl font-black leading-none ${gs.color}`}>{grade}</span>
             </div>
             <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground/80 leading-snug text-center">{cf.fixingGradeMessage || ''}</p>
+              <p className="text-sm text-muted-foreground leading-snug text-center">{cf.fixingGradeMessage || ''}</p>
             </div>
           </div>
         </div>
@@ -1354,7 +1701,7 @@ function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
 
 // ─── Color Fixing Detail Panel ───────────────────────────────────
 function FixingDetail({
-  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps,
+  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand,
 }: {
   analysis: DeckAnalysis;
   onPreview: (name: string) => void;
@@ -1362,6 +1709,9 @@ function FixingDetail({
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  colorIdentity: string[];
+  onAddBasicLand?: (name: string) => void;
+  onRemoveBasicLand?: (name: string) => void;
 }) {
   const cf = analysis.colorFixing;
   const fixerRecs = cf.fixingRecommendations || [];
@@ -1369,7 +1719,38 @@ function FixingDetail({
   const [fixersOpen, setFixersOpen] = useState(true);
   const [rampOpen, setRampOpen] = useState(true);
   const [multiColorOpen, setMultiColorOpen] = useState(true);
+  const [monoColorOpen, setMonoColorOpen] = useState(false);
+  const [colorlessOpen, setColorlessOpen] = useState(false);
+  const [basicOpen, setBasicOpen] = useState(false);
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
+
+  // Derive mono-color and basic land groups
+  const multiColorNames = new Set(cf.fixingLands.map(ac => ac.card.name));
+  const colorlessNames = new Set(cf.colorlessOnly.map(ac => ac.card.name));
+
+  const monoColorLands = useMemo(() =>
+    analysis.landCards.filter(ac => {
+      if (multiColorNames.has(ac.card.name) || colorlessNames.has(ac.card.name)) return false;
+      const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
+      return !/\bbasic\b/.test(tl);
+    }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0)),
+    [analysis.landCards, multiColorNames, colorlessNames]
+  );
+
+  const COLOR_TO_BASIC: Record<string, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
+  const basicCountMap = new Map<string, number>();
+  for (const c of colorIdentity) {
+    const name = COLOR_TO_BASIC[c];
+    if (name) basicCountMap.set(name, 0);
+  }
+  if (colorIdentity.length === 0) basicCountMap.set('Wastes', 0);
+  for (const ac of analysis.landCards) {
+    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
+    if (/\bbasic\b/.test(tl)) basicCountMap.set(ac.card.name, (basicCountMap.get(ac.card.name) || 0) + 1);
+  }
+  const basicGroups = [...basicCountMap.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const toggleColor = (color: string) => {
     setSelectedColors(prev => {
@@ -1396,6 +1777,28 @@ function FixingDetail({
     return colors.some(c => selectedColors.has(c));
   };
 
+  // Get produced colors from a card (for filtering left-column cards)
+  const getCardProducedColors = (card: ScryfallCard): string[] => {
+    const WUBRG = ['W', 'U', 'B', 'R', 'G'];
+    const produced = card.produced_mana || [];
+    const colors = [...new Set(produced.filter(c => WUBRG.includes(c)))];
+    if (colors.length > 0) return colors;
+    const oracle = (card.oracle_text || '').toLowerCase();
+    if (oracle.includes('any color') || oracle.includes('any type')) return WUBRG;
+    const found: string[] = [];
+    if (oracle.includes('add {w}')) found.push('W');
+    if (oracle.includes('add {u}')) found.push('U');
+    if (oracle.includes('add {b}')) found.push('B');
+    if (oracle.includes('add {r}')) found.push('R');
+    if (oracle.includes('add {g}')) found.push('G');
+    return found;
+  };
+
+  const cardMatchesColorFilter = (card: ScryfallCard) => {
+    if (selectedColors.size === 0) return true;
+    return getCardProducedColors(card).some(c => selectedColors.has(c));
+  };
+
   const filteredLandSuggestions = useMemo(() => {
     if (selectedColors.size === 0) return sortedLandSuggestions;
     return sortedLandSuggestions.filter(r => matchesColorFilter(r.producedColors));
@@ -1405,6 +1808,18 @@ function FixingDetail({
     if (selectedColors.size === 0) return fixerRecs;
     return fixerRecs.filter(r => matchesColorFilter(r.producedColors));
   }, [fixerRecs, selectedColors]);
+
+  // Filtered left-column card lists
+  const filteredManaFixCards = useMemo(() => cf.manaFixCards.filter(ac => cardMatchesColorFilter(ac.card)), [cf.manaFixCards, selectedColors]);
+  const filteredRampCards = useMemo(() => cf.nonFixRampCards.filter(ac => cardMatchesColorFilter(ac.card)), [cf.nonFixRampCards, selectedColors]);
+  const filteredFixingLands = useMemo(() => cf.fixingLands.filter(ac => cardMatchesColorFilter(ac.card)), [cf.fixingLands, selectedColors]);
+  const filteredMonoColorLands = useMemo(() => monoColorLands.filter(ac => cardMatchesColorFilter(ac.card)), [monoColorLands, selectedColors]);
+  const filteredColorlessLands = useMemo(() => cf.colorlessOnly.filter(ac => cardMatchesColorFilter(ac.card)), [cf.colorlessOnly, selectedColors]);
+  const filteredBasicGroups = useMemo(() => {
+    if (selectedColors.size === 0) return basicGroups;
+    const BASIC_COLOR: Record<string, string> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
+    return basicGroups.filter(bg => BASIC_COLOR[bg.name] ? selectedColors.has(BASIC_COLOR[bg.name]) : false);
+  }, [basicGroups, selectedColors]);
 
   return (
     <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
@@ -1419,6 +1834,16 @@ function FixingDetail({
             const WUBRG = ['W', 'U', 'B', 'R', 'G'];
             const colors = [...(cf.colorsNeeded || [])].sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
             return (
+              <div>
+              <div className="flex items-center gap-1 mb-1.5 px-0.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">Pip Demand</span>
+                <GradeInfoPopover>
+                  <p className="font-semibold text-foreground mb-1">Pip Demand vs Supply</p>
+                  <p>Counts colored mana pips across your non-land cards, then checks if your sources (lands, dorks, rocks) match that distribution.</p>
+                  <p>A color with 30 pips and 19 sources is healthy. Aim for roughly 1 source per 1.5–2 pips. Colors highlighted amber are undersupplied.</p>
+                  <p className="text-muted-foreground/40">Click a color to filter cards and suggestions.</p>
+                </GradeInfoPopover>
+              </div>
               <div className="flex gap-1.5">
                 {colors.map(color => {
                   const pips = cf.pipDemand?.[color] || 0;
@@ -1449,13 +1874,14 @@ function FixingDetail({
                   );
                 })}
               </div>
+              </div>
             );
           })()}
 
           <div className="-mx-3 sm:-mx-4 border-b border-border/30" />
 
           {/* Mana Fixers (cards with mana-fix tag) */}
-          {cf.manaFixCards.length > 0 && (
+          {filteredManaFixCards.length > 0 && (
             <div>
               <button
                 onClick={() => setFixersOpen(v => !v)}
@@ -1463,13 +1889,13 @@ function FixingDetail({
               >
                 {fixersOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                  Mana Fixers ({cf.manaFixCards.length})
+                  Mana Fixers ({filteredManaFixCards.length})
                 </span>
               </button>
               {fixersOpen && (
                 <div className="space-y-0.5">
-                  {cf.manaFixCards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  {filteredManaFixCards.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
                   ))}
                 </div>
               )}
@@ -1477,7 +1903,7 @@ function FixingDetail({
           )}
 
           {/* Other Ramp (dorks, rocks, cost-reducers without mana-fix tag) */}
-          {cf.nonFixRampCards.length > 0 && (
+          {filteredRampCards.length > 0 && (
             <div>
               <button
                 onClick={() => setRampOpen(v => !v)}
@@ -1485,13 +1911,13 @@ function FixingDetail({
               >
                 {rampOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                  Ramp ({cf.nonFixRampCards.length})
+                  Ramp ({filteredRampCards.length})
                 </span>
               </button>
               {rampOpen && (
                 <div className="space-y-0.5">
-                  {cf.nonFixRampCards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  {filteredRampCards.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
                   ))}
                 </div>
               )}
@@ -1499,7 +1925,7 @@ function FixingDetail({
           )}
 
           {/* Multi-color lands in deck */}
-          {cf.fixingLands.length > 0 && (
+          {filteredFixingLands.length > 0 && (
             <div>
               <button
                 onClick={() => setMultiColorOpen(v => !v)}
@@ -1507,13 +1933,113 @@ function FixingDetail({
               >
                 {multiColorOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                  Multi-Color Lands ({cf.fixingLands.length})
+                  Multi-Color Lands ({filteredFixingLands.length})
                 </span>
               </button>
               {multiColorOpen && (
                 <div className="space-y-0.5">
-                  {cf.fixingLands.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  {filteredFixingLands.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mono-color lands */}
+          {filteredMonoColorLands.length > 0 && (
+            <div>
+              <button
+                onClick={() => setMonoColorOpen(v => !v)}
+                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+              >
+                {monoColorOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                  Other Lands ({filteredMonoColorLands.length})
+                </span>
+              </button>
+              {monoColorOpen && (
+                <div className="space-y-0.5">
+                  {filteredMonoColorLands.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Colorless utility lands */}
+          {filteredColorlessLands.length > 0 && (
+            <div>
+              <button
+                onClick={() => setColorlessOpen(v => !v)}
+                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+              >
+                {colorlessOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                  Colorless Lands ({filteredColorlessLands.length})
+                </span>
+              </button>
+              {colorlessOpen && (
+                <div className="space-y-0.5">
+                  {filteredColorlessLands.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Basic lands */}
+          {filteredBasicGroups.length > 0 && (
+            <div>
+              <button
+                onClick={() => setBasicOpen(v => !v)}
+                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+              >
+                {basicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                  Basic ({filteredBasicGroups.reduce((sum, bg) => sum + bg.count, 0)})
+                </span>
+              </button>
+              {basicOpen && (
+                <div className="space-y-0.5">
+                  {filteredBasicGroups.map(bg => (
+                    <div
+                      key={bg.name}
+                      className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
+                      onClick={() => bg.count > 0 && onPreview(bg.name)}
+                    >
+                      <img
+                        src={scryfallImg(bg.name)}
+                        alt={bg.name}
+                        className="w-10 h-auto rounded shadow shrink-0"
+                        loading="lazy"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm truncate block">{bg.name}</span>
+                        <span className="text-[10px] text-muted-foreground/60">Land — Basic</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                        <button
+                          className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                          disabled={bg.count === 0}
+                          onClick={() => onRemoveBasicLand?.(bg.name)}
+                          title={`Remove a ${bg.name}`}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
+                        <button
+                          className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => onAddBasicLand?.(bg.name)}
+                          title={`Add a ${bg.name}`}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -1522,7 +2048,7 @@ function FixingDetail({
 
           {/* Recently added from suggestions */}
           {(() => {
-            const existingNames = new Set([...cf.fixingLands, ...cf.colorlessOnly, ...cf.manaFixCards, ...cf.nonFixRampCards].map(ac => ac.card.name));
+            const existingNames = new Set([...cf.fixingLands, ...cf.colorlessOnly, ...cf.manaFixCards, ...cf.nonFixRampCards, ...monoColorLands].map(ac => ac.card.name));
             const suggNames = new Set([...analysis.landRecommendations, ...fixerRecs].map(r => r.name));
             const recentlyAdded = [...addedCards].filter(n => !existingNames.has(n) && suggNames.has(n));
             if (recentlyAdded.length === 0) return null;
@@ -1603,11 +2129,12 @@ function FixingDetail({
   );
 }
 
-// ─── MDFC Summary Box ───────────────────────────────────────────
-function MdfcSummaryBox({ mdfcCount, totalAvailable, loading }: { mdfcCount: number; totalAvailable: number; loading: boolean }) {
+// ─── Flex Lands Summary Box ──────────────────────────────────────
+function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable, loading }: { mdfcCount: number; channelLandCount: number; totalAvailable: number; loading: boolean }) {
   const [expanded, setExpanded] = useState(true);
-  const status = getMdfcStatus(mdfcCount);
-  const grade = getMdfcGrade(mdfcCount);
+  const flexCount = mdfcCount + channelLandCount;
+  const status = getMdfcStatus(flexCount);
+  const grade = getMdfcGrade(flexCount);
   const gs = FIXING_GRADE_STYLES[grade.letter] || FIXING_GRADE_STYLES.C;
 
   return (
@@ -1622,12 +2149,12 @@ function MdfcSummaryBox({ mdfcCount, totalAvailable, loading }: { mdfcCount: num
         <FlipHorizontal2 className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
-          <p className="font-semibold text-foreground/80">MDFC Grading</p>
-          <p>Modal Double-Faced Cards count as both a spell and a land, reducing flood risk. Recommended: 3–6.</p>
-          <p><span className="font-semibold text-emerald-400">A</span> — 6+ MDFCs</p>
-          <p><span className="font-semibold text-sky-400">B</span> — 3–5 MDFCs</p>
-          <p><span className="font-semibold text-amber-400">C</span> — 1–2 MDFCs</p>
-          <p><span className="font-semibold text-red-400">F</span> — No MDFCs</p>
+          <p className="font-semibold text-foreground/80">Flex Land Grading</p>
+          <p>MDFCs and channel lands count as both a spell and a land, reducing flood risk. Recommended: 3–6 total.</p>
+          <p><span className="font-semibold text-emerald-400">A</span> — 6+ flex lands</p>
+          <p><span className="font-semibold text-sky-400">B</span> — 3–5 flex lands</p>
+          <p><span className="font-semibold text-amber-400">C</span> — 1–2 flex lands</p>
+          <p><span className="font-semibold text-red-400">F</span> — No flex lands</p>
         </GradeInfoPopover>
       </div>
       {expanded && <>
@@ -1637,13 +2164,16 @@ function MdfcSummaryBox({ mdfcCount, totalAvailable, loading }: { mdfcCount: num
               <span className={`text-2xl font-black leading-none ${gs.color}`}>{grade.letter}</span>
             </div>
             <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground/80 leading-snug text-center">{status.message}</p>
+              <p className="text-sm text-muted-foreground leading-snug text-center">{status.message}</p>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5">
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5 flex-wrap">
           <span>Target: <span className="font-semibold text-foreground/60">3–6</span></span>
-          {!loading && <><span className="text-border">·</span><span>{totalAvailable} available in colors</span></>}
+          {channelLandCount > 0 && mdfcCount > 0 && (
+            <><span className="text-border">·</span><span>{mdfcCount} MDFC + {channelLandCount} channel</span></>
+          )}
+          {!loading && <><span className="text-border">·</span><span>{totalAvailable} MDFCs in colors</span></>}
         </div>
       </>}
     </div>
@@ -1652,12 +2182,14 @@ function MdfcSummaryBox({ mdfcCount, totalAvailable, loading }: { mdfcCount: num
 
 // ─── MDFC Lands Detail Panel ─────────────────────────────────────
 function MdfcDetail({
-  analysis, mdfcSuggestions, totalMdfcAvailable, mdfcLoading, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand,
+  analysis, mdfcSuggestions, totalMdfcAvailable, mdfcLoading, channelLandCards = [], currentCardNames = new Set<string>(), onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand,
 }: {
   analysis: DeckAnalysis;
   mdfcSuggestions: RecommendedCard[];
   totalMdfcAvailable: number;
   mdfcLoading: boolean;
+  channelLandCards?: RecommendedCard[];
+  currentCardNames?: Set<string>;
   onPreview: (name: string) => void;
   onAdd: (name: string) => void;
   addedCards: Set<string>;
@@ -1667,13 +2199,17 @@ function MdfcDetail({
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
 }) {
-  // Split lands into MDFC, nonbasic, and basic groups (same as LandCountDetail)
+  // Split lands into MDFC, channel, nonbasic, and basic groups
   const mdfcLands = analysis.landCards.filter(ac => isMdfcLand(ac.card))
     .sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
   const mdfcNames = new Set(mdfcLands.map(ac => ac.card.name));
 
+  const channelLands = analysis.channelLandsInDeck || [];
+  const channelNames = new Set(channelLands.map(ac => ac.card.name));
+
   const nonbasicLands = analysis.landCards.filter(ac => {
     if (mdfcNames.has(ac.card.name)) return false;
+    if (channelNames.has(ac.card.name)) return false;
     const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
     return !/\bbasic\b/.test(tl);
   }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
@@ -1698,6 +2234,7 @@ function MdfcDetail({
   const totalBasicCount = basicGroups.reduce((sum, bg) => sum + bg.count, 0);
 
   const [mdfcOpen, setMdfcOpen] = useState(true);
+  const [channelOpen, setChannelOpen] = useState(true);
   const [nonbasicOpen, setNonbasicOpen] = useState(true);
   const [basicOpen, setBasicOpen] = useState(true);
 
@@ -1720,8 +2257,9 @@ function MdfcDetail({
       <div className="flex flex-col md:flex-row md:items-stretch gap-4">
         {/* Left: summary + all lands in deck */}
         <div className="md:w-[30%] shrink-0 space-y-3">
-          <MdfcSummaryBox
+          <FlexLandSummaryBox
             mdfcCount={adjustedMdfcCount}
+            channelLandCount={channelLands.length}
             totalAvailable={totalMdfcAvailable}
             loading={mdfcLoading}
           />
@@ -1748,6 +2286,28 @@ function MdfcDetail({
                   {mdfcOpen && (
                     <div className="space-y-0.5">
                       {mdfcLands.map(ac => (
+                        <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Channel lands */}
+              {channelLands.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setChannelOpen(v => !v)}
+                    className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+                  >
+                    {channelOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                      Channel ({channelLands.length})
+                    </span>
+                  </button>
+                  {channelOpen && (
+                    <div className="space-y-0.5">
+                      {channelLands.map(ac => (
                         <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
                       ))}
                     </div>
@@ -1863,8 +2423,29 @@ function MdfcDetail({
         {/* Vertical divider */}
         <div className="hidden md:block w-px bg-border/30 shrink-0 -my-3" />
 
-        {/* Right: all available MDFCs */}
-        <div className="flex-1 min-w-0">
+        {/* Right: channel lands callout + all available MDFCs */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {/* Channel Lands */}
+          {channelLandCards.length > 0 && channelLandCards.some(cl => !currentCardNames.has(cl.name) && !addedCards.has(cl.name)) && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-1 px-0.5 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                Channel Lands ({channelLandCards.length})
+              </p>
+              <p className="text-[10px] text-muted-foreground/50 mb-2 px-0.5">
+                Lands that double as spells with virtually no downside. We recommend running every one you can.
+              </p>
+              <SuggestionCardGrid
+                cards={channelLandCards}
+                onAdd={onAdd}
+                onPreview={onPreview}
+                addedCards={new Set([...addedCards, ...Array.from(currentCardNames).filter(n => channelLandCards.some(cl => cl.name === n))])}
+                onCardAction={onCardAction}
+                menuProps={menuProps}
+              />
+            </div>
+          )}
+
           <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
             <FlipHorizontal2 className="w-3 h-3" />
             All Available MDFCs {!mdfcLoading && `(${mdfcSuggestions.length})`}
@@ -1895,9 +2476,11 @@ function MdfcDetail({
 
 // ─── Lands Tab Content Orchestrator ──────────────────────────────
 function LandsTabContent({
-  analysis, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, onAddBasicLand, onRemoveBasicLand,
+  analysis, activeSection, onSectionChange, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, onAddBasicLand, onRemoveBasicLand, cardInclusionMap,
 }: {
   analysis: DeckAnalysis;
+  activeSection: LandSection | null;
+  onSectionChange: (section: LandSection) => void;
   onPreview: (name: string) => void;
   onAdd: (name: string) => void;
   addedCards: Set<string>;
@@ -1906,6 +2489,7 @@ function LandsTabContent({
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
+  cardInclusionMap?: Record<string, number>;
 }) {
   const colorIdentity = useStore(s => s.colorIdentity);
 
@@ -1916,17 +2500,6 @@ function LandsTabContent({
   const handleRemoveBasic = useCallback((name: string) => {
     onRemoveBasicLand?.(name);
   }, [onRemoveBasicLand]);
-
-  // Smart default: open landCount if verdict is bad, else fixing if multi-color, else landCount
-  const [activeSection, setActiveSection] = useState<LandSection | null>(() => {
-    if (analysis.manaBase.verdict !== 'ok') return 'landCount';
-    if (analysis.colorFixing.colorsNeeded.length >= 2) return 'fixing';
-    return 'landCount';
-  });
-
-  const toggleSection = (section: LandSection) => {
-    setActiveSection(section);
-  };
 
   // MDFC search — eager fetch on mount, store ALL results unfiltered
   const [allMdfcCards, setAllMdfcCards] = useState<RecommendedCard[]>([]);
@@ -1968,6 +2541,34 @@ function LandsTabContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorIdentity]);
 
+  // Channel lands — fetch card data for prices/images
+  const channelLandsForColors = useMemo(() => getChannelLandsForColors(colorIdentity), [colorIdentity]);
+  const [channelLandCards, setChannelLandCards] = useState<RecommendedCard[]>([]);
+
+  useEffect(() => {
+    if (channelLandsForColors.length === 0) { setChannelLandCards([]); return; }
+    let cancelled = false;
+    const names = channelLandsForColors.map(cl => cl.name);
+    getCardsByNames(names).then(cardMap => {
+      if (cancelled) return;
+      const cards: RecommendedCard[] = channelLandsForColors.map(cl => {
+        const card = cardMap.get(cl.name);
+        return {
+          name: cl.name,
+          inclusion: -1, // sentinel: no inclusion data
+          synergy: 0,
+          fillsDeficit: false,
+          primaryType: card?.type_line || 'Legendary Land',
+          imageUrl: card?.image_uris?.normal,
+          price: card?.prices?.usd || undefined,
+        };
+      });
+      setChannelLandCards(cards);
+    }).catch(() => { if (!cancelled) setChannelLandCards([]); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorIdentity]);
+
   // Filter suggestions: exclude cards currently in deck
   const currentCardNames = useMemo(() => new Set(currentCards.map(c => c.name)), [currentCards]);
   const mdfcSuggestions = useMemo(() =>
@@ -1981,20 +2582,21 @@ function LandsTabContent({
       <LandSummaryStrip
         analysis={analysis}
         activeSection={activeSection}
-        onSectionClick={toggleSection}
+        onSectionClick={onSectionChange}
         mdfcInDeckCount={analysis.mdfcsInDeck.length}
+        channelLandCount={(analysis.channelLandsInDeck || []).length}
       />
       {activeSection === 'landCount' && (
-        <LandCountDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
+        <LandCountDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
       )}
       {activeSection === 'manaSources' && (
         <ManaSourcesDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
       )}
       {activeSection === 'fixing' && (
-        <FixingDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
+        <FixingDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
       )}
       {activeSection === 'mdfc' && (
-        <MdfcDetail analysis={analysis} mdfcSuggestions={mdfcSuggestions} totalMdfcAvailable={totalMdfcAvailable} mdfcLoading={mdfcLoading} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
+        <MdfcDetail analysis={analysis} mdfcSuggestions={mdfcSuggestions} totalMdfcAvailable={totalMdfcAvailable} mdfcLoading={mdfcLoading} channelLandCards={channelLandCards} currentCardNames={currentCardNames} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
       )}
     </div>
   );
@@ -2175,7 +2777,6 @@ function RoleSummaryStrip({
         const pct = rb.target > 0 ? Math.min(100, (rb.current / rb.target) * 100) : 100;
         const met = rb.current >= rb.target;
         const isActive = activeRole === rb.role;
-        const hasLowInclusion = rb.cards.some(ac => ac.inclusion != null && ac.inclusion < 25);
         return (
           <button
             key={rb.role}
@@ -2190,7 +2791,7 @@ function RoleSummaryStrip({
           >
             <div className="flex items-center gap-1.5 mb-1.5">
               <Icon className={`w-4 h-4 ${isActive ? (meta?.color || 'text-muted-foreground') : 'text-muted-foreground'}`} />
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+              <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {rb.label}
               </span>
             </div>
@@ -2198,14 +2799,13 @@ function RoleSummaryStrip({
               <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
                 {rb.current}
               </span>
-              <span className="text-xs text-muted-foreground/60">/ {rb.target}</span>
+              <span className="text-xs text-muted-foreground/60">/ {rb.target} suggested</span>
               {rb.deficit > 0 && (
                 <span className="text-[10px] font-bold px-1 py-px rounded-full bg-red-500/15 text-red-400 ml-auto shrink-0">
                   -{rb.deficit}
                 </span>
               )}
-              {met && !hasLowInclusion && <Check className="w-3.5 h-3.5 text-emerald-400/50 ml-auto shrink-0" />}
-              {met && hasLowInclusion && <AlertTriangle className="w-3.5 h-3.5 text-amber-400/50 ml-auto shrink-0" />}
+              {met && <Check className="w-3.5 h-3.5 text-emerald-400/50 ml-auto shrink-0" />}
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
               <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
@@ -2237,38 +2837,19 @@ function RoleDetailPanel({
         {/* Left column: current cards as compact list */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}`}>
           {(() => {
-            const solidCards = rb.cards
-              .filter(ac => ac.inclusion == null || ac.inclusion >= 25)
+            const allCards = rb.cards
               .sort((a, b) => (a.subtypeLabel || 'zzz').localeCompare(b.subtypeLabel || 'zzz') || a.card.name.localeCompare(b.card.name));
-            const weakCards = rb.cards.filter(ac => ac.inclusion != null && ac.inclusion < 25);
             return rb.cards.length > 0 ? (
-              <div className="space-y-3">
-                {solidCards.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1 px-0.5 flex items-center gap-1">
-                      <Check className="w-3 h-3" />
-                      In Your Deck ({solidCards.length})
-                    </p>
-                    <div className="space-y-0.5">
-                      {solidCards.map(ac => (
-                        <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {weakCards.length > 0 && (
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-400/60 mb-1 px-0.5 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      Needs Attention ({weakCards.length})
-                    </p>
-                    <div className="space-y-0.5">
-                      {weakCards.map(ac => (
-                        <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} warning="Low inclusion — consider swapping" showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1 px-0.5 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  In Your Deck ({allCards.length})
+                </p>
+                <div className="space-y-0.5">
+                  {allCards.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                  ))}
+                </div>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground/60 italic px-0.5">No cards filling this role</p>
@@ -2306,30 +2887,23 @@ function RoleDetailPanel({
 
 // ─── Roles Tab: Content Orchestrator ─────────────────────────────────
 function RolesTabContent({
-  roleBreakdowns, onPreview, onAdd, addedCards, onCardAction, menuProps,
+  roleBreakdowns, activeRole, onRoleChange, onPreview, onAdd, addedCards, onCardAction, menuProps,
 }: {
   roleBreakdowns: RoleBreakdown[];
+  activeRole: string | null;
+  onRoleChange: (role: string) => void;
   onPreview: (name: string) => void;
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
 }) {
-  // Default to the first role with a deficit, or the first role
-  const [activeRole, setActiveRole] = useState<string | null>(() => {
-    const deficit = roleBreakdowns.find(rb => rb.deficit > 0 || rb.cards.some(ac => ac.inclusion != null && ac.inclusion < 25));
-    return deficit?.role ?? roleBreakdowns[0]?.role ?? null;
-  });
-
-  const toggleRole = (role: string) => {
-    setActiveRole(role);
-  };
 
   const activeRb = roleBreakdowns.find(rb => rb.role === activeRole);
 
   return (
     <div>
-      <RoleSummaryStrip roleBreakdowns={roleBreakdowns} activeRole={activeRole} onRoleClick={toggleRole} />
+      <RoleSummaryStrip roleBreakdowns={roleBreakdowns} activeRole={activeRole} onRoleClick={onRoleChange} />
       {activeRb && (
         <RoleDetailPanel key={activeRb.role} rb={activeRb} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
       )}
@@ -2418,6 +2992,8 @@ export function DeckOptimizer({
   onAddCards,
   onRemoveCards,
   onRemoveFromBoard,
+  onAddBasicLand: onAddBasicLandProp,
+  onRemoveBasicLand: onRemoveBasicLandProp,
   sideboardNames,
   maybeboardNames,
 }: DeckOptimizerProps) {
@@ -2430,6 +3006,19 @@ export function DeckOptimizer({
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardCountRef = useRef(currentCards.length);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [activeRole, setActiveRole] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<LandSection | null>(null);
+
+  // Initialize sub-tab defaults once when analysis arrives
+  useEffect(() => {
+    if (!analysis) return;
+    if (activeRole === null && analysis.roleBreakdowns.length > 0) {
+      setActiveRole(analysis.roleBreakdowns[0].role);
+    }
+    if (activeSection === null) {
+      setActiveSection('landCount');
+    }
+  }, [analysis]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasDeficits = useMemo(() => {
     if (!analysis) return false;
@@ -2494,6 +3083,27 @@ export function DeckOptimizer({
         : await fetchCommanderData(commanderName);
       cachedEdhrecDataRef.current = edhrecData;
 
+      // Build inclusion map from EDHREC data if not provided
+      let effectiveInclusionMap = cardInclusionMap;
+      if (!effectiveInclusionMap) {
+        const built: Record<string, number> = {};
+        const indexCard = (name: string, inclusion: number) => {
+          built[name] = inclusion;
+          // Also index by front-face name for DFC lookup
+          if (name.includes(' // ')) built[name.split(' // ')[0]] = inclusion;
+        };
+        for (const c of edhrecData.cardlists.allNonLand) indexCard(c.name, c.inclusion);
+        for (const c of edhrecData.cardlists.lands) indexCard(c.name, c.inclusion);
+        // Cross-reference: for each deck card with //, also try front-face lookup
+        for (const card of currentCards) {
+          if (card.name.includes(' // ') && built[card.name] === undefined) {
+            const front = card.name.split(' // ')[0];
+            if (built[front] !== undefined) built[card.name] = built[front];
+          }
+        }
+        effectiveInclusionMap = built;
+      }
+
       const storeColorIdentity = useStore.getState().colorIdentity;
       const result = analyzeDeck(
         edhrecData,
@@ -2501,7 +3111,7 @@ export function DeckOptimizer({
         roleCounts,
         roleTargets,
         deckSize,
-        cardInclusionMap,
+        effectiveInclusionMap,
         storeColorIdentity,
       );
 
@@ -2553,6 +3163,26 @@ export function DeckOptimizer({
     if (currentCards.length === prevCardCountRef.current) return;
     prevCardCountRef.current = currentCards.length;
 
+    // Build inclusion map from EDHREC data if not provided
+    let effectiveInclusionMap = cardInclusionMap;
+    if (!effectiveInclusionMap) {
+      const edhrecData = cachedEdhrecDataRef.current;
+      const built: Record<string, number> = {};
+      const indexCard = (name: string, inclusion: number) => {
+        built[name] = inclusion;
+        if (name.includes(' // ')) built[name.split(' // ')[0]] = inclusion;
+      };
+      for (const c of edhrecData.cardlists.allNonLand) indexCard(c.name, c.inclusion);
+      for (const c of edhrecData.cardlists.lands) indexCard(c.name, c.inclusion);
+      for (const card of currentCards) {
+        if (card.name.includes(' // ') && built[card.name] === undefined) {
+          const front = card.name.split(' // ')[0];
+          if (built[front] !== undefined) built[card.name] = built[front];
+        }
+      }
+      effectiveInclusionMap = built;
+    }
+
     const storeColorIdentity = useStore.getState().colorIdentity;
     const result = analyzeDeck(
       cachedEdhrecDataRef.current,
@@ -2560,7 +3190,7 @@ export function DeckOptimizer({
       roleCounts,
       roleTargets,
       deckSize,
-      cardInclusionMap,
+      effectiveInclusionMap,
       storeColorIdentity,
     );
     setAnalysis(result);
@@ -2743,6 +3373,8 @@ export function DeckOptimizer({
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div className="space-y-3">
+            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} />
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <RoleBalancePanel deficits={analysis.roleDeficits} hasDeficits={hasDeficits} onNavigate={() => setActiveTab('roles')} />
               <CurvePanel slots={analysis.curveAnalysis} onNavigate={() => setActiveTab('curve')} />
@@ -2799,6 +3431,8 @@ export function DeckOptimizer({
         {activeTab === 'roles' && (
           <RolesTabContent
             roleBreakdowns={analysis.roleBreakdowns}
+            activeRole={activeRole}
+            onRoleChange={setActiveRole}
             onPreview={handlePreview}
             onAdd={handleAddCard}
             addedCards={addedCards}
@@ -2811,14 +3445,17 @@ export function DeckOptimizer({
         {activeTab === 'lands' && (
           <LandsTabContent
             analysis={analysis}
+            activeSection={activeSection}
+            onSectionChange={setActiveSection}
             onPreview={handlePreview}
             onAdd={handleAddCard}
             addedCards={addedCards}
             currentCards={currentCards}
             onCardAction={handleCardAction}
             menuProps={menuProps}
-            onAddBasicLand={onAddCards ? (name) => onAddCards([name], 'deck') : undefined}
-            onRemoveBasicLand={onRemoveCards ? (name) => onRemoveCards([name]) : undefined}
+            onAddBasicLand={onAddBasicLandProp ?? (onAddCards ? (name) => onAddCards([name], 'deck') : undefined)}
+            onRemoveBasicLand={onRemoveBasicLandProp ?? (onRemoveCards ? (name) => onRemoveCards([name]) : undefined)}
+            cardInclusionMap={cardInclusionMap}
           />
         )}
 
