@@ -1,7 +1,7 @@
 import type { UserCardList } from '@/types';
 import { CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { stripMarkdown, formatRelativeTime } from '@/lib/utils';
-import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List } from 'lucide-react';
+import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -11,6 +11,7 @@ interface ListCardProps {
   typeBreakdown?: Record<string, number>;
   colorIdentity?: string[];
   commanderArtUrl?: string;
+  matchingCards?: string[];
   onClick: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
@@ -18,7 +19,7 @@ interface ListCardProps {
   onDelete: () => void;
 }
 
-export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, commanderArtUrl, onClick, onEdit, onDuplicate, onExport, onDelete }: ListCardProps) {
+export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, commanderArtUrl, matchingCards, onClick, onEdit, onDuplicate, onExport, onDelete }: ListCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -231,6 +232,27 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
               +{remainingCount} more
             </span>
           )}
+        </div>
+      )}
+
+      {matchingCards && matchingCards.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-border/30">
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 mb-1">
+            <Search className="w-3 h-3" />
+            <span>{matchingCards.length} matching card{matchingCards.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {matchingCards.slice(0, 6).map(name => (
+              <span key={name} className="px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary/80 rounded border border-primary/20 truncate max-w-[140px]">
+                {name}
+              </span>
+            ))}
+            {matchingCards.length > 6 && (
+              <span className="px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+                +{matchingCards.length - 6} more
+              </span>
+            )}
+          </div>
         </div>
       )}
       </div>

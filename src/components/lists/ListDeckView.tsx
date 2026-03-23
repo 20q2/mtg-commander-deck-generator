@@ -11,7 +11,7 @@ import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { TestHand } from '@/components/deck/TestHand';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
-import { DeckOptimizer } from '@/components/deck/DeckOptimizer';
+import { DeckOptimizer } from '@/components/deck/optimizer';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';

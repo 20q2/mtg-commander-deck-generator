@@ -547,7 +547,7 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
 
   // ── Over-target: explain why cuts are needed ──
   if (deckExcess && deckExcess > 0) {
-    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the target. The weakest fits are listed below.`);
+    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the ${analysis.manaBase.deckSize}-card target. The weakest fits are listed below.`);
 
     const cutNeeds: string[] = [];
     const cutTrims: string[] = [];
