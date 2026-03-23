@@ -1,7 +1,8 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
-import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, type RoleKey } from '@/services/tagger/client';
+import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
+import { detectPacing, type Pacing } from './themeDetector';
 
 export interface RoleDeficit {
   role: string;
@@ -61,6 +62,9 @@ export interface RecommendedCard {
   backImageUrl?: string;
   price?: string;
   producedColors?: string[];
+  isThemeSynergy?: boolean;
+  score?: number;
+  cmc?: number;
 }
 
 export interface AnalyzedCard {
@@ -88,6 +92,30 @@ export interface CurveBreakdown {
   target: number;
   delta: number;
   cards: AnalyzedCard[];
+}
+
+export type CurvePhase = 'early' | 'mid' | 'late';
+
+export interface CurvePhaseAnalysis {
+  phase: CurvePhase;
+  label: string;
+  cmcRange: [number, number];
+  current: number;
+  target: number;
+  delta: number;
+  cards: AnalyzedCard[];
+  pctOfDeck: number;
+  avgCmc: number;
+  grade: GradeResult;
+  rampInPhase: number;
+  interactionInPhase: number;
+}
+
+export interface ManaTrajectoryPoint {
+  turn: number;
+  expectedLands: number;
+  expectedRampMana: number;
+  totalExpectedMana: number;
 }
 
 export interface ColorFixingAnalysis {
@@ -139,9 +167,13 @@ export interface DeckAnalysis {
   colorFixing: ColorFixingAnalysis;
   mdfcsInDeck: AnalyzedCard[];
   channelLandsInDeck: AnalyzedCard[];
+  curvePhases: CurvePhaseAnalysis[];
+  manaTrajectory: ManaTrajectoryPoint[];
   rolesGrade: GradeResult;
   manaGrade: GradeResult;
   curveGrade: GradeResult;
+  pacing: Pacing;
+  pacingLabel: string;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -332,57 +364,346 @@ export function getCurveGrade(curveAnalysis: CurveSlot[]): GradeResult {
   return { letter: 'F', message: 'Curve is far from average — expect inconsistent draws.' };
 }
 
-/** Generate a short algo-generated summary sentence about the deck's health. */
-export function getDeckSummary(analysis: DeckAnalysis): string {
+/** Pacing multipliers shift curve targets to match detected deck tempo. */
+const PACING_MULTIPLIERS: Record<Pacing, { early: number; mid: number; late: number }> = {
+  'aggressive-early': { early: 1.20, mid: 0.95, late: 0.75 },
+  'fast-tempo':       { early: 1.12, mid: 1.00, late: 0.82 },
+  'midrange':         { early: 0.92, mid: 1.10, late: 0.95 },
+  'late-game':        { early: 0.85, mid: 0.95, late: 1.25 },
+  'balanced':         { early: 1.00, mid: 1.00, late: 1.00 },
+};
+
+/** Build curve phase analysis for early (0-2), mid (3-4), late (5+) game. */
+export function getCurvePhases(
+  curveBreakdowns: CurveBreakdown[],
+  curveAnalysis: CurveSlot[],
+  totalNonLand: number,
+  pacing?: Pacing,
+): CurvePhaseAnalysis[] {
+  const phaseDefs: { phase: CurvePhase; label: string; range: [number, number] }[] = [
+    { phase: 'early', label: 'Early Game', range: [0, 2] },
+    { phase: 'mid',   label: 'Mid Game',   range: [3, 4] },
+    { phase: 'late',  label: 'Late Game',   range: [5, 7] },
+  ];
+
+  const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
+
+  const result = phaseDefs.map(({ phase, label, range }) => {
+    const slots = curveAnalysis.filter(s => s.cmc >= range[0] && s.cmc <= range[1]);
+    const buckets = curveBreakdowns.filter(b => b.cmc >= range[0] && b.cmc <= range[1]);
+    const cards = buckets.flatMap(b => b.cards);
+    const current = slots.reduce((s, sl) => s + sl.current, 0);
+    const rawTarget = slots.reduce((s, sl) => s + sl.target, 0);
+    const target = Math.round(rawTarget * multipliers[phase]);
+    const pctOfDeck = totalNonLand > 0 ? Math.round((current / totalNonLand) * 100) : 0;
+
+    // Avg CMC within phase
+    const cmcSum = cards.reduce((s, ac) => s + ac.card.cmc, 0);
+    const avgCmc = cards.length > 0 ? cmcSum / cards.length : 0;
+
+    // Count ramp and interaction in this phase
+    let rampInPhase = 0;
+    let interactionInPhase = 0;
+    for (const ac of cards) {
+      const role = ac.card.deckRole || getCardRole(ac.card.name);
+      if (role === 'ramp') rampInPhase++;
+      if (role === 'removal' || role === 'boardwipe') interactionInPhase++;
+    }
+
+    return {
+      phase, label, cmcRange: range, current, target, cards,
+      pctOfDeck, avgCmc, rampInPhase, interactionInPhase,
+      // delta and grade are set after normalization
+      delta: 0, grade: { letter: 'A', message: '' } as GradeResult,
+    };
+  });
+
+  // Normalize so adjusted targets sum to totalNonLand
+  const totalAdjusted = result.reduce((s, p) => s + p.target, 0);
+  if (totalAdjusted > 0 && totalAdjusted !== totalNonLand) {
+    const scale = totalNonLand / totalAdjusted;
+    for (const p of result) p.target = Math.round(p.target * scale);
+    // Fix rounding drift on the largest phase
+    const diff = totalNonLand - result.reduce((s, p) => s + p.target, 0);
+    if (diff !== 0) {
+      const largest = result.reduce((max, p) => p.target > max.target ? p : max, result[0]);
+      largest.target += diff;
+    }
+  }
+
+  // Compute delta and grade from normalized targets
+  for (const p of result) {
+    p.delta = p.current - p.target;
+    const absDelta = Math.abs(p.delta);
+    const deviationPct = p.target > 0 ? absDelta / p.target : (p.current > 0 ? 0.5 : 0);
+    if (deviationPct <= 0.10) {
+      p.grade = { letter: 'A', message: `${p.label} is right on target.` };
+    } else if (deviationPct <= 0.20) {
+      p.grade = { letter: 'B', message: p.delta > 0 ? `Slightly heavy on ${p.label.toLowerCase()} cards.` : `Slightly light on ${p.label.toLowerCase()} cards.` };
+    } else if (deviationPct <= 0.35) {
+      p.grade = { letter: 'C', message: p.delta > 0 ? `Running ${absDelta} more ${p.label.toLowerCase()} cards than average.` : `${absDelta} below target for ${p.label.toLowerCase()}.` };
+    } else if (deviationPct <= 0.50) {
+      p.grade = { letter: 'D', message: p.delta > 0 ? `Significantly overloaded in ${p.label.toLowerCase()}.` : `Significantly lacking ${p.label.toLowerCase()} plays.` };
+    } else {
+      p.grade = { letter: 'F', message: p.delta > 0 ? `Far too many ${p.label.toLowerCase()} cards.` : `Critically lacking ${p.label.toLowerCase()} plays.` };
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Compute expected mana available per turn (1-7).
+ * Uses hypergeometric model for land draws + simplified ramp deployment.
+ */
+export function getManaTrajectory(
+  deckSize: number,
+  landCount: number,
+  earlyRampCount: number,
+  avgRampCmc: number,
+): ManaTrajectoryPoint[] {
+  const points: ManaTrajectoryPoint[] = [];
+
+  for (let turn = 1; turn <= 7; turn++) {
+    // Cards seen by this turn = 7 (opening hand) + (turn - 1) draws
+    const cardsSeen = 7 + (turn - 1);
+
+    // Expected lands in hand/play by this turn (E[X] for hypergeometric)
+    // E[X] = n * K / N for hypergeometric
+    const expectedLands = Math.min(cardsSeen * landCount / deckSize, turn + 2); // can't play more than turn+mulligan lands
+
+    // Expected ramp mana: each early ramp piece has P(drawn by turn) * P(castable)
+    // Simplified: P(at least 1 copy drawn) ~ min(1, cardsSeen * count / deckSize) for the pool
+    // But we want expected count drawn, not just "at least 1"
+    // E[ramp drawn] = cardsSeen * earlyRampCount / deckSize
+    // Each drawn ramp contributes 1 mana if castable (CMC < mana available at that point)
+    // Approximate: ramp castable if its avg CMC < turn (since you have ~turn lands)
+    let expectedRampMana = 0;
+    if (earlyRampCount > 0 && turn >= 2) {
+      const rampDrawn = cardsSeen * earlyRampCount / deckSize;
+      // Fraction of ramp that's castable by this turn: ramp with CMC <= turn-1
+      // (you need to have played it a turn before to get mana this turn)
+      // avgRampCmc gives us a rough idea; if avg is 2, most are castable by turn 3
+      const castableFrac = avgRampCmc > 0 ? Math.min(1, (turn - 1) / avgRampCmc) : 1;
+      // Deployed ramp = drawn * castable fraction, but capped — can't deploy more than turns allow
+      const deployedRamp = Math.min(rampDrawn * castableFrac, turn - 1);
+      expectedRampMana = deployedRamp;
+    }
+
+    const totalExpectedMana = Math.round((expectedLands + expectedRampMana) * 10) / 10;
+
+    points.push({
+      turn,
+      expectedLands: Math.round(expectedLands * 10) / 10,
+      expectedRampMana: Math.round(expectedRampMana * 10) / 10,
+      totalExpectedMana,
+    });
+  }
+
+  return points;
+}
+
+/** Generate a human-readable HTML summary about the deck's health. Returns HTML with <strong> tags. */
+export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): string {
+  const b = (text: string) => `<strong class="text-foreground/90">${text}</strong>`;
+
   const grades = [analysis.rolesGrade, analysis.manaGrade, analysis.curveGrade];
   const avgScore = grades.reduce((s, g) => s + (GRADE_SCORES[g.letter] ?? 0), 0) / grades.length;
-  const worst = grades.reduce((w, g) => (GRADE_SCORES[g.letter] ?? 0) < (GRADE_SCORES[w.letter] ?? 0) ? g : w, grades[0]);
 
-  // Compute avg CMC from curve data
   const totalCards = analysis.curveAnalysis.reduce((s, c) => s + c.current, 0);
   const weightedCmc = analysis.curveAnalysis.reduce((s, c) => s + c.cmc * c.current, 0);
   const avgCmc = totalCards > 0 ? weightedCmc / totalCards : 0;
 
-  // Creature density from type analysis
-  const creatureSlot = analysis.typeAnalysis.find(t => t.type === 'creature');
-  const creaturePct = totalCards > 0 && creatureSlot ? Math.round((creatureSlot.current / totalCards) * 100) : 0;
-
-  // Role coverage
   const rolesMet = analysis.roleDeficits.filter(rd => rd.current >= rd.target).length;
   const totalRoles = analysis.roleDeficits.length;
 
-  // Land count
-  const { currentLands, adjustedSuggestion } = analysis.manaBase;
+  // Identify specific problems
+  const deficits = analysis.roleDeficits.filter(rd => rd.deficit > 0).sort((a, b_) => b_.deficit - a.deficit);
+  const excesses = analysis.roleDeficits.filter(rd => rd.current > rd.target + 2).sort((a, b_) => (b_.current - b_.target) - (a.current - a.target));
 
-  // Build sentences
+  const earlyDelta = analysis.curveAnalysis.filter(s => s.cmc <= 2).reduce((sum, s) => sum + s.delta, 0);
+  const lateDelta = analysis.curveAnalysis.filter(s => s.cmc >= 5).reduce((sum, s) => sum + s.delta, 0);
+  const curveShape = lateDelta > 3 ? 'top-heavy' : earlyDelta > 3 ? 'bottom-heavy' : null;
+
+  const { currentLands, adjustedSuggestion, verdict } = analysis.manaBase;
+  const landDelta = currentLands - adjustedSuggestion;
+
   const parts: string[] = [];
 
-  // Overall opener
-  if (avgScore >= 3.5) {
-    parts.push('This deck is in great shape overall.');
-  } else if (avgScore >= 2.5) {
-    parts.push('Solid foundation with room for improvement.');
-  } else if (avgScore >= 1.5) {
-    parts.push('Several areas need attention.');
-  } else {
-    parts.push('This deck needs significant work.');
+  // ── Over-target: explain why cuts are needed ──
+  if (deckExcess && deckExcess > 0) {
+    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the target.`);
+
+    const reasons: string[] = [];
+    if (excesses.length > 0) {
+      const exLabels = excesses.slice(0, 2).map(rd => b(rd.label.toLowerCase()));
+      reasons.push(`excess ${exLabels.join(' and ')}`);
+    }
+    if (curveShape === 'top-heavy') {
+      reasons.push(`a ${b('top-heavy curve')} with too many expensive spells`);
+    } else if (curveShape === 'bottom-heavy') {
+      reasons.push(`a ${b('bottom-heavy curve')} with too many cheap spells`);
+    }
+    if (landDelta > 2) {
+      reasons.push(`${b(`${landDelta} extra lands`)} beyond the suggestion`);
+    }
+    if (deficits.length > 0 && reasons.length < 2) {
+      const defLabels = deficits.slice(0, 2).map(rd => b(rd.label.toLowerCase()));
+      reasons.push(`not enough ${defLabels.join(' or ')}`);
+    }
+
+    if (reasons.length > 0) {
+      parts.push(`The weakest fits below were chosen because of ${reasons.join(', and ')}.`);
+    } else {
+      parts.push('The cards below have the lowest EDHREC inclusion rates and are the weakest fits for this deck.');
+    }
+
+    return parts.join(' ');
   }
 
-  // Key stats line
-  const statsFragments: string[] = [];
-  statsFragments.push(`${currentLands} lands (${currentLands >= adjustedSuggestion ? 'on target' : `${adjustedSuggestion - currentLands} below target`})`);
-  statsFragments.push(`${avgCmc.toFixed(1)} avg CMC`);
-  statsFragments.push(`${creaturePct}% creatures`);
-  statsFragments.push(`${rolesMet}/${totalRoles} roles met`);
-  parts.push(statsFragments.join(' · '));
+  // ── Normal summary ──
+  if (avgScore >= 3.5) {
+    parts.push(`This deck is well-tuned — ${b(`${rolesMet} of ${totalRoles} roles met`)} with a ${b(`${avgCmc.toFixed(1)} avg CMC`)}.`);
+    if (deficits.length === 0) {
+      parts.push('All roles are on target, the mana base is solid, and the curve is well-distributed.');
+    }
+  } else if (avgScore >= 2.5) {
+    parts.push(`Solid foundation — ${b(`${rolesMet} of ${totalRoles} roles met`)} with a ${b(`${avgCmc.toFixed(1)} avg CMC`)}.`);
+  } else if (avgScore >= 1.5) {
+    parts.push(`This deck has some gaps — only ${b(`${rolesMet} of ${totalRoles} roles`)} are on target.`);
+  } else {
+    parts.push(`This deck needs work — only ${b(`${rolesMet} of ${totalRoles} roles`)} are on target with a ${b(`${avgCmc.toFixed(1)} avg CMC`)}.`);
+  }
 
-  // Call out biggest weakness if not all A's
-  if (avgScore < 3.5) {
-    const worstLabel = worst === analysis.rolesGrade ? 'role balance' : worst === analysis.manaGrade ? 'mana base' : 'mana curve';
-    parts.push(`Biggest area to improve: ${worstLabel}.`);
+  // Call out specific issues
+  const insights: string[] = [];
+
+  if (deficits.length > 0) {
+    const top = deficits[0];
+    insights.push(`${b(top.label)} is ${b(`${top.deficit} below`)} target`);
+  }
+  if (verdict === 'low' || verdict === 'critically-low') {
+    insights.push(`running ${b(`${Math.abs(landDelta)} too few lands`)}`);
+  } else if (verdict === 'high') {
+    insights.push(`running ${b(`${landDelta} extra lands`)}`);
+  }
+  if (curveShape) {
+    insights.push(`curve is ${b(curveShape)}`);
+  }
+  if (excesses.length > 0 && insights.length < 3) {
+    const ex = excesses[0];
+    insights.push(`${b(ex.label.toLowerCase())} is ${ex.current - ex.target} over target`);
+  }
+
+  if (insights.length > 0) {
+    parts.push(`Your biggest gaps: ${insights.join(', ')}.`);
   }
 
   return parts.join(' ');
+}
+
+// ─── Smart Suggestion Scoring ────────────────────────────────────────
+
+const ROLE_SUBTYPES: Record<string, string[]> = {
+  ramp: ['mana-producer', 'mana-rock', 'cost-reducer', 'ramp'],
+  removal: ['counterspell', 'bounce', 'spot-removal', 'removal'],
+  boardwipe: ['bounce-wipe', 'boardwipe'],
+  cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
+};
+
+interface ScoringContext {
+  roleDeficits: RoleDeficit[];
+  curveAnalysis: CurveSlot[];
+  typeAnalysis: TypeSlot[];
+  currentSubtypeCounts: Record<string, number>;
+}
+
+/**
+ * Unified recommendation scoring — mirrors the deck generator's multi-factor
+ * approach (calculateCardPriority + computeRoleBoosts + curve awareness).
+ */
+function scoreRecommendation(
+  card: EDHRECCard,
+  cardRole: RoleKey | null,
+  cardSubtype: string | null,
+  context: ScoringContext,
+): number {
+  const synergy = card.synergy ?? 0;
+  const inclusion = card.inclusion;
+
+  // ── Component 1: Base Priority (ports calculateCardPriority) ──
+  let basePriority: number;
+  if (card.isThemeSynergyCard) {
+    basePriority = 100 + (synergy * 50) + inclusion;
+  } else if (synergy > 0.3) {
+    const newCardBoost = card.isNewCard ? 25 : 0;
+    basePriority = (synergy * 100) + inclusion + newCardBoost;
+  } else {
+    const newCardBoost = card.isNewCard ? 25 : 0;
+    basePriority = inclusion + newCardBoost;
+  }
+
+  // ── Component 2: Role Deficit Boost (ports computeRoleBoosts) ──
+  let roleBoost = 0;
+  if (cardRole) {
+    const rd = context.roleDeficits.find(r => r.role === cardRole);
+    if (rd && rd.deficit > 0 && rd.target > 0) {
+      roleBoost = (rd.deficit / rd.target) * 75;
+
+      // Early ramp CMC multiplier
+      if (cardRole === 'ramp' && card.cmc !== undefined) {
+        if (card.cmc <= 1) roleBoost *= 2.0;
+        else if (card.cmc <= 2) roleBoost *= 1.5;
+        else if (card.cmc <= 3) roleBoost *= 1.2;
+      }
+
+      // Subtype diversity multiplier
+      if (cardSubtype && context.currentSubtypeCounts) {
+        const subtypeCount = context.currentSubtypeCounts[cardSubtype] ?? 0;
+        const roleSubtypes = ROLE_SUBTYPES[cardRole] || [];
+        if (roleSubtypes.length > 0) {
+          const total = roleSubtypes.reduce((s, st) => s + (context.currentSubtypeCounts[st] ?? 0), 0);
+          const avg = total / roleSubtypes.length;
+          const excess = subtypeCount - avg;
+          if (excess > 1) {
+            roleBoost *= Math.max(0.4, 1.0 - (excess - 1) * 0.1);
+          } else if (subtypeCount === 0) {
+            roleBoost *= 1.25;
+          }
+        }
+      }
+    }
+  }
+
+  // ── Component 3: Curve Fit Bonus/Penalty ──
+  let curveBonus = 0;
+  if (card.cmc !== undefined) {
+    const cmc = Math.min(Math.floor(card.cmc), 7);
+    const slot = context.curveAnalysis.find(s => s.cmc === cmc);
+    if (slot) {
+      if (slot.delta < 0) {
+        curveBonus = Math.min(20, Math.abs(slot.delta) * 7);
+      } else if (slot.delta > 1) {
+        curveBonus = -Math.min(15, (slot.delta - 1) * 5);
+      }
+    }
+  }
+
+  // ── Component 4: Type Balance Bonus/Penalty ──
+  let typeBonus = 0;
+  if (card.primary_type && card.primary_type !== 'Land' && card.primary_type !== 'Unknown') {
+    const typeLower = card.primary_type.toLowerCase();
+    const typeSlot = context.typeAnalysis.find(t => t.type === typeLower);
+    if (typeSlot) {
+      if (typeSlot.delta < 0) {
+        typeBonus = Math.min(10, Math.abs(typeSlot.delta) * 3);
+      } else if (typeSlot.delta > 2) {
+        typeBonus = -Math.min(8, (typeSlot.delta - 2) * 2);
+      }
+    }
+  }
+
+  return basePriority + roleBoost + curveBonus + typeBonus;
 }
 
 /**
@@ -442,7 +763,12 @@ export function analyzeDeck(
     c => getFrontFaceTypeLine(c).toLowerCase().includes('land') || isMdfcLand(c)
   );
   const currentLands = landCards.length;
-  const edhrecLands = edhrecData.stats.landDistribution.total || Math.round(deckSize * 0.37);
+  // EDHREC data is for 99-card Commander — scale to actual deck size
+  const rawEdhrecLands = edhrecData.stats.landDistribution.total || 37;
+  const edhrecLands = deckSize >= 99
+    ? rawEdhrecLands
+    : Math.round(rawEdhrecLands * (deckSize / 99));
+  const landScale = deckSize >= 99 ? 1 : deckSize / 99;
   const currentBasic = landCards.filter(c => {
     const tl = getFrontFaceTypeLine(c).toLowerCase();
     return /\bbasic\b/.test(tl);
@@ -459,9 +785,10 @@ export function analyzeDeck(
   }
 
   // Adjust land suggestion: nudge UP by 1-2 unless ramp is strong
-  // "Strong ramp" = 10+ ramp cards AND 6+ mana producers (dorks/rocks)
-  const hasStrongRamp = rampCount >= 10 && manaProducerCount >= 6;
-  const hasDecentRamp = rampCount >= 7 && manaProducerCount >= 4;
+  // Thresholds scale with deck size (baseline: 99-card Commander)
+  const ratio = deckSize / 99;
+  const hasStrongRamp = rampCount >= Math.round(10 * ratio) && manaProducerCount >= Math.round(6 * ratio);
+  const hasDecentRamp = rampCount >= Math.round(7 * ratio) && manaProducerCount >= Math.round(4 * ratio);
   let adjustedSuggestion: number;
   if (hasStrongRamp) {
     // Strong mana base justifies running at or slightly below EDHREC avg
@@ -473,8 +800,8 @@ export function analyzeDeck(
     // Weak ramp — push lands up by 2
     adjustedSuggestion = edhrecLands + 2;
   }
-  // Hard floor: never suggest below 33 lands (for 99-card) or 33% of deck
-  const landFloor = Math.max(33, Math.round(deckSize * 0.33));
+  // Hard floor: never suggest below 33% of deck
+  const landFloor = Math.round(deckSize * 0.33);
   adjustedSuggestion = Math.max(adjustedSuggestion, landFloor);
 
   // Verdict
@@ -516,8 +843,8 @@ export function analyzeDeck(
     adjustedSuggestion,
     currentBasic,
     currentNonbasic,
-    suggestedBasic: edhrecData.stats.landDistribution.basic || 0,
-    suggestedNonbasic: edhrecData.stats.landDistribution.nonbasic || 0,
+    suggestedBasic: Math.round((edhrecData.stats.landDistribution.basic || 0) * landScale),
+    suggestedNonbasic: Math.round((edhrecData.stats.landDistribution.nonbasic || 0) * landScale),
     rampCount,
     manaProducerCount,
     verdict,
@@ -557,6 +884,25 @@ export function analyzeDeck(
     })
     .filter(t => t.target > 0 || t.current > 0);
 
+  // --- Scoring Context (for smart recommendation scoring) ---
+  const currentSubtypeCounts: Record<string, number> = {};
+  for (const card of currentCards) {
+    const subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype;
+    if (subtype) {
+      currentSubtypeCounts[subtype] = (currentSubtypeCounts[subtype] ?? 0) + 1;
+    } else {
+      const st = getCardSubtype(card.name);
+      if (st) currentSubtypeCounts[st] = (currentSubtypeCounts[st] ?? 0) + 1;
+    }
+  }
+
+  const scoringContext: ScoringContext = {
+    roleDeficits,
+    curveAnalysis,
+    typeAnalysis,
+    currentSubtypeCounts,
+  };
+
   // --- Recommendations ---
   // Include both full name ("A // B") and front face name ("A") so DFCs are matched
   const currentCardNames = new Set(currentCards.flatMap(c => {
@@ -567,6 +913,7 @@ export function analyzeDeck(
   }));
   const deficitRoles = new Set(roleDeficits.filter(d => d.deficit > 0).map(d => d.role));
 
+  const BASIC_LANDS = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
   const candidateMap = new Map<string, { card: EDHRECCard; source: 'nonland' | 'land' }>();
 
   for (const card of edhrecData.cardlists.allNonLand) {
@@ -575,20 +922,24 @@ export function analyzeDeck(
     }
   }
   for (const card of edhrecData.cardlists.lands) {
-    if (!currentCardNames.has(card.name) && !candidateMap.has(card.name)) {
+    if (!currentCardNames.has(card.name) && !candidateMap.has(card.name) && !BASIC_LANDS.has(card.name)) {
       candidateMap.set(card.name, { card, source: 'land' });
     }
   }
 
+  // Pre-compute scores for all candidates (reused by general, role, and land recommendations)
+  const candidateScoreCache = new Map<string, { score: number; role: RoleKey | null; subtype: string | null }>();
+  for (const [name, { card }] of candidateMap) {
+    const role = getCardRole(name);
+    const subtype = role ? getCardSubtype(name) : null;
+    candidateScoreCache.set(name, { score: scoreRecommendation(card, role, subtype, scoringContext), role, subtype });
+  }
+
   const recommendations: RecommendedCard[] = [...candidateMap.values()].map(({ card }) => {
-    const role = getCardRole(card.name);
+    const cached = candidateScoreCache.get(card.name);
+    const role = cached?.role ?? getCardRole(card.name);
     const allRoles = getAllCardRoles(card.name);
     const fillsDeficit = role ? deficitRoles.has(role) : false;
-
-    // Score: inclusion + deficit bonus + synergy bonus
-    let score = card.inclusion;
-    if (fillsDeficit) score += 20;
-    if (card.synergy && card.synergy > 0.3) score += card.synergy * 15;
 
     const price = card.prices?.tcgplayer?.price
       ? card.prices.tcgplayer.price.toFixed(2)
@@ -608,13 +959,13 @@ export function analyzeDeck(
       primaryType: card.primary_type,
       imageUrl: card.image_uris?.[0]?.normal,
       price,
-      _score: score,
+      isThemeSynergy: card.isThemeSynergyCard || undefined,
+      score: cached?.score ?? 0,
+      cmc: card.cmc,
     };
   })
-    // Sort by computed score descending
-    .sort((a, b) => ((b as any)._score || 0) - ((a as any)._score || 0))
-    .slice(0, 30)
-    .map(({ _score, ...rest }: any) => rest as RecommendedCard);
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 30);
 
   // --- Per-Card Breakdowns ---
   const incMap = cardInclusionMap || {};
@@ -666,6 +1017,7 @@ export function analyzeDeck(
       : card.prices?.cardkingdom?.price
         ? card.prices.cardkingdom.price.toFixed(2)
         : undefined;
+    const cached = candidateScoreCache.get(name);
     roleCandidates.push({
       name,
       inclusion: card.inclusion,
@@ -678,6 +1030,7 @@ export function analyzeDeck(
       primaryType: card.primary_type,
       imageUrl: card.image_uris?.[0]?.normal,
       price,
+      score: cached?.score ?? 0,
     });
   }
 
@@ -689,12 +1042,12 @@ export function analyzeDeck(
       .map(makeAnalyzedCard)
       .sort(sortByInclusion);
 
-    // Gather candidates that match this role, sorted by inclusion desc
+    // Gather candidates that match this role, sorted by composite score
     const seen = new Set<string>();
     const suggestedReplacements: RecommendedCard[] = [];
     const matching = roleCandidates
       .filter(rec => (candidateRolesMap.get(rec.name) || []).includes(role as RoleKey))
-      .sort((a, b) => b.inclusion - a.inclusion);
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     for (const rec of matching) {
       if (!seen.has(rec.name)) {
         seen.add(rec.name);
@@ -744,20 +1097,27 @@ export function analyzeDeck(
     : 0;
   const msTotal = rampCards.length;
 
+  // Scale grading thresholds by deck size (base targets are for 100-card decks)
+  const scale = deckSize / 100;
+  const threshA = { ramp: Math.round(10 * scale), early: Math.round(5 * scale), producers: Math.round(6 * scale) };
+  const threshB = { ramp: Math.round(8 * scale), early: Math.round(3 * scale), producers: Math.round(4 * scale) };
+  const threshC = Math.round(6 * scale);
+  const threshD = Math.round(4 * scale);
+
   let msGrade: ManaSourcesAnalysis['grade'];
   let msMessage: string;
-  if (msTotal >= 10 && msEarly >= 5 && msProducers >= 6) {
+  if (msTotal >= threshA.ramp && msEarly >= threshA.early && msProducers >= threshA.producers) {
     msGrade = 'A';
     msMessage = `${msTotal} ramp with ${msEarly} early pieces — fast and reliable.`;
-  } else if (msTotal >= 8 && msEarly >= 3 && msProducers >= 4) {
+  } else if (msTotal >= threshB.ramp && msEarly >= threshB.early && msProducers >= threshB.producers) {
     msGrade = 'B';
     msMessage = `${msTotal} ramp with ${msProducers} producers — solid acceleration.`;
-  } else if (msTotal >= 6) {
+  } else if (msTotal >= threshC) {
     msGrade = 'C';
-    msMessage = msEarly < 3
+    msMessage = msEarly < threshB.early
       ? `${msTotal} ramp but only ${msEarly} early pieces — slow to accelerate.`
       : `${msTotal} ramp is decent. A couple more would smooth things out.`;
-  } else if (msTotal >= 4) {
+  } else if (msTotal >= threshD) {
     msGrade = 'D';
     msMessage = `Only ${msTotal} ramp cards — this deck will fall behind.`;
   } else {
@@ -778,33 +1138,7 @@ export function analyzeDeck(
     message: msMessage,
   };
 
-  // Land recommendations from EDHREC
-  const landRecommendations: RecommendedCard[] = edhrecData.cardlists.lands
-    .filter(c => !currentCardNames.has(c.name))
-    .sort((a, b) => b.inclusion - a.inclusion)
-    .slice(0, 15)
-    .map(card => {
-      const role = getCardRole(card.name);
-      const price = card.prices?.tcgplayer?.price
-        ? card.prices.tcgplayer.price.toFixed(2)
-        : card.prices?.cardkingdom?.price
-          ? card.prices.cardkingdom.price.toFixed(2)
-          : undefined;
-      return {
-        name: card.name,
-        inclusion: card.inclusion,
-        synergy: card.synergy || 0,
-        role: role || undefined,
-        roleLabel: role ? ROLE_LABELS[role] : undefined,
-        fillsDeficit: false,
-        primaryType: card.primary_type,
-        imageUrl: card.image_uris?.[0]?.normal,
-        price,
-        producedColors: getRecommendationColors(card.name, card.color_identity),
-      };
-    });
-
-  // --- Color Fixing Analysis ---
+  // --- Color Source & Pip Demand (before land recs for scoring) ---
   const ci = colorIdentity || [];
   const sourcesPerColor: Record<string, number> = {};
   for (const color of ci) sourcesPerColor[color] = 0;
@@ -890,6 +1224,47 @@ export function analyzeDeck(
       weakestColor = color;
     }
   }
+
+  // Land recommendations from EDHREC (scored with color fixing bonus)
+  const landRecommendations: RecommendedCard[] = edhrecData.cardlists.lands
+    .filter(c => !currentCardNames.has(c.name) && !BASIC_LANDS.has(c.name))
+    .map(card => {
+      const role = getCardRole(card.name);
+      const price = card.prices?.tcgplayer?.price
+        ? card.prices.tcgplayer.price.toFixed(2)
+        : card.prices?.cardkingdom?.price
+          ? card.prices.cardkingdom.price.toFixed(2)
+          : undefined;
+      // Base score from cache (or compute fresh for land-only cards not in candidateMap)
+      const cached = candidateScoreCache.get(card.name);
+      let landScore = cached?.score ?? scoreRecommendation(card, role, null, scoringContext);
+      // Color fixing bonus: boost lands that serve underserved colors
+      if (ci.length >= 2) {
+        const cardColors = getRecommendationColors(card.name, card.color_identity);
+        const relevantColors = cardColors.filter(c => ci.includes(c));
+        const fixingBonus = relevantColors.reduce((s, c) => s + (demandVsSupplyRatio[c] || 0) * 30, 0);
+        landScore += fixingBonus;
+        // Multi-color bonus
+        if (relevantColors.length >= 3) landScore += 10;
+        else if (relevantColors.length >= 2) landScore += 5;
+      }
+      return {
+        name: card.name,
+        inclusion: card.inclusion,
+        synergy: card.synergy || 0,
+        role: role || undefined,
+        roleLabel: role ? ROLE_LABELS[role] : undefined,
+        fillsDeficit: false,
+        primaryType: card.primary_type,
+        imageUrl: card.image_uris?.[0]?.normal,
+        price,
+        producedColors: getRecommendationColors(card.name, card.color_identity),
+        isThemeSynergy: card.isThemeSynergyCard || undefined,
+        score: landScore,
+      };
+    })
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 15);
 
   // Any-color land count
   let anyColorLandCount = 0;
@@ -982,14 +1357,13 @@ export function analyzeDeck(
   }
 
   // Build fixing recommendations: non-land mana fixers from EDHREC candidates
+  // Combines weakness coverage (dominant) with unified base score (tiebreaker)
   const fixingRecommendations: RecommendedCard[] = [];
   for (const [name, { card }] of candidateMap) {
-    // Only non-land cards that are mana-dorks, mana-rocks, or cost-reducers
     if (card.primary_type === 'Land') continue;
     const isFixer = hasTag(name, 'mana-dork') || hasTag(name, 'mana-rock') || hasTag(name, 'cost-reducer') || hasTag(name, 'ramp');
     if (!isFixer) continue;
     const cardColors = getRecommendationColors(name, card.color_identity);
-    // Prefer cards that can produce multiple needed colors
     const relevantColors = cardColors.filter(c => ci.includes(c));
     const role = getCardRole(name);
     const allRoles = getAllCardRoles(name);
@@ -998,10 +1372,12 @@ export function analyzeDeck(
       : card.prices?.cardkingdom?.price
         ? card.prices.cardkingdom.price.toFixed(2)
         : undefined;
-    // Score: weakness coverage (multi-color) + inclusion
+    // Weakness coverage dominates, base score breaks ties
     const weaknessScore = ci.length >= 2
       ? relevantColors.reduce((s, c) => s + (demandVsSupplyRatio[c] || 0), 0)
       : 0;
+    const baseScore = candidateScoreCache.get(name)?.score ?? 0;
+    const combinedScore = (weaknessScore * 50) + baseScore;
     fixingRecommendations.push({
       name,
       inclusion: card.inclusion,
@@ -1010,23 +1386,16 @@ export function analyzeDeck(
       roleLabel: role ? ROLE_LABELS[role] : undefined,
       allRoles: allRoles.length > 0 ? allRoles : undefined,
       allRoleLabels: allRoles.length > 0 ? allRoles.map(r => ROLE_LABELS[r] || r) : undefined,
-      fillsDeficit: false,
+      fillsDeficit: role ? deficitRoles.has(role) : false,
       primaryType: card.primary_type,
       imageUrl: card.image_uris?.[0]?.normal,
       price,
       producedColors: cardColors,
-      _weaknessScore: weaknessScore,
-    } as any);
+      isThemeSynergy: card.isThemeSynergyCard || undefined,
+      score: combinedScore,
+    });
   }
-  // Sort by weakness coverage descending, then inclusion
-  fixingRecommendations.sort((a, b) => {
-    const wA = (a as any)._weaknessScore || 0;
-    const wB = (b as any)._weaknessScore || 0;
-    if (wB !== wA) return wB - wA;
-    return b.inclusion - a.inclusion;
-  });
-  // Clean up temp field and limit
-  for (const r of fixingRecommendations) delete (r as any)._weaknessScore;
+  fixingRecommendations.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   fixingRecommendations.splice(15);
 
   const colorFixing: ColorFixingAnalysis = {
@@ -1064,6 +1433,9 @@ export function analyzeDeck(
   const flexCount = mdfcsInDeck.length + channelLandsInDeck.length;
   const manaGrade = getManaGrade(manaBase, manaSources, colorFixing, flexCount);
   const curveGrade = getCurveGrade(curveAnalysis);
+  const { pacing, label: pacingLabel } = detectPacing(currentCards, curveAnalysis);
+  const curvePhases = getCurvePhases(curveBreakdowns, curveAnalysis, totalNonLand, pacing);
+  const manaTrajectory = getManaTrajectory(deckSize, currentLands, manaSources.earlyRamp, manaSources.avgRampCmc);
 
   return {
     roleDeficits,
@@ -1080,8 +1452,12 @@ export function analyzeDeck(
     colorFixing,
     mdfcsInDeck,
     channelLandsInDeck,
+    curvePhases,
+    manaTrajectory,
     rolesGrade,
     manaGrade,
     curveGrade,
+    pacing,
+    pacingLabel,
   };
 }

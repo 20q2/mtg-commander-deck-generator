@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult } from '@/types';
+import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry } from '@/types';
 import { isEuropean } from '@/lib/region';
 import { swapCard } from '@/services/deckBuilder/cardSwap';
 
@@ -223,6 +223,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Deck
   generatedDeck: null,
+  deckHistory: [],
 
   // UI
   isLoading: false,
@@ -249,6 +250,7 @@ export const useStore = create<AppState>((set, get) => ({
       edhrecLandSuggestion: null,
       edhrecStats: null,
       userEditedLands: false,
+      deckHistory: [],
     };
   }),
 
@@ -269,6 +271,7 @@ export const useStore = create<AppState>((set, get) => ({
       themeSource: 'local',
       edhrecNumDecks: null,
       edhrecStats: null,
+      deckHistory: [],
     };
   }),
 
@@ -352,6 +355,17 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  pushDeckHistory: (entry) => set((state) => {
+    const newEntry: DeckHistoryEntry = {
+      ...entry,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+    };
+    return { deckHistory: [newEntry, ...state.deckHistory].slice(0, 50) };
+  }),
+
+  clearDeckHistory: () => set({ deckHistory: [] }),
+
   setLoading: (loading: boolean, message = '') => set({
     isLoading: loading,
     loadingMessage: message,
@@ -373,6 +387,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Preserve all customization settings when switching commanders
     customization: state.customization,
     generatedDeck: null,
+    deckHistory: [],
     isLoading: false,
     loadingMessage: '',
     error: null,

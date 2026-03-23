@@ -60,7 +60,9 @@
       "Read(//tmp/**)",
       "WebFetch(domain:mtg-deck-builder-tagger.s3.amazonaws.com)",
       "Bash(aws lambda list-functions:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

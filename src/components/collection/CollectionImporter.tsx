@@ -110,6 +110,7 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
             manaCost: card.mana_cost,
             rarity: card.rarity,
             imageUrl: getCardImageUrl(card, 'small'),
+            edhrecRank: card.edhrec_rank,
           }));
           const { added, updated } = await bulkImport(bulkCards);
           setResult({ added, updated, notFound });

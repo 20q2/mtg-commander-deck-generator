@@ -809,11 +809,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     return () => clearTimeout(timer);
   }, [searchQuery, list.cards, list.sideboard, list.maybeboard, colorIdentity]);
 
+  const pushDeckHistory = useStore(s => s.pushDeckHistory);
+
   const handleAddToDeck = useCallback((card: ScryfallCard) => {
     if (!onAddCards) return;
     onAddCards([card.name], 'deck');
+    pushDeckHistory({ action: 'add', cardName: card.name });
     setSearchResults(prev => prev.filter(c => c.id !== card.id));
-  }, [onAddCards]);
+  }, [onAddCards, pushDeckHistory]);
 
   const handleShowBoardPicker = useCallback((card: ScryfallCard, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -823,9 +826,11 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const handleDestinationPick = useCallback((destination: 'deck' | 'sideboard' | 'maybeboard') => {
     if (!pendingCard || !onAddCards) return;
     onAddCards([pendingCard.name], destination);
+    const historyAction = destination === 'sideboard' ? 'sideboard' as const : destination === 'maybeboard' ? 'maybeboard' as const : 'add' as const;
+    pushDeckHistory({ action: historyAction, cardName: pendingCard.name });
     setSearchResults(prev => prev.filter(c => c.id !== pendingCard.id));
     setPendingCard(null);
-  }, [pendingCard, onAddCards]);
+  }, [pendingCard, onAddCards, pushDeckHistory]);
 
   const handleCancelPicker = useCallback(() => {
     setPendingCard(null);
@@ -850,9 +855,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       for (let i = 0; i < toAdd; i++) newCards.push(cardName);
       dupeCount += importQty - toAdd;
     }
-    if (newCards.length > 0) onAddCards(newCards, 'deck');
+    if (newCards.length > 0) {
+      onAddCards(newCards, 'deck');
+      for (const name of newCards) pushDeckHistory({ action: 'add', cardName: name });
+    }
     return { added: newCards.length, updated: dupeCount };
-  }, [onAddCards, list.cards]);
+  }, [onAddCards, list.cards, pushDeckHistory]);
 
   // Board context menu handler
   const handleBoardCardAction = useCallback((card: ScryfallCard, action: CardAction, boardType: 'sideboard' | 'maybeboard') => {
@@ -1128,7 +1136,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 {showSearchResults && searchResults.length > 0 && (
                   <>
                     <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
-                    <div className="absolute top-full left-0 mt-1 z-[999] max-h-[280px] min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
+                    <div className="absolute bottom-full left-0 mb-1 z-[999] max-h-[280px] min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
                       {searchResults.map((card) => (
                         <div
                           key={card.id}
@@ -1161,7 +1169,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 {pendingCard && (
                   <>
                     <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
-                    <div className="absolute top-full left-0 mt-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
+                    <div className="absolute bottom-full left-0 mb-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
                       <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
                       <button
                         onClick={() => handleDestinationPick('sideboard')}

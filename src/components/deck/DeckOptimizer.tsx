@@ -2,17 +2,20 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Loader2, Sparkles, Plus, Minus, Check, ShoppingCart, RefreshCw,
   Shield, Swords, Flame, BookOpen,
-  TrendingUp, TrendingDown,
+  TrendingUp,
   ChevronDown, ChevronRight,
   LayoutDashboard, Mountain, BarChart3, Layers,
   AlertTriangle, Palette, FlipHorizontal2, RotateCcw, Info, Scissors,
+  Lightbulb, Tag, Zap, Target, Crown, ArrowUpDown, Pencil, ThumbsUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, DeckCategory, UserCardList } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
+import { detectThemes, generateStrategyLabel, buildDetectionMessage, type DetectedThemeResult } from '@/services/deckBuilder/themeDetector';
 import { loadTaggerData, getCardRole, getAllCardRoles } from '@/services/tagger/client';
-import { analyzeDeck, getDeckSummary, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type RoleBreakdown, type CurveBreakdown, type ManaBaseAnalysis, type ManaSourcesAnalysis, type GradeResult } from '@/services/deckBuilder/deckAnalyzer';
+import { analyzeDeck, getDeckSummary, getCurvePhases, getCurveGrade, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type RoleBreakdown, type ManaBaseAnalysis, type ManaSourcesAnalysis, type GradeResult, type CurvePhaseAnalysis, type CurvePhase, type ManaTrajectoryPoint } from '@/services/deckBuilder/deckAnalyzer';
+import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
@@ -61,6 +64,12 @@ function scryfallImg(name: string, version: 'small' | 'normal' = 'small'): strin
   return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=${version}`;
 }
 
+/** Convert Scryfall edhrec_rank (lower = more popular) to a pseudo-inclusion % (0-99). Returns null if rank is missing. */
+function edhrecRankToInclusion(rank?: number): number | null {
+  if (rank == null) return null;
+  return Math.max(1, 100 - Math.floor(rank / 100));
+}
+
 const ROLE_META: Record<string, { icon: typeof Sparkles; color: string; barColor: string }> = {
   ramp:      { icon: TrendingUp, color: 'text-emerald-400', barColor: 'bg-emerald-500' },
   removal:   { icon: Swords,     color: 'text-rose-400',    barColor: 'bg-rose-500' },
@@ -83,6 +92,13 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
   Removal: 'bg-rose-500/20 text-rose-400',
   'Board Wipes': 'bg-orange-500/20 text-orange-400',
   'Card Advantage': 'bg-sky-500/20 text-sky-400',
+};
+
+const ROLE_ICON_COLORS: Record<string, string> = {
+  Ramp: 'text-emerald-400',
+  Removal: 'text-rose-400',
+  'Board Wipes': 'text-orange-400',
+  'Card Advantage': 'text-sky-400',
 };
 
 const VERDICT_STYLES: Record<string, { border: string; bg: string; icon: string; titleColor: string }> = {
@@ -272,8 +288,27 @@ function AnalyzedCardRow({
 }
 
 // ─── Shared: Suggestion Card Grid (for upgrade recommendations) ──────
+type SuggestionSortMode = 'relevance' | 'popularity' | 'none';
+const SORT_KEY = 'suggestion-sort';
+const sortListeners = new Set<(mode: SuggestionSortMode) => void>();
+
+function useSuggestionSort() {
+  const [mode, setMode] = useState<SuggestionSortMode>(
+    () => (localStorage.getItem(SORT_KEY) as SuggestionSortMode) || 'relevance'
+  );
+  useEffect(() => {
+    sortListeners.add(setMode);
+    return () => { sortListeners.delete(setMode); };
+  }, []);
+  const set = useCallback((m: SuggestionSortMode) => {
+    localStorage.setItem(SORT_KEY, m);
+    sortListeners.forEach(fn => fn(m));
+  }, []);
+  return [mode, set] as const;
+}
+
 function SuggestionCardGrid({
-  cards, onAdd, onPreview, addedCards, deficit = 0, onCardAction, menuProps,
+  cards, onAdd, onPreview, addedCards, deficit = 0, onCardAction, menuProps, title, hideSort,
 }: {
   cards: RecommendedCard[];
   onAdd: (name: string) => void;
@@ -282,27 +317,71 @@ function SuggestionCardGrid({
   deficit?: number;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  title?: React.ReactNode;
+  hideSort?: boolean;
 }) {
+  const [sortMode, setSortMode] = useSuggestionSort();
+  const sorted = useMemo(() => {
+    if (hideSort) return cards;
+    if (sortMode === 'popularity') {
+      return [...cards].sort((a, b) => b.inclusion - a.inclusion);
+    }
+    return cards; // already sorted by score from analyzeDeck
+  }, [cards, sortMode, hideSort]);
+
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 gap-3">
-      {cards.map((rec, i) => (
-        <SuggestionCardItem
-          key={rec.name}
-          rec={rec}
-          added={addedCards.has(rec.name)}
-          highlighted={deficit > 0 && i < deficit && !addedCards.has(rec.name)}
-          onAdd={onAdd}
-          onPreview={onPreview}
-          onCardAction={onCardAction}
-          menuProps={menuProps}
-        />
-      ))}
+    <div>
+      {(title || !hideSort) && (
+        <div className="flex items-center gap-2 mb-1.5 px-0.5">
+          {title && (
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" />
+              {title}
+            </p>
+          )}
+          {!hideSort && (
+            <div className="ml-auto flex items-center gap-1">
+              <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
+              <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                <button
+                  onClick={() => setSortMode('relevance')}
+                  className={`text-[10px] px-2 py-0.5 transition-colors ${sortMode === 'relevance' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                >
+                  Relevance
+                </button>
+                <div className="w-px h-3 bg-border/50" />
+                <button
+                  onClick={() => setSortMode('popularity')}
+                  className={`text-[10px] px-2 py-0.5 transition-colors ${sortMode === 'popularity' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                >
+                  Popularity
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        {sorted.map((rec, i) => (
+          <SuggestionCardItem
+            key={rec.name}
+            rec={rec}
+            added={addedCards.has(rec.name)}
+            highlighted={deficit > 0 && i < deficit && !addedCards.has(rec.name)}
+            onAdd={onAdd}
+            onPreview={onPreview}
+            onCardAction={onCardAction}
+            menuProps={menuProps}
+            sortMode={hideSort ? 'none' : sortMode}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
 function SuggestionCardItem({
-  rec, added, highlighted, onAdd, onPreview, onCardAction, menuProps,
+  rec, added, highlighted, onAdd, onPreview, onCardAction, menuProps, sortMode = 'relevance',
 }: {
   rec: RecommendedCard;
   added: boolean;
@@ -311,6 +390,7 @@ function SuggestionCardItem({
   onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  sortMode?: SuggestionSortMode;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [flipped, setFlipped] = useState(false);
@@ -399,14 +479,23 @@ function SuggestionCardItem({
           </span>
         )}
       </button>
-      {/* Row 1: inclusion, name, price */}
+      {/* Row 1: metric, name, price */}
       <div className="flex items-center gap-1 px-4 -mt-0.5 min-w-0">
-        {pct >= 0 && (
+        {sortMode === 'none' ? null : sortMode === 'popularity' ? (
+          pct >= 0 && (
+            <span
+              className="text-[10px] font-bold tabular-nums shrink-0"
+              style={{ color: `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` }}
+            >
+              {pct}%
+            </span>
+          )
+        ) : (
           <span
-            className="text-[10px] font-bold tabular-nums shrink-0"
-            style={{ color: `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` }}
+            className="text-[10px] font-bold tabular-nums shrink-0 text-violet-400"
+            title={`Relevance score: ${Math.round(rec.score ?? 0)} (inclusion: ${pct}%)`}
           >
-            {pct}%
+            {Math.round(rec.score ?? 0)}
           </span>
         )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{rec.name}</span>
@@ -414,18 +503,16 @@ function SuggestionCardItem({
           <span className="text-[10px] text-muted-foreground/60 shrink-0">${rec.price}</span>
         )}
       </div>
-      {/* Row 2: role tags */}
+      {/* Row 2: role icons */}
       {roleBadges.length > 0 && (
-        <div className="flex items-center gap-1 px-4 min-w-0 flex-wrap justify-center">
+        <div className="flex items-center gap-1.5 px-4 min-w-0 justify-center">
           {roleBadges.map(label => {
-            const badgeColor = ROLE_BADGE_COLORS[label];
+            const iconColor = ROLE_ICON_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];
-            return badgeColor ? (
-              <span key={label} className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-px rounded-full shrink-0 ${badgeColor}`}>
-                {RIcon && <RIcon className="w-2.5 h-2.5" />}
-                {label}
-              </span>
-            ) : null;
+            if (!iconColor || !RIcon) return null;
+            return (
+              <span key={label} title={label}><RIcon className={`w-3 h-3 shrink-0 ${iconColor}`} /></span>
+            );
           })}
         </div>
       )}
@@ -478,8 +565,9 @@ function CutCardItem({
   cardInclusionMap?: Record<string, number>;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? null;
+  const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank);
   const pct = rawInclusion != null ? Math.round(rawInclusion) : null;
+  const isEstimate = ac.inclusion == null && cardInclusionMap?.[ac.card.name] == null && pct != null;
   const price = getCardPrice(ac.card);
   const imgUrl = ac.card.image_uris?.normal
     || ac.card.card_faces?.[0]?.image_uris?.normal
@@ -552,70 +640,15 @@ function CutCardItem({
         <span
           className="text-[10px] font-bold tabular-nums shrink-0"
           style={{ color: pct ? `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` : undefined }}
+          title={isEstimate ? 'Estimated from EDHREC rank' : undefined}
         >
-          {pct ?? '?'}%
+          {isEstimate ? '~' : ''}{pct ?? '?'}%
         </span>
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{ac.card.name}</span>
         {price && (
           <span className="text-[10px] text-muted-foreground/60 shrink-0">${price}</span>
         )}
       </div>
-    </div>
-  );
-}
-
-// ─── Shared: Suggestion Row (for recommended cards) ──────────────────
-function SuggestionRow({ card, onAdd, onPreview, added }: {
-  card: RecommendedCard;
-  onAdd: () => void;
-  onPreview: () => void;
-  added: boolean;
-}) {
-  // Show all role badges for multi-role cards, fall back to single role
-  const roleBadges = card.allRoleLabels && card.allRoleLabels.length > 1
-    ? card.allRoleLabels
-    : card.roleLabel ? [card.roleLabel] : [];
-
-  return (
-    <div
-      className={`flex items-center gap-2 py-0.5 px-1.5 rounded-lg border transition-colors ${
-        added ? 'opacity-40 border-transparent' : 'border-transparent hover:bg-accent/40 cursor-pointer'
-      }`}
-      onClick={added ? undefined : onPreview}
-    >
-      <img
-        src={card.imageUrl || scryfallImg(card.name)}
-        alt={card.name}
-        className="w-6 h-auto rounded shadow shrink-0"
-        loading="lazy"
-        onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name); }}
-      />
-      <span className="text-sm truncate flex-1 min-w-0">{card.name}</span>
-      {roleBadges.length > 0 && (
-        <span className="flex items-center gap-0.5 shrink-0">
-          {roleBadges.map(label => {
-            const badgeColor = ROLE_BADGE_COLORS[label];
-            return badgeColor ? (
-              <span key={label} className={`text-[10px] font-bold px-1 py-px rounded-full ${badgeColor}`}>
-                {label}
-              </span>
-            ) : null;
-          })}
-        </span>
-      )}
-      <span className="text-xs text-muted-foreground shrink-0">{card.price ? `$${card.price}` : '—'}</span>
-      <span className="text-xs text-muted-foreground tabular-nums shrink-0">{Math.round(card.inclusion)}%</span>
-      {!added ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); onAdd(); }}
-          className="p-0.5 rounded-md text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors shrink-0"
-          title="Add to deck"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      ) : (
-        <span className="p-0.5 text-emerald-400 shrink-0"><Check className="w-3.5 h-3.5" /></span>
-      )}
     </div>
   );
 }
@@ -630,9 +663,193 @@ const HEALTH_GRADE_STYLES: Record<string, { color: string; badgeBg: string }> = 
   F: { color: 'text-red-400', badgeBg: 'bg-red-500/15' },
 };
 
-function DeckHealthStrip({ analysis, onNavigate }: {
+// ─── Theme Detection Banner ───────────────────────────────────────────
+
+const TEMPO_OPTIONS: { value: Pacing; label: string; description: string }[] = [
+  { value: 'aggressive-early', label: 'Aggressive', description: 'Win fast with cheap threats' },
+  { value: 'fast-tempo', label: 'Fast', description: 'Low curve, quick pressure' },
+  { value: 'midrange', label: 'Midrange', description: 'Balanced 3-4 CMC core' },
+  { value: 'late-game', label: 'Late-Game', description: 'Big finishers, slow build' },
+  { value: 'balanced', label: 'Balanced', description: 'Even spread across costs' },
+];
+
+function ThemeDetectionBanner({
+  detection,
+  loading,
+  allThemes,
+  primaryThemeSlug,
+  secondaryThemeSlug,
+  onThemeSelect,
+  detectedPacing,
+  userPacing,
+  onPacingChange,
+}: {
+  detection: DetectedThemeResult | null;
+  loading: boolean;
+  allThemes: import('@/types').EDHRECTheme[];
+  primaryThemeSlug: string | null;
+  secondaryThemeSlug: string | null;
+  onThemeSelect: (slug: string) => void;
+  detectedPacing?: Pacing;
+  userPacing: Pacing | null;
+  onPacingChange: (pacing: Pacing | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (allThemes.length === 0 && !loading) return null;
+
+  // Loading shimmer
+  if (loading && !detection) {
+    return (
+      <div className="bg-card/60 border border-border/30 rounded-lg p-3 animate-pulse">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary/50" />
+          <span className="text-xs text-muted-foreground">Detecting deck themes...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!detection) return null;
+
+  // Build chip list: evaluated themes first (with scores), then remaining EDHREC themes
+  const evaluatedSlugs = new Set(detection.evaluatedThemes.map(t => t.theme.slug));
+  const chipThemes: Array<{ name: string; slug: string; score?: number }> = [];
+
+  for (const et of detection.evaluatedThemes) {
+    chipThemes.push({ name: et.theme.name, slug: et.theme.slug, score: et.score });
+  }
+  for (const theme of allThemes) {
+    if (evaluatedSlugs.has(theme.slug)) continue;
+    if (chipThemes.length >= 8) break;
+    chipThemes.push({ name: theme.name, slug: theme.slug });
+  }
+
+  const activePacing = userPacing ?? detectedPacing;
+
+  return (
+    <div className="bg-gradient-to-r from-amber-500/5 via-card/60 to-card/60 border border-amber-500/15 rounded-lg p-3">
+      <div className="flex items-center gap-2">
+        <div className="p-1 rounded-md bg-amber-500/10 shrink-0">
+          <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed flex-1"
+          dangerouslySetInnerHTML={{ __html: detection.detectionMessage }}
+        />
+        {loading && (
+          <Loader2 className="w-3 h-3 animate-spin text-primary/40 shrink-0" />
+        )}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 transition-colors shrink-0"
+          title={expanded ? 'Hide selector' : 'Adjust themes & tempo'}
+        >
+          <Pencil className="w-2.5 h-2.5" />
+          <span>Adjust</span>
+        </button>
+      </div>
+
+      {/* Collapsible theme + tempo selector */}
+      <div
+        className="overflow-hidden transition-all duration-300 ease-out"
+        style={{ maxHeight: expanded ? '300px' : '0px', opacity: expanded ? 1 : 0 }}
+      >
+        {/* Theme chips */}
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {chipThemes.map(chip => {
+            const isPrimary = chip.slug === primaryThemeSlug;
+            const isSecondary = chip.slug === secondaryThemeSlug;
+
+            return (
+              <button
+                key={chip.slug}
+                onClick={() => onThemeSelect(chip.slug)}
+                className={`
+                  inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
+                  transition-all duration-200 cursor-pointer
+                  ${isPrimary
+                    ? 'bg-primary/20 border-primary/40 text-primary font-semibold'
+                    : isSecondary
+                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
+                      : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                  }
+                `}
+                title={
+                  isPrimary ? 'Primary theme (click to deselect)'
+                    : isSecondary ? 'Secondary theme (click to deselect)'
+                      : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
+                        : 'Click to select as theme'
+                }
+              >
+                {isPrimary && (
+                  <span className="w-3.5 h-3.5 rounded-full bg-primary/30 text-[9px] font-bold flex items-center justify-center leading-none">1</span>
+                )}
+                {isSecondary && (
+                  <span className="w-3.5 h-3.5 rounded-full bg-amber-500/30 text-[9px] font-bold flex items-center justify-center leading-none">2</span>
+                )}
+                {!isPrimary && !isSecondary && <Tag className="w-2.5 h-2.5" />}
+                {chip.name}
+                {chip.score != null && chip.score >= 20 && (
+                  <span className={`text-[10px] tabular-nums ml-0.5 ${
+                    isPrimary ? 'text-primary/70' : isSecondary ? 'text-amber-400/70' : 'text-muted-foreground/50'
+                  }`}>
+                    {Math.round(chip.score)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tempo selector */}
+        <div className="pt-2 mt-2 border-t border-border/20">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Zap className="w-3 h-3 text-muted-foreground/60" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Tempo</span>
+            {userPacing && (
+              <button
+                onClick={() => onPacingChange(null)}
+                className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
+                title="Reset to auto-detected tempo"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {TEMPO_OPTIONS.map(opt => {
+              const isActive = activePacing === opt.value;
+              const isDetected = detectedPacing === opt.value && !userPacing;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => onPacingChange(isActive && userPacing ? null : opt.value)}
+                  className={`
+                    inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
+                    transition-all duration-200 cursor-pointer
+                    ${isActive
+                      ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 font-semibold'
+                      : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                    }
+                  `}
+                  title={`${opt.description}${isDetected ? ' (auto-detected)' : ''}`}
+                >
+                  {isDetected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeckHealthStrip({ analysis, onNavigate, deckExcess }: {
   analysis: DeckAnalysis;
   onNavigate: (tab: TabKey) => void;
+  deckExcess?: number;
 }) {
   const grades: { key: TabKey; label: string; icon: typeof Shield; grade: GradeResult }[] = [
     { key: 'roles', label: 'Roles', icon: Shield, grade: analysis.rolesGrade },
@@ -640,7 +857,7 @@ function DeckHealthStrip({ analysis, onNavigate }: {
     { key: 'curve', label: 'Curve', icon: BarChart3, grade: analysis.curveGrade },
   ];
 
-  const summary = getDeckSummary(analysis);
+  const summary = getDeckSummary(analysis, deckExcess);
 
   return (
     <div className="space-y-2">
@@ -666,212 +883,10 @@ function DeckHealthStrip({ analysis, onNavigate }: {
         })}
       </div>
       <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Summary</span>
-        <p className="text-xs text-muted-foreground leading-relaxed mt-1">{summary}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: summary }}
+        />
       </div>
-    </div>
-  );
-}
-
-// ─── Overview Panel: Role Balance ──────────────────────────────────
-function RoleBalancePanel({ deficits, hasDeficits, onNavigate }: { deficits: DeckAnalysis['roleDeficits']; hasDeficits: boolean; onNavigate?: () => void }) {
-  const totalDeficit = deficits.reduce((sum, rd) => sum + Math.max(0, rd.deficit), 0);
-  const rolesShort = deficits.filter(rd => rd.deficit > 0).length;
-
-  return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <button onClick={onNavigate} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer">Roles</button>
-        <span className={`text-[10px] font-bold px-1.5 py-px rounded-full ml-auto ${
-          !hasDeficits ? 'bg-emerald-500/15 text-emerald-400'
-            : rolesShort >= 3 ? 'bg-red-500/15 text-red-400'
-            : 'bg-amber-500/15 text-amber-400'
-        }`}>
-          {!hasDeficits ? 'ON TARGET' : `${totalDeficit} SHORT`}
-        </span>
-      </div>
-      <div className="space-y-2">
-        {deficits.map(rd => {
-          const pct = rd.target > 0 ? Math.min(100, (rd.current / rd.target) * 100) : 100;
-          const meta = ROLE_META[rd.role];
-          const Icon = meta?.icon || Shield;
-          return (
-            <div key={rd.role}>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Icon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                <span className="text-xs font-medium truncate">{rd.label}</span>
-                <span className="text-xs font-bold tabular-nums shrink-0 ml-auto" style={{ color: roleBarColor(rd.current, rd.target) }}>
-                  {rd.current}/{rd.target}
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-accent/40 overflow-hidden mb-2.5">
-                <div className="h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rd.current, rd.target) }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Overview Panel: Mana Curve ────────────────────────────────────
-type CurveMode = 'line' | 'bar';
-
-function CurvePanel({ slots, tall, onNavigate }: { slots: DeckAnalysis['curveAnalysis']; tall?: boolean; onNavigate?: () => void }) {
-  const [mode, setMode] = useState<CurveMode>('line');
-  const maxVal = Math.max(...slots.flatMap(s => [s.current, s.target]), 1);
-
-  return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3 flex flex-col">
-      <div className="flex items-center gap-1.5 mb-2 shrink-0">
-        <button onClick={onNavigate} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer">Mana Curve</button>
-        <span className="text-[11px] text-muted-foreground/50 ml-auto flex items-center gap-2">
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-sm bg-muted-foreground/20 inline-block" />avg</span>
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-sm bg-sky-500/70 inline-block" />you</span>
-          <button
-            onClick={() => setMode(m => m === 'line' ? 'bar' : 'line')}
-            className="ml-1 p-0.5 rounded text-foreground hover:text-foreground transition-colors"
-            title={mode === 'line' ? 'Switch to bar chart' : 'Switch to line chart'}
-          >
-            {mode === 'line' ? <BarChart3 className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
-          </button>
-        </span>
-      </div>
-      {mode === 'line'
-        ? <CurveLineChart slots={slots} maxVal={maxVal} tall={tall} />
-        : <CurveBarChart slots={slots} maxVal={maxVal} tall={tall} />
-      }
-    </div>
-  );
-}
-
-function CurveLineChart({ slots, maxVal, tall }: { slots: DeckAnalysis['curveAnalysis']; maxVal: number; tall?: boolean }) {
-  const chartH = tall ? 100 : 44;
-  const padTop = 16;   // room for value labels above dots
-  const padBot = 16;   // room for CMC labels below
-  const svgH = chartH + padTop + padBot;
-  const padL = 8;
-  const padR = 8;
-  const viewW = 200;
-  const plotW = viewW - padL - padR;
-  const n = slots.length;
-  const step = n > 1 ? plotW / (n - 1) : 0;
-
-  const toY = (val: number) => padTop + chartH - (maxVal > 0 ? (val / maxVal) * chartH : 0);
-
-  const yourPoints = slots.map((s, i) => ({ x: padL + i * step, y: toY(s.current), ...s }));
-  const avgPoints = slots.map((s, i) => ({ x: padL + i * step, y: toY(s.target), ...s }));
-
-  // Straight line path through points
-  const toLinePath = (pts: { x: number; y: number }[]) => {
-    if (pts.length === 0) return '';
-    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  };
-
-  const yourPath = toLinePath(yourPoints);
-  const avgPath = toLinePath(avgPoints);
-
-  // Filled area under the "you" line
-  const yourArea = yourPoints.length > 0
-    ? `${yourPath} L${yourPoints[yourPoints.length - 1].x},${padTop + chartH} L${yourPoints[0].x},${padTop + chartH} Z`
-    : '';
-
-  const svgHeight = tall ? 130 : 70;
-
-  return (
-    <svg
-      viewBox={`0 0 ${viewW} ${svgH}`}
-      className="w-full flex-1"
-      style={{ height: svgHeight, minHeight: svgHeight }}
-      preserveAspectRatio="none"
-    >
-      {/* Horizontal grid lines */}
-      {[0.25, 0.5, 0.75].map(frac => {
-        const y = padTop + chartH - frac * chartH;
-        return <line key={frac} x1={padL} x2={viewW - padR} y1={y} y2={y} stroke="currentColor" className="text-border/20" strokeWidth={0.4} />;
-      })}
-      {/* Baseline */}
-      <line x1={padL} x2={viewW - padR} y1={padTop + chartH} y2={padTop + chartH} stroke="currentColor" className="text-border/30" strokeWidth={0.4} />
-
-      {/* Filled area under "you" line (only in tall/detail mode) */}
-      {tall && yourArea && <path d={yourArea} className="fill-sky-500/8" />}
-
-      {/* Avg line (dashed) */}
-      <path d={avgPath} fill="none" stroke="currentColor" className="text-muted-foreground/20" strokeWidth={1} strokeDasharray="3 2" />
-
-      {/* Your line */}
-      <path d={yourPath} fill="none" stroke="currentColor" className="text-sky-500" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-
-      {/* Dots + labels */}
-      {yourPoints.map((p, i) => {
-        const isOver = p.current > p.target;
-        const isUnder = p.current < p.target;
-        const dotColor = isOver ? 'text-amber-500' : isUnder ? 'text-sky-400' : 'text-emerald-400';
-        const labelColor = isOver ? 'fill-amber-400' : isUnder ? 'fill-sky-400' : 'fill-emerald-400';
-        return (
-          <g key={i}>
-            {/* Avg dot */}
-            <circle cx={avgPoints[i].x} cy={avgPoints[i].y} r={1.2} fill="currentColor" className="text-muted-foreground/25" />
-            {/* Your dot */}
-            <circle cx={p.x} cy={p.y} r={2.2} fill="currentColor" className={dotColor} />
-            {/* Value label above dot */}
-            {p.current > 0 && (
-              <text x={p.x} y={p.y - 5} textAnchor="middle" className="text-[7px] font-semibold tabular-nums">
-                <tspan className={labelColor}>{p.current}</tspan>
-                {p.target > 0 && p.current !== p.target && (
-                  <tspan className="fill-muted-foreground/40">{' '}(~{p.target})</tspan>
-                )}
-              </text>
-            )}
-            {/* CMC label below */}
-            <text x={p.x} y={padTop + chartH + 11} textAnchor="middle" className="text-[8px] fill-muted-foreground/50 tabular-nums">
-              {p.cmc === 7 ? '7+' : p.cmc}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function CurveBarChart({ slots, maxVal, tall }: { slots: DeckAnalysis['curveAnalysis']; maxVal: number; tall?: boolean }) {
-  const barAreaH = tall ? 100 : 60;
-
-  return (
-    <div className="flex items-end gap-1" style={{ height: barAreaH + 30 }}>
-      {slots.map(slot => {
-        const curH = Math.max(2, (slot.current / maxVal) * 100);
-        const tgtH = Math.max(2, (slot.target / maxVal) * 100);
-        const isOver = slot.current > slot.target;
-        const isUnder = slot.current < slot.target;
-
-        return (
-          <div key={slot.cmc} className="flex-1 flex flex-col items-center h-full">
-            <div className="flex gap-px text-[10px] tabular-nums h-5 items-end justify-center shrink-0">
-              {slot.current > 0 && (
-                <span className={isOver ? 'text-amber-400' : isUnder ? 'text-sky-400' : 'text-emerald-400'}>{slot.current}</span>
-              )}
-              {slot.current > 0 && slot.target > 0 && slot.current !== slot.target && (
-                <span className="text-muted-foreground/40">(~{slot.target})</span>
-              )}
-            </div>
-            <div className="relative w-full flex items-end justify-center gap-px" style={{ height: barAreaH }}>
-              <div
-                className="w-[38%] rounded-t-sm bg-muted-foreground/15"
-                style={{ height: `${tgtH * 0.8}%`, minHeight: '2px' }}
-                title={`EDHREC avg: ${slot.target}`}
-              />
-              <div
-                className={`w-[38%] rounded-t-sm ${isOver ? 'bg-amber-500/80' : isUnder ? 'bg-sky-500/70' : 'bg-emerald-500/70'}`}
-                style={{ height: `${curH * 0.8}%`, minHeight: '2px' }}
-                title={`You: ${slot.current}`}
-              />
-            </div>
-            <span className="text-[11px] text-muted-foreground/60 tabular-nums mt-0.5 shrink-0">{slot.cmc === 7 ? '7+' : slot.cmc}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -1164,7 +1179,8 @@ function LandCountDetail({
     const filtered = nonbasicLands
       .filter(ac => !isChannelLand(ac.card))
       .sort((a, b) =>
-        (a.inclusion ?? resolvedInclusionMap[a.card.name] ?? 0) - (b.inclusion ?? resolvedInclusionMap[b.card.name] ?? 0)
+        (a.inclusion ?? resolvedInclusionMap[a.card.name] ?? edhrecRankToInclusion(a.card.edhrec_rank) ?? 0)
+        - (b.inclusion ?? resolvedInclusionMap[b.card.name] ?? edhrecRankToInclusion(b.card.edhrec_rank) ?? 0)
       );
     const limit = Math.min(Math.max(excess + 4, 5), 15);
     return filtered.slice(0, limit);
@@ -1452,21 +1468,18 @@ function LandCountDetail({
               </>
             ) : (
               <>
-                <div className="flex items-center gap-2 mb-2 px-0.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" />
-                    Suggested Lands ({analysis.landRecommendations.length})
-                  </p>
-                  {isOverTarget && cutCandidates.length > 0 && (
+                {isOverTarget && cutCandidates.length > 0 && (
+                  <div className="flex justify-end mb-1 px-0.5">
                     <button
                       onClick={() => setShowCuts(true)}
-                      className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                     >
                       View cut candidates →
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
                 <SuggestionCardGrid
+                  title={<>Suggested Lands ({analysis.landRecommendations.length})</>}
                   cards={analysis.landRecommendations}
                   onAdd={onAdd}
                   onPreview={onPreview}
@@ -1485,7 +1498,7 @@ function LandCountDetail({
 }
 
 // ─── Mana Production Detail Panel ───────────────────────────────────
-function ManaSourcesSummary({ ms }: { ms: ManaSourcesAnalysis }) {
+function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; deckSize: number }) {
   const [expanded, setExpanded] = useState(true);
   const gs = FIXING_GRADE_STYLES[ms.grade] || FIXING_GRADE_STYLES.C;
 
@@ -1502,12 +1515,12 @@ function ManaSourcesSummary({ ms }: { ms: ManaSourcesAnalysis }) {
         Summary
         <GradeInfoPopover>
           <p className="font-semibold text-foreground/80">Mana Production Grading</p>
-          <p>Evaluates ramp count, early-game availability (CMC ≤ 2), and how many are mana producers (dorks/rocks).</p>
-          <p><span className="font-semibold text-emerald-400">A</span> — 10+ ramp, 5+ early, 6+ producers</p>
-          <p><span className="font-semibold text-sky-400">B</span> — 8+ ramp, 3+ early, 4+ producers</p>
-          <p><span className="font-semibold text-amber-400">C</span> — 6+ ramp total</p>
-          <p><span className="font-semibold text-orange-400">D</span> — 4+ ramp total</p>
-          <p><span className="font-semibold text-red-400">F</span> — Fewer than 4 ramp cards</p>
+          <p>Evaluates ramp count, early-game availability (CMC ≤ 2), and how many are mana producers (dorks/rocks).{deckSize !== 100 ? ` Scaled for ${deckSize}-card deck.` : ''}</p>
+          <p><span className="font-semibold text-emerald-400">A</span> — {Math.round(10 * deckSize / 100)}+ ramp, {Math.round(5 * deckSize / 100)}+ early, {Math.round(6 * deckSize / 100)}+ producers</p>
+          <p><span className="font-semibold text-sky-400">B</span> — {Math.round(8 * deckSize / 100)}+ ramp, {Math.round(3 * deckSize / 100)}+ early, {Math.round(4 * deckSize / 100)}+ producers</p>
+          <p><span className="font-semibold text-amber-400">C</span> — {Math.round(6 * deckSize / 100)}+ ramp total</p>
+          <p><span className="font-semibold text-orange-400">D</span> — {Math.round(4 * deckSize / 100)}+ ramp total</p>
+          <p><span className="font-semibold text-red-400">F</span> — Fewer than {Math.round(4 * deckSize / 100)} ramp cards</p>
         </GradeInfoPopover>
       </div>
       {expanded && <>
@@ -1569,7 +1582,7 @@ function ManaSourcesDetail({
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: summary + ramp cards grouped */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
-          <ManaSourcesSummary ms={analysis.manaSources} />
+          <ManaSourcesSummary ms={analysis.manaSources} deckSize={analysis.manaBase.deckSize} />
           {groups.length > 0 ? groups.map(g => (
             <div key={g.key}>
               <button
@@ -1624,11 +1637,8 @@ function ManaSourcesDetail({
         {/* Right: ramp suggestions */}
         {hasSuggestions && (
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
-              Suggested Ramp ({rampSuggestions.length})
-            </p>
             <SuggestionCardGrid
+              title={<>Suggested Ramp ({rampSuggestions.length})</>}
               cards={rampSuggestions}
               onAdd={onAdd}
               onPreview={onPreview}
@@ -2089,11 +2099,8 @@ function FixingDetail({
             ) : null}
             {filteredFixerRecs.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" />
-                  Suggested {(cf.colorsNeeded?.length || 0) >= 2 ? 'Fixers' : 'Ramp'} ({filteredFixerRecs.length})
-                </p>
                 <SuggestionCardGrid
+                  title={<>Suggested {(cf.colorsNeeded?.length || 0) >= 2 ? 'Fixers' : 'Ramp'} ({filteredFixerRecs.length})</>}
                   cards={filteredFixerRecs}
                   onAdd={onAdd}
                   onPreview={onPreview}
@@ -2105,11 +2112,8 @@ function FixingDetail({
             )}
             {filteredLandSuggestions.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" />
-                  Suggested Lands ({filteredLandSuggestions.length})
-                </p>
                 <SuggestionCardGrid
+                  title={<>Suggested Lands ({filteredLandSuggestions.length})</>}
                   cards={filteredLandSuggestions}
                   onAdd={onAdd}
                   onPreview={onPreview}
@@ -2442,6 +2446,7 @@ function MdfcDetail({
                 addedCards={new Set([...addedCards, ...Array.from(currentCardNames).filter(n => channelLandCards.some(cl => cl.name === n))])}
                 onCardAction={onCardAction}
                 menuProps={menuProps}
+                hideSort
               />
             </div>
           )}
@@ -2464,6 +2469,7 @@ function MdfcDetail({
               deficit={0}
               onCardAction={onCardAction}
               menuProps={menuProps}
+              hideSort
             />
           ) : (
             <p className="text-xs text-muted-foreground/60 italic py-4 text-center">No MDFC lands found for your color identity</p>
@@ -2518,7 +2524,7 @@ function LandsTabContent({
         if (allRoles.length === 0) { const r2 = getAllCardRoles(card.name); if (r2.length > 0) allRoles.push(...r2); }
         return {
           name: card.name,
-          inclusion: card.edhrec_rank ? Math.max(1, 100 - Math.floor(card.edhrec_rank / 100)) : 0,
+          inclusion: edhrecRankToInclusion(card.edhrec_rank) ?? 0,
           synergy: 0,
           fillsDeficit: false,
           primaryType: card.type_line || '',
@@ -2602,108 +2608,26 @@ function LandsTabContent({
   );
 }
 
-// ─── Overview Panel: Mana Base ─────────────────────────────────────
-function ManaBasePanel({ manaBase, onNavigate }: { manaBase: DeckAnalysis['manaBase']; onNavigate?: () => void }) {
-  const vs = VERDICT_STYLES[manaBase.verdict] || VERDICT_STYLES['ok'];
-  const landDelta = manaBase.currentLands - manaBase.adjustedSuggestion;
-
-  return (
-    <div className={`border rounded-lg p-3 ${vs.border} ${vs.bg}`}>
-      <div className="flex items-center gap-1.5 mb-2">
-        <button onClick={onNavigate} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer">Mana Base</button>
-        {manaBase.verdict !== 'ok' && (
-          <span className={`text-[10px] font-bold px-1.5 py-px rounded-full ml-auto ${
-            manaBase.verdict === 'critically-low' ? 'bg-red-500/20 text-red-400' :
-            manaBase.verdict === 'high' ? 'bg-sky-500/20 text-sky-400' :
-            'bg-amber-500/20 text-amber-400'
-          }`}>
-            {manaBase.verdict === 'critically-low' ? 'CRITICAL' : manaBase.verdict === 'low' ? 'LOW' : manaBase.verdict === 'slightly-low' ? 'LIGHT' : 'HIGH'}
-          </span>
-        )}
-      </div>
-
-      <div className="flex items-baseline gap-2 mb-1.5">
-        <span className={`text-2xl font-bold tabular-nums ${vs.titleColor}`}>{manaBase.currentLands}</span>
-        <span className="text-xs text-muted-foreground">lands</span>
-        {landDelta !== 0 && (
-          <span className={`text-xs font-medium flex items-center ${landDelta > 0 ? 'text-sky-400' : 'text-amber-400'}`}>
-            {landDelta > 0 ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
-            {landDelta > 0 ? '+' : ''}{landDelta} vs suggested
-          </span>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3 text-xs text-muted-foreground mb-1.5">
-        <span>{manaBase.currentBasic} basic</span>
-        <span className="text-border">·</span>
-        <span>{manaBase.currentNonbasic} nonbasic</span>
-        <span className="text-border">·</span>
-        <span>avg {manaBase.suggestedLands}</span>
-      </div>
-
-      <p className="text-xs text-muted-foreground/80 leading-relaxed">{manaBase.verdictMessage}</p>
-
-      {manaBase.rampCount > 0 && (
-        <p className="text-xs text-muted-foreground/60 mt-1 flex items-center gap-1">
-          <TrendingUp className="w-3 h-3 text-emerald-400/50" />
-          {manaBase.rampCount} ramp ({manaBase.manaProducerCount} producers)
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ─── Overview Panel: Type Distribution ──────────────────────────────
-function TypeSidebar({ types }: { types: DeckAnalysis['typeAnalysis'] }) {
-  return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2.5">Types</div>
-      <div className="space-y-2">
-        {types.map(ta => {
-          const pct = ta.target > 0 ? Math.min(100, (ta.current / ta.target) * 100) : 100;
-          const isOver = ta.delta > 2;
-          const isUnder = ta.delta < -2;
-          const color = isOver ? 'bg-amber-500' : isUnder ? 'bg-sky-500' : 'bg-emerald-500';
-          return (
-            <div key={ta.type}>
-              <div className="flex items-center justify-between text-xs mb-0.5">
-                <span className="text-muted-foreground capitalize">{ta.type}</span>
-                <span className="flex items-center gap-1">
-                  <span className={`font-bold tabular-nums ${isOver ? 'text-amber-400' : isUnder ? 'text-sky-400' : 'text-muted-foreground'}`}>
-                    {ta.current}/{ta.target}
-                  </span>
-                  {(isOver || isUnder) && (
-                    <span className={`text-[11px] ${isOver ? 'text-amber-400/70' : 'text-sky-400/70'}`}>
-                      {ta.delta > 0 ? '+' : ''}{ta.delta}
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="h-1 rounded-full bg-accent/30 overflow-hidden">
-                <div className={`h-full rounded-full ${color} opacity-70`} style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── Overview: Recommendation Row ────────────────────────────────────
-function RecommendationRow({ card, rank, onAdd, onPreview, added }: {
+function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction, menuProps }: {
   card: RecommendedCard;
   rank: number;
   onAdd: () => void;
   onPreview: () => void;
   added: boolean;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
 }) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const rankStyle = rank < 3 ? RANK_STYLES[rank] : null;
-  const badgeColor = card.roleLabel ? ROLE_BADGE_COLORS[card.roleLabel] : null;
+  const roleBadges = card.allRoleLabels && card.allRoleLabels.length > 1
+    ? card.allRoleLabels
+    : card.roleLabel ? [card.roleLabel] : [];
+  const pseudoCard = useMemo(() => ({ name: card.name, id: card.name } as ScryfallCard), [card.name]);
 
   return (
     <div
-      className={`flex items-center gap-2 py-1 px-1.5 rounded-lg border transition-all duration-200 ${
+      className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border transition-all duration-200 ${
         added
           ? 'opacity-40 border-transparent'
           : rankStyle
@@ -2711,6 +2635,12 @@ function RecommendationRow({ card, rank, onAdd, onPreview, added }: {
             : 'border-transparent hover:bg-accent/40 cursor-pointer'
       }`}
       onClick={added ? undefined : onPreview}
+      onContextMenu={(e) => {
+        if (onCardAction && menuProps) {
+          e.preventDefault();
+          setContextMenuOpen(true);
+        }
+      }}
     >
       <div className="relative shrink-0">
         <img
@@ -2729,11 +2659,17 @@ function RecommendationRow({ card, rank, onAdd, onPreview, added }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
           <p className={`text-sm truncate ${rankStyle ? 'font-semibold' : 'font-medium'}`}>{card.name}</p>
-          {card.fillsDeficit && card.roleLabel && badgeColor && (
-            <span className={`text-[10px] font-bold px-1 py-px rounded-full shrink-0 ${badgeColor}`}>
-              {card.roleLabel}
-            </span>
-          )}
+          {roleBadges.map(label => {
+            const bc = ROLE_BADGE_COLORS[label];
+            const RIcon = ROLE_LABEL_ICONS[label];
+            if (!bc) return null;
+            return (
+              <span key={label} className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 ${bc}`}>
+                {RIcon && <RIcon className="w-2.5 h-2.5" />}
+                {label}
+              </span>
+            );
+          })}
         </div>
         {card.primaryType && card.primaryType !== 'Unknown' && (
           <p className="text-xs text-muted-foreground truncate">{card.primaryType}</p>
@@ -2754,6 +2690,128 @@ function RecommendationRow({ card, rank, onAdd, onPreview, added }: {
       ) : (
         <span className="p-0.5 text-emerald-400 shrink-0">
           <Check className="w-3.5 h-3.5" />
+        </span>
+      )}
+      {onCardAction && menuProps && (
+        <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+          <CardContextMenu
+            card={pseudoCard}
+            onAction={onCardAction}
+            hasAddToDeck
+            hasSideboard
+            hasMaybeboard
+            isInSideboard={menuProps.sideboardNames.has(card.name)}
+            isInMaybeboard={menuProps.maybeboardNames.has(card.name)}
+            userLists={menuProps.userLists}
+            isMustInclude={menuProps.mustIncludeNames.has(card.name)}
+            isBanned={menuProps.bannedNames.has(card.name)}
+            forceOpen={contextMenuOpen}
+            onForceClose={() => setContextMenuOpen(false)}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Overview: Cut Row (mirrors RecommendationRow) ──────────────────
+function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProps, cardInclusionMap }: {
+  ac: AnalyzedCard;
+  onRemove: (card: ScryfallCard) => void;
+  onSkip: (card: ScryfallCard) => void;
+  onPreview: () => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  cardInclusionMap?: Record<string, number>;
+}) {
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank);
+  const pct = rawInclusion != null ? Math.round(rawInclusion) : null;
+  const isEstimate = ac.inclusion == null && cardInclusionMap?.[ac.card.name] == null && pct != null;
+  const price = getCardPrice(ac.card);
+  const imgUrl = ac.card.image_uris?.normal
+    || ac.card.card_faces?.[0]?.image_uris?.normal
+    || scryfallImg(ac.card.name);
+  const typeLine = getFrontFaceTypeLine(ac.card);
+  const primaryType = typeLine.split('—')[0].replace(/Legendary\s+/i, '').trim();
+  const roleBadges: string[] = [];
+  if (ac.roleLabel) roleBadges.push(ac.roleLabel);
+
+  return (
+    <div
+      className="group flex items-center gap-2 py-1 px-1.5 rounded-lg border border-transparent hover:bg-accent/40 cursor-pointer transition-all duration-200"
+      onClick={onPreview}
+      onContextMenu={(e) => {
+        if (onCardAction && menuProps) {
+          e.preventDefault();
+          setContextMenuOpen(true);
+        }
+      }}
+    >
+      <div className="shrink-0">
+        <img
+          src={imgUrl}
+          alt={ac.card.name}
+          className="w-7 h-auto rounded shadow-md"
+          loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(ac.card.name); }}
+        />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1">
+          <p className="text-sm font-medium truncate">{ac.card.name}</p>
+          {roleBadges.map(label => {
+            const bc = ROLE_BADGE_COLORS[label];
+            const RIcon = ROLE_LABEL_ICONS[label];
+            if (!bc) return null;
+            return (
+              <span key={label} className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 ${bc}`}>
+                {RIcon && <RIcon className="w-2.5 h-2.5" />}
+                {label}
+              </span>
+            );
+          })}
+        </div>
+        {primaryType && (
+          <p className="text-xs text-muted-foreground truncate">{primaryType}</p>
+        )}
+      </div>
+      <div className="text-right shrink-0 leading-tight">
+        <p className="text-xs font-medium">{price ? `$${price}` : '—'}</p>
+        <p className="text-[11px] text-muted-foreground tabular-nums" title={isEstimate ? 'Estimated from EDHREC rank' : undefined}>
+          {pct != null ? `${isEstimate ? '~' : ''}${pct}%` : '—'}
+        </p>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onSkip(ac.card); }}
+        className="p-0.5 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/60 transition-colors shrink-0"
+        title="Keep in deck"
+      >
+        <ThumbsUp className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove(ac.card); }}
+        className="p-0.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+        title="Cut from deck"
+      >
+        <Minus className="w-3.5 h-3.5" />
+      </button>
+      {onCardAction && menuProps && (
+        <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+          <CardContextMenu
+            card={ac.card}
+            onAction={onCardAction}
+            hasRemove
+            hasSideboard
+            hasMaybeboard
+            isInSideboard={menuProps.sideboardNames.has(ac.card.name)}
+            isInMaybeboard={menuProps.maybeboardNames.has(ac.card.name)}
+            userLists={menuProps.userLists}
+            isMustInclude={menuProps.mustIncludeNames.has(ac.card.name)}
+            isBanned={menuProps.bannedNames.has(ac.card.name)}
+            forceOpen={contextMenuOpen}
+            onForceClose={() => setContextMenuOpen(false)}
+          />
         </span>
       )}
     </div>
@@ -2828,7 +2886,6 @@ function RoleDetailPanel({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
 }) {
-  const met = rb.current >= rb.target;
   const hasSuggestions = rb.suggestedReplacements.length > 0;
 
   return (
@@ -2865,11 +2922,8 @@ function RoleDetailPanel({
         {/* Right column: potential replacements as card image grid */}
         {hasSuggestions && (
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
-              {met ? 'Potential Replacements' : 'Suggested Additions'} ({rb.suggestedReplacements.length})
-            </p>
             <SuggestionCardGrid
+              title={<>Suggested {rb.label} ({rb.suggestedReplacements.length})</>}
               cards={rb.suggestedReplacements}
               onAdd={onAdd}
               onPreview={onPreview}
@@ -2911,24 +2965,209 @@ function RolesTabContent({
   );
 }
 
-// ─── Curve Tab: CMC Bucket Section ───────────────────────────────────
-function CurveBucketSection({
-  cb, onPreview, recommendations, onAdd, addedCards,
-}: {
-  cb: CurveBreakdown;
-  onPreview: (name: string) => void;
-  recommendations: RecommendedCard[];
-  onAdd: (name: string) => void;
-  addedCards: Set<string>;
-}) {
-  const [expanded, setExpanded] = useState(cb.cards.length > 0);
-  const isOver = cb.delta > 0;
-  const isUnder = cb.delta < 0;
-  const cmcLabel = cb.cmc === 7 ? '7+' : String(cb.cmc);
+// ═══════════════════════════════════════════════════════════════════════
+// Curve Tab Components
+// ═══════════════════════════════════════════════════════════════════════
 
-  const cmcSuggestions = isUnder
-    ? recommendations.slice(0, 3)
-    : [];
+const PACING_LABELS: Record<string, string> = {
+  'aggressive-early': 'Aggressive',
+  'fast-tempo': 'Fast',
+  'midrange': 'Midrange',
+  'late-game': 'Late-Game',
+  'balanced': 'Balanced',
+};
+
+const PHASE_META: Record<CurvePhase, { icon: typeof Zap; label: string }> = {
+  early: { icon: Zap, label: 'Early Game' },
+  mid:   { icon: Target, label: 'Mid Game' },
+  late:  { icon: Crown, label: 'Late Game' },
+};
+
+function CurveSummaryStrip({
+  phases, activePhase, onPhaseClick,
+}: {
+  phases: CurvePhaseAnalysis[];
+  activePhase: CurvePhase | null;
+  onPhaseClick: (phase: CurvePhase) => void;
+}) {
+  const tileGradeStyles = (letter: string) => FIXING_GRADE_STYLES[letter] || FIXING_GRADE_STYLES.C;
+
+  return (
+    <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 grid grid-cols-2 sm:grid-cols-3 border-b border-border/30">
+      {phases.map((phase, i) => {
+        const meta = PHASE_META[phase.phase];
+        const Icon = meta.icon;
+        const isActive = activePhase === phase.phase;
+        const gs = tileGradeStyles(phase.grade.letter);
+        const pct = phase.target > 0 ? Math.min(100, (phase.current / phase.target) * 100) : 100;
+
+        let sub: string;
+        if (phase.phase === 'early') {
+          sub = `${phase.rampInPhase} ramp · ${phase.interactionInPhase} interaction`;
+        } else if (phase.phase === 'mid') {
+          sub = `${phase.pctOfDeck}% of spells`;
+        } else {
+          sub = phase.cards.length > 0 ? `avg ${phase.avgCmc.toFixed(1)} CMC` : 'no high-cost cards';
+        }
+
+        return (
+          <button
+            key={phase.phase}
+            onClick={() => onPhaseClick(phase.phase)}
+            className={`p-2.5 text-left transition-all hover:bg-card/80 ${
+              i > 0 ? 'border-l border-l-border/30' : ''
+            } ${i >= 2 ? '' : 'border-b border-b-border/30 sm:border-b-0'} ${
+              isActive ? gs.bg : ''
+            }`}
+          >
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Icon className={`w-4 h-4 ${isActive ? gs.color : 'text-muted-foreground'}`} />
+              <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
+                {phase.label}
+              </span>
+              <span className={`text-sm font-black ml-auto px-1.5 py-0.5 rounded ${gs.color} ${gs.bgColor}`}>
+                {phase.grade.letter}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1.5 mb-1">
+              <span className={`text-xl font-bold tabular-nums leading-none ${gs.color}`}>
+                {phase.current}
+              </span>
+              <span className="text-xs text-muted-foreground/60 truncate">
+                / {phase.target} suggested
+              </span>
+            </div>
+            <div className="text-[11px] text-muted-foreground/50 truncate mb-1.5">{sub}</div>
+            <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  phase.grade.letter === 'A' ? 'bg-emerald-500' :
+                  phase.grade.letter === 'B' ? 'bg-sky-500' :
+                  phase.grade.letter === 'C' ? 'bg-amber-500' :
+                  phase.grade.letter === 'D' ? 'bg-orange-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajectoryPoint[] }) {
+  if (trajectory.length === 0) return null;
+
+  const maxMana = Math.max(...trajectory.map(t => t.totalExpectedMana), 1);
+  const padTop = 24;
+  const padBot = 22;
+  const chartH = 60;
+  const svgH = chartH + padTop + padBot;
+  const padL = 16;
+  const padR = 16;
+  const viewW = 350;
+  const n = trajectory.length;
+  const step = n > 1 ? (viewW - padL - padR) / (n - 1) : 0;
+
+  const toY = (val: number) => padTop + chartH - (maxMana > 0 ? (val / maxMana) * chartH : 0);
+
+  const points = trajectory.map((t, i) => ({
+    x: padL + i * step,
+    y: toY(t.totalExpectedMana),
+    ...t,
+  }));
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  const areaPath = `${linePath} L${points[points.length - 1].x},${padTop + chartH} L${points[0].x},${padTop + chartH} Z`;
+
+  const landPoints = trajectory.map((t, i) => ({
+    x: padL + i * step,
+    y: toY(t.expectedLands),
+  }));
+  const landPath = landPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+  // Find turn with max ramp contribution for annotation
+  const maxRampIdx = points.reduce((best, p, i) =>
+    p.expectedRampMana > points[best].expectedRampMana ? i : best, 0);
+
+  return (
+    <div>
+      <div className="flex flex-col gap-0.5 mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Trajectory</span>
+          <span className="text-[10px] text-muted-foreground/50 ml-auto flex items-center gap-3">
+            <span className="flex items-center gap-1.5">
+              <span className="w-4 h-0 inline-block border-t border-dashed border-emerald-500/50" />
+              lands only
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-4 h-0.5 rounded bg-sky-500 inline-block" />
+              lands + ramp
+            </span>
+          </span>
+        </div>
+        <span className="text-[10px] text-muted-foreground/40 leading-snug">
+          Estimated mana available each turn based on your lands and ramp spells
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${viewW} ${svgH}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+        {/* Baseline */}
+        <line x1={padL} x2={viewW - padR} y1={padTop + chartH} y2={padTop + chartH} stroke="currentColor" className="text-border/30" strokeWidth={0.5} />
+
+        {/* Filled area under total line */}
+        <path d={areaPath} className="fill-sky-500/10" />
+
+        {/* Land-only line (dashed) */}
+        <path d={landPath} fill="none" stroke="currentColor" className="text-emerald-500/50" strokeWidth={1.2} strokeDasharray="4 3" />
+
+        {/* Total mana line */}
+        <path d={linePath} fill="none" stroke="currentColor" className="text-sky-500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Ramp bonus annotation at turn with max ramp contribution */}
+        {points[maxRampIdx].expectedRampMana > 0 && (() => {
+          const mp = points[maxRampIdx];
+          const lp = landPoints[maxRampIdx];
+          const midY = (mp.y + lp.y) / 2;
+          return (
+            <text x={mp.x + 16} y={midY + 3} fontSize="9" className="fill-sky-400/50" textAnchor="start">
+              +{mp.expectedRampMana} ramp
+            </text>
+          );
+        })()}
+
+        {/* Dots + labels */}
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={landPoints[i].x} cy={landPoints[i].y} r={2} fill="currentColor" className="text-emerald-500/50" />
+            {/* Land value label */}
+            <text x={landPoints[i].x} y={landPoints[i].y + 12} textAnchor="middle" fontSize="9" className="fill-emerald-500/50" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {p.expectedLands}
+            </text>
+            <circle cx={p.x} cy={p.y} r={3} fill="currentColor" className="text-sky-400" />
+            <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="10" fontWeight="600" className="fill-sky-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {p.totalExpectedMana}
+            </text>
+            <text x={p.x} y={padTop + chartH + 14} textAnchor="middle" fontSize="10" className="fill-muted-foreground/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              T{p.turn}
+            </text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function CurveTypeGroup({
+  type, cards, onPreview, onCardAction, menuProps,
+}: {
+  type: string;
+  cards: AnalyzedCard[];
+  onPreview: (name: string) => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+}) {
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg overflow-hidden">
@@ -2937,43 +3176,154 @@ function CurveBucketSection({
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-accent/20 transition-colors"
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-        <span className="text-sm font-bold tabular-nums w-10">CMC {cmcLabel}</span>
-        <span className="text-xs text-muted-foreground">{cb.cards.length} cards</span>
-        <span className="text-xs text-muted-foreground/60">target {cb.target}</span>
-        {cb.delta !== 0 && (
-          <span className={`text-xs font-bold ml-auto ${isOver ? 'text-amber-400' : 'text-sky-400'}`}>
-            {isOver ? '+' : ''}{cb.delta}
-          </span>
-        )}
+        <span className="text-sm font-bold capitalize">{type}</span>
+        <span className="text-xs font-bold tabular-nums text-muted-foreground">{cards.length}</span>
       </button>
-      {expanded && cb.cards.length > 0 && (
+      {expanded && (
         <div className="px-3 pb-3 space-y-0.5">
-          {cb.cards.map(ac => (
+          {cards.map(ac => (
             <AnalyzedCardRow
               key={ac.card.name}
               ac={ac}
               onPreview={onPreview}
-              warning={isOver && ac.inclusion != null && ac.inclusion < 30 ? 'Consider cutting' : undefined}
+              showDetails
+              onCardAction={onCardAction}
+              menuProps={menuProps}
             />
           ))}
-          {cmcSuggestions.length > 0 && (
-            <div className="mt-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1 px-1.5">
-                Suggestions
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CurvePhaseDetail({
+  phase, trajectory, recommendations, onPreview, onAdd, addedCards, onCardAction, menuProps,
+}: {
+  phase: CurvePhaseAnalysis;
+  trajectory: ManaTrajectoryPoint[];
+  recommendations: RecommendedCard[];
+  onPreview: (name: string) => void;
+  onAdd: (name: string) => void;
+  addedCards: Set<string>;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+}) {
+  // Trajectory summary sentence
+  let trajSentence = '';
+  if (trajectory.length > 0) {
+    if (phase.phase === 'early') {
+      const t2 = trajectory.find(t => t.turn === 2);
+      if (t2) trajSentence = `By turn 2, expect ~${t2.totalExpectedMana} mana (${t2.expectedLands} lands + ${t2.expectedRampMana} ramp).`;
+    } else if (phase.phase === 'mid') {
+      const t4 = trajectory.find(t => t.turn === 4);
+      if (t4) trajSentence = `By turn 4, expect ~${t4.totalExpectedMana} mana (${t4.expectedLands} lands + ${t4.expectedRampMana} ramp). Covers most ${phase.label.toLowerCase()} cards.`;
+    } else {
+      const t6 = trajectory.find(t => t.turn === 6);
+      if (t6) trajSentence = `By turn 6, expect ~${t6.totalExpectedMana} mana (${t6.expectedLands} lands + ${t6.expectedRampMana} ramp). Your finishers become castable.`;
+    }
+  }
+
+  const deltaWord = phase.delta > 0 ? `${phase.delta} above` : phase.delta < 0 ? `${Math.abs(phase.delta)} below` : 'right on';
+  const summary = `You have ${phase.current} ${phase.label.toLowerCase()} plays (${deltaWord} target of ${phase.target}).${
+    phase.phase === 'early' && phase.rampInPhase > 0 ? ` Your ${phase.rampInPhase} ramp pieces at CMC ≤2 accelerate you into mid-game.` :
+    phase.phase === 'mid' ? ` These make up ${phase.pctOfDeck}% of your spells — the core of your deck.` :
+    phase.phase === 'late' && phase.current > 0 ? ` Average CMC of ${phase.avgCmc.toFixed(1)} in this range.` : ''
+  }`;
+
+  // CMC-filtered recommendations for this phase
+  const [lo, hi] = phase.cmcRange;
+  const filteredRecs = recommendations.filter(r => {
+    const cmc = Math.min(Math.floor(r.cmc ?? 0), 7);
+    return cmc >= lo && cmc <= hi;
+  });
+  const phaseRecs = (filteredRecs.length >= 3 ? filteredRecs : recommendations).slice(0, 15);
+  const hasSuggestions = phase.delta < 0 && phaseRecs.length > 0;
+
+  // Group cards by type for collapsible sections
+  const typeGroups = useMemo(() => {
+    const groups = new Map<string, AnalyzedCard[]>();
+    for (const ac of phase.cards) {
+      const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
+      let type = 'other';
+      if (tl.includes('creature')) type = 'creature';
+      else if (tl.includes('instant')) type = 'instant';
+      else if (tl.includes('sorcery')) type = 'sorcery';
+      else if (tl.includes('artifact')) type = 'artifact';
+      else if (tl.includes('enchantment')) type = 'enchantment';
+      else if (tl.includes('planeswalker')) type = 'planeswalker';
+      else if (tl.includes('battle')) type = 'battle';
+      const arr = groups.get(type) || [];
+      arr.push(ac);
+      groups.set(type, arr);
+    }
+    // Sort by count descending
+    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  }, [phase.cards]);
+
+  return (
+    <div className="space-y-3">
+      {/* Top section: summary left + trajectory chart right */}
+      <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+        <div className="flex flex-col lg:flex-row lg:gap-4">
+          {/* Summary text */}
+          <div className="lg:w-[40%] space-y-2 shrink-0 flex flex-col justify-center">
+            <p className="text-xs text-muted-foreground leading-relaxed">{summary}</p>
+            {trajSentence && (
+              <p className="text-xs text-sky-400/80 leading-relaxed flex items-center gap-1.5">
+                <TrendingUp className="w-3 h-3 shrink-0" />
+                {trajSentence}
               </p>
-              {cmcSuggestions.map(rec => (
-                <SuggestionRow
-                  key={rec.name}
-                  card={rec}
-                  onAdd={() => onAdd(rec.name)}
-                  onPreview={() => onPreview(rec.name)}
-                  added={addedCards.has(rec.name)}
+            )}
+          </div>
+          {/* Trajectory sparkline */}
+          {trajectory.length > 0 && (
+            <div className="lg:flex-1 mt-3 lg:mt-0 lg:border-l lg:border-border/20 lg:pl-4">
+              <ManaTrajectorySparkline trajectory={trajectory} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Card list + suggestions */}
+      <div className={`flex flex-col ${hasSuggestions ? 'lg:flex-row' : ''} gap-3`}>
+        <div className={hasSuggestions ? 'lg:w-[35%]' : 'w-full'}>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5 px-1">
+            In Your Deck ({phase.cards.length})
+          </p>
+          {phase.cards.length === 0 ? (
+            <p className="text-xs text-muted-foreground/40 italic px-1">No cards in this range.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {typeGroups.map(([type, cards]) => (
+                <CurveTypeGroup
+                  key={type}
+                  type={type}
+                  cards={cards}
+                  onPreview={onPreview}
+                  onCardAction={onCardAction}
+                  menuProps={menuProps}
                 />
               ))}
             </div>
           )}
         </div>
-      )}
+
+        {hasSuggestions && (
+          <div className="lg:w-[65%] lg:border-l lg:border-border/20 lg:pl-3">
+            <SuggestionCardGrid
+              title={<>Suggested {phase.label} Additions ({phaseRecs.length})</>}
+              cards={phaseRecs}
+              onAdd={onAdd}
+              onPreview={onPreview}
+              addedCards={addedCards}
+              deficit={Math.abs(phase.delta)}
+              onCardAction={onCardAction}
+              menuProps={menuProps}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3002,12 +3352,50 @@ export function DeckOptimizer({
   const [error, setError] = useState<string | null>(null);
   const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
-  const [collapseRecs, setCollapseRecs] = useState(false);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardCountRef = useRef(currentCards.length);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
+  const [activeCurvePhase, setActiveCurvePhase] = useState<CurvePhase | null>(null);
+
+  // Theme detection state
+  const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
+  const [themeLoading, setThemeLoading] = useState(false);
+  const [primaryThemeSlug, setPrimaryThemeSlug] = useState<string | null>(null);
+  const [secondaryThemeSlug, setSecondaryThemeSlug] = useState<string | null>(null);
+  const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
+  const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
+
+  // User-overridable tempo (null = use auto-detected)
+  const [userPacing, setUserPacing] = useState<Pacing | null>(null);
+
+  // The effective pacing: user override > auto-detected
+  const effectivePacing: Pacing | undefined = userPacing ?? analysis?.pacing ?? undefined;
+
+  // When user changes pacing, recompute curve phases + grade in the analysis
+  const handlePacingChange = useCallback((newPacing: Pacing | null) => {
+    setUserPacing(newPacing);
+    setAnalysis(prev => {
+      if (!prev) return prev;
+      const pacing = newPacing ?? prev.pacing;
+      const totalNonLand = prev.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
+      const curvePhases = getCurvePhases(prev.curveBreakdowns, prev.curveAnalysis, totalNonLand, pacing);
+      const curveGrade = getCurveGrade(prev.curveAnalysis);
+      return { ...prev, curvePhases, curveGrade, pacing, pacingLabel: PACING_LABELS[pacing] || pacing };
+    });
+  }, []);
+
+  // Reset theme state when commander changes
+  useEffect(() => {
+    setThemeDetection(null);
+    setThemeLoading(false);
+    setPrimaryThemeSlug(null);
+    setSecondaryThemeSlug(null);
+    setUserPacing(null);
+    themeDataCacheRef.current = new Map();
+    themeEnhancedDataRef.current = null;
+  }, [commanderName, partnerCommanderName]);
 
   // Initialize sub-tab defaults once when analysis arrives
   useEffect(() => {
@@ -3018,12 +3406,10 @@ export function DeckOptimizer({
     if (activeSection === null) {
       setActiveSection('landCount');
     }
+    if (activeCurvePhase === null && analysis.curvePhases.length > 0) {
+      setActiveCurvePhase('early');
+    }
   }, [analysis]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const hasDeficits = useMemo(() => {
-    if (!analysis) return false;
-    return analysis.roleDeficits.some(d => d.deficit > 0);
-  }, [analysis]);
 
   const totalRecCost = useMemo(() => {
     if (!analysis) return 0;
@@ -3073,39 +3459,108 @@ export function DeckOptimizer({
     return groups;
   }, [analysis, currentCards, cardInclusionMap]);
 
+  /** Build inclusion map from EDHREC data, handling DFC front-face lookups. */
+  const buildInclusionMap = useCallback((edhrecData: import('@/types').EDHRECCommanderData): Record<string, number> => {
+    if (cardInclusionMap) return cardInclusionMap;
+    const built: Record<string, number> = {};
+    const indexCard = (name: string, inclusion: number) => {
+      built[name] = inclusion;
+      if (name.includes(' // ')) built[name.split(' // ')[0]] = inclusion;
+    };
+    for (const c of edhrecData.cardlists.allNonLand) indexCard(c.name, c.inclusion);
+    for (const c of edhrecData.cardlists.lands) indexCard(c.name, c.inclusion);
+    for (const card of currentCards) {
+      if (card.name.includes(' // ') && built[card.name] === undefined) {
+        const front = card.name.split(' // ')[0];
+        if (built[front] !== undefined) built[card.name] = built[front];
+      }
+    }
+    return built;
+  }, [cardInclusionMap, currentCards]);
+
+  /** Merge base-data recommendations with theme-specific recommendations.
+   *  Uses pre-computed `score` from analyzeDeck(); theme recs override base for shared cards. */
+  /** Merge two recommendation pools (e.g. primary + secondary theme).
+   *  `primary` recs are the main source; `secondary` supplements.
+   *  Cards in both pools get a synergy boost. */
+  const mergeRecommendations = useCallback((
+    primary: RecommendedCard[],
+    secondary: RecommendedCard[],
+    limit = 30,
+  ): RecommendedCard[] => {
+    const merged = new Map<string, RecommendedCard>();
+
+    for (const rec of primary) {
+      merged.set(rec.name, { ...rec });
+    }
+    for (const rec of secondary) {
+      if (merged.has(rec.name)) {
+        // In both pools → boost score (strong cross-theme signal)
+        const existing = merged.get(rec.name)!;
+        merged.set(rec.name, { ...existing, score: (existing.score ?? 0) + 20 });
+      } else {
+        merged.set(rec.name, { ...rec });
+      }
+    }
+
+    return Array.from(merged.values())
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, limit);
+  }, []);
+
+  /** Theme-first merge: theme data drives, base staples (inclusion >= 50%) backfill.
+   *  Cards in both theme + base get boosted (on-theme AND widely played). */
+  const mergeThemeWithBaseStaples = useCallback((
+    themeRecs: RecommendedCard[],
+    baseRecs: RecommendedCard[],
+    limit = 30,
+  ): RecommendedCard[] => {
+    const merged = new Map<string, RecommendedCard>();
+
+    // Theme recs are the primary pool
+    for (const rec of themeRecs) {
+      merged.set(rec.name, { ...rec, isThemeSynergy: true });
+    }
+
+    // Base cards: boost overlapping cards, backfill high-inclusion staples
+    for (const rec of baseRecs) {
+      if (merged.has(rec.name)) {
+        // On-theme AND a commander staple → strong signal, boost
+        const existing = merged.get(rec.name)!;
+        merged.set(rec.name, { ...existing, score: (existing.score ?? 0) + 25 });
+      } else if (rec.inclusion >= 50) {
+        // High-inclusion staple not in theme pool → backfill (no theme tag)
+        merged.set(rec.name, { ...rec, isThemeSynergy: false });
+      }
+      // Base cards below 50% inclusion that aren't on-theme → dropped
+    }
+
+    return Array.from(merged.values())
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, limit);
+  }, []);
+
   const handleOptimize = async () => {
     setLoading(true);
     setError(null);
+    setThemeDetection(null);
+    setPrimaryThemeSlug(null);
+    setSecondaryThemeSlug(null);
+    themeDataCacheRef.current = new Map();
+    themeEnhancedDataRef.current = null;
+
     try {
+      // ── Phase 1: Base analysis (blocking) ──
       await loadTaggerData();
       const edhrecData = partnerCommanderName
         ? await fetchPartnerCommanderData(commanderName, partnerCommanderName)
         : await fetchCommanderData(commanderName);
       cachedEdhrecDataRef.current = edhrecData;
 
-      // Build inclusion map from EDHREC data if not provided
-      let effectiveInclusionMap = cardInclusionMap;
-      if (!effectiveInclusionMap) {
-        const built: Record<string, number> = {};
-        const indexCard = (name: string, inclusion: number) => {
-          built[name] = inclusion;
-          // Also index by front-face name for DFC lookup
-          if (name.includes(' // ')) built[name.split(' // ')[0]] = inclusion;
-        };
-        for (const c of edhrecData.cardlists.allNonLand) indexCard(c.name, c.inclusion);
-        for (const c of edhrecData.cardlists.lands) indexCard(c.name, c.inclusion);
-        // Cross-reference: for each deck card with //, also try front-face lookup
-        for (const card of currentCards) {
-          if (card.name.includes(' // ') && built[card.name] === undefined) {
-            const front = card.name.split(' // ')[0];
-            if (built[front] !== undefined) built[card.name] = built[front];
-          }
-        }
-        effectiveInclusionMap = built;
-      }
-
+      const effectiveInclusionMap = buildInclusionMap(edhrecData);
       const storeColorIdentity = useStore.getState().colorIdentity;
-      const result = analyzeDeck(
+
+      const baseResult = analyzeDeck(
         edhrecData,
         currentCards,
         roleCounts,
@@ -3115,12 +3570,12 @@ export function DeckOptimizer({
         storeColorIdentity,
       );
 
-      // Collect all RecommendedCard objects missing prices or producedColors
+      // Enrich recommendations with Scryfall prices/colors
       const allRecs: RecommendedCard[] = [
-        ...result.recommendations,
-        ...result.landRecommendations,
-        ...(result.colorFixing.fixingRecommendations || []),
-        ...result.roleBreakdowns.flatMap(rb => rb.suggestedReplacements),
+        ...baseResult.recommendations,
+        ...baseResult.landRecommendations,
+        ...(baseResult.colorFixing.fixingRecommendations || []),
+        ...baseResult.roleBreakdowns.flatMap(rb => rb.suggestedReplacements),
       ];
       const needsFetch = [...new Set(allRecs.filter(r => !r.price || !r.producedColors?.length).map(r => r.name))];
 
@@ -3132,7 +3587,6 @@ export function DeckOptimizer({
           for (const [name, card] of scryfallCards) {
             const p = getCardPrice(card);
             if (p) priceMap.set(name, p);
-            // Resolve produced colors from Scryfall data
             const produced = (card.produced_mana || []).filter((c: string) => ['W', 'U', 'B', 'R', 'G'].includes(c));
             if (produced.length > 0) {
               colorMap.set(name, [...new Set(produced)]);
@@ -3144,16 +3598,112 @@ export function DeckOptimizer({
             if (!rec.price) rec.price = priceMap.get(rec.name) || undefined;
             if (!rec.producedColors?.length) rec.producedColors = colorMap.get(rec.name) || undefined;
           }
-        } catch { /* prices/colors are nice-to-have, don't block on failure */ }
+        } catch { /* prices/colors are nice-to-have */ }
       }
 
-      setAnalysis(result);
+      setAnalysis(baseResult);
       setAddedCards(new Set());
+      setLoading(false); // Dashboard visible NOW
+
+      // ── Phase 2: Theme detection (non-blocking) ──
+      const topThemes = (edhrecData.themes || []).slice(0, 4);
+      if (topThemes.length === 0) return; // no themes available
+
+      setThemeLoading(true);
+
+      // Fetch theme-specific EDHREC data (sequential for rate limiting)
+      const themeDataMap = new Map<string, import('@/types').EDHRECCommanderData>();
+      for (const theme of topThemes) {
+        try {
+          const data = partnerCommanderName
+            ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug)
+            : await fetchCommanderThemeData(commanderName, theme.slug);
+          themeDataMap.set(theme.slug, data);
+        } catch (err) {
+          console.warn(`[DeckOptimizer] Failed to fetch theme data for ${theme.slug}:`, err);
+        }
+      }
+      themeDataCacheRef.current = themeDataMap;
+
+      if (themeDataMap.size === 0) {
+        setThemeLoading(false);
+        return;
+      }
+
+      // Run detection
+      const detection = detectThemes(
+        topThemes,
+        themeDataMap,
+        currentCards,
+        baseResult.curveAnalysis,
+        commanderName,
+      );
+      setThemeDetection(detection);
+
+      // If confident, enhance recommendations with theme data
+      if (detection.isConfident && detection.matchedThemes.length > 0) {
+        const bestSlug = detection.matchedThemes[0].theme.slug;
+        const bestThemeData = themeDataMap.get(bestSlug);
+        setPrimaryThemeSlug(bestSlug);
+        // If secondary theme detected, set it too
+        if (detection.hasSecondaryTheme && detection.matchedThemes.length >= 2) {
+          setSecondaryThemeSlug(detection.matchedThemes[1].theme.slug);
+        }
+
+        if (bestThemeData) {
+          themeEnhancedDataRef.current = bestThemeData;
+
+          const themeInclusionMap = buildInclusionMap(bestThemeData);
+          const themeResult = analyzeDeck(
+            bestThemeData,
+            currentCards,
+            roleCounts,
+            roleTargets,
+            deckSize,
+            themeInclusionMap,
+            storeColorIdentity,
+          );
+
+          // Theme drives; base staples (50%+ inclusion) backfill
+          const finalRecs = mergeThemeWithBaseStaples(themeResult.recommendations, baseResult.recommendations);
+          const finalRoleBreakdowns = themeResult.roleBreakdowns.map((themeRb, idx) => {
+            const baseRb = baseResult.roleBreakdowns[idx];
+            if (!baseRb) return themeRb;
+            return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements, 15) };
+          });
+          const finalLandRecs = mergeThemeWithBaseStaples(themeResult.landRecommendations, baseResult.landRecommendations, 15);
+
+          setAnalysis(prev => prev ? {
+            ...prev,
+            recommendations: finalRecs,
+            roleBreakdowns: finalRoleBreakdowns,
+            landRecommendations: finalLandRecs,
+          } : prev);
+
+          // Enrich new theme-only recs with prices
+          const newRecs = finalRecs.filter((r: RecommendedCard) => !r.price);
+          if (newRecs.length > 0) {
+            try {
+              const cards = await getCardsByNames(newRecs.map(r => r.name));
+              for (const rec of newRecs) {
+                const card = cards.get(rec.name);
+                if (card) {
+                  const p = getCardPrice(card);
+                  if (p) rec.price = p;
+                }
+              }
+              setAnalysis(prev => prev ? { ...prev } : prev);
+            } catch { /* non-critical */ }
+          }
+        }
+      }
+
+      setThemeLoading(false);
     } catch (err) {
       setError('Failed to fetch EDHREC data. Please try again.');
       console.error('[DeckOptimizer]', err);
-    } finally {
       setLoading(false);
+      setThemeLoading(false);
     }
   };
 
@@ -3163,42 +3713,52 @@ export function DeckOptimizer({
     if (currentCards.length === prevCardCountRef.current) return;
     prevCardCountRef.current = currentCards.length;
 
-    // Build inclusion map from EDHREC data if not provided
-    let effectiveInclusionMap = cardInclusionMap;
-    if (!effectiveInclusionMap) {
-      const edhrecData = cachedEdhrecDataRef.current;
-      const built: Record<string, number> = {};
-      const indexCard = (name: string, inclusion: number) => {
-        built[name] = inclusion;
-        if (name.includes(' // ')) built[name.split(' // ')[0]] = inclusion;
-      };
-      for (const c of edhrecData.cardlists.allNonLand) indexCard(c.name, c.inclusion);
-      for (const c of edhrecData.cardlists.lands) indexCard(c.name, c.inclusion);
-      for (const card of currentCards) {
-        if (card.name.includes(' // ') && built[card.name] === undefined) {
-          const front = card.name.split(' // ')[0];
-          if (built[front] !== undefined) built[card.name] = built[front];
-        }
-      }
-      effectiveInclusionMap = built;
-    }
-
+    const baseData = cachedEdhrecDataRef.current;
     const storeColorIdentity = useStore.getState().colorIdentity;
-    const result = analyzeDeck(
-      cachedEdhrecDataRef.current,
+    const baseInclusionMap = buildInclusionMap(baseData);
+
+    const baseResult = analyzeDeck(
+      baseData,
       currentCards,
       roleCounts,
       roleTargets,
       deckSize,
-      effectiveInclusionMap,
+      baseInclusionMap,
       storeColorIdentity,
     );
-    setAnalysis(result);
-  }, [currentCards, roleCounts, roleTargets, deckSize, cardInclusionMap, analysis]);
+
+    // If theme-enhanced data exists, merge its recommendations
+    const themeData = themeEnhancedDataRef.current;
+    if (themeData) {
+      const themeInclusionMap = buildInclusionMap(themeData);
+      const themeResult = analyzeDeck(
+        themeData,
+        currentCards,
+        roleCounts,
+        roleTargets,
+        deckSize,
+        themeInclusionMap,
+        storeColorIdentity,
+      );
+
+      const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
+      const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
+        const themeRb = themeResult.roleBreakdowns[idx];
+        if (!themeRb) return baseRb;
+        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements, 15) };
+      });
+      const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
+
+      setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
+    } else {
+      setAnalysis(baseResult);
+    }
+  }, [currentCards, roleCounts, roleTargets, deckSize, cardInclusionMap, analysis, buildInclusionMap, mergeRecommendations]);
 
   const handleAddCard = (name: string) => {
     if (!onAddCards) return;
     onAddCards([name], 'deck');
+    pushDeckHistory({ action: 'add', cardName: name });
     setAddedCards(prev => new Set([...prev, name]));
   };
 
@@ -3209,33 +3769,210 @@ export function DeckOptimizer({
     } catch { /* silently fail */ }
   };
 
+  // Fetch theme data helper (cached)
+  const fetchThemeData = useCallback(async (slug: string) => {
+    let data = themeDataCacheRef.current.get(slug);
+    if (!data) {
+      data = partnerCommanderName
+        ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
+        : await fetchCommanderThemeData(commanderName, slug);
+      themeDataCacheRef.current.set(slug, data);
+    }
+    return data;
+  }, [commanderName, partnerCommanderName]);
+
+  // Apply theme selection — uses theme data directly (base only when no themes selected)
+  const applyThemeSelection = useCallback(async (primary: string | null, secondary: string | null) => {
+    const cachedBase = cachedEdhrecDataRef.current;
+    if (!cachedBase || !analysis) return;
+
+    const storeColorIdentity = useStore.getState().colorIdentity;
+
+    // No themes → revert to base-only analysis
+    if (!primary && !secondary) {
+      themeEnhancedDataRef.current = null;
+      const baseInclusionMap = buildInclusionMap(cachedBase);
+      const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, roleTargets, deckSize, baseInclusionMap, storeColorIdentity);
+
+      setAnalysis(prev => prev ? {
+        ...prev,
+        recommendations: baseResult.recommendations,
+        roleBreakdowns: baseResult.roleBreakdowns,
+        landRecommendations: baseResult.landRecommendations,
+      } : prev);
+
+      // Restore original detection message
+      if (themeDetection) {
+        const origMessage = buildDetectionMessage(commanderName, [], themeDetection.pacingLabel, themeDetection.strategyLabel, false, false);
+        setThemeDetection(prev => prev ? { ...prev, detectionMessage: origMessage } : prev);
+      }
+      setThemeLoading(false);
+      return;
+    }
+
+    setThemeLoading(true);
+
+    // Base analysis (for staple backfill — only high-inclusion cards leak through)
+    const baseInclusionMap = buildInclusionMap(cachedBase);
+    const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, roleTargets, deckSize, baseInclusionMap, storeColorIdentity);
+
+    // Primary theme → main data source, backfilled with base staples
+    try {
+      const primaryData = await fetchThemeData(primary!);
+      themeEnhancedDataRef.current = primaryData;
+      const primaryIncMap = buildInclusionMap(primaryData);
+      const primaryResult = analyzeDeck(primaryData, currentCards, roleCounts, roleTargets, deckSize, primaryIncMap, storeColorIdentity);
+
+      // Theme drives recommendations; base staples (50%+ inclusion) backfill gaps
+      let finalRecs = mergeThemeWithBaseStaples(primaryResult.recommendations, baseResult.recommendations);
+      let finalRoleBreakdowns = primaryResult.roleBreakdowns.map((themeRb, idx) => {
+        const baseRb = baseResult.roleBreakdowns[idx];
+        if (!baseRb) return themeRb;
+        return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements, 15) };
+      });
+      let finalLandRecs = mergeThemeWithBaseStaples(primaryResult.landRecommendations, baseResult.landRecommendations, 15);
+
+      // Secondary theme supplements the primary
+      if (secondary) {
+        try {
+          const secondaryData = await fetchThemeData(secondary);
+          const secondaryIncMap = buildInclusionMap(secondaryData);
+          const secondaryResult = analyzeDeck(secondaryData, currentCards, roleCounts, roleTargets, deckSize, secondaryIncMap, storeColorIdentity);
+
+          finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
+          finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
+            const themeRb = secondaryResult.roleBreakdowns[idx];
+            if (!themeRb) return rb;
+            return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements, 15) };
+          });
+          finalLandRecs = mergeRecommendations(finalLandRecs, secondaryResult.landRecommendations, 15);
+        } catch (err) {
+          console.error('[DeckOptimizer] Failed to fetch secondary theme data:', err);
+        }
+      }
+
+      setAnalysis(prev => prev ? {
+        ...prev,
+        recommendations: finalRecs,
+        roleBreakdowns: finalRoleBreakdowns,
+        landRecommendations: finalLandRecs,
+      } : prev);
+    } catch (err) {
+      console.error('[DeckOptimizer] Failed to fetch primary theme data:', err);
+      setThemeLoading(false);
+      return;
+    }
+
+    // Update banner detection message
+    if (themeDetection) {
+      const allThemes = cachedBase.themes || [];
+      const dummyMatch = (slug: string) => {
+        const t = allThemes.find(th => th.slug === slug);
+        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, keywordHits: 0, score: 0 } : null;
+      };
+      const matchedThemes = [primary, secondary].filter(Boolean).map(s => dummyMatch(s!)).filter(Boolean) as import('@/services/deckBuilder/themeDetector').ThemeMatchResult[];
+      const newStrategyLabel = primary ? generateStrategyLabel(allThemes.find(t => t.slug === primary)?.name || '') : themeDetection.strategyLabel;
+      const newMessage = buildDetectionMessage(
+        commanderName,
+        matchedThemes,
+        themeDetection.pacingLabel,
+        newStrategyLabel,
+        matchedThemes.length > 0,
+        matchedThemes.length >= 2,
+      );
+      setThemeDetection(prev => prev ? { ...prev, detectionMessage: newMessage, strategyLabel: newStrategyLabel } : prev);
+    }
+
+    setThemeLoading(false);
+  }, [analysis, commanderName, currentCards, roleCounts, roleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, themeDetection, fetchThemeData]);
+
+  // Sequential-pick theme selection handler
+  const handleThemeSelect = useCallback(async (slug: string) => {
+    let newPrimary = primaryThemeSlug;
+    let newSecondary = secondaryThemeSlug;
+
+    if (slug === primaryThemeSlug) {
+      // Deselect primary → promote secondary
+      newPrimary = secondaryThemeSlug;
+      newSecondary = null;
+    } else if (slug === secondaryThemeSlug) {
+      // Deselect secondary
+      newSecondary = null;
+    } else if (!primaryThemeSlug) {
+      // No primary → set as primary
+      newPrimary = slug;
+    } else if (!secondaryThemeSlug) {
+      // Primary exists, no secondary → set as secondary
+      newSecondary = slug;
+    } else {
+      // Both exist → replace secondary
+      newSecondary = slug;
+    }
+
+    setPrimaryThemeSlug(newPrimary);
+    setSecondaryThemeSlug(newSecondary);
+    await applyThemeSelection(newPrimary, newSecondary);
+  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection]);
+
   // Context menu support
-  const { customization, updateCustomization } = useStore();
-  const { lists: userLists, updateList } = useUserLists();
+  const { customization, updateCustomization, pushDeckHistory } = useStore();
+  const storeSelectedThemes = useStore(s => s.selectedThemes);
+  const usedThemes = useStore(s => s.generatedDeck?.usedThemes);
+  const displayThemeNames = useMemo(() => {
+    // 1. If user selected themes in the optimizer, show those
+    if (primaryThemeSlug || secondaryThemeSlug) {
+      const allThemes = cachedEdhrecDataRef.current?.themes || [];
+      const names: string[] = [];
+      if (primaryThemeSlug) {
+        const match = allThemes.find(t => t.slug === primaryThemeSlug);
+        if (match) names.push(match.name);
+      }
+      if (secondaryThemeSlug) {
+        const match = allThemes.find(t => t.slug === secondaryThemeSlug);
+        if (match) names.push(match.name);
+      }
+      if (names.length > 0) return names;
+    }
+    // 2. Store-selected themes from BuilderPage
+    const selected = storeSelectedThemes.filter(t => t.isSelected).map(t => t.name);
+    if (selected.length > 0) return selected;
+    // 3. Themes baked into the generated deck
+    if (usedThemes && usedThemes.length > 0) return usedThemes;
+    // 4. Auto-detected themes
+    if (themeDetection?.matchedThemes?.length) return themeDetection.matchedThemes.map(t => t.theme.name);
+    return undefined;
+  }, [primaryThemeSlug, secondaryThemeSlug, storeSelectedThemes, usedThemes, themeDetection]);
+  const { lists: userLists, updateList, createList } = useUserLists();
 
   const handleCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
     const name = card.name;
     switch (action.type) {
       case 'remove':
         onRemoveCards?.([name]);
+        pushDeckHistory({ action: 'remove', cardName: name });
         break;
       case 'addToDeck':
         onAddCards?.([name], 'deck');
+        pushDeckHistory({ action: 'add', cardName: name });
         setAddedCards(prev => new Set([...prev, name]));
         break;
       case 'sideboard': {
         if (sideboardNames?.includes(name)) {
           onRemoveFromBoard?.(name, 'sideboard');
+          pushDeckHistory({ action: 'remove', cardName: name });
         } else {
           onAddCards?.([name], 'sideboard');
+          pushDeckHistory({ action: 'sideboard', cardName: name });
         }
         break;
       }
       case 'maybeboard': {
         if (maybeboardNames?.includes(name)) {
           onRemoveFromBoard?.(name, 'maybeboard');
+          pushDeckHistory({ action: 'remove', cardName: name });
         } else {
           onAddCards?.([name], 'maybeboard');
+          pushDeckHistory({ action: 'maybeboard', cardName: name });
         }
         break;
       }
@@ -3258,8 +3995,12 @@ export function DeckOptimizer({
         }
         break;
       }
+      case 'createListAndAdd': {
+        createList(action.listName, [name]);
+        break;
+      }
     }
-  }, [customization, updateCustomization, userLists, updateList, onAddCards, onRemoveCards, onRemoveFromBoard, sideboardNames, maybeboardNames]);
+  }, [customization, updateCustomization, userLists, updateList, createList, onAddCards, onRemoveCards, onRemoveFromBoard, sideboardNames, maybeboardNames, pushDeckHistory]);
 
   const menuProps = useMemo(() => ({
     userLists,
@@ -3268,6 +4009,75 @@ export function DeckOptimizer({
     sideboardNames: new Set(sideboardNames || []),
     maybeboardNames: new Set(maybeboardNames || []),
   }), [userLists, customization.mustIncludeCards, customization.bannedCards, sideboardNames, maybeboardNames]);
+
+  // --- Cut candidates for over-target decks ---
+  const BASIC_LANDS = useMemo(() => new Set([
+    'Plains', 'Island', 'Swamp', 'Mountain', 'Forest',
+    'Snow-Covered Plains', 'Snow-Covered Island', 'Snow-Covered Swamp',
+    'Snow-Covered Mountain', 'Snow-Covered Forest', 'Wastes',
+  ]), []);
+  const deckExcess = currentCards.length - deckSize;
+  const [removedCutCards, setRemovedCutCards] = useState<Set<string>>(new Set());
+  const [skippedCutCards, setSkippedCutCards] = useState<Set<string>>(new Set());
+  const [excludeLandsFromCuts, setExcludeLandsFromCuts] = useState(false);
+  const [showCutsView, setShowCutsView] = useState(true);
+  const toggleCutsView = useCallback((val: boolean) => {
+    const scrollY = window.scrollY;
+    setShowCutsView(val);
+    requestAnimationFrame(() => window.scrollTo({ top: scrollY }));
+  }, []);
+  const cutCandidates = useMemo(() => {
+    if (deckExcess <= 0) return [];
+    const inclusionMap = cardInclusionMap ?? {};
+    const dismissed = new Set([...removedCutCards, ...skippedCutCards]);
+    const candidates = currentCards
+      .filter(c => {
+        if (BASIC_LANDS.has(c.name) || c.name === commanderName || c.name === partnerCommanderName) return false;
+        if (menuProps.mustIncludeNames.has(c.name)) return false;
+        if (dismissed.has(c.name)) return false;
+        if (excludeLandsFromCuts && (getFrontFaceTypeLine(c).toLowerCase().includes('land') || isMdfcLand(c))) return false;
+        return true;
+      })
+      .map(c => {
+        const inclusion = inclusionMap[c.name] ?? edhrecRankToInclusion(c.edhrec_rank) ?? null;
+        const role = c.deckRole || getCardRole(c.name);
+        return { card: c, inclusion, role, roleLabel: role ? ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' }[role] || role) : undefined } as AnalyzedCard;
+      })
+      .sort((a, b) => {
+        // Cards filling a role deficit are harder to cut — push them down
+        const aRole = a.card.deckRole || getCardRole(a.card.name);
+        const bRole = b.card.deckRole || getCardRole(b.card.name);
+        const aFillsDeficit = aRole && analysis?.roleDeficits.some(rd => rd.role === aRole && rd.deficit > 0);
+        const bFillsDeficit = bRole && analysis?.roleDeficits.some(rd => rd.role === bRole && rd.deficit > 0);
+        if (aFillsDeficit && !bFillsDeficit) return 1;
+        if (!aFillsDeficit && bFillsDeficit) return -1;
+        // Lower inclusion = better cut candidate
+        return (a.inclusion ?? 0) - (b.inclusion ?? 0);
+      });
+    return candidates.slice(0, 15);
+  }, [currentCards, deckSize, deckExcess, cardInclusionMap, commanderName, partnerCommanderName, BASIC_LANDS, analysis, menuProps.mustIncludeNames, excludeLandsFromCuts, removedCutCards, skippedCutCards]);
+
+  const handleRemoveCutCard = useCallback((card: ScryfallCard) => {
+    onRemoveCards?.([card.name]);
+    pushDeckHistory({ action: 'remove', cardName: card.name });
+    setRemovedCutCards(prev => new Set([...prev, card.name]));
+  }, [onRemoveCards, pushDeckHistory]);
+
+  const handleSkipCutCard = useCallback((card: ScryfallCard) => {
+    setSkippedCutCards(prev => new Set([...prev, card.name]));
+  }, []);
+
+  const handleBasicLandAdd = useMemo(() => {
+    const base = onAddBasicLandProp ?? (onAddCards ? (name: string) => onAddCards([name], 'deck') : undefined);
+    if (!base) return undefined;
+    return (name: string) => { base(name); pushDeckHistory({ action: 'add', cardName: name }); };
+  }, [onAddBasicLandProp, onAddCards, pushDeckHistory]);
+
+  const handleBasicLandRemove = useMemo(() => {
+    const base = onRemoveBasicLandProp ?? (onRemoveCards ? (name: string) => onRemoveCards([name]) : undefined);
+    if (!base) return undefined;
+    return (name: string) => { base(name); pushDeckHistory({ action: 'remove', cardName: name }); };
+  }, [onRemoveBasicLandProp, onRemoveCards, pushDeckHistory]);
 
   // --- Pre-analysis: prominent CTA ---
   if (!analysis && !loading) {
@@ -3347,7 +4157,7 @@ export function DeckOptimizer({
       </div>
 
       {/* Tab Bar */}
-      <div className="flex gap-0.5 px-3 py-1.5 border-b border-border/20 bg-card/30 overflow-x-auto">
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/20 bg-card/30 overflow-x-auto">
         {TABS.map(tab => {
           const isActive = activeTab === tab.key;
           return (
@@ -3365,6 +4175,20 @@ export function DeckOptimizer({
             </button>
           );
         })}
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground/60 whitespace-nowrap">
+          {effectivePacing && (
+            <span className="flex items-center gap-1">
+              <Zap className="w-3 h-3" />
+              {PACING_LABELS[effectivePacing] || 'Balanced'}
+            </span>
+          )}
+          {effectivePacing && displayThemeNames && displayThemeNames.length > 0 && (
+            <span className="text-border">|</span>
+          )}
+          {displayThemeNames && displayThemeNames.length > 0
+            ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
+            : 'No themes selected'}
+        </span>
       </div>
 
       {/* Tab Content */}
@@ -3373,34 +4197,149 @@ export function DeckOptimizer({
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div className="space-y-3">
-            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} />
+            <ThemeDetectionBanner
+              detection={themeDetection}
+              loading={themeLoading}
+              allThemes={cachedEdhrecDataRef.current?.themes || []}
+              primaryThemeSlug={primaryThemeSlug}
+              secondaryThemeSlug={secondaryThemeSlug}
+              onThemeSelect={handleThemeSelect}
+              detectedPacing={analysis.pacing}
+              userPacing={userPacing}
+              onPacingChange={handlePacingChange}
+            />
+            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} deckExcess={deckExcess > 0 ? deckExcess : undefined} />
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <RoleBalancePanel deficits={analysis.roleDeficits} hasDeficits={hasDeficits} onNavigate={() => setActiveTab('roles')} />
-              <CurvePanel slots={analysis.curveAnalysis} onNavigate={() => setActiveTab('curve')} />
-              <ManaBasePanel manaBase={analysis.manaBase} onNavigate={() => setActiveTab('lands')} />
-            </div>
-
-            <div className="flex gap-3 items-start">
-              <div className="flex-1 min-w-0 bg-card/60 border border-border/30 rounded-lg p-3">
-                <button
-                  onClick={() => setCollapseRecs(p => !p)}
-                  className="w-full flex items-center gap-2 mb-2 text-left group"
-                >
-                  {collapseRecs
-                    ? <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                    : <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                  }
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
-                    Recommended Cards
-                  </span>
-                  <span className="text-[11px] text-muted-foreground/60">({analysis.recommendations.length})</span>
-                  <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground/50">
-                    <ShoppingCart className="w-3 h-3" />
-                    ~${totalRecCost.toFixed(2)}
-                  </span>
-                </button>
-                {!collapseRecs && (
+            <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+              {/* Cuts View */}
+              {deckExcess > 0 && cutCandidates.length > 0 && showCutsView ? (
+                <>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Scissors className="w-3 h-3 text-red-400/70" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Recommended Cuts
+                    </span>
+                    <span className="text-[11px] text-muted-foreground/60">({cutCandidates.length})</span>
+                    <span className="ml-auto flex items-center gap-2">
+                      <span className="text-xs text-red-400/60">{deckExcess} over target</span>
+                      <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                        <button
+                          onClick={() => toggleCutsView(true)}
+                          className="flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors bg-red-500/15 text-red-400 font-medium"
+                        >
+                          <Scissors className="w-2.5 h-2.5" />
+                          Cuts
+                        </button>
+                        <div className="w-px h-3 bg-border/50" />
+                        <button
+                          onClick={() => toggleCutsView(false)}
+                          className="flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50"
+                        >
+                          <Sparkles className="w-2.5 h-2.5" />
+                          Suggestions
+                        </button>
+                      </div>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mb-1.5 ml-0.5">
+                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={excludeLandsFromCuts}
+                        onChange={(e) => setExcludeLandsFromCuts(e.target.checked)}
+                        className="rounded border-border/50 w-3 h-3 accent-primary"
+                      />
+                      Exclude lands
+                    </label>
+                    {skippedCutCards.size > 0 && (
+                      <button
+                        onClick={() => setSkippedCutCards(new Set())}
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                      >
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        Reset {skippedCutCards.size} skipped
+                      </button>
+                    )}
+                  </div>
+                  {/* Top X cuts (where X = cards over target) in a highlighted box */}
+                  <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-1.5 mb-2">
+                    <p className="text-[10px] font-medium text-red-400/80 uppercase tracking-wider mb-1 px-1">
+                      Cut these {Math.min(deckExcess, cutCandidates.length)} to hit {deckSize}
+                    </p>
+                    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
+                      {cutCandidates.slice(0, deckExcess).map((ac) => (
+                        <CutRow
+                          key={ac.card.name}
+                          ac={ac}
+                          onRemove={handleRemoveCutCard}
+                          onSkip={handleSkipCutCard}
+                          onPreview={() => handlePreview(ac.card.name)}
+                          onCardAction={handleCardAction}
+                          menuProps={menuProps}
+                          cardInclusionMap={cardInclusionMap}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {/* Remaining candidates below the divider */}
+                  {cutCandidates.length > deckExcess && (
+                    <>
+                      <div className="flex items-center gap-2 mb-1 px-1">
+                        <div className="flex-1 h-px bg-border/30" />
+                        <span className="text-[10px] text-muted-foreground/40 uppercase tracking-wider">Other candidates</span>
+                        <div className="flex-1 h-px bg-border/30" />
+                      </div>
+                      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
+                        {cutCandidates.slice(deckExcess).map((ac) => (
+                          <CutRow
+                            key={ac.card.name}
+                            ac={ac}
+                            onRemove={handleRemoveCutCard}
+                            onSkip={handleSkipCutCard}
+                            onPreview={() => handlePreview(ac.card.name)}
+                            onCardAction={handleCardAction}
+                            menuProps={menuProps}
+                            cardInclusionMap={cardInclusionMap}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                /* Recommendations View */
+                <>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Recommended Cards
+                    </span>
+                    <span className="text-[11px] text-muted-foreground/60">({analysis.recommendations.length})</span>
+                    <span className="ml-auto flex items-center gap-2">
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground/50">
+                        <ShoppingCart className="w-3 h-3" />
+                        ~${totalRecCost.toFixed(2)}
+                      </span>
+                      {deckExcess > 0 && cutCandidates.length > 0 && (
+                        <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                          <button
+                            onClick={() => toggleCutsView(true)}
+                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50"
+                          >
+                            <Scissors className="w-2.5 h-2.5" />
+                            Cuts
+                          </button>
+                          <div className="w-px h-3 bg-border/50" />
+                          <button
+                            onClick={() => toggleCutsView(false)}
+                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors bg-accent text-foreground font-medium"
+                          >
+                            <Sparkles className="w-2.5 h-2.5" />
+                            Suggestions
+                          </button>
+                        </div>
+                      )}
+                    </span>
+                  </div>
                   <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
                     {analysis.recommendations.map((rec, i) => (
                       <RecommendationRow
@@ -3410,19 +4349,13 @@ export function DeckOptimizer({
                         onAdd={() => handleAddCard(rec.name)}
                         onPreview={() => handlePreview(rec.name)}
                         added={addedCards.has(rec.name)}
+                        onCardAction={handleCardAction}
+                        menuProps={menuProps}
                       />
                     ))}
                   </div>
-                )}
-              </div>
-
-              <div className="hidden md:block w-44 shrink-0">
-                <TypeSidebar types={analysis.typeAnalysis} />
-              </div>
-            </div>
-
-            <div className="md:hidden">
-              <TypeSidebar types={analysis.typeAnalysis} />
+                </>
+              )}
             </div>
           </div>
         )}
@@ -3453,8 +4386,8 @@ export function DeckOptimizer({
             currentCards={currentCards}
             onCardAction={handleCardAction}
             menuProps={menuProps}
-            onAddBasicLand={onAddBasicLandProp ?? (onAddCards ? (name) => onAddCards([name], 'deck') : undefined)}
-            onRemoveBasicLand={onRemoveBasicLandProp ?? (onRemoveCards ? (name) => onRemoveCards([name]) : undefined)}
+            onAddBasicLand={handleBasicLandAdd}
+            onRemoveBasicLand={handleBasicLandRemove}
             cardInclusionMap={cardInclusionMap}
           />
         )}
@@ -3462,21 +4395,23 @@ export function DeckOptimizer({
         {/* ── CURVE TAB ── */}
         {activeTab === 'curve' && (
           <div className="space-y-3">
-            <CurvePanel slots={analysis.curveAnalysis} tall />
-            <div className="space-y-2">
-              {analysis.curveBreakdowns
-                .filter(cb => cb.cards.length > 0 || cb.target > 0)
-                .map(cb => (
-                  <CurveBucketSection
-                    key={cb.cmc}
-                    cb={cb}
-                    onPreview={handlePreview}
-                    recommendations={analysis.recommendations}
-                    onAdd={handleAddCard}
-                    addedCards={addedCards}
-                  />
-                ))}
-            </div>
+            <CurveSummaryStrip
+              phases={analysis.curvePhases}
+              activePhase={activeCurvePhase}
+              onPhaseClick={setActiveCurvePhase}
+            />
+            {activeCurvePhase && analysis.curvePhases.find(p => p.phase === activeCurvePhase) && (
+              <CurvePhaseDetail
+                phase={analysis.curvePhases.find(p => p.phase === activeCurvePhase)!}
+                trajectory={analysis.manaTrajectory}
+                recommendations={analysis.recommendations}
+                onPreview={handlePreview}
+                onAdd={handleAddCard}
+                addedCards={addedCards}
+                onCardAction={handleCardAction}
+                menuProps={menuProps}
+              />
+            )}
           </div>
         )}
 

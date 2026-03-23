@@ -298,6 +298,17 @@ export interface DeckStats {
   typeDistribution: Record<string, number>; // Type -> count
 }
 
+// Deck edit history
+export type DeckHistoryAction = 'add' | 'remove' | 'swap' | 'sideboard' | 'maybeboard';
+
+export interface DeckHistoryEntry {
+  id: string;
+  action: DeckHistoryAction;
+  cardName: string;
+  targetCardName?: string;
+  timestamp: number;
+}
+
 // Deck format/size
 export type DeckFormat = number;
 
@@ -427,6 +438,7 @@ export interface AppState {
 
   // Deck
   generatedDeck: GeneratedDeck | null;
+  deckHistory: DeckHistoryEntry[];
 
   // UI
   isLoading: boolean;
@@ -447,6 +459,8 @@ export interface AppState {
   updateCustomization: (updates: Partial<Customization>) => void;
   setGeneratedDeck: (deck: GeneratedDeck | null) => void;
   swapDeckCard: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
+  pushDeckHistory: (entry: Omit<DeckHistoryEntry, 'id' | 'timestamp'>) => void;
+  clearDeckHistory: () => void;
   setLoading: (loading: boolean, message?: string) => void;
   setError: (error: string | null) => void;
   reset: () => void;

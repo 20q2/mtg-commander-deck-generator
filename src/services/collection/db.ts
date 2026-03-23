@@ -11,6 +11,7 @@ export interface CollectionCard {
   manaCost?: string;
   rarity?: string;
   imageUrl?: string;
+  edhrecRank?: number;
 }
 
 class CollectionDB extends Dexie {
@@ -40,6 +41,7 @@ export interface BulkImportCard {
   manaCost?: string;
   rarity?: string;
   imageUrl?: string;
+  edhrecRank?: number;
 }
 
 /** Bulk upsert cards into the collection. Returns add/update counts. */
@@ -62,6 +64,7 @@ export async function bulkImport(
           manaCost: card.manaCost ?? existing.manaCost,
           rarity: card.rarity ?? existing.rarity,
           imageUrl: card.imageUrl ?? existing.imageUrl,
+          edhrecRank: card.edhrecRank ?? existing.edhrecRank,
         });
         updated++;
       } else {
@@ -75,6 +78,7 @@ export async function bulkImport(
           manaCost: card.manaCost,
           rarity: card.rarity,
           imageUrl: card.imageUrl,
+          edhrecRank: card.edhrecRank,
         });
         added++;
       }
@@ -92,7 +96,7 @@ export async function getCardsNeedingEnrichment(): Promise<string[]> {
 
 /** Update metadata for cards in bulk (used during enrichment). */
 export async function bulkUpdateMetadata(
-  updates: Array<{ name: string; typeLine: string; colorIdentity: string[]; cmc: number; manaCost?: string; rarity: string; imageUrl?: string }>
+  updates: Array<{ name: string; typeLine: string; colorIdentity: string[]; cmc: number; manaCost?: string; rarity: string; imageUrl?: string; edhrecRank?: number }>
 ): Promise<number> {
   let count = 0;
   await db.transaction('rw', db.cards, async () => {
@@ -104,6 +108,7 @@ export async function bulkUpdateMetadata(
         manaCost: u.manaCost,
         rarity: u.rarity,
         imageUrl: u.imageUrl,
+        edhrecRank: u.edhrecRank,
       });
       count++;
     }

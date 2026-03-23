@@ -33,7 +33,7 @@ const RARITIES = [
   { code: 'mythic', label: 'Mythic', color: 'text-orange-500' },
 ];
 
-type SortKey = 'name' | 'quantity' | 'cmc' | 'type' | 'rarity' | 'added';
+type SortKey = 'name' | 'quantity' | 'cmc' | 'type' | 'rarity' | 'added' | 'edhrecRank';
 type ViewMode = 'grid' | 'list';
 type ColorFilterMode = 'at-least' | 'exact' | 'exclude';
 
@@ -92,6 +92,8 @@ function sortCards(cards: CollectionCard[], sortKey: SortKey, sortDir: 'asc' | '
         return dir * ((RARITY_ORDER[a.rarity ?? ''] ?? 5) - (RARITY_ORDER[b.rarity ?? ''] ?? 5));
       case 'added':
         return dir * (a.addedAt - b.addedAt);
+      case 'edhrecRank':
+        return dir * ((a.edhrecRank ?? 99999) - (b.edhrecRank ?? 99999));
       default:
         return 0;
     }
@@ -502,6 +504,7 @@ export function CollectionManager() {
             <option value="quantity-asc">Qty Low→High</option>
             <option value="rarity-desc">Rarity High→Low</option>
             <option value="rarity-asc">Rarity Low→High</option>
+            <option value="edhrecRank-asc">EDHREC Rank</option>
             <option value="added-desc">Newest First</option>
             <option value="added-asc">Oldest First</option>
           </select>

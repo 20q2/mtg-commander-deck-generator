@@ -2380,8 +2380,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const names = getSelectedCardNames();
     if (names.length === 0) return;
     onRemoveCards(names);
+    for (const name of names) pushDeckHistory({ action: 'remove', cardName: name });
     setSelectedCards(new Set());
-  }, [onRemoveCards, getSelectedCardNames]);
+  }, [onRemoveCards, getSelectedCardNames, pushDeckHistory]);
 
   const handleMoveToSideboard = useCallback(() => {
     if (!onMoveToSideboard) return;

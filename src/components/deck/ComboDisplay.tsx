@@ -48,7 +48,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
-  const { lists: userLists, updateList } = useUserLists();
+  const { lists: userLists, updateList, createList } = useUserLists();
 
   // When right-click sets contextMenuCard, click the trigger button after render
   useEffect(() => {
@@ -180,8 +180,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         }
         break;
       }
+      case 'createListAndAdd': {
+        createList(action.listName, [name]);
+        setToastMessage(`Created "${action.listName}" with "${name}"`);
+        break;
+      }
     }
-  }, [mustIncludeCards, bannedCards, updateCustomization, userLists, updateList, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard]);
+  }, [mustIncludeCards, bannedCards, updateCustomization, userLists, updateList, createList, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard]);
 
   // Auto-dismiss toast
   useEffect(() => {

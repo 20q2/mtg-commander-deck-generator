@@ -336,9 +336,11 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   };
 
   const handleSave = () => {
-    if (cards.length === 0) return;
+    if (isDeck && cards.length === 0) return;
+    const cmdFirstName = commanderName ? commanderName.split(',')[0] : '';
+    const dateSuffix = new Date().toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
     const finalName = name.trim() || (isDeck
-      ? (commanderName || 'New Deck') + ' ' + new Date().toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })
+      ? (cmdFirstName ? `New ${cmdFirstName} Deck ${dateSuffix}` : `New Deck ${dateSuffix}`)
       : '');
     if (!finalName) return;
     const cmdOptions = isDeck || commanderName || partnerCommanderName
@@ -733,7 +735,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
         </button>
         <button
           onClick={handleSave}
-          disabled={(!isDeck && !name.trim()) || cards.length === 0}
+          disabled={(!isDeck && !name.trim()) || (isDeck && cards.length === 0)}
           className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {isEditing ? 'Save Changes' : (isDeck ? 'Create Deck' : 'Create List')}

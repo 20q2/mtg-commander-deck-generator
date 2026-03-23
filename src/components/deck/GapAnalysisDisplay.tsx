@@ -127,7 +127,7 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
 
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
-  const { lists: userLists, updateList } = useUserLists();
+  const { lists: userLists, updateList, createList } = useUserLists();
 
   const mustIncludeNames = useMemo(() => new Set(customization.mustIncludeCards), [customization.mustIncludeCards]);
   const bannedNames = useMemo(() => new Set(customization.bannedCards), [customization.bannedCards]);
@@ -174,8 +174,13 @@ export function GapAnalysisDisplay({ cards }: GapAnalysisDisplayProps) {
         }
         break;
       }
+      case 'createListAndAdd': {
+        createList(action.listName, [name]);
+        setToastMessage(`Created "${action.listName}" with "${name}"`);
+        break;
+      }
     }
-  }, [customization.mustIncludeCards, customization.bannedCards, updateCustomization, userLists, updateList]);
+  }, [customization.mustIncludeCards, customization.bannedCards, updateCustomization, userLists, updateList, createList]);
 
   if (cards.length === 0) return null;
 

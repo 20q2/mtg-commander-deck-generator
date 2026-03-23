@@ -38,6 +38,7 @@ export function useCollection() {
           manaCost: card.mana_cost,
           rarity: card.rarity,
           imageUrl: getCardImageUrl(card, 'small'),
+          edhrecRank: card.edhrec_rank,
         });
       }
 
