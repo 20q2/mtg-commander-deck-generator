@@ -12,11 +12,11 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, DeckCategory, UserCardList } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
-import { detectThemes, generateStrategyLabel, buildDetectionMessage, type DetectedThemeResult } from '@/services/deckBuilder/themeDetector';
+import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult } from '@/services/deckBuilder/themeDetector';
 import { loadTaggerData, getCardRole, getAllCardRoles } from '@/services/tagger/client';
-import { analyzeDeck, getDeckSummary, getCurvePhases, getCurveGrade, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type RoleBreakdown, type ManaBaseAnalysis, type ManaSourcesAnalysis, type GradeResult, type CurvePhaseAnalysis, type CurvePhase, type ManaTrajectoryPoint } from '@/services/deckBuilder/deckAnalyzer';
+import { analyzeDeck, getDeckSummary, getCurvePhases, getCurveGrade, PACING_MULTIPLIERS, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type RoleBreakdown, type ManaBaseAnalysis, type ManaSourcesAnalysis, type GradeResult, type CurvePhaseAnalysis, type CurvePhase, type CurveSlot, type ManaTrajectoryPoint } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
-import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors } from '@/services/scryfall/client';
+import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors, getCachedCard } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -665,12 +665,22 @@ const HEALTH_GRADE_STYLES: Record<string, { color: string; badgeBg: string }> = 
 
 // ─── Theme Detection Banner ───────────────────────────────────────────
 
-const TEMPO_OPTIONS: { value: Pacing; label: string; description: string }[] = [
-  { value: 'aggressive-early', label: 'Aggressive', description: 'Win fast with cheap threats' },
-  { value: 'fast-tempo', label: 'Fast', description: 'Low curve, quick pressure' },
-  { value: 'midrange', label: 'Midrange', description: 'Balanced 3-4 CMC core' },
-  { value: 'late-game', label: 'Late-Game', description: 'Big finishers, slow build' },
-  { value: 'balanced', label: 'Balanced', description: 'Even spread across costs' },
+const TEMPO_OPTIONS: { value: Pacing; label: string; short: string; detail: string; examples: string }[] = [
+  { value: 'aggressive-early', label: 'Aggressive', short: 'Win fast with cheap threats',
+    detail: 'Heavily weighted toward 1–2 CMC. Aims to win or establish a dominant position before opponents stabilize. Prioritizes speed over card advantage.',
+    examples: 'e.g. Najeela, Winota, Rograkh — flood the board early and close out fast' },
+  { value: 'fast-tempo', label: 'Fast', short: 'Low curve, quick pressure',
+    detail: 'Peaks at 2 CMC with a lean curve. Gets on board quickly and uses efficient interaction to stay ahead. Still runs some mid-cost payoffs.',
+    examples: 'e.g. Yuriko, Tymna/Kraum, Raffine — cheap creatures backed by disruption' },
+  { value: 'midrange', label: 'Midrange', short: 'Balanced 3–4 CMC core',
+    detail: 'Curve centers around 3–4 CMC with flexible answers and value engines. Adapts between aggro and control depending on the matchup.',
+    examples: 'e.g. Meren, Prossh, Korvold — grind value and win with synergy over time' },
+  { value: 'late-game', label: 'Late-Game', short: 'Big finishers, slow build',
+    detail: 'Invests heavily in ramp and card draw early, then takes over with high-impact 6+ CMC spells. Needs enough early interaction to survive.',
+    examples: 'e.g. Ur-Dragon, Omnath Locus of Creation, Vial Smasher — ramp into game-ending threats' },
+  { value: 'balanced', label: 'Balanced', short: 'Even spread across costs',
+    detail: 'Smooth distribution from 1–6+ CMC with no sharp peaks. Plays well at every stage of the game without committing to a specific speed.',
+    examples: 'e.g. Atraxa, Kenrith, Sisay — toolbox decks that need answers at every mana cost' },
 ];
 
 function ThemeDetectionBanner({
@@ -755,7 +765,11 @@ function ThemeDetectionBanner({
         style={{ maxHeight: expanded ? '300px' : '0px', opacity: expanded ? 1 : 0 }}
       >
         {/* Theme chips */}
-        <div className="flex flex-wrap gap-1.5 pt-2">
+        <div className="flex items-center gap-2 pt-2 mb-1.5">
+          <Tag className="w-3 h-3 text-muted-foreground/60" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Themes</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
           {chipThemes.map(chip => {
             const isPrimary = chip.slug === primaryThemeSlug;
             const isSecondary = chip.slug === secondaryThemeSlug;
@@ -816,7 +830,7 @@ function ThemeDetectionBanner({
               </button>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {TEMPO_OPTIONS.map(opt => {
               const isActive = activePacing === opt.value;
               const isDetected = detectedPacing === opt.value && !userPacing;
@@ -832,13 +846,41 @@ function ThemeDetectionBanner({
                       : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
                     }
                   `}
-                  title={`${opt.description}${isDetected ? ' (auto-detected)' : ''}`}
+                  title={opt.short}
                 >
                   {isDetected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
                   {opt.label}
                 </button>
               );
             })}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="p-0.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="What do these mean?">
+                  <Info className="w-3.5 h-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="start" className="w-80 p-0">
+                <div className="p-3 border-b border-border/30">
+                  <p className="text-xs font-semibold">Tempo Guide</p>
+                  <p className="text-[11px] text-muted-foreground/60 mt-0.5">Controls how the mana curve is shaped during deck building</p>
+                </div>
+                <div className="divide-y divide-border/20">
+                  {TEMPO_OPTIONS.map(opt => {
+                    const isActive = activePacing === opt.value;
+                    return (
+                      <div key={opt.value} className={`px-3 py-2 ${isActive ? 'bg-sky-500/5' : ''}`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-semibold ${isActive ? 'text-sky-400' : 'text-foreground'}`}>{opt.label}</span>
+                          {isActive && <span className="text-[9px] text-sky-400/70 font-medium uppercase">Active</span>}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{opt.detail}</p>
+                        <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">{opt.examples}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </div>
@@ -870,14 +912,16 @@ function DeckHealthStrip({ analysis, onNavigate, deckExcess }: {
               onClick={() => onNavigate(key)}
               className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
             >
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`text-lg sm:text-xl font-bold ${style.color} ${style.badgeBg} px-2 py-0.5 rounded`}>{grade.letter}</span>
-                <div className="flex items-center gap-1">
-                  <Icon className={`w-3.5 h-3.5 ${style.color} opacity-70`} />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
+              <div className="flex items-start gap-2.5">
+                <span className={`text-xl sm:text-2xl font-bold ${style.color} ${style.badgeBg} px-2.5 py-0.5 rounded shrink-0`}>{grade.letter}</span>
+                <div className="pt-0.5">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Icon className={`w-4 h-4 ${style.color} opacity-70`} />
+                    <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
+                  </div>
+                  <p className="text-sm leading-snug text-muted-foreground line-clamp-2">{grade.message}</p>
                 </div>
               </div>
-              <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{grade.message}</p>
             </button>
           );
         })}
@@ -1503,7 +1547,7 @@ function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; deckSiz
   const gs = FIXING_GRADE_STYLES[ms.grade] || FIXING_GRADE_STYLES.C;
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3 border-b border-border/30">
+    <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3">
       <div
         role="button"
         tabIndex={0}
@@ -1583,6 +1627,11 @@ function ManaSourcesDetail({
         {/* Left: summary + ramp cards grouped */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
           <ManaSourcesSummary ms={analysis.manaSources} deckSize={analysis.manaBase.deckSize} />
+          {analysis.manaTrajectory.length > 0 && (
+            <div className="-mx-3 sm:-mx-4 px-3 sm:px-4 pb-3 border-b border-border/30">
+              <ManaTrajectorySparkline trajectory={analysis.manaTrajectory} />
+            </div>
+          )}
           {groups.length > 0 ? groups.map(g => (
             <div key={g.key}>
               <button
@@ -2625,6 +2674,15 @@ function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction, 
     : card.roleLabel ? [card.roleLabel] : [];
   const pseudoCard = useMemo(() => ({ name: card.name, id: card.name } as ScryfallCard), [card.name]);
 
+  // Resolve type: use EDHREC primary_type, fallback to Scryfall cache
+  const resolvedType = useMemo(() => {
+    if (card.primaryType && card.primaryType !== 'Unknown') return card.primaryType;
+    const cached = getCachedCard(card.name);
+    if (!cached) return null;
+    const tl = getFrontFaceTypeLine(cached).split('—')[0].replace(/Legendary\s+/i, '').trim();
+    return tl || null;
+  }, [card.name, card.primaryType]);
+
   return (
     <div
       className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border transition-all duration-200 ${
@@ -2671,27 +2729,29 @@ function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction, 
             );
           })}
         </div>
-        {card.primaryType && card.primaryType !== 'Unknown' && (
-          <p className="text-xs text-muted-foreground truncate">{card.primaryType}</p>
+        {resolvedType && (
+          <p className="text-xs text-muted-foreground truncate">{resolvedType}</p>
         )}
       </div>
-      <div className="text-right shrink-0 leading-tight">
-        <p className="text-xs font-medium">{card.price ? `$${card.price}` : '—'}</p>
-        <p className="text-[11px] text-muted-foreground tabular-nums">{Math.round(card.inclusion)}%</p>
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
+        {!added ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAdd(); }}
+            className="p-1 rounded-md text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+            title="Add to deck"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        ) : (
+          <span className="p-1 text-emerald-400">
+            <Check className="w-4 h-4" />
+          </span>
+        )}
+        <div className="text-right w-12 leading-tight">
+          <p className="text-xs font-medium tabular-nums">{card.price ? `$${card.price}` : '—'}</p>
+          <p className="text-[11px] text-muted-foreground tabular-nums">{Math.round(card.inclusion)}%</p>
+        </div>
       </div>
-      {!added ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); onAdd(); }}
-          className="p-0.5 rounded-md text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors shrink-0"
-          title="Add to deck"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      ) : (
-        <span className="p-0.5 text-emerald-400 shrink-0">
-          <Check className="w-3.5 h-3.5" />
-        </span>
-      )}
       {onCardAction && menuProps && (
         <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
           <CardContextMenu
@@ -2776,26 +2836,28 @@ function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProps, card
           <p className="text-xs text-muted-foreground truncate">{primaryType}</p>
         )}
       </div>
-      <div className="text-right shrink-0 leading-tight">
-        <p className="text-xs font-medium">{price ? `$${price}` : '—'}</p>
-        <p className="text-[11px] text-muted-foreground tabular-nums" title={isEstimate ? 'Estimated from EDHREC rank' : undefined}>
-          {pct != null ? `${isEstimate ? '~' : ''}${pct}%` : '—'}
-        </p>
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
+        <button
+          onClick={(e) => { e.stopPropagation(); onSkip(ac.card); }}
+          className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/60 transition-colors"
+          title="Keep in deck"
+        >
+          <ThumbsUp className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(ac.card); }}
+          className="p-1 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          title="Cut from deck"
+        >
+          <Minus className="w-4 h-4" />
+        </button>
+        <div className="text-right w-12 leading-tight">
+          <p className="text-xs font-medium tabular-nums">{price ? `$${price}` : '—'}</p>
+          <p className="text-[11px] text-muted-foreground tabular-nums" title={isEstimate ? 'Estimated from EDHREC rank' : undefined}>
+            {pct != null ? `${isEstimate ? '~' : ''}${pct}%` : '—'}
+          </p>
+        </div>
       </div>
-      <button
-        onClick={(e) => { e.stopPropagation(); onSkip(ac.card); }}
-        className="p-0.5 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/60 transition-colors shrink-0"
-        title="Keep in deck"
-      >
-        <ThumbsUp className="w-3.5 h-3.5" />
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onRemove(ac.card); }}
-        className="p-0.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
-        title="Cut from deck"
-      >
-        <Minus className="w-3.5 h-3.5" />
-      </button>
       {onCardAction && menuProps && (
         <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
           <CardContextMenu
@@ -3056,6 +3118,168 @@ function CurveSummaryStrip({
   );
 }
 
+function ManaCurveLineChart({
+  curveAnalysis, pacing,
+}: {
+  curveAnalysis: CurveSlot[];
+  pacing?: Pacing;
+}) {
+  if (curveAnalysis.length === 0) return null;
+
+  const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
+
+  // Build per-CMC adjusted targets
+  const slots = curveAnalysis.map(s => {
+    const phase = s.cmc <= 2 ? 'early' : s.cmc <= 4 ? 'mid' : 'late';
+    const adjustedTarget = Math.round(s.target * multipliers[phase]);
+    return { cmc: s.cmc, current: s.current, target: adjustedTarget };
+  });
+
+  // Normalize adjusted targets to sum to same total as raw targets
+  const rawTotal = curveAnalysis.reduce((sum, s) => sum + s.target, 0);
+  const adjTotal = slots.reduce((sum, s) => sum + s.target, 0);
+  if (adjTotal > 0 && adjTotal !== rawTotal) {
+    const scale = rawTotal / adjTotal;
+    for (const s of slots) s.target = Math.round(s.target * scale);
+    const drift = rawTotal - slots.reduce((sum, s) => sum + s.target, 0);
+    if (drift !== 0) {
+      const largest = slots.reduce((m, s) => s.target > m.target ? s : m, slots[0]);
+      largest.target += drift;
+    }
+  }
+
+  const maxVal = Math.max(...slots.map(s => Math.max(s.current, s.target)), 1);
+
+  // Chart dimensions
+  const padL = 28;
+  const padR = 16;
+  const padTop = 16;
+  const padBot = 28;
+  const viewW = 400;
+  const chartH = 120;
+  const svgH = chartH + padTop + padBot;
+  const n = slots.length;
+  const step = n > 1 ? (viewW - padL - padR) / (n - 1) : 0;
+
+  const toX = (i: number) => padL + i * step;
+  const toY = (val: number) => padTop + chartH - (val / maxVal) * chartH;
+
+  // Build line paths
+  const currentPath = slots.map((s, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(s.current)}`).join(' ');
+  const targetPath = slots.map((s, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(s.target)}`).join(' ');
+
+  // Fill area under actual curve
+  const fillPath = `${currentPath} L${toX(n - 1)},${toY(0)} L${toX(0)},${toY(0)} Z`;
+
+  // Y-axis gridlines
+  const yTicks: number[] = [];
+  const tickStep = maxVal <= 6 ? 2 : maxVal <= 12 ? 3 : maxVal <= 20 ? 5 : 10;
+  for (let v = tickStep; v <= maxVal; v += tickStep) yTicks.push(v);
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex flex-col gap-0.5 mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Curve</span>
+          <span className="text-[10px] text-muted-foreground/50 ml-auto flex items-center gap-3">
+            <span className="flex items-center gap-1.5">
+              <span className="w-4 h-0 inline-block border-t-2 border-dashed border-amber-500/60" />
+              expected
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-4 h-0.5 rounded bg-sky-500 inline-block" />
+              your deck
+            </span>
+          </span>
+        </div>
+        <span className="text-[10px] text-muted-foreground/40 leading-snug">
+          Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${viewW} ${svgH}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+        {/* Baseline */}
+        <line x1={padL} x2={viewW - padR} y1={padTop + chartH} y2={padTop + chartH} stroke="currentColor" className="text-border/30" strokeWidth={0.5} />
+
+        {/* Y gridlines */}
+        {yTicks.map(v => (
+          <g key={v}>
+            <line x1={padL} x2={viewW - padR} y1={toY(v)} y2={toY(v)} stroke="currentColor" className="text-border/20" strokeWidth={0.5} strokeDasharray="3 3" />
+            <text x={padL - 4} y={toY(v) + 3} textAnchor="end" fontSize="9" className="fill-muted-foreground/40" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {v}
+            </text>
+          </g>
+        ))}
+
+        {/* Fill under actual curve */}
+        <path d={fillPath} className="fill-sky-500/8" />
+
+        {/* Target line (dashed) */}
+        <path d={targetPath} fill="none" stroke="currentColor" className="text-amber-500/60" strokeWidth={1.5} strokeDasharray="6 4" strokeLinecap="round" />
+
+        {/* Actual curve line */}
+        <path d={currentPath} fill="none" stroke="currentColor" className="text-sky-500" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Delta indicators + dots */}
+        {slots.map((s, i) => {
+          const x = toX(i);
+          const yCur = toY(s.current);
+          const yTgt = toY(s.target);
+          const delta = s.current - s.target;
+          const overTarget = delta > 0;
+          const underTarget = delta < 0;
+
+          return (
+            <g key={s.cmc}>
+              {/* Delta bar between actual and target */}
+              {delta !== 0 && (
+                <line
+                  x1={x} x2={x}
+                  y1={yCur} y2={yTgt}
+                  stroke="currentColor"
+                  className={overTarget ? 'text-amber-400/30' : 'text-red-400/30'}
+                  strokeWidth={step > 30 ? 20 : 14}
+                  strokeLinecap="round"
+                />
+              )}
+
+              {/* Target dot */}
+              <circle cx={x} cy={yTgt} r={2.5} fill="currentColor" className="text-amber-500/60" />
+
+              {/* Actual dot */}
+              <circle cx={x} cy={yCur} r={3.5} fill="currentColor" className="text-sky-400" />
+
+              {/* Actual count label */}
+              <text x={x} y={yCur - 8} textAnchor="middle" fontSize="11" fontWeight="700" className="fill-sky-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {s.current}
+              </text>
+
+              {/* Delta badge */}
+              {delta !== 0 && (
+                <text
+                  x={x}
+                  y={Math.max(yCur, yTgt) + 12}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fontWeight="600"
+                  className={underTarget ? 'fill-red-400/70' : 'fill-amber-400/60'}
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {delta > 0 ? `+${delta}` : delta}
+                </text>
+              )}
+
+              {/* CMC label */}
+              <text x={x} y={padTop + chartH + 16} textAnchor="middle" fontSize="10" fontWeight="500" className="fill-muted-foreground/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {s.cmc === 7 ? '7+' : s.cmc}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajectoryPoint[] }) {
   if (trajectory.length === 0) return null;
 
@@ -3111,7 +3335,7 @@ function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajectoryPoi
           Estimated mana available each turn based on your lands and ramp spells
         </span>
       </div>
-      <svg viewBox={`0 0 ${viewW} ${svgH}`} className="w-full" preserveAspectRatio="xMidYMid meet">
+      <svg viewBox={`0 0 ${viewW} ${svgH}`} className="w-full max-w-md" preserveAspectRatio="xMidYMid meet">
         {/* Baseline */}
         <line x1={padL} x2={viewW - padR} y1={padTop + chartH} y2={padTop + chartH} stroke="currentColor" className="text-border/30" strokeWidth={0.5} />
 
@@ -3198,10 +3422,9 @@ function CurveTypeGroup({
 }
 
 function CurvePhaseDetail({
-  phase, trajectory, recommendations, onPreview, onAdd, addedCards, onCardAction, menuProps,
+  phase, recommendations, onPreview, onAdd, addedCards, onCardAction, menuProps,
 }: {
   phase: CurvePhaseAnalysis;
-  trajectory: ManaTrajectoryPoint[];
   recommendations: RecommendedCard[];
   onPreview: (name: string) => void;
   onAdd: (name: string) => void;
@@ -3209,21 +3432,6 @@ function CurvePhaseDetail({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
 }) {
-  // Trajectory summary sentence
-  let trajSentence = '';
-  if (trajectory.length > 0) {
-    if (phase.phase === 'early') {
-      const t2 = trajectory.find(t => t.turn === 2);
-      if (t2) trajSentence = `By turn 2, expect ~${t2.totalExpectedMana} mana (${t2.expectedLands} lands + ${t2.expectedRampMana} ramp).`;
-    } else if (phase.phase === 'mid') {
-      const t4 = trajectory.find(t => t.turn === 4);
-      if (t4) trajSentence = `By turn 4, expect ~${t4.totalExpectedMana} mana (${t4.expectedLands} lands + ${t4.expectedRampMana} ramp). Covers most ${phase.label.toLowerCase()} cards.`;
-    } else {
-      const t6 = trajectory.find(t => t.turn === 6);
-      if (t6) trajSentence = `By turn 6, expect ~${t6.totalExpectedMana} mana (${t6.expectedLands} lands + ${t6.expectedRampMana} ramp). Your finishers become castable.`;
-    }
-  }
-
   const deltaWord = phase.delta > 0 ? `${phase.delta} above` : phase.delta < 0 ? `${Math.abs(phase.delta)} below` : 'right on';
   const summary = `You have ${phase.current} ${phase.label.toLowerCase()} plays (${deltaWord} target of ${phase.target}).${
     phase.phase === 'early' && phase.rampInPhase > 0 ? ` Your ${phase.rampInPhase} ramp pieces at CMC ≤2 accelerate you into mid-game.` :
@@ -3263,26 +3471,9 @@ function CurvePhaseDetail({
 
   return (
     <div className="space-y-3">
-      {/* Top section: summary left + trajectory chart right */}
+      {/* Summary */}
       <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-        <div className="flex flex-col lg:flex-row lg:gap-4">
-          {/* Summary text */}
-          <div className="lg:w-[40%] space-y-2 shrink-0 flex flex-col justify-center">
-            <p className="text-xs text-muted-foreground leading-relaxed">{summary}</p>
-            {trajSentence && (
-              <p className="text-xs text-sky-400/80 leading-relaxed flex items-center gap-1.5">
-                <TrendingUp className="w-3 h-3 shrink-0" />
-                {trajSentence}
-              </p>
-            )}
-          </div>
-          {/* Trajectory sparkline */}
-          {trajectory.length > 0 && (
-            <div className="lg:flex-1 mt-3 lg:mt-0 lg:border-l lg:border-border/20 lg:pl-4">
-              <ManaTrajectorySparkline trajectory={trajectory} />
-            </div>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">{summary}</p>
       </div>
 
       {/* Card list + suggestions */}
@@ -3369,22 +3560,57 @@ export function DeckOptimizer({
 
   // User-overridable tempo (null = use auto-detected)
   const [userPacing, setUserPacing] = useState<Pacing | null>(null);
+  const detectedPacingRef = useRef<Pacing | null>(null);
 
   // The effective pacing: user override > auto-detected
   const effectivePacing: Pacing | undefined = userPacing ?? analysis?.pacing ?? undefined;
+
+  // Rebuild the detection banner message reflecting user overrides
+  const rebuildBannerMessage = useCallback((opts: {
+    pacingOverride?: Pacing | null;
+    primarySlug?: string | null;
+    secondarySlug?: string | null;
+  } = {}) => {
+    setThemeDetection(prev => {
+      if (!prev) return prev;
+      const allThemes = cachedEdhrecDataRef.current?.themes || [];
+      const primary = opts.primarySlug !== undefined ? opts.primarySlug : primaryThemeSlug;
+      const secondary = opts.secondarySlug !== undefined ? opts.secondarySlug : secondaryThemeSlug;
+      const pacingVal = opts.pacingOverride !== undefined ? opts.pacingOverride : userPacing;
+      const hasUserOverride = pacingVal != null || primary !== prev.matchedThemes[0]?.theme.slug;
+
+      const pacingKey = pacingVal ?? detectedPacingRef.current ?? prev.pacing;
+      const pacingLabel = PACING_PHRASE[pacingKey] || prev.pacingLabel;
+
+      const dummyMatch = (slug: string) => {
+        const t = allThemes.find(th => th.slug === slug);
+        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, keywordHits: 0, score: 0 } : null;
+      };
+      const matchedThemes = [primary, secondary].filter(Boolean).map(s => dummyMatch(s!)).filter(Boolean) as import('@/services/deckBuilder/themeDetector').ThemeMatchResult[];
+      const strategyLabel = primary ? generateStrategyLabel(allThemes.find(t => t.slug === primary)?.name || '') : prev.strategyLabel;
+
+      const newMessage = buildDetectionMessage(
+        commanderName, matchedThemes, pacingLabel, strategyLabel,
+        matchedThemes.length > 0 || prev.isConfident, matchedThemes.length >= 2,
+        hasUserOverride,
+      );
+      return { ...prev, detectionMessage: newMessage, strategyLabel, pacingLabel };
+    });
+  }, [commanderName, primaryThemeSlug, secondaryThemeSlug, userPacing]);
 
   // When user changes pacing, recompute curve phases + grade in the analysis
   const handlePacingChange = useCallback((newPacing: Pacing | null) => {
     setUserPacing(newPacing);
     setAnalysis(prev => {
       if (!prev) return prev;
-      const pacing = newPacing ?? prev.pacing;
+      const pacing = newPacing ?? detectedPacingRef.current ?? prev.pacing;
       const totalNonLand = prev.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
       const curvePhases = getCurvePhases(prev.curveBreakdowns, prev.curveAnalysis, totalNonLand, pacing);
       const curveGrade = getCurveGrade(prev.curveAnalysis);
       return { ...prev, curvePhases, curveGrade, pacing, pacingLabel: PACING_LABELS[pacing] || pacing };
     });
-  }, []);
+    rebuildBannerMessage({ pacingOverride: newPacing });
+  }, [rebuildBannerMessage]);
 
   // Reset theme state when commander changes
   useEffect(() => {
@@ -3393,6 +3619,7 @@ export function DeckOptimizer({
     setPrimaryThemeSlug(null);
     setSecondaryThemeSlug(null);
     setUserPacing(null);
+    detectedPacingRef.current = null;
     themeDataCacheRef.current = new Map();
     themeEnhancedDataRef.current = null;
   }, [commanderName, partnerCommanderName]);
@@ -3601,6 +3828,7 @@ export function DeckOptimizer({
         } catch { /* prices/colors are nice-to-have */ }
       }
 
+      detectedPacingRef.current = baseResult.pacing;
       setAnalysis(baseResult);
       setAddedCards(new Set());
       setLoading(false); // Dashboard visible NOW
@@ -3801,11 +4029,8 @@ export function DeckOptimizer({
         landRecommendations: baseResult.landRecommendations,
       } : prev);
 
-      // Restore original detection message
-      if (themeDetection) {
-        const origMessage = buildDetectionMessage(commanderName, [], themeDetection.pacingLabel, themeDetection.strategyLabel, false, false);
-        setThemeDetection(prev => prev ? { ...prev, detectionMessage: origMessage } : prev);
-      }
+      // Restore detection message (still reflects user tempo override if any)
+      rebuildBannerMessage({ primarySlug: null, secondarySlug: null });
       setThemeLoading(false);
       return;
     }
@@ -3864,27 +4089,10 @@ export function DeckOptimizer({
     }
 
     // Update banner detection message
-    if (themeDetection) {
-      const allThemes = cachedBase.themes || [];
-      const dummyMatch = (slug: string) => {
-        const t = allThemes.find(th => th.slug === slug);
-        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, keywordHits: 0, score: 0 } : null;
-      };
-      const matchedThemes = [primary, secondary].filter(Boolean).map(s => dummyMatch(s!)).filter(Boolean) as import('@/services/deckBuilder/themeDetector').ThemeMatchResult[];
-      const newStrategyLabel = primary ? generateStrategyLabel(allThemes.find(t => t.slug === primary)?.name || '') : themeDetection.strategyLabel;
-      const newMessage = buildDetectionMessage(
-        commanderName,
-        matchedThemes,
-        themeDetection.pacingLabel,
-        newStrategyLabel,
-        matchedThemes.length > 0,
-        matchedThemes.length >= 2,
-      );
-      setThemeDetection(prev => prev ? { ...prev, detectionMessage: newMessage, strategyLabel: newStrategyLabel } : prev);
-    }
+    rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, commanderName, currentCards, roleCounts, roleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, themeDetection, fetchThemeData]);
+  }, [analysis, commanderName, currentCards, roleCounts, roleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, themeDetection, fetchThemeData, rebuildBannerMessage]);
 
   // Sequential-pick theme selection handler
   const handleThemeSelect = useCallback(async (slug: string) => {
@@ -4054,7 +4262,9 @@ export function DeckOptimizer({
         // Lower inclusion = better cut candidate
         return (a.inclusion ?? 0) - (b.inclusion ?? 0);
       });
-    return candidates.slice(0, 15);
+    // Ensure "other candidates" below the top box fills complete rows of 3
+    const otherCount = Math.ceil(Math.max(15 - deckExcess, 6) / 3) * 3;
+    return candidates.slice(0, deckExcess + otherCount);
   }, [currentCards, deckSize, deckExcess, cardInclusionMap, commanderName, partnerCommanderName, BASIC_LANDS, analysis, menuProps.mustIncludeNames, excludeLandsFromCuts, removedCutCards, skippedCutCards]);
 
   const handleRemoveCutCard = useCallback((card: ScryfallCard) => {
@@ -4062,6 +4272,14 @@ export function DeckOptimizer({
     pushDeckHistory({ action: 'remove', cardName: card.name });
     setRemovedCutCards(prev => new Set([...prev, card.name]));
   }, [onRemoveCards, pushDeckHistory]);
+
+  const handleCutAll = useCallback(() => {
+    const toCut = cutCandidates.slice(0, deckExcess);
+    if (toCut.length === 0) return;
+    onRemoveCards?.(toCut.map(ac => ac.card.name));
+    for (const ac of toCut) pushDeckHistory({ action: 'remove', cardName: ac.card.name });
+    setRemovedCutCards(prev => new Set([...prev, ...toCut.map(ac => ac.card.name)]));
+  }, [cutCandidates, deckExcess, onRemoveCards, pushDeckHistory]);
 
   const handleSkipCutCard = useCallback((card: ScryfallCard) => {
     setSkippedCutCards(prev => new Set([...prev, card.name]));
@@ -4204,7 +4422,7 @@ export function DeckOptimizer({
               primaryThemeSlug={primaryThemeSlug}
               secondaryThemeSlug={secondaryThemeSlug}
               onThemeSelect={handleThemeSelect}
-              detectedPacing={analysis.pacing}
+              detectedPacing={detectedPacingRef.current ?? analysis.pacing}
               userPacing={userPacing}
               onPacingChange={handlePacingChange}
             />
@@ -4263,9 +4481,18 @@ export function DeckOptimizer({
                   </div>
                   {/* Top X cuts (where X = cards over target) in a highlighted box */}
                   <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-1.5 mb-2">
-                    <p className="text-[10px] font-medium text-red-400/80 uppercase tracking-wider mb-1 px-1">
-                      Cut these {Math.min(deckExcess, cutCandidates.length)} to hit {deckSize}
-                    </p>
+                    <div className="flex items-center justify-between mb-1 px-1">
+                      <p className="text-[10px] font-medium text-red-400/80 uppercase tracking-wider">
+                        Cut these {Math.min(deckExcess, cutCandidates.length)} to hit {deckSize}
+                      </p>
+                      <button
+                        onClick={handleCutAll}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded border border-red-500/30 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <Scissors className="w-2.5 h-2.5" />
+                        Cut all
+                      </button>
+                    </div>
                     <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
                       {cutCandidates.slice(0, deckExcess).map((ac) => (
                         <CutRow
@@ -4400,10 +4627,13 @@ export function DeckOptimizer({
               activePhase={activeCurvePhase}
               onPhaseClick={setActiveCurvePhase}
             />
+            <ManaCurveLineChart
+              curveAnalysis={analysis.curveAnalysis}
+              pacing={effectivePacing}
+            />
             {activeCurvePhase && analysis.curvePhases.find(p => p.phase === activeCurvePhase) && (
               <CurvePhaseDetail
                 phase={analysis.curvePhases.find(p => p.phase === activeCurvePhase)!}
-                trajectory={analysis.manaTrajectory}
                 recommendations={analysis.recommendations}
                 onPreview={handlePreview}
                 onAdd={handleAddCard}

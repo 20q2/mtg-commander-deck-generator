@@ -4,9 +4,10 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
+import { DeckHistory } from '@/components/deck/DeckHistory';
 import type { ScryfallCard, DetectedCombo, UserCardList } from '@/types';
 import {
   Copy,
@@ -912,6 +913,7 @@ interface TextEditorViewProps {
   maybeboardNames?: string[];
   onSetSideboard?: (names: string[]) => void;
   onSetMaybeboard?: (names: string[]) => void;
+  pushDeckHistory?: (entry: { action: 'add' | 'remove' | 'swap' | 'sideboard' | 'maybeboard'; cardName: string; targetCardName?: string }) => void;
 }
 
 function sortDeckListAlpha(raw: string): string {
@@ -922,7 +924,7 @@ function sortDeckListAlpha(raw: string): string {
   }).join('\n');
 }
 
-function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQuantity, readOnly, onClose, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard }: TextEditorViewProps) {
+function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQuantity, readOnly, onClose, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, pushDeckHistory }: TextEditorViewProps) {
   const canEdit = !readOnly && (!!onAddCards || !!onRemoveCards);
   const hasSideboard = !!onSetSideboard;
   const hasMaybeboard = !!onSetMaybeboard;
@@ -1093,17 +1095,27 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
             originalNames.push(name);
           }
         }
-        if (originalNames.length > 0) onRemoveCards(originalNames);
+        if (originalNames.length > 0) {
+          onRemoveCards(originalNames);
+          for (const n of originalNames) pushDeckHistory?.({ action: 'remove', cardName: n });
+        }
       }
 
       // Apply quantity changes
       if (diff.qtyChanges.length > 0 && onChangeQuantity) {
         for (const { name, newQty } of diff.qtyChanges) {
-          // Find original-cased name
+          // Find original-cased name and old quantity
           for (const line of currentDeckList.split('\n')) {
             const match = line.match(/^(\d+)\s+(.+)/);
             if (match && match[2].trim().toLowerCase() === name) {
-              onChangeQuantity(match[2].trim(), newQty);
+              const oldQty = parseInt(match[1], 10);
+              const cardDisplayName = match[2].trim();
+              onChangeQuantity(cardDisplayName, newQty);
+              if (newQty > oldQty) {
+                for (let i = 0; i < newQty - oldQty; i++) pushDeckHistory?.({ action: 'add', cardName: cardDisplayName });
+              } else if (newQty < oldQty) {
+                for (let i = 0; i < oldQty - newQty; i++) pushDeckHistory?.({ action: 'remove', cardName: cardDisplayName });
+              }
               break;
             }
           }
@@ -1119,7 +1131,10 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
           const found = validatedNames.get(name) || [...validatedNames.values()].find(c => c.name.toLowerCase() === name.toLowerCase());
           if (found) toAdd.push(found.name);
         }
-        if (toAdd.length > 0) onAddCards(toAdd, 'deck');
+        if (toAdd.length > 0) {
+          onAddCards(toAdd, 'deck');
+          for (const n of toAdd) pushDeckHistory?.({ action: 'add', cardName: n });
+        }
       }
 
       setLastAppliedDeckList(text);
@@ -1128,7 +1143,7 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
     } finally {
       setApplying(false);
     }
-  }, [diff, onAddCards, onRemoveCards, onChangeQuantity, currentDeckList, text]);
+  }, [diff, onAddCards, onRemoveCards, onChangeQuantity, currentDeckList, text, pushDeckHistory]);
 
   // Board diffs (sideboard/maybeboard)
   const parseBoardText = useCallback((boardText: string) => {
@@ -1181,12 +1196,16 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
       } else {
         setter(names);
       }
+      // Track board changes in history
+      const historyAction = board === 'sideboard' ? 'sideboard' as const : 'maybeboard' as const;
+      for (const n of boardDiff.added) pushDeckHistory?.({ action: historyAction, cardName: n });
+      for (const n of boardDiff.removed) pushDeckHistory?.({ action: 'remove', cardName: n });
     } catch {
       setErrors(['Failed to validate cards. Please try again.']);
     } finally {
       setApplying(false);
     }
-  }, [sbParsedNames, mbParsedNames, sbDiff, mbDiff, onSetSideboard, onSetMaybeboard]);
+  }, [sbParsedNames, mbParsedNames, sbDiff, mbDiff, onSetSideboard, onSetMaybeboard, pushDeckHistory]);
 
   const handleReset = useCallback(() => {
     if (activeTab === 'deck') {
@@ -1866,7 +1885,7 @@ interface DeckDisplayProps {
 
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
-  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization } = useStore();
+  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory } = useStore();
   const { lists: userLists, createList, updateList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -2213,6 +2232,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return cards;
   }, [groupedCards]);
 
+  const handleHistoryPreview = useCallback(async (name: string) => {
+    const found = flatCardList.find(c => c.name === name);
+    if (found) { setPreviewCard(found); return; }
+    try {
+      const card = await getCardByName(name);
+      if (card) setPreviewCard(card);
+    } catch { /* silently fail */ }
+  }, [flatCardList]);
+
   const handlePreviewNavigate = useCallback((direction: 'prev' | 'next') => {
     if (!previewCard || flatCardList.length === 0) return;
     const idx = flatCardList.findIndex(c => c.id === previewCard.id);
@@ -2389,18 +2417,20 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const names = getSelectedCardNames();
     if (names.length === 0) return;
     onMoveToSideboard(names);
+    for (const name of names) pushDeckHistory({ action: 'sideboard', cardName: name });
     setSelectedCards(new Set());
     setShowAddToDropdown(false);
-  }, [onMoveToSideboard, getSelectedCardNames]);
+  }, [onMoveToSideboard, getSelectedCardNames, pushDeckHistory]);
 
   const handleMoveToMaybeboard = useCallback(() => {
     if (!onMoveToMaybeboard) return;
     const names = getSelectedCardNames();
     if (names.length === 0) return;
     onMoveToMaybeboard(names);
+    for (const name of names) pushDeckHistory({ action: 'maybeboard', cardName: name });
     setSelectedCards(new Set());
     setShowAddToDropdown(false);
-  }, [onMoveToMaybeboard, getSelectedCardNames]);
+  }, [onMoveToMaybeboard, getSelectedCardNames, pushDeckHistory]);
 
   const handleAddToExistingList = useCallback((listId: string) => {
     const names = getSelectedCardNames();
@@ -2436,12 +2466,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     switch (action.type) {
       case 'remove':
         onRemoveCards?.([name]);
+        pushDeckHistory({ action: 'remove', cardName: name });
         break;
       case 'sideboard':
         onMoveToSideboard?.([name]);
+        pushDeckHistory({ action: 'sideboard', cardName: name });
         break;
       case 'maybeboard':
         onMoveToMaybeboard?.([name]);
+        pushDeckHistory({ action: 'maybeboard', cardName: name });
         break;
       case 'mustInclude': {
         const current = customization.mustIncludeCards;
@@ -2464,7 +2497,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         break;
       }
     }
-  }, [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList]);
+  }, [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList, pushDeckHistory]);
 
   const cardMenuProps: Omit<CardContextMenuProps, 'card' | 'onAction'> = useMemo(() => ({
     hasRemove: !!onRemoveCards,
@@ -2885,8 +2918,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${mobileStatsOpen ? 'rotate-180' : ''}`} />
           </button>
           {mobileStatsOpen && (
-            <div className="px-4 pb-3">
+            <div className="px-4 pb-3 space-y-4">
               <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader />
+              <DeckHistory onPreviewCard={handleHistoryPreview} />
             </div>
           )}
         </div>
@@ -3089,6 +3123,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 maybeboardNames={maybeboardNames}
                 onSetSideboard={onSetSideboard}
                 onSetMaybeboard={onSetMaybeboard}
+                pushDeckHistory={pushDeckHistory}
               />
             </div>
           </div>
@@ -3344,6 +3379,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               {sidebarHeader || deckSummary}
             </div>
             <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
+            <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} /></div>
           </div>
         </div>
       </div>
@@ -3365,6 +3401,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         swapCandidates={readOnly ? undefined : previewSwapCandidates}
         onSwapCard={readOnly ? undefined : (oldCard, newCard) => {
           swapDeckCard(oldCard, newCard);
+          pushDeckHistory({ action: 'swap', cardName: oldCard.name, targetCardName: newCard.name });
           // Clear the swapped-out card from removedCards so it doesn't show struck-through
           setRemovedCards(prev => {
             if (!prev.has(oldCard.id)) return prev;

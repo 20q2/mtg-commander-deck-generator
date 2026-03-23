@@ -54,6 +54,7 @@ interface RawEDHRECCard {
   // They must be fetched from Scryfall when converting cards
   cmc?: number;
   salt?: number;
+  type_line?: string; // Sometimes present in EDHREC data
 }
 
 interface RawCardList {
@@ -208,6 +209,19 @@ function parseCard(raw: RawEDHRECCard, tagHint?: string): EDHRECCard {
   else if (tagLower === 'enchantments') primaryType = 'Enchantment';
   else if (tagLower === 'planeswalkers') primaryType = 'Planeswalker';
   else if (tagLower === 'utilitylands' || tagLower === 'lands') primaryType = 'Land';
+
+  // Fallback: derive from type_line if EDHREC provided it
+  if (primaryType === 'Unknown' && raw.type_line) {
+    const tl = raw.type_line.split('—')[0].split('//')[0].toLowerCase();
+    if (tl.includes('creature')) primaryType = 'Creature';
+    else if (tl.includes('instant')) primaryType = 'Instant';
+    else if (tl.includes('sorcery')) primaryType = 'Sorcery';
+    else if (tl.includes('artifact')) primaryType = 'Artifact';
+    else if (tl.includes('enchantment')) primaryType = 'Enchantment';
+    else if (tl.includes('planeswalker')) primaryType = 'Planeswalker';
+    else if (tl.includes('land')) primaryType = 'Land';
+    else if (tl.includes('battle')) primaryType = 'Battle';
+  }
 
   // Check if this card is from a high-priority synergy list
   const isThemeSynergyCard = THEME_SYNERGY_TAGS.has(tagLower);

@@ -14,7 +14,7 @@ const historyBadges: Record<string, { label: string; color: string; bg: string }
   maybeboard: { label: 'MB', color: 'text-amber-400',   bg: 'bg-amber-500/15' },
 };
 
-function HistoryRow({ entry }: { entry: DeckHistoryEntry }) {
+function HistoryRow({ entry, onPreview }: { entry: DeckHistoryEntry; onPreview?: (name: string) => void }) {
   const badge = historyBadges[entry.action];
   return (
     <div className="flex items-center gap-2 text-xs py-0.5">
@@ -22,9 +22,15 @@ function HistoryRow({ entry }: { entry: DeckHistoryEntry }) {
         {badge.label}
       </span>
       <span className="truncate text-foreground/80">
-        {entry.action === 'swap'
-          ? <>{entry.cardName} <span className="text-muted-foreground/50">&rarr;</span> {entry.targetCardName}</>
-          : entry.cardName}
+        {entry.action === 'swap' ? (
+          <>
+            <button type="button" onClick={() => onPreview?.(entry.cardName)} className="hover:underline hover:text-foreground transition-colors">{entry.cardName}</button>
+            <span className="text-muted-foreground/50"> &rarr; </span>
+            <button type="button" onClick={() => onPreview?.(entry.targetCardName!)} className="hover:underline hover:text-foreground transition-colors">{entry.targetCardName}</button>
+          </>
+        ) : (
+          <button type="button" onClick={() => onPreview?.(entry.cardName)} className="hover:underline hover:text-foreground transition-colors">{entry.cardName}</button>
+        )}
       </span>
       <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/50">
         {formatRelativeTime(entry.timestamp)}
@@ -33,7 +39,7 @@ function HistoryRow({ entry }: { entry: DeckHistoryEntry }) {
   );
 }
 
-export function DeckHistory() {
+export function DeckHistory({ onPreviewCard }: { onPreviewCard?: (name: string) => void } = {}) {
   const deckHistory = useStore(s => s.deckHistory);
   const [isOpen, setIsOpen] = useState(() => localStorage.getItem(HISTORY_OPEN_KEY) !== 'false');
 
@@ -63,9 +69,9 @@ export function DeckHistory() {
         <span className="ml-auto text-[10px] text-muted-foreground/50">{deckHistory.length}</span>
       </button>
       {isOpen && (
-        <div className="mt-3 max-h-48 overflow-y-auto space-y-1 scrollbar-thin">
+        <div className="mt-3 max-h-64 overflow-y-auto space-y-1 pr-2 scrollbar-thin">
           {deckHistory.map(entry => (
-            <HistoryRow key={entry.id} entry={entry} />
+            <HistoryRow key={entry.id} entry={entry} onPreview={onPreviewCard} />
           ))}
         </div>
       )}

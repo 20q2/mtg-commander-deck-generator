@@ -365,7 +365,7 @@ export function getCurveGrade(curveAnalysis: CurveSlot[]): GradeResult {
 }
 
 /** Pacing multipliers shift curve targets to match detected deck tempo. */
-const PACING_MULTIPLIERS: Record<Pacing, { early: number; mid: number; late: number }> = {
+export const PACING_MULTIPLIERS: Record<Pacing, { early: number; mid: number; late: number }> = {
   'aggressive-early': { early: 1.20, mid: 0.95, late: 0.75 },
   'fast-tempo':       { early: 1.12, mid: 1.00, late: 0.82 },
   'midrange':         { early: 0.92, mid: 1.10, late: 0.95 },

@@ -39,6 +39,14 @@ const SECONDARY_GAP_MAX = 15;
 
 // ─── Pacing Detection ────────────────────────────────────────────────
 
+export const PACING_PHRASE: Record<Pacing, string> = {
+  'aggressive-early': 'early game aggression',
+  'fast-tempo': 'a fast, low-curve game plan',
+  'midrange': 'a steady midrange strategy',
+  'late-game': 'a late-game value engine',
+  'balanced': 'a versatile approach',
+};
+
 const AGGRO_KEYWORDS = new Set([
   'haste', 'first strike', 'double strike', 'menace',
   'trample', 'prowess', 'exalted',
@@ -287,12 +295,14 @@ export function buildDetectionMessage(
   strategyLabel: string,
   isConfident: boolean,
   hasSecondaryTheme: boolean,
+  hasUserOverride?: boolean,
 ): string {
   const shortName = commanderName.includes(',')
     ? commanderName.split(',')[0].trim()
     : commanderName;
 
   const b = (text: string) => `<strong class="text-foreground/90">${text}</strong>`;
+  const prefix = hasUserOverride ? "You've declared that this is" : "We've detected that this is";
 
   if (!isConfident || matchedThemes.length === 0) {
     return `This ${b(shortName)} deck has a unique strategy with ${b(pacingLabel)}. Select a theme below for tailored recommendations.`;
@@ -300,10 +310,10 @@ export function buildDetectionMessage(
 
   if (hasSecondaryTheme && matchedThemes.length >= 2) {
     const secondLabel = generateStrategyLabel(matchedThemes[1].theme.name);
-    return `We've detected that this is a ${b(shortName)} deck that focuses on ${b(pacingLabel)} and ${b(strategyLabel)}, with elements of ${b(secondLabel)}.`;
+    return `${prefix} a ${b(shortName)} deck that focuses on ${b(pacingLabel)} and ${b(strategyLabel)}, with elements of ${b(secondLabel)}.`;
   }
 
-  return `We've detected that this is a ${b(shortName)} deck built around ${b(strategyLabel)} with ${b(pacingLabel)}.`;
+  return `${prefix} a ${b(shortName)} deck built around ${b(strategyLabel)} with ${b(pacingLabel)}.`;
 }
 
 // ─── Main Orchestrator ───────────────────────────────────────────────

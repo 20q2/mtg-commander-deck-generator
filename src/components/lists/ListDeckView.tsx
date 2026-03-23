@@ -815,7 +815,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     if (!onAddCards) return;
     onAddCards([card.name], 'deck');
     pushDeckHistory({ action: 'add', cardName: card.name });
-    setSearchResults(prev => prev.filter(c => c.id !== card.id));
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
   }, [onAddCards, pushDeckHistory]);
 
   const handleShowBoardPicker = useCallback((card: ScryfallCard, event: React.MouseEvent) => {
@@ -828,8 +830,10 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     onAddCards([pendingCard.name], destination);
     const historyAction = destination === 'sideboard' ? 'sideboard' as const : destination === 'maybeboard' ? 'maybeboard' as const : 'add' as const;
     pushDeckHistory({ action: historyAction, cardName: pendingCard.name });
-    setSearchResults(prev => prev.filter(c => c.id !== pendingCard.id));
     setPendingCard(null);
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
   }, [pendingCard, onAddCards, pushDeckHistory]);
 
   const handleCancelPicker = useCallback(() => {
@@ -868,17 +872,21 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     switch (action.type) {
       case 'remove':
         onRemoveFromBoard?.(name, boardType);
+        pushDeckHistory({ action: 'remove', cardName: name });
         break;
       case 'addToDeck':
         onMoveToDeck?.([name], boardType);
+        pushDeckHistory({ action: 'add', cardName: name });
         break;
       case 'sideboard':
         // Card is in maybeboard → move to sideboard
         onMoveBetweenBoards?.(name, boardType);
+        pushDeckHistory({ action: 'sideboard', cardName: name });
         break;
       case 'maybeboard':
         // Card is in sideboard → move to maybeboard
         onMoveBetweenBoards?.(name, boardType);
+        pushDeckHistory({ action: 'maybeboard', cardName: name });
         break;
       case 'mustInclude': {
         const current = customization.mustIncludeCards;
@@ -900,7 +908,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         break;
       }
     }
-  }, [onRemoveFromBoard, onMoveToDeck, onMoveBetweenBoards, customization, updateCustomization, userLists, updateList]);
+  }, [onRemoveFromBoard, onMoveToDeck, onMoveBetweenBoards, customization, updateCustomization, userLists, updateList, pushDeckHistory]);
 
   const boardMenuProps = useMemo(() => ({
     userLists,
@@ -1307,7 +1315,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             commanderName={list.commanderName}
             partnerCommanderName={list.partnerCommanderName}
             currentCards={Object.values(generatedDeck.categories).flat()}
-            deckSize={list.deckSize || list.cards.length}
+            deckSize={(list.deckSize || 100) - 1 - (list.partnerCommanderName ? 1 : 0)}
             roleCounts={generatedDeck.roleCounts || {}}
             roleTargets={generatedDeck.roleTargets || {}}
             categories={generatedDeck.categories}
