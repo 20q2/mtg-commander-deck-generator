@@ -504,6 +504,18 @@ export function getManaTrajectory(
 }
 
 /** Generate a human-readable HTML summary about the deck's health. Returns HTML with <strong> tags. */
+const SUMMARY_SVGS: Record<string, string> = {
+  ramp:    '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  cardDraw:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  lands:   '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+};
+
+function summaryIcon(key: string): string {
+  const svg = SUMMARY_SVGS[key];
+  if (!svg) return '';
+  return `<svg class="inline-block w-3.5 h-3.5 mr-0.5 -mt-px opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</svg>`;
+}
+
 export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): string {
   const b = (text: string, tab?: string) =>
     tab
@@ -542,7 +554,7 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
 
     if (deficits.length > 0) {
       for (const rd of deficits.slice(0, 2)) {
-        cutNeeds.push(`${b(rd.label, `roles:${rd.role}`)} — ${rd.deficit} below target`);
+        cutNeeds.push(`${summaryIcon(rd.role)}${b(rd.label, `roles:${rd.role}`)} — ${rd.deficit} below target`);
       }
     }
     if (curveShape === 'top-heavy') {
@@ -552,14 +564,14 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
     }
     if (excesses.length > 0) {
       for (const rd of excesses.slice(0, 2)) {
-        cutTrims.push(`${b(rd.label, `roles:${rd.role}`)} — ${rd.current - rd.target} over target`);
+        cutTrims.push(`${summaryIcon(rd.role)}${b(rd.label, `roles:${rd.role}`)} — ${rd.current - rd.target} over target`);
       }
     }
     if (landDelta > 2) {
-      cutTrims.push(`${b('Lands', 'lands')} — ${landDelta} above suggested count`);
+      cutTrims.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${landDelta} above suggested count`);
     }
 
-    const li = (text: string) => `<li class="flex items-baseline gap-1.5 before:content-['•'] before:text-muted-foreground/40">${text}</li>`;
+    const li = (text: string) => `<li class="flex items-center gap-1.5">${text}</li>`;
 
     if (cutNeeds.length > 0) {
       parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none">${cutNeeds.map(li).join('')}</ul></div>`);
@@ -588,10 +600,10 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
 
   if (deficits.length > 0) {
     const top = deficits[0];
-    needs.push(`${b(top.label, `roles:${top.role}`)} — ${top.deficit} below target`);
+    needs.push(`${summaryIcon(top.role)}${b(top.label, `roles:${top.role}`)} — ${top.deficit} below target`);
   }
   if (verdict === 'low' || verdict === 'critically-low') {
-    needs.push(`${b('Lands', 'lands')} — ${Math.abs(landDelta)} below suggested count`);
+    needs.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${Math.abs(landDelta)} below suggested count`);
   }
   if (curveShape === 'top-heavy') {
     needs.push(`${b('Curve', 'curve')} — too many expensive spells`);
@@ -600,13 +612,13 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
   }
   if (excesses.length > 0) {
     const ex = excesses[0];
-    trims.push(`${b(ex.label, `roles:${ex.role}`)} — ${ex.current - ex.target} over target`);
+    trims.push(`${summaryIcon(ex.role)}${b(ex.label, `roles:${ex.role}`)} — ${ex.current - ex.target} over target`);
   }
   if (verdict === 'high') {
-    trims.push(`${b('Lands', 'lands')} — ${landDelta} above suggested count`);
+    trims.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${landDelta} above suggested count`);
   }
 
-  const li = (text: string) => `<li class="flex items-baseline gap-1.5 before:content-['•'] before:text-muted-foreground/40">${text}</li>`;
+  const li = (text: string) => `<li class="flex items-center gap-1.5">${text}</li>`;
 
   if (needs.length > 0) {
     parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none">${needs.map(li).join('')}</ul></div>`);

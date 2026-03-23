@@ -4229,7 +4229,14 @@ export function DeckOptimizer({
         return true;
       })
       .map(c => {
-        const inclusion = inclusionMap[c.name] ?? edhrecRankToInclusion(c.edhrec_rank) ?? null;
+        // For lands, use the higher of commander-specific inclusion and global edhrec_rank
+        // so format staples (e.g. Urborg) aren't suggested as cuts for new/niche commanders
+        const isLand = getFrontFaceTypeLine(c).toLowerCase().includes('land') || isMdfcLand(c);
+        const cmdInclusion = inclusionMap[c.name] ?? null;
+        const globalInclusion = edhrecRankToInclusion(c.edhrec_rank);
+        const inclusion = isLand
+          ? Math.max(cmdInclusion ?? 0, globalInclusion ?? 0) || null
+          : cmdInclusion ?? globalInclusion ?? null;
         const role = c.deckRole || getCardRole(c.name);
         return { card: c, inclusion, role, roleLabel: role ? ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' }[role] || role) : undefined } as AnalyzedCard;
       })
