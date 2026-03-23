@@ -67,6 +67,8 @@ export interface ScryfallCard {
   cardDrawSubtype?: 'tutor' | 'wheel' | 'cantrip' | 'card-draw' | 'card-advantage';
   isMdfcLand?: boolean; // True if this is an MDFC with a land back face
   isChannelLand?: boolean; // True if this is a Kamigawa channel land
+  isUtilityLand?: boolean; // True if this land has meaningful non-mana abilities (from otag:utility-land)
+  isTapland?: boolean; // True if this land enters the battlefield tapped (from otag:tapland)
 }
 
 export interface ScryfallSearchResponse {

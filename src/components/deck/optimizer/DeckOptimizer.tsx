@@ -20,7 +20,7 @@ import { CutRow, RecommendationRow } from './shared';
 import { ThemeDetectionBanner, DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, InteractionTiming, RampHealth, LandDropCurve, CurvePhaseDetail } from './CurveTab';
+import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, InteractionTiming, RampHealth, LandDropCurve, PhaseCardDisplay, ManaTrajectorySparkline } from './CurveTab';
 import { TypeCardSection } from './TypesTab';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1141,6 +1141,23 @@ export function DeckOptimizer({
           const activePhaseData = analysis.curvePhases.find(p => p.phase === activeCurvePhase);
           return (
             <div className="space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <CurveInsights
+                  curveAnalysis={analysis.curveAnalysis}
+                  curvePhases={analysis.curvePhases}
+                  manaSources={analysis.manaSources}
+                  manaTrajectory={analysis.manaTrajectory}
+                  commanderCmc={cmdr?.cmc ?? 0}
+                  partnerCmc={partner?.cmc}
+                  commanderName={commanderName}
+                  partnerName={partnerCommanderName}
+                  totalNonLand={totalNonLand}
+                  drawCount={drawCount}
+                />
+                <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+                  <ManaTrajectorySparkline trajectory={analysis.manaTrajectory} />
+                </div>
+              </div>
               <CurveSummaryStrip
                 phases={analysis.curvePhases}
                 activePhase={activeCurvePhase}
@@ -1163,22 +1180,16 @@ export function DeckOptimizer({
                   menuProps={menuProps}
                 />
               )}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <CurveInsights
-                  curveAnalysis={analysis.curveAnalysis}
-                  curvePhases={analysis.curvePhases}
-                  manaSources={analysis.manaSources}
-                  manaTrajectory={analysis.manaTrajectory}
-                  commanderCmc={cmdr?.cmc ?? 0}
-                  partnerCmc={partner?.cmc}
-                  commanderName={commanderName}
-                  partnerName={partnerCommanderName}
-                  totalNonLand={totalNonLand}
-                  drawCount={drawCount}
+              {activePhaseData && (
+                <PhaseCardDisplay
+                  phase={activePhaseData}
+                  onPreview={handlePreview}
+                  onCardAction={handleCardAction}
+                  menuProps={menuProps}
                 />
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <InteractionTiming currentCards={currentCards} />
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <RampHealth
                   rampCards={rampCards}
                   manaSources={analysis.manaSources}
@@ -1189,17 +1200,6 @@ export function DeckOptimizer({
                   landCount={analysis.manaBase.currentLands}
                 />
               </div>
-              {activePhaseData && (
-                <CurvePhaseDetail
-                  phase={activePhaseData}
-                  recommendations={analysis.recommendations}
-                  onPreview={handlePreview}
-                  onAdd={handleAddCard}
-                  addedCards={addedCards}
-                  onCardAction={handleCardAction}
-                  menuProps={menuProps}
-                />
-              )}
             </div>
           );
         })()}

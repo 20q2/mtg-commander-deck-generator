@@ -2350,6 +2350,16 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return { prev: previewCardIndex > 0, next: previewCardIndex >= 0 && previewCardIndex < flatCardList.length - 1 };
   }, [previewCardIndex, flatCardList.length]);
 
+  const prevCardImage = useMemo(() => {
+    if (previewCardIndex <= 0) return null;
+    return getCardImageUrl(flatCardList[previewCardIndex - 1], 'small');
+  }, [previewCardIndex, flatCardList]);
+
+  const nextCardImage = useMemo(() => {
+    if (previewCardIndex < 0 || previewCardIndex >= flatCardList.length - 1) return null;
+    return getCardImageUrl(flatCardList[previewCardIndex + 1], 'small');
+  }, [previewCardIndex, flatCardList]);
+
   const handleReplaceSelected = useCallback(() => {
     const allCards = Object.values(groupedCards).flat();
     const namesToBan: string[] = [];
@@ -3614,6 +3624,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
         cardRelevancyMap={showRelevancy ? generatedDeck?.cardRelevancyMap : null}
         showPrice={showPrice}
+        prevCardImage={prevCardImage}
+        nextCardImage={nextCardImage}
       />
       <ExportModal
         isOpen={showExportModal}

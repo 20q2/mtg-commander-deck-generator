@@ -242,15 +242,18 @@ export function SuggestionCardItem({
           <span className="text-[10px] text-muted-foreground shrink-0">${rec.price}</span>
         )}
       </div>
-      {/* Row 2: role icons */}
+      {/* Row 2: role tags */}
       {roleBadges.length > 0 && (
-        <div className="flex items-center gap-1.5 px-4 min-w-0 justify-center">
+        <div className="flex items-center gap-1 px-1 min-w-0 justify-center flex-wrap">
           {roleBadges.map(label => {
-            const iconColor = ROLE_ICON_COLORS[label];
+            const badgeColor = SUBTYPE_BADGE_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];
-            if (!iconColor || !RIcon) return null;
+            if (!badgeColor || !RIcon) return null;
             return (
-              <span key={label} title={label}><RIcon className={`w-3 h-3 shrink-0 ${iconColor}`} /></span>
+              <span key={label} className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-medium ${badgeColor}`}>
+                <RIcon className="w-2.5 h-2.5 shrink-0" />
+                {label}
+              </span>
             );
           })}
         </div>
@@ -262,7 +265,7 @@ export function SuggestionCardItem({
 // ─── Shared: Cut Card Grid (for lands to remove) ─────────────────────
 
 export function CutCardGrid({
-  cards, onRemove, onPreview, removedCards, excess, onCardAction, menuProps, cardInclusionMap,
+  cards, onRemove, onPreview, removedCards, excess, onCardAction, menuProps, cardInclusionMap, sortMode,
 }: {
   cards: AnalyzedCard[];
   onRemove: (card: ScryfallCard) => void;
@@ -272,6 +275,7 @@ export function CutCardGrid({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
   cardInclusionMap?: Record<string, number>;
+  sortMode?: 'inclusion' | 'score';
 }) {
   return (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -286,6 +290,7 @@ export function CutCardGrid({
           onCardAction={onCardAction}
           menuProps={menuProps}
           cardInclusionMap={cardInclusionMap}
+          sortMode={sortMode}
         />
       ))}
     </div>
@@ -295,7 +300,7 @@ export function CutCardGrid({
 // ─── Cut Card Item ────────────────────────────────────────────────────
 
 export function CutCardItem({
-  ac, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap,
+  ac, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap, sortMode = 'inclusion',
 }: {
   ac: AnalyzedCard;
   removed: boolean;
@@ -305,6 +310,7 @@ export function CutCardItem({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
   cardInclusionMap?: Record<string, number>;
+  sortMode?: 'inclusion' | 'score';
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank);
@@ -377,15 +383,24 @@ export function CutCardItem({
           </span>
         )}
       </button>
-      {/* Row 1: inclusion, name, price */}
+      {/* Row 1: metric, name, price */}
       <div className="flex items-center gap-1 px-1 -mt-0.5 min-w-0">
-        <span
-          className="text-[10px] font-bold tabular-nums shrink-0"
-          style={{ color: pct ? `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` : undefined }}
-          title={isEstimate ? 'Estimated from EDHREC rank' : undefined}
-        >
-          {isEstimate ? '~' : ''}{pct ?? '?'}%
-        </span>
+        {sortMode === 'score' ? (
+          <span
+            className="text-[10px] font-bold tabular-nums shrink-0 text-violet-400"
+            title={`Relevance score: ${Math.round(ac.score ?? 0)} (inclusion: ${pct ?? '?'}%)`}
+          >
+            {Math.round(ac.score ?? 0)}
+          </span>
+        ) : (
+          <span
+            className="text-[10px] font-bold tabular-nums shrink-0"
+            style={{ color: pct ? `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` : undefined }}
+            title={isEstimate ? 'Estimated from EDHREC rank' : undefined}
+          >
+            {isEstimate ? '~' : ''}{pct ?? '?'}%
+          </span>
+        )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{ac.card.name}</span>
         {price && (
           <span className="text-[10px] text-muted-foreground shrink-0">${price}</span>

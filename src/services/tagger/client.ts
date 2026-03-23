@@ -59,6 +59,16 @@ export function hasTaggerData(): boolean {
   return tagSets !== null;
 }
 
+/** Check if a land has meaningful non-mana abilities (Scryfall otag:utility-land). */
+export function isUtilityLand(cardName: string): boolean {
+  return tagSets?.['utility-land']?.has(cardName) ?? false;
+}
+
+/** Check if a land enters the battlefield tapped (Scryfall otag:tapland). */
+export function isTapland(cardName: string): boolean {
+  return tagSets?.['tapland']?.has(cardName) ?? false;
+}
+
 export type RoleKey = 'ramp' | 'removal' | 'boardwipe' | 'cardDraw';
 export type RampSubtype = 'mana-producer' | 'mana-rock' | 'cost-reducer' | 'ramp';
 export type RemovalSubtype = 'counterspell' | 'bounce' | 'spot-removal' | 'removal';

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Minus, Check, AlertTriangle, ChevronDown, ChevronRight, ThumbsUp } from 'lucide-react';
+import { Plus, Trash2, Check, AlertTriangle, ChevronDown, ChevronRight, ThumbsUp } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
@@ -100,6 +100,16 @@ export function AnalyzedCardRow({
               </span>
             );
           })()}
+          {ac.card.isUtilityLand && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 bg-violet-500/15 text-violet-400/80">
+              Utility
+            </span>
+          )}
+          {ac.card.isTapland && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 bg-amber-500/15 text-amber-400/80">
+              Tapland
+            </span>
+          )}
         </div>
         <span className="text-[10px] text-muted-foreground truncate block">
           {primaryType}
@@ -118,14 +128,6 @@ export function AnalyzedCardRow({
       </div>
       {showDetails && ac.card.mana_cost && (
         <ManaCost cost={ac.card.mana_cost} className="text-[10px] shrink-0" />
-      )}
-      {ac.inclusion != null && (
-        <span
-          className="text-xs tabular-nums shrink-0 font-medium"
-          style={{ color: `hsl(${Math.min(ac.inclusion / 50, 1) * 120}, 70%, 55%)` }}
-        >
-          {Math.round(ac.inclusion)}%
-        </span>
       )}
       {price && (
         <span className="text-[10px] text-muted-foreground shrink-0">${price}</span>
@@ -399,7 +401,7 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
           className="p-1 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
           title="Cut from deck"
         >
-          <Minus className="w-4 h-4" />
+          <Trash2 className="w-4 h-4" />
         </button>
         <div className="text-right w-12 leading-tight">
           <p className="text-xs font-medium tabular-nums">{price ? `$${price}` : '—'}</p>

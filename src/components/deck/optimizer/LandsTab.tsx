@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, ChevronDown, ChevronRight,
   Palette, FlipHorizontal2, Info,
-  Loader2, Sparkles, Mountain, Sprout, Scissors,
+  Loader2, Sparkles, Mountain, Sprout, Scissors, ArrowUpDown,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard } from '@/types';
@@ -92,7 +92,12 @@ export function LandSummaryStrip({
     {
       key: 'landCount', icon: Mountain, label: 'Land Count',
       value: mb.currentLands,
-      sub: `of ${mb.adjustedSuggestion} suggested`,
+      sub: (() => {
+        const parts = [`of ${mb.adjustedSuggestion} suggested`];
+        if (cf.utilityLands?.length) parts.push(`${cf.utilityLands.length} utility`);
+        if (mb.taplandCount > 0) parts.push(`${mb.taplandCount} tapland`);
+        return parts.join(' · ');
+      })(),
       grade: landGrade.letter, gradeColor: landGrade.color,
       gradeBg: tileGradeStyles(landGrade.letter).bg,
       gradeBadgeBg: tileGradeStyles(landGrade.letter).bgColor,
@@ -296,17 +301,21 @@ export function LandCountDetail({
     return /\bbasic\b/.test(tl);
   });
 
-  // Cut candidates: nonbasic lands excluding MDFCs and channel lands, sorted by inclusion ascending (weakest first)
+  // Cut candidates: nonbasic lands excluding MDFCs and channel lands
+  const [cutSortMode, setCutSortMode] = useState<'inclusion' | 'score'>('inclusion');
   const cutCandidates = useMemo(() => {
-    const filtered = nonbasicLands
-      .filter(ac => !isChannelLand(ac.card))
-      .sort((a, b) =>
-        (a.inclusion ?? resolvedInclusionMap[a.card.name] ?? edhrecRankToInclusion(a.card.edhrec_rank) ?? 0)
-        - (b.inclusion ?? resolvedInclusionMap[b.card.name] ?? edhrecRankToInclusion(b.card.edhrec_rank) ?? 0)
-      );
+    const filtered = nonbasicLands.filter(ac => !isChannelLand(ac.card));
+    const getInclusion = (ac: AnalyzedCard) =>
+      ac.inclusion ?? resolvedInclusionMap[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank) ?? 0;
+    if (cutSortMode === 'inclusion') {
+      filtered.sort((a, b) => getInclusion(a) - getInclusion(b));
+    } else {
+      // Sort by relevance score ascending (lowest score = weakest = most cuttable)
+      filtered.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
+    }
     const limit = Math.min(Math.max(excess + 4, 5), 15);
     return filtered.slice(0, limit);
-  }, [nonbasicLands, resolvedInclusionMap, excess]);
+  }, [nonbasicLands, resolvedInclusionMap, excess, cutSortMode]);
 
   const [showCuts, setShowCuts] = useState(isOverTarget);
   const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
@@ -449,57 +458,106 @@ export function LandCountDetail({
         {/* Right: cut candidates or land suggestions */}
         {(hasSuggestions || (isOverTarget && cutCandidates.length > 0)) && (
           <div className="flex-1 min-w-0">
-            {showCuts && cutCandidates.length > 0 ? (
-              <>
-                <div className="flex items-center gap-2 mb-2 px-0.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
-                    <Scissors className="w-3 h-3" />
-                    Lands to Cut ({cutCandidates.length})
-                  </p>
-                  <span className="text-[9px] text-muted-foreground/40 ml-1">sorted by inclusion %</span>
-                  {hasSuggestions && (
-                    <button
-                      onClick={() => setShowCuts(false)}
-                      className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      View suggestions →
-                    </button>
-                  )}
-                </div>
-                <CutCardGrid
-                  cards={cutCandidates}
-                  onRemove={handleRemoveCard}
-                  onPreview={onPreview}
-                  removedCards={removedCards}
-                  excess={excess}
-                  onCardAction={onCardAction}
-                  menuProps={menuProps}
-                  cardInclusionMap={resolvedInclusionMap}
-                />
-              </>
-            ) : (
-              <>
-                {isOverTarget && cutCandidates.length > 0 && (
-                  <div className="flex justify-end mb-1 px-0.5">
+            {/* Toggle header */}
+            {isOverTarget && cutCandidates.length > 0 && hasSuggestions ? (
+              <div className="mb-2 px-0.5 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  {showCuts && <span className="text-xs text-red-400/60">{excess} over target</span>}
+                  <div className="flex items-center border border-border/50 rounded-md overflow-hidden ml-auto">
                     <button
                       onClick={() => setShowCuts(true)}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      className={`flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors ${showCuts ? 'bg-red-500/15 text-red-400 font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
                     >
-                      View cut candidates →
+                      <Scissors className="w-2.5 h-2.5" />
+                      Cuts
+                    </button>
+                    <div className="w-px h-3 bg-border/50" />
+                    <button
+                      onClick={() => setShowCuts(false)}
+                      className={`flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors ${!showCuts ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                    >
+                      <Sparkles className="w-2.5 h-2.5" />
+                      Suggestions
                     </button>
                   </div>
-                )}
-                <SuggestionCardGrid
-                  title={<>Suggested Lands ({analysis.landRecommendations.length})</>}
-                  cards={analysis.landRecommendations}
-                  onAdd={onAdd}
-                  onPreview={onPreview}
-                  addedCards={addedCards}
-                  deficit={Math.max(0, mb.adjustedSuggestion - mb.currentLands)}
-                  onCardAction={onCardAction}
-                  menuProps={menuProps}
-                />
-              </>
+                </div>
+                {showCuts ? (
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
+                      <Scissors className="w-3 h-3" />
+                      Lands to Cut ({cutCandidates.length})
+                    </p>
+                    <div className="ml-auto flex items-center gap-1">
+                      <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
+                      <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                        <button
+                          onClick={() => setCutSortMode('score')}
+                          className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'score' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                        >
+                          Score
+                        </button>
+                        <div className="w-px h-3 bg-border/50" />
+                        <button
+                          onClick={() => setCutSortMode('inclusion')}
+                          className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'inclusion' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                        >
+                          Inclusion
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : showCuts && cutCandidates.length > 0 ? (
+              <div className="flex items-center gap-2 mb-2 px-0.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
+                  <Scissors className="w-3 h-3" />
+                  Lands to Cut ({cutCandidates.length})
+                </p>
+                <div className="ml-auto flex items-center gap-1">
+                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
+                  <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                    <button
+                      onClick={() => setCutSortMode('score')}
+                      className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'score' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                    >
+                      Score
+                    </button>
+                    <div className="w-px h-3 bg-border/50" />
+                    <button
+                      onClick={() => setCutSortMode('inclusion')}
+                      className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'inclusion' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+                    >
+                      Inclusion
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {/* Content */}
+            {showCuts && cutCandidates.length > 0 ? (
+              <CutCardGrid
+                cards={cutCandidates}
+                onRemove={handleRemoveCard}
+                onPreview={onPreview}
+                removedCards={removedCards}
+                excess={excess}
+                onCardAction={onCardAction}
+                menuProps={menuProps}
+                cardInclusionMap={resolvedInclusionMap}
+                sortMode={cutSortMode}
+              />
+            ) : (
+              <SuggestionCardGrid
+                title={<>Suggested Lands ({analysis.landRecommendations.length})</>}
+                cards={analysis.landRecommendations}
+                onAdd={onAdd}
+                onPreview={onPreview}
+                addedCards={addedCards}
+                deficit={Math.max(0, mb.adjustedSuggestion - mb.currentLands)}
+                onCardAction={onCardAction}
+                menuProps={menuProps}
+              />
             )}
           </div>
         )}
@@ -735,6 +793,8 @@ export function FixingDetail({
   const [multiColorOpen, setMultiColorOpen] = useState(true);
   const [monoColorOpen, setMonoColorOpen] = useState(false);
   const [colorlessOpen, setColorlessOpen] = useState(false);
+  const [utilityOpen, setUtilityOpen] = useState(false);
+  const [taplandOpen, setTaplandOpen] = useState(false);
   const [basicOpen, setBasicOpen] = useState(false);
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
 
@@ -829,6 +889,8 @@ export function FixingDetail({
   const filteredFixingLands = useMemo(() => cf.fixingLands.filter(ac => cardMatchesColorFilter(ac.card)), [cf.fixingLands, selectedColors]);
   const filteredMonoColorLands = useMemo(() => monoColorLands.filter(ac => cardMatchesColorFilter(ac.card)), [monoColorLands, selectedColors]);
   const filteredColorlessLands = useMemo(() => cf.colorlessOnly.filter(ac => cardMatchesColorFilter(ac.card)), [cf.colorlessOnly, selectedColors]);
+  const filteredUtilityLands = useMemo(() => (cf.utilityLands || []).filter(ac => cardMatchesColorFilter(ac.card)), [cf.utilityLands, selectedColors]);
+  const filteredTaplands = useMemo(() => (cf.taplands || []).filter(ac => cardMatchesColorFilter(ac.card)), [cf.taplands, selectedColors]);
   const filteredBasicGroups = useMemo(() => {
     if (selectedColors.size === 0) return basicGroups;
     const BASIC_COLOR: Record<string, string> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
@@ -982,7 +1044,51 @@ export function FixingDetail({
             </div>
           )}
 
-          {/* Colorless utility lands */}
+          {/* Utility lands (from Scryfall otag:utility-land) */}
+          {filteredUtilityLands.length > 0 && (
+            <div>
+              <button
+                onClick={() => setUtilityOpen(v => !v)}
+                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+              >
+                {utilityOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
+                  Utility Lands ({filteredUtilityLands.length})
+                </span>
+              </button>
+              {utilityOpen && (
+                <div className="space-y-0.5">
+                  {filteredUtilityLands.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Taplands (ETB tapped) */}
+          {filteredTaplands.length > 0 && (
+            <div>
+              <button
+                onClick={() => setTaplandOpen(v => !v)}
+                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+              >
+                {taplandOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
+                  Taplands ({filteredTaplands.length})
+                </span>
+              </button>
+              {taplandOpen && (
+                <div className="space-y-0.5">
+                  {filteredTaplands.map(ac => (
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Colorless lands */}
           {filteredColorlessLands.length > 0 && (
             <div>
               <button

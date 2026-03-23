@@ -1,5 +1,5 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
-import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, type RoleKey } from '@/services/tagger/client';
+import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 import { detectPacing, type Pacing } from './themeDetector';
@@ -39,6 +39,8 @@ export interface ManaBaseAnalysis {
   probLand2to3: number;
   probLand4plus: number;
   deckSize: number;
+  taplandCount: number;   // lands that ETB tapped (from otag:tapland)
+  taplandRatio: number;   // taplandCount / currentLands (0-1)
 }
 
 export interface TypeSlot {
@@ -70,6 +72,7 @@ export interface RecommendedCard {
 export interface AnalyzedCard {
   card: ScryfallCard;
   inclusion: number | null;
+  score?: number;
   role?: string;
   roleLabel?: string;
   subtype?: string;
@@ -123,6 +126,8 @@ export interface ColorFixingAnalysis {
   sourcesPerColor: Record<string, number>;
   fixingLands: AnalyzedCard[];   // lands producing 2+ of needed colors
   colorlessOnly: AnalyzedCard[]; // utility lands producing only colorless
+  utilityLands: AnalyzedCard[];  // lands with non-mana abilities (from otag:utility-land)
+  taplands: AnalyzedCard[];      // lands that enter the battlefield tapped (from otag:tapland)
   manaFixCards: AnalyzedCard[];  // non-land cards with mana-fix tag (actually fix colors)
   nonFixRampCards: AnalyzedCard[]; // non-land ramp (dorks, rocks, cost-reducers) without mana-fix tag
   pipDemand: Record<string, number>;           // colored pip count per color across non-land cards
@@ -543,6 +548,7 @@ export function getManaTrajectory(
   landCount: number,
   earlyRampCount: number,
   avgRampCmc: number,
+  taplandRatio: number = 0,
 ): ManaTrajectoryPoint[] {
   const points: ManaTrajectoryPoint[] = [];
 
@@ -553,6 +559,12 @@ export function getManaTrajectory(
     // Expected lands in hand/play by this turn (E[X] for hypergeometric)
     // E[X] = n * K / N for hypergeometric
     const expectedLands = Math.min(cardsSeen * landCount / deckSize, turn + 2); // can't play more than turn+mulligan lands
+
+    // Tapland tempo penalty: the land played THIS turn has a taplandRatio chance
+    // of entering tapped, costing ~taplandRatio mana this turn.
+    // On turn 1 this is most punishing; by late game it matters less relative to total mana.
+    const tapPenalty = taplandRatio;
+    const effectiveLands = Math.max(0, expectedLands - tapPenalty);
 
     // Expected ramp mana: each early ramp piece has P(drawn by turn) * P(castable)
     // Simplified: P(at least 1 copy drawn) ~ min(1, cardsSeen * count / deckSize) for the pool
@@ -572,11 +584,11 @@ export function getManaTrajectory(
       expectedRampMana = deployedRamp;
     }
 
-    const totalExpectedMana = Math.round((expectedLands + expectedRampMana) * 10) / 10;
+    const totalExpectedMana = Math.round((effectiveLands + expectedRampMana) * 10) / 10;
 
     points.push({
       turn,
-      expectedLands: Math.round(expectedLands * 10) / 10,
+      expectedLands: Math.round(effectiveLands * 10) / 10,
       expectedRampMana: Math.round(expectedRampMana * 10) / 10,
       totalExpectedMana,
     });
@@ -941,6 +953,13 @@ export function analyzeDeck(
       : `${currentLands} lands looks good for this deck.`;
   }
 
+  // Count taplands for tempo analysis
+  let taplandCount = 0;
+  for (const card of landCards) {
+    if (isTapland(card.name)) taplandCount++;
+  }
+  const taplandRatio = currentLands > 0 ? taplandCount / currentLands : 0;
+
   // Starting hand probabilities (7-card hand)
   const probLand0 = hypergeoPmf(deckSize, currentLands, 7, 0);
   const probLand1 = hypergeoPmf(deckSize, currentLands, 7, 1);
@@ -964,6 +983,8 @@ export function analyzeDeck(
     probLand2to3,
     probLand4plus,
     deckSize,
+    taplandCount,
+    taplandRatio,
   };
 
   // --- Type Distribution ---
@@ -1045,6 +1066,40 @@ export function analyzeDeck(
     candidateScoreCache.set(name, { score: scoreRecommendation(card, role, subtype, scoringContext), role, subtype });
   }
 
+  // Pre-compute scores for in-deck cards (for cut recommendations)
+  // Combines EDHREC commander-specific inclusion/synergy with Scryfall global edhrec_rank
+  const inDeckScoreMap = new Map<string, number>();
+  const edhrecCardLookup = new Map<string, EDHRECCard>();
+  for (const card of edhrecData.cardlists.allNonLand) edhrecCardLookup.set(card.name, card);
+  for (const card of edhrecData.cardlists.lands) if (!edhrecCardLookup.has(card.name)) edhrecCardLookup.set(card.name, card);
+  for (const card of currentCards) {
+    const edhrecCard = edhrecCardLookup.get(card.name);
+    const inclusion = edhrecCard?.inclusion ?? cardInclusionMap?.[card.name] ?? 0;
+    const synergy = edhrecCard?.synergy ?? 0;
+    // edhrec_rank: lower = more popular globally. Convert to 0-100 scale (100 = most popular)
+    const rankScore = card.edhrec_rank != null
+      ? Math.max(0, 100 - Math.floor(card.edhrec_rank / 100))
+      : 50; // neutral default if no rank
+    // Composite: 50% commander-specific inclusion, 25% global rank, 25% synergy-boosted inclusion
+    const synergyBoost = Math.max(0, synergy) * 50;
+    const role = getCardRole(card.name);
+    // Role deficit boost (same logic as scoreRecommendation)
+    let roleBoost = 0;
+    if (role) {
+      const rd = roleDeficits.find(r => r.role === role);
+      if (rd && rd.deficit > 0 && rd.target > 0) {
+        roleBoost = (rd.deficit / rd.target) * 75;
+        if (role === 'ramp' && card.cmc !== undefined) {
+          if (card.cmc <= 1) roleBoost *= 2.0;
+          else if (card.cmc <= 2) roleBoost *= 1.5;
+          else if (card.cmc <= 3) roleBoost *= 1.2;
+        }
+      }
+    }
+    const score = (inclusion * 0.5) + (rankScore * 0.25) + (synergyBoost * 0.25) + roleBoost;
+    inDeckScoreMap.set(card.name, score);
+  }
+
   const recommendations: RecommendedCard[] = [...candidateMap.values()].map(({ card }) => {
     const cached = candidateScoreCache.get(card.name);
     const role = cached?.role ?? getCardRole(card.name);
@@ -1103,6 +1158,7 @@ export function analyzeDeck(
     return {
       card,
       inclusion: incMap[card.name] ?? null,
+      score: inDeckScoreMap.get(card.name),
       role: card.deckRole || undefined,
       roleLabel: card.deckRole ? ROLE_LABELS[card.deckRole] : undefined,
       subtype: subtype || undefined,
@@ -1255,6 +1311,8 @@ export function analyzeDeck(
 
   const fixingLands: AnalyzedCard[] = [];
   const colorlessOnly: AnalyzedCard[] = [];
+  const utilityLands: AnalyzedCard[] = [];
+  const taplands: AnalyzedCard[] = [];
 
   for (const card of landCards) {
     const produced = getLandProducedColors(card);
@@ -1263,6 +1321,14 @@ export function analyzeDeck(
       sourcesPerColor[color] = (sourcesPerColor[color] || 0) + 1;
     }
     const ac = makeAnalyzedCard(card);
+    if (isUtilityLand(card.name)) {
+      utilityLands.push(ac);
+      card.isUtilityLand = true;
+    }
+    if (isTapland(card.name)) {
+      taplands.push(ac);
+      card.isTapland = true;
+    }
     if (matchedColors.length >= 2) {
       fixingLands.push(ac);
     } else if (matchedColors.length === 0) {
@@ -1513,6 +1579,8 @@ export function analyzeDeck(
     sourcesPerColor,
     fixingLands: fixingLands.sort(sortByInclusion),
     colorlessOnly: colorlessOnly.sort(sortByInclusion),
+    utilityLands: utilityLands.sort(sortByInclusion),
+    taplands: taplands.sort(sortByInclusion),
     manaFixCards,
     nonFixRampCards,
     pipDemand,
@@ -1545,7 +1613,7 @@ export function analyzeDeck(
   const curveGrade = getCurveGrade(curveAnalysis);
   const { pacing, label: pacingLabel } = detectPacing(currentCards, curveAnalysis);
   const curvePhases = getCurvePhases(curveBreakdowns, curveAnalysis, totalNonLand, pacing);
-  const manaTrajectory = getManaTrajectory(deckSize, currentLands, manaSources.earlyRamp, manaSources.avgRampCmc);
+  const manaTrajectory = getManaTrajectory(deckSize, currentLands, manaSources.earlyRamp, manaSources.avgRampCmc, taplandRatio);
 
   return {
     roleDeficits,

@@ -61,6 +61,10 @@ interface CardPreviewModalProps {
   cardRelevancyMap?: Record<string, number> | null;
   /** Whether to show price overlays on swap candidate thumbnails */
   showPrice?: boolean;
+  /** Image URL for the previous card in the list (for peek preview) */
+  prevCardImage?: string | null;
+  /** Image URL for the next card in the list (for peek preview) */
+  nextCardImage?: string | null;
 }
 
 function ComboEntry({
@@ -214,7 +218,7 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage }: CardPreviewModalProps) {
   const commander = useStore((s) => s.commander);
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
@@ -486,23 +490,41 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       onTouchMove={onNavigate ? handleTouchMove : undefined}
       onTouchEnd={onNavigate ? handleTouchEnd : undefined}
     >
-      {/* Navigation arrows — always visible, including mobile */}
+      {/* Peek previews + navigation arrows */}
       {hasNav && canNavigate.prev && (
         <button
           onClick={(e) => { e.stopPropagation(); slideDirectionRef.current = 'prev'; onNavigate!('prev'); }}
-          className="fixed left-1 sm:left-4 top-1/2 -translate-y-1/2 z-[55] bg-black/60 hover:bg-black/80 active:bg-black/90 text-white/70 hover:text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg"
+          className="fixed left-1 sm:left-4 top-1/2 -translate-y-1/2 z-[55] flex items-center group"
           title="Previous card"
         >
-          <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+          {prevCardImage ? (
+            <img
+              src={prevCardImage}
+              alt="Previous"
+              className="hidden sm:block w-20 rounded-lg shadow-lg opacity-40 group-hover:opacity-70 transition-opacity -mr-3 pointer-events-none"
+            />
+          ) : null}
+          <span className="bg-black/60 group-hover:bg-black/80 active:bg-black/90 text-white/70 group-hover:text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg relative z-10">
+            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+          </span>
         </button>
       )}
       {hasNav && canNavigate.next && (
         <button
           onClick={(e) => { e.stopPropagation(); slideDirectionRef.current = 'next'; onNavigate!('next'); }}
-          className="fixed right-1 sm:right-4 top-1/2 -translate-y-1/2 z-[55] bg-black/60 hover:bg-black/80 active:bg-black/90 text-white/70 hover:text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg"
+          className="fixed right-1 sm:right-4 top-1/2 -translate-y-1/2 z-[55] flex items-center group"
           title="Next card"
         >
-          <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+          <span className="bg-black/60 group-hover:bg-black/80 active:bg-black/90 text-white/70 group-hover:text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg relative z-10">
+            <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+          </span>
+          {nextCardImage ? (
+            <img
+              src={nextCardImage}
+              alt="Next"
+              className="hidden sm:block w-20 rounded-lg shadow-lg opacity-40 group-hover:opacity-70 transition-opacity -ml-3 pointer-events-none"
+            />
+          ) : null}
         </button>
       )}
       {/* Card position indicator — fixed when swap section is closed */}

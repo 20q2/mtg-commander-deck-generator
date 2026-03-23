@@ -6,7 +6,7 @@ import {
   Tooltip, ReferenceLine, ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Check, Dices, Shuffle } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Check, Dices, Shuffle, Layers } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { PACING_MULTIPLIERS, computeLandDropProbabilities, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
@@ -17,6 +17,7 @@ import { AnalyzedCardRow, type CardAction, type CardRowMenuProps } from './share
 import { SuggestionCardGrid } from './OverviewTab';
 import { useStore } from '@/store';
 import { ManaCost } from '@/components/ui/mtg-icons';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Curve Tab Components
@@ -30,7 +31,7 @@ export function CurveSummaryStrip({
   onPhaseClick: (phase: CurvePhase) => void;
 }) {
   return (
-    <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 grid grid-cols-2 sm:grid-cols-3 border-b border-border/30">
+    <div className="-mx-3 sm:-mx-4 grid grid-cols-2 sm:grid-cols-3 border-t border-b border-border/30">
       {phases.map((phase, i) => {
         const meta = PHASE_META[phase.phase];
         const Icon = meta.icon;
@@ -203,7 +204,7 @@ export function ManaCurveLineChart({
       <div className="flex flex-col gap-0.5 mb-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Curve</span>
-          <span className="text-[10px] text-muted-foreground/50 ml-auto flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground/80 ml-auto flex items-center gap-3">
             <span className="flex items-center gap-1.5">
               <span className="w-4 h-0 inline-block border-t-2 border-dashed border-amber-500/60" />
               expected
@@ -214,7 +215,7 @@ export function ManaCurveLineChart({
             </span>
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground/40 leading-snug">
+        <span className="text-[10px] text-muted-foreground/80 leading-snug">
           Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}{onCmcClick ? ' · Click a mana value to see cards' : ''}
         </span>
       </div>
@@ -329,11 +330,11 @@ export function CmcCardList({
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             CMC {selectedCmc === 7 ? '7+' : selectedCmc} — No cards
           </span>
-          <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+          <button onClick={onClose} className="text-muted-foreground/80 hover:text-muted-foreground transition-colors">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-        <p className="text-xs text-muted-foreground/40 italic">No non-land cards at this mana value.</p>
+        <p className="text-xs text-muted-foreground/80 italic">No non-land cards at this mana value.</p>
       </div>
     );
   }
@@ -362,7 +363,7 @@ export function CmcCardList({
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           CMC {selectedCmc === 7 ? '7+' : selectedCmc} — {bucket.cards.length} card{bucket.cards.length !== 1 ? 's' : ''}
         </span>
-        <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+        <button onClick={onClose} className="text-muted-foreground/80 hover:text-muted-foreground transition-colors">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -497,6 +498,7 @@ export function CurveInsights({
       <div className="flex items-center gap-1.5 mb-2">
         <Lightbulb className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Curve Insights</span>
+        <InfoTooltip text="Flags common curve problems: when your commander comes online, CMC congestion at 3, dead early turns, ramp-to-draw imbalance, and top-heavy builds." />
       </div>
       <div className="space-y-1">
         {insights.map(ins => {
@@ -546,7 +548,8 @@ export function InteractionTiming({
       <div className="flex items-center gap-1.5 mb-2">
         <Swords className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Interaction Timing</span>
-        <span className="ml-auto text-[10px] text-muted-foreground/50">{total} cards</span>
+        <InfoTooltip text="Cheap removal (CMC 0-2) lets you develop your board and hold up answers in the same turn. Expensive interaction forces you to choose one or the other." />
+        <span className="ml-auto text-[10px] text-muted-foreground/80">{total} cards</span>
       </div>
 
       {total === 0 ? (
@@ -564,7 +567,7 @@ export function InteractionTiming({
           </div>
 
           {/* Tier counts */}
-          <div className="flex justify-between text-[10px] text-muted-foreground/50 mt-1.5">
+          <div className="flex justify-between text-[10px] text-muted-foreground/80 mt-1.5">
             <span><span className="text-emerald-400/70 font-semibold">{cheap}</span> CMC 0-2</span>
             <span><span className="text-amber-400/70 font-semibold">{mid}</span> CMC 3-4</span>
             <span><span className="text-red-400/70 font-semibold">{expensive}</span> CMC 5+</span>
@@ -628,6 +631,7 @@ export function RampHealth({
       <div className="flex items-center gap-1.5 mb-2">
         <Sprout className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ramp Health</span>
+        <InfoTooltip text="Ramp at CMC 1-2 accelerates you the most. CMC 4+ ramp is often too slow to matter. A healthy ratio is roughly 1 ramp for every 1 draw source." />
         <span className={`ml-auto text-[10px] font-bold ${gs.color}`}>{manaSources.grade}</span>
       </div>
 
@@ -647,7 +651,7 @@ export function RampHealth({
           </div>
 
           {/* Tier counts */}
-          <div className="flex justify-between text-[10px] text-muted-foreground/50 mt-1.5">
+          <div className="flex justify-between text-[10px] text-muted-foreground/80 mt-1.5">
             <span><span className="text-emerald-400/80 font-semibold">{tier01}</span> CMC 0-1</span>
             <span><span className="text-emerald-400/60 font-semibold">{tier2}</span> CMC 2</span>
             <span><span className="text-amber-400/60 font-semibold">{tier3}</span> CMC 3</span>
@@ -711,7 +715,8 @@ export function LandDropCurve({
       <div className="flex items-center gap-1.5 mb-2">
         <Mountain className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Drops</span>
-        <span className="ml-auto text-[10px] text-muted-foreground/50">{landCount} lands</span>
+        <InfoTooltip text="Probability of making every land drop through each turn, based on hypergeometric math. Green (90%+) is reliable, amber (75-90%) gets risky, red (<75%) means you'll often miss." />
+        <span className="ml-auto text-[10px] text-muted-foreground/80">{landCount} lands</span>
       </div>
 
       {/* 7 vertical bars */}
@@ -725,13 +730,13 @@ export function LandDropCurve({
                 title={`Turn ${p.turn}: ${Math.round(p.probability * 100)}%`}
               />
             </div>
-            <span className="text-[8px] text-muted-foreground/40 tabular-nums">T{p.turn}</span>
+            <span className="text-[8px] text-muted-foreground/80 tabular-nums">T{p.turn}</span>
           </div>
         ))}
       </div>
 
       {/* Percentage labels for key turns */}
-      <div className="flex justify-between mt-1 text-[9px] tabular-nums text-muted-foreground/40">
+      <div className="flex justify-between mt-1 text-[9px] tabular-nums text-muted-foreground/80">
         <span>{Math.round((probs[0]?.probability ?? 0) * 100)}%</span>
         <span>{Math.round((probs[2]?.probability ?? 0) * 100)}%</span>
         <span>{Math.round((probs[4]?.probability ?? 0) * 100)}%</span>
@@ -740,6 +745,119 @@ export function LandDropCurve({
 
       {/* Summary */}
       <p className={`text-[10px] mt-1.5 ${summaryColor}`}>{summary}</p>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase Card Display — cards in active phase grouped by role
+// ═══════════════════════════════════════════════════════════════════════
+
+const ROLE_GROUP_ORDER = ['ramp', 'interaction', 'cardDraw', 'other'] as const;
+type RoleGroupKey = (typeof ROLE_GROUP_ORDER)[number];
+
+const ROLE_GROUP_META: Record<RoleGroupKey, { icon: typeof Sprout; label: string; color: string }> = {
+  ramp:        { icon: Sprout,    label: 'Ramp',        color: 'text-emerald-400/80' },
+  interaction: { icon: Swords,    label: 'Interaction',  color: 'text-red-400/80' },
+  cardDraw:    { icon: Sparkles,  label: 'Card Draw',    color: 'text-sky-400/80' },
+  other:       { icon: Layers,    label: 'Other',        color: 'text-muted-foreground' },
+};
+
+const PHASE_ROLE_CONTEXT: Record<CurvePhase, Record<RoleGroupKey, string>> = {
+  early: {
+    ramp:        'Accelerates you into mid-game',
+    interaction: 'Cheap answers you can hold up while developing',
+    cardDraw:    'Filters early hands, keeps options open',
+    other:       'Setup pieces and early threats',
+  },
+  mid: {
+    ramp:        'Ramp at 3+ is slower but still adds mana',
+    interaction: 'Mid-cost answers — harder to hold up and play threats',
+    cardDraw:    'Engine pieces that sustain card flow',
+    other:       'Core strategy cards and engine pieces',
+  },
+  late: {
+    ramp:        'Late-game ramp rarely worth the slot',
+    interaction: 'Expensive removal — often board wipes',
+    cardDraw:    'Big refill effects for the late game',
+    other:       'Payoffs, finishers, and top-end threats',
+  },
+};
+
+export function PhaseCardDisplay({
+  phase, onPreview, onCardAction, menuProps,
+}: {
+  phase: CurvePhaseAnalysis;
+  onPreview: (name: string) => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: CardRowMenuProps;
+}) {
+  const groups = useMemo(() => {
+    const buckets: Record<RoleGroupKey, AnalyzedCard[]> = {
+      ramp: [], interaction: [], cardDraw: [], other: [],
+    };
+    for (const ac of phase.cards) {
+      const role = ac.card.deckRole;
+      if (role === 'ramp') buckets.ramp.push(ac);
+      else if (role === 'removal' || role === 'boardwipe') buckets.interaction.push(ac);
+      else if (role === 'cardDraw') buckets.cardDraw.push(ac);
+      else buckets.other.push(ac);
+    }
+    // Sort each by inclusion desc
+    for (const key of ROLE_GROUP_ORDER) {
+      buckets[key].sort((a, b) => (b.inclusion ?? -1) - (a.inclusion ?? -1));
+    }
+    return buckets;
+  }, [phase.cards]);
+
+  const phaseMeta = PHASE_META[phase.phase];
+  const PhaseIcon = phaseMeta.icon;
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <PhaseIcon className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {phase.label}
+        </span>
+        <span className="text-[10px] text-muted-foreground/80">
+          {phase.current} card{phase.current !== 1 ? 's' : ''} · CMC {phase.cmcRange[0]}-{phase.cmcRange[1] === 7 ? '7+' : phase.cmcRange[1]}
+        </span>
+        <InfoTooltip text={`Cards in the ${phase.label.toLowerCase()} range (CMC ${phase.cmcRange[0]}-${phase.cmcRange[1] === 7 ? '7+' : phase.cmcRange[1]}), grouped by their role in your deck. Target is ${phase.target} cards for this phase.`} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {ROLE_GROUP_ORDER.map(key => {
+          const cards = groups[key];
+          if (cards.length === 0) return null;
+          const meta = ROLE_GROUP_META[key];
+          const Icon = meta.icon;
+          const context = PHASE_ROLE_CONTEXT[phase.phase][key];
+          return (
+            <div key={key}>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Icon className={`w-3 h-3 ${meta.color}`} />
+                <span className={`text-[11px] font-semibold ${meta.color}`}>
+                  {meta.label}
+                </span>
+                <span className="text-[10px] text-muted-foreground/80 tabular-nums">{cards.length}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground/80 mb-1 leading-snug">{context}</p>
+              <div className="space-y-0">
+                {cards.map(ac => (
+                  <AnalyzedCardRow
+                    key={ac.card.name}
+                    ac={ac}
+                    onPreview={onPreview}
+                    showDetails
+                    onCardAction={onCardAction}
+                    menuProps={menuProps}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -764,7 +882,7 @@ export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajec
       <div className="flex flex-col gap-0.5 mb-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Trajectory</span>
-          <span className="text-[10px] text-muted-foreground/50 ml-auto flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground/80 ml-auto flex items-center gap-3">
             <span className="flex items-center gap-1.5">
               <span className="w-4 h-0 inline-block border-t border-dashed border-emerald-500/50" />
               lands only
@@ -775,11 +893,11 @@ export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajec
             </span>
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground/40 leading-snug">
+        <span className="text-[10px] text-muted-foreground/80 leading-snug">
           Estimated mana available each turn based on your lands and ramp spells
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={80}>
+      <ResponsiveContainer width="100%" height={120}>
         <RechartsAreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
           <XAxis
             dataKey="turnLabel"
@@ -787,6 +905,7 @@ export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajec
             axisLine={false}
             tickLine={false}
           />
+          <YAxis hide domain={[0, 'auto']} />
           <Tooltip content={<TrajectoryTooltip />} cursor={false} />
 
           {/* Area fill under total mana */}
@@ -935,7 +1054,7 @@ export function CurvePhaseDetail({
             In Your Deck ({phase.cards.length})
           </p>
           {phase.cards.length === 0 ? (
-            <p className="text-xs text-muted-foreground/40 italic px-1">No cards in this range.</p>
+            <p className="text-xs text-muted-foreground/80 italic px-1">No cards in this range.</p>
           ) : (
             <div className="space-y-1.5">
               {typeGroups.map(([type, cards]) => (
@@ -1064,7 +1183,7 @@ function CommanderCastCard({
             <span className="text-xs font-semibold text-foreground truncate">{card.name}</span>
             {card.mana_cost && <ManaCost cost={card.mana_cost} className="text-[10px]" />}
           </div>
-          <p className="text-[10px] text-muted-foreground/50 mt-0.5 leading-tight">{castTip(castWithRamp, cmc)}</p>
+          <p className="text-[10px] text-muted-foreground/80 mt-0.5 leading-tight">{castTip(castWithRamp, cmc)}</p>
         </div>
         <div className="text-right flex-shrink-0 pl-2">
           <div className={`text-xl font-bold tabular-nums leading-none ${turnColor(castWithRamp)}`}>
@@ -1077,7 +1196,7 @@ function CommanderCastCard({
       <div className="space-y-1.5">
         {/* With ramp */}
         <div className="flex items-center gap-2">
-          <span className="text-[9px] text-muted-foreground/50 w-16 text-right">With ramp</span>
+          <span className="text-[9px] text-muted-foreground/80 w-16 text-right">With ramp</span>
           <div className="flex-1 h-2 bg-muted-foreground/8 rounded-full overflow-hidden relative">
             <div
               className={`h-full rounded-full bg-gradient-to-r ${turnBarGradient(castWithRamp)} transition-all`}
@@ -1088,14 +1207,14 @@ function CommanderCastCard({
         </div>
         {/* Without ramp */}
         <div className="flex items-center gap-2">
-          <span className="text-[9px] text-muted-foreground/50 w-16 text-right">Lands only</span>
+          <span className="text-[9px] text-muted-foreground/80 w-16 text-right">Lands only</span>
           <div className="flex-1 h-2 bg-muted-foreground/8 rounded-full overflow-hidden relative">
             <div
               className="h-full rounded-full bg-muted-foreground/20 transition-all"
               style={{ width: `${noRampPct}%` }}
             />
           </div>
-          <span className="text-[10px] font-semibold tabular-nums w-6 text-right text-muted-foreground/50">T{fmt(castNoRamp)}</span>
+          <span className="text-[10px] font-semibold tabular-nums w-6 text-right text-muted-foreground/80">T{fmt(castNoRamp)}</span>
         </div>
       </div>
 
@@ -1107,7 +1226,7 @@ function CommanderCastCard({
           </span>
         )}
         {recast2 <= maxTurn && (
-          <span className="text-muted-foreground/40">
+          <span className="text-muted-foreground/80">
             Recast (tax +2): T{recast2}
           </span>
         )}
@@ -1132,7 +1251,7 @@ export function CommanderCastability({
       <div className="flex items-center gap-1.5 mb-3">
         <Target className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commander Castability</span>
-        <span className="ml-auto text-[10px] text-muted-foreground/50">{rampCount} ramp</span>
+        <span className="ml-auto text-[10px] text-muted-foreground/80">{rampCount} ramp</span>
       </div>
       <div className={`${partner ? 'space-y-5' : ''}`}>
         <CommanderCastCard card={commander} trajectory={manaTrajectory} rampCount={rampCount} />
@@ -1260,8 +1379,8 @@ export function TempoTimeline({
               <div className="flex-1 min-w-0 pb-3">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className={`text-xs font-semibold ${color}`}>{w.label}</span>
-                  <span className="text-[10px] text-muted-foreground/50">{w.manaAtStart.toFixed(1)}-{w.manaAtEnd.toFixed(1)} mana</span>
-                  <span className="text-[10px] text-muted-foreground/40">
+                  <span className="text-[10px] text-muted-foreground/80">{w.manaAtStart.toFixed(1)}-{w.manaAtEnd.toFixed(1)} mana</span>
+                  <span className="text-[10px] text-muted-foreground/80">
                     {i === 0 ? `${w.newCards} castable` : `+${w.newCards} unlock`}
                   </span>
                   {w.commanderCastable && (
@@ -1292,7 +1411,7 @@ export function TempoTimeline({
                     ))}
                   </div>
                 )}
-                <p className="text-[10px] text-muted-foreground/40 mt-0.5">{w.desc}</p>
+                <p className="text-[10px] text-muted-foreground/80 mt-0.5">{w.desc}</p>
               </div>
             </div>
           );
@@ -1446,14 +1565,14 @@ export function HandSimulation({
         }`}>
           {keepPct}%
         </span>
-        <span className="text-[10px] text-muted-foreground/50">keepable</span>
+        <span className="text-[10px] text-muted-foreground/80">keepable</span>
       </div>
 
       {/* Composition bars */}
       <div className="space-y-1 mb-2.5">
         {compBars.map(b => (
           <div key={b.label} className="flex items-center gap-2">
-            <span className="text-[9px] text-muted-foreground/50 w-14 text-right">{b.label}</span>
+            <span className="text-[9px] text-muted-foreground/80 w-14 text-right">{b.label}</span>
             <div className="flex-1 h-1.5 bg-muted-foreground/8 rounded-full overflow-hidden">
               <div
                 className={`h-full ${b.color} rounded-full transition-all`}
@@ -1469,12 +1588,12 @@ export function HandSimulation({
       <div className="flex items-center gap-3 text-[10px]">
         <div className="flex items-center gap-1">
           <div className={`w-1.5 h-1.5 rounded-full ${screwStyle.dot}`} />
-          <span className="text-muted-foreground/50">Screw</span>
+          <span className="text-muted-foreground/80">Screw</span>
           <span className={`font-semibold tabular-nums ${screwStyle.text}`}>{screwPct}%</span>
         </div>
         <div className="flex items-center gap-1">
           <div className={`w-1.5 h-1.5 rounded-full ${floodStyle.dot}`} />
-          <span className="text-muted-foreground/50">Flood</span>
+          <span className="text-muted-foreground/80">Flood</span>
           <span className={`font-semibold tabular-nums ${floodStyle.text}`}>{floodPct}%</span>
         </div>
       </div>
@@ -1510,7 +1629,7 @@ export function HandSimulation({
           {handVerdict && (
             <div className={`text-[11px] flex items-center gap-1.5 mb-2 ${handVerdict.keep ? 'text-emerald-400' : 'text-red-400'}`}>
               <span className="font-semibold">{handVerdict.keep ? 'Keep' : 'Mulligan'}</span>
-              <span className="text-[10px] text-muted-foreground/50">— {handVerdict.reason}</span>
+              <span className="text-[10px] text-muted-foreground/80">— {handVerdict.reason}</span>
             </div>
           )}
         </div>
@@ -1534,7 +1653,7 @@ export function HandSimulation({
           </button>
         )}
         {mulliganCount > 0 && (
-          <span className="text-[10px] text-muted-foreground/40 ml-auto">Mull #{mulliganCount}</span>
+          <span className="text-[10px] text-muted-foreground/80 ml-auto">Mull #{mulliganCount}</span>
         )}
       </div>
     </div>

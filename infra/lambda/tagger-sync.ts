@@ -30,6 +30,9 @@ const TAGS: Record<string, string> = {
   'graveyard-hate': 'otag:graveyard-hate',
   protection: 'otag:protects-permanent',
   'mana-fix': 'otag:mana-fix',
+  // Land classification
+  'utility-land': 'otag:utility-land',
+  tapland: 'otag:tapland',
 };
 
 interface ScryfallListResponse {
