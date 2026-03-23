@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
-import { Shield, Plus, Check, ArrowUpDown } from 'lucide-react';
-import type { ScryfallCard, UserCardList } from '@/types';
+import { useMemo } from 'react';
+import { Shield, Check } from 'lucide-react';
+import type { ScryfallCard } from '@/types';
 import type { RoleBreakdown, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
-import { scryfallImg, roleBarColor, ROLE_META, ROLE_LABELS, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
-import { AnalyzedCardRow, CollapsibleCardGroups, RecommendationRow, type CardAction } from './shared';
+import { roleBarColor, ROLE_META, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
+import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
 
 // ─── Roles Tab: Summary Strip ────────────────────────────────────────
@@ -68,7 +68,7 @@ export function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps
   role: string;
   onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
   const knownSubtypes = ROLE_KNOWN_SUBTYPES[role];
   const groupEntries = useMemo(() => {
@@ -98,13 +98,7 @@ export function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps
             onPreview={onPreview}
             showDetails
             onCardAction={onCardAction}
-            menuProps={menuProps ? {
-              userLists: menuProps.userLists,
-              isMustInclude: menuProps.mustIncludeNames.has(ac.card.name),
-              isBanned: menuProps.bannedNames.has(ac.card.name),
-              isInSideboard: menuProps.sideboardNames.has(ac.card.name),
-              isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name),
-            } : undefined}
+            menuProps={menuProps}
           />
         ))}
       </div>
@@ -123,7 +117,7 @@ export function RoleDetailPanel({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
   const hasSuggestions = rb.suggestedReplacements.length > 0;
 
@@ -175,7 +169,7 @@ export function RolesTabContent({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
 
   const activeRb = roleBreakdowns.find(rb => rb.role === activeRole);

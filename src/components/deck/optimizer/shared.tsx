@@ -13,6 +13,15 @@ import {
 
 export type { CardAction };
 
+/** Shared menuProps shape — all optimizer row components use this. Callers pass Sets; rows do the .has() lookup. */
+export interface CardRowMenuProps {
+  userLists: UserCardList[];
+  mustIncludeNames: Set<string>;
+  bannedNames: Set<string>;
+  sideboardNames: Set<string>;
+  maybeboardNames: Set<string>;
+}
+
 // ─── Shared: Analyzed Card Row (compact, for curve/lands/types) ──────
 export function AnalyzedCardRow({
   ac, onPreview, warning, showDetails, showProducedMana, onCardAction, menuProps,
@@ -23,7 +32,7 @@ export function AnalyzedCardRow({
   showDetails?: boolean;
   showProducedMana?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; isMustInclude?: boolean; isBanned?: boolean; isInSideboard?: boolean; isInMaybeboard?: boolean };
+  menuProps?: CardRowMenuProps;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const price = showDetails ? getCardPrice(ac.card) : null;
@@ -134,11 +143,11 @@ export function AnalyzedCardRow({
             hasRemove
             hasSideboard
             hasMaybeboard
-            isInSideboard={menuProps.isInSideboard}
-            isInMaybeboard={menuProps.isInMaybeboard}
+            isInSideboard={menuProps.sideboardNames.has(ac.card.name)}
+            isInMaybeboard={menuProps.maybeboardNames.has(ac.card.name)}
             userLists={menuProps.userLists}
-            isMustInclude={menuProps.isMustInclude}
-            isBanned={menuProps.isBanned}
+            isMustInclude={menuProps.mustIncludeNames.has(ac.card.name)}
+            isBanned={menuProps.bannedNames.has(ac.card.name)}
             forceOpen={contextMenuOpen}
             onForceClose={() => setContextMenuOpen(false)}
           />
@@ -206,7 +215,7 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
   onPreview: () => void;
   added: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const rankStyle = rank < 3 ? RANK_STYLES[rank] : null;
@@ -322,7 +331,7 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
   onSkip: (card: ScryfallCard) => void;
   onPreview: () => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
   cardInclusionMap?: Record<string, number>;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);

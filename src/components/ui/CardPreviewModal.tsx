@@ -57,6 +57,8 @@ interface CardPreviewModalProps {
   totalCards?: number;
   /** EDHREC inclusion % map for showing scores on swap candidates */
   cardInclusionMap?: Record<string, number> | null;
+  /** Composite relevancy score map */
+  cardRelevancyMap?: Record<string, number> | null;
   /** Whether to show price overlays on swap candidate thumbnails */
   showPrice?: boolean;
 }
@@ -212,7 +214,7 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, showPrice }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice }: CardPreviewModalProps) {
   const commander = useStore((s) => s.commander);
   const currency = useStore((s) => s.customization.currency);
   const mustIncludeCards = useStore((s) => s.customization.mustIncludeCards);
@@ -785,6 +787,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                     const candNorm = candidate.name.includes(' // ') ? candidate.name.split(' // ')[0] : candidate.name;
                     const candIncl = cardInclusionMap ? (cardInclusionMap[candidate.name] ?? cardInclusionMap[candNorm] ?? null) : null;
                     const candPct = candIncl != null ? Math.round(candIncl) : null;
+                    const candRel = cardRelevancyMap ? (cardRelevancyMap[candidate.name] ?? cardRelevancyMap[candNorm] ?? null) : null;
                     const candPrice = showPrice ? getCardPrice(candidate, currency) : null;
                     return (
                     <button
@@ -824,6 +827,9 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                           ? 'text-cyan-300 font-medium'
                           : 'text-white/70 group-hover:text-cyan-300'
                       }`}>
+                        {candRel != null && (
+                          <span className="text-violet-400 font-bold shrink-0" title={`Relevancy: ${candRel}`}>{candRel}</span>
+                        )}
                         <CardTypeIcon type={getCardType(candidate)} size="sm" className="opacity-60 shrink-0" />
                         {candNorm}
                       </div>

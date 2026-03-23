@@ -20,7 +20,7 @@ import { CutRow, RecommendationRow } from './shared';
 import { ThemeDetectionBanner, DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, CurvePhaseDetail, CommanderCastability, TempoTimeline, HandSimulation } from './CurveTab';
+import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, InteractionTiming, RampHealth, LandDropCurve, CurvePhaseDetail } from './CurveTab';
 import { TypeCardSection } from './TypesTab';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -53,6 +53,7 @@ export function DeckOptimizer({
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
   const [activeCurvePhase, setActiveCurvePhase] = useState<CurvePhase | null>(null);
+  const [selectedCmc, setSelectedCmc] = useState<number | null>(null);
 
   // Theme detection state
   const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
@@ -1132,6 +1133,12 @@ export function DeckOptimizer({
         {activeTab === 'curve' && (() => {
           const cmdr = useStore.getState().commander;
           const partner = useStore.getState().partnerCommander;
+          const totalNonLand = analysis.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
+          const drawCount = roleCounts.cardDraw ?? 0;
+          const rampCards = currentCards
+            .filter(c => c.deckRole === 'ramp')
+            .map(c => ({ card: c, inclusion: cardInclusionMap?.[c.name] ?? null }));
+          const activePhaseData = analysis.curvePhases.find(p => p.phase === activeCurvePhase);
           return (
             <div className="space-y-3">
               <CurveSummaryStrip
@@ -1143,28 +1150,48 @@ export function DeckOptimizer({
                 curveAnalysis={analysis.curveAnalysis}
                 pacing={effectivePacing}
                 activePhase={activeCurvePhase}
+                selectedCmc={selectedCmc}
+                onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
               />
-              <CommanderCastability
-                manaTrajectory={analysis.manaTrajectory}
-                rampCount={analysis.manaSources.totalRamp}
-              />
-              <TempoTimeline
-                currentCards={currentCards}
-                manaTrajectory={analysis.manaTrajectory}
-                commanderCmc={cmdr?.cmc ?? 0}
-                partnerCmc={partner?.cmc}
-                cardInclusionMap={cardInclusionMap}
-              />
-              <HandSimulation
-                currentCards={currentCards}
-                deckSize={deckSize}
-                landCount={analysis.manaBase.currentLands}
-                rampCount={analysis.manaSources.totalRamp}
-                removalCount={roleCounts.removal ?? 0}
-              />
-              {activeCurvePhase && analysis.curvePhases.find(p => p.phase === activeCurvePhase) && (
+              {selectedCmc !== null && (
+                <CmcCardList
+                  curveBreakdowns={analysis.curveBreakdowns}
+                  selectedCmc={selectedCmc}
+                  onPreview={handlePreview}
+                  onClose={() => setSelectedCmc(null)}
+                  onCardAction={handleCardAction}
+                  menuProps={menuProps}
+                />
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <CurveInsights
+                  curveAnalysis={analysis.curveAnalysis}
+                  curvePhases={analysis.curvePhases}
+                  manaSources={analysis.manaSources}
+                  manaTrajectory={analysis.manaTrajectory}
+                  commanderCmc={cmdr?.cmc ?? 0}
+                  partnerCmc={partner?.cmc}
+                  commanderName={commanderName}
+                  partnerName={partnerCommanderName}
+                  totalNonLand={totalNonLand}
+                  drawCount={drawCount}
+                />
+                <InteractionTiming currentCards={currentCards} />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <RampHealth
+                  rampCards={rampCards}
+                  manaSources={analysis.manaSources}
+                  drawCount={drawCount}
+                />
+                <LandDropCurve
+                  deckSize={deckSize}
+                  landCount={analysis.manaBase.currentLands}
+                />
+              </div>
+              {activePhaseData && (
                 <CurvePhaseDetail
-                  phase={analysis.curvePhases.find(p => p.phase === activeCurvePhase)!}
+                  phase={activePhaseData}
                   recommendations={analysis.recommendations}
                   onPreview={handlePreview}
                   onAdd={handleAddCard}

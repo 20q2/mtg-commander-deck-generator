@@ -613,7 +613,7 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
   const grades: { key: TabKey; label: string; icon: typeof Shield; grade: GradeResult }[] = [
     { key: 'roles', label: 'Roles', icon: Shield, grade: analysis.rolesGrade },
     { key: 'lands', label: 'Mana', icon: Mountain, grade: analysis.manaGrade },
-    { key: 'curve', label: 'Curve', icon: BarChart3, grade: analysis.curveGrade },
+    { key: 'curve', label: 'Tempo', icon: BarChart3, grade: analysis.curveGrade },
   ];
 
   const summary = getDeckSummary(analysis, deckExcess);

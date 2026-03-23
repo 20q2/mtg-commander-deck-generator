@@ -72,7 +72,12 @@
       "WebFetch(domain:draftsim.com)",
       "Read(//Coding/MtgMakeDeckForMe/**)",
       "Read(//a/Coding/MtgMakeDeckForMe/**)",
-      "WebFetch(domain:deckcheck.co)"
+      "WebFetch(domain:deckcheck.co)",
+      "WebFetch(domain:articles.starcitygames.com)",
+      "WebFetch(domain:spellweave.app)",
+      "WebFetch(domain:www.salubrioussnail.com)",
+      "WebFetch(domain:proxyking.biz)",
+      "WebFetch(domain:commandersherald.com)"
     ]
   }
 }

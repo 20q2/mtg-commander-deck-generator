@@ -32,7 +32,7 @@ interface DragState {
 
 export function TestHand() {
   const generatedDeck = useStore(s => s.generatedDeck);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => localStorage.getItem('testHandOpen') === 'true');
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
 
   // Build flat card array + land count from generated deck
@@ -49,7 +49,7 @@ export function TestHand() {
     <div className="mt-6 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm">
       {/* Accordion header */}
       <button
-        onClick={() => setExpanded(prev => !prev)}
+        onClick={() => setExpanded(prev => { const next = !prev; localStorage.setItem('testHandOpen', String(next)); return next; })}
         className="flex items-center gap-2 w-full text-left p-4"
       >
         <Hand className="w-4 h-4 text-primary shrink-0" />

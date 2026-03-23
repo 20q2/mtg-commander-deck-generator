@@ -6,15 +6,14 @@ import {
   Tooltip, ReferenceLine, ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight, Zap, Target, Crown, Sparkles, Dices, Sprout, Shuffle } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Check, Dices, Shuffle } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
-import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard } from '@/services/deckBuilder/deckAnalyzer';
-import { PACING_MULTIPLIERS, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
+import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
+import { PACING_MULTIPLIERS, computeLandDropProbabilities, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PACING_LABELS, PHASE_META, tileGradeStyles } from './constants';
-import type { UserCardList } from './constants';
-import { AnalyzedCardRow, type CardAction } from './shared';
+import { AnalyzedCardRow, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
 import { useStore } from '@/store';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -145,11 +144,13 @@ const PHASE_HIGHLIGHT: Record<CurvePhase, string> = {
 };
 
 export function ManaCurveLineChart({
-  curveAnalysis, pacing, activePhase,
+  curveAnalysis, pacing, activePhase, selectedCmc, onCmcClick,
 }: {
   curveAnalysis: CurveSlot[];
   pacing?: Pacing;
   activePhase?: CurvePhase | null;
+  selectedCmc?: number | null;
+  onCmcClick?: (cmc: number) => void;
 }) {
   if (curveAnalysis.length === 0) return null;
 
@@ -214,11 +215,20 @@ export function ManaCurveLineChart({
           </span>
         </div>
         <span className="text-[10px] text-muted-foreground/40 leading-snug">
-          Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}
+          Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}{onCmcClick ? ' · Click a mana value to see cards' : ''}
         </span>
       </div>
       <ResponsiveContainer width="100%" height={120}>
-        <ComposedChart data={chartData} margin={{ top: 6, right: 8, bottom: 0, left: -12 }}>
+        <ComposedChart
+          data={chartData}
+          margin={{ top: 6, right: 8, bottom: 0, left: -12 }}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onClick={onCmcClick ? (e: any) => {
+            const idx = e?.activeTooltipIndex;
+            if (idx != null && chartData[idx]) onCmcClick(chartData[idx].cmc);
+          } : undefined}
+          style={onCmcClick ? { cursor: 'pointer' } : undefined}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,20%)" strokeOpacity={0.3} vertical={false} />
           <XAxis
             dataKey="cmcLabel"
@@ -280,6 +290,15 @@ export function ManaCurveLineChart({
               const { cx = 0, cy = 0, index = 0 } = props;
               const d = chartData[index];
               const active = d?.inPhase ?? true;
+              const isSelected = selectedCmc != null && d?.cmc === selectedCmc;
+              if (isSelected) {
+                return (
+                  <g key={`c-${index}`}>
+                    <circle cx={cx} cy={cy} r={8} fill="rgba(56,189,248,0.15)" />
+                    <circle cx={cx} cy={cy} r={5} fill="#38bdf8" stroke="#0ea5e9" strokeWidth={2} />
+                  </g>
+                );
+              }
               return <circle key={`c-${index}`} cx={cx} cy={cy} r={active ? 4 : 3} fill={active ? '#38bdf8' : 'rgba(56,189,248,0.2)'} />;
             }}
             activeDot={{ r: 5, fill: '#38bdf8', stroke: '#0ea5e9', strokeWidth: 2 }}
@@ -288,6 +307,439 @@ export function ManaCurveLineChart({
           />
         </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function CmcCardList({
+  curveBreakdowns, selectedCmc, onPreview, onClose, onCardAction, menuProps,
+}: {
+  curveBreakdowns: CurveBreakdown[];
+  selectedCmc: number;
+  onPreview: (name: string) => void;
+  onClose: () => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: CardRowMenuProps;
+}) {
+  const bucket = curveBreakdowns.find(b => b.cmc === selectedCmc);
+  if (!bucket || bucket.cards.length === 0) {
+    return (
+      <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            CMC {selectedCmc === 7 ? '7+' : selectedCmc} — No cards
+          </span>
+          <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground/40 italic">No non-land cards at this mana value.</p>
+      </div>
+    );
+  }
+
+  // Group by type
+  const typeGroups = new Map<string, AnalyzedCard[]>();
+  for (const ac of bucket.cards) {
+    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
+    let type = 'other';
+    if (tl.includes('creature')) type = 'Creature';
+    else if (tl.includes('instant')) type = 'Instant';
+    else if (tl.includes('sorcery')) type = 'Sorcery';
+    else if (tl.includes('artifact')) type = 'Artifact';
+    else if (tl.includes('enchantment')) type = 'Enchantment';
+    else if (tl.includes('planeswalker')) type = 'Planeswalker';
+    else if (tl.includes('battle')) type = 'Battle';
+    const arr = typeGroups.get(type) || [];
+    arr.push(ac);
+    typeGroups.set(type, arr);
+  }
+  const sortedGroups = [...typeGroups.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  return (
+    <div className="bg-card/60 border border-sky-500/20 rounded-lg p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          CMC {selectedCmc === 7 ? '7+' : selectedCmc} — {bucket.cards.length} card{bucket.cards.length !== 1 ? 's' : ''}
+        </span>
+        <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-0.5">
+        {sortedGroups.map(([type, cards]) => (
+          <div key={type}>
+            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-0.5 mt-1 first:mt-0">
+              {type} ({cards.length})
+            </p>
+            {cards.map(ac => (
+              <AnalyzedCardRow
+                key={ac.card.name}
+                ac={ac}
+                onPreview={onPreview}
+                showDetails
+                onCardAction={onCardAction}
+                menuProps={menuProps}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Curve Insights — actionable callouts about curve health
+// ═══════════════════════════════════════════════════════════════════════
+
+interface Insight {
+  key: string;
+  icon: typeof Lightbulb;
+  color: string;
+  text: string;
+}
+
+export function CurveInsights({
+  curveAnalysis, curvePhases, manaSources, manaTrajectory,
+  commanderCmc, partnerCmc, commanderName, partnerName,
+  totalNonLand, drawCount,
+}: {
+  curveAnalysis: CurveSlot[];
+  curvePhases: CurvePhaseAnalysis[];
+  manaSources: ManaSourcesAnalysis;
+  manaTrajectory: ManaTrajectoryPoint[];
+  commanderCmc: number;
+  partnerCmc?: number;
+  commanderName: string;
+  partnerName?: string;
+  totalNonLand: number;
+  drawCount: number;
+}) {
+  const insights = useMemo(() => {
+    const result: Insight[] = [];
+
+    // 1. Commander cast turn
+    const castWith = findCastTurnExtended(manaTrajectory, commanderCmc, true);
+    const castWithout = findCastTurnExtended(manaTrajectory, commanderCmc, false);
+    const saved = castWithout - castWith;
+    const fmt = (t: number) => t > 12 ? '12+' : String(t);
+    let cmdrText = `${commanderName} online T${fmt(castWith)}`;
+    if (saved > 0) cmdrText += ` (ramp saves ${saved} turn${saved > 1 ? 's' : ''})`;
+    result.push({ key: 'cmdr', icon: Target, color: turnColor(castWith), text: cmdrText });
+
+    if (partnerCmc != null && partnerName) {
+      const pCast = findCastTurnExtended(manaTrajectory, partnerCmc, true);
+      const pSaved = findCastTurnExtended(manaTrajectory, partnerCmc, false) - pCast;
+      let pText = `${partnerName} online T${fmt(pCast)}`;
+      if (pSaved > 0) pText += ` (ramp saves ${pSaved} turn${pSaved > 1 ? 's' : ''})`;
+      result.push({ key: 'partner', icon: Target, color: turnColor(pCast), text: pText });
+    }
+
+    // 2. 3-CMC choke point
+    const slot3 = curveAnalysis.find(s => s.cmc === 3);
+    if (slot3 && totalNonLand > 0) {
+      const pct3 = Math.round((slot3.current / totalNonLand) * 100);
+      if (pct3 > 20) {
+        result.push({ key: '3cmc', icon: AlertTriangle, color: 'text-red-400',
+          text: `${slot3.current} cards at 3 CMC (${pct3}%) — heavy congestion, shift some to 2 or 4` });
+      } else if (pct3 > 15) {
+        result.push({ key: '3cmc', icon: AlertTriangle, color: 'text-amber-400',
+          text: `${slot3.current} cards at 3 CMC (${pct3}%) — consider shifting some to 2 or 4` });
+      }
+    }
+
+    // 3. Dead CMC slots (0, 1, 2)
+    for (const cmc of [1, 2]) {
+      const slot = curveAnalysis.find(s => s.cmc === cmc);
+      if (slot && slot.current === 0) {
+        result.push({ key: `dead${cmc}`, icon: AlertTriangle, color: 'text-red-400',
+          text: `No ${cmc}-drops — you'll have nothing to do on turn ${cmc}` });
+        break; // only show one dead-turn warning
+      }
+    }
+
+    // 4. Ramp-to-draw ratio
+    const totalRamp = manaSources.totalRamp;
+    if (drawCount > 0 && totalRamp / drawCount > 2.5) {
+      result.push({ key: 'ratio', icon: Sprout, color: 'text-amber-400',
+        text: `${totalRamp} ramp / ${drawCount} draw — risk flooding with mana and no cards` });
+    } else if (totalRamp < 7 && totalNonLand > 50) {
+      result.push({ key: 'lowramp', icon: Sprout, color: 'text-red-400',
+        text: `Only ${totalRamp} ramp — likely to fall behind on mana` });
+    }
+
+    // 5. Curve shape
+    const latePhase = curvePhases.find(p => p.phase === 'late');
+    const earlyPhase = curvePhases.find(p => p.phase === 'early');
+    if (latePhase && totalNonLand > 0) {
+      const latePct = Math.round((latePhase.current / totalNonLand) * 100);
+      if (latePct > 40) {
+        result.push({ key: 'shape', icon: Crown, color: 'text-amber-400',
+          text: `Top-heavy — ${latePct}% of spells cost 5+, expect slow early turns` });
+      }
+    }
+    if (earlyPhase && totalNonLand > 0) {
+      const earlyPct = Math.round((earlyPhase.current / totalNonLand) * 100);
+      if (earlyPct > 55) {
+        result.push({ key: 'shape', icon: Zap, color: 'text-sky-400',
+          text: `Very low curve — ${earlyPct}% at CMC 0-2, may run out of gas without draw` });
+      }
+    }
+
+    return result;
+  }, [curveAnalysis, curvePhases, manaSources, manaTrajectory, commanderCmc, partnerCmc, commanderName, partnerName, totalNonLand, drawCount]);
+
+  if (insights.length === 0) return null;
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Lightbulb className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Curve Insights</span>
+      </div>
+      <div className="space-y-1">
+        {insights.map(ins => {
+          const Icon = ins.icon;
+          return (
+            <div key={ins.key} className="flex items-start gap-2">
+              <Icon className={`w-3.5 h-3.5 ${ins.color} mt-0.5 flex-shrink-0`} />
+              <span className={`text-xs ${ins.color} leading-snug`}>{ins.text}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Interaction Timing — CMC distribution of removal/boardwipes
+// ═══════════════════════════════════════════════════════════════════════
+
+export function InteractionTiming({
+  currentCards,
+}: {
+  currentCards: ScryfallCard[];
+}) {
+  const { cheap, mid, expensive, total, cheapPct } = useMemo(() => {
+    const cards = currentCards.filter(c => {
+      const tl = getFrontFaceTypeLine(c).toLowerCase();
+      if (tl.includes('land')) return false;
+      return c.deckRole === 'removal' || c.deckRole === 'boardwipe';
+    });
+    const ch = cards.filter(c => c.cmc <= 2).length;
+    const md = cards.filter(c => c.cmc >= 3 && c.cmc <= 4).length;
+    const ex = cards.filter(c => c.cmc >= 5).length;
+    const tot = cards.length;
+    return { cheap: ch, mid: md, expensive: ex, total: tot, cheapPct: tot > 0 ? Math.round((ch / tot) * 100) : 0 };
+  }, [currentCards]);
+
+  const assessment = cheapPct >= 50
+    ? { color: 'text-emerald-400/80', dot: 'bg-emerald-500', label: 'Most interaction is cheap enough to hold up' }
+    : cheapPct >= 30
+    ? { color: 'text-amber-400/80', dot: 'bg-amber-500', label: 'You can respond, but it\'s tight on mana' }
+    : { color: 'text-red-400/80', dot: 'bg-red-500', label: 'Most interaction costs 3+ — hard to develop and respond' };
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Swords className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Interaction Timing</span>
+        <span className="ml-auto text-[10px] text-muted-foreground/50">{total} cards</span>
+      </div>
+
+      {total === 0 ? (
+        <div className="flex items-center gap-1.5 mt-1">
+          <AlertTriangle className="w-3 h-3 text-amber-400/70" />
+          <span className="text-xs text-amber-400/80">No interaction cards — your deck can't respond to threats</span>
+        </div>
+      ) : (
+        <>
+          {/* Stacked bar */}
+          <div className="flex h-2 rounded-full overflow-hidden mt-2">
+            {cheap > 0 && <div className="bg-emerald-500/70" style={{ width: `${(cheap / total) * 100}%` }} />}
+            {mid > 0 && <div className="bg-amber-500/70" style={{ width: `${(mid / total) * 100}%` }} />}
+            {expensive > 0 && <div className="bg-red-500/60" style={{ width: `${(expensive / total) * 100}%` }} />}
+          </div>
+
+          {/* Tier counts */}
+          <div className="flex justify-between text-[10px] text-muted-foreground/50 mt-1.5">
+            <span><span className="text-emerald-400/70 font-semibold">{cheap}</span> CMC 0-2</span>
+            <span><span className="text-amber-400/70 font-semibold">{mid}</span> CMC 3-4</span>
+            <span><span className="text-red-400/70 font-semibold">{expensive}</span> CMC 5+</span>
+          </div>
+
+          {/* Assessment */}
+          <div className="flex items-center gap-1.5 mt-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${assessment.dot}`} />
+            <span className={`text-[11px] ${assessment.color}`}>{cheapPct}% cheap — {assessment.label}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Ramp Health — CMC tier breakdown + warnings
+// ═══════════════════════════════════════════════════════════════════════
+
+export function RampHealth({
+  rampCards, manaSources, drawCount,
+}: {
+  rampCards: AnalyzedCard[];
+  manaSources: ManaSourcesAnalysis;
+  drawCount: number;
+}) {
+  const { tier01, tier2, tier3, tier4plus, total, warnings } = useMemo(() => {
+    const t01 = rampCards.filter(c => c.card.cmc <= 1).length;
+    const t2 = rampCards.filter(c => c.card.cmc === 2).length;
+    const t3 = rampCards.filter(c => c.card.cmc === 3).length;
+    const t4 = rampCards.filter(c => c.card.cmc >= 4).length;
+    const tot = rampCards.length;
+
+    const w: { icon: typeof AlertTriangle; color: string; text: string }[] = [];
+
+    // Ramp-to-draw ratio
+    if (drawCount > 0 && tot / drawCount > 2.5) {
+      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `${tot} ramp / ${drawCount} draw — risk flooding with mana and no cards` });
+    } else if (drawCount > 0 && tot / drawCount < 0.7) {
+      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `${tot} ramp / ${drawCount} draw — heavy on draw, light on acceleration` });
+    }
+
+    // Late-game ramp
+    if (t4 >= 3) {
+      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `${t4} ramp at CMC 4+ — these are dead draws late game` });
+    }
+
+    // Low early ramp
+    if (t01 + t2 < 3 && tot >= 7) {
+      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `Only ${t01 + t2} ramp at CMC ≤2 — slow to accelerate` });
+    }
+
+    return { tier01: t01, tier2: t2, tier3: t3, tier4plus: t4, total: tot, warnings: w };
+  }, [rampCards, drawCount]);
+
+  const gs = tileGradeStyles(manaSources.grade);
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Sprout className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ramp Health</span>
+        <span className={`ml-auto text-[10px] font-bold ${gs.color}`}>{manaSources.grade}</span>
+      </div>
+
+      {total === 0 ? (
+        <div className="flex items-center gap-1.5 mt-1">
+          <AlertTriangle className="w-3 h-3 text-red-400/70" />
+          <span className="text-xs text-red-400/80">No ramp cards — you'll fall behind on mana every game</span>
+        </div>
+      ) : (
+        <>
+          {/* Stacked bar */}
+          <div className="flex h-2 rounded-full overflow-hidden mt-2">
+            {tier01 > 0 && <div className="bg-emerald-500/80" style={{ width: `${(tier01 / total) * 100}%` }} title={`CMC 0-1: ${tier01}`} />}
+            {tier2 > 0 && <div className="bg-emerald-400/60" style={{ width: `${(tier2 / total) * 100}%` }} title={`CMC 2: ${tier2}`} />}
+            {tier3 > 0 && <div className="bg-amber-500/60" style={{ width: `${(tier3 / total) * 100}%` }} title={`CMC 3: ${tier3}`} />}
+            {tier4plus > 0 && <div className="bg-red-500/50" style={{ width: `${(tier4plus / total) * 100}%` }} title={`CMC 4+: ${tier4plus}`} />}
+          </div>
+
+          {/* Tier counts */}
+          <div className="flex justify-between text-[10px] text-muted-foreground/50 mt-1.5">
+            <span><span className="text-emerald-400/80 font-semibold">{tier01}</span> CMC 0-1</span>
+            <span><span className="text-emerald-400/60 font-semibold">{tier2}</span> CMC 2</span>
+            <span><span className="text-amber-400/60 font-semibold">{tier3}</span> CMC 3</span>
+            <span><span className="text-red-400/60 font-semibold">{tier4plus}</span> CMC 4+</span>
+          </div>
+
+          {/* Warnings or success */}
+          <div className="mt-2 space-y-0.5">
+            {warnings.length > 0 ? warnings.map((w, i) => {
+              const WIcon = w.icon;
+              return (
+                <div key={i} className="flex items-start gap-1.5">
+                  <WIcon className={`w-3 h-3 ${w.color} mt-0.5 flex-shrink-0`} />
+                  <span className={`text-[11px] ${w.color}`}>{w.text}</span>
+                </div>
+              );
+            }) : (
+              <div className="flex items-center gap-1.5">
+                <Check className="w-3 h-3 text-emerald-400/70" />
+                <span className="text-[11px] text-emerald-400/80">{manaSources.message}</span>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Land Drop Probability — P(making all land drops) by turn
+// ═══════════════════════════════════════════════════════════════════════
+
+function landDropBarColor(prob: number): string {
+  if (prob >= 0.90) return 'bg-emerald-500/70';
+  if (prob >= 0.75) return 'bg-amber-500/70';
+  return 'bg-red-500/70';
+}
+
+export function LandDropCurve({
+  deckSize, landCount,
+}: {
+  deckSize: number;
+  landCount: number;
+}) {
+  const probs = useMemo(() => computeLandDropProbabilities(deckSize, landCount), [deckSize, landCount]);
+
+  const reliableTurn = probs.reduce((last, p) => p.probability >= 0.75 ? p.turn : last, 0);
+  const summary = reliableTurn >= 6
+    ? 'Excellent land consistency through the mid-game'
+    : reliableTurn >= 4
+    ? `Reliable through ${reliableTurn} drops, then starts to dip`
+    : reliableTurn >= 2
+    ? `Only reliable through ${reliableTurn} drops — consider more lands`
+    : 'Likely to miss land drops early — needs more lands';
+
+  const summaryColor = reliableTurn >= 5 ? 'text-emerald-400/70' : reliableTurn >= 3 ? 'text-amber-400/70' : 'text-red-400/70';
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Mountain className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Drops</span>
+        <span className="ml-auto text-[10px] text-muted-foreground/50">{landCount} lands</span>
+      </div>
+
+      {/* 7 vertical bars */}
+      <div className="flex items-end gap-1 h-12 mt-2">
+        {probs.map(p => (
+          <div key={p.turn} className="flex-1 flex flex-col items-center gap-0.5 h-full">
+            <div className="w-full flex-1 bg-muted-foreground/8 rounded-sm overflow-hidden flex items-end">
+              <div
+                className={`w-full ${landDropBarColor(p.probability)} rounded-sm transition-all`}
+                style={{ height: `${p.probability * 100}%` }}
+                title={`Turn ${p.turn}: ${Math.round(p.probability * 100)}%`}
+              />
+            </div>
+            <span className="text-[8px] text-muted-foreground/40 tabular-nums">T{p.turn}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Percentage labels for key turns */}
+      <div className="flex justify-between mt-1 text-[9px] tabular-nums text-muted-foreground/40">
+        <span>{Math.round((probs[0]?.probability ?? 0) * 100)}%</span>
+        <span>{Math.round((probs[2]?.probability ?? 0) * 100)}%</span>
+        <span>{Math.round((probs[4]?.probability ?? 0) * 100)}%</span>
+        <span>{Math.round((probs[6]?.probability ?? 0) * 100)}%</span>
+      </div>
+
+      {/* Summary */}
+      <p className={`text-[10px] mt-1.5 ${summaryColor}`}>{summary}</p>
     </div>
   );
 }
@@ -389,7 +841,7 @@ export function CurveTypeGroup({
   cards: AnalyzedCard[];
   onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -430,7 +882,7 @@ export function CurvePhaseDetail({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
   const deltaWord = phase.delta > 0 ? `${phase.delta} above` : phase.delta < 0 ? `${Math.abs(phase.delta)} below` : 'right on';
   const summary = `You have ${phase.current} ${phase.label.toLowerCase()} plays (${deltaWord} target of ${phase.target}).${
@@ -531,68 +983,134 @@ function getCardImageUrl(card: ScryfallCard): string | undefined {
   return card.image_uris?.small ?? card.card_faces?.[0]?.image_uris?.small;
 }
 
-function findCastTurn(
+/** Extrapolate mana beyond the trajectory's last turn. After T7, roughly +1 land/turn, ramp tapers. */
+function getManaAtTurn(trajectory: ManaTrajectoryPoint[], turn: number, useRamp: boolean): number {
+  if (turn <= trajectory.length) {
+    const t = trajectory[turn - 1];
+    return useRamp ? t.totalExpectedMana : t.expectedLands;
+  }
+  // Extrapolate: last known point + ~1 mana per extra turn (land drops)
+  const last = trajectory[trajectory.length - 1];
+  const extra = turn - trajectory.length;
+  const base = useRamp ? last.totalExpectedMana : last.expectedLands;
+  return base + extra * 0.95; // slightly less than 1 to account for missed drops
+}
+
+function findCastTurnExtended(
   trajectory: ManaTrajectoryPoint[],
   cmc: number,
   useRamp: boolean,
-): number | null {
-  for (const t of trajectory) {
-    const mana = useRamp ? t.totalExpectedMana : t.expectedLands;
-    if (mana >= cmc) return t.turn;
+  maxTurn = 12,
+): number {
+  for (let t = 1; t <= maxTurn; t++) {
+    if (getManaAtTurn(trajectory, t, useRamp) >= cmc) return t;
   }
-  return null; // can't cast within 7 turns
+  return maxTurn + 1; // beyond our range
+}
+
+function turnColor(turn: number): string {
+  if (turn <= 3) return 'text-emerald-400';
+  if (turn <= 5) return 'text-sky-400';
+  if (turn <= 7) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function turnBarGradient(turn: number): string {
+  if (turn <= 3) return 'from-emerald-500/70 to-emerald-500/30';
+  if (turn <= 5) return 'from-sky-500/70 to-sky-500/30';
+  if (turn <= 7) return 'from-amber-500/70 to-amber-500/30';
+  return 'from-red-500/70 to-red-500/30';
+}
+
+function castTip(turn: number, cmc: number): string {
+  if (turn <= 2) return 'Lightning fast — online before most opponents';
+  if (turn <= 3) return 'Great tempo — comes down with interaction backup';
+  if (turn <= 4) return 'Solid timing — on curve for midrange';
+  if (turn <= 5) return 'Standard for 5+ CMC commanders';
+  if (turn <= 7) return 'Slow — prioritize ramp in your opening hand';
+  if (cmc >= 8) return 'Very expensive — needs heavy ramp commitment';
+  return 'Late — mulligan aggressively for ramp';
 }
 
 function CommanderCastCard({
-  card, trajectory,
+  card, trajectory, rampCount,
 }: {
   card: ScryfallCard;
   trajectory: ManaTrajectoryPoint[];
+  rampCount: number;
 }) {
   const cmc = card.cmc;
-  const castWithRamp = findCastTurn(trajectory, cmc, true);
-  const castNoRamp = findCastTurn(trajectory, cmc, false);
-  const recast2 = findCastTurn(trajectory, cmc + 2, true);
-  const recast3 = findCastTurn(trajectory, cmc + 4, true);
+  const castWithRamp = findCastTurnExtended(trajectory, cmc, true);
+  const castNoRamp = findCastTurnExtended(trajectory, cmc, false);
+  const recast2 = findCastTurnExtended(trajectory, cmc + 2, true);
   const artUrl = getCardArtUrl(card);
-  const turnsGained = castNoRamp && castWithRamp ? castNoRamp - castWithRamp : 0;
+  const turnsGained = castNoRamp - castWithRamp;
+  const maxTurn = 12;
+  const rampPct = Math.min((castWithRamp / maxTurn) * 100, 100);
+  const noRampPct = Math.min((castNoRamp / maxTurn) * 100, 100);
+  const fmt = (t: number) => t > maxTurn ? `${maxTurn}+` : String(t);
 
   return (
-    <div className="flex gap-3 items-start">
-      {/* Art thumbnail */}
-      {artUrl && (
-        <div className="w-16 h-12 rounded-md overflow-hidden flex-shrink-0 border border-border/30">
-          <img src={artUrl} alt={card.name} className="w-full h-full object-cover" />
+    <div className="space-y-2.5">
+      {/* Commander identity + hero turn */}
+      <div className="flex items-center gap-2.5">
+        {artUrl && (
+          <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border border-border/40">
+            <img src={artUrl} alt={card.name} className="w-full h-full object-cover scale-150" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-foreground truncate">{card.name}</span>
+            {card.mana_cost && <ManaCost cost={card.mana_cost} className="text-[10px]" />}
+          </div>
+          <p className="text-[10px] text-muted-foreground/50 mt-0.5 leading-tight">{castTip(castWithRamp, cmc)}</p>
         </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-semibold text-foreground truncate">{card.name}</span>
-          {card.mana_cost && <ManaCost cost={card.mana_cost} className="text-xs" />}
+        <div className="text-right flex-shrink-0 pl-2">
+          <div className={`text-xl font-bold tabular-nums leading-none ${turnColor(castWithRamp)}`}>
+            T{fmt(castWithRamp)}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px]">
-          <span className="text-muted-foreground">
-            With ramp: <span className={`font-semibold ${castWithRamp && castWithRamp <= 3 ? 'text-emerald-400' : castWithRamp && castWithRamp <= 5 ? 'text-sky-400' : 'text-amber-400'}`}>
-              {castWithRamp ? `Turn ${castWithRamp}` : '8+'}
-            </span>
-          </span>
-          <span className="text-muted-foreground">
-            Without ramp: <span className="font-semibold text-muted-foreground/80">
-              {castNoRamp ? `Turn ${castNoRamp}` : '8+'}
-            </span>
-          </span>
-          {turnsGained > 0 && (
-            <span className="text-emerald-400/70">({turnsGained} turn{turnsGained > 1 ? 's' : ''} faster)</span>
-          )}
+      </div>
+
+      {/* Dual gauge bars: with ramp vs without */}
+      <div className="space-y-1.5">
+        {/* With ramp */}
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-muted-foreground/50 w-16 text-right">With ramp</span>
+          <div className="flex-1 h-2 bg-muted-foreground/8 rounded-full overflow-hidden relative">
+            <div
+              className={`h-full rounded-full bg-gradient-to-r ${turnBarGradient(castWithRamp)} transition-all`}
+              style={{ width: `${rampPct}%` }}
+            />
+          </div>
+          <span className={`text-[10px] font-bold tabular-nums w-6 text-right ${turnColor(castWithRamp)}`}>T{fmt(castWithRamp)}</span>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] mt-0.5">
-          <span className="text-muted-foreground/60">
-            2nd cast: <span className="font-medium text-muted-foreground/80">{recast2 ? `Turn ${recast2}` : '8+'}</span>
-          </span>
-          <span className="text-muted-foreground/60">
-            3rd cast: <span className="font-medium text-muted-foreground/80">{recast3 ? `Turn ${recast3}` : '8+'}</span>
-          </span>
+        {/* Without ramp */}
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-muted-foreground/50 w-16 text-right">Lands only</span>
+          <div className="flex-1 h-2 bg-muted-foreground/8 rounded-full overflow-hidden relative">
+            <div
+              className="h-full rounded-full bg-muted-foreground/20 transition-all"
+              style={{ width: `${noRampPct}%` }}
+            />
+          </div>
+          <span className="text-[10px] font-semibold tabular-nums w-6 text-right text-muted-foreground/50">T{fmt(castNoRamp)}</span>
         </div>
+      </div>
+
+      {/* Ramp impact + recast */}
+      <div className="flex items-center gap-3 text-[10px]">
+        {turnsGained > 0 && (
+          <span className="text-emerald-400/80 font-medium">
+            Ramp saves {turnsGained} turn{turnsGained > 1 ? 's' : ''}
+          </span>
+        )}
+        {recast2 <= maxTurn && (
+          <span className="text-muted-foreground/40">
+            Recast (tax +2): T{recast2}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -611,14 +1129,19 @@ export function CommanderCastability({
 
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2.5">
+      <div className="flex items-center gap-1.5 mb-3">
         <Target className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commander Castability</span>
-        <span className="ml-auto text-[10px] text-muted-foreground/50">{rampCount} ramp pieces</span>
+        <span className="ml-auto text-[10px] text-muted-foreground/50">{rampCount} ramp</span>
       </div>
-      <div className={`${partner ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}`}>
-        <CommanderCastCard card={commander} trajectory={manaTrajectory} />
-        {partner && <CommanderCastCard card={partner} trajectory={manaTrajectory} />}
+      <div className={`${partner ? 'space-y-5' : ''}`}>
+        <CommanderCastCard card={commander} trajectory={manaTrajectory} rampCount={rampCount} />
+        {partner && (
+          <>
+            <div className="border-t border-border/20" />
+            <CommanderCastCard card={partner} trajectory={manaTrajectory} rampCount={rampCount} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -819,13 +1342,7 @@ export function HandSimulation({
   removalCount: number;
 }) {
   const [sampleHand, setSampleHand] = useState<ScryfallCard[] | null>(null);
-
-  // Include lands in the pool for drawing
-  const allCards = useMemo(() => {
-    // currentCards may or may not include lands depending on how it's passed
-    // We need the full deck for drawing
-    return currentCards;
-  }, [currentCards]);
+  const [mulliganCount, setMulliganCount] = useState(0);
 
   const earlyPlayCount = useMemo(() =>
     currentCards.filter(c => {
@@ -848,16 +1365,17 @@ export function HandSimulation({
     [deckSize, landCount, rampCount, removalCount, earlyPlayCount, lowCmcCount]
   );
 
-  const drawHand = useCallback(() => {
-    if (allCards.length < 7) return;
-    // Fisher-Yates shuffle on indices, pick first 7
-    const indices = allCards.map((_, i) => i);
+  const drawHand = useCallback((mulligan = false) => {
+    if (currentCards.length < 7) return;
+    const newMullCount = mulligan ? mulliganCount + 1 : 0;
+    const handSize = Math.max(7 - newMullCount, 1);
+    // Fisher-Yates shuffle
+    const indices = currentCards.map((_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
-    const hand = indices.slice(0, 7).map(i => allCards[i]);
-    // Sort: lands first, then by CMC
+    const hand = indices.slice(0, handSize).map(i => currentCards[i]);
     hand.sort((a, b) => {
       const aLand = getFrontFaceTypeLine(a).toLowerCase().includes('land') ? 0 : 1;
       const bLand = getFrontFaceTypeLine(b).toLowerCase().includes('land') ? 0 : 1;
@@ -865,7 +1383,8 @@ export function HandSimulation({
       return a.cmc - b.cmc;
     });
     setSampleHand(hand);
-  }, [allCards]);
+    setMulliganCount(newMullCount);
+  }, [currentCards, mulliganCount]);
 
   // Analyze sample hand keepability
   const handVerdict = useMemo(() => {
@@ -873,82 +1392,115 @@ export function HandSimulation({
     const lands = sampleHand.filter(c => getFrontFaceTypeLine(c).toLowerCase().includes('land'));
     const nonLand = sampleHand.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land'));
     const earlyPlays = nonLand.filter(c => c.cmc <= 3);
-    const ramp = nonLand.filter(c => c.deckRole === 'ramp');
+    const rampCards = nonLand.filter(c => c.deckRole === 'ramp');
 
-    const landCount = lands.length;
+    const lc = lands.length;
     const hasEarlyPlay = earlyPlays.length > 0;
-    const keep = landCount >= 2 && landCount <= 4 && hasEarlyPlay;
+    const keep = lc >= 2 && lc <= 4 && hasEarlyPlay;
 
     let reason = '';
-    if (landCount < 2) reason = `Only ${landCount} land${landCount === 1 ? '' : 's'} — likely mana screwed`;
-    else if (landCount > 4) reason = `${landCount} lands — heavy on mana, light on action`;
+    if (lc < 2) reason = `Only ${lc} land${lc === 1 ? '' : 's'} — likely mana screwed`;
+    else if (lc > 4) reason = `${lc} lands — heavy on mana, light on action`;
     else if (!hasEarlyPlay) reason = `No plays under CMC 4 — slow start`;
     else {
-      const parts: string[] = [`${landCount} lands`];
-      if (ramp.length > 0) parts.push(`${ramp.length} ramp`);
-      if (earlyPlays.length > 0) parts.push(`${earlyPlays.length} early play${earlyPlays.length > 1 ? 's' : ''}`);
+      const parts: string[] = [`${lc} lands`];
+      if (rampCards.length > 0) parts.push(`${rampCards.length} ramp`);
+      parts.push(`${earlyPlays.length} early play${earlyPlays.length > 1 ? 's' : ''}`);
       reason = parts.join(', ');
     }
 
-    return { keep, reason, landCount, earlyPlays: earlyPlays.length };
+    return { keep, reason };
   }, [sampleHand]);
 
+  const keepPct = Math.round(stats.keepableRate * 100);
+  const screwPct = Math.round(stats.manaScrew * 100);
+  const floodPct = Math.round(stats.manaFlood * 100);
+
+  // Composition bar data
+  const compBars = [
+    { label: 'Lands', value: stats.expectedLands, max: 7, color: 'bg-amber-500', textColor: 'text-amber-400/80' },
+    { label: 'Ramp', value: stats.expectedRamp, max: 7, color: 'bg-emerald-500', textColor: 'text-emerald-400/80' },
+    { label: 'Interaction', value: stats.expectedRemoval, max: 7, color: 'bg-red-500', textColor: 'text-red-400/80' },
+    { label: 'Early plays', value: stats.expectedEarlyPlays, max: 7, color: 'bg-sky-500', textColor: 'text-sky-400/80' },
+  ];
+
+  // Risk color — gentler thresholds (screw ≤10% ok, flood ≤20% normal for 37+ lands)
+  const riskColor = (pct: number, isFlood = false) => {
+    const warnAt = isFlood ? 20 : 12;
+    const dangerAt = isFlood ? 30 : 20;
+    if (pct >= dangerAt) return { dot: 'bg-red-500', text: 'text-red-400' };
+    if (pct >= warnAt) return { dot: 'bg-amber-500', text: 'text-amber-400' };
+    return { dot: 'bg-emerald-500', text: 'text-emerald-400/80' };
+  };
+
+  const screwStyle = riskColor(screwPct);
+  const floodStyle = riskColor(floodPct, true);
+
   return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2.5">
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3 flex flex-col">
+      <div className="flex items-center gap-1.5 mb-3">
         <Dices className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Hand Analysis</span>
-        <span className={`ml-auto text-xs font-bold tabular-nums ${
-          stats.keepableRate >= 0.75 ? 'text-emerald-400' : stats.keepableRate >= 0.6 ? 'text-amber-400' : 'text-red-400'
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Hand</span>
+        <span className={`ml-auto text-sm font-bold tabular-nums ${
+          keepPct >= 75 ? 'text-emerald-400' : keepPct >= 60 ? 'text-amber-400' : 'text-red-400'
         }`}>
-          {Math.round(stats.keepableRate * 100)}% keepable
+          {keepPct}%
         </span>
+        <span className="text-[10px] text-muted-foreground/50">keepable</span>
       </div>
 
-      {/* Expected composition */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[11px]">
-        <span className="text-muted-foreground">
-          <span className="text-amber-400/80 font-semibold">{stats.expectedLands}</span> lands
-        </span>
-        <span className="text-muted-foreground">
-          <span className="text-emerald-400/80 font-semibold">{stats.expectedRamp}</span> ramp
-        </span>
-        <span className="text-muted-foreground">
-          <span className="text-red-400/80 font-semibold">{stats.expectedRemoval}</span> interaction
-        </span>
-        <span className="text-muted-foreground">
-          <span className="text-sky-400/80 font-semibold">{stats.expectedEarlyPlays}</span> early plays
-        </span>
+      {/* Composition bars */}
+      <div className="space-y-1 mb-2.5">
+        {compBars.map(b => (
+          <div key={b.label} className="flex items-center gap-2">
+            <span className="text-[9px] text-muted-foreground/50 w-14 text-right">{b.label}</span>
+            <div className="flex-1 h-1.5 bg-muted-foreground/8 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${b.color} rounded-full transition-all`}
+                style={{ width: `${(b.value / b.max) * 100}%`, opacity: 0.6 }}
+              />
+            </div>
+            <span className={`text-[10px] font-semibold tabular-nums w-5 ${b.textColor}`}>{b.value}</span>
+          </div>
+        ))}
       </div>
 
-      {/* Draw button */}
-      <button
-        onClick={drawHand}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors mb-2"
-      >
-        <Shuffle className="w-3.5 h-3.5" />
-        {sampleHand ? 'Draw Again' : 'Draw Sample Hand'}
-      </button>
+      {/* Risk indicators */}
+      <div className="flex items-center gap-3 text-[10px]">
+        <div className="flex items-center gap-1">
+          <div className={`w-1.5 h-1.5 rounded-full ${screwStyle.dot}`} />
+          <span className="text-muted-foreground/50">Screw</span>
+          <span className={`font-semibold tabular-nums ${screwStyle.text}`}>{screwPct}%</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className={`w-1.5 h-1.5 rounded-full ${floodStyle.dot}`} />
+          <span className="text-muted-foreground/50">Flood</span>
+          <span className={`font-semibold tabular-nums ${floodStyle.text}`}>{floodPct}%</span>
+        </div>
+      </div>
+
+      {/* Spacer to push draw section down for consistent height with castability */}
+      <div className="flex-1" />
 
       {/* Sample hand display */}
       {sampleHand && (
-        <div className="mt-2">
-          <div className="flex gap-1.5 flex-wrap mb-2">
+        <div className="mt-3">
+          <div className="flex gap-1 flex-wrap mb-1.5">
             {sampleHand.map((card, i) => {
               const imgUrl = getCardImageUrl(card);
               const cls = classifyCard(card);
               return (
-                <div key={`${card.name}-${i}`} className="flex flex-col items-center gap-0.5">
+                <div key={`${card.name}-${i}`} className="flex flex-col items-center">
                   {imgUrl ? (
-                    <div className={`w-[68px] h-[95px] rounded overflow-hidden border-2 ${CLASS_COLORS[cls].split(' ')[0]}`}>
+                    <div className={`w-[56px] h-[78px] rounded overflow-hidden border-2 ${CLASS_COLORS[cls].split(' ')[0]}`}>
                       <img src={imgUrl} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
                     </div>
                   ) : (
-                    <div className={`w-[68px] h-[95px] rounded border-2 flex items-center justify-center text-[8px] text-center px-1 ${CLASS_COLORS[cls]}`}>
+                    <div className={`w-[56px] h-[78px] rounded border-2 flex items-center justify-center text-[7px] text-center px-0.5 ${CLASS_COLORS[cls]}`}>
                       {card.name}
                     </div>
                   )}
-                  <span className={`text-[8px] ${CLASS_COLORS[cls].split(' ')[1]}`}>{CLASS_LABELS[cls]}</span>
+                  <span className={`text-[7px] mt-0.5 ${CLASS_COLORS[cls].split(' ')[1]}`}>{CLASS_LABELS[cls]}</span>
                 </div>
               );
             })}
@@ -956,13 +1508,35 @@ export function HandSimulation({
 
           {/* Verdict */}
           {handVerdict && (
-            <div className={`text-xs flex items-center gap-1.5 ${handVerdict.keep ? 'text-emerald-400' : 'text-red-400'}`}>
+            <div className={`text-[11px] flex items-center gap-1.5 mb-2 ${handVerdict.keep ? 'text-emerald-400' : 'text-red-400'}`}>
               <span className="font-semibold">{handVerdict.keep ? 'Keep' : 'Mulligan'}</span>
-              <span className="text-[10px] text-muted-foreground/60">— {handVerdict.reason}</span>
+              <span className="text-[10px] text-muted-foreground/50">— {handVerdict.reason}</span>
             </div>
           )}
         </div>
       )}
+
+      {/* Draw / Mulligan buttons — always at bottom */}
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          onClick={() => drawHand(false)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Shuffle className="w-3 h-3" />
+          {sampleHand ? 'New Hand' : 'Draw Hand'}
+        </button>
+        {sampleHand && mulliganCount < 5 && (
+          <button
+            onClick={() => drawHand(true)}
+            className="px-3 py-1.5 text-xs rounded-lg border border-amber-500/30 hover:bg-amber-500/10 text-amber-400/70 hover:text-amber-400 transition-colors"
+          >
+            Mulligan to {7 - mulliganCount - 1}
+          </button>
+        )}
+        {mulliganCount > 0 && (
+          <span className="text-[10px] text-muted-foreground/40 ml-auto">Mull #{mulliganCount}</span>
+        )}
+      </div>
     </div>
   );
 }

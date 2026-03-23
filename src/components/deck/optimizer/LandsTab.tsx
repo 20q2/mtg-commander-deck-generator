@@ -5,7 +5,7 @@ import {
   Loader2, Sparkles, Mountain, Sprout, Scissors,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import type { ScryfallCard, UserCardList } from '@/types';
+import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard, ManaBaseAnalysis, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors, getCardsByNames } from '@/services/scryfall/client';
 import { getCardRole, getAllCardRoles } from '@/services/tagger/client';
@@ -16,7 +16,7 @@ import {
   tileGradeStyles, ROLE_LABELS,
   type LandSection, type CollapsibleGroup,
 } from './constants';
-import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction } from './shared';
+import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
 import { ManaTrajectorySparkline } from './CurveTab';
 
@@ -256,7 +256,7 @@ export function LandCountDetail({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
   colorIdentity: string[];
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
@@ -336,21 +336,13 @@ export function LandCountDetail({
     .sort((a, b) => a.name.localeCompare(b.name));
   const totalBasicCount = basicGroups.reduce((sum, bg) => sum + bg.count, 0);
 
-  const mkMenu = (name: string) => menuProps ? {
-    userLists: menuProps.userLists,
-    isMustInclude: menuProps.mustIncludeNames.has(name),
-    isBanned: menuProps.bannedNames.has(name),
-    isInSideboard: menuProps.sideboardNames.has(name),
-    isInMaybeboard: menuProps.maybeboardNames.has(name),
-  } : undefined;
-
   const landCardGroups: CollapsibleGroup[] = [];
   if (mdfcLands.length > 0) landCardGroups.push({
     key: 'mdfc', label: 'MDFC', count: mdfcLands.length,
     content: (
       <div className="space-y-0.5">
         {mdfcLands.map(ac => (
-          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={mkMenu(ac.card.name)} />
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
     ),
@@ -360,7 +352,7 @@ export function LandCountDetail({
     content: (
       <div className="space-y-0.5">
         {channelLands.map(ac => (
-          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={mkMenu(ac.card.name)} />
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
     ),
@@ -370,7 +362,7 @@ export function LandCountDetail({
     content: (
       <div className="space-y-0.5">
         {nonbasicLands.map(ac => (
-          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={mkMenu(ac.card.name)} />
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
     ),
@@ -571,7 +563,7 @@ export function ManaSourcesDetail({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
 }) {
   // Group ramp cards by subtype
   const groups: { key: string; label: string; cards: AnalyzedCard[] }[] = [];
@@ -621,7 +613,7 @@ export function ManaSourcesDetail({
               {openGroups[g.key] !== false && (
                 <div className="space-y-0.5">
                   {g.cards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
               )}
@@ -730,7 +722,7 @@ export function FixingDetail({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
   colorIdentity: string[];
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
@@ -917,7 +909,7 @@ export function FixingDetail({
               {fixersOpen && (
                 <div className="space-y-0.5">
                   {filteredManaFixCards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
               )}
@@ -939,7 +931,7 @@ export function FixingDetail({
               {rampOpen && (
                 <div className="space-y-0.5">
                   {filteredRampCards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
               )}
@@ -961,7 +953,7 @@ export function FixingDetail({
               {multiColorOpen && (
                 <div className="space-y-0.5">
                   {filteredFixingLands.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
               )}
@@ -983,7 +975,7 @@ export function FixingDetail({
               {monoColorOpen && (
                 <div className="space-y-0.5">
                   {filteredMonoColorLands.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
               )}
@@ -1005,7 +997,7 @@ export function FixingDetail({
               {colorlessOpen && (
                 <div className="space-y-0.5">
                   {filteredColorlessLands.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
+                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
               )}
@@ -1210,7 +1202,7 @@ export function MdfcDetail({
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
   colorIdentity: string[];
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
@@ -1249,14 +1241,6 @@ export function MdfcDetail({
     .sort((a, b) => a.name.localeCompare(b.name));
   const totalBasicCount = basicGroups.reduce((sum, bg) => sum + bg.count, 0);
 
-  const makeMenuProps = (cardName: string) => menuProps ? {
-    userLists: menuProps.userLists,
-    isMustInclude: menuProps.mustIncludeNames.has(cardName),
-    isBanned: menuProps.bannedNames.has(cardName),
-    isInSideboard: menuProps.sideboardNames.has(cardName),
-    isInMaybeboard: menuProps.maybeboardNames.has(cardName),
-  } : undefined;
-
   // Count MDFCs added from suggestions (not already in analysis)
   const existingLandNames = new Set(analysis.landCards.map(ac => ac.card.name));
   const mdfcSuggNames = new Set(mdfcSuggestions.map(r => r.name));
@@ -1269,7 +1253,7 @@ export function MdfcDetail({
     content: (
       <div className="space-y-0.5">
         {mdfcLands.map(ac => (
-          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
     ),
@@ -1279,7 +1263,7 @@ export function MdfcDetail({
     content: (
       <div className="space-y-0.5">
         {channelLands.map(ac => (
-          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
     ),
@@ -1289,7 +1273,7 @@ export function MdfcDetail({
     content: (
       <div className="space-y-0.5">
         {nonbasicLands.map(ac => (
-          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
     ),
@@ -1437,7 +1421,7 @@ export function LandsTabContent({
   addedCards: Set<string>;
   currentCards: ScryfallCard[];
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: CardRowMenuProps;
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
   cardInclusionMap?: Record<string, number>;

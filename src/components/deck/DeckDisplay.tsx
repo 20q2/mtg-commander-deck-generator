@@ -4,7 +4,7 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, isMdfcLand } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
@@ -36,7 +36,7 @@ import {
   ListPlus,
   FileText,
   Loader2 as Loader2Icon,
-  TrendingUp,
+  Sprout,
   Swords,
   Flame,
   BookOpen,
@@ -273,7 +273,8 @@ export type CardAction =
   | { type: 'maybeboard' }
   | { type: 'mustInclude' }
   | { type: 'exclude' }
-  | { type: 'addToList'; listId: string };
+  | { type: 'addToList'; listId: string }
+  | { type: 'createListAndAdd'; listName: string };
 
 export interface CardContextMenuProps {
   card: ScryfallCard;
@@ -294,12 +295,17 @@ export interface CardContextMenuProps {
 export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose }: CardContextMenuProps) {
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
+  const [showNewList, setShowNewList] = React.useState(false);
+  const [newListName, setNewListName] = React.useState('');
+  const newListRef = React.useRef<HTMLInputElement>(null);
   const open = forceOpen || internalOpen;
 
   const handleOpenChange = (v: boolean) => {
     setInternalOpen(v);
     if (!v) {
       setShowLists(false);
+      setShowNewList(false);
+      setNewListName('');
       onForceClose?.();
     }
   };
@@ -357,30 +363,75 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
           <Ban className={`w-3.5 h-3.5 transition-colors ${isBanned ? 'text-red-400' : 'text-muted-foreground group-hover/item:text-red-400/70'}`} />
           {isBanned ? 'Remove Exclude' : 'Exclude'}
         </button>
-        {userLists.length > 0 && (
-          <>
-            <div className="h-px bg-border my-1" />
-            {!showLists ? (
-              <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowLists(true); }}>
-                <ListPlus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-blue-400 transition-colors" />
-                Add to List...
+        <div className="h-px bg-border my-1" />
+        {!showLists ? (
+          <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowLists(true); }}>
+            <ListPlus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-blue-400 transition-colors" />
+            Add to List...
+          </button>
+        ) : (
+          <div>
+            {!showNewList ? (
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-2 rounded transition-colors"
+                onClick={(e) => { e.stopPropagation(); setShowNewList(true); }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Create New List
               </button>
             ) : (
+              <form
+                className="flex items-center gap-1 px-2 py-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const trimmed = newListName.trim();
+                  if (trimmed) fire({ type: 'createListAndAdd', listName: trimmed });
+                }}
+              >
+                <input
+                  ref={newListRef}
+                  type="text"
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  placeholder="New list name..."
+                  className="flex-1 min-w-0 bg-transparent border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-blue-400/50"
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <button
+                  type="submit"
+                  disabled={!newListName.trim()}
+                  className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-blue-400 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            )}
+            {userLists.length > 0 && (
               <div className="max-h-32 overflow-y-auto">
-                <p className="px-3 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Add to list</p>
-                {userLists.map(list => (
-                  <button
-                    key={list.id}
-                    className={menuBtn}
-                    onClick={() => fire({ type: 'addToList', listId: list.id })}
-                  >
-                    <List className="w-3 h-3 text-muted-foreground shrink-0" />
-                    <span className="truncate">{list.name}</span>
-                  </button>
-                ))}
+                {userLists.map(list => {
+                  const alreadyIn = list.cards.includes(card.name);
+                  return (
+                    <button
+                      key={list.id}
+                      className={`${menuBtn}${alreadyIn ? ' opacity-50 pointer-events-none' : ''}`}
+                      onClick={() => fire({ type: 'addToList', listId: list.id })}
+                      disabled={alreadyIn}
+                    >
+                      {alreadyIn ? (
+                        <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                      ) : list.commanderName ? (
+                        <CardTypeIcon type="commander" size="sm" className="shrink-0" />
+                      ) : (
+                        <List className="w-3 h-3 text-muted-foreground shrink-0" />
+                      )}
+                      <span className="truncate">{list.name}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
-          </>
+          </div>
         )}
       </PopoverContent>
     </Popover>
@@ -401,6 +452,7 @@ interface CardRowProps {
   cardTypeMap?: Map<string, CardType>;
   showRoleColumn?: boolean;
   showPinColumn?: boolean;
+  showPinBanIcons?: boolean;
   isRemoved?: boolean;
   isEditMode?: boolean;
   isSelected?: boolean;
@@ -419,7 +471,7 @@ interface CardRowProps {
   isSingleton?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -498,9 +550,9 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
       )}
       {showPinColumn && (
         <span className="w-3 shrink-0 flex justify-center">
-          {isBannedLive ? (
+          {showPinBanIcons && isBannedLive ? (
             <span title="Excluded" className="animate-pop-in"><Ban className="w-3 h-3 text-red-400/70" /></span>
-          ) : isMustIncludeLive ? (
+          ) : showPinBanIcons && isMustIncludeLive ? (
             card.mustIncludeSource === 'deck' ? <span title="From original deck"><Bookmark className="w-3 h-3 text-muted-foreground/50" /></span> :
             card.mustIncludeSource === 'combo' ? <span title="Added by user"><Sparkles className="w-3 h-3 text-violet-500/70" /></span> :
             <span title="Must include" className="animate-pop-in"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
@@ -631,9 +683,10 @@ interface CategoryColumnProps {
   onChangeQuantity?: (cardName: string, newQuantity: number) => void;
   isSingleton?: boolean;
   showPinBan?: boolean;
+  mdfcLandCount?: number;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardRelevancyMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardRelevancyMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -676,6 +729,11 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
           <CardTypeIcon type={type} size="md" className="text-muted-foreground" />
           <span className="font-medium text-sm uppercase tracking-wide">
             {type} ({totalCards})
+            {type === 'Land' && mdfcLandCount != null && mdfcLandCount > 0 && (
+              <span className="text-muted-foreground text-[10px] font-normal lowercase tracking-normal ml-1">
+                ({totalCards + mdfcLandCount} with mdfc)
+              </span>
+            )}
           </span>
         </div>
         {showPrice && totalPrice > 0 && (
@@ -702,7 +760,8 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               combosForCard={cardComboMap?.get(normalizedName)}
               cardTypeMap={cardTypeMap}
               showRoleColumn={showRoleColumn}
-              showPinColumn={showPinBan !== false && (hasMustInclude || hasBanned || hasOwnedCard)}
+              showPinColumn={(showPinBan && (hasMustInclude || hasBanned)) || hasOwnedCard}
+              showPinBanIcons={showPinBan !== false}
               isRemoved={removedCards?.has(card.id)}
               isEditMode={isEditMode}
               isSelected={selectedCards?.has(card.id)}
@@ -1327,7 +1386,7 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
         readOnly={!canEdit}
         onClick={!canEdit ? (e) => (e.target as HTMLTextAreaElement).select() : undefined}
         spellCheck={false}
-        className="w-full flex-1 min-h-[600px] bg-background border border-border rounded-none p-3 font-mono text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary/50 leading-tight"
+        className="w-full flex-1 min-h-[520px] bg-background border border-border rounded-none p-3 font-mono text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary/50 leading-tight"
         placeholder="1 Card Name&#10;2 Another Card&#10;..."
       />
 
@@ -1695,11 +1754,11 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
           </button>
           {showRoles && <div className="space-y-1.5">
             {([
-              ['ramp', 'Ramp', 'bg-emerald-500', TrendingUp],
+              ['ramp', 'Ramp', 'bg-emerald-500', Sprout],
               ['removal', 'Removal', 'bg-red-500', Swords],
               ['boardwipe', 'Board Wipes', 'bg-orange-500', Flame],
               ['cardDraw', 'Card Advantage', 'bg-blue-500', BookOpen],
-            ] as [string, string, string, typeof TrendingUp][]).map(([key, label, barColor, Icon]) => {
+            ] as [string, string, string, typeof Sprout][]).map(([key, label, barColor, Icon]) => {
               const count = generatedDeck.roleCounts![key] ?? 0;
               const target = generatedDeck.roleTargets![key] ?? 0;
               const percent = target > 0 ? Math.min(100, (count / target) * 100) : 100;
@@ -1894,7 +1953,7 @@ interface DeckDisplayProps {
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory } = useStore();
-  const { lists: userLists, createList, updateList } = useUserLists();
+  const { lists: userLists, createList, updateList, deleteList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
@@ -1912,7 +1971,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; onUndo?: () => void } | null>(null);
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
   const tempBannedRef = useRef(customization.tempBannedCards || []);
@@ -1925,6 +1984,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
   const [showPinBan, setShowPinBan] = useState(() => localStorage.getItem('mtg-deck-show-pin-ban') !== 'false');
+  const [showIcons, setShowIcons] = useState(() => localStorage.getItem('mtg-deck-show-icons') !== 'false');
   const [showMenu, setShowMenu] = useState(false);
   const showMenuRef = useRef<HTMLDivElement>(null);
   const showMenuMobileRef = useRef<HTMLDivElement>(null);
@@ -2003,7 +2063,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       setSnapshotAppliedLists(JSON.stringify(customization.appliedIncludeLists || []));
       if (pendingRegenerate) {
         setPendingRegenerate(false);
-        setToastMessage('Deck regenerated!');
+        setToastMessage({ text: 'Deck regenerated!' });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2226,6 +2286,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return result;
   }, [generatedDeck, commander, sortBy, formatConfig.hasCommander]);
 
+  // Count MDFC lands (spell // land cards categorized under their spell type, not Land)
+  const mdfcLandCount = useMemo(() => {
+    if (!generatedDeck) return 0;
+    let count = 0;
+    for (const type of TYPE_ORDER) {
+      if (type === 'Land' || type === 'Commander') continue;
+      for (const { card } of groupedCards[type] || []) {
+        if (isMdfcLand(card)) count++;
+      }
+    }
+    return count;
+  }, [groupedCards, generatedDeck]);
+
   // Flat ordered list of non-commander card IDs for shift-select
   flatCardOrderRef.current = useMemo(() => {
     const ids: string[] = [];
@@ -2319,7 +2392,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       return next;
     });
 
-    setToastMessage(`Replacing ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''}...`);
+    setToastMessage({ text: `Replacing ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''}...` });
     setSelectedCards(new Set());
     // Trigger regeneration immediately
     handleRegenerate();
@@ -2365,7 +2438,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       return next;
     });
 
-    setToastMessage(`Banned ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''} — regenerating...`);
+    setToastMessage({ text: `Banned ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''} — regenerating...` });
     setSelectedCards(new Set());
     handleRegenerate();
   }, [selectedCards, groupedCards, customization, updateCustomization, handleRegenerate, commander]);
@@ -2400,7 +2473,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       // Remove from must-include
       const nameSet = new Set(names);
       updateCustomization({ mustIncludeCards: current.filter(n => !nameSet.has(n)) });
-      setToastMessage(`Unpinned ${names.length} card${names.length > 1 ? 's' : ''}`);
+      setToastMessage({ text: `Unpinned ${names.length} card${names.length > 1 ? 's' : ''}` });
     } else {
       // Add to must-include, and remove from ban lists if present
       const newMI = [...current];
@@ -2415,7 +2488,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         ...(currentBanned.length !== customization.bannedCards.length ? { bannedCards: currentBanned } : {}),
         ...(currentTempBanned.length !== (customization.tempBannedCards ?? []).length ? { tempBannedCards: currentTempBanned } : {}),
       });
-      setToastMessage(`Pinned ${names.length} card${names.length > 1 ? 's' : ''} as must-include`);
+      setToastMessage({ text: `Pinned ${names.length} card${names.length > 1 ? 's' : ''} as must-include` });
     }
     setSelectedCards(new Set());
   }, [getSelectedCardNames, customization, updateCustomization]);
@@ -2457,7 +2530,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const existing = new Set(list.cards);
     const newCards = [...list.cards, ...names.filter(n => !existing.has(n))];
     updateList(listId, { cards: newCards });
-    setToastMessage(`Added ${names.length} card${names.length !== 1 ? 's' : ''} to "${list.name}"`);
+    const prevCards = [...list.cards];
+    setToastMessage({
+      text: `Added ${names.length} card${names.length !== 1 ? 's' : ''} to "${list.name}"`,
+      onUndo: () => { updateList(listId, { cards: prevCards }); setToastMessage(null); },
+    });
     setShowAddToDropdown(false);
     setListSearchQuery('');
     setSelectedCards(new Set());
@@ -2468,14 +2545,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     if (!trimmed) return;
     const names = getSelectedCardNames();
     if (names.length === 0) return;
-    createList(trimmed, names);
-    setToastMessage(`Created "${trimmed}" with ${names.length} card${names.length !== 1 ? 's' : ''}`);
+    const newList = createList(trimmed, names);
+    setToastMessage({
+      text: `Created "${trimmed}" with ${names.length} card${names.length !== 1 ? 's' : ''}`,
+      onUndo: () => { deleteList(newList.id); setToastMessage(null); },
+    });
     setShowAddToDropdown(false);
     setShowNewListInput(false);
     setNewListName('');
     setListSearchQuery('');
     setSelectedCards(new Set());
-  }, [getSelectedCardNames, createList]);
+  }, [getSelectedCardNames, createList, deleteList]);
 
   // Single-card context menu handler
   const handleCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
@@ -2505,16 +2585,32 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         updateCustomization({ bannedCards: hasBan ? currentBanned.filter(n => n !== name) : [...currentBanned, name] });
         break;
       }
+      case 'addToDeck':
+        onAddCards?.([name], 'deck');
+        pushDeckHistory({ action: 'add', cardName: name });
+        break;
       case 'addToList': {
         const list = userLists.find(l => l.id === action.listId);
         if (list && !list.cards.includes(name)) {
+          const prevCards = [...list.cards];
           updateList(action.listId, { cards: [...list.cards, name] });
-          setToastMessage(`Added "${name}" to "${list.name}"`);
+          setToastMessage({
+            text: `Added "${name}" to "${list.name}"`,
+            onUndo: () => { updateList(action.listId, { cards: prevCards }); setToastMessage(null); },
+          });
         }
         break;
       }
+      case 'createListAndAdd': {
+        const newList = createList(action.listName, [name]);
+        setToastMessage({
+          text: `Created "${action.listName}" with "${name}"`,
+          onUndo: () => { deleteList(newList.id); setToastMessage(null); },
+        });
+        break;
+      }
     }
-  }, [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList, pushDeckHistory]);
+  }, [onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList, createList, deleteList, pushDeckHistory]);
 
   const cardMenuProps: Omit<CardContextMenuProps, 'card' | 'onAction'> = useMemo(() => ({
     hasRemove: !!onRemoveCards,
@@ -2822,8 +2918,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                     { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
                     { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
-                    { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
-                    { key: 'pinban', label: 'Pin / Ban Icons', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
                   ].filter(o => !o.hide).map(opt => (
                     <div key={opt.key} className="relative flex items-center">
                       <button
@@ -2842,6 +2936,36 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       )}
                     </div>
                   ))}
+                  {/* Icons parent toggle + sub-items */}
+                  <div className="pt-1 mt-1">
+                    <div className="relative flex items-center">
+                      <button
+                        onClick={() => setShowIcons(v => { const next = !v; localStorage.setItem('mtg-deck-show-icons', String(next)); return next; })}
+                        className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${showIcons ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                      >
+                        <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${showIcons ? 'bg-primary border-primary' : 'border-border'}`}>
+                          {showIcons && <Check className="w-2 h-2 text-primary-foreground" />}
+                        </span>
+                        Icons
+                      </button>
+                    </div>
+                    {showIcons && [
+                      ...(!showOwnedIndicators ? [] : [{ key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }) }]),
+                      { key: 'pinban', label: 'Pin / Ban', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
+                    ].map(opt => (
+                      <div key={opt.key} className="relative flex items-center">
+                        <button
+                          onClick={opt.toggle}
+                          className={`flex-1 flex items-center gap-2 px-2 pl-4 py-1.5 rounded text-xs transition-colors ${opt.value ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                        >
+                          <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${opt.value ? 'bg-primary border-primary' : 'border-border'}`}>
+                            {opt.value && <Check className="w-2 h-2 text-primary-foreground" />}
+                          </span>
+                          {opt.label}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -3029,8 +3153,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                   { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
-                  { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
-                  { key: 'pinban', label: 'Pin / Ban Icons', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
                 ].filter(o => !o.hide).map(opt => (
                   <div key={opt.key} className="relative flex items-center">
                     <button
@@ -3042,13 +3164,43 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       </span>
                       {opt.label}
                     </button>
-                    {'hasInfo' in opt && opt.hasInfo && (
-                      <InfoTooltip text="Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick.">
+                    {'infoText' in opt && opt.infoText && (
+                      <InfoTooltip text={opt.infoText}>
                         <Info className="w-3 h-3" />
                       </InfoTooltip>
                     )}
                   </div>
                 ))}
+                {/* Icons parent toggle + sub-items */}
+                <div className="pt-1 mt-1">
+                  <div className="relative flex items-center">
+                    <button
+                      onClick={() => setShowIcons(v => { const next = !v; localStorage.setItem('mtg-deck-show-icons', String(next)); return next; })}
+                      className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${showIcons ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                    >
+                      <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${showIcons ? 'bg-primary border-primary' : 'border-border'}`}>
+                        {showIcons && <Check className="w-2 h-2 text-primary-foreground" />}
+                      </span>
+                      Icons
+                    </button>
+                  </div>
+                  {showIcons && [
+                    ...(!showOwnedIndicators ? [] : [{ key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }) }]),
+                    { key: 'pinban', label: 'Pin / Ban', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
+                  ].map(opt => (
+                    <div key={opt.key} className="relative flex items-center">
+                      <button
+                        onClick={opt.toggle}
+                        className={`flex-1 flex items-center gap-2 px-2 pl-4 py-1.5 rounded text-xs transition-colors ${opt.value ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                      >
+                        <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${opt.value ? 'bg-primary border-primary' : 'border-border'}`}>
+                          {opt.value && <Check className="w-2 h-2 text-primary-foreground" />}
+                        </span>
+                        {opt.label}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -3171,7 +3323,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     selectedCards={selectedCards}
                     onToggleSelect={handleToggleCardSelection}
                     onToggleCategory={handleToggleCategory}
-                    collectionNames={showOwnedIndicators && showCollectionChecks ? collectionNames : null}
+                    collectionNames={showIcons && showOwnedIndicators && showCollectionChecks ? collectionNames : null}
                     mustIncludeNames={mustIncludeNames}
                     bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
@@ -3182,7 +3334,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     cardMenuProps={cardMenuProps}
                     onChangeQuantity={onChangeQuantity}
                     isSingleton={formatConfig.hasCommander}
-                    showPinBan={showPinBan}
+                    showPinBan={showIcons && showPinBan}
+                    mdfcLandCount={type === 'Land' ? mdfcLandCount : undefined}
                   />
                 ))}
               </div>
@@ -3459,6 +3612,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         cardIndex={previewCardIndex >= 0 ? previewCardIndex : undefined}
         totalCards={flatCardList.length}
         cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
+        cardRelevancyMap={showRelevancy ? generatedDeck?.cardRelevancyMap : null}
         showPrice={showPrice}
       />
       <ExportModal
@@ -3484,7 +3638,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       {toastMessage && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
           <Check className="w-4 h-4 shrink-0" />
-          {toastMessage}
+          <span>{toastMessage.text}</span>
+          {toastMessage.onUndo && (
+            <button
+              onClick={toastMessage.onUndo}
+              className="underline underline-offset-2 hover:text-white/80 transition-colors font-medium shrink-0"
+            >
+              Undo
+            </button>
+          )}
         </div>,
         document.body
       )}

@@ -86,26 +86,42 @@ interface CreateListOptions {
   primer?: string;
 }
 
-export function useUserLists() {
-  const [lists, setLists] = useState<UserCardList[]>(() => loadUserLists());
+// ─── Shared state: all useUserLists() instances stay in sync ─────────
+type Listener = (lists: UserCardList[]) => void;
+const listeners = new Set<Listener>();
+let sharedLists: UserCardList[] = loadUserLists();
 
-  // Auto-save whenever lists change
+function broadcast(next: UserCardList[]) {
+  sharedLists = next;
+  saveUserLists(next);
+  for (const fn of listeners) fn(next);
+}
+
+function updateShared(updater: (prev: UserCardList[]) => UserCardList[]) {
+  broadcast(updater(sharedLists));
+}
+
+export function useUserLists() {
+  const [lists, setLists] = useState<UserCardList[]>(() => sharedLists);
+
+  // Subscribe to shared updates
   useEffect(() => {
-    saveUserLists(lists);
-  }, [lists]);
+    const listener: Listener = (next) => setLists(next);
+    listeners.add(listener);
+    // Sync in case shared state changed before mount
+    if (sharedLists !== lists) setLists(sharedLists);
+    return () => { listeners.delete(listener); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Helper: update cached fields for a list by id (fire-and-forget)
   const refreshCache = useCallback((listId: string) => {
-    setLists(prev => {
-      const list = prev.find(l => l.id === listId);
-      if (!list) return prev;
-      // Fire async computation, update state when done
-      computeCachedFields(list.cards, list.commanderName).then(cached => {
-        setLists(p => p.map(l =>
-          l.id === listId ? { ...l, ...cached } : l
-        ));
-      });
-      return prev; // Return unchanged for now — async will update later
+    const list = sharedLists.find(l => l.id === listId);
+    if (!list) return;
+    computeCachedFields(list.cards, list.commanderName).then(cached => {
+      updateShared(p => p.map(l =>
+        l.id === listId ? { ...l, ...cached } : l
+      ));
     });
   }, []);
 
@@ -124,10 +140,10 @@ export function useUserLists() {
       createdAt: now,
       updatedAt: now,
     };
-    setLists(prev => [newList, ...prev]);
+    updateShared(prev => [newList, ...prev]);
     // Compute cached fields async
     computeCachedFields(cards, options?.commanderName).then(cached => {
-      setLists(prev => prev.map(l =>
+      updateShared(prev => prev.map(l =>
         l.id === newList.id ? { ...l, ...cached } : l
       ));
     });
@@ -135,18 +151,17 @@ export function useUserLists() {
   }, []);
 
   const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer'>>) => {
-    setLists(prev => prev.map(l =>
+    updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
     // Re-compute cached fields if cards or commander changed
     if (updates.cards || updates.commanderName !== undefined) {
-      // Use a microtask to read updated state
       setTimeout(() => refreshCache(id), 0);
     }
   }, [refreshCache]);
 
   const deleteList = useCallback((id: string) => {
-    setLists(prev => prev.filter(l => l.id !== id));
+    updateShared(prev => prev.filter(l => l.id !== id));
     // Clean up orphaned applied list references in the store
     const { customization, updateCustomization } = useStore.getState();
     const includes = customization.appliedIncludeLists || [];
@@ -160,7 +175,7 @@ export function useUserLists() {
   }, []);
 
   const duplicateList = useCallback((id: string) => {
-    setLists(prev => {
+    updateShared(prev => {
       const original = prev.find(l => l.id === id);
       if (!original) return prev;
       const now = Date.now();
@@ -186,19 +201,19 @@ export function useUserLists() {
   }, []);
 
   const convertToDeck = useCallback((id: string) => {
-    setLists(prev => prev.map(l =>
+    updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, type: 'deck' as const, updatedAt: Date.now() } : l
     ));
   }, []);
 
   const convertToList = useCallback((id: string) => {
-    setLists(prev => prev.map(l =>
+    updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, cachedColorIdentity: undefined, cachedCommanderArtUrl: undefined, updatedAt: Date.now() } : l
     ));
   }, []);
 
   const exportList = useCallback((id: string): string => {
-    const list = lists.find(l => l.id === id);
+    const list = sharedLists.find(l => l.id === id);
     if (!list) return '';
     const lines = list.cards.map(c => `1 ${c}`);
     if (list.sideboard && list.sideboard.length > 0) {
@@ -210,11 +225,11 @@ export function useUserLists() {
       lines.push(...list.maybeboard.map(c => `1 ${c}`));
     }
     return lines.join('\n');
-  }, [lists]);
+  }, []);
 
   const getListById = useCallback((id: string) => {
-    return lists.find(l => l.id === id) ?? null;
-  }, [lists]);
+    return sharedLists.find(l => l.id === id) ?? null;
+  }, []);
 
   return { lists, createList, updateList, deleteList, duplicateList, convertToDeck, convertToList, exportList, getListById };
 }

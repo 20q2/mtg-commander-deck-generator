@@ -34,7 +34,7 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'roles',    label: 'Roles',    icon: Shield as typeof LayoutDashboard },
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
-  { key: 'curve',    label: 'Curve',    icon: BarChart3 as typeof LayoutDashboard },
+  { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
   { key: 'types',    label: 'Types',    icon: Layers as typeof LayoutDashboard },
 ];
 

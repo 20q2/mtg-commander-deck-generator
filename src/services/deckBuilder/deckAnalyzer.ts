@@ -199,52 +199,6 @@ export function hypergeoPmf(N: number, K: number, n: number, k: number): number 
   return (binomial(K, k) * binomial(N - K, n - k)) / binomial(N, n);
 }
 
-// ─── Mana Efficiency ────────────────────────────────────────────────
-
-export interface ManaEfficiencyPoint {
-  turn: number;
-  manaAvailable: number;
-  expectedManaSpent: number;
-  efficiency: number; // 0-1
-}
-
-/**
- * Estimate how efficiently mana is spent each turn.
- * For each turn, sums expected CMC of castable spells in hand, capped at available mana.
- */
-export function computeManaEfficiency(
-  nonLandCards: { cmc: number }[],
-  trajectory: ManaTrajectoryPoint[],
-  deckSize: number,
-): ManaEfficiencyPoint[] {
-  return trajectory.map(t => {
-    const cardsSeen = 7 + (t.turn - 1);
-    const manaAvailable = t.totalExpectedMana;
-    if (manaAvailable <= 0) return { turn: t.turn, manaAvailable, expectedManaSpent: 0, efficiency: 0 };
-
-    // For each card: P(in hand by this turn) * min(cmc, remaining mana budget)
-    // Sort by CMC ascending to simulate casting cheapest-first
-    const sorted = [...nonLandCards].sort((a, b) => a.cmc - b.cmc);
-    let manaLeft = manaAvailable;
-    let spent = 0;
-    for (const card of sorted) {
-      if (card.cmc > manaAvailable) continue; // can't cast even with full mana
-      const pInHand = Math.min(1, cardsSeen / deckSize); // expected ~1 copy per card
-      const contribution = Math.min(card.cmc * pInHand, manaLeft);
-      spent += contribution;
-      manaLeft -= contribution;
-      if (manaLeft <= 0) break;
-    }
-
-    return {
-      turn: t.turn,
-      manaAvailable,
-      expectedManaSpent: Math.round(spent * 10) / 10,
-      efficiency: Math.round((spent / manaAvailable) * 100) / 100,
-    };
-  });
-}
-
 // ─── Hand Simulation Stats ──────────────────────────────────────────
 
 export interface HandStats {
@@ -253,6 +207,8 @@ export interface HandStats {
   expectedRemoval: number;
   expectedEarlyPlays: number; // CMC ≤ 2
   keepableRate: number;       // 0-1
+  manaScrew: number;          // P(0-1 lands) — 0-1
+  manaFlood: number;          // P(5+ lands) — 0-1
 }
 
 /**
@@ -273,22 +229,56 @@ export function computeHandStats(
   const expectedRemoval = Math.round((hand * removalCount / deckSize) * 10) / 10;
   const expectedEarlyPlays = Math.round((hand * earlyPlayCount / deckSize) * 10) / 10;
 
-  // P(keepable) ≈ P(2-4 lands) * P(≥1 low-CMC spell in hand)
-
   // P(exactly k lands in 7-card hand)
-  let pLand2to4 = 0;
-  for (let k = 2; k <= 4; k++) {
-    pLand2to4 += hypergeoPmf(deckSize, landCount, hand, k);
+  const pLandByK: number[] = [];
+  for (let k = 0; k <= hand; k++) {
+    pLandByK.push(hypergeoPmf(deckSize, landCount, hand, k));
   }
 
-  // P(0 low-CMC non-land spells in 7 cards) = C(deckSize - lowCmcCount, 7) / C(deckSize, 7)
+  let pLand2to4 = 0;
+  for (let k = 2; k <= 4; k++) pLand2to4 += pLandByK[k];
+
+  // Screw = P(0-1 lands), Flood = P(5+ lands)
+  const manaScrew = pLandByK[0] + pLandByK[1];
+  const manaFlood = pLandByK.slice(5).reduce((a, b) => a + b, 0);
+
+  // P(0 low-CMC non-land spells in 7 cards)
   const pNoEarlySpell = lowCmcCount >= deckSize ? 0 :
     binomial(deckSize - lowCmcCount, hand) / binomial(deckSize, hand);
   const pHasEarlySpell = 1 - pNoEarlySpell;
 
   const keepableRate = Math.round(pLand2to4 * pHasEarlySpell * 100) / 100;
 
-  return { expectedLands, expectedRamp, expectedRemoval, expectedEarlyPlays, keepableRate };
+  return { expectedLands, expectedRamp, expectedRemoval, expectedEarlyPlays, keepableRate, manaScrew, manaFlood };
+}
+
+// ─── Land Drop Probabilities ────────────────────────────────────────
+
+export interface LandDropProbability {
+  turn: number;
+  probability: number; // 0-1
+}
+
+/**
+ * P(made all land drops through turn T) for turns 1-7.
+ * On turn T you've seen T+6 cards (7 opening + T-1 draws).
+ * Need at least T lands in those T+6 cards.
+ */
+export function computeLandDropProbabilities(
+  deckSize: number,
+  landCount: number,
+): LandDropProbability[] {
+  const results: LandDropProbability[] = [];
+  for (let turn = 1; turn <= 7; turn++) {
+    const cardsSeen = turn + 6;
+    // P(X >= turn) = 1 - sum_{k=0}^{turn-1} hypergeoPmf(N, K, n, k)
+    let pLess = 0;
+    for (let k = 0; k < turn; k++) {
+      pLess += hypergeoPmf(deckSize, landCount, cardsSeen, k);
+    }
+    results.push({ turn, probability: Math.max(0, Math.min(1, 1 - pLess)) });
+  }
+  return results;
 }
 
 // Determine which colors a land produces from produced_mana + oracle text fallback
@@ -446,14 +436,14 @@ export function getCurveGrade(curveAnalysis: CurveSlot[]): GradeResult {
   const shape = highEnd > 3 ? 'top-heavy' : lowEnd > 3 ? 'bottom-heavy' : 'uneven';
 
   if (deviationPct <= 0.10)
-    return { letter: 'A', message: 'Curve closely matches the average — well-distributed.' };
+    return { letter: 'A', message: 'Excellent tempo — plays on curve consistently.' };
   if (deviationPct <= 0.20)
-    return { letter: 'B', message: 'Curve is solid with minor deviations.' };
+    return { letter: 'B', message: 'Good tempo with minor gaps in the curve.' };
   if (deviationPct <= 0.30)
-    return { letter: 'C', message: `Curve is a bit ${shape}.` };
+    return { letter: 'C', message: `Tempo is a bit ${shape} — may stall at some points.` };
   if (deviationPct <= 0.40)
-    return { letter: 'D', message: `Curve is significantly ${shape}.` };
-  return { letter: 'F', message: 'Curve is far from average — expect inconsistent draws.' };
+    return { letter: 'D', message: `Tempo is ${shape} — expect awkward turns.` };
+  return { letter: 'F', message: 'Poor tempo — likely to miss plays or waste mana often.' };
 }
 
 /** Pacing multipliers shift curve targets to match detected deck tempo. */
@@ -650,9 +640,9 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
       }
     }
     if (curveShape === 'top-heavy') {
-      cutTrims.push(`${b('Curve', 'curve')} — too many expensive spells`);
+      cutTrims.push(`${b('Tempo', 'curve')} — too many expensive spells`);
     } else if (curveShape === 'bottom-heavy') {
-      cutTrims.push(`${b('Curve', 'curve')} — bottom-heavy, low impact at higher CMCs`);
+      cutTrims.push(`${b('Tempo', 'curve')} — bottom-heavy, low impact at higher CMCs`);
     }
     if (excesses.length > 0) {
       for (const rd of excesses.slice(0, 2)) {
@@ -698,9 +688,9 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
     needs.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${Math.abs(landDelta)} below suggested count`);
   }
   if (curveShape === 'top-heavy') {
-    needs.push(`${b('Curve', 'curve')} — too many expensive spells`);
+    needs.push(`${b('Tempo', 'curve')} — too many expensive spells`);
   } else if (curveShape === 'bottom-heavy') {
-    trims.push(`${b('Curve', 'curve')} — bottom-heavy, low impact at higher CMCs`);
+    trims.push(`${b('Tempo', 'curve')} — bottom-heavy, low impact at higher CMCs`);
   }
   if (excesses.length > 0) {
     const ex = excesses[0];
