@@ -505,7 +505,10 @@ export function getManaTrajectory(
 
 /** Generate a human-readable HTML summary about the deck's health. Returns HTML with <strong> tags. */
 export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): string {
-  const b = (text: string) => `<strong class="text-foreground/90">${text}</strong>`;
+  const b = (text: string, tab?: string) =>
+    tab
+      ? `<strong class="text-foreground/90 cursor-pointer hover:underline decoration-foreground/30 underline-offset-2" data-tab="${tab}">${text}</strong>`
+      : `<strong class="text-foreground/90">${text}</strong>`;
 
   const grades = [analysis.rolesGrade, analysis.manaGrade, analysis.curveGrade];
   const avgScore = grades.reduce((s, g) => s + (GRADE_SCORES[g.letter] ?? 0), 0) / grades.length;
@@ -532,74 +535,87 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
 
   // ── Over-target: explain why cuts are needed ──
   if (deckExcess && deckExcess > 0) {
-    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the target.`);
+    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the target. The weakest fits are listed below.`);
 
-    const reasons: string[] = [];
-    if (excesses.length > 0) {
-      const exLabels = excesses.slice(0, 2).map(rd => b(rd.label.toLowerCase()));
-      reasons.push(`excess ${exLabels.join(' and ')}`);
+    const cutNeeds: string[] = [];
+    const cutTrims: string[] = [];
+
+    if (deficits.length > 0) {
+      for (const rd of deficits.slice(0, 2)) {
+        cutNeeds.push(`${b(rd.label, `roles:${rd.role}`)} — ${rd.deficit} below target`);
+      }
     }
     if (curveShape === 'top-heavy') {
-      reasons.push(`a ${b('top-heavy curve')} with too many expensive spells`);
+      cutTrims.push(`${b('Curve', 'curve')} — too many expensive spells`);
     } else if (curveShape === 'bottom-heavy') {
-      reasons.push(`a ${b('bottom-heavy curve')} with too many cheap spells`);
+      cutTrims.push(`${b('Curve', 'curve')} — bottom-heavy, low impact at higher CMCs`);
+    }
+    if (excesses.length > 0) {
+      for (const rd of excesses.slice(0, 2)) {
+        cutTrims.push(`${b(rd.label, `roles:${rd.role}`)} — ${rd.current - rd.target} over target`);
+      }
     }
     if (landDelta > 2) {
-      reasons.push(`${b(`${landDelta} extra lands`)} beyond the suggestion`);
-    }
-    if (deficits.length > 0 && reasons.length < 2) {
-      const defLabels = deficits.slice(0, 2).map(rd => b(rd.label.toLowerCase()));
-      reasons.push(`not enough ${defLabels.join(' or ')}`);
+      cutTrims.push(`${b('Lands', 'lands')} — ${landDelta} above suggested count`);
     }
 
-    if (reasons.length > 0) {
-      parts.push(`The weakest fits below were chosen because of ${reasons.join(', and ')}.`);
-    } else {
-      parts.push('The cards below have the lowest EDHREC inclusion rates and are the weakest fits for this deck.');
+    const li = (text: string) => `<li class="flex items-baseline gap-1.5 before:content-['•'] before:text-muted-foreground/40">${text}</li>`;
+
+    if (cutNeeds.length > 0) {
+      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none">${cutNeeds.map(li).join('')}</ul></div>`);
+    }
+    if (cutTrims.length > 0) {
+      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none">${cutTrims.map(li).join('')}</ul></div>`);
     }
 
-    return parts.join(' ');
+    return parts.join('');
   }
 
   // ── Normal summary ──
   if (avgScore >= 3.5) {
-    parts.push(`This deck is well-tuned — ${b(`${rolesMet} of ${totalRoles} roles met`)} with a ${b(`${avgCmc.toFixed(1)} avg CMC`)}.`);
-    if (deficits.length === 0) {
-      parts.push('All roles are on target, the mana base is solid, and the curve is well-distributed.');
-    }
+    parts.push(`This deck is well-tuned — ${b(`${rolesMet} of ${totalRoles} roles met`, 'roles')} with a ${b(`${avgCmc.toFixed(1)} avg CMC`, 'curve')}.`);
   } else if (avgScore >= 2.5) {
-    parts.push(`Solid foundation — ${b(`${rolesMet} of ${totalRoles} roles met`)} with a ${b(`${avgCmc.toFixed(1)} avg CMC`)}.`);
+    parts.push(`Solid foundation — ${b(`${rolesMet} of ${totalRoles} roles met`, 'roles')} with a ${b(`${avgCmc.toFixed(1)} avg CMC`, 'curve')}.`);
   } else if (avgScore >= 1.5) {
-    parts.push(`This deck has some gaps — only ${b(`${rolesMet} of ${totalRoles} roles`)} are on target.`);
+    parts.push(`This deck has some gaps — only ${b(`${rolesMet} of ${totalRoles} roles`, 'roles')} are on target.`);
   } else {
-    parts.push(`This deck needs work — only ${b(`${rolesMet} of ${totalRoles} roles`)} are on target with a ${b(`${avgCmc.toFixed(1)} avg CMC`)}.`);
+    parts.push(`This deck needs work — only ${b(`${rolesMet} of ${totalRoles} roles`, 'roles')} are on target with a ${b(`${avgCmc.toFixed(1)} avg CMC`, 'curve')}.`);
   }
 
-  // Call out specific issues
-  const insights: string[] = [];
+  // Call out specific issues as bullet points — separate needs from trims
+  const needs: string[] = [];
+  const trims: string[] = [];
 
   if (deficits.length > 0) {
     const top = deficits[0];
-    insights.push(`${b(top.label)} is ${b(`${top.deficit} below`)} target`);
+    needs.push(`${b(top.label, `roles:${top.role}`)} — ${top.deficit} below target`);
   }
   if (verdict === 'low' || verdict === 'critically-low') {
-    insights.push(`running ${b(`${Math.abs(landDelta)} too few lands`)}`);
-  } else if (verdict === 'high') {
-    insights.push(`running ${b(`${landDelta} extra lands`)}`);
+    needs.push(`${b('Lands', 'lands')} — ${Math.abs(landDelta)} below suggested count`);
   }
-  if (curveShape) {
-    insights.push(`curve is ${b(curveShape)}`);
+  if (curveShape === 'top-heavy') {
+    needs.push(`${b('Curve', 'curve')} — too many expensive spells`);
+  } else if (curveShape === 'bottom-heavy') {
+    trims.push(`${b('Curve', 'curve')} — bottom-heavy, low impact at higher CMCs`);
   }
-  if (excesses.length > 0 && insights.length < 3) {
+  if (excesses.length > 0) {
     const ex = excesses[0];
-    insights.push(`${b(ex.label.toLowerCase())} is ${ex.current - ex.target} over target`);
+    trims.push(`${b(ex.label, `roles:${ex.role}`)} — ${ex.current - ex.target} over target`);
+  }
+  if (verdict === 'high') {
+    trims.push(`${b('Lands', 'lands')} — ${landDelta} above suggested count`);
   }
 
-  if (insights.length > 0) {
-    parts.push(`Your biggest gaps: ${insights.join(', ')}.`);
+  const li = (text: string) => `<li class="flex items-baseline gap-1.5 before:content-['•'] before:text-muted-foreground/40">${text}</li>`;
+
+  if (needs.length > 0) {
+    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none">${needs.map(li).join('')}</ul></div>`);
+  }
+  if (trims.length > 0) {
+    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none">${trims.map(li).join('')}</ul></div>`);
   }
 
-  return parts.join(' ');
+  return parts.join('');
 }
 
 // ─── Smart Suggestion Scoring ────────────────────────────────────────

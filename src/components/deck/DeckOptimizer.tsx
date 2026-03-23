@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import {
   Loader2, Sparkles, Plus, Minus, Check, ShoppingCart, RefreshCw,
   Shield, Swords, Flame, BookOpen,
@@ -8,6 +8,13 @@ import {
   AlertTriangle, Palette, FlipHorizontal2, RotateCcw, Info, Scissors,
   Lightbulb, Tag, Zap, Target, Crown, ArrowUpDown, Pencil, ThumbsUp,
 } from 'lucide-react';
+import {
+  ComposedChart, AreaChart as RechartsAreaChart,
+  Line, Area, Bar,
+  XAxis, YAxis, CartesianGrid,
+  Tooltip, ReferenceLine, ReferenceArea,
+  ResponsiveContainer,
+} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, DeckCategory, UserCardList } from '@/types';
@@ -231,7 +238,7 @@ function AnalyzedCardRow({
             );
           })()}
         </div>
-        <span className="text-[10px] text-muted-foreground/60 truncate block">
+        <span className="text-[10px] text-muted-foreground truncate block">
           {primaryType}
           {producedColors && producedColors.length > 0 && (
             <>
@@ -334,7 +341,7 @@ function SuggestionCardGrid({
       {(title || !hideSort) && (
         <div className="flex items-center gap-2 mb-1.5 px-0.5">
           {title && (
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 flex items-center gap-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80 flex items-center gap-1">
               <Sparkles className="w-3 h-3" />
               {title}
             </p>
@@ -500,7 +507,7 @@ function SuggestionCardItem({
         )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{rec.name}</span>
         {rec.price && (
-          <span className="text-[10px] text-muted-foreground/60 shrink-0">${rec.price}</span>
+          <span className="text-[10px] text-muted-foreground shrink-0">${rec.price}</span>
         )}
       </div>
       {/* Row 2: role icons */}
@@ -646,7 +653,7 @@ function CutCardItem({
         </span>
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{ac.card.name}</span>
         {price && (
-          <span className="text-[10px] text-muted-foreground/60 shrink-0">${price}</span>
+          <span className="text-[10px] text-muted-foreground shrink-0">${price}</span>
         )}
       </div>
     </div>
@@ -751,7 +758,7 @@ function ThemeDetectionBanner({
         )}
         <button
           onClick={() => setExpanded(e => !e)}
-          className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 transition-colors shrink-0"
+          className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0"
           title={expanded ? 'Hide selector' : 'Adjust themes & tempo'}
         >
           <Pencil className="w-2.5 h-2.5" />
@@ -766,8 +773,8 @@ function ThemeDetectionBanner({
       >
         {/* Theme chips */}
         <div className="flex items-center gap-2 pt-2 mb-1.5">
-          <Tag className="w-3 h-3 text-muted-foreground/60" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Themes</span>
+          <Tag className="w-3 h-3 text-muted-foreground" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Themes</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {chipThemes.map(chip => {
@@ -818,8 +825,8 @@ function ThemeDetectionBanner({
         {/* Tempo selector */}
         <div className="pt-2 mt-2 border-t border-border/20">
           <div className="flex items-center gap-2 mb-1.5">
-            <Zap className="w-3 h-3 text-muted-foreground/60" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Tempo</span>
+            <Zap className="w-3 h-3 text-muted-foreground" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tempo</span>
             {userPacing && (
               <button
                 onClick={() => onPacingChange(null)}
@@ -862,7 +869,7 @@ function ThemeDetectionBanner({
               <PopoverContent side="bottom" align="start" className="w-80 p-0">
                 <div className="p-3 border-b border-border/30">
                   <p className="text-xs font-semibold">Tempo Guide</p>
-                  <p className="text-[11px] text-muted-foreground/60 mt-0.5">Controls how the mana curve is shaped during deck building</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Controls how the mana curve is shaped during deck building</p>
                 </div>
                 <div className="divide-y divide-border/20">
                   {TEMPO_OPTIONS.map(opt => {
@@ -888,9 +895,10 @@ function ThemeDetectionBanner({
   );
 }
 
-function DeckHealthStrip({ analysis, onNavigate, deckExcess }: {
+function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExcess }: {
   analysis: DeckAnalysis;
   onNavigate: (tab: TabKey) => void;
+  onNavigateRole?: (role: string) => void;
   deckExcess?: number;
 }) {
   const grades: { key: TabKey; label: string; icon: typeof Shield; grade: GradeResult }[] = [
@@ -927,8 +935,16 @@ function DeckHealthStrip({ analysis, onNavigate, deckExcess }: {
         })}
       </div>
       <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-        <p className="text-xs text-muted-foreground leading-relaxed"
+        <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Summary</span>
+        <div className="text-xs text-muted-foreground leading-relaxed"
           dangerouslySetInnerHTML={{ __html: summary }}
+          onClick={(e) => {
+            const raw = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
+            if (!raw) return;
+            const [tab, sub] = raw.split(':');
+            onNavigate(tab as TabKey);
+            if (sub && onNavigateRole) onNavigateRole(sub);
+          }}
         />
       </div>
     </div>
@@ -1030,11 +1046,11 @@ function LandSummaryStrip({
               <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>{tile.label}</span>
               <span className={`text-sm font-black ml-auto px-1.5 py-0.5 rounded ${tile.gradeColor} ${tile.gradeBadgeBg}`}>{tile.grade}</span>
             </div>
-            <div className="flex items-baseline gap-1.5 mb-1.5">
+            <div className="flex items-baseline justify-between gap-1.5 mb-1.5">
               <span className={`text-xl font-bold tabular-nums leading-none ${tile.gradeColor}`}>
                 {tile.value}
               </span>
-              <span className="text-xs text-muted-foreground/60 truncate">{tile.sub}</span>
+              <span className="text-[11px] text-muted-foreground truncate text-right">{tile.sub}</span>
             </div>
           </button>
         );
@@ -1119,7 +1135,7 @@ function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
       <div
         role="button"
         tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/60 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
+        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
@@ -1258,10 +1274,74 @@ function LandCountDetail({
     .sort((a, b) => a.name.localeCompare(b.name));
   const totalBasicCount = basicGroups.reduce((sum, bg) => sum + bg.count, 0);
 
-  const [mdfcOpen, setMdfcOpen] = useState(true);
-  const [channelOpen, setChannelOpen] = useState(true);
-  const [nonbasicOpen, setNonbasicOpen] = useState(true);
-  const [basicOpen, setBasicOpen] = useState(true);
+  const mkMenu = (name: string) => menuProps ? {
+    userLists: menuProps.userLists,
+    isMustInclude: menuProps.mustIncludeNames.has(name),
+    isBanned: menuProps.bannedNames.has(name),
+    isInSideboard: menuProps.sideboardNames.has(name),
+    isInMaybeboard: menuProps.maybeboardNames.has(name),
+  } : undefined;
+
+  const landCardGroups: CollapsibleGroup[] = [];
+  if (mdfcLands.length > 0) landCardGroups.push({
+    key: 'mdfc', label: 'MDFC', count: mdfcLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {mdfcLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={mkMenu(ac.card.name)} />
+        ))}
+      </div>
+    ),
+  });
+  if (channelLands.length > 0) landCardGroups.push({
+    key: 'channel', label: 'Channel', count: channelLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {channelLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={mkMenu(ac.card.name)} />
+        ))}
+      </div>
+    ),
+  });
+  if (nonbasicLands.length > 0) landCardGroups.push({
+    key: 'nonbasic', label: 'Nonbasic', count: nonbasicLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {nonbasicLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={mkMenu(ac.card.name)} />
+        ))}
+      </div>
+    ),
+  });
+  if (basicGroups.length > 0) landCardGroups.push({
+    key: 'basic', label: 'Basic', count: totalBasicCount,
+    content: (
+      <div className="space-y-0.5">
+        {basicGroups.map(bg => (
+          <div
+            key={bg.name}
+            className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
+            onClick={() => bg.count > 0 && onPreview(bg.name)}
+          >
+            <img src={scryfallImg(bg.name)} alt={bg.name} className="w-10 h-auto rounded shadow shrink-0" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm truncate block">{bg.name}</span>
+              <span className="text-[10px] text-muted-foreground">Land — Basic</span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none" disabled={bg.count === 0} onClick={() => onRemoveBasicLand?.(bg.name)} title={`Remove a ${bg.name}`}>
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
+              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" onClick={() => onAddBasicLand?.(bg.name)} title={`Add a ${bg.name}`}>
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    ),
+  });
 
   return (
     <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
@@ -1269,175 +1349,8 @@ function LandCountDetail({
         {/* Left: rating summary + lands list */}
         <div className={`${hasRightColumn ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
               <LandRatingSummary analysis={analysis} />
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1 px-0.5 flex items-center gap-1">
-                <Check className="w-3 h-3" />
-                In Your Deck
-              </p>
-
-              {/* Current lands list */}
               {analysis.landCards.length > 0 && (
-                <div className="space-y-2">
-                  {/* MDFC lands */}
-                  {mdfcLands.length > 0 && (
-                    <div>
-                      <button
-                        onClick={() => setMdfcOpen(v => !v)}
-                        className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                      >
-                        {mdfcOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                          MDFC ({mdfcLands.length})
-                        </span>
-                      </button>
-                      {mdfcOpen && (
-                        <div className="space-y-0.5">
-                          {mdfcLands.map(ac => (
-                            <AnalyzedCardRow
-                              key={ac.card.name}
-                              ac={ac}
-                              onPreview={onPreview}
-                              showDetails
-                              onCardAction={onCardAction}
-                              menuProps={menuProps ? {
-                                userLists: menuProps.userLists,
-                                isMustInclude: menuProps.mustIncludeNames.has(ac.card.name),
-                                isBanned: menuProps.bannedNames.has(ac.card.name),
-                                isInSideboard: menuProps.sideboardNames.has(ac.card.name),
-                                isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name),
-                              } : undefined}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Channel lands */}
-                  {channelLands.length > 0 && (
-                    <div>
-                      <button
-                        onClick={() => setChannelOpen(v => !v)}
-                        className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                      >
-                        {channelOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                          Channel ({channelLands.length})
-                        </span>
-                      </button>
-                      {channelOpen && (
-                        <div className="space-y-0.5">
-                          {channelLands.map(ac => (
-                            <AnalyzedCardRow
-                              key={ac.card.name}
-                              ac={ac}
-                              onPreview={onPreview}
-                              showDetails
-                              onCardAction={onCardAction}
-                              menuProps={menuProps ? {
-                                userLists: menuProps.userLists,
-                                isMustInclude: menuProps.mustIncludeNames.has(ac.card.name),
-                                isBanned: menuProps.bannedNames.has(ac.card.name),
-                                isInSideboard: menuProps.sideboardNames.has(ac.card.name),
-                                isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name),
-                              } : undefined}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Nonbasic lands */}
-                  {nonbasicLands.length > 0 && (
-                    <div>
-                      <button
-                        onClick={() => setNonbasicOpen(v => !v)}
-                        className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                      >
-                        {nonbasicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                          Nonbasic ({nonbasicLands.length})
-                        </span>
-                      </button>
-                      {nonbasicOpen && (
-                        <div className="space-y-0.5">
-                          {nonbasicLands.map(ac => (
-                            <AnalyzedCardRow
-                              key={ac.card.name}
-                              ac={ac}
-                              onPreview={onPreview}
-                              showDetails
-                              onCardAction={onCardAction}
-                              menuProps={menuProps ? {
-                                userLists: menuProps.userLists,
-                                isMustInclude: menuProps.mustIncludeNames.has(ac.card.name),
-                                isBanned: menuProps.bannedNames.has(ac.card.name),
-                                isInSideboard: menuProps.sideboardNames.has(ac.card.name),
-                                isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name),
-                              } : undefined}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Basic lands */}
-                  {basicGroups.length > 0 && (
-                    <div>
-                      <button
-                        onClick={() => setBasicOpen(v => !v)}
-                        className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                      >
-                        {basicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                          Basic ({totalBasicCount})
-                        </span>
-                      </button>
-                      {basicOpen && (
-                        <div className="space-y-0.5">
-                          {basicGroups.map(bg => (
-                            <div
-                              key={bg.name}
-                              className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
-                              onClick={() => bg.count > 0 && onPreview(bg.name)}
-                            >
-                              <img
-                                src={scryfallImg(bg.name)}
-                                alt={bg.name}
-                                className="w-10 h-auto rounded shadow shrink-0"
-                                loading="lazy"
-                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm truncate block">{bg.name}</span>
-                                <span className="text-[10px] text-muted-foreground/60">Land — Basic</span>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                                <button
-                                  className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                                  disabled={bg.count === 0}
-                                  onClick={() => onRemoveBasicLand?.(bg.name)}
-                                  title={`Remove a ${bg.name}`}
-                                >
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                                <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
-                                <button
-                                  className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                                  onClick={() => onAddBasicLand?.(bg.name)}
-                                  title={`Add a ${bg.name}`}
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <CollapsibleCardGroups groups={landCardGroups} totalCount={analysis.landCards.length} />
               )}
 
               {/* Recently added from suggestions */}
@@ -1551,7 +1464,7 @@ function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; deckSiz
       <div
         role="button"
         tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/60 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
+        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
@@ -1581,7 +1494,7 @@ function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; deckSiz
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5">
           <span>{ms.earlyRamp} early <span className="text-muted-foreground/40">(CMC ≤ 2)</span></span>
           <span className="text-border">·</span>
-          <span>avg ramp cost <span className="font-semibold text-foreground/60">{ms.avgRampCmc.toFixed(1)}</span></span>
+          <span>avg ramp cost <span className="font-semibold text-foreground/80">{ms.avgRampCmc.toFixed(1)}</span></span>
         </div>
       </>}
     </div>
@@ -1639,7 +1552,7 @@ function ManaSourcesDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {openGroups[g.key] !== false ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   {g.label} ({g.cards.length})
                 </span>
               </button>
@@ -1652,7 +1565,7 @@ function ManaSourcesDetail({
               )}
             </div>
           )) : (
-            <p className="text-xs text-muted-foreground/60 italic px-0.5">No ramp cards in deck</p>
+            <p className="text-xs text-muted-foreground italic px-0.5">No ramp cards in deck</p>
           )}
           {/* Recently added from suggestions */}
           {(() => {
@@ -1727,7 +1640,7 @@ function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
       <div
         role="button"
         tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/60 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
+        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
@@ -1895,7 +1808,7 @@ function FixingDetail({
             return (
               <div>
               <div className="flex items-center gap-1 mb-1.5 px-0.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">Pip Demand</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">Pip Demand</span>
                 <GradeInfoPopover>
                   <p className="font-semibold text-foreground mb-1">Pip Demand vs Supply</p>
                   <p>Counts colored mana pips across your non-land cards, then checks if your sources (lands, dorks, rocks) match that distribution.</p>
@@ -1921,7 +1834,7 @@ function FixingDetail({
                     >
                       <div className="flex items-center justify-center gap-0.5">
                         <i className={`ms ms-${color.toLowerCase()} ms-cost text-sm`} />
-                        <span className="text-[10px] text-muted-foreground/60 font-medium">x</span>
+                        <span className="text-[10px] text-muted-foreground font-medium">x</span>
                         <span className={`text-sm font-black tabular-nums leading-none ${selectedColors.has(color) ? 'text-foreground' : isWeak ? 'text-amber-400' : 'text-foreground'}`}>{pips}</span>
                       </div>
                       <p className="text-[9px] text-muted-foreground/50 text-center tabular-nums mb-0.5">{demandPct}% of demand</p>
@@ -1947,7 +1860,7 @@ function FixingDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {fixersOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Mana Fixers ({filteredManaFixCards.length})
                 </span>
               </button>
@@ -1969,7 +1882,7 @@ function FixingDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {rampOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Ramp ({filteredRampCards.length})
                 </span>
               </button>
@@ -1991,7 +1904,7 @@ function FixingDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {multiColorOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Multi-Color Lands ({filteredFixingLands.length})
                 </span>
               </button>
@@ -2013,7 +1926,7 @@ function FixingDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {monoColorOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Other Lands ({filteredMonoColorLands.length})
                 </span>
               </button>
@@ -2035,7 +1948,7 @@ function FixingDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {colorlessOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Colorless Lands ({filteredColorlessLands.length})
                 </span>
               </button>
@@ -2057,7 +1970,7 @@ function FixingDetail({
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
                 {basicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Basic ({filteredBasicGroups.reduce((sum, bg) => sum + bg.count, 0)})
                 </span>
               </button>
@@ -2078,7 +1991,7 @@ function FixingDetail({
                       />
                       <div className="flex-1 min-w-0">
                         <span className="text-sm truncate block">{bg.name}</span>
-                        <span className="text-[10px] text-muted-foreground/60">Land — Basic</span>
+                        <span className="text-[10px] text-muted-foreground">Land — Basic</span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                         <button
@@ -2195,7 +2108,7 @@ function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable, loadi
       <div
         role="button"
         tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/60 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
+        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
@@ -2222,7 +2135,7 @@ function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable, loadi
           </div>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5 flex-wrap">
-          <span>Target: <span className="font-semibold text-foreground/60">3–6</span></span>
+          <span>Target: <span className="font-semibold text-foreground/80">3–6</span></span>
           {channelLandCount > 0 && mdfcCount > 0 && (
             <><span className="text-border">·</span><span>{mdfcCount} MDFC + {channelLandCount} channel</span></>
           )}
@@ -2286,11 +2199,6 @@ function MdfcDetail({
     .sort((a, b) => a.name.localeCompare(b.name));
   const totalBasicCount = basicGroups.reduce((sum, bg) => sum + bg.count, 0);
 
-  const [mdfcOpen, setMdfcOpen] = useState(true);
-  const [channelOpen, setChannelOpen] = useState(true);
-  const [nonbasicOpen, setNonbasicOpen] = useState(true);
-  const [basicOpen, setBasicOpen] = useState(true);
-
   const makeMenuProps = (cardName: string) => menuProps ? {
     userLists: menuProps.userLists,
     isMustInclude: menuProps.mustIncludeNames.has(cardName),
@@ -2305,6 +2213,67 @@ function MdfcDetail({
   const addedMdfcNames = [...addedCards].filter(n => !existingLandNames.has(n) && mdfcSuggNames.has(n));
   const adjustedMdfcCount = analysis.mdfcsInDeck.length + addedMdfcNames.length;
 
+  const fixLandGroups: CollapsibleGroup[] = [];
+  if (mdfcLands.length > 0) fixLandGroups.push({
+    key: 'mdfc', label: 'MDFC', count: mdfcLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {mdfcLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+        ))}
+      </div>
+    ),
+  });
+  if (channelLands.length > 0) fixLandGroups.push({
+    key: 'channel', label: 'Channel', count: channelLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {channelLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+        ))}
+      </div>
+    ),
+  });
+  if (nonbasicLands.length > 0) fixLandGroups.push({
+    key: 'nonbasic', label: 'Nonbasic', count: nonbasicLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {nonbasicLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
+        ))}
+      </div>
+    ),
+  });
+  if (basicGroups.length > 0) fixLandGroups.push({
+    key: 'basic', label: 'Basic', count: totalBasicCount,
+    content: (
+      <div className="space-y-0.5">
+        {basicGroups.map(bg => (
+          <div
+            key={bg.name}
+            className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
+            onClick={() => bg.count > 0 && onPreview(bg.name)}
+          >
+            <img src={scryfallImg(bg.name)} alt={bg.name} className="w-10 h-auto rounded shadow shrink-0" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm truncate block">{bg.name}</span>
+              <span className="text-[10px] text-muted-foreground">Land — Basic</span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none" disabled={bg.count === 0} onClick={() => onRemoveBasicLand?.(bg.name)} title={`Remove a ${bg.name}`}>
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
+              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" onClick={() => onAddBasicLand?.(bg.name)} title={`Add a ${bg.name}`}>
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    ),
+  });
+
   return (
     <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
       <div className="flex flex-col md:flex-row md:items-stretch gap-4">
@@ -2317,133 +2286,10 @@ function MdfcDetail({
             loading={mdfcLoading}
           />
 
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1 px-0.5 flex items-center gap-1">
-            <Check className="w-3 h-3" />
-            In Your Deck
-          </p>
-
-          {analysis.landCards.length > 0 && (
-            <div className="space-y-2">
-              {/* MDFC lands */}
-              {mdfcLands.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setMdfcOpen(v => !v)}
-                    className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                  >
-                    {mdfcOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                      MDFC ({mdfcLands.length})
-                    </span>
-                  </button>
-                  {mdfcOpen && (
-                    <div className="space-y-0.5">
-                      {mdfcLands.map(ac => (
-                        <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Channel lands */}
-              {channelLands.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setChannelOpen(v => !v)}
-                    className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                  >
-                    {channelOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                      Channel ({channelLands.length})
-                    </span>
-                  </button>
-                  {channelOpen && (
-                    <div className="space-y-0.5">
-                      {channelLands.map(ac => (
-                        <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Nonbasic lands */}
-              {nonbasicLands.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setNonbasicOpen(v => !v)}
-                    className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                  >
-                    {nonbasicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                      Nonbasic ({nonbasicLands.length})
-                    </span>
-                  </button>
-                  {nonbasicOpen && (
-                    <div className="space-y-0.5">
-                      {nonbasicLands.map(ac => (
-                        <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={makeMenuProps(ac.card.name)} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Basic lands */}
-              {basicGroups.length > 0 && (
-                <div>
-                  <button
-                    onClick={() => setBasicOpen(v => !v)}
-                    className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-                  >
-                    {basicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60">
-                      Basic ({totalBasicCount})
-                    </span>
-                  </button>
-                  {basicOpen && (
-                    <div className="space-y-0.5">
-                      {basicGroups.map(bg => (
-                        <div
-                          key={bg.name}
-                          className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
-                          onClick={() => bg.count > 0 && onPreview(bg.name)}
-                        >
-                          <img src={scryfallImg(bg.name)} alt={bg.name} className="w-10 h-auto rounded shadow shrink-0" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm truncate block">{bg.name}</span>
-                            <span className="text-[10px] text-muted-foreground/60">Land — Basic</span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                            <button
-                              className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                              disabled={bg.count === 0}
-                              onClick={() => onRemoveBasicLand?.(bg.name)}
-                              title={`Remove a ${bg.name}`}
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
-                            <button
-                              className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                              onClick={() => onAddBasicLand?.(bg.name)}
-                              title={`Add a ${bg.name}`}
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {analysis.landCards.length === 0 && (
-            <div className="text-xs text-muted-foreground/60 px-0.5 space-y-1.5">
+          {analysis.landCards.length > 0 ? (
+            <CollapsibleCardGroups groups={fixLandGroups} totalCount={analysis.landCards.length} />
+          ) : (
+            <div className="text-xs text-muted-foreground px-0.5 space-y-1.5">
               <p className="italic">No lands in your deck yet.</p>
             </div>
           )}
@@ -2481,7 +2327,7 @@ function MdfcDetail({
           {/* Channel Lands */}
           {channelLandCards.length > 0 && channelLandCards.some(cl => !currentCardNames.has(cl.name) && !addedCards.has(cl.name)) && (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-1 px-0.5 flex items-center gap-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80 mb-1 px-0.5 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
                 Channel Lands ({channelLandCards.length})
               </p>
@@ -2500,12 +2346,12 @@ function MdfcDetail({
             </div>
           )}
 
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/60 mb-2 px-0.5 flex items-center gap-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80 mb-2 px-0.5 flex items-center gap-1">
             <FlipHorizontal2 className="w-3 h-3" />
             All Available MDFCs {!mdfcLoading && `(${mdfcSuggestions.length})`}
           </p>
           {mdfcLoading ? (
-            <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground/60">
+            <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-xs">Searching Scryfall for MDFC lands...</span>
             </div>
@@ -2521,7 +2367,7 @@ function MdfcDetail({
               hideSort
             />
           ) : (
-            <p className="text-xs text-muted-foreground/60 italic py-4 text-center">No MDFC lands found for your color identity</p>
+            <p className="text-xs text-muted-foreground italic py-4 text-center">No MDFC lands found for your color identity</p>
           )}
         </div>
       </div>
@@ -2914,18 +2760,18 @@ function RoleSummaryStrip({
               <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {rb.label}
               </span>
-            </div>
-            <div className="flex items-baseline gap-1.5 mb-1.5">
-              <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
-                {rb.current}
-              </span>
-              <span className="text-xs text-muted-foreground/60">/ {rb.target} suggested</span>
+              {met && <Check className="w-3.5 h-3.5 text-emerald-400/50 ml-auto shrink-0" />}
               {rb.deficit > 0 && (
                 <span className="text-[10px] font-bold px-1 py-px rounded-full bg-red-500/15 text-red-400 ml-auto shrink-0">
                   -{rb.deficit}
                 </span>
               )}
-              {met && <Check className="w-3.5 h-3.5 text-emerald-400/50 ml-auto shrink-0" />}
+            </div>
+            <div className="flex items-baseline justify-between gap-1.5 mb-1.5">
+              <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
+                {rb.current}
+              </span>
+              <span className="text-[11px] text-muted-foreground text-right">{rb.target} suggested</span>
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
               <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
@@ -2935,6 +2781,122 @@ function RoleSummaryStrip({
       })}
     </div>
   );
+}
+
+// ─── Shared: Collapsible Card Groups ─────────────────────────────────
+interface CollapsibleGroup {
+  key: string;
+  label: string;
+  count: number;
+  content: ReactNode;
+}
+
+function CollapsibleCardGroups({ groups, totalCount }: {
+  groups: CollapsibleGroup[];
+  totalCount: number;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const toggle = (key: string) => setCollapsed(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 mb-1.5 px-0.5">
+        <Check className="w-3 h-3 text-emerald-400/60" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60">In Your Deck ({totalCount})</span>
+        {collapsed.size > 0 ? (
+          <button onClick={() => setCollapsed(new Set())} className="ml-auto text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+            expand all
+          </button>
+        ) : (
+          <button onClick={() => setCollapsed(new Set(groups.map(g => g.key)))} className="ml-auto text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+            collapse all
+          </button>
+        )}
+      </div>
+      <div className="space-y-2">
+        {groups.map(group => {
+          const isOpen = !collapsed.has(group.key);
+          return (
+            <div key={group.key}>
+              <button
+                onClick={() => toggle(group.key)}
+                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+              >
+                {isOpen
+                  ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                  : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">{group.label} ({group.count})</span>
+              </button>
+              {isOpen && group.content}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Roles Tab: Grouped Card List ────────────────────────────────────
+const ROLE_KNOWN_SUBTYPES: Record<string, Set<string>> = {
+  ramp: new Set(['Mana Dork', 'Mana Rock', 'Cost Reducer', 'Ramp']),
+  removal: new Set(['Counter', 'Bounce', 'Spot Removal', 'Removal']),
+  boardwipe: new Set(['Bounce Wipe', 'Board Wipe']),
+  cardDraw: new Set(['Tutor', 'Wheel', 'Cantrip', 'Card Draw', 'Card Advantage']),
+};
+
+function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps }: {
+  cards: AnalyzedCard[];
+  role: string;
+  onPreview: (name: string) => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+}) {
+  const knownSubtypes = ROLE_KNOWN_SUBTYPES[role];
+  const groupEntries = useMemo(() => {
+    const map = new Map<string, AnalyzedCard[]>();
+    const sorted = [...cards].sort((a, b) => a.card.name.localeCompare(b.card.name));
+    for (const ac of sorted) {
+      const label = ac.subtypeLabel || 'Other';
+      const key = knownSubtypes?.has(label) ? label : 'Other';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(ac);
+    }
+    const other = map.get('Other');
+    if (other) { map.delete('Other'); map.set('Other', other); }
+    return [...map.entries()];
+  }, [cards, knownSubtypes]);
+
+  const groups: CollapsibleGroup[] = groupEntries.map(([label, groupCards]) => ({
+    key: label,
+    label,
+    count: groupCards.length,
+    content: (
+      <div className="space-y-0.5">
+        {groupCards.map(ac => (
+          <AnalyzedCardRow
+            key={ac.card.name}
+            ac={ac}
+            onPreview={onPreview}
+            showDetails
+            onCardAction={onCardAction}
+            menuProps={menuProps ? {
+              userLists: menuProps.userLists,
+              isMustInclude: menuProps.mustIncludeNames.has(ac.card.name),
+              isBanned: menuProps.bannedNames.has(ac.card.name),
+              isInSideboard: menuProps.sideboardNames.has(ac.card.name),
+              isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name),
+            } : undefined}
+          />
+        ))}
+      </div>
+    ),
+  }));
+
+  return <CollapsibleCardGroups groups={groups} totalCount={cards.length} />;
 }
 
 // ─── Roles Tab: Detail Panel ─────────────────────────────────────────
@@ -2953,27 +2915,13 @@ function RoleDetailPanel({
   return (
     <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
-        {/* Left column: current cards as compact list */}
+        {/* Left column: current cards grouped by subtype */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}`}>
-          {(() => {
-            const allCards = rb.cards
-              .sort((a, b) => (a.subtypeLabel || 'zzz').localeCompare(b.subtypeLabel || 'zzz') || a.card.name.localeCompare(b.card.name));
-            return rb.cards.length > 0 ? (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60 mb-1 px-0.5 flex items-center gap-1">
-                  <Check className="w-3 h-3" />
-                  In Your Deck ({allCards.length})
-                </p>
-                <div className="space-y-0.5">
-                  {allCards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps ? { userLists: menuProps.userLists, isMustInclude: menuProps.mustIncludeNames.has(ac.card.name), isBanned: menuProps.bannedNames.has(ac.card.name), isInSideboard: menuProps.sideboardNames.has(ac.card.name), isInMaybeboard: menuProps.maybeboardNames.has(ac.card.name) } : undefined} />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground/60 italic px-0.5">No cards filling this role</p>
-            );
-          })()}
+          {rb.cards.length > 0 ? (
+            <RoleCardGroups cards={rb.cards} role={rb.role} onPreview={onPreview} onCardAction={onCardAction} menuProps={menuProps} />
+          ) : (
+            <p className="text-xs text-muted-foreground italic px-0.5">No cards filling this role</p>
+          )}
         </div>
 
         {/* Vertical divider */}
@@ -3091,25 +3039,13 @@ function CurveSummaryStrip({
                 {phase.grade.letter}
               </span>
             </div>
-            <div className="flex items-baseline gap-1.5 mb-1">
+            <div className="flex items-baseline justify-between">
               <span className={`text-xl font-bold tabular-nums leading-none ${gs.color}`}>
                 {phase.current}
               </span>
-              <span className="text-xs text-muted-foreground/60 truncate">
-                / {phase.target} suggested
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {phase.target} suggested
               </span>
-            </div>
-            <div className="text-[11px] text-muted-foreground/50 truncate mb-1.5">{sub}</div>
-            <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  phase.grade.letter === 'A' ? 'bg-emerald-500' :
-                  phase.grade.letter === 'B' ? 'bg-sky-500' :
-                  phase.grade.letter === 'C' ? 'bg-amber-500' :
-                  phase.grade.letter === 'D' ? 'bg-orange-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${pct}%` }}
-              />
             </div>
           </button>
         );
@@ -3118,11 +3054,84 @@ function CurveSummaryStrip({
   );
 }
 
+/* ── Recharts custom renderers ── */
+
+function CurveTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ dataKey: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const current = payload.find(p => p.dataKey === 'current')?.value ?? 0;
+  const target = payload.find(p => p.dataKey === 'target')?.value ?? 0;
+  const delta = current - target;
+  return (
+    <div className="bg-popover border border-border rounded-md px-2.5 py-1.5 shadow-lg text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <div className="font-semibold text-foreground mb-1">CMC {label}</div>
+      <div className="text-sky-400">Your deck: {current}</div>
+      <div className="text-amber-500/80">Expected: {target}</div>
+      {delta !== 0 && (
+        <div className={`mt-0.5 font-semibold ${delta > 0 ? 'text-amber-400' : 'text-red-400'}`}>
+          {delta > 0 ? `+${delta} over` : `${delta} under`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeltaBarShape(props: {
+  x?: number; y?: number; width?: number; height?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: any;
+}) {
+  const { x = 0, y = 0, width = 0, height = 0, payload } = props;
+  if (!payload || payload.delta === 0 || height === 0) return null;
+  return (
+    <rect
+      x={x} y={y} width={width} height={height} rx={3}
+      fill={payload.isOverTarget ? 'rgba(251,191,36,0.2)' : 'rgba(248,113,113,0.2)'}
+    />
+  );
+}
+
+function TrajectoryTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ dataKey: string; value: number }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const total = payload.find(p => p.dataKey === 'totalExpectedMana')?.value ?? 0;
+  const lands = payload.find(p => p.dataKey === 'expectedLands')?.value ?? 0;
+  const ramp = total - lands;
+  return (
+    <div className="bg-popover border border-border rounded-md px-2.5 py-1.5 shadow-lg text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <div className="font-semibold text-foreground mb-1">{label}</div>
+      <div className="text-sky-400">Total mana: {total.toFixed(1)}</div>
+      <div className="text-emerald-400/70">From lands: {lands.toFixed(1)}</div>
+      {ramp > 0 && <div className="text-sky-400/60">From ramp: +{ramp.toFixed(1)}</div>}
+    </div>
+  );
+}
+
+// Phase → CMC label ranges for ReferenceArea highlighting
+const PHASE_CMC_RANGE: Record<CurvePhase, [string, string]> = {
+  early: ['0', '2'],
+  mid:   ['3', '4'],
+  late:  ['5', '7+'],
+};
+
+const PHASE_HIGHLIGHT: Record<CurvePhase, string> = {
+  early: 'rgba(56,189,248,0.08)',
+  mid:   'rgba(245,158,11,0.08)',
+  late:  'rgba(168,85,247,0.08)',
+};
+
 function ManaCurveLineChart({
-  curveAnalysis, pacing,
+  curveAnalysis, pacing, activePhase,
 }: {
   curveAnalysis: CurveSlot[];
   pacing?: Pacing;
+  activePhase?: CurvePhase | null;
 }) {
   if (curveAnalysis.length === 0) return null;
 
@@ -3148,37 +3157,31 @@ function ManaCurveLineChart({
     }
   }
 
-  const maxVal = Math.max(...slots.map(s => Math.max(s.current, s.target)), 1);
+  // Determine which CMCs belong to the active phase
+  const isInPhase = (cmc: number) => {
+    if (!activePhase) return true;
+    if (activePhase === 'early') return cmc <= 2;
+    if (activePhase === 'mid') return cmc >= 3 && cmc <= 4;
+    return cmc >= 5;
+  };
 
-  // Chart dimensions
-  const padL = 28;
-  const padR = 16;
-  const padTop = 16;
-  const padBot = 28;
-  const viewW = 400;
-  const chartH = 120;
-  const svgH = chartH + padTop + padBot;
-  const n = slots.length;
-  const step = n > 1 ? (viewW - padL - padR) / (n - 1) : 0;
+  const chartData = slots.map(s => ({
+    cmcLabel: s.cmc === 7 ? '7+' : String(s.cmc),
+    cmc: s.cmc,
+    current: s.current,
+    target: s.target,
+    delta: s.current - s.target,
+    deltaBase: Math.min(s.current, s.target),
+    deltaHeight: Math.abs(s.current - s.target),
+    isOverTarget: s.current > s.target,
+    inPhase: isInPhase(s.cmc),
+  }));
 
-  const toX = (i: number) => padL + i * step;
-  const toY = (val: number) => padTop + chartH - (val / maxVal) * chartH;
-
-  // Build line paths
-  const currentPath = slots.map((s, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(s.current)}`).join(' ');
-  const targetPath = slots.map((s, i) => `${i === 0 ? 'M' : 'L'}${toX(i)},${toY(s.target)}`).join(' ');
-
-  // Fill area under actual curve
-  const fillPath = `${currentPath} L${toX(n - 1)},${toY(0)} L${toX(0)},${toY(0)} Z`;
-
-  // Y-axis gridlines
-  const yTicks: number[] = [];
-  const tickStep = maxVal <= 6 ? 2 : maxVal <= 12 ? 3 : maxVal <= 20 ? 5 : 10;
-  for (let v = tickStep; v <= maxVal; v += tickStep) yTicks.push(v);
+  const phaseRange = activePhase ? PHASE_CMC_RANGE[activePhase] : null;
 
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex flex-col gap-0.5 mb-2">
+      <div className="flex flex-col gap-0.5 mb-1">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Curve</span>
           <span className="text-[10px] text-muted-foreground/50 ml-auto flex items-center gap-3">
@@ -3196,86 +3199,77 @@ function ManaCurveLineChart({
           Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}
         </span>
       </div>
-      <svg viewBox={`0 0 ${viewW} ${svgH}`} className="w-full" preserveAspectRatio="xMidYMid meet">
-        {/* Baseline */}
-        <line x1={padL} x2={viewW - padR} y1={padTop + chartH} y2={padTop + chartH} stroke="currentColor" className="text-border/30" strokeWidth={0.5} />
+      <ResponsiveContainer width="100%" height={120}>
+        <ComposedChart data={chartData} margin={{ top: 6, right: 8, bottom: 0, left: -12 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,20%)" strokeOpacity={0.3} vertical={false} />
+          <XAxis
+            dataKey="cmcLabel"
+            tick={{ fontSize: 10, fill: 'hsl(220,13%,55%)', fillOpacity: 0.6 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            tick={{ fontSize: 9, fill: 'hsl(220,13%,55%)', fillOpacity: 0.4 }}
+            axisLine={false}
+            tickLine={false}
+            width={28}
+            allowDecimals={false}
+          />
+          <Tooltip content={<CurveTooltip />} cursor={false} />
 
-        {/* Y gridlines */}
-        {yTicks.map(v => (
-          <g key={v}>
-            <line x1={padL} x2={viewW - padR} y1={toY(v)} y2={toY(v)} stroke="currentColor" className="text-border/20" strokeWidth={0.5} strokeDasharray="3 3" />
-            <text x={padL - 4} y={toY(v) + 3} textAnchor="end" fontSize="9" className="fill-muted-foreground/40" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {v}
-            </text>
-          </g>
-        ))}
+          {/* Phase highlight band */}
+          {activePhase && phaseRange && (
+            <ReferenceArea
+              x1={phaseRange[0]}
+              x2={phaseRange[1]}
+              fill={PHASE_HIGHLIGHT[activePhase]}
+              fillOpacity={1}
+              strokeOpacity={0}
+            />
+          )}
 
-        {/* Fill under actual curve */}
-        <path d={fillPath} className="fill-sky-500/8" />
+          {/* Delta bars (stacked: invisible base + visible delta) */}
+          <Bar dataKey="deltaBase" stackId="delta" fill="transparent" isAnimationActive={false} barSize={16} />
+          <Bar dataKey="deltaHeight" stackId="delta" shape={<DeltaBarShape />} isAnimationActive animationDuration={400} barSize={16} />
 
-        {/* Target line (dashed) */}
-        <path d={targetPath} fill="none" stroke="currentColor" className="text-amber-500/60" strokeWidth={1.5} strokeDasharray="6 4" strokeLinecap="round" />
+          {/* Area fill under actual */}
+          <Area type="monotone" dataKey="current" stroke="none" fill="#0ea5e9" fillOpacity={activePhase ? 0.04 : 0.08} isAnimationActive animationDuration={500} />
 
-        {/* Actual curve line */}
-        <path d={currentPath} fill="none" stroke="currentColor" className="text-sky-500" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+          {/* Target line (dashed amber) — dim dots outside active phase */}
+          <Line
+            type="monotone"
+            dataKey="target"
+            stroke={activePhase ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.6)'}
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            dot={(props: { cx?: number; cy?: number; index?: number }) => {
+              const { cx = 0, cy = 0, index = 0 } = props;
+              const d = chartData[index];
+              const active = d?.inPhase ?? true;
+              return <circle key={`t-${index}`} cx={cx} cy={cy} r={2.5} fill={`rgba(245,158,11,${active ? 0.6 : 0.15})`} />;
+            }}
+            isAnimationActive
+            animationDuration={500}
+          />
 
-        {/* Delta indicators + dots */}
-        {slots.map((s, i) => {
-          const x = toX(i);
-          const yCur = toY(s.current);
-          const yTgt = toY(s.target);
-          const delta = s.current - s.target;
-          const overTarget = delta > 0;
-          const underTarget = delta < 0;
-
-          return (
-            <g key={s.cmc}>
-              {/* Delta bar between actual and target */}
-              {delta !== 0 && (
-                <line
-                  x1={x} x2={x}
-                  y1={yCur} y2={yTgt}
-                  stroke="currentColor"
-                  className={overTarget ? 'text-amber-400/30' : 'text-red-400/30'}
-                  strokeWidth={step > 30 ? 20 : 14}
-                  strokeLinecap="round"
-                />
-              )}
-
-              {/* Target dot */}
-              <circle cx={x} cy={yTgt} r={2.5} fill="currentColor" className="text-amber-500/60" />
-
-              {/* Actual dot */}
-              <circle cx={x} cy={yCur} r={3.5} fill="currentColor" className="text-sky-400" />
-
-              {/* Actual count label */}
-              <text x={x} y={yCur - 8} textAnchor="middle" fontSize="11" fontWeight="700" className="fill-sky-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {s.current}
-              </text>
-
-              {/* Delta badge */}
-              {delta !== 0 && (
-                <text
-                  x={x}
-                  y={Math.max(yCur, yTgt) + 12}
-                  textAnchor="middle"
-                  fontSize="9"
-                  fontWeight="600"
-                  className={underTarget ? 'fill-red-400/70' : 'fill-amber-400/60'}
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {delta > 0 ? `+${delta}` : delta}
-                </text>
-              )}
-
-              {/* CMC label */}
-              <text x={x} y={padTop + chartH + 16} textAnchor="middle" fontSize="10" fontWeight="500" className="fill-muted-foreground/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {s.cmc === 7 ? '7+' : s.cmc}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+          {/* Actual curve (solid sky) — enlarge + brighten dots in active phase */}
+          <Line
+            type="monotone"
+            dataKey="current"
+            stroke={activePhase ? 'rgba(14,165,233,0.4)' : '#0ea5e9'}
+            strokeWidth={2.5}
+            dot={(props: { cx?: number; cy?: number; index?: number }) => {
+              const { cx = 0, cy = 0, index = 0 } = props;
+              const d = chartData[index];
+              const active = d?.inPhase ?? true;
+              return <circle key={`c-${index}`} cx={cx} cy={cy} r={active ? 4 : 3} fill={active ? '#38bdf8' : 'rgba(56,189,248,0.2)'} />;
+            }}
+            activeDot={{ r: 5, fill: '#38bdf8', stroke: '#0ea5e9', strokeWidth: 2 }}
+            isAnimationActive
+            animationDuration={500}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -3283,37 +3277,17 @@ function ManaCurveLineChart({
 function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajectoryPoint[] }) {
   if (trajectory.length === 0) return null;
 
-  const maxMana = Math.max(...trajectory.map(t => t.totalExpectedMana), 1);
-  const padTop = 24;
-  const padBot = 22;
-  const chartH = 60;
-  const svgH = chartH + padTop + padBot;
-  const padL = 16;
-  const padR = 16;
-  const viewW = 350;
-  const n = trajectory.length;
-  const step = n > 1 ? (viewW - padL - padR) / (n - 1) : 0;
-
-  const toY = (val: number) => padTop + chartH - (maxMana > 0 ? (val / maxMana) * chartH : 0);
-
-  const points = trajectory.map((t, i) => ({
-    x: padL + i * step,
-    y: toY(t.totalExpectedMana),
-    ...t,
+  const chartData = trajectory.map(t => ({
+    turnLabel: `T${t.turn}`,
+    expectedLands: t.expectedLands,
+    totalExpectedMana: t.totalExpectedMana,
+    rampMana: t.expectedRampMana,
   }));
 
-  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-  const areaPath = `${linePath} L${points[points.length - 1].x},${padTop + chartH} L${points[0].x},${padTop + chartH} Z`;
-
-  const landPoints = trajectory.map((t, i) => ({
-    x: padL + i * step,
-    y: toY(t.expectedLands),
-  }));
-  const landPath = landPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-
-  // Find turn with max ramp contribution for annotation
-  const maxRampIdx = points.reduce((best, p, i) =>
-    p.expectedRampMana > points[best].expectedRampMana ? i : best, 0);
+  // Find max ramp turn for annotation
+  const maxRampIdx = trajectory.reduce((best, t, i) =>
+    t.expectedRampMana > trajectory[best].expectedRampMana ? i : best, 0);
+  const maxRampTurn = trajectory[maxRampIdx];
 
   return (
     <div>
@@ -3335,49 +3309,57 @@ function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajectoryPoi
           Estimated mana available each turn based on your lands and ramp spells
         </span>
       </div>
-      <svg viewBox={`0 0 ${viewW} ${svgH}`} className="w-full max-w-md" preserveAspectRatio="xMidYMid meet">
-        {/* Baseline */}
-        <line x1={padL} x2={viewW - padR} y1={padTop + chartH} y2={padTop + chartH} stroke="currentColor" className="text-border/30" strokeWidth={0.5} />
+      <ResponsiveContainer width="100%" height={80}>
+        <RechartsAreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
+          <XAxis
+            dataKey="turnLabel"
+            tick={{ fontSize: 10, fill: 'hsl(220,13%,55%)', fillOpacity: 0.6 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip content={<TrajectoryTooltip />} cursor={false} />
 
-        {/* Filled area under total line */}
-        <path d={areaPath} className="fill-sky-500/10" />
+          {/* Area fill under total mana */}
+          <Area
+            type="monotone"
+            dataKey="totalExpectedMana"
+            stroke="#0ea5e9"
+            strokeWidth={2}
+            fill="#0ea5e9"
+            fillOpacity={0.1}
+            dot={{ r: 3, fill: '#38bdf8', strokeWidth: 0 }}
+            activeDot={{ r: 4, fill: '#38bdf8', stroke: '#0ea5e9', strokeWidth: 2 }}
+            isAnimationActive
+            animationDuration={500}
+          />
 
-        {/* Land-only line (dashed) */}
-        <path d={landPath} fill="none" stroke="currentColor" className="text-emerald-500/50" strokeWidth={1.2} strokeDasharray="4 3" />
+          {/* Lands-only dashed line */}
+          <Line
+            type="monotone"
+            dataKey="expectedLands"
+            stroke="rgba(16,185,129,0.5)"
+            strokeWidth={1.2}
+            strokeDasharray="4 3"
+            dot={{ r: 2, fill: 'rgba(16,185,129,0.5)', strokeWidth: 0 }}
+            isAnimationActive
+            animationDuration={500}
+          />
 
-        {/* Total mana line */}
-        <path d={linePath} fill="none" stroke="currentColor" className="text-sky-500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-
-        {/* Ramp bonus annotation at turn with max ramp contribution */}
-        {points[maxRampIdx].expectedRampMana > 0 && (() => {
-          const mp = points[maxRampIdx];
-          const lp = landPoints[maxRampIdx];
-          const midY = (mp.y + lp.y) / 2;
-          return (
-            <text x={mp.x + 16} y={midY + 3} fontSize="9" className="fill-sky-400/50" textAnchor="start">
-              +{mp.expectedRampMana} ramp
-            </text>
-          );
-        })()}
-
-        {/* Dots + labels */}
-        {points.map((p, i) => (
-          <g key={i}>
-            <circle cx={landPoints[i].x} cy={landPoints[i].y} r={2} fill="currentColor" className="text-emerald-500/50" />
-            {/* Land value label */}
-            <text x={landPoints[i].x} y={landPoints[i].y + 12} textAnchor="middle" fontSize="9" className="fill-emerald-500/50" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {p.expectedLands}
-            </text>
-            <circle cx={p.x} cy={p.y} r={3} fill="currentColor" className="text-sky-400" />
-            <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize="10" fontWeight="600" className="fill-sky-400" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {p.totalExpectedMana}
-            </text>
-            <text x={p.x} y={padTop + chartH + 14} textAnchor="middle" fontSize="10" className="fill-muted-foreground/60" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              T{p.turn}
-            </text>
-          </g>
-        ))}
-      </svg>
+          {/* Ramp annotation at peak turn */}
+          {maxRampTurn.expectedRampMana > 0 && (
+            <ReferenceLine
+              x={`T${maxRampTurn.turn}`}
+              stroke="none"
+              label={{
+                value: `+${maxRampTurn.expectedRampMana.toFixed(1)} ramp`,
+                position: 'insideTopRight',
+                fontSize: 9,
+                fill: 'rgba(56,189,248,0.5)',
+              }}
+            />
+          )}
+        </RechartsAreaChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -3479,7 +3461,7 @@ function CurvePhaseDetail({
       {/* Card list + suggestions */}
       <div className={`flex flex-col ${hasSuggestions ? 'lg:flex-row' : ''} gap-3`}>
         <div className={hasSuggestions ? 'lg:w-[35%]' : 'w-full'}>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5 px-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
             In Your Deck ({phase.cards.length})
           </p>
           {phase.cards.length === 0 ? (
@@ -4393,7 +4375,7 @@ export function DeckOptimizer({
             </button>
           );
         })}
-        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground/60 whitespace-nowrap">
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
           {effectivePacing && (
             <span className="flex items-center gap-1">
               <Zap className="w-3 h-3" />
@@ -4426,7 +4408,7 @@ export function DeckOptimizer({
               userPacing={userPacing}
               onPacingChange={handlePacingChange}
             />
-            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} deckExcess={deckExcess > 0 ? deckExcess : undefined} />
+            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} onNavigateRole={setActiveRole} deckExcess={deckExcess > 0 ? deckExcess : undefined} />
 
             <div className="bg-card/60 border border-border/30 rounded-lg p-3">
               {/* Cuts View */}
@@ -4437,7 +4419,7 @@ export function DeckOptimizer({
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Recommended Cuts
                     </span>
-                    <span className="text-[11px] text-muted-foreground/60">({cutCandidates.length})</span>
+                    <span className="text-[11px] text-muted-foreground">({cutCandidates.length})</span>
                     <span className="ml-auto flex items-center gap-2">
                       <span className="text-xs text-red-400/60">{deckExcess} over target</span>
                       <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
@@ -4460,7 +4442,7 @@ export function DeckOptimizer({
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mb-1.5 ml-0.5">
-                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground cursor-pointer transition-colors">
+                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-muted-foreground cursor-pointer transition-colors">
                       <input
                         type="checkbox"
                         checked={excludeLandsFromCuts}
@@ -4540,7 +4522,7 @@ export function DeckOptimizer({
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Recommended Cards
                     </span>
-                    <span className="text-[11px] text-muted-foreground/60">({analysis.recommendations.length})</span>
+                    <span className="text-[11px] text-muted-foreground">({analysis.recommendations.length})</span>
                     <span className="ml-auto flex items-center gap-2">
                       <span className="flex items-center gap-1 text-xs text-muted-foreground/50">
                         <ShoppingCart className="w-3 h-3" />
@@ -4630,6 +4612,7 @@ export function DeckOptimizer({
             <ManaCurveLineChart
               curveAnalysis={analysis.curveAnalysis}
               pacing={effectivePacing}
+              activePhase={activeCurvePhase}
             />
             {activeCurvePhase && analysis.curvePhases.find(p => p.phase === activeCurvePhase) && (
               <CurvePhaseDetail

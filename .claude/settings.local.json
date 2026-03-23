@@ -62,7 +62,10 @@
       "Bash(aws lambda list-functions:*)",
       "Bash(grep:*)",
       "Bash(git checkout:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "WebFetch(domain:recharts.org)",
+      "WebFetch(domain:recharts.github.io)",
+      "WebFetch(domain:www.npmjs.com)"
     ]
   }
 }
