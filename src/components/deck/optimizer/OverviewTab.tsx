@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Sparkles, Plus, Minus, Check, ShoppingCart,
-  Shield, Swords, Flame, BookOpen, TrendingUp,
+  Shield, Swords, Flame, BookOpen, Sprout,
   ChevronDown, ChevronRight,
   Lightbulb, Tag, ArrowUpDown, Pencil, ThumbsUp,
   RotateCcw, Loader2, Info, Zap, Mountain, BarChart3,

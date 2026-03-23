@@ -1,5 +1,5 @@
 import {
-  Sparkles, TrendingUp, Swords, Flame, BookOpen, Shield,
+  Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
   LayoutDashboard, Mountain, BarChart3, Layers, Zap, Target, Crown,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
@@ -62,7 +62,7 @@ export function edhrecRankToInclusion(rank?: number): number | null {
 // ─── Role Meta & Style Constants ─────────────────────────────────────
 
 export const ROLE_META: Record<string, { icon: typeof Sparkles; color: string; barColor: string }> = {
-  ramp:      { icon: TrendingUp as typeof Sparkles, color: 'text-emerald-400', barColor: 'bg-emerald-500' },
+  ramp:      { icon: Sprout as typeof Sparkles, color: 'text-emerald-400', barColor: 'bg-emerald-500' },
   removal:   { icon: Swords as typeof Sparkles,     color: 'text-rose-400',    barColor: 'bg-rose-500' },
   boardwipe: { icon: Flame as typeof Sparkles,      color: 'text-orange-400',  barColor: 'bg-orange-500' },
   cardDraw:  { icon: BookOpen as typeof Sparkles,   color: 'text-sky-400',     barColor: 'bg-sky-500' },
@@ -120,14 +120,14 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
 
 export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   // Role-level
-  'Ramp': TrendingUp as typeof Sparkles,
+  'Ramp': Sprout as typeof Sparkles,
   'Removal': Swords as typeof Sparkles,
   'Board Wipes': Flame as typeof Sparkles,
   'Card Advantage': BookOpen as typeof Sparkles,
   // Ramp subtypes
-  'Mana Dork': TrendingUp as typeof Sparkles,
-  'Mana Rock': TrendingUp as typeof Sparkles,
-  'Cost Reducer': TrendingUp as typeof Sparkles,
+  'Mana Dork': Sprout as typeof Sparkles,
+  'Mana Rock': Sprout as typeof Sparkles,
+  'Cost Reducer': Sprout as typeof Sparkles,
   // Removal subtypes
   'Counter': Swords as typeof Sparkles,
   'Bounce': Swords as typeof Sparkles,

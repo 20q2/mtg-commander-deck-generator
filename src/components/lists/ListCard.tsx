@@ -75,8 +75,9 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
-        className="w-full flex items-center gap-4 px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative cursor-pointer"
+        className="w-full px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative cursor-pointer"
       >
+        <div className="flex items-center gap-4">
         {commanderArtUrl ? (
           <img
             src={commanderArtUrl}
@@ -141,6 +142,26 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
           </button>
           {dropdownPortal}
         </div>
+        </div>
+        {matchingCards && matchingCards.length > 0 && (
+          <div className="flex items-center gap-1.5 -mx-4 -mb-3 mt-1.5 px-4 py-2 bg-black/20 border-t border-border/60 rounded-b-lg">
+            <div className="ml-[56px] flex items-center gap-1.5">
+              <Search className="w-3 h-3 text-muted-foreground shrink-0" />
+              <div className="flex items-center gap-1 overflow-hidden">
+                {matchingCards.slice(0, 4).map(name => (
+                  <span key={name} className="px-1.5 py-0.5 text-[10px] bg-primary/15 text-foreground rounded border border-primary/30 truncate max-w-[140px]">
+                    {name}
+                  </span>
+                ))}
+                {matchingCards.length > 4 && (
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    +{matchingCards.length - 4} more
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -236,19 +257,19 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
       )}
 
       {matchingCards && matchingCards.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-border/30">
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/60 mb-1">
+        <div className="mt-2 -mx-4 -mb-4 px-4 py-2.5 bg-black/20 border-t border-border/60 rounded-b-xl">
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
             <Search className="w-3 h-3" />
             <span>{matchingCards.length} matching card{matchingCards.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="flex flex-wrap gap-1">
             {matchingCards.slice(0, 6).map(name => (
-              <span key={name} className="px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary/80 rounded border border-primary/20 truncate max-w-[140px]">
+              <span key={name} className="px-1.5 py-0.5 text-[10px] bg-primary/15 text-foreground rounded border border-primary/30 truncate max-w-[140px]">
                 {name}
               </span>
             ))}
             {matchingCards.length > 6 && (
-              <span className="px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+              <span className="px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 +{matchingCards.length - 6} more
               </span>
             )}

@@ -175,6 +175,17 @@ export function swapCard(
     }
   }
 
+  // Update relevancy map
+  let newCardRelevancyMap = deck.cardRelevancyMap;
+  if (deck.cardRelevancyMap) {
+    newCardRelevancyMap = { ...deck.cardRelevancyMap };
+    const oldName = oldCard.name;
+    const oldNorm = oldName.includes(' // ') ? oldName.split(' // ')[0] : oldName;
+    delete newCardRelevancyMap[oldName];
+    delete newCardRelevancyMap[oldNorm];
+    // New card should already be pre-indexed (from swap candidates/gap analysis)
+  }
+
   return {
     deck: {
       ...deck,
@@ -188,6 +199,7 @@ export function swapCard(
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
+      cardRelevancyMap: newCardRelevancyMap,
       deckScore: newDeckScore,
     },
     success: true,

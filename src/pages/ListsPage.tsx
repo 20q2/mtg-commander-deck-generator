@@ -99,6 +99,17 @@ export function ListsPage() {
     });
   }, [lists, searchQuery, typeFilter, sortKey, sortDir]);
 
+  const matchingCardsMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return map;
+    for (const list of filteredAndSortedLists) {
+      const matches = list.cards.filter(c => c.toLowerCase().includes(q));
+      if (matches.length > 0) map[list.id] = matches;
+    }
+    return map;
+  }, [filteredAndSortedLists, searchQuery]);
+
   const handleExport = (listId: string) => {
     const list = lists.find(l => l.id === listId);
     const text = exportList(listId);
@@ -544,6 +555,7 @@ export function ListsPage() {
                 typeBreakdown={list.cachedTypeBreakdown}
                 colorIdentity={list.cachedColorIdentity}
                 commanderArtUrl={list.cachedCommanderArtUrl}
+                matchingCards={matchingCardsMap[list.id]}
                 onClick={() => navigate(list.type === 'deck' ? `/lists/${list.id}/deck-view` : `/lists/${list.id}`)}
                 onEdit={() => navigate(`/lists/${list.id}/edit`)}
                 onDuplicate={() => duplicateList(list.id)}
@@ -562,6 +574,7 @@ export function ListsPage() {
                 typeBreakdown={list.cachedTypeBreakdown}
                 colorIdentity={list.cachedColorIdentity}
                 commanderArtUrl={list.cachedCommanderArtUrl}
+                matchingCards={matchingCardsMap[list.id]}
                 onClick={() => navigate(list.type === 'deck' ? `/lists/${list.id}/deck-view` : `/lists/${list.id}`)}
                 onEdit={() => navigate(`/lists/${list.id}/edit`)}
                 onDuplicate={() => duplicateList(list.id)}

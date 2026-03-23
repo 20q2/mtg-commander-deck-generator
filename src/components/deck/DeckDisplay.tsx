@@ -410,6 +410,7 @@ interface CardRowProps {
   isMustIncludeLive?: boolean;
   isBannedLive?: boolean;
   inclusionPercent?: number | null;
+  relevancyScore?: number | null;
   showPrice?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   showCardMenu?: boolean;
@@ -418,7 +419,7 @@ interface CardRowProps {
   isSingleton?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -582,6 +583,11 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           </span>
         );
       })()}
+      {relevancyScore != null && (
+        <span className="text-[10px] w-7 text-right shrink-0 text-violet-400 font-medium tabular-nums" title={`Relevancy: ${relevancyScore}`}>
+          {relevancyScore}
+        </span>
+      )}
       {showCardMenu && !isCommanderCard && onCardAction && cardMenuProps && (
         <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           <CardContextMenu card={card} onAction={onCardAction} {...cardMenuProps} isMustInclude={isMustIncludeLive} isBanned={isBannedLive} forceOpen={contextMenuOpen} onForceClose={() => setContextMenuOpen(false)} />
@@ -617,6 +623,7 @@ interface CategoryColumnProps {
   mustIncludeNames?: Set<string>;
   bannedNames?: Set<string>;
   cardInclusionMap?: Record<string, number> | null;
+  cardRelevancyMap?: Record<string, number> | null;
   showPrice?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   showCardMenu?: boolean;
@@ -626,7 +633,7 @@ interface CategoryColumnProps {
   showPinBan?: boolean;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardRelevancyMap, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -705,6 +712,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               isMustIncludeLive={mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude}
               isBannedLive={bannedNames ? bannedNames.has(card.name) : false}
               inclusionPercent={cardInclusionMap ? (cardInclusionMap[card.name] ?? cardInclusionMap[normalizedName] ?? null) : null}
+              relevancyScore={cardRelevancyMap ? (cardRelevancyMap[card.name] ?? cardRelevancyMap[normalizedName] ?? null) : null}
               showPrice={showPrice}
               onCardAction={onCardAction}
               showCardMenu={showCardMenu}
@@ -1900,7 +1908,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       return next;
     });
   }, []);
-  const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price' | 'score'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price' | 'score' | 'relevancy'>('name');
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1912,6 +1920,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [showRoles, setShowRoles] = useState(() => localStorage.getItem('deckRolesOpen') === 'true');
   const [showPrice, setShowPrice] = useState(() => localStorage.getItem('mtg-deck-show-price') !== 'false');
   const [showInclusion, setShowInclusion] = useState(() => localStorage.getItem('mtg-deck-show-inclusion') === 'true');
+  const [showRelevancy, setShowRelevancy] = useState(() => localStorage.getItem('mtg-deck-show-relevancy') === 'true');
   const [showCollectionChecks, setShowCollectionChecks] = useState(
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
@@ -2199,6 +2208,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             return inclMap[name] ?? (name.includes(' // ') ? inclMap[name.split(' // ')[0]] : 0) ?? 0;
           };
           return getIncl(b.card.name) - getIncl(a.card.name) || a.card.name.localeCompare(b.card.name);
+        }
+        if (sortBy === 'relevancy') {
+          const relMap = generatedDeck?.cardRelevancyMap;
+          const getRel = (name: string) => {
+            if (!relMap) return 0;
+            return relMap[name] ?? (name.includes(' // ') ? relMap[name.split(' // ')[0]] : 0) ?? 0;
+          };
+          return getRel(b.card.name) - getRel(a.card.name) || a.card.name.localeCompare(b.card.name);
         }
         return 0;
       });
@@ -2778,13 +2795,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               <span className="text-xs text-muted-foreground">SORT:</span>
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price' | 'score')}
+                onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price' | 'score' | 'relevancy')}
                 className="bg-transparent text-xs text-primary font-medium focus:outline-none cursor-pointer"
               >
                 <option value="name">NAME</option>
                 <option value="cmc">CMC</option>
                 <option value="price">PRICE</option>
                 {showInclusion && generatedDeck?.cardInclusionMap && <option value="score">INCLUSION</option>}
+                {showRelevancy && generatedDeck?.cardRelevancyMap && <option value="relevancy">RELEVANCY</option>}
               </select>
             </div>
 
@@ -2801,7 +2819,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 space-y-1 min-w-[160px]">
                   {[
                     { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
-                    { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, hasInfo: true },
+                    { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
+                    { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
                     { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                     { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
                     { key: 'pinban', label: 'Pin / Ban Icons', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
@@ -2816,8 +2835,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                         </span>
                         {opt.label}
                       </button>
-                      {'hasInfo' in opt && opt.hasInfo && (
-                        <InfoTooltip text="Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick.">
+                      {'infoText' in opt && opt.infoText && (
+                        <InfoTooltip text={opt.infoText}>
                           <Info className="w-3 h-3" />
                         </InfoTooltip>
                       )}
@@ -2983,13 +3002,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price' | 'score')}
+              onChange={(e) => setSortBy(e.target.value as 'name' | 'cmc' | 'price' | 'score' | 'relevancy')}
               className="bg-transparent text-xs text-primary font-medium focus:outline-none cursor-pointer"
             >
               <option value="name">NAME</option>
               <option value="cmc">CMC</option>
               <option value="price">PRICE</option>
               {showInclusion && generatedDeck?.cardInclusionMap && <option value="score">INCLUSION</option>}
+              {showRelevancy && generatedDeck?.cardRelevancyMap && <option value="relevancy">RELEVANCY</option>}
             </select>
           </div>
 
@@ -3006,7 +3026,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               <div className="absolute top-full left-0 mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg p-2 space-y-1 min-w-[160px]">
                 {[
                   { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
-                  { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, hasInfo: true },
+                  { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
+                  { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                   { key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }), hide: !showOwnedIndicators },
                   { key: 'pinban', label: 'Pin / Ban Icons', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
@@ -3154,6 +3175,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     mustIncludeNames={mustIncludeNames}
                     bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
+                    cardRelevancyMap={showRelevancy ? generatedDeck?.cardRelevancyMap : null}
                     showPrice={showPrice}
                     onCardAction={!readOnly ? handleCardAction : undefined}
                     showCardMenu={!readOnly}
@@ -3251,7 +3273,27 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                   </span>
                                 );
                               })()}
-                              {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && !isEditMode && showInclusion && generatedDeck?.cardInclusionMap && (() => {
+                              {sortBy === 'relevancy' && generatedDeck?.cardRelevancyMap && (() => {
+                                const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+                                const rel = generatedDeck.cardRelevancyMap![card.name] ?? generatedDeck.cardRelevancyMap![normalizedName];
+                                if (rel == null) return null;
+                                return (
+                                  <span className="absolute top-1 left-1 bg-violet-500/90 text-white text-[10px] px-1 rounded font-medium" title={`Relevancy: ${rel}`}>
+                                    {rel}
+                                  </span>
+                                );
+                              })()}
+                              {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && sortBy !== 'relevancy' && !isEditMode && showRelevancy && generatedDeck?.cardRelevancyMap && (() => {
+                                const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+                                const rel = generatedDeck.cardRelevancyMap![card.name] ?? generatedDeck.cardRelevancyMap![normalizedName];
+                                if (rel == null) return null;
+                                return (
+                                  <span className="absolute top-1 right-8 bg-violet-500/90 text-white text-[10px] px-1 rounded font-medium" title={`Relevancy: ${rel}`}>
+                                    {rel}
+                                  </span>
+                                );
+                              })()}
+                              {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && sortBy !== 'relevancy' && !isEditMode && showInclusion && generatedDeck?.cardInclusionMap && (() => {
                                 const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
                                 const incl = generatedDeck.cardInclusionMap![card.name] ?? generatedDeck.cardInclusionMap![normalizedName];
                                 if (incl == null) return null;

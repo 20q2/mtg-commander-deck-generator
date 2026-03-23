@@ -195,8 +195,100 @@ function binomial(n: number, k: number): number {
 }
 
 // Hypergeometric PMF: P(X=k) drawing n from N total with K successes
-function hypergeoPmf(N: number, K: number, n: number, k: number): number {
+export function hypergeoPmf(N: number, K: number, n: number, k: number): number {
   return (binomial(K, k) * binomial(N - K, n - k)) / binomial(N, n);
+}
+
+// ─── Mana Efficiency ────────────────────────────────────────────────
+
+export interface ManaEfficiencyPoint {
+  turn: number;
+  manaAvailable: number;
+  expectedManaSpent: number;
+  efficiency: number; // 0-1
+}
+
+/**
+ * Estimate how efficiently mana is spent each turn.
+ * For each turn, sums expected CMC of castable spells in hand, capped at available mana.
+ */
+export function computeManaEfficiency(
+  nonLandCards: { cmc: number }[],
+  trajectory: ManaTrajectoryPoint[],
+  deckSize: number,
+): ManaEfficiencyPoint[] {
+  return trajectory.map(t => {
+    const cardsSeen = 7 + (t.turn - 1);
+    const manaAvailable = t.totalExpectedMana;
+    if (manaAvailable <= 0) return { turn: t.turn, manaAvailable, expectedManaSpent: 0, efficiency: 0 };
+
+    // For each card: P(in hand by this turn) * min(cmc, remaining mana budget)
+    // Sort by CMC ascending to simulate casting cheapest-first
+    const sorted = [...nonLandCards].sort((a, b) => a.cmc - b.cmc);
+    let manaLeft = manaAvailable;
+    let spent = 0;
+    for (const card of sorted) {
+      if (card.cmc > manaAvailable) continue; // can't cast even with full mana
+      const pInHand = Math.min(1, cardsSeen / deckSize); // expected ~1 copy per card
+      const contribution = Math.min(card.cmc * pInHand, manaLeft);
+      spent += contribution;
+      manaLeft -= contribution;
+      if (manaLeft <= 0) break;
+    }
+
+    return {
+      turn: t.turn,
+      manaAvailable,
+      expectedManaSpent: Math.round(spent * 10) / 10,
+      efficiency: Math.round((spent / manaAvailable) * 100) / 100,
+    };
+  });
+}
+
+// ─── Hand Simulation Stats ──────────────────────────────────────────
+
+export interface HandStats {
+  expectedLands: number;
+  expectedRamp: number;
+  expectedRemoval: number;
+  expectedEarlyPlays: number; // CMC ≤ 2
+  keepableRate: number;       // 0-1
+}
+
+/**
+ * Compute expected opening hand composition and keepable hand rate.
+ * "Keepable" = 2-4 lands AND at least 1 spell with CMC ≤ 3.
+ */
+export function computeHandStats(
+  deckSize: number,
+  landCount: number,
+  rampCount: number,
+  removalCount: number,
+  earlyPlayCount: number,  // cards with CMC ≤ 2 (non-land)
+  lowCmcCount: number,     // cards with CMC ≤ 3 (non-land)
+): HandStats {
+  const hand = 7;
+  const expectedLands = Math.round((hand * landCount / deckSize) * 10) / 10;
+  const expectedRamp = Math.round((hand * rampCount / deckSize) * 10) / 10;
+  const expectedRemoval = Math.round((hand * removalCount / deckSize) * 10) / 10;
+  const expectedEarlyPlays = Math.round((hand * earlyPlayCount / deckSize) * 10) / 10;
+
+  // P(keepable) ≈ P(2-4 lands) * P(≥1 low-CMC spell in hand)
+
+  // P(exactly k lands in 7-card hand)
+  let pLand2to4 = 0;
+  for (let k = 2; k <= 4; k++) {
+    pLand2to4 += hypergeoPmf(deckSize, landCount, hand, k);
+  }
+
+  // P(0 low-CMC non-land spells in 7 cards) = C(deckSize - lowCmcCount, 7) / C(deckSize, 7)
+  const pNoEarlySpell = lowCmcCount >= deckSize ? 0 :
+    binomial(deckSize - lowCmcCount, hand) / binomial(deckSize, hand);
+  const pHasEarlySpell = 1 - pNoEarlySpell;
+
+  const keepableRate = Math.round(pLand2to4 * pHasEarlySpell * 100) / 100;
+
+  return { expectedLands, expectedRamp, expectedRemoval, expectedEarlyPlays, keepableRate };
 }
 
 // Determine which colors a land produces from produced_mana + oracle text fallback
@@ -547,7 +639,7 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
 
   // ── Over-target: explain why cuts are needed ──
   if (deckExcess && deckExcess > 0) {
-    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the ${analysis.manaBase.deckSize}-card target. The weakest fits are listed below.`);
+    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the ${analysis.manaBase.deckSize + 1}-card target. The weakest fits are listed below.`);
 
     const cutNeeds: string[] = [];
     const cutTrims: string[] = [];
@@ -632,14 +724,14 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
 
 // ─── Smart Suggestion Scoring ────────────────────────────────────────
 
-const ROLE_SUBTYPES: Record<string, string[]> = {
+export const ROLE_SUBTYPES: Record<string, string[]> = {
   ramp: ['mana-producer', 'mana-rock', 'cost-reducer', 'ramp'],
   removal: ['counterspell', 'bounce', 'spot-removal', 'removal'],
   boardwipe: ['bounce-wipe', 'boardwipe'],
   cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
 };
 
-interface ScoringContext {
+export interface ScoringContext {
   roleDeficits: RoleDeficit[];
   curveAnalysis: CurveSlot[];
   typeAnalysis: TypeSlot[];
@@ -650,7 +742,7 @@ interface ScoringContext {
  * Unified recommendation scoring — mirrors the deck generator's multi-factor
  * approach (calculateCardPriority + computeRoleBoosts + curve awareness).
  */
-function scoreRecommendation(
+export function scoreRecommendation(
   card: EDHRECCard,
   cardRole: RoleKey | null,
   cardSubtype: string | null,

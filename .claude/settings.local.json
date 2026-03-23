@@ -69,7 +69,10 @@
       "WebFetch(domain:bulkcommander.com)",
       "WebFetch(domain:web.archive.org)",
       "WebFetch(domain:shotnottaken.wordpress.com)",
-      "WebFetch(domain:draftsim.com)"
+      "WebFetch(domain:draftsim.com)",
+      "Read(//Coding/MtgMakeDeckForMe/**)",
+      "Read(//a/Coding/MtgMakeDeckForMe/**)",
+      "WebFetch(domain:deckcheck.co)"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   ComposedChart, AreaChart as RechartsAreaChart,
   Line, Area, Bar,
@@ -6,16 +6,18 @@ import {
   Tooltip, ReferenceLine, ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Zap, Target, Crown, Sparkles, Dices, Sprout, Shuffle } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard } from '@/services/deckBuilder/deckAnalyzer';
-import { PACING_MULTIPLIERS } from '@/services/deckBuilder/deckAnalyzer';
+import { PACING_MULTIPLIERS, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PACING_LABELS, PHASE_META, tileGradeStyles } from './constants';
 import type { UserCardList } from './constants';
 import { AnalyzedCardRow, type CardAction } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
+import { useStore } from '@/store';
+import { ManaCost } from '@/components/ui/mtg-icons';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Curve Tab Components
@@ -35,16 +37,6 @@ export function CurveSummaryStrip({
         const Icon = meta.icon;
         const isActive = activePhase === phase.phase;
         const gs = tileGradeStyles(phase.grade.letter);
-        const pct = phase.target > 0 ? Math.min(100, (phase.current / phase.target) * 100) : 100;
-
-        let sub: string;
-        if (phase.phase === 'early') {
-          sub = `${phase.rampInPhase} ramp · ${phase.interactionInPhase} interaction`;
-        } else if (phase.phase === 'mid') {
-          sub = `${phase.pctOfDeck}% of spells`;
-        } else {
-          sub = phase.cards.length > 0 ? `avg ${phase.avgCmc.toFixed(1)} CMC` : 'no high-cost cards';
-        }
 
         return (
           <button
@@ -523,6 +515,454 @@ export function CurvePhaseDetail({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Commander Castability
+// ═══════════════════════════════════════════════════════════════════════
+
+function getCardArtUrl(card: ScryfallCard): string | undefined {
+  return card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop;
+}
+
+function getCardImageUrl(card: ScryfallCard): string | undefined {
+  return card.image_uris?.small ?? card.card_faces?.[0]?.image_uris?.small;
+}
+
+function findCastTurn(
+  trajectory: ManaTrajectoryPoint[],
+  cmc: number,
+  useRamp: boolean,
+): number | null {
+  for (const t of trajectory) {
+    const mana = useRamp ? t.totalExpectedMana : t.expectedLands;
+    if (mana >= cmc) return t.turn;
+  }
+  return null; // can't cast within 7 turns
+}
+
+function CommanderCastCard({
+  card, trajectory,
+}: {
+  card: ScryfallCard;
+  trajectory: ManaTrajectoryPoint[];
+}) {
+  const cmc = card.cmc;
+  const castWithRamp = findCastTurn(trajectory, cmc, true);
+  const castNoRamp = findCastTurn(trajectory, cmc, false);
+  const recast2 = findCastTurn(trajectory, cmc + 2, true);
+  const recast3 = findCastTurn(trajectory, cmc + 4, true);
+  const artUrl = getCardArtUrl(card);
+  const turnsGained = castNoRamp && castWithRamp ? castNoRamp - castWithRamp : 0;
+
+  return (
+    <div className="flex gap-3 items-start">
+      {/* Art thumbnail */}
+      {artUrl && (
+        <div className="w-16 h-12 rounded-md overflow-hidden flex-shrink-0 border border-border/30">
+          <img src={artUrl} alt={card.name} className="w-full h-full object-cover" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm font-semibold text-foreground truncate">{card.name}</span>
+          {card.mana_cost && <ManaCost cost={card.mana_cost} className="text-xs" />}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px]">
+          <span className="text-muted-foreground">
+            With ramp: <span className={`font-semibold ${castWithRamp && castWithRamp <= 3 ? 'text-emerald-400' : castWithRamp && castWithRamp <= 5 ? 'text-sky-400' : 'text-amber-400'}`}>
+              {castWithRamp ? `Turn ${castWithRamp}` : '8+'}
+            </span>
+          </span>
+          <span className="text-muted-foreground">
+            Without ramp: <span className="font-semibold text-muted-foreground/80">
+              {castNoRamp ? `Turn ${castNoRamp}` : '8+'}
+            </span>
+          </span>
+          {turnsGained > 0 && (
+            <span className="text-emerald-400/70">({turnsGained} turn{turnsGained > 1 ? 's' : ''} faster)</span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] mt-0.5">
+          <span className="text-muted-foreground/60">
+            2nd cast: <span className="font-medium text-muted-foreground/80">{recast2 ? `Turn ${recast2}` : '8+'}</span>
+          </span>
+          <span className="text-muted-foreground/60">
+            3rd cast: <span className="font-medium text-muted-foreground/80">{recast3 ? `Turn ${recast3}` : '8+'}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CommanderCastability({
+  manaTrajectory, rampCount,
+}: {
+  manaTrajectory: ManaTrajectoryPoint[];
+  rampCount: number;
+}) {
+  const commander = useStore(s => s.commander);
+  const partner = useStore(s => s.partnerCommander);
+
+  if (!commander || manaTrajectory.length === 0) return null;
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <Target className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Commander Castability</span>
+        <span className="ml-auto text-[10px] text-muted-foreground/50">{rampCount} ramp pieces</span>
+      </div>
+      <div className={`${partner ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : ''}`}>
+        <CommanderCastCard card={commander} trajectory={manaTrajectory} />
+        {partner && <CommanderCastCard card={partner} trajectory={manaTrajectory} />}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Tempo Timeline
+// ═══════════════════════════════════════════════════════════════════════
+
+const TURN_WINDOWS = [
+  { label: 'Turns 1-2', range: [1, 2] as const, icon: Zap, phase: 'Setup' as const, desc: 'Deploy ramp and early interaction' },
+  { label: 'Turns 3-4', range: [3, 4] as const, icon: Target, phase: 'Engine' as const, desc: 'Commander + core strategy comes online' },
+  { label: 'Turns 5-6', range: [5, 6] as const, icon: Crown, phase: 'Value' as const, desc: 'Payoffs and board advantage' },
+  { label: 'Turn 7+', range: [7, 7] as const, icon: Sparkles, phase: 'Endgame' as const, desc: 'Finishers and top-end threats' },
+];
+
+const WINDOW_COLORS = [
+  'text-sky-400',
+  'text-amber-400',
+  'text-purple-400',
+  'text-rose-400',
+];
+
+export function TempoTimeline({
+  currentCards, manaTrajectory, commanderCmc, partnerCmc, cardInclusionMap,
+}: {
+  currentCards: ScryfallCard[];
+  manaTrajectory: ManaTrajectoryPoint[];
+  commanderCmc: number;
+  partnerCmc?: number;
+  cardInclusionMap?: Record<string, number>;
+}) {
+  if (manaTrajectory.length === 0) return null;
+
+  const nonLandCards = useMemo(() =>
+    currentCards.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land')),
+    [currentCards]
+  );
+
+  // Group cards by the first turn window where they become castable
+  const windowData = useMemo(() => {
+    const alreadyCastable = new Set<string>();
+
+    return TURN_WINDOWS.map((w, wi) => {
+      // Mana available at end of this window
+      const endTurn = Math.min(w.range[1], manaTrajectory.length);
+      const manaAtStart = manaTrajectory[Math.max(0, w.range[0] - 1)]?.totalExpectedMana ?? 0;
+      const manaAtEnd = manaTrajectory[Math.min(endTurn - 1, manaTrajectory.length - 1)]?.totalExpectedMana ?? 0;
+
+      // Cards that unlock in this window (castable now but not in previous window)
+      const prevMana = wi === 0 ? 0 : manaTrajectory[Math.min(TURN_WINDOWS[wi - 1].range[1] - 1, manaTrajectory.length - 1)]?.totalExpectedMana ?? 0;
+
+      const newCards = nonLandCards.filter(c => {
+        if (alreadyCastable.has(c.name)) return false;
+        if (c.cmc <= manaAtEnd) {
+          alreadyCastable.add(c.name);
+          return c.cmc > prevMana || wi === 0; // truly new this window
+        }
+        return false;
+      });
+
+      // Also count cards already castable from previous windows
+      const totalCastable = nonLandCards.filter(c => c.cmc <= manaAtEnd).length;
+
+      // Pick key cards: prioritize by role, then inclusion %
+      const keyCards = [...newCards]
+        .sort((a, b) => {
+          // Commander always first
+          if (a.cmc === commanderCmc && !b.deckRole) return -1;
+          if (b.cmc === commanderCmc && !a.deckRole) return 1;
+          // Role cards next
+          const aRole = a.deckRole ? 1 : 0;
+          const bRole = b.deckRole ? 1 : 0;
+          if (aRole !== bRole) return bRole - aRole;
+          // Then by inclusion
+          const aInc = cardInclusionMap?.[a.name] ?? 0;
+          const bInc = cardInclusionMap?.[b.name] ?? 0;
+          return bInc - aInc;
+        })
+        .slice(0, 5);
+
+      // Commander castable in this window?
+      const commanderCastable = commanderCmc > prevMana && commanderCmc <= manaAtEnd;
+      const partnerCastable = partnerCmc != null && partnerCmc > prevMana && partnerCmc <= manaAtEnd;
+
+      return {
+        ...w,
+        manaAtStart,
+        manaAtEnd,
+        newCards: newCards.length,
+        totalCastable,
+        keyCards,
+        commanderCastable,
+        partnerCastable,
+      };
+    });
+  }, [nonLandCards, manaTrajectory, commanderCmc, partnerCmc, cardInclusionMap]);
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-3">
+        <Sprout className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tempo Timeline</span>
+      </div>
+      <div className="space-y-0">
+        {windowData.map((w, i) => {
+          const color = WINDOW_COLORS[i];
+          return (
+            <div key={i} className="flex gap-3">
+              {/* Vertical timeline line + dot */}
+              <div className="flex flex-col items-center w-5 flex-shrink-0">
+                <div className={`w-2 h-2 rounded-full mt-1.5 ${color} bg-current`} />
+                {i < windowData.length - 1 && <div className="w-px flex-1 bg-border/30 my-0.5" />}
+              </div>
+              {/* Content */}
+              <div className="flex-1 min-w-0 pb-3">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className={`text-xs font-semibold ${color}`}>{w.label}</span>
+                  <span className="text-[10px] text-muted-foreground/50">{w.manaAtStart.toFixed(1)}-{w.manaAtEnd.toFixed(1)} mana</span>
+                  <span className="text-[10px] text-muted-foreground/40">
+                    {i === 0 ? `${w.newCards} castable` : `+${w.newCards} unlock`}
+                  </span>
+                  {w.commanderCastable && (
+                    <span className="text-[10px] font-semibold text-amber-400/80 flex items-center gap-0.5">
+                      <Target className="w-2.5 h-2.5" /> Commander
+                    </span>
+                  )}
+                  {w.partnerCastable && (
+                    <span className="text-[10px] font-semibold text-amber-400/80 flex items-center gap-0.5">
+                      <Target className="w-2.5 h-2.5" /> Partner
+                    </span>
+                  )}
+                </div>
+                {w.keyCards.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {w.keyCards.map(c => (
+                      <span
+                        key={c.name}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                          c.deckRole === 'ramp' ? 'border-emerald-500/30 text-emerald-400/80' :
+                          c.deckRole === 'removal' || c.deckRole === 'boardwipe' ? 'border-red-400/30 text-red-400/80' :
+                          c.deckRole === 'cardDraw' ? 'border-sky-400/30 text-sky-400/80' :
+                          'border-border/40 text-muted-foreground/70'
+                        }`}
+                      >
+                        {c.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground/40 mt-0.5">{w.desc}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Hand Simulation
+// ═══════════════════════════════════════════════════════════════════════
+
+function classifyCard(card: ScryfallCard): string {
+  const tl = getFrontFaceTypeLine(card).toLowerCase();
+  if (tl.includes('land')) return 'land';
+  if (card.deckRole === 'ramp') return 'ramp';
+  if (card.deckRole === 'removal' || card.deckRole === 'boardwipe') return 'interaction';
+  if (card.deckRole === 'cardDraw') return 'draw';
+  return 'other';
+}
+
+const CLASS_COLORS: Record<string, string> = {
+  land: 'border-amber-500/40 text-amber-400/80',
+  ramp: 'border-emerald-500/40 text-emerald-400/80',
+  interaction: 'border-red-400/40 text-red-400/80',
+  draw: 'border-sky-400/40 text-sky-400/80',
+  other: 'border-border/40 text-muted-foreground/70',
+};
+
+const CLASS_LABELS: Record<string, string> = {
+  land: 'Land',
+  ramp: 'Ramp',
+  interaction: 'Interaction',
+  draw: 'Draw',
+  other: 'Spell',
+};
+
+export function HandSimulation({
+  currentCards, deckSize, landCount, rampCount, removalCount,
+}: {
+  currentCards: ScryfallCard[];
+  deckSize: number;
+  landCount: number;
+  rampCount: number;
+  removalCount: number;
+}) {
+  const [sampleHand, setSampleHand] = useState<ScryfallCard[] | null>(null);
+
+  // Include lands in the pool for drawing
+  const allCards = useMemo(() => {
+    // currentCards may or may not include lands depending on how it's passed
+    // We need the full deck for drawing
+    return currentCards;
+  }, [currentCards]);
+
+  const earlyPlayCount = useMemo(() =>
+    currentCards.filter(c => {
+      const tl = getFrontFaceTypeLine(c).toLowerCase();
+      return !tl.includes('land') && c.cmc <= 2;
+    }).length,
+    [currentCards]
+  );
+
+  const lowCmcCount = useMemo(() =>
+    currentCards.filter(c => {
+      const tl = getFrontFaceTypeLine(c).toLowerCase();
+      return !tl.includes('land') && c.cmc <= 3;
+    }).length,
+    [currentCards]
+  );
+
+  const stats = useMemo(() =>
+    computeHandStats(deckSize, landCount, rampCount, removalCount, earlyPlayCount, lowCmcCount),
+    [deckSize, landCount, rampCount, removalCount, earlyPlayCount, lowCmcCount]
+  );
+
+  const drawHand = useCallback(() => {
+    if (allCards.length < 7) return;
+    // Fisher-Yates shuffle on indices, pick first 7
+    const indices = allCards.map((_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    const hand = indices.slice(0, 7).map(i => allCards[i]);
+    // Sort: lands first, then by CMC
+    hand.sort((a, b) => {
+      const aLand = getFrontFaceTypeLine(a).toLowerCase().includes('land') ? 0 : 1;
+      const bLand = getFrontFaceTypeLine(b).toLowerCase().includes('land') ? 0 : 1;
+      if (aLand !== bLand) return aLand - bLand;
+      return a.cmc - b.cmc;
+    });
+    setSampleHand(hand);
+  }, [allCards]);
+
+  // Analyze sample hand keepability
+  const handVerdict = useMemo(() => {
+    if (!sampleHand) return null;
+    const lands = sampleHand.filter(c => getFrontFaceTypeLine(c).toLowerCase().includes('land'));
+    const nonLand = sampleHand.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land'));
+    const earlyPlays = nonLand.filter(c => c.cmc <= 3);
+    const ramp = nonLand.filter(c => c.deckRole === 'ramp');
+
+    const landCount = lands.length;
+    const hasEarlyPlay = earlyPlays.length > 0;
+    const keep = landCount >= 2 && landCount <= 4 && hasEarlyPlay;
+
+    let reason = '';
+    if (landCount < 2) reason = `Only ${landCount} land${landCount === 1 ? '' : 's'} — likely mana screwed`;
+    else if (landCount > 4) reason = `${landCount} lands — heavy on mana, light on action`;
+    else if (!hasEarlyPlay) reason = `No plays under CMC 4 — slow start`;
+    else {
+      const parts: string[] = [`${landCount} lands`];
+      if (ramp.length > 0) parts.push(`${ramp.length} ramp`);
+      if (earlyPlays.length > 0) parts.push(`${earlyPlays.length} early play${earlyPlays.length > 1 ? 's' : ''}`);
+      reason = parts.join(', ');
+    }
+
+    return { keep, reason, landCount, earlyPlays: earlyPlays.length };
+  }, [sampleHand]);
+
+  return (
+    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <Dices className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Hand Analysis</span>
+        <span className={`ml-auto text-xs font-bold tabular-nums ${
+          stats.keepableRate >= 0.75 ? 'text-emerald-400' : stats.keepableRate >= 0.6 ? 'text-amber-400' : 'text-red-400'
+        }`}>
+          {Math.round(stats.keepableRate * 100)}% keepable
+        </span>
+      </div>
+
+      {/* Expected composition */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[11px]">
+        <span className="text-muted-foreground">
+          <span className="text-amber-400/80 font-semibold">{stats.expectedLands}</span> lands
+        </span>
+        <span className="text-muted-foreground">
+          <span className="text-emerald-400/80 font-semibold">{stats.expectedRamp}</span> ramp
+        </span>
+        <span className="text-muted-foreground">
+          <span className="text-red-400/80 font-semibold">{stats.expectedRemoval}</span> interaction
+        </span>
+        <span className="text-muted-foreground">
+          <span className="text-sky-400/80 font-semibold">{stats.expectedEarlyPlays}</span> early plays
+        </span>
+      </div>
+
+      {/* Draw button */}
+      <button
+        onClick={drawHand}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors mb-2"
+      >
+        <Shuffle className="w-3.5 h-3.5" />
+        {sampleHand ? 'Draw Again' : 'Draw Sample Hand'}
+      </button>
+
+      {/* Sample hand display */}
+      {sampleHand && (
+        <div className="mt-2">
+          <div className="flex gap-1.5 flex-wrap mb-2">
+            {sampleHand.map((card, i) => {
+              const imgUrl = getCardImageUrl(card);
+              const cls = classifyCard(card);
+              return (
+                <div key={`${card.name}-${i}`} className="flex flex-col items-center gap-0.5">
+                  {imgUrl ? (
+                    <div className={`w-[68px] h-[95px] rounded overflow-hidden border-2 ${CLASS_COLORS[cls].split(' ')[0]}`}>
+                      <img src={imgUrl} alt={card.name} className="w-full h-full object-cover" loading="lazy" />
+                    </div>
+                  ) : (
+                    <div className={`w-[68px] h-[95px] rounded border-2 flex items-center justify-center text-[8px] text-center px-1 ${CLASS_COLORS[cls]}`}>
+                      {card.name}
+                    </div>
+                  )}
+                  <span className={`text-[8px] ${CLASS_COLORS[cls].split(' ')[1]}`}>{CLASS_LABELS[cls]}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Verdict */}
+          {handVerdict && (
+            <div className={`text-xs flex items-center gap-1.5 ${handVerdict.keep ? 'text-emerald-400' : 'text-red-400'}`}>
+              <span className="font-semibold">{handVerdict.keep ? 'Keep' : 'Mulligan'}</span>
+              <span className="text-[10px] text-muted-foreground/60">— {handVerdict.reason}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

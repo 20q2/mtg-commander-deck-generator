@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, ChevronDown, ChevronRight,
   Palette, FlipHorizontal2, Info,
-  Loader2, Sparkles, Mountain, TrendingUp, Scissors,
+  Loader2, Sparkles, Mountain, Sprout, Scissors,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, UserCardList } from '@/types';
@@ -98,7 +98,7 @@ export function LandSummaryStrip({
       gradeBadgeBg: tileGradeStyles(landGrade.letter).bgColor,
     },
     {
-      key: 'manaSources', icon: TrendingUp, label: 'Mana Production',
+      key: 'manaSources', icon: Sprout, label: 'Mana Production',
       value: ms.totalRamp,
       sub: `${ms.producers} producers · ${ms.earlyRamp} early`,
       grade: ms.grade, gradeColor: sourceGradeColor,
@@ -530,7 +530,7 @@ export function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; 
         onClick={() => setExpanded(prev => !prev)}
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-        <TrendingUp className="w-3 h-3" />
+        <Sprout className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
           <p className="font-semibold text-foreground/80">Mana Production Grading</p>

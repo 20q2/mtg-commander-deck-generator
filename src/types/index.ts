@@ -288,6 +288,7 @@ export interface GeneratedDeck {
   removedFromDeck?: string[]; // Cards from original deck that were cut during build-from-deck optimization
   deckScore?: number; // Sum of EDHREC inclusion % for all non-land cards
   cardInclusionMap?: Record<string, number>; // cardName → EDHREC inclusion %
+  cardRelevancyMap?: Record<string, number>; // cardName → composite relevancy score (raw, 0-200+)
 }
 
 export interface DeckStats {

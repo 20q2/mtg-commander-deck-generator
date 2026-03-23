@@ -20,7 +20,7 @@ import { CutRow, RecommendationRow } from './shared';
 import { ThemeDetectionBanner, DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, CurvePhaseDetail } from './CurveTab';
+import { CurveSummaryStrip, ManaCurveLineChart, CurvePhaseDetail, CommanderCastability, TempoTimeline, HandSimulation } from './CurveTab';
 import { TypeCardSection } from './TypesTab';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1129,31 +1129,53 @@ export function DeckOptimizer({
         )}
 
         {/* ── CURVE TAB ── */}
-        {activeTab === 'curve' && (
-          <div className="space-y-3">
-            <CurveSummaryStrip
-              phases={analysis.curvePhases}
-              activePhase={activeCurvePhase}
-              onPhaseClick={setActiveCurvePhase}
-            />
-            <ManaCurveLineChart
-              curveAnalysis={analysis.curveAnalysis}
-              pacing={effectivePacing}
-              activePhase={activeCurvePhase}
-            />
-            {activeCurvePhase && analysis.curvePhases.find(p => p.phase === activeCurvePhase) && (
-              <CurvePhaseDetail
-                phase={analysis.curvePhases.find(p => p.phase === activeCurvePhase)!}
-                recommendations={analysis.recommendations}
-                onPreview={handlePreview}
-                onAdd={handleAddCard}
-                addedCards={addedCards}
-                onCardAction={handleCardAction}
-                menuProps={menuProps}
+        {activeTab === 'curve' && (() => {
+          const cmdr = useStore.getState().commander;
+          const partner = useStore.getState().partnerCommander;
+          return (
+            <div className="space-y-3">
+              <CurveSummaryStrip
+                phases={analysis.curvePhases}
+                activePhase={activeCurvePhase}
+                onPhaseClick={setActiveCurvePhase}
               />
-            )}
-          </div>
-        )}
+              <ManaCurveLineChart
+                curveAnalysis={analysis.curveAnalysis}
+                pacing={effectivePacing}
+                activePhase={activeCurvePhase}
+              />
+              <CommanderCastability
+                manaTrajectory={analysis.manaTrajectory}
+                rampCount={analysis.manaSources.totalRamp}
+              />
+              <TempoTimeline
+                currentCards={currentCards}
+                manaTrajectory={analysis.manaTrajectory}
+                commanderCmc={cmdr?.cmc ?? 0}
+                partnerCmc={partner?.cmc}
+                cardInclusionMap={cardInclusionMap}
+              />
+              <HandSimulation
+                currentCards={currentCards}
+                deckSize={deckSize}
+                landCount={analysis.manaBase.currentLands}
+                rampCount={analysis.manaSources.totalRamp}
+                removalCount={roleCounts.removal ?? 0}
+              />
+              {activeCurvePhase && analysis.curvePhases.find(p => p.phase === activeCurvePhase) && (
+                <CurvePhaseDetail
+                  phase={analysis.curvePhases.find(p => p.phase === activeCurvePhase)!}
+                  recommendations={analysis.recommendations}
+                  onPreview={handlePreview}
+                  onAdd={handleAddCard}
+                  addedCards={addedCards}
+                  onCardAction={handleCardAction}
+                  menuProps={menuProps}
+                />
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── TYPES TAB ── */}
         {activeTab === 'types' && (
