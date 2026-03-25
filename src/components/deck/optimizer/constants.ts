@@ -1,6 +1,6 @@
 import {
   Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
-  LayoutDashboard, Mountain, BarChart3, Layers, Zap, Target, Crown,
+  LayoutDashboard, Mountain, BarChart3, Zap, Target, Crown,
   MapPin, Clock,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
@@ -29,14 +29,13 @@ export interface DeckOptimizerProps {
   maybeboardNames?: string[];
 }
 
-export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'types';
+export type TabKey = 'overview' | 'roles' | 'lands' | 'curve';
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'roles',    label: 'Roles',    icon: Shield as typeof LayoutDashboard },
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
   { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
-  { key: 'types',    label: 'Types',    icon: Layers as typeof LayoutDashboard },
 ];
 
 // ─── Utility Functions ───────────────────────────────────────────────

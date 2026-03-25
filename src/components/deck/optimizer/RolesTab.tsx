@@ -2,8 +2,9 @@ import { useMemo } from 'react';
 import { Shield, Check } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { RoleBreakdown, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
+import { getRoleVerdict } from '@/services/deckBuilder/deckAnalyzer';
 import { useStore } from '@/store';
-import { roleBarColor, ROLE_META, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
+import { roleBarColor, ROLE_META, VERDICT_STYLES, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
 
@@ -128,6 +129,27 @@ export function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps
   return <CollapsibleCardGroups groups={groups} totalCount={cards.length} />;
 }
 
+// ─── Roles Tab: Summary Verdict ──────────────────────────────────────
+function RoleSummary({ rb }: { rb: RoleBreakdown }) {
+  const { verdict, message } = getRoleVerdict(rb);
+  const vs = VERDICT_STYLES[verdict] || VERDICT_STYLES['ok'];
+  const meta = ROLE_META[rb.role];
+  const Icon = meta?.icon || Shield;
+
+  return (
+    <div className="mb-3 -mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 border-b border-border/30">
+      <div className={`border rounded-lg p-2.5 ${vs.border} ${vs.bg}`}>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-10 h-10 rounded-lg ${vs.bg} shrink-0`}>
+            <Icon className={`w-5 h-5 ${meta?.color || 'text-muted-foreground'}`} />
+          </div>
+          <p className="text-sm text-muted-foreground leading-snug">{message}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Roles Tab: Detail Panel ─────────────────────────────────────────
 export function RoleDetailPanel({
   rb, onPreview, onAdd, addedCards, onCardAction, menuProps,
@@ -144,8 +166,9 @@ export function RoleDetailPanel({
   return (
     <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
-        {/* Left column: current cards grouped by subtype */}
+        {/* Left column: summary + current cards grouped by subtype */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}`}>
+          <RoleSummary rb={rb} />
           {rb.cards.length > 0 ? (
             <RoleCardGroups cards={rb.cards} role={rb.role} onPreview={onPreview} onCardAction={onCardAction} menuProps={menuProps} />
           ) : (

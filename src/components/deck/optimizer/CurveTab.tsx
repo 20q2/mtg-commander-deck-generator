@@ -6,10 +6,10 @@ import {
   Tooltip, ReferenceLine, ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Check, Dices, Shuffle, Layers, ArrowUpDown } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Dices, Shuffle, Layers, ArrowUpDown, LayoutList, LayoutGrid, CreditCard } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
-import { PACING_MULTIPLIERS, computeLandDropProbabilities, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
+import { PACING_MULTIPLIERS, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PACING_LABELS, PHASE_META, tileGradeStyles } from './constants';
@@ -24,10 +24,10 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 // ═══════════════════════════════════════════════════════════════════════
 
 export function CurveSummaryStrip({
-  phases, activePhase, onPhaseClick,
+  phases, activePhases, onPhaseClick,
 }: {
   phases: CurvePhaseAnalysis[];
-  activePhase: CurvePhase | null;
+  activePhases: Set<CurvePhase>;
   onPhaseClick: (phase: CurvePhase) => void;
 }) {
   return (
@@ -35,17 +35,19 @@ export function CurveSummaryStrip({
       {phases.map((phase, i) => {
         const meta = PHASE_META[phase.phase];
         const Icon = meta.icon;
-        const isActive = activePhase === phase.phase;
+        const isActive = activePhases.has(phase.phase);
         const gs = tileGradeStyles(phase.grade.letter);
 
         return (
           <button
             key={phase.phase}
             onClick={() => onPhaseClick(phase.phase)}
-            className={`p-2.5 text-left transition-all hover:bg-card/80 ${
+            className={`p-2.5 text-left transition-all ${
               i > 0 ? 'border-l border-l-border/30' : ''
             } ${i >= 2 ? '' : 'border-b border-b-border/30 sm:border-b-0'} ${
-              isActive ? gs.bg : ''
+              isActive
+                ? `${gs.bg} ring-1 ring-inset ring-current/10`
+                : 'opacity-50 hover:opacity-75'
             }`}
           >
             <div className="flex items-center gap-1.5 mb-1.5">
@@ -53,12 +55,12 @@ export function CurveSummaryStrip({
               <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {phase.label}
               </span>
-              <span className={`text-sm font-black ml-auto px-1.5 py-0.5 rounded ${gs.color} ${gs.bgColor}`}>
+              <span className={`text-sm font-black ml-auto px-1.5 py-0.5 rounded ${isActive ? `${gs.color} ${gs.bgColor}` : 'text-muted-foreground bg-muted/30'}`}>
                 {phase.grade.letter}
               </span>
             </div>
             <div className="flex items-baseline justify-between">
-              <span className={`text-xl font-bold tabular-nums leading-none ${gs.color}`}>
+              <span className={`text-xl font-bold tabular-nums leading-none ${isActive ? gs.color : 'text-muted-foreground'}`}>
                 {phase.current}
               </span>
               <span className="text-xs text-muted-foreground tabular-nums">
@@ -171,17 +173,18 @@ const PHASE_HIGHLIGHT: Record<CurvePhase, string> = {
 };
 
 export function ManaCurveLineChart({
-  curveAnalysis, pacing, activePhase, selectedCmc, onCmcClick,
+  curveAnalysis, pacing, activePhases, selectedCmc, onCmcClick,
 }: {
   curveAnalysis: CurveSlot[];
   pacing?: Pacing;
-  activePhase?: CurvePhase | null;
+  activePhases?: Set<CurvePhase>;
   selectedCmc?: number | null;
   onCmcClick?: (cmc: number) => void;
 }) {
   if (curveAnalysis.length === 0) return null;
 
   const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
+  const hasPhaseFilter = activePhases != null && activePhases.size > 0;
 
   // Build per-CMC adjusted targets
   const slots = curveAnalysis.map(s => {
@@ -203,12 +206,11 @@ export function ManaCurveLineChart({
     }
   }
 
-  // Determine which CMCs belong to the active phase
+  // Determine which CMCs belong to any active phase
+  const cmcToPhase = (cmc: number): CurvePhase => cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
   const isInPhase = (cmc: number) => {
-    if (!activePhase) return true;
-    if (activePhase === 'early') return cmc <= 2;
-    if (activePhase === 'mid') return cmc >= 3 && cmc <= 4;
-    return cmc >= 5;
+    if (!hasPhaseFilter) return true;
+    return activePhases!.has(cmcToPhase(cmc));
   };
 
   const chartData = slots.map(s => ({
@@ -223,7 +225,10 @@ export function ManaCurveLineChart({
     inPhase: isInPhase(s.cmc),
   }));
 
-  const phaseRange = activePhase ? PHASE_CMC_RANGE[activePhase] : null;
+  // Collect active phase ranges for highlight bands
+  const activePhaseRanges = hasPhaseFilter
+    ? (['early', 'mid', 'late'] as CurvePhase[]).filter(p => activePhases!.has(p))
+    : [];
 
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg p-3">
@@ -284,29 +289,30 @@ export function ManaCurveLineChart({
           />
           <Tooltip content={<CurveTooltip />} cursor={false} />
 
-          {/* Phase highlight band */}
-          {activePhase && phaseRange && (
+          {/* Phase highlight bands */}
+          {activePhaseRanges.map(p => (
             <ReferenceArea
-              x1={phaseRange[0]}
-              x2={phaseRange[1]}
-              fill={PHASE_HIGHLIGHT[activePhase]}
+              key={p}
+              x1={PHASE_CMC_RANGE[p][0]}
+              x2={PHASE_CMC_RANGE[p][1]}
+              fill={PHASE_HIGHLIGHT[p]}
               fillOpacity={1}
               strokeOpacity={0}
             />
-          )}
+          ))}
 
           {/* Delta bars (stacked: invisible base + visible delta) */}
           <Bar dataKey="deltaBase" stackId="delta" fill="transparent" isAnimationActive={false} barSize={16} />
           <Bar dataKey="deltaHeight" stackId="delta" shape={<DeltaBarShape />} isAnimationActive animationDuration={400} barSize={16} />
 
           {/* Area fill under actual */}
-          <Area type="monotone" dataKey="current" stroke="none" fill="#0ea5e9" fillOpacity={activePhase ? 0.04 : 0.08} isAnimationActive animationDuration={500} />
+          <Area type="monotone" dataKey="current" stroke="none" fill="#0ea5e9" fillOpacity={hasPhaseFilter ? 0.04 : 0.08} isAnimationActive animationDuration={500} />
 
-          {/* Target line (dashed amber) — dim dots outside active phase */}
+          {/* Target line (dashed amber) — dim dots outside active phases */}
           <Line
             type="monotone"
             dataKey="target"
-            stroke={activePhase ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.6)'}
+            stroke={hasPhaseFilter ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.6)'}
             strokeWidth={1.5}
             strokeDasharray="6 4"
             dot={(props: { cx?: number; cy?: number; index?: number }) => {
@@ -319,11 +325,11 @@ export function ManaCurveLineChart({
             animationDuration={500}
           />
 
-          {/* Actual curve (solid sky) — enlarge + brighten dots in active phase */}
+          {/* Actual curve (solid sky) — enlarge + brighten dots in active phases */}
           <Line
             type="monotone"
             dataKey="current"
-            stroke={activePhase ? 'rgba(14,165,233,0.4)' : '#0ea5e9'}
+            stroke={hasPhaseFilter ? 'rgba(14,165,233,0.4)' : '#0ea5e9'}
             strokeWidth={2.5}
             dot={(props: { cx?: number; cy?: number; index?: number }) => {
               const { cx = 0, cy = 0, index = 0 } = props;
@@ -474,7 +480,7 @@ export function CmcCardList({
                 <span className="text-[11px] text-muted-foreground/80 tabular-nums">{cards.length}</span>
               </button>
               {!isCollapsed && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-0 mt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-0 mt-1">
                   {cards.map(ac => (
                     <AnalyzedCardRow
                       key={ac.card.name}
@@ -499,12 +505,31 @@ export function CmcCardList({
 // Curve Insights — actionable callouts about curve health
 // ═══════════════════════════════════════════════════════════════════════
 
+type InsightSeverity = 'good' | 'warn' | 'bad' | 'info';
+
 interface Insight {
   key: string;
   icon: typeof Lightbulb;
+  severity: InsightSeverity;
   color: string;
-  text: string;
+  title: string;
+  detail: string;
 }
+
+const SEVERITY_BORDER: Record<InsightSeverity, string> = {
+  good: 'border-l-emerald-500/60',
+  info: 'border-l-sky-500/60',
+  warn: 'border-l-amber-500/60',
+  bad: 'border-l-red-500/60',
+};
+
+type InsightsLayout = 'cards' | 'grid' | 'list';
+
+const LAYOUT_OPTIONS: { value: InsightsLayout; icon: typeof LayoutList; label: string }[] = [
+  { value: 'cards', icon: CreditCard, label: 'Cards' },
+  { value: 'grid', icon: LayoutGrid, label: 'Grid' },
+  { value: 'list', icon: LayoutList, label: 'List' },
+];
 
 export function CurveInsights({
   curveAnalysis, curvePhases, manaSources, manaTrajectory,
@@ -524,24 +549,44 @@ export function CurveInsights({
   taplandCount?: number;
   landCount?: number;
 }) {
+  const [insightsLayout, setInsightsLayout] = useState<InsightsLayout>(
+    () => (localStorage.getItem('insightsLayout') as InsightsLayout) || 'cards'
+  );
+  const changeLayout = useCallback((v: InsightsLayout) => {
+    setInsightsLayout(v);
+    localStorage.setItem('insightsLayout', v);
+  }, []);
+
   const insights = useMemo(() => {
     const result: Insight[] = [];
+    const fmt = (t: number) => t > 12 ? '12+' : String(t);
+    const sev = (color: string): InsightSeverity =>
+      color.includes('emerald') ? 'good' : color.includes('sky') ? 'info' : color.includes('amber') ? 'warn' : 'bad';
 
     // 1. Commander cast turn
     const castWith = findCastTurnExtended(manaTrajectory, commanderCmc, true);
     const castWithout = findCastTurnExtended(manaTrajectory, commanderCmc, false);
     const saved = castWithout - castWith;
-    const fmt = (t: number) => t > 12 ? '12+' : String(t);
-    let cmdrText = `${commanderName} online T${fmt(castWith)}`;
-    if (saved > 0) cmdrText += ` (ramp saves ${saved} turn${saved > 1 ? 's' : ''})`;
-    result.push({ key: 'cmdr', icon: Target, color: turnColor(castWith), text: cmdrText });
+    const cmdrColor = turnColor(castWith);
+    result.push({
+      key: 'cmdr', icon: Target, severity: sev(cmdrColor), color: cmdrColor,
+      title: `Commander Online T${fmt(castWith)}`,
+      detail: saved > 0
+        ? `${commanderName} ready by turn ${fmt(castWith)}. Ramp saves ${saved} turn${saved > 1 ? 's' : ''} vs lands alone.`
+        : `${commanderName} castable on turn ${fmt(castWith)} on curve.`,
+    });
 
     if (partnerCmc != null && partnerName) {
       const pCast = findCastTurnExtended(manaTrajectory, partnerCmc, true);
       const pSaved = findCastTurnExtended(manaTrajectory, partnerCmc, false) - pCast;
-      let pText = `${partnerName} online T${fmt(pCast)}`;
-      if (pSaved > 0) pText += ` (ramp saves ${pSaved} turn${pSaved > 1 ? 's' : ''})`;
-      result.push({ key: 'partner', icon: Target, color: turnColor(pCast), text: pText });
+      const pColor = turnColor(pCast);
+      result.push({
+        key: 'partner', icon: Target, severity: sev(pColor), color: pColor,
+        title: `Partner Online T${fmt(pCast)}`,
+        detail: pSaved > 0
+          ? `${partnerName} ready by turn ${fmt(pCast)}. Ramp saves ${pSaved} turn${pSaved > 1 ? 's' : ''}.`
+          : `${partnerName} castable on turn ${fmt(pCast)} on curve.`,
+      });
     }
 
     // 2. 3-CMC choke point
@@ -549,43 +594,50 @@ export function CurveInsights({
     if (slot3 && totalNonLand > 0) {
       const pct3 = Math.round((slot3.current / totalNonLand) * 100);
       if (pct3 > 20) {
-        result.push({ key: '3cmc', icon: AlertTriangle, color: 'text-red-400',
-          text: `${slot3.current} cards at 3 CMC (${pct3}%) — heavy congestion, shift some to 2 or 4` });
+        result.push({ key: '3cmc', icon: AlertTriangle, severity: 'bad', color: 'text-red-400',
+          title: `3-CMC Congestion (${pct3}%)`,
+          detail: `${slot3.current} cards compete for turn 3. Move some to 2 or 4 CMC to smooth your curve.` });
       } else if (pct3 > 15) {
-        result.push({ key: '3cmc', icon: AlertTriangle, color: 'text-amber-400',
-          text: `${slot3.current} cards at 3 CMC (${pct3}%) — consider shifting some to 2 or 4` });
+        result.push({ key: '3cmc', icon: AlertTriangle, severity: 'warn', color: 'text-amber-400',
+          title: `3-CMC Crowded (${pct3}%)`,
+          detail: `${slot3.current} cards at 3 CMC. Consider shifting a few to 2 or 4 for better flow.` });
       }
     }
 
-    // 3. Dead CMC slots (0, 1, 2)
+    // 3. Dead CMC slots
     for (const cmc of [1, 2]) {
       const slot = curveAnalysis.find(s => s.cmc === cmc);
       if (slot && slot.current === 0) {
-        result.push({ key: `dead${cmc}`, icon: AlertTriangle, color: 'text-red-400',
-          text: `No ${cmc}-drops — you'll have nothing to do on turn ${cmc}` });
-        break; // only show one dead-turn warning
+        result.push({ key: `dead${cmc}`, icon: AlertTriangle, severity: 'bad', color: 'text-red-400',
+          title: `No ${cmc}-Drops`,
+          detail: `You have nothing to play on turn ${cmc}. Add some cheap spells so you're not wasting early mana.` });
+        break;
       }
     }
 
     // 4. Ramp-to-draw ratio
     const totalRamp = manaSources.totalRamp;
     if (drawCount > 0 && totalRamp / drawCount > 2.5) {
-      result.push({ key: 'ratio', icon: Sprout, color: 'text-amber-400',
-        text: `${totalRamp} ramp / ${drawCount} draw — risk flooding with mana and no cards` });
+      result.push({ key: 'ratio', icon: Sprout, severity: 'warn', color: 'text-amber-400',
+        title: `Ramp-Heavy (${totalRamp}:${drawCount})`,
+        detail: `${totalRamp} ramp vs ${drawCount} draw. You may flood with mana but run out of cards to play.` });
     } else if (totalRamp < 7 && totalNonLand > 50) {
-      result.push({ key: 'lowramp', icon: Sprout, color: 'text-red-400',
-        text: `Only ${totalRamp} ramp — likely to fall behind on mana` });
+      result.push({ key: 'lowramp', icon: Sprout, severity: 'bad', color: 'text-red-400',
+        title: `Low Ramp (${totalRamp})`,
+        detail: `Only ${totalRamp} ramp sources. You'll likely fall behind on mana each turn.` });
     }
 
     // 5. Tapland tempo penalty
     if (taplandCount > 0 && landCount > 0) {
       const tapPct = Math.round((taplandCount / landCount) * 100);
       if (tapPct >= 50) {
-        result.push({ key: 'taplands', icon: Mountain, color: 'text-red-400',
-          text: `${taplandCount} of ${landCount} lands enter tapped (${tapPct}%) — severe tempo loss in early turns` });
+        result.push({ key: 'taplands', icon: Mountain, severity: 'bad', color: 'text-red-400',
+          title: `Taplands ${tapPct}%`,
+          detail: `${taplandCount} of ${landCount} lands enter tapped. Severe tempo loss — you'll be a turn behind constantly.` });
       } else if (tapPct >= 30) {
-        result.push({ key: 'taplands', icon: Mountain, color: 'text-amber-400',
-          text: `${taplandCount} of ${landCount} lands enter tapped (${tapPct}%) — expect sluggish early turns` });
+        result.push({ key: 'taplands', icon: Mountain, severity: 'warn', color: 'text-amber-400',
+          title: `Taplands ${tapPct}%`,
+          detail: `${taplandCount} of ${landCount} lands enter tapped. Expect sluggish early turns.` });
       }
     }
 
@@ -595,15 +647,17 @@ export function CurveInsights({
     if (latePhase && totalNonLand > 0) {
       const latePct = Math.round((latePhase.current / totalNonLand) * 100);
       if (latePct > 40) {
-        result.push({ key: 'shape', icon: Crown, color: 'text-amber-400',
-          text: `Top-heavy — ${latePct}% of spells cost 5+, expect slow early turns` });
+        result.push({ key: 'shape', icon: Crown, severity: 'warn', color: 'text-amber-400',
+          title: `Top-Heavy Curve (${latePct}%)`,
+          detail: `${latePct}% of spells cost 5+. You'll struggle to play anything meaningful in early turns.` });
       }
     }
     if (earlyPhase && totalNonLand > 0) {
       const earlyPct = Math.round((earlyPhase.current / totalNonLand) * 100);
       if (earlyPct > 55) {
-        result.push({ key: 'shape', icon: Zap, color: 'text-sky-400',
-          text: `Very low curve — ${earlyPct}% at CMC 0-2, may run out of gas without draw` });
+        result.push({ key: 'lowcurve', icon: Zap, severity: 'info', color: 'text-sky-400',
+          title: `Very Low Curve (${earlyPct}%)`,
+          detail: `${earlyPct}% at CMC 0-2. Fast start, but you may run out of gas without enough card draw.` });
       }
     }
 
@@ -614,259 +668,84 @@ export function CurveInsights({
 
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2">
+      <div className="flex items-center gap-1.5 mb-2.5">
         <Lightbulb className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Curve Insights</span>
-        <InfoTooltip text="Flags common curve problems: when your commander comes online, CMC congestion at 3, dead early turns, ramp-to-draw imbalance, and top-heavy builds." />
-      </div>
-      <div className="space-y-1">
-        {insights.map(ins => {
-          const Icon = ins.icon;
-          return (
-            <div key={ins.key} className="flex items-start gap-2">
-              <Icon className={`w-3.5 h-3.5 ${ins.color} mt-0.5 flex-shrink-0`} />
-              <span className={`text-xs ${ins.color} leading-snug`}>{ins.text}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Interaction Timing — CMC distribution of removal/boardwipes
-// ═══════════════════════════════════════════════════════════════════════
-
-export function InteractionTiming({
-  currentCards,
-}: {
-  currentCards: ScryfallCard[];
-}) {
-  const { cheap, mid, expensive, total, cheapPct } = useMemo(() => {
-    const cards = currentCards.filter(c => {
-      const tl = getFrontFaceTypeLine(c).toLowerCase();
-      if (tl.includes('land')) return false;
-      return c.deckRole === 'removal' || c.deckRole === 'boardwipe';
-    });
-    const ch = cards.filter(c => c.cmc <= 2).length;
-    const md = cards.filter(c => c.cmc >= 3 && c.cmc <= 4).length;
-    const ex = cards.filter(c => c.cmc >= 5).length;
-    const tot = cards.length;
-    return { cheap: ch, mid: md, expensive: ex, total: tot, cheapPct: tot > 0 ? Math.round((ch / tot) * 100) : 0 };
-  }, [currentCards]);
-
-  const assessment = cheapPct >= 50
-    ? { color: 'text-emerald-400/80', dot: 'bg-emerald-500', label: 'Most interaction is cheap enough to hold up' }
-    : cheapPct >= 30
-    ? { color: 'text-amber-400/80', dot: 'bg-amber-500', label: 'You can respond, but it\'s tight on mana' }
-    : { color: 'text-red-400/80', dot: 'bg-red-500', label: 'Most interaction costs 3+ — hard to develop and respond' };
-
-  return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Swords className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Interaction Timing</span>
-        <InfoTooltip text="Cheap removal (CMC 0-2) lets you develop your board and hold up answers in the same turn. Expensive interaction forces you to choose one or the other." />
-        <span className="ml-auto text-[10px] text-muted-foreground/80">{total} cards</span>
-      </div>
-
-      {total === 0 ? (
-        <div className="flex items-center gap-1.5 mt-1">
-          <AlertTriangle className="w-3 h-3 text-amber-400/70" />
-          <span className="text-xs text-amber-400/80">No interaction cards — your deck can't respond to threats</span>
+        <InfoTooltip text={`Flags common curve issues at a glance.\n\nCommander timing, CMC bottlenecks, ramp/draw balance, tapland penalty, and curve shape.`} />
+        <div className="ml-auto flex items-center gap-0.5 bg-accent/30 rounded-md p-0.5">
+          {LAYOUT_OPTIONS.map(opt => {
+            const LIcon = opt.icon;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => changeLayout(opt.value)}
+                className={`p-1 rounded transition-colors ${insightsLayout === opt.value ? 'bg-accent text-foreground' : 'text-muted-foreground/50 hover:text-muted-foreground'}`}
+                title={opt.label}
+              >
+                <LIcon className="w-3 h-3" />
+              </button>
+            );
+          })}
         </div>
-      ) : (
-        <>
-          {/* Stacked bar */}
-          <div className="flex h-2 rounded-full overflow-hidden mt-2">
-            {cheap > 0 && <div className="bg-emerald-500/70" style={{ width: `${(cheap / total) * 100}%` }} />}
-            {mid > 0 && <div className="bg-amber-500/70" style={{ width: `${(mid / total) * 100}%` }} />}
-            {expensive > 0 && <div className="bg-red-500/60" style={{ width: `${(expensive / total) * 100}%` }} />}
-          </div>
-
-          {/* Tier counts */}
-          <div className="flex justify-between text-[10px] text-muted-foreground/80 mt-1.5">
-            <span><span className="text-emerald-400/70 font-semibold">{cheap}</span> CMC 0-2</span>
-            <span><span className="text-amber-400/70 font-semibold">{mid}</span> CMC 3-4</span>
-            <span><span className="text-red-400/70 font-semibold">{expensive}</span> CMC 5+</span>
-          </div>
-
-          {/* Assessment */}
-          <div className="flex items-center gap-1.5 mt-2">
-            <div className={`w-1.5 h-1.5 rounded-full ${assessment.dot}`} />
-            <span className={`text-[11px] ${assessment.color}`}>{cheapPct}% cheap — {assessment.label}</span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Ramp Health — CMC tier breakdown + warnings
-// ═══════════════════════════════════════════════════════════════════════
-
-export function RampHealth({
-  rampCards, manaSources, drawCount,
-}: {
-  rampCards: AnalyzedCard[];
-  manaSources: ManaSourcesAnalysis;
-  drawCount: number;
-}) {
-  const { tier01, tier2, tier3, tier4plus, total, warnings } = useMemo(() => {
-    const t01 = rampCards.filter(c => c.card.cmc <= 1).length;
-    const t2 = rampCards.filter(c => c.card.cmc === 2).length;
-    const t3 = rampCards.filter(c => c.card.cmc === 3).length;
-    const t4 = rampCards.filter(c => c.card.cmc >= 4).length;
-    const tot = rampCards.length;
-
-    const w: { icon: typeof AlertTriangle; color: string; text: string }[] = [];
-
-    // Ramp-to-draw ratio
-    if (drawCount > 0 && tot / drawCount > 2.5) {
-      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `${tot} ramp / ${drawCount} draw — risk flooding with mana and no cards` });
-    } else if (drawCount > 0 && tot / drawCount < 0.7) {
-      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `${tot} ramp / ${drawCount} draw — heavy on draw, light on acceleration` });
-    }
-
-    // Late-game ramp
-    if (t4 >= 3) {
-      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `${t4} ramp at CMC 4+ — these are dead draws late game` });
-    }
-
-    // Low early ramp
-    if (t01 + t2 < 3 && tot >= 7) {
-      w.push({ icon: AlertTriangle, color: 'text-amber-400', text: `Only ${t01 + t2} ramp at CMC ≤2 — slow to accelerate` });
-    }
-
-    return { tier01: t01, tier2: t2, tier3: t3, tier4plus: t4, total: tot, warnings: w };
-  }, [rampCards, drawCount]);
-
-  const gs = tileGradeStyles(manaSources.grade);
-
-  return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Sprout className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Ramp Health</span>
-        <InfoTooltip text="Ramp at CMC 1-2 accelerates you the most. CMC 4+ ramp is often too slow to matter. A healthy ratio is roughly 1 ramp for every 1 draw source." />
-        <span className={`ml-auto text-[10px] font-bold ${gs.color}`}>{manaSources.grade}</span>
       </div>
 
-      {total === 0 ? (
-        <div className="flex items-center gap-1.5 mt-1">
-          <AlertTriangle className="w-3 h-3 text-red-400/70" />
-          <span className="text-xs text-red-400/80">No ramp cards — you'll fall behind on mana every game</span>
-        </div>
-      ) : (
-        <>
-          {/* Stacked bar */}
-          <div className="flex h-2 rounded-full overflow-hidden mt-2">
-            {tier01 > 0 && <div className="bg-emerald-500/80" style={{ width: `${(tier01 / total) * 100}%` }} title={`CMC 0-1: ${tier01}`} />}
-            {tier2 > 0 && <div className="bg-emerald-400/60" style={{ width: `${(tier2 / total) * 100}%` }} title={`CMC 2: ${tier2}`} />}
-            {tier3 > 0 && <div className="bg-amber-500/60" style={{ width: `${(tier3 / total) * 100}%` }} title={`CMC 3: ${tier3}`} />}
-            {tier4plus > 0 && <div className="bg-red-500/50" style={{ width: `${(tier4plus / total) * 100}%` }} title={`CMC 4+: ${tier4plus}`} />}
-          </div>
-
-          {/* Tier counts */}
-          <div className="flex justify-between text-[10px] text-muted-foreground/80 mt-1.5">
-            <span><span className="text-emerald-400/80 font-semibold">{tier01}</span> CMC 0-1</span>
-            <span><span className="text-emerald-400/60 font-semibold">{tier2}</span> CMC 2</span>
-            <span><span className="text-amber-400/60 font-semibold">{tier3}</span> CMC 3</span>
-            <span><span className="text-red-400/60 font-semibold">{tier4plus}</span> CMC 4+</span>
-          </div>
-
-          {/* Warnings or success */}
-          <div className="mt-2 space-y-0.5">
-            {warnings.length > 0 ? warnings.map((w, i) => {
-              const WIcon = w.icon;
-              return (
-                <div key={i} className="flex items-start gap-1.5">
-                  <WIcon className={`w-3 h-3 ${w.color} mt-0.5 flex-shrink-0`} />
-                  <span className={`text-[11px] ${w.color}`}>{w.text}</span>
+      {/* ── Cards layout ── */}
+      {insightsLayout === 'cards' && (
+        <div className="space-y-2">
+          {insights.map(ins => {
+            const Icon = ins.icon;
+            return (
+              <div key={ins.key} className={`border-l-2 ${SEVERITY_BORDER[ins.severity]} bg-accent/20 rounded-r-md pl-3 pr-2.5 py-2`}>
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Icon className={`w-3.5 h-3.5 ${ins.color} shrink-0`} />
+                  <span className={`text-xs font-semibold ${ins.color}`}>{ins.title}</span>
                 </div>
-              );
-            }) : (
-              <div className="flex items-center gap-1.5">
-                <Check className="w-3 h-3 text-emerald-400/70" />
-                <span className="text-[11px] text-emerald-400/80">{manaSources.message}</span>
+                <p className="text-[11px] text-muted-foreground leading-relaxed pl-5">{ins.detail}</p>
               </div>
-            )}
-          </div>
-        </>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Grid layout ── */}
+      {insightsLayout === 'grid' && (
+        <div className="grid grid-cols-2 gap-2">
+          {insights.map(ins => {
+            const Icon = ins.icon;
+            return (
+              <div key={ins.key} className="bg-accent/20 rounded-md p-2">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Icon className={`w-3.5 h-3.5 ${ins.color} shrink-0`} />
+                  <span className={`text-[11px] font-semibold ${ins.color} truncate`}>{ins.title}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{ins.detail}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── List layout ── */}
+      {insightsLayout === 'list' && (
+        <div className="space-y-2.5">
+          {insights.map(ins => {
+            const Icon = ins.icon;
+            return (
+              <div key={ins.key} className="flex items-start gap-2">
+                <Icon className={`w-3.5 h-3.5 ${ins.color} mt-0.5 shrink-0`} />
+                <div>
+                  <span className={`text-xs font-semibold ${ins.color} leading-none`}>{ins.title}</span>
+                  <p className="text-[11px] text-muted-foreground/70 leading-snug mt-0.5">{ins.detail}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Land Drop Probability — P(making all land drops) by turn
-// ═══════════════════════════════════════════════════════════════════════
-
-function landDropBarColor(prob: number): string {
-  if (prob >= 0.90) return 'bg-emerald-500/70';
-  if (prob >= 0.75) return 'bg-amber-500/70';
-  return 'bg-red-500/70';
-}
-
-export function LandDropCurve({
-  deckSize, landCount,
-}: {
-  deckSize: number;
-  landCount: number;
-}) {
-  const probs = useMemo(() => computeLandDropProbabilities(deckSize, landCount), [deckSize, landCount]);
-
-  const reliableTurn = probs.reduce((last, p) => p.probability >= 0.75 ? p.turn : last, 0);
-  const summary = reliableTurn >= 6
-    ? 'Excellent land consistency through the mid-game'
-    : reliableTurn >= 4
-    ? `Reliable through ${reliableTurn} drops, then starts to dip`
-    : reliableTurn >= 2
-    ? `Only reliable through ${reliableTurn} drops — consider more lands`
-    : 'Likely to miss land drops early — needs more lands';
-
-  const summaryColor = reliableTurn >= 5 ? 'text-emerald-400/70' : reliableTurn >= 3 ? 'text-amber-400/70' : 'text-red-400/70';
-
-  return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Mountain className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Drops</span>
-        <InfoTooltip text="Probability of making every land drop through each turn, based on hypergeometric math. Green (90%+) is reliable, amber (75-90%) gets risky, red (<75%) means you'll often miss." />
-        <span className="ml-auto text-[10px] text-muted-foreground/80">{landCount} lands</span>
-      </div>
-
-      {/* 7 vertical bars */}
-      <div className="flex items-end gap-1 h-12 mt-2">
-        {probs.map(p => (
-          <div key={p.turn} className="flex-1 flex flex-col items-center gap-0.5 h-full">
-            <div className="w-full flex-1 bg-muted-foreground/8 rounded-sm overflow-hidden flex items-end">
-              <div
-                className={`w-full ${landDropBarColor(p.probability)} rounded-sm transition-all`}
-                style={{ height: `${p.probability * 100}%` }}
-                title={`Turn ${p.turn}: ${Math.round(p.probability * 100)}%`}
-              />
-            </div>
-            <span className="text-[8px] text-muted-foreground/80 tabular-nums">T{p.turn}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Percentage labels for key turns */}
-      <div className="flex justify-between mt-1 text-[9px] tabular-nums text-muted-foreground/80">
-        <span>{Math.round((probs[0]?.probability ?? 0) * 100)}%</span>
-        <span>{Math.round((probs[2]?.probability ?? 0) * 100)}%</span>
-        <span>{Math.round((probs[4]?.probability ?? 0) * 100)}%</span>
-        <span>{Math.round((probs[6]?.probability ?? 0) * 100)}%</span>
-      </div>
-
-      {/* Summary */}
-      <p className={`text-[10px] mt-1.5 ${summaryColor}`}>{summary}</p>
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Phase Card Display — cards in active phase grouped by role
@@ -903,33 +782,51 @@ const PHASE_ROLE_CONTEXT: Record<CurvePhase, Record<RoleGroupKey, string>> = {
   },
 };
 
+const PHASE_COLORS: Record<CurvePhase, string> = {
+  early: 'text-sky-400/70',
+  mid:   'text-amber-400/70',
+  late:  'text-purple-400/70',
+};
+
 export function PhaseCardDisplay({
-  phase, onPreview, onCardAction, menuProps,
+  phases, onPreview, onCardAction, menuProps,
 }: {
-  phase: CurvePhaseAnalysis;
+  phases: CurvePhaseAnalysis[];
   onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
 }) {
   const [sortMode, setSortMode] = useState<WithinGroupSort>('inclusion');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const multiPhase = phases.length > 1;
 
+  // Group cards by role, then by phase within each role
   const groups = useMemo(() => {
-    const buckets: Record<RoleGroupKey, AnalyzedCard[]> = {
+    const result: Record<RoleGroupKey, { phase: CurvePhaseAnalysis; cards: AnalyzedCard[] }[]> = {
       ramp: [], interaction: [], cardDraw: [], other: [],
     };
-    for (const ac of phase.cards) {
-      const role = ac.card.deckRole;
-      if (role === 'ramp') buckets.ramp.push(ac);
-      else if (role === 'removal' || role === 'boardwipe') buckets.interaction.push(ac);
-      else if (role === 'cardDraw') buckets.cardDraw.push(ac);
-      else buckets.other.push(ac);
+
+    for (const phase of phases) {
+      const buckets: Record<RoleGroupKey, AnalyzedCard[]> = {
+        ramp: [], interaction: [], cardDraw: [], other: [],
+      };
+      for (const ac of phase.cards) {
+        const role = ac.card.deckRole;
+        if (role === 'ramp') buckets.ramp.push(ac);
+        else if (role === 'removal' || role === 'boardwipe') buckets.interaction.push(ac);
+        else if (role === 'cardDraw') buckets.cardDraw.push(ac);
+        else buckets.other.push(ac);
+      }
+      for (const key of ROLE_GROUP_ORDER) {
+        if (buckets[key].length > 0) {
+          result[key].push({ phase, cards: sortWithinGroup(buckets[key], sortMode) });
+        }
+      }
     }
-    for (const key of ROLE_GROUP_ORDER) {
-      buckets[key] = sortWithinGroup(buckets[key], sortMode);
-    }
-    return buckets;
-  }, [phase.cards, sortMode]);
+    return result;
+  }, [phases, sortMode]);
+
+  const totalCards = phases.reduce((sum, p) => sum + p.current, 0);
 
   const toggleCollapse = useCallback((key: string) => {
     setCollapsed(prev => {
@@ -940,31 +837,28 @@ export function PhaseCardDisplay({
     });
   }, []);
 
-  const phaseMeta = PHASE_META[phase.phase];
-  const PhaseIcon = phaseMeta.icon;
-
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg p-3">
       <div className="flex items-center gap-1.5 mb-2.5">
-        <PhaseIcon className="w-3.5 h-3.5 text-muted-foreground" />
+        <Layers className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {phase.label}
+          {multiPhase ? 'Cards by Role' : phases[0]?.label ?? 'Cards'}
         </span>
         <span className="text-[10px] text-muted-foreground/80">
-          {phase.current} card{phase.current !== 1 ? 's' : ''} · CMC {phase.cmcRange[0]}-{phase.cmcRange[1] === 7 ? '7+' : phase.cmcRange[1]}
+          {totalCards} card{totalCards !== 1 ? 's' : ''}
+          {!multiPhase && phases[0] && ` · CMC ${phases[0].cmcRange[0]}-${phases[0].cmcRange[1] === 7 ? '7+' : phases[0].cmcRange[1]}`}
         </span>
-        <InfoTooltip text={`Cards in the ${phase.label.toLowerCase()} range (CMC ${phase.cmcRange[0]}-${phase.cmcRange[1] === 7 ? '7+' : phase.cmcRange[1]}), grouped by their role in your deck. Target is ${phase.target} cards for this phase.`} />
         <div className="ml-auto">
           <WithinGroupSortToggle mode={sortMode} onChange={setSortMode} />
         </div>
       </div>
       <div className="space-y-2">
         {ROLE_GROUP_ORDER.map(key => {
-          const cards = groups[key];
-          if (cards.length === 0) return null;
+          const phaseGroups = groups[key];
+          if (phaseGroups.length === 0) return null;
           const meta = ROLE_GROUP_META[key];
           const Icon = meta.icon;
-          const context = PHASE_ROLE_CONTEXT[phase.phase][key];
+          const roleTotal = phaseGroups.reduce((sum, pg) => sum + pg.cards.length, 0);
           const isCollapsed = collapsed.has(key);
           return (
             <div key={key} className="bg-card/40 border border-border/20 rounded-lg px-3 py-2">
@@ -980,24 +874,43 @@ export function PhaseCardDisplay({
                 <span className={`text-xs font-semibold ${meta.color}`}>
                   {meta.label}
                 </span>
-                <span className="text-[11px] text-muted-foreground/80 tabular-nums">{cards.length}</span>
+                <span className="text-[11px] text-muted-foreground/80 tabular-nums">{roleTotal}</span>
               </button>
               {!isCollapsed && (
-                <>
-                  <p className="text-[10px] text-muted-foreground/80 mb-1 mt-1 leading-snug">{context}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-0">
-                    {cards.map(ac => (
-                      <AnalyzedCardRow
-                        key={ac.card.name}
-                        ac={ac}
-                        onPreview={onPreview}
-                        showDetails
-                        onCardAction={onCardAction}
-                        menuProps={menuProps}
-                      />
-                    ))}
-                  </div>
-                </>
+                <div className="mt-1 space-y-1.5">
+                  {phaseGroups.map(({ phase, cards }) => {
+                    const pMeta = PHASE_META[phase.phase];
+                    const PIcon = pMeta.icon;
+                    const phaseColor = PHASE_COLORS[phase.phase];
+                    return (
+                      <div key={phase.phase} className={multiPhase ? 'ml-3 px-3 bg-accent/10 rounded-md py-1.5' : ''}>
+                        {multiPhase && (
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <PIcon className={`w-3 h-3 ${phaseColor}`} />
+                            <span className={`text-[10px] font-medium ${phaseColor}`}>{pMeta.label}</span>
+                            <span className="text-[10px] text-muted-foreground/60 tabular-nums">{cards.length}</span>
+                            <span className="text-[10px] text-muted-foreground/60 italic ml-1">{PHASE_ROLE_CONTEXT[phase.phase][key]}</span>
+                          </div>
+                        )}
+                        {!multiPhase && (
+                          <p className="text-[10px] text-muted-foreground/80 mb-1 leading-snug">{PHASE_ROLE_CONTEXT[phase.phase][key]}</p>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-0">
+                          {cards.map(ac => (
+                            <AnalyzedCardRow
+                              key={ac.card.name}
+                              ac={ac}
+                              onPreview={onPreview}
+                              showDetails
+                              onCardAction={onCardAction}
+                              menuProps={menuProps}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           );

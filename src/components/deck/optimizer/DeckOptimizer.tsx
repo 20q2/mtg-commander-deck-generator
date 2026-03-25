@@ -20,8 +20,7 @@ import { CutRow, RecommendationRow } from './shared';
 import { ThemeDetectionBanner, DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, InteractionTiming, RampHealth, LandDropCurve, PhaseCardDisplay, ManaTrajectorySparkline } from './CurveTab';
-import { TypeCardSection } from './TypesTab';
+import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, PhaseCardDisplay, ManaTrajectorySparkline } from './CurveTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -52,7 +51,7 @@ export function DeckOptimizer({
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
-  const [activeCurvePhase, setActiveCurvePhase] = useState<CurvePhase | null>(null);
+  const [activeCurvePhases, setActiveCurvePhases] = useState<Set<CurvePhase>>(new Set());
   const [selectedCmc, setSelectedCmc] = useState<number | null>(null);
 
   // Theme detection state
@@ -138,8 +137,8 @@ export function DeckOptimizer({
     if (activeSection === null) {
       setActiveSection('landCount');
     }
-    if (activeCurvePhase === null && analysis.curvePhases.length > 0) {
-      setActiveCurvePhase('early');
+    if (activeCurvePhases.size === 0 && analysis.curvePhases.length > 0) {
+      setActiveCurvePhases(new Set(analysis.curvePhases.map(p => p.phase)));
     }
   }, [analysis]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -150,46 +149,6 @@ export function DeckOptimizer({
       .reduce((sum, r) => sum + (r.price ? parseFloat(r.price) || 0 : 0), 0);
   }, [analysis, addedCards]);
 
-  // For the Types tab — group current cards by type
-  const typeCardGroups = useMemo(() => {
-    if (!analysis) return new Map<string, AnalyzedCard[]>();
-    const incMap = cardInclusionMap || {};
-    const groups = new Map<string, AnalyzedCard[]>();
-
-    const nonLandCards = currentCards.filter(
-      c => !getFrontFaceTypeLine(c).toLowerCase().includes('land')
-    );
-
-    for (const card of nonLandCards) {
-      const tl = getFrontFaceTypeLine(card).toLowerCase();
-      let type = 'other';
-      if (tl.includes('creature')) type = 'creature';
-      else if (tl.includes('instant')) type = 'instant';
-      else if (tl.includes('sorcery')) type = 'sorcery';
-      else if (tl.includes('artifact')) type = 'artifact';
-      else if (tl.includes('enchantment')) type = 'enchantment';
-      else if (tl.includes('planeswalker')) type = 'planeswalker';
-      else if (tl.includes('battle')) type = 'battle';
-
-      if (!groups.has(type)) groups.set(type, []);
-      const subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype;
-      groups.get(type)!.push({
-        card,
-        inclusion: incMap[card.name] ?? null,
-        role: card.deckRole || undefined,
-        roleLabel: card.deckRole ? ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' }[card.deckRole] || card.deckRole) : undefined,
-        subtype: subtype || undefined,
-        subtypeLabel: undefined,
-      });
-    }
-
-    // Sort each group by inclusion desc
-    for (const [, cards] of groups) {
-      cards.sort((a, b) => (b.inclusion ?? -1) - (a.inclusion ?? -1));
-    }
-
-    return groups;
-  }, [analysis, currentCards, cardInclusionMap]);
 
   /** Build inclusion map from EDHREC data, handling DFC front-face lookups. */
   const buildInclusionMap = useCallback((edhrecData: import('@/types').EDHRECCommanderData): Record<string, number> => {
@@ -873,7 +832,7 @@ export function DeckOptimizer({
           <div className="p-1 rounded-md bg-primary/10">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
           </div>
-          <h3 className="text-sm font-bold">Deck Analysis</h3>
+          <h3 className="text-sm font-bold">Deck Analysis (Early Access)</h3>
         </div>
         <button
           onClick={handleOptimize}
@@ -925,6 +884,12 @@ export function DeckOptimizer({
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div className="space-y-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-500/20 bg-purple-500/5">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400/80 shrink-0" />
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <span className="font-medium text-purple-400/80">Early Access</span> — analysis results may change as this feature is refined with feedback.
+              </p>
+            </div>
             <ThemeDetectionBanner
               detection={themeDetection}
               loading={themeLoading}
@@ -936,7 +901,7 @@ export function DeckOptimizer({
               userPacing={userPacing}
               onPacingChange={handlePacingChange}
             />
-            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} onNavigateRole={setActiveRole} deckExcess={deckExcess > 0 ? deckExcess : undefined} />
+            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} onNavigateRole={setActiveRole} deckExcess={deckExcess !== 0 ? deckExcess : undefined} />
 
             <div className="bg-card/60 border border-border/30 rounded-lg p-3">
               {/* Cuts View */}
@@ -1135,10 +1100,8 @@ export function DeckOptimizer({
           const partner = useStore.getState().partnerCommander;
           const totalNonLand = analysis.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
           const drawCount = roleCounts.cardDraw ?? 0;
-          const rampCards = currentCards
-            .filter(c => c.deckRole === 'ramp')
-            .map(c => ({ card: c, inclusion: cardInclusionMap?.[c.name] ?? null }));
-          const activePhaseData = analysis.curvePhases.find(p => p.phase === activeCurvePhase);
+          const allPhasesActive = activeCurvePhases.size === analysis.curvePhases.length;
+          const selectedPhases = analysis.curvePhases.filter(p => activeCurvePhases.has(p.phase));
           return (
             <div className="space-y-3">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -1162,13 +1125,20 @@ export function DeckOptimizer({
               </div>
               <CurveSummaryStrip
                 phases={analysis.curvePhases}
-                activePhase={activeCurvePhase}
-                onPhaseClick={setActiveCurvePhase}
+                activePhases={activeCurvePhases}
+                onPhaseClick={(phase: CurvePhase) => {
+                  setActiveCurvePhases(prev => {
+                    const next = new Set(prev);
+                    if (next.has(phase)) next.delete(phase);
+                    else next.add(phase);
+                    return next;
+                  });
+                }}
               />
               <ManaCurveLineChart
                 curveAnalysis={analysis.curveAnalysis}
                 pacing={effectivePacing}
-                activePhase={activeCurvePhase}
+                activePhases={allPhasesActive ? undefined : activeCurvePhases}
                 selectedCmc={selectedCmc}
                 onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
               />
@@ -1182,89 +1152,22 @@ export function DeckOptimizer({
                   menuProps={menuProps}
                 />
               )}
-              {activePhaseData && (
+              {selectedPhases.length > 0 ? (
                 <PhaseCardDisplay
-                  phase={activePhaseData}
+                  phases={selectedPhases}
                   onPreview={handlePreview}
                   onCardAction={handleCardAction}
                   menuProps={menuProps}
                 />
+              ) : (
+                <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
+                  <p className="text-xs text-muted-foreground">Select Early, Mid, or Late Game above to view cards by role</p>
+                </div>
               )}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                <InteractionTiming currentCards={currentCards} />
-                <RampHealth
-                  rampCards={rampCards}
-                  manaSources={analysis.manaSources}
-                  drawCount={drawCount}
-                />
-                <LandDropCurve
-                  deckSize={deckSize}
-                  landCount={analysis.manaBase.currentLands}
-                />
-              </div>
             </div>
           );
         })()}
 
-        {/* ── TYPES TAB ── */}
-        {activeTab === 'types' && (
-          <div className="space-y-3">
-            {/* Full-width type distribution bars */}
-            <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2.5">Type Distribution</div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {analysis.typeAnalysis.map(ta => {
-                  const pct = ta.target > 0 ? Math.min(100, (ta.current / ta.target) * 100) : 100;
-                  const isOver = ta.delta > 2;
-                  const isUnder = ta.delta < -2;
-                  const color = isOver ? 'bg-amber-500' : isUnder ? 'bg-sky-500' : 'bg-emerald-500';
-                  return (
-                    <div key={ta.type}>
-                      <div className="flex items-center justify-between text-xs mb-0.5">
-                        <span className="text-muted-foreground capitalize font-medium">{ta.type}</span>
-                        <span className="flex items-center gap-1">
-                          <span className={`font-bold tabular-nums ${isOver ? 'text-amber-400' : isUnder ? 'text-sky-400' : 'text-muted-foreground'}`}>
-                            {ta.current}/{ta.target}
-                          </span>
-                          {(isOver || isUnder) && (
-                            <span className={`text-[11px] ${isOver ? 'text-amber-400/70' : 'text-sky-400/70'}`}>
-                              {ta.delta > 0 ? '+' : ''}{ta.delta}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-accent/30 overflow-hidden">
-                        <div className={`h-full rounded-full ${color} opacity-70`} style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Per-type card lists */}
-            {analysis.typeAnalysis.map(ta => {
-              const cards = typeCardGroups.get(ta.type);
-              if (!cards || cards.length === 0) return null;
-              const isOver = ta.delta > 2;
-              const isUnder = ta.delta < -2;
-
-              return (
-                <TypeCardSection
-                  key={ta.type}
-                  type={ta.type}
-                  cards={cards}
-                  current={ta.current}
-                  target={ta.target}
-                  delta={ta.delta}
-                  isOver={isOver}
-                  isUnder={isUnder}
-                  onPreview={handlePreview}
-                />
-              );
-            })}
-          </div>
-        )}
       </div>
 
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />

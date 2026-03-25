@@ -377,6 +377,81 @@ export function getRolesGrade(roleDeficits: RoleDeficit[]): GradeResult {
   return { letter: 'F', message: `Deck is severely unbalanced. Missing ${totalDeficit} role cards.` };
 }
 
+// ─── Per-Role Verdict Messages ─────────────────────────────────────
+
+const ROLE_FLAVOR: Record<string, { noun: string; okMsg: string; whyItMatters: string; zeroMsg: string }> = {
+  ramp: {
+    noun: 'ramp',
+    okMsg: 'your deck should consistently accelerate ahead of curve.',
+    whyItMatters: 'Falling behind on mana means falling behind on everything else.',
+    zeroMsg: 'No ramp at all — you\'ll be stuck playing one land per turn while opponents pull ahead. Even the fastest decks run mana rocks or dorks to keep up.',
+  },
+  removal: {
+    noun: 'removal',
+    okMsg: 'you have plenty of answers for key threats at the table.',
+    whyItMatters: 'Without interaction, opponents\' biggest threats go unchecked.',
+    zeroMsg: 'No removal at all — you have no way to deal with an opponent\'s key combo piece, threatening commander, or game-winning enchantment. Interaction is non-negotiable in Commander.',
+  },
+  boardwipe: {
+    noun: 'board wipe',
+    okMsg: 'you have reset buttons for when opponents go wide.',
+    whyItMatters: 'When opponents flood the board, you need a way to catch up.',
+    zeroMsg: 'No board wipes — if even one opponent builds a wide board, you\'ll have no way to reset. A single well-timed wipe can turn a losing game around.',
+  },
+  cardDraw: {
+    noun: 'card draw',
+    okMsg: 'your hand should stay stocked through the mid-to-late game.',
+    whyItMatters: 'Running out of cards means topdecking while opponents still have full hands.',
+    zeroMsg: 'No card draw at all — you\'ll empty your hand by turn 5-6 and be topdecking the rest of the game while opponents refuel. Card advantage is how you stay in the game.',
+  },
+};
+
+export function getRoleVerdict(rb: RoleBreakdown): { verdict: string; message: string } {
+  const { current, target, deficit, role } = rb;
+  const flavor = ROLE_FLAVOR[role] || { noun: role, okMsg: 'this role is well covered.', whyItMatters: '' };
+  const surplus = current - target;
+
+  // Zero cards — always critically low with special message
+  if (current === 0) {
+    return {
+      verdict: 'critically-low',
+      message: flavor.zeroMsg,
+    };
+  }
+  // Over target by 3+
+  if (surplus >= 3) {
+    return {
+      verdict: 'high',
+      message: `${current} ${flavor.noun} is ${surplus} above the ${target} target — you could swap a few for other roles or synergy pieces.`,
+    };
+  }
+  // On target or slightly above
+  if (current >= target) {
+    return {
+      verdict: 'ok',
+      message: `${current} ${flavor.noun} ${current === 1 ? 'effect' : 'sources'} is solid — ${flavor.okMsg}`,
+    };
+  }
+  // 1-2 short
+  if (deficit <= 2) {
+    return {
+      verdict: 'slightly-low',
+      message: `${current} ${flavor.noun} is ${deficit} short of the ${target} target. Close, but a couple more would help consistency.`,
+    };
+  }
+  // 3-4 short
+  if (deficit <= 4) {
+    return {
+      verdict: 'low',
+      message: `${current} ${flavor.noun} is ${deficit} below the ${target} target. ${flavor.whyItMatters}`,
+    };
+  }
+  return {
+    verdict: 'critically-low',
+    message: `Only ${current} ${flavor.noun} — ${deficit} short of ${target}. ${flavor.whyItMatters}`,
+  };
+}
+
 export function getManaGrade(
   manaBase: ManaBaseAnalysis,
   manaSources: ManaSourcesAnalysis,
@@ -687,6 +762,12 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
     }
 
     return parts.join('');
+  }
+
+  // ── Under-target: explain that the deck needs more cards ──
+  if (deckExcess && deckExcess < 0) {
+    const shortage = Math.abs(deckExcess);
+    parts.push(`Your deck is ${b(`${shortage} card${shortage > 1 ? 's' : ''} short`)} of the ${analysis.manaBase.deckSize + 1}-card target. The recommendations below can help fill the gaps.`);
   }
 
   // ── Normal summary ──

@@ -77,7 +77,11 @@
       "WebFetch(domain:spellweave.app)",
       "WebFetch(domain:www.salubrioussnail.com)",
       "WebFetch(domain:proxyking.biz)",
-      "WebFetch(domain:commandersherald.com)"
+      "WebFetch(domain:commandersherald.com)",
+      "WebFetch(domain:magic.wizards.com)",
+      "WebFetch(domain:moxfield.com)",
+      "WebFetch(domain:brackcheck.com)",
+      "WebFetch(domain:commanderpowermeter.com)"
     ]
   }
 }
