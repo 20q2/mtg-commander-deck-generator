@@ -5,6 +5,8 @@ import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search } from
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
+const TYPE_ORDER = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'];
+
 interface ListCardProps {
   list: UserCardList;
   viewMode: 'grid' | 'list';
@@ -116,7 +118,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         {typeBreakdown && Object.keys(typeBreakdown).length > 0 ? (
           <div className="flex items-center gap-1 shrink-0">
             {Object.entries(typeBreakdown)
-              .sort((a, b) => b[1] - a[1])
+              .sort((a, b) => { const ai = TYPE_ORDER.indexOf(a[0]); const bi = TYPE_ORDER.indexOf(b[0]); return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi); })
               .map(([type, count]) => (
                 <span
                   key={type}
@@ -230,7 +232,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
       {typeBreakdown && Object.keys(typeBreakdown).length > 0 ? (
         <div className="flex flex-wrap gap-1 mt-auto">
           {Object.entries(typeBreakdown)
-            .sort((a, b) => b[1] - a[1])
+            .sort((a, b) => { const ai = TYPE_ORDER.indexOf(a[0]); const bi = TYPE_ORDER.indexOf(b[0]); return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi); })
             .map(([type, count]) => (
               <span
                 key={type}

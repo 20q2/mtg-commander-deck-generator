@@ -1,4 +1,4 @@
-import type { ScryfallCard, DeckCategory } from '@/types';
+import type { ScryfallCard, DeckCategory, DetectedCombo } from '@/types';
 import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, getGameChangerNames } from '@/services/scryfall/client';
 import { getBaseRoleTargets as getRoleTargets } from './roleTargets';
@@ -23,6 +23,7 @@ export interface EnrichResult {
 export async function enrichDeckCards(
   cards: ScryfallCard[],
   deckSize: number,
+  detectedCombos?: DetectedCombo[],
 ): Promise<EnrichResult> {
   // Ensure tagger data is loaded (cached after first call)
   await loadTaggerData();
@@ -111,7 +112,7 @@ export async function enrichDeckCards(
     const avgCmc = nonLandCount > 0 ? parseFloat((cmcSum / nonLandCount).toFixed(2)) : 0;
     bracketEstimation = estimateBracket(
       cards.map(c => c.name),
-      undefined, // No combo detection for user lists
+      detectedCombos,
       avgCmc,
       undefined,
       roleCounts,

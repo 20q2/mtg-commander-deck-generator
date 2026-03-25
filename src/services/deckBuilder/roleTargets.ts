@@ -142,7 +142,7 @@ const ARCHETYPE_ROLE_MULTIPLIERS: Record<Archetype, Record<RoleKey, number>> = {
 // ─── Pacing Adjustments ─────────────────────────────────────────────
 // Small secondary multipliers that fine-tune based on tempo.
 
-const PACING_ROLE_ADJUSTMENTS: Record<Pacing, Record<RoleKey, number>> = {
+export const PACING_ROLE_ADJUSTMENTS: Record<Pacing, Record<RoleKey, number>> = {
   'aggressive-early': { ramp: 1.10, removal: 0.90, boardwipe: 0.85, cardDraw: 0.90 },
   'fast-tempo':       { ramp: 1.05, removal: 0.95, boardwipe: 0.90, cardDraw: 0.95 },
   'midrange':         { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00 },
@@ -265,4 +265,30 @@ export function getDynamicRoleTargets(
     `(total=${Object.values(result).reduce((s, v) => s + v, 0)})`);
 
   return { targets: result, archetype, pacing };
+}
+
+// ─── Recompute Role Targets for Pacing Override ─────────────────────
+// Adjusts existing role targets by dividing out the old pacing multipliers
+// and applying new ones. Used when the user overrides tempo in the optimizer.
+
+export function recomputeRoleTargetsForPacing(
+  currentTargets: Record<string, number>,
+  oldPacing: Pacing,
+  newPacing: Pacing,
+): Record<string, number> {
+  if (oldPacing === newPacing) return currentTargets;
+
+  const oldMults = PACING_ROLE_ADJUSTMENTS[oldPacing] ?? PACING_ROLE_ADJUSTMENTS['balanced'];
+  const newMults = PACING_ROLE_ADJUSTMENTS[newPacing] ?? PACING_ROLE_ADJUSTMENTS['balanced'];
+
+  const result: Record<string, number> = {};
+  for (const role of ROLE_KEYS) {
+    const oldM = oldMults[role] || 1;
+    const newM = newMults[role] || 1;
+    // Divide out old pacing, apply new pacing
+    const raw = (currentTargets[role] || 0) / oldM * newM;
+    result[role] = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(raw));
+  }
+
+  return result;
 }

@@ -6,7 +6,7 @@ import {
   Tooltip, ReferenceLine, ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Dices, Shuffle, Layers, ArrowUpDown, LayoutList, LayoutGrid, CreditCard } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Dices, Shuffle, Layers, ArrowUpDown } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { PACING_MULTIPLIERS, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
@@ -523,13 +523,6 @@ const SEVERITY_BORDER: Record<InsightSeverity, string> = {
   bad: 'border-l-red-500/60',
 };
 
-type InsightsLayout = 'cards' | 'grid' | 'list';
-
-const LAYOUT_OPTIONS: { value: InsightsLayout; icon: typeof LayoutList; label: string }[] = [
-  { value: 'cards', icon: CreditCard, label: 'Cards' },
-  { value: 'grid', icon: LayoutGrid, label: 'Grid' },
-  { value: 'list', icon: LayoutList, label: 'List' },
-];
 
 export function CurveInsights({
   curveAnalysis, curvePhases, manaSources, manaTrajectory,
@@ -549,13 +542,6 @@ export function CurveInsights({
   taplandCount?: number;
   landCount?: number;
 }) {
-  const [insightsLayout, setInsightsLayout] = useState<InsightsLayout>(
-    () => (localStorage.getItem('insightsLayout') as InsightsLayout) || 'cards'
-  );
-  const changeLayout = useCallback((v: InsightsLayout) => {
-    setInsightsLayout(v);
-    localStorage.setItem('insightsLayout', v);
-  }, []);
 
   const insights = useMemo(() => {
     const result: Insight[] = [];
@@ -672,76 +658,22 @@ export function CurveInsights({
         <Lightbulb className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Curve Insights</span>
         <InfoTooltip text={`Flags common curve issues at a glance.\n\nCommander timing, CMC bottlenecks, ramp/draw balance, tapland penalty, and curve shape.`} />
-        <div className="ml-auto flex items-center gap-0.5 bg-accent/30 rounded-md p-0.5">
-          {LAYOUT_OPTIONS.map(opt => {
-            const LIcon = opt.icon;
-            return (
-              <button
-                key={opt.value}
-                onClick={() => changeLayout(opt.value)}
-                className={`p-1 rounded transition-colors ${insightsLayout === opt.value ? 'bg-accent text-foreground' : 'text-muted-foreground/50 hover:text-muted-foreground'}`}
-                title={opt.label}
-              >
-                <LIcon className="w-3 h-3" />
-              </button>
-            );
-          })}
-        </div>
       </div>
 
-      {/* ── Cards layout ── */}
-      {insightsLayout === 'cards' && (
-        <div className="space-y-2">
-          {insights.map(ins => {
-            const Icon = ins.icon;
-            return (
-              <div key={ins.key} className={`border-l-2 ${SEVERITY_BORDER[ins.severity]} bg-accent/20 rounded-r-md pl-3 pr-2.5 py-2`}>
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <Icon className={`w-3.5 h-3.5 ${ins.color} shrink-0`} />
-                  <span className={`text-xs font-semibold ${ins.color}`}>{ins.title}</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed pl-5">{ins.detail}</p>
+      <div className="space-y-2">
+        {insights.map(ins => {
+          const Icon = ins.icon;
+          return (
+            <div key={ins.key} className={`border-l-2 ${SEVERITY_BORDER[ins.severity]} bg-accent/20 rounded-r-md pl-3 pr-2.5 py-2`}>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Icon className={`w-3.5 h-3.5 ${ins.color} shrink-0`} />
+                <span className={`text-xs font-semibold ${ins.color}`}>{ins.title}</span>
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Grid layout ── */}
-      {insightsLayout === 'grid' && (
-        <div className="grid grid-cols-2 gap-2">
-          {insights.map(ins => {
-            const Icon = ins.icon;
-            return (
-              <div key={ins.key} className="bg-accent/20 rounded-md p-2">
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <Icon className={`w-3.5 h-3.5 ${ins.color} shrink-0`} />
-                  <span className={`text-[11px] font-semibold ${ins.color} truncate`}>{ins.title}</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{ins.detail}</p>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── List layout ── */}
-      {insightsLayout === 'list' && (
-        <div className="space-y-2.5">
-          {insights.map(ins => {
-            const Icon = ins.icon;
-            return (
-              <div key={ins.key} className="flex items-start gap-2">
-                <Icon className={`w-3.5 h-3.5 ${ins.color} mt-0.5 shrink-0`} />
-                <div>
-                  <span className={`text-xs font-semibold ${ins.color} leading-none`}>{ins.title}</span>
-                  <p className="text-[11px] text-muted-foreground/70 leading-snug mt-0.5">{ins.detail}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              <p className="text-[11px] text-muted-foreground leading-relaxed pl-5">{ins.detail}</p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -769,23 +701,23 @@ const PHASE_ROLE_CONTEXT: Record<CurvePhase, Record<RoleGroupKey, string>> = {
     other:       'Setup pieces and early threats',
   },
   mid: {
-    ramp:        'Ramp at 3+ is slower but still adds mana',
+    ramp:        'Slower ramp, but should be making big mana at this stage',
     interaction: 'Mid-cost answers — harder to hold up and play threats',
     cardDraw:    'Engine pieces that sustain card flow',
     other:       'Core strategy cards and engine pieces',
   },
   late: {
-    ramp:        'Late-game ramp rarely worth the slot',
-    interaction: 'Expensive removal — often board wipes',
-    cardDraw:    'Big refill effects for the late game',
-    other:       'Payoffs, finishers, and top-end threats',
+    ramp:        'You should be swimming in mana by now — these slots could be threats',
+    interaction: 'Big answers like board wipes and exile effects for when things go sideways',
+    cardDraw:    'Massive refills to reload your hand when you\'re running on fumes',
+    other:       'Your haymakers — the cards that close out the game',
   },
 };
 
 const PHASE_COLORS: Record<CurvePhase, string> = {
-  early: 'text-sky-400/70',
-  mid:   'text-amber-400/70',
-  late:  'text-purple-400/70',
+  early: 'text-sky-400',
+  mid:   'text-amber-400',
+  late:  'text-purple-400',
 };
 
 export function PhaseCardDisplay({
@@ -886,10 +818,10 @@ export function PhaseCardDisplay({
                       <div key={phase.phase} className={multiPhase ? 'ml-3 px-3 bg-accent/10 rounded-md py-1.5' : ''}>
                         {multiPhase && (
                           <div className="flex items-center gap-1.5 mb-0.5">
-                            <PIcon className={`w-3 h-3 ${phaseColor}`} />
-                            <span className={`text-[10px] font-medium ${phaseColor}`}>{pMeta.label}</span>
+                            <PIcon className={`w-3.5 h-3.5 ${phaseColor}`} />
+                            <span className={`text-[11px] font-semibold ${phaseColor}`}>{pMeta.label}</span>
                             <span className="text-[10px] text-muted-foreground/60 tabular-nums">{cards.length}</span>
-                            <span className="text-[10px] text-muted-foreground/60 italic ml-1">{PHASE_ROLE_CONTEXT[phase.phase][key]}</span>
+                            <span className="text-[10px] text-muted-foreground/80 italic ml-1">{PHASE_ROLE_CONTEXT[phase.phase][key]}</span>
                           </div>
                         )}
                         {!multiPhase && (

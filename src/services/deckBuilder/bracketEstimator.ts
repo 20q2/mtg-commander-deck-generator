@@ -28,6 +28,7 @@ export interface BracketBreakdown {
   fastManaCount: number;
   fastManaNames: string[];
   tutorCount: number;
+  tutorNames: string[];
   averageCmc: number;
   interactionCount: number;
 }
@@ -79,14 +80,14 @@ export function estimateBracket(
   const massLandDenial: string[] = [];
   const extraTurns: string[] = [];
   const fastMana: string[] = [];
-  let tutorCount = 0;
+  const tutors: string[] = [];
 
   for (const name of allCardNames) {
     if (gameChangerNames.has(name)) gameChangers.push(name);
     if (isMassLandDenial(name)) massLandDenial.push(name);
     if (isExtraTurn(name)) extraTurns.push(name);
     if (FAST_MANA.has(name)) fastMana.push(name);
-    if (hasTag(name, 'tutor')) tutorCount++;
+    if (hasTag(name, 'tutor')) tutors.push(name);
   }
 
   // ── 2. Classify combos ──
@@ -124,8 +125,10 @@ export function estimateBracket(
     hardFloors.push({ bracket: 4, reason: `Mass land denial (${massLandDenial.join(', ')})` });
   }
 
-  if (earlyComboCount > 0) {
-    hardFloors.push({ bracket: 4, reason: `${earlyComboCount} early-game infinite combo${earlyComboCount > 1 ? 's' : ''}` });
+  if (earlyComboCount >= 2) {
+    hardFloors.push({ bracket: 4, reason: `${earlyComboCount} early-game infinite combos` });
+  } else if (earlyComboCount === 1) {
+    hardFloors.push({ bracket: 3, reason: '1 early-game infinite combo' });
   }
 
   if (lateComboCount > 0) {
@@ -144,7 +147,7 @@ export function estimateBracket(
 
   const softScore = Math.min(100,
     Math.min(40, fastMana.length * 8) +
-    Math.min(25, tutorCount * 5) +
+    Math.min(25, tutors.length * 5) +
     Math.min(20, Math.max(0, (3.5 - averageCmc) * 15)) +
     Math.min(15, Math.max(0, (interactionCount - 8) * 2))
   );
@@ -177,7 +180,8 @@ export function estimateBracket(
       lateComboCount,
       fastManaCount: fastMana.length,
       fastManaNames: fastMana,
-      tutorCount,
+      tutorCount: tutors.length,
+      tutorNames: tutors,
       averageCmc,
       interactionCount,
     },

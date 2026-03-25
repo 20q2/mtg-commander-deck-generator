@@ -305,7 +305,7 @@ export function buildDetectionMessage(
   const prefix = hasUserOverride ? "You've declared that this is" : "We've detected that this is";
 
   if (!isConfident || matchedThemes.length === 0) {
-    return `This ${b(shortName)} deck has a unique strategy with ${b(pacingLabel)}. Select a theme below for tailored recommendations.`;
+    return `This ${b(shortName)} deck has a unique strategy with ${b(pacingLabel)}. Select a theme using the adjust button for tailored recommendations.`;
   }
 
   if (hasSecondaryTheme && matchedThemes.length >= 2) {

@@ -100,6 +100,15 @@ export interface CurveBreakdown {
 }
 
 export type CurvePhase = 'early' | 'mid' | 'late';
+export type PhaseRoleGroup = 'ramp' | 'interaction' | 'cardDraw' | 'other';
+
+export interface PhaseRoleBreakdown {
+  roleGroup: PhaseRoleGroup;
+  label: string;
+  current: number;
+  target: number;
+  deficit: number;
+}
 
 export interface CurvePhaseAnalysis {
   phase: CurvePhase;
@@ -114,6 +123,8 @@ export interface CurvePhaseAnalysis {
   grade: GradeResult;
   rampInPhase: number;
   interactionInPhase: number;
+  cardDrawInPhase: number;
+  phaseRoleBreakdowns: PhaseRoleBreakdown[];
 }
 
 export interface ManaTrajectoryPoint {
@@ -379,29 +390,33 @@ export function getRolesGrade(roleDeficits: RoleDeficit[]): GradeResult {
 
 // ─── Per-Role Verdict Messages ─────────────────────────────────────
 
-const ROLE_FLAVOR: Record<string, { noun: string; okMsg: string; whyItMatters: string; zeroMsg: string }> = {
+const ROLE_FLAVOR: Record<string, { noun: string; okMsg: string; whyItMatters: string; excessHint: string; zeroMsg: string }> = {
   ramp: {
     noun: 'ramp',
     okMsg: 'your deck should consistently accelerate ahead of curve.',
-    whyItMatters: 'Falling behind on mana means falling behind on everything else.',
+    whyItMatters: 'you\'ll fall behind on mana while opponents pull ahead',
+    excessHint: 'extra slots could go toward threats or interaction',
     zeroMsg: 'No ramp at all — you\'ll be stuck playing one land per turn while opponents pull ahead. Even the fastest decks run mana rocks or dorks to keep up.',
   },
   removal: {
     noun: 'removal',
     okMsg: 'you have plenty of answers for key threats at the table.',
-    whyItMatters: 'Without interaction, opponents\' biggest threats go unchecked.',
+    whyItMatters: 'opponents\' biggest threats will go unchecked',
+    excessHint: 'you might be answering threats instead of building your own board',
     zeroMsg: 'No removal at all — you have no way to deal with an opponent\'s key combo piece, threatening commander, or game-winning enchantment. Interaction is non-negotiable in Commander.',
   },
   boardwipe: {
     noun: 'board wipe',
     okMsg: 'you have reset buttons for when opponents go wide.',
-    whyItMatters: 'When opponents flood the board, you need a way to catch up.',
+    whyItMatters: 'you\'ll struggle to recover when opponents flood the board',
+    excessHint: 'too many resets can stall your own board development',
     zeroMsg: 'No board wipes — if even one opponent builds a wide board, you\'ll have no way to reset. A single well-timed wipe can turn a losing game around.',
   },
   cardDraw: {
     noun: 'card draw',
     okMsg: 'your hand should stay stocked through the mid-to-late game.',
-    whyItMatters: 'Running out of cards means topdecking while opponents still have full hands.',
+    whyItMatters: 'you\'ll be topdecking while opponents still have full hands',
+    excessHint: 'drawing cards is great, but you need things worth casting too',
     zeroMsg: 'No card draw at all — you\'ll empty your hand by turn 5-6 and be topdecking the rest of the game while opponents refuel. Card advantage is how you stay in the game.',
   },
 };
@@ -515,27 +530,33 @@ function getFlexGradeLetter(count: number): string {
   return 'F';
 }
 
-export function getCurveGrade(curveAnalysis: CurveSlot[]): GradeResult {
-  const totalDeviation = curveAnalysis.reduce((sum, s) => sum + Math.abs(s.delta), 0);
-  const totalCards = curveAnalysis.reduce((sum, s) => sum + s.current, 0);
-  if (totalCards === 0) return { letter: 'F', message: 'No non-land cards to evaluate.' };
+export function getCurveGrade(phases: CurvePhaseAnalysis[]): GradeResult {
+  if (phases.length === 0) return { letter: 'F', message: 'No non-land cards to evaluate.' };
 
-  const deviationPct = totalDeviation / totalCards;
+  // Weighted average of phase grades: early 30%, mid 40%, late 30%
+  const PHASE_WEIGHTS: Record<string, number> = { early: 0.30, mid: 0.40, late: 0.30 };
+  const weightedScore = phases.reduce((sum, p) => {
+    const score = GRADE_SCORES[p.grade.letter] ?? 0;
+    const weight = PHASE_WEIGHTS[p.phase] ?? 0;
+    return sum + score * weight;
+  }, 0);
 
-  // Detect direction: top-heavy or bottom-heavy
-  const highEnd = curveAnalysis.filter(s => s.cmc >= 5).reduce((sum, s) => sum + s.delta, 0);
-  const lowEnd = curveAnalysis.filter(s => s.cmc <= 2).reduce((sum, s) => sum + s.delta, 0);
-  const shape = highEnd > 3 ? 'top-heavy' : lowEnd > 3 ? 'bottom-heavy' : 'uneven';
+  const letter = letterFromScore(weightedScore);
 
-  if (deviationPct <= 0.10)
-    return { letter: 'A', message: 'Excellent tempo — plays on curve consistently.' };
-  if (deviationPct <= 0.20)
-    return { letter: 'B', message: 'Good tempo with minor gaps in the curve.' };
-  if (deviationPct <= 0.30)
-    return { letter: 'C', message: `Tempo is a bit ${shape} — may stall at some points.` };
-  if (deviationPct <= 0.40)
-    return { letter: 'D', message: `Tempo is ${shape} — expect awkward turns.` };
-  return { letter: 'F', message: 'Poor tempo — likely to miss plays or waste mana often.' };
+  // Detect direction for message flavor
+  const earlyDelta = phases.find(p => p.phase === 'early')?.delta ?? 0;
+  const lateDelta = phases.find(p => p.phase === 'late')?.delta ?? 0;
+  const shape = lateDelta > 3 ? 'top-heavy' : earlyDelta > 3 ? 'bottom-heavy' : 'uneven';
+
+  const messages: Record<string, string> = {
+    'A': 'Excellent tempo — plays on curve consistently.',
+    'B': 'Good tempo with minor gaps in the curve.',
+    'C': `Tempo is a bit ${shape} — may stall at some points.`,
+    'D': `Tempo is ${shape} — expect awkward turns.`,
+    'F': 'Poor tempo — likely to miss plays or waste mana often.',
+  };
+
+  return { letter, message: messages[letter] || messages.F };
 }
 
 /** Pacing multipliers shift curve targets to match detected deck tempo. */
@@ -547,12 +568,82 @@ export const PACING_MULTIPLIERS: Record<Pacing, { early: number; mid: number; la
   'balanced':         { early: 1.00, mid: 1.00, late: 1.00 },
 };
 
+/** Per-phase role distribution ratios — how global role targets split across phases. */
+const PHASE_ROLE_DIST: Record<CurvePhase, Record<PhaseRoleGroup, number>> = {
+  early: { ramp: 0.75, interaction: 0.25, cardDraw: 0.30, other: 0 },
+  mid:   { ramp: 0.20, interaction: 0.45, cardDraw: 0.40, other: 0 },
+  late:  { ramp: 0.05, interaction: 0.30, cardDraw: 0.30, other: 0 },
+};
+
+/** Pacing-adjusted phase role distributions. */
+const PACING_PHASE_ROLE_DIST: Record<Pacing, Record<CurvePhase, Record<PhaseRoleGroup, number>>> = {
+  'aggressive-early': {
+    early: { ramp: 0.82, interaction: 0.30, cardDraw: 0.35, other: 0 },
+    mid:   { ramp: 0.15, interaction: 0.40, cardDraw: 0.35, other: 0 },
+    late:  { ramp: 0.03, interaction: 0.30, cardDraw: 0.30, other: 0 },
+  },
+  'fast-tempo': {
+    early: { ramp: 0.78, interaction: 0.28, cardDraw: 0.33, other: 0 },
+    mid:   { ramp: 0.18, interaction: 0.42, cardDraw: 0.37, other: 0 },
+    late:  { ramp: 0.04, interaction: 0.30, cardDraw: 0.30, other: 0 },
+  },
+  'midrange': {
+    early: { ramp: 0.72, interaction: 0.25, cardDraw: 0.30, other: 0 },
+    mid:   { ramp: 0.22, interaction: 0.45, cardDraw: 0.40, other: 0 },
+    late:  { ramp: 0.06, interaction: 0.30, cardDraw: 0.30, other: 0 },
+  },
+  'late-game': {
+    early: { ramp: 0.70, interaction: 0.20, cardDraw: 0.25, other: 0 },
+    mid:   { ramp: 0.22, interaction: 0.45, cardDraw: 0.40, other: 0 },
+    late:  { ramp: 0.08, interaction: 0.35, cardDraw: 0.35, other: 0 },
+  },
+  'balanced': PHASE_ROLE_DIST,
+};
+
+/** Distribute global role targets across phases based on pacing. */
+export function getPhaseRoleTargets(
+  roleTargets: Record<string, number>,
+  pacing: Pacing,
+): Record<CurvePhase, Record<PhaseRoleGroup, number>> {
+  const dist = PACING_PHASE_ROLE_DIST[pacing] ?? PHASE_ROLE_DIST;
+  const globalRamp = roleTargets.ramp ?? 10;
+  const globalInteraction = (roleTargets.removal ?? 8) + (roleTargets.boardwipe ?? 3);
+  const globalDraw = roleTargets.cardDraw ?? 10;
+
+  const result: Record<CurvePhase, Record<PhaseRoleGroup, number>> = {
+    early: { ramp: 0, interaction: 0, cardDraw: 0, other: 0 },
+    mid:   { ramp: 0, interaction: 0, cardDraw: 0, other: 0 },
+    late:  { ramp: 0, interaction: 0, cardDraw: 0, other: 0 },
+  };
+
+  for (const phase of ['early', 'mid', 'late'] as CurvePhase[]) {
+    result[phase].ramp = Math.round(globalRamp * dist[phase].ramp);
+    result[phase].interaction = Math.round(globalInteraction * dist[phase].interaction);
+    result[phase].cardDraw = Math.round(globalDraw * dist[phase].cardDraw);
+  }
+
+  // Fix rounding drift so per-role totals across phases match global targets
+  for (const [roleKey, globalTarget] of [
+    ['ramp', globalRamp], ['interaction', globalInteraction], ['cardDraw', globalDraw],
+  ] as [PhaseRoleGroup, number][]) {
+    const total = result.early[roleKey] + result.mid[roleKey] + result.late[roleKey];
+    if (total !== globalTarget && total > 0) {
+      const largest = (['early', 'mid', 'late'] as CurvePhase[])
+        .reduce((max, p) => result[p][roleKey] > result[max][roleKey] ? p : max, 'early' as CurvePhase);
+      result[largest][roleKey] += globalTarget - total;
+    }
+  }
+
+  return result;
+}
+
 /** Build curve phase analysis for early (0-2), mid (3-4), late (5+) game. */
 export function getCurvePhases(
   curveBreakdowns: CurveBreakdown[],
   curveAnalysis: CurveSlot[],
   totalNonLand: number,
   pacing?: Pacing,
+  roleTargets?: Record<string, number>,
 ): CurvePhaseAnalysis[] {
   const phaseDefs: { phase: CurvePhase; label: string; range: [number, number] }[] = [
     { phase: 'early', label: 'Early Game', range: [0, 2] },
@@ -561,6 +652,7 @@ export function getCurvePhases(
   ];
 
   const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
+  const phaseRoleTargets = roleTargets ? getPhaseRoleTargets(roleTargets, pacing ?? 'balanced') : null;
 
   const result = phaseDefs.map(({ phase, label, range }) => {
     const slots = curveAnalysis.filter(s => s.cmc >= range[0] && s.cmc <= range[1]);
@@ -575,18 +667,31 @@ export function getCurvePhases(
     const cmcSum = cards.reduce((s, ac) => s + ac.card.cmc, 0);
     const avgCmc = cards.length > 0 ? cmcSum / cards.length : 0;
 
-    // Count ramp and interaction in this phase
+    // Count roles in this phase
     let rampInPhase = 0;
     let interactionInPhase = 0;
+    let cardDrawInPhase = 0;
     for (const ac of cards) {
       const role = ac.card.deckRole || getCardRole(ac.card.name);
       if (role === 'ramp') rampInPhase++;
       if (role === 'removal' || role === 'boardwipe') interactionInPhase++;
+      if (role === 'cardDraw') cardDrawInPhase++;
     }
+
+    // Per-phase role breakdowns with targets
+    const prt = phaseRoleTargets?.[phase];
+    const otherCount = cards.length - rampInPhase - interactionInPhase - cardDrawInPhase;
+    const phaseRoleBreakdowns: PhaseRoleBreakdown[] = [
+      { roleGroup: 'ramp', label: 'Ramp', current: rampInPhase, target: prt?.ramp ?? 0, deficit: Math.max(0, (prt?.ramp ?? 0) - rampInPhase) },
+      { roleGroup: 'interaction', label: 'Interaction', current: interactionInPhase, target: prt?.interaction ?? 0, deficit: Math.max(0, (prt?.interaction ?? 0) - interactionInPhase) },
+      { roleGroup: 'cardDraw', label: 'Card Draw', current: cardDrawInPhase, target: prt?.cardDraw ?? 0, deficit: Math.max(0, (prt?.cardDraw ?? 0) - cardDrawInPhase) },
+      { roleGroup: 'other', label: 'Other', current: otherCount, target: 0, deficit: 0 },
+    ];
 
     return {
       phase, label, cmcRange: range, current, target, cards,
-      pctOfDeck, avgCmc, rampInPhase, interactionInPhase,
+      pctOfDeck, avgCmc, rampInPhase, interactionInPhase, cardDrawInPhase,
+      phaseRoleBreakdowns,
       // delta and grade are set after normalization
       delta: 0, grade: { letter: 'A', message: '' } as GradeResult,
     };
@@ -704,7 +809,8 @@ export interface SummaryItem {
   icon: string;       // key into SUMMARY_SVGS
   label: string;      // e.g. "Removal"
   tab: string;        // e.g. "roles:removal" or "lands"
-  text: string;       // e.g. "1 below target"
+  text: string;       // e.g. "have 7, want 8"
+  hint?: string;      // gameplay-impact flavor, e.g. "opponents' threats go unchecked"
 }
 
 export interface DeckSummaryData {
@@ -725,7 +831,6 @@ export function getDeckSummaryData(analysis: DeckAnalysis, deckExcess?: number):
   const weightedCmc = analysis.curveAnalysis.reduce((s, c) => s + c.cmc * c.current, 0);
   const avgCmc = totalCards > 0 ? weightedCmc / totalCards : 0;
 
-  const rolesMet = analysis.roleDeficits.filter(rd => rd.current >= rd.target).length;
   const totalRoles = analysis.roleDeficits.length;
 
   const deficits = analysis.roleDeficits.filter(rd => rd.deficit > 0).sort((a, b_) => b_.deficit - a.deficit);
@@ -752,20 +857,63 @@ export function getDeckSummaryData(analysis: DeckAnalysis, deckExcess?: number):
     cardCountSeverity = 'short';
   }
 
-  // Headline
+  // Headline — describe actual strengths & weaknesses by name
   let headline: string;
-  if (avgScore >= 3.5) {
-    headline = `Well-tuned — ${rolesMet} of ${totalRoles} roles met with a ${avgCmc.toFixed(1)} avg CMC.`;
-  } else if (avgScore >= 2.5) {
-    headline = `Solid foundation — ${rolesMet} of ${totalRoles} roles met with a ${avgCmc.toFixed(1)} avg CMC.`;
-  } else if (avgScore >= 1.5) {
-    headline = `Has some gaps — only ${rolesMet} of ${totalRoles} roles are on target.`;
-  } else {
-    headline = `Needs work — only ${rolesMet} of ${totalRoles} roles on target with a ${avgCmc.toFixed(1)} avg CMC.`;
-  }
 
   if (deckExcess && deckExcess > 0) {
     headline = `${deckExcess} cards over target — the weakest fits are listed below.`;
+  } else {
+    // Identify strong roles (met or exceeded target)
+    const strongRoles = analysis.roleDeficits
+      .filter(rd => rd.current >= rd.target)
+      .map(rd => rd.label.toLowerCase());
+    // Identify weak roles (deficit > 0), sorted by worst first
+    const weakRoles = deficits.map(rd => rd.label.toLowerCase());
+
+    // Mana base descriptor
+    const manaNote = verdict === 'critically-low' ? 'mana base is critically low'
+      : verdict === 'low' ? 'mana base is light'
+      : verdict === 'high' ? 'running extra lands'
+      : null;
+
+    // Curve descriptor
+    const curveNote = curveShape === 'top-heavy' ? 'curve is top-heavy'
+      : curveShape === 'bottom-heavy' ? 'curve skews low'
+      : null;
+
+    // Build the headline from parts
+    const parts: string[] = [];
+
+    if (strongRoles.length > 0 && strongRoles.length <= 3) {
+      parts.push(`Strong ${strongRoles.join(' and ')}`);
+    } else if (strongRoles.length === totalRoles) {
+      parts.push('All roles well-covered');
+    } else if (strongRoles.length > 3) {
+      parts.push(`${strongRoles.length} of ${totalRoles} roles solid`);
+    }
+
+    // Collect weaknesses
+    const issues: string[] = [];
+    if (weakRoles.length === 1) {
+      issues.push(`needs more ${weakRoles[0]}`);
+    } else if (weakRoles.length === 2) {
+      issues.push(`needs more ${weakRoles[0]} and ${weakRoles[1]}`);
+    } else if (weakRoles.length > 2) {
+      issues.push(`${weakRoles.length} roles under target`);
+    }
+    if (manaNote) issues.push(manaNote);
+    if (curveNote) issues.push(curveNote);
+
+    if (parts.length > 0 && issues.length > 0) {
+      headline = `${parts[0]}, but ${issues[0]}.${issues.length > 1 ? ` Also ${issues.slice(1).join(', ')}.` : ''}`;
+    } else if (parts.length > 0) {
+      // No issues — everything looks good
+      headline = `${parts[0]} with a balanced ${avgCmc.toFixed(1)} avg CMC — looking sharp.`;
+    } else if (issues.length > 0) {
+      headline = `${issues[0].charAt(0).toUpperCase() + issues[0].slice(1)}.${issues.length > 1 ? ` ${issues.slice(1).map(i => i.charAt(0).toUpperCase() + i.slice(1)).join('. ')}.` : ''}`;
+    } else {
+      headline = `Balanced build at ${avgCmc.toFixed(1)} avg CMC.`;
+    }
   }
 
   // Build items
@@ -773,39 +921,40 @@ export function getDeckSummaryData(analysis: DeckAnalysis, deckExcess?: number):
   const trims: SummaryItem[] = [];
   const noteItems: SummaryItem[] = [];
 
+  const deficitHint = (role: string) => ROLE_FLAVOR[role]?.whyItMatters;
+  const excessHint = (role: string) => ROLE_FLAVOR[role]?.excessHint;
+
   if (deckExcess && deckExcess > 0) {
-    // Over-target: show up to 2 deficits and 2 excesses
-    for (const rd of deficits.slice(0, 2)) {
-      needs.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `${rd.deficit} below target` });
+    // Over-target: show all deficits and excesses
+    for (const rd of deficits) {
+      needs.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `have ${rd.current}, want ${rd.target}`, hint: deficitHint(rd.role) });
     }
-    for (const rd of excesses.slice(0, 2)) {
-      trims.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `${rd.current - rd.target} over target` });
+    for (const rd of excesses) {
+      trims.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `running ${rd.current}, only need ${rd.target}`, hint: excessHint(rd.role) });
     }
     if (landDelta > 2) {
-      trims.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `${landDelta} above suggested count` });
+      trims.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `running ${currentLands}, only need ${adjustedSuggestion}`, hint: 'extra lands mean fewer spells to play' });
     }
   } else {
-    // Normal: top deficit + land issues
-    if (deficits.length > 0) {
-      const top = deficits[0];
-      needs.push({ icon: top.role, label: top.label, tab: `roles:${top.role}`, text: `${top.deficit} below target` });
+    // Normal: show all deficits + land issues
+    for (const rd of deficits) {
+      needs.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `have ${rd.current}, want ${rd.target}`, hint: deficitHint(rd.role) });
     }
     if (verdict === 'low' || verdict === 'critically-low') {
-      needs.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `${Math.abs(landDelta)} below suggested count` });
+      needs.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `have ${currentLands}, want ${adjustedSuggestion}`, hint: 'you\'ll miss land drops and fall behind on tempo' });
     }
-    if (excesses.length > 0) {
-      const ex = excesses[0];
-      trims.push({ icon: ex.role, label: ex.label, tab: `roles:${ex.role}`, text: `${ex.current - ex.target} over target` });
+    for (const rd of excesses) {
+      trims.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `running ${rd.current}, only need ${rd.target}`, hint: excessHint(rd.role) });
     }
     if (verdict === 'high') {
-      trims.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `${landDelta} above suggested count` });
+      trims.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `running ${currentLands}, only need ${adjustedSuggestion}`, hint: 'extra lands mean fewer spells to play' });
     }
   }
 
   if (curveShape === 'top-heavy') {
-    noteItems.push({ icon: 'curve', label: 'Tempo', tab: 'curve', text: 'too many expensive spells; swap some for cheaper options' });
+    noteItems.push({ icon: 'curve', label: 'Tempo', tab: 'curve', text: `avg CMC is ${avgCmc.toFixed(1)} — too many expensive spells`, hint: 'you\'ll be sitting on uncastable hands while opponents develop their boards' });
   } else if (curveShape === 'bottom-heavy') {
-    noteItems.push({ icon: 'curve', label: 'Tempo', tab: 'curve', text: 'bottom-heavy curve; consider higher-impact cards at 4+ CMC' });
+    noteItems.push({ icon: 'curve', label: 'Tempo', tab: 'curve', text: `avg CMC is ${avgCmc.toFixed(1)} — skews very low`, hint: 'you\'ll run out of gas in the late game when opponents play their haymakers' });
   }
 
   return { gradeLetter, headline, cardCountNote, cardCountSeverity, needs, trims, notes: noteItems };
@@ -934,6 +1083,7 @@ export function analyzeDeck(
   deckSize: number,
   cardInclusionMap?: Record<string, number>,
   colorIdentity?: string[],
+  overridePacing?: Pacing,
 ): DeckAnalysis {
   // --- Role Deficits ---
   const roleDeficits: RoleDeficit[] = Object.entries(roleTargets).map(([role, target]) => {
@@ -1016,6 +1166,13 @@ export function analyzeDeck(
     // Weak ramp — push lands up by 2
     adjustedSuggestion = edhrecLands + 2;
   }
+  // Pacing-based land nudge: faster decks can run leaner, slower need more consistency
+  if (overridePacing === 'aggressive-early' || overridePacing === 'fast-tempo') {
+    adjustedSuggestion -= 1;
+  } else if (overridePacing === 'late-game') {
+    adjustedSuggestion += 1;
+  }
+
   // Hard floor: never suggest below 33% of deck
   const landFloor = Math.round(deckSize * 0.33);
   adjustedSuggestion = Math.max(adjustedSuggestion, landFloor);
@@ -1712,9 +1869,11 @@ export function analyzeDeck(
   const rolesGrade = getRolesGrade(roleDeficits);
   const flexCount = mdfcsInDeck.length + channelLandsInDeck.length;
   const manaGrade = getManaGrade(manaBase, manaSources, colorFixing, flexCount);
-  const curveGrade = getCurveGrade(curveAnalysis);
-  const { pacing, label: pacingLabel } = detectPacing(currentCards, curveAnalysis);
+  const detected = detectPacing(currentCards, curveAnalysis);
+  const pacing = overridePacing ?? detected.pacing;
+  const pacingLabel = overridePacing ? (overridePacing.charAt(0).toUpperCase() + overridePacing.slice(1).replace('-', ' ')) : detected.label;
   const curvePhases = getCurvePhases(curveBreakdowns, curveAnalysis, totalNonLand, pacing);
+  const curveGrade = getCurveGrade(curvePhases);
   const manaTrajectory = getManaTrajectory(deckSize, currentLands, manaSources.earlyRamp, manaSources.avgRampCmc, taplandRatio);
 
   // --- Enrich trajectory with card-based stats ---

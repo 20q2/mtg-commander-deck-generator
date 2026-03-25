@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useStore } from '@/store';
 import { formatRelativeTime } from '@/lib/utils';
-import type { DeckHistoryEntry } from '@/types';
+import { CardContextMenu, type CardContextMenuProps, type CardAction } from './DeckDisplay';
+import type { DeckHistoryEntry, ScryfallCard } from '@/types';
 
 const HISTORY_OPEN_KEY = 'mtg-deck-show-history';
 
@@ -14,32 +15,82 @@ const historyBadges: Record<string, { label: string; color: string; bg: string }
   maybeboard: { label: 'MB', color: 'text-amber-400',   bg: 'bg-amber-500/15' },
 };
 
-function HistoryRow({ entry, onPreview }: { entry: DeckHistoryEntry; onPreview?: (name: string) => void }) {
+interface HistoryRowProps {
+  entry: DeckHistoryEntry;
+  onPreview?: (name: string) => void;
+  resolveCard?: (name: string) => Promise<ScryfallCard | undefined>;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: Omit<CardContextMenuProps, 'card' | 'onAction'>;
+  inDeck?: boolean;
+}
+
+function HistoryRow({ entry, onPreview, resolveCard, onCardAction, menuProps, inDeck }: HistoryRowProps) {
   const badge = historyBadges[entry.action];
+  const [contextCard, setContextCard] = useState<ScryfallCard | null>(null);
+
+  const handleContext = useCallback(async (e: React.MouseEvent, name: string) => {
+    if (!resolveCard || !onCardAction || !menuProps) return;
+    e.preventDefault();
+    const card = await resolveCard(name);
+    if (card) setContextCard(card);
+  }, [resolveCard, onCardAction, menuProps]);
+
+  const nameBtn = (name: string) => (
+    <button
+      type="button"
+      onClick={() => onPreview?.(name)}
+      onContextMenu={(e) => handleContext(e, name)}
+      className="hover:underline hover:text-foreground transition-colors"
+    >
+      {name}
+    </button>
+  );
+
   return (
-    <div className="flex items-center gap-2 text-xs py-0.5">
+    <div className="flex items-center gap-2 text-xs py-0.5 group">
       <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${badge.color} ${badge.bg}`}>
         {badge.label}
       </span>
       <span className="truncate text-foreground/80">
         {entry.action === 'swap' ? (
           <>
-            <button type="button" onClick={() => onPreview?.(entry.cardName)} className="hover:underline hover:text-foreground transition-colors">{entry.cardName}</button>
+            {nameBtn(entry.cardName)}
             <span className="text-muted-foreground/50"> &rarr; </span>
-            <button type="button" onClick={() => onPreview?.(entry.targetCardName!)} className="hover:underline hover:text-foreground transition-colors">{entry.targetCardName}</button>
+            {nameBtn(entry.targetCardName!)}
           </>
         ) : (
-          <button type="button" onClick={() => onPreview?.(entry.cardName)} className="hover:underline hover:text-foreground transition-colors">{entry.cardName}</button>
+          nameBtn(entry.cardName)
         )}
       </span>
       <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/50">
         {formatRelativeTime(entry.timestamp)}
       </span>
+      {resolveCard && onCardAction && menuProps && (
+        <span className={`shrink-0 transition-all ${contextCard ? 'w-3 opacity-100' : 'w-0 opacity-0 group-hover:w-3 group-hover:opacity-100'}`}>
+          <CardContextMenu
+            card={contextCard ?? { name: entry.cardName, id: entry.cardName } as ScryfallCard}
+            onAction={onCardAction}
+            {...menuProps}
+            hasRemove={inDeck}
+            hasAddToDeck={!inDeck}
+            forceOpen={!!contextCard}
+            onForceClose={() => setContextCard(null)}
+          />
+        </span>
+      )}
     </div>
   );
 }
 
-export function DeckHistory({ onPreviewCard }: { onPreviewCard?: (name: string) => void } = {}) {
+interface DeckHistoryProps {
+  onPreviewCard?: (name: string) => void;
+  resolveCard?: (name: string) => Promise<ScryfallCard | undefined>;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  cardMenuProps?: Omit<CardContextMenuProps, 'card' | 'onAction'>;
+  deckCardNames?: Set<string>;
+}
+
+export function DeckHistory({ onPreviewCard, resolveCard, onCardAction, cardMenuProps, deckCardNames }: DeckHistoryProps) {
   const deckHistory = useStore(s => s.deckHistory);
   const [isOpen, setIsOpen] = useState(() => localStorage.getItem(HISTORY_OPEN_KEY) !== 'false');
 
@@ -69,9 +120,17 @@ export function DeckHistory({ onPreviewCard }: { onPreviewCard?: (name: string) 
         <span className="ml-auto text-[10px] text-muted-foreground/50">{deckHistory.length}</span>
       </button>
       {isOpen && (
-        <div className="mt-3 max-h-64 overflow-y-auto space-y-1 pr-2 scrollbar-thin">
+        <div className="mt-3 max-h-48 overflow-x-hidden overflow-y-auto space-y-1 pr-1 scrollbar-thin">
           {deckHistory.map(entry => (
-            <HistoryRow key={entry.id} entry={entry} onPreview={onPreviewCard} />
+            <HistoryRow
+              key={entry.id}
+              entry={entry}
+              onPreview={onPreviewCard}
+              resolveCard={resolveCard}
+              onCardAction={onCardAction}
+              menuProps={cardMenuProps}
+              inDeck={deckCardNames?.has(entry.cardName)}
+            />
           ))}
         </div>
       )}

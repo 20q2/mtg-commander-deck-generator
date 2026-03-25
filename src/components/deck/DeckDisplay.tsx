@@ -1562,7 +1562,7 @@ function formatBracketTooltip(est: import('@/services/deckBuilder/bracketEstimat
   const signals: string[] = [];
   if (b.fastManaCount > 0) signals.push(`${b.fastManaCount} fast mana`);
   if (b.tutorCount > 0) signals.push(`${b.tutorCount} tutor${b.tutorCount > 1 ? 's' : ''}`);
-  if (b.gameChangerCount > 0) signals.push(`${b.gameChangerCount} game changer${b.gameChangerCount > 1 ? 's' : ''}`);
+  if (b.gameChangerCount > 0) signals.push(`${b.gameChangerCount} game changer${b.gameChangerCount > 1 ? 's' : ''}: ${b.gameChangerNames.join(', ')}`);
   if (b.earlyComboCount > 0) signals.push(`${b.earlyComboCount} early combo${b.earlyComboCount > 1 ? 's' : ''}`);
   if (b.lateComboCount > 0) signals.push(`${b.lateComboCount} late combo${b.lateComboCount > 1 ? 's' : ''}`);
   if (b.extraTurnCount > 0) signals.push(`${b.extraTurnCount} extra turn${b.extraTurnCount > 1 ? 's' : ''}`);
@@ -1653,11 +1653,14 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
           {generatedDeck.bracketEstimation && (() => {
             const b = generatedDeck.bracketEstimation;
             return (
-              <div className="flex items-center gap-2 px-1 -mt-2">
-                <div className={`w-2 h-2 rounded-full shrink-0 ${BRACKET_DOT_COLORS[b.bracket]}`} />
-                <span className={`text-xs font-medium ${BRACKET_TEXT_COLORS[b.bracket]}`}>Bracket {b.bracket}</span>
-                <span className="text-xs text-muted-foreground">{b.label}</span>
-                <span className="ml-auto"><InfoTooltip text={formatBracketTooltip(b)} /></span>
+              <div className="-mt-2">
+                <div className="flex items-center gap-2 px-1">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${BRACKET_DOT_COLORS[b.bracket]}`} />
+                  <span className={`text-xs font-medium ${BRACKET_TEXT_COLORS[b.bracket]}`}>Bracket {b.bracket}</span>
+                  <span className="text-xs text-muted-foreground">{b.label}</span>
+                  <span className="ml-auto"><InfoTooltip text={formatBracketTooltip(b)} /></span>
+                </div>
+                <div className="text-[10px] text-muted-foreground/60 px-1 -mt-1">Estimated from deck contents</div>
               </div>
             );
           })()}
@@ -2058,6 +2061,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   }, [onEditModeChange]);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
+  const [editDrawerTab, setEditDrawerTab] = useState<'actions' | 'move' | 'add'>('actions');
   const [collapsedGridCategories, setCollapsedGridCategories] = useState<Set<CardType>>(new Set());
   const [addToTab, setAddToTabRaw] = useState<'lists' | 'deck'>(lastAddToTab);
   const setAddToTab = useCallback((tab: 'lists' | 'deck') => { lastAddToTab = tab; setAddToTabRaw(tab); }, []);
@@ -2183,6 +2187,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     setIsEditMode(false);
     setSelectedCards(new Set());
     lastSelectedIdRef.current = null;
+    setEditDrawerTab('actions');
   }, []);
 
   const handleToggleCardSelection = useCallback((card: ScryfallCard, shiftKey?: boolean) => {
@@ -2387,6 +2392,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       const card = await getCardByName(name);
       if (card) setPreviewCard(card);
     } catch { /* silently fail */ }
+  }, [flatCardList]);
+
+  const deckCardNames = useMemo(() => new Set(flatCardList.map(c => c.name)), [flatCardList]);
+
+  const resolveCardByName = useCallback(async (name: string): Promise<ScryfallCard | undefined> => {
+    const found = flatCardList.find(c => c.name === name);
+    if (found) return found;
+    try { return await getCardByName(name) ?? undefined; } catch { return undefined; }
   }, [flatCardList]);
 
   const handlePreviewNavigate = useCallback((direction: 'prev' | 'next') => {
@@ -2605,7 +2618,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
     setShowAddToDropdown(false);
     setListSearchQuery('');
-    setSelectedCards(new Set());
   }, [getSelectedCardNames, userLists, updateList]);
 
   const handleAddToNewList = useCallback((name: string) => {
@@ -2622,7 +2634,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     setShowNewListInput(false);
     setNewListName('');
     setListSearchQuery('');
-    setSelectedCards(new Set());
   }, [getSelectedCardNames, createList, deleteList]);
 
   // Single-card context menu handler
@@ -3131,7 +3142,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
               <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader />
-              <DeckHistory onPreviewCard={handleHistoryPreview} />
+              <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
         </div>
@@ -3282,7 +3293,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search..."
-                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-40 sm:w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-28 sm:w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
               />
               {searchQuery && (
                 <button
@@ -3647,7 +3658,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               {sidebarHeader || deckSummary}
             </div>
             <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
-            <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} /></div>
+            <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>
       </div>
@@ -3740,17 +3751,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       )}
       {isEditMode && createPortal(
         <div className="fixed bottom-0 left-0 right-0 z-40 animate-slide-up">
-          <div className="max-w-4xl mx-auto px-4 pb-4">
-            <div className="flex items-center justify-between gap-2 sm:gap-4 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-3 sm:px-5 py-3">
-              <span className="text-xs sm:text-sm font-medium shrink-0">
+          {/* Desktop toolbar */}
+          <div className="hidden sm:block max-w-4xl mx-auto px-4 pb-4">
+            <div className="flex items-center justify-between gap-4 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-5 py-3">
+              <span className="text-sm font-medium shrink-0">
                 {selectedCards.size > 0 ? (
-                  <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''}<span className="hidden sm:inline"> selected</span></>
+                  <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''} selected</>
                 ) : (
                   <span className="text-muted-foreground">Select cards</span>
                 )}
               </span>
               {toolbarExtra}
-              <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-2">
                 {onRemoveCards && (
                   <button
                     onClick={handleRemoveFromList}
@@ -3759,7 +3771,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     title="Remove"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Remove</span>
+                    <span>Remove</span>
                   </button>
                 )}
                 {onRegenerate && (
@@ -3775,7 +3787,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       title={allSelectedAreMustInclude ? 'Unpin must-include' : 'Must Include'}
                     >
                       <Pin className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">{allSelectedAreMustInclude ? 'Unpin' : 'Must Include'}</span>
+                      <span>{allSelectedAreMustInclude ? 'Unpin' : 'Must Include'}</span>
                     </button>
                     <button
                       onClick={handleBanSelected}
@@ -3784,7 +3796,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       title="Exclude"
                     >
                       <Ban className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Exclude</span>
+                      <span>Exclude</span>
                     </button>
                     <div className="w-px h-5 bg-border mx-0.5" />
                     <button
@@ -3794,7 +3806,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       title="Replace"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Replace</span>
+                      <span>Replace</span>
                     </button>
                   </>
                 )}
@@ -3806,7 +3818,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     title="Add to"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Add to</span>
+                    <span>Add to</span>
                     <ChevronDown className="w-3 h-3" />
                   </button>
                   {showAddToDropdown && (() => {
@@ -3818,7 +3830,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       : listsOnly;
                     return (
                       <div className="absolute bottom-full mb-1 right-0 w-60 bg-card border border-border rounded-lg shadow-2xl z-50 max-h-80 flex flex-col">
-                        {/* Tabs */}
                         {hasDeckTab && (
                           <div className="flex border-b border-border">
                             <button
@@ -3835,89 +3846,42 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                             </button>
                           </div>
                         )}
-                        {/* Deck tab */}
                         {activeTab === 'deck' && hasDeckTab && (
                           <div className="py-1">
                             {onMoveToSideboard && (
-                              <button
-                                onClick={handleMoveToSideboard}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
-                              >
-                                <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" />
-                                <span>Sideboard</span>
+                              <button onClick={handleMoveToSideboard} className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2">
+                                <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" /><span>Sideboard</span>
                               </button>
                             )}
                             {onMoveToMaybeboard && (
-                              <button
-                                onClick={handleMoveToMaybeboard}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
-                              >
-                                <Bookmark className="w-3.5 h-3.5 text-purple-400" />
-                                <span>Maybeboard</span>
+                              <button onClick={handleMoveToMaybeboard} className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2">
+                                <Bookmark className="w-3.5 h-3.5 text-purple-400" /><span>Maybeboard</span>
                               </button>
                             )}
                           </div>
                         )}
-                        {/* Lists tab */}
                         {activeTab === 'lists' && (
                           <>
                             {listsOnly.length >= 5 && (
                               <div className="px-2 pt-1 pb-1">
-                                <input
-                                  type="text"
-                                  placeholder="Search lists..."
-                                  value={listSearchQuery}
-                                  onChange={e => setListSearchQuery(e.target.value)}
-                                  className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
-                                  autoFocus
-                                  onClick={e => e.stopPropagation()}
-                                />
+                                <input type="text" placeholder="Search lists..." value={listSearchQuery} onChange={e => setListSearchQuery(e.target.value)} className="w-full px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary" autoFocus onClick={e => e.stopPropagation()} />
                               </div>
                             )}
                             <div className="overflow-y-auto py-1">
                               {showNewListInput ? (
-                                <form
-                                  className="px-2 py-1.5 flex items-center gap-1.5"
-                                  onSubmit={(e) => { e.preventDefault(); handleAddToNewList(newListName); }}
-                                >
-                                  <input
-                                    ref={newListInputRef}
-                                    type="text"
-                                    placeholder="List name..."
-                                    value={newListName}
-                                    onChange={e => setNewListName(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Escape') { setShowNewListInput(false); setNewListName(''); } }}
-                                    className="flex-1 min-w-0 px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary"
-                                    autoFocus
-                                    onClick={e => e.stopPropagation()}
-                                  />
-                                  <button
-                                    type="submit"
-                                    disabled={!newListName.trim()}
-                                    className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:pointer-events-none"
-                                  >
-                                    Create
-                                  </button>
+                                <form className="px-2 py-1.5 flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); handleAddToNewList(newListName); }}>
+                                  <input ref={newListInputRef} type="text" placeholder="List name..." value={newListName} onChange={e => setNewListName(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { setShowNewListInput(false); setNewListName(''); } }} className="flex-1 min-w-0 px-2 py-1 text-xs bg-muted/50 border border-border rounded focus:outline-none focus:border-primary" autoFocus onClick={e => e.stopPropagation()} />
+                                  <button type="submit" disabled={!newListName.trim()} className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:pointer-events-none">Create</button>
                                 </form>
                               ) : (
-                                <button
-                                  onClick={() => { setShowNewListInput(true); setTimeout(() => newListInputRef.current?.focus(), 0); }}
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 text-primary"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                  New list
+                                <button onClick={() => { setShowNewListInput(true); setTimeout(() => newListInputRef.current?.focus(), 0); }} className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 text-primary">
+                                  <Plus className="w-3.5 h-3.5" />New list
                                 </button>
                               )}
                               {filtered.length > 0 && <div className="border-t border-border my-1" />}
                               {filtered.map(list => (
-                                <button
-                                  key={list.id}
-                                  onClick={() => handleAddToExistingList(list.id)}
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent truncate"
-                                  title={`${list.name} (${list.cards.length} cards)`}
-                                >
-                                  {list.name}
-                                  <span className="text-muted-foreground ml-1">({list.cards.length})</span>
+                                <button key={list.id} onClick={() => handleAddToExistingList(list.id)} className="w-full text-left px-3 py-2 text-sm hover:bg-accent truncate" title={`${list.name} (${list.cards.length} cards)`}>
+                                  {list.name}<span className="text-muted-foreground ml-1">({list.cards.length})</span>
                                 </button>
                               ))}
                               {listSearchQuery && filtered.length === 0 && (
@@ -3930,15 +3894,204 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     );
                   })()}
                 </div>
-                <button
-                  onClick={handleExitEditMode}
-                  className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors"
-                >
-                  Cancel
-                </button>
+                <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors">Cancel</button>
               </div>
             </div>
           </div>
+
+          {/* Mobile drawer */}
+          {(() => {
+            const hasMoveTab = !!(onMoveToSideboard || onMoveToMaybeboard || userLists.some(l => l.type !== 'deck'));
+            const hasAddTab = !!toolbarExtra;
+            const listsOnly = userLists.filter(l => l.type !== 'deck');
+            const filtered = listSearchQuery
+              ? listsOnly.filter(l => l.name.toLowerCase().includes(listSearchQuery.toLowerCase()))
+              : listsOnly;
+            return (
+              <div className="sm:hidden bg-card/95 backdrop-blur-md border-t border-border shadow-2xl">
+                {/* Handle + Header */}
+                <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                  <span className="text-sm font-medium">
+                    {selectedCards.size > 0 ? (
+                      <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''} selected</>
+                    ) : (
+                      <span className="text-muted-foreground">Select cards</span>
+                    )}
+                  </span>
+                  <button onClick={handleExitEditMode} className="px-2 py-1 text-xs text-red-400/70 hover:text-red-400 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+
+                {/* Tab bar */}
+                <div className="flex border-b border-border/50 px-4 gap-1">
+                  <button
+                    onClick={() => setEditDrawerTab('actions')}
+                    className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${editDrawerTab === 'actions' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground'}`}
+                  >
+                    Actions
+                  </button>
+                  {hasMoveTab && (
+                    <button
+                      onClick={() => setEditDrawerTab('move')}
+                      className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${editDrawerTab === 'move' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground'}`}
+                    >
+                      Move to
+                    </button>
+                  )}
+                  {hasAddTab && (
+                    <button
+                      onClick={() => setEditDrawerTab('add')}
+                      className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${editDrawerTab === 'add' ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground'}`}
+                    >
+                      Add
+                    </button>
+                  )}
+                </div>
+
+                {/* Tab content */}
+                <div className="px-4 py-3 pb-6 space-y-1">
+                  {/* Actions tab */}
+                  {editDrawerTab === 'actions' && (
+                    <>
+                      {onRemoveCards && (
+                        <button
+                          onClick={handleRemoveFromList}
+                          disabled={selectedCards.size === 0}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Remove from deck
+                        </button>
+                      )}
+                      {onRegenerate && (
+                        <>
+                          <button
+                            onClick={handleToggleMustInclude}
+                            disabled={selectedCards.size === 0}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+                              allSelectedAreMustInclude
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            <Pin className="w-4 h-4" />
+                            {allSelectedAreMustInclude ? 'Unpin must-include' : 'Pin as must-include'}
+                          </button>
+                          <button
+                            onClick={handleBanSelected}
+                            disabled={selectedCards.size === 0}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                          >
+                            <Ban className="w-4 h-4" />
+                            Exclude from deck
+                          </button>
+                          <button
+                            onClick={handleReplaceSelected}
+                            disabled={selectedCards.size === 0}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                            Replace with alternatives
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Move to tab */}
+                  {editDrawerTab === 'move' && hasMoveTab && (
+                    <>
+                      {onMoveToSideboard && (
+                        <button
+                          onClick={handleMoveToSideboard}
+                          disabled={selectedCards.size === 0}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          <ArrowUpDown className="w-4 h-4 text-amber-400" />
+                          Move to sideboard
+                        </button>
+                      )}
+                      {onMoveToMaybeboard && (
+                        <button
+                          onClick={handleMoveToMaybeboard}
+                          disabled={selectedCards.size === 0}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          <Bookmark className="w-4 h-4 text-purple-400" />
+                          Move to maybeboard
+                        </button>
+                      )}
+                      {listsOnly.length > 0 && (onMoveToSideboard || onMoveToMaybeboard) && (
+                        <div className="border-t border-border/50 my-2" />
+                      )}
+                      {listsOnly.length >= 5 && (
+                        <div className="pb-1">
+                          <input
+                            type="text"
+                            placeholder="Search lists..."
+                            value={listSearchQuery}
+                            onChange={e => setListSearchQuery(e.target.value)}
+                            className="w-full px-3 py-2 text-xs bg-muted/50 border border-border rounded-lg focus:outline-none focus:border-primary"
+                            onClick={e => e.stopPropagation()}
+                          />
+                        </div>
+                      )}
+                      <div className="max-h-40 overflow-y-auto">
+                        {showNewListInput ? (
+                          <form className="flex items-center gap-1.5 py-1" onSubmit={(e) => { e.preventDefault(); handleAddToNewList(newListName); }}>
+                            <input
+                              ref={newListInputRef}
+                              type="text"
+                              placeholder="List name..."
+                              value={newListName}
+                              onChange={e => setNewListName(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Escape') { setShowNewListInput(false); setNewListName(''); } }}
+                              className="flex-1 min-w-0 px-3 py-2 text-xs bg-muted/50 border border-border rounded-lg focus:outline-none focus:border-primary"
+                              autoFocus
+                              onClick={e => e.stopPropagation()}
+                            />
+                            <button type="submit" disabled={!newListName.trim()} className="px-3 py-2 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:pointer-events-none">
+                              Create
+                            </button>
+                          </form>
+                        ) : (
+                          <button
+                            onClick={() => { setShowNewListInput(true); setTimeout(() => newListInputRef.current?.focus(), 0); }}
+                            disabled={selectedCards.size === 0}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-primary transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Add to new list
+                          </button>
+                        )}
+                        {filtered.map(list => (
+                          <button
+                            key={list.id}
+                            onClick={() => handleAddToExistingList(list.id)}
+                            disabled={selectedCards.size === 0}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors truncate disabled:opacity-40 disabled:pointer-events-none"
+                          >
+                            <List className="w-4 h-4 shrink-0" />
+                            <span className="truncate">{list.name}</span>
+                            <span className="text-muted-foreground/70 text-xs ml-auto shrink-0">({list.cards.length})</span>
+                          </button>
+                        ))}
+                        {listSearchQuery && filtered.length === 0 && (
+                          <p className="px-3 py-2 text-xs text-muted-foreground">No matching lists</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Add tab */}
+                  {editDrawerTab === 'add' && hasAddTab && (
+                    <div>{toolbarExtra}</div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>,
         document.body
       )}

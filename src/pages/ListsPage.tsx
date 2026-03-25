@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useStore } from '@/store';
@@ -39,7 +39,8 @@ export function ListsPage() {
     if (segments[1] === 'deck-view') return { view: 'deck-view' as const, listId };
     return { view: 'detail' as const, listId };
   }, [splat]);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => (localStorage.getItem('mtg-lists-view-mode') as 'grid' | 'list') || 'grid');
+  const setViewModePersisted = useCallback((mode: 'grid' | 'list') => { setViewMode(mode); localStorage.setItem('mtg-lists-view-mode', mode); }, []);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [searchQuery, setSearchQuery] = useState('');
@@ -181,8 +182,9 @@ export function ListsPage() {
           onDelete={() => handleDelete(list.id)}
           onRemoveCard={(name) => handleRemoveCard(list.id, name)}
           onViewAsDeck={() => navigate(`/lists/${list.id}/deck-view`)}
-          onConvertToDeck={() => {
-            navigate(`/lists/${list.id}/edit`);
+          onConvertToDeck={(commanderName, partnerName) => {
+            updateList(list.id, { type: 'deck', commanderName, partnerCommanderName: partnerName });
+            navigate(`/lists/${list.id}/deck-view`);
           }}
           onConvertToList={() => {
             convertToList(list.id);
@@ -524,14 +526,14 @@ export function ListsPage() {
           />
           <div className="flex items-center gap-1 border border-border/50 rounded-lg p-0.5">
             <button
-              onClick={() => setViewMode('grid')}
+              onClick={() => setViewModePersisted('grid')}
               className={`p-1.5 rounded transition-colors ${viewMode === 'grid' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               title="Grid view"
             >
               <Grid3X3 className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setViewMode('list')}
+              onClick={() => setViewModePersisted('list')}
               className={`p-1.5 rounded transition-colors ${viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               title="List view"
             >

@@ -8,7 +8,8 @@ import type { ScryfallCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { loadTaggerData, getCardRole } from '@/services/tagger/client';
-import { analyzeDeck, getCurvePhases, getCurveGrade, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
+import { analyzeDeck, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
+import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
 import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { type CardAction } from '@/components/deck/DeckDisplay';
@@ -17,10 +18,11 @@ import { useUserLists } from '@/hooks/useUserLists';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, edhrecRankToInclusion } from './constants';
 import { CutRow, RecommendationRow } from './shared';
-import { ThemeDetectionBanner, DeckHealthStrip } from './OverviewTab';
+import { DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
 import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, PhaseCardDisplay, ManaTrajectorySparkline } from './CurveTab';
+import { BracketTabContent } from './BracketTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -69,6 +71,13 @@ export function DeckOptimizer({
   // The effective pacing: user override > auto-detected
   const effectivePacing: Pacing | undefined = userPacing ?? analysis?.pacing ?? undefined;
 
+  // Role targets adjusted for user pacing override
+  const effectiveRoleTargets = useMemo(() => {
+    if (!userPacing) return roleTargets;
+    const detectedPacing = detectedPacingRef.current ?? 'balanced';
+    return recomputeRoleTargetsForPacing(roleTargets, detectedPacing, userPacing);
+  }, [roleTargets, userPacing]);
+
   // Rebuild the detection banner message reflecting user overrides
   const rebuildBannerMessage = useCallback((opts: {
     pacingOverride?: Pacing | null;
@@ -101,20 +110,6 @@ export function DeckOptimizer({
       return { ...prev, detectionMessage: newMessage, strategyLabel, pacingLabel };
     });
   }, [commanderName, primaryThemeSlug, secondaryThemeSlug, userPacing]);
-
-  // When user changes pacing, recompute curve phases + grade in the analysis
-  const handlePacingChange = useCallback((newPacing: Pacing | null) => {
-    setUserPacing(newPacing);
-    setAnalysis(prev => {
-      if (!prev) return prev;
-      const pacing = newPacing ?? detectedPacingRef.current ?? prev.pacing;
-      const totalNonLand = prev.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
-      const curvePhases = getCurvePhases(prev.curveBreakdowns, prev.curveAnalysis, totalNonLand, pacing);
-      const curveGrade = getCurveGrade(prev.curveAnalysis);
-      return { ...prev, curvePhases, curveGrade, pacing, pacingLabel: PACING_LABELS[pacing] || pacing };
-    });
-    rebuildBannerMessage({ pacingOverride: newPacing });
-  }, [rebuildBannerMessage]);
 
   // Reset theme state when commander changes
   useEffect(() => {
@@ -228,6 +223,53 @@ export function DeckOptimizer({
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
       .slice(0, limit);
   }, []);
+
+  // When user changes pacing, re-run full analysis with adjusted role targets
+  const handlePacingChange = useCallback((newPacing: Pacing | null) => {
+    setUserPacing(newPacing);
+
+    const cachedBase = cachedEdhrecDataRef.current;
+    if (!cachedBase || !analysis) {
+      rebuildBannerMessage({ pacingOverride: newPacing });
+      return;
+    }
+
+    // Recompute role targets for the new pacing
+    const detPacing = detectedPacingRef.current ?? 'balanced';
+    const newTargets = newPacing
+      ? recomputeRoleTargetsForPacing(roleTargets, detPacing, newPacing)
+      : roleTargets; // null = reset to detected
+
+    const storeColorIdentity = useStore.getState().colorIdentity;
+    const baseInclusionMap = buildInclusionMap(cachedBase);
+
+    const baseResult = analyzeDeck(
+      cachedBase, currentCards, roleCounts, newTargets, deckSize,
+      baseInclusionMap, storeColorIdentity, newPacing ?? undefined,
+    );
+
+    // If theme-enhanced data exists, merge its recommendations
+    const themeData = themeEnhancedDataRef.current;
+    if (themeData) {
+      const themeInclusionMap = buildInclusionMap(themeData);
+      const themeResult = analyzeDeck(
+        themeData, currentCards, roleCounts, newTargets, deckSize,
+        themeInclusionMap, storeColorIdentity, newPacing ?? undefined,
+      );
+      const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
+      const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
+        const themeRb = themeResult.roleBreakdowns[idx];
+        if (!themeRb) return baseRb;
+        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements, 15) };
+      });
+      const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
+      setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
+    } else {
+      setAnalysis(baseResult);
+    }
+
+    rebuildBannerMessage({ pacingOverride: newPacing });
+  }, [analysis, rebuildBannerMessage, roleTargets, currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations]);
 
   const handleOptimize = async () => {
     setLoading(true);
@@ -411,10 +453,11 @@ export function DeckOptimizer({
       baseData,
       currentCards,
       roleCounts,
-      roleTargets,
+      effectiveRoleTargets,
       deckSize,
       baseInclusionMap,
       storeColorIdentity,
+      userPacing ?? undefined,
     );
 
     // If theme-enhanced data exists, merge its recommendations
@@ -425,10 +468,11 @@ export function DeckOptimizer({
         themeData,
         currentCards,
         roleCounts,
-        roleTargets,
+        effectiveRoleTargets,
         deckSize,
         themeInclusionMap,
         storeColorIdentity,
+        userPacing ?? undefined,
       );
 
       const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
@@ -443,7 +487,7 @@ export function DeckOptimizer({
     } else {
       setAnalysis(baseResult);
     }
-  }, [currentCards, roleCounts, roleTargets, deckSize, cardInclusionMap, analysis, buildInclusionMap, mergeRecommendations]);
+  }, [currentCards, roleCounts, effectiveRoleTargets, deckSize, cardInclusionMap, analysis, buildInclusionMap, mergeRecommendations, userPacing]);
 
   const handleAddCard = (name: string) => {
     if (!onAddCards) return;
@@ -482,7 +526,7 @@ export function DeckOptimizer({
     if (!primary && !secondary) {
       themeEnhancedDataRef.current = null;
       const baseInclusionMap = buildInclusionMap(cachedBase);
-      const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, roleTargets, deckSize, baseInclusionMap, storeColorIdentity);
+      const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined);
 
       setAnalysis(prev => prev ? {
         ...prev,
@@ -501,14 +545,14 @@ export function DeckOptimizer({
 
     // Base analysis (for staple backfill — only high-inclusion cards leak through)
     const baseInclusionMap = buildInclusionMap(cachedBase);
-    const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, roleTargets, deckSize, baseInclusionMap, storeColorIdentity);
+    const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined);
 
     // Primary theme → main data source, backfilled with base staples
     try {
       const primaryData = await fetchThemeData(primary!);
       themeEnhancedDataRef.current = primaryData;
       const primaryIncMap = buildInclusionMap(primaryData);
-      const primaryResult = analyzeDeck(primaryData, currentCards, roleCounts, roleTargets, deckSize, primaryIncMap, storeColorIdentity);
+      const primaryResult = analyzeDeck(primaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, primaryIncMap, storeColorIdentity, userPacing ?? undefined);
 
       // Theme drives recommendations; base staples (50%+ inclusion) backfill gaps
       let finalRecs = mergeThemeWithBaseStaples(primaryResult.recommendations, baseResult.recommendations);
@@ -524,7 +568,7 @@ export function DeckOptimizer({
         try {
           const secondaryData = await fetchThemeData(secondary);
           const secondaryIncMap = buildInclusionMap(secondaryData);
-          const secondaryResult = analyzeDeck(secondaryData, currentCards, roleCounts, roleTargets, deckSize, secondaryIncMap, storeColorIdentity);
+          const secondaryResult = analyzeDeck(secondaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, secondaryIncMap, storeColorIdentity, userPacing ?? undefined);
 
           finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
           finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
@@ -554,7 +598,7 @@ export function DeckOptimizer({
     rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, commanderName, currentCards, roleCounts, roleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, themeDetection, fetchThemeData, rebuildBannerMessage]);
+  }, [analysis, commanderName, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, themeDetection, fetchThemeData, rebuildBannerMessage, userPacing]);
 
   // Sequential-pick theme selection handler
   const handleThemeSelect = useCallback(async (slug: string) => {
@@ -890,9 +934,13 @@ export function DeckOptimizer({
                 <span className="font-medium text-purple-400/80">Early Access</span> — analysis results may change as this feature is refined with feedback.
               </p>
             </div>
-            <ThemeDetectionBanner
+            <DeckHealthStrip
+              analysis={analysis}
+              onNavigate={setActiveTab}
+              onNavigateRole={setActiveRole}
+              deckExcess={deckExcess !== 0 ? deckExcess : undefined}
               detection={themeDetection}
-              loading={themeLoading}
+              themeLoading={themeLoading}
               allThemes={cachedEdhrecDataRef.current?.themes || []}
               primaryThemeSlug={primaryThemeSlug}
               secondaryThemeSlug={secondaryThemeSlug}
@@ -901,7 +949,6 @@ export function DeckOptimizer({
               userPacing={userPacing}
               onPacingChange={handlePacingChange}
             />
-            <DeckHealthStrip analysis={analysis} onNavigate={setActiveTab} onNavigateRole={setActiveRole} deckExcess={deckExcess !== 0 ? deckExcess : undefined} />
 
             <div className="bg-card/60 border border-border/30 rounded-lg p-3">
               {/* Cuts View */}
@@ -1167,6 +1214,11 @@ export function DeckOptimizer({
             </div>
           );
         })()}
+
+        {/* ── BRACKET TAB ── */}
+        {activeTab === 'bracket' && (
+          <BracketTabContent onPreview={handlePreview} />
+        )}
 
       </div>
 

@@ -341,8 +341,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
     const dateSuffix = new Date().toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
     const finalName = name.trim() || (isDeck
       ? (cmdFirstName ? `New ${cmdFirstName} Deck ${dateSuffix}` : `New Deck ${dateSuffix}`)
-      : '');
-    if (!finalName) return;
+      : `New List ${dateSuffix}`);
     const cmdOptions = isDeck || commanderName || partnerCommanderName
       ? { commanderName: commanderName || undefined, partnerCommanderName: partnerCommanderName || undefined, deckSize: deckSize || undefined, primer: primer.trim() || undefined }
       : undefined;
@@ -616,7 +615,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             <label className="text-sm font-medium">Cards ({cards.length})</label>
             <button
               onClick={handleClearAll}
-              className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              className="p-1 rounded-md text-red-400/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
               title="Clear all cards"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -722,11 +721,15 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
 
       {/* Actions — sticky at bottom */}
       <div className="flex items-center justify-end gap-3 pt-2 border-t border-border/50 sticky bottom-0 bg-background pb-4 -mb-4">
-        {hasPendingImport && cards.length === 0 && (
+        {hasPendingImport && cards.length === 0 ? (
           <p className="text-xs text-amber-400 mr-auto">
             Hit "Import Cards" above to add your pasted cards
           </p>
-        )}
+        ) : isDeck && cards.length === 0 ? (
+          <p className="text-xs text-amber-400 mr-auto">
+            Add at least one card to create a deck
+          </p>
+        ) : null}
         <button
           onClick={onCancel}
           className="px-4 py-2 text-sm rounded-lg hover:bg-accent transition-colors"
@@ -735,7 +738,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
         </button>
         <button
           onClick={handleSave}
-          disabled={(!isDeck && !name.trim()) || (isDeck && cards.length === 0)}
+          disabled={isDeck && cards.length === 0}
           className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {isEditing ? 'Save Changes' : (isDeck ? 'Create Deck' : 'Create List')}

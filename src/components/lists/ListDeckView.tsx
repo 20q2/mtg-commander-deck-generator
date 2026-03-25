@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { ArrowLeft, Loader2, List, Wand2, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, Loader2, List, Wand2, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
@@ -13,7 +14,6 @@ import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
 
@@ -246,7 +246,6 @@ function BoardCardRow({
         </span>
       </span>
       <ManaCost cost={card.mana_cost || card.card_faces?.[0]?.mana_cost} />
-      <span className="text-xs w-10 text-right shrink-0 text-muted-foreground">{price}</span>
       {onCardAction && menuProps && (
         <span
           className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
@@ -267,6 +266,7 @@ function BoardCardRow({
           />
         </span>
       )}
+      <span className="text-xs w-10 text-right shrink-0 text-muted-foreground">{price}</span>
     </div>
   );
 }
@@ -436,6 +436,46 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const [showOverflow, setShowOverflow] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
 
+  // EA Features toggle (persisted in localStorage)
+  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
+  const toggleEaFeatures = useCallback(() => {
+    setEaEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('ea-features-enabled', String(next));
+      return next;
+    });
+  }, []);
+
+  // Action toast with undo (for add/remove cards)
+  const [actionToast, setActionToast] = useState<{ message: string; onUndo: () => void } | null>(null);
+  const actionToastTimer = useRef<ReturnType<typeof setTimeout>>();
+  const onRemoveCardsRef = useRef(onRemoveCards);
+  onRemoveCardsRef.current = onRemoveCards;
+  const onAddCardsRef = useRef(onAddCards);
+  onAddCardsRef.current = onAddCards;
+  const onRemoveFromBoardRef = useRef(onRemoveFromBoard);
+  onRemoveFromBoardRef.current = onRemoveFromBoard;
+  const showActionToast = useCallback((message: string, onUndo: () => void) => {
+    clearTimeout(actionToastTimer.current);
+    setActionToast({ message, onUndo });
+    actionToastTimer.current = setTimeout(() => setActionToast(null), 4000);
+  }, []);
+  const handleUndoAction = useCallback(() => {
+    if (!actionToast) return;
+    actionToast.onUndo();
+    setActionToast(null);
+  }, [actionToast]);
+
+  // Wrapped remove handler that shows toast with undo
+  const handleRemoveCardsWithToast = useMemo(() => {
+    if (!onRemoveCards) return undefined;
+    return (names: string[]) => {
+      onRemoveCards(names);
+      const label = names.length === 1 ? `Removed ${names[0]}` : `Removed ${names.length} cards`;
+      showActionToast(label, () => onAddCardsRef.current?.(names, 'deck'));
+    };
+  }, [onRemoveCards, showActionToast]);
+
   // Card search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ScryfallCard[]>([]);
@@ -448,6 +488,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
   // Bulk add state
   const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const bulkAddRef = useRef<HTMLDivElement>(null);
 
   // Primer inline editing state
   const [editingPrimer, setEditingPrimer] = useState(false);
@@ -591,7 +632,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
         if (cancelled) return;
 
-        const enrichResult = await enrichDeckCards(deckCards, list.deckSize || list.cards.length);
+        const enrichResult = await enrichDeckCards(deckCards, list.deckSize || list.cards.length, detectedCombos);
 
         const syntheticDeck: GeneratedDeck = {
           commander: commanderCard,
@@ -706,7 +747,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       const currentDeck = useStore.getState().generatedDeck;
       if (!currentDeck) return;
 
-      const enrichResult = await enrichDeckCards(allDeckCards, list.deckSize || list.cards.length);
       const stats = computeStatsFromCards(allDeckCards);
 
       // Re-evaluate combo completeness
@@ -726,6 +766,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       const detectedCombos = rawCombosRef.current.length > 0
         ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
         : currentDeck.detectedCombos;
+
+      const enrichResult = await enrichDeckCards(allDeckCards, list.deckSize || list.cards.length, detectedCombos);
 
       useStore.setState({
         generatedDeck: {
@@ -785,6 +827,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     return () => window.removeEventListener('mousedown', handleClick);
   }, [showOverflow]);
 
+  // Close bulk add on outside click
+  useEffect(() => {
+    if (!showBulkAdd) return;
+    const handleClick = (e: MouseEvent) => {
+      if (bulkAddRef.current && !bulkAddRef.current.contains(e.target as Node)) {
+        setShowBulkAdd(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [showBulkAdd]);
+
   // Debounced card search
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -822,7 +876,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     setSearchQuery('');
     setSearchResults([]);
     setShowSearchResults(false);
-  }, [onAddCards, pushDeckHistory]);
+    showActionToast(`Added ${card.name}`, () => onRemoveCardsRef.current?.([card.name]));
+  }, [onAddCards, pushDeckHistory, showActionToast]);
 
   const handleShowBoardPicker = useCallback((card: ScryfallCard, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -831,14 +886,20 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
   const handleDestinationPick = useCallback((destination: 'deck' | 'sideboard' | 'maybeboard') => {
     if (!pendingCard || !onAddCards) return;
-    onAddCards([pendingCard.name], destination);
+    const cardName = pendingCard.name;
+    onAddCards([cardName], destination);
     const historyAction = destination === 'sideboard' ? 'sideboard' as const : destination === 'maybeboard' ? 'maybeboard' as const : 'add' as const;
-    pushDeckHistory({ action: historyAction, cardName: pendingCard.name });
+    pushDeckHistory({ action: historyAction, cardName });
     setPendingCard(null);
     setSearchQuery('');
     setSearchResults([]);
     setShowSearchResults(false);
-  }, [pendingCard, onAddCards, pushDeckHistory]);
+    const label = destination === 'deck' ? '' : ` to ${destination}`;
+    showActionToast(`Added ${cardName}${label}`, () => {
+      if (destination === 'deck') onRemoveCardsRef.current?.([cardName]);
+      else onRemoveFromBoardRef.current?.(cardName, destination);
+    });
+  }, [pendingCard, onAddCards, pushDeckHistory, showActionToast]);
 
   const handleCancelPicker = useCallback(() => {
     setPendingCard(null);
@@ -1079,6 +1140,15 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                       Duplicate
                     </button>
                   )}
+                  <div className="h-px bg-border/50 my-1" />
+                  <button
+                    onClick={toggleEaFeatures}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${eaEnabled ? 'text-purple-400' : ''}`} />
+                    <span className={eaEnabled ? 'text-purple-400' : ''}>EA Features</span>
+                    {eaEnabled && <span className="ml-auto text-[10px] text-purple-400/70 font-medium">ON</span>}
+                  </button>
                 </div>
               )}
             </div>
@@ -1109,7 +1179,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         )}
 
         <DeckDisplay
-          onRemoveCards={onRemoveCards}
+          onRemoveCards={handleRemoveCardsWithToast}
           onAddCards={onAddCards ? (names, _dest) => onAddCards(names, 'deck') : undefined}
           onMoveToSideboard={onMoveToSideboard}
           onMoveToMaybeboard={onMoveToMaybeboard}
@@ -1120,105 +1190,120 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           onSetSideboard={onSetSideboard}
           onSetMaybeboard={onSetMaybeboard}
           toolbarExtra={onAddCards ? (
-            <div className="flex items-center gap-2">
-              <div className="relative" ref={searchWrapperRef}>
-                <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Add a card..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => {
-                    if (searchResults.length > 0) setShowSearchResults(true);
-                  }}
-                  className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-44 sm:w-64 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-                />
-                {isSearching && (
-                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-primary" />
-                )}
-                {!isSearching && searchQuery && (
-                  <button
-                    onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchResults(false); }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {/* Search Results Dropdown */}
-                {showSearchResults && searchResults.length > 0 && (
-                  <>
-                    <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
-                    <div className="absolute bottom-full left-0 mb-1 z-[999] max-h-[280px] min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
-                      {searchResults.map((card) => (
-                        <div
-                          key={card.id}
-                          onClick={() => handleAddToDeck(card)}
-                          className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors cursor-pointer group"
-                        >
-                          <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{card.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{card.type_line}</p>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 sm:flex-none" ref={searchWrapperRef}>
+                  <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Add a card..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={() => {
+                      if (searchResults.length > 0) setShowSearchResults(true);
+                    }}
+                    className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-full sm:w-64 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                  />
+                  {isSearching && (
+                    <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-primary" />
+                  )}
+                  {!isSearching && searchQuery && (
+                    <button
+                      onClick={() => { setSearchQuery(''); setSearchResults([]); setShowSearchResults(false); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {/* Search Results Dropdown */}
+                  {showSearchResults && searchResults.length > 0 && (
+                    <>
+                      <div className="fixed inset-0 z-[998]" onClick={() => setShowSearchResults(false)} />
+                      <div className="absolute bottom-full left-0 mb-1 z-[999] max-h-[280px] min-w-[280px] sm:min-w-[320px] w-full overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
+                        {searchResults.map((card) => (
+                          <div
+                            key={card.id}
+                            onClick={() => handleAddToDeck(card)}
+                            className="flex items-center gap-3 px-3 py-2 hover:bg-accent/50 text-left transition-colors cursor-pointer group"
+                          >
+                            <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{card.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{card.type_line}</p>
+                            </div>
+                            <span className="shrink-0" title="Add to deck">
+                              <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                            </span>
+                            {(onMoveToSideboard || onMoveToMaybeboard) && (
+                              <button
+                                onClick={(e) => handleShowBoardPicker(card, e)}
+                                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
+                                title="Add to sideboard or maybeboard"
+                              >
+                                <MoreHorizontal className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
-                          <span className="shrink-0" title="Add to deck">
-                            <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                          </span>
-                          {(onMoveToSideboard || onMoveToMaybeboard) && (
-                            <button
-                              onClick={(e) => handleShowBoardPicker(card, e)}
-                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors shrink-0"
-                              title="Add to sideboard or maybeboard"
-                            >
-                              <MoreHorizontal className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-                {/* Board Picker — sideboard/maybeboard */}
-                {pendingCard && (
-                  <>
-                    <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
-                    <div className="absolute bottom-full left-0 mb-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
-                      <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
-                      <button
-                        onClick={() => handleDestinationPick('sideboard')}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-amber-400"
-                      >
-                        Add to Sideboard
-                      </button>
-                      <button
-                        onClick={() => handleDestinationPick('maybeboard')}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-purple-400"
-                      >
-                        Add to Maybeboard
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-              {/* Bulk Add */}
-              <Popover open={showBulkAdd} onOpenChange={setShowBulkAdd}>
-                <PopoverTrigger asChild>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {/* Board Picker — sideboard/maybeboard */}
+                  {pendingCard && (
+                    <>
+                      <div className="fixed inset-0 z-[998]" onClick={handleCancelPicker} />
+                      <div className="absolute bottom-full left-0 mb-1 z-[999] bg-card border border-border rounded-lg shadow-2xl py-1 w-44">
+                        <p className="px-3 py-1.5 text-xs text-muted-foreground truncate border-b border-border/50">{pendingCard.name}</p>
+                        <button
+                          onClick={() => handleDestinationPick('sideboard')}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-amber-400"
+                        >
+                          Add to Sideboard
+                        </button>
+                        <button
+                          onClick={() => handleDestinationPick('maybeboard')}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors text-purple-400"
+                        >
+                          Add to Maybeboard
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                {/* Bulk Add — manual positioning (Radix Popover breaks inside createPortal) */}
+                <div className="relative" ref={bulkAddRef}>
                   <button
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/50 hover:bg-accent transition-colors ${showBulkAdd ? 'text-foreground bg-accent' : 'text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setShowBulkAdd(v => !v)}
                     title="Bulk add cards from a list"
                   >
                     <ClipboardPaste className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">Bulk Add</span>
                   </button>
-                </PopoverTrigger>
-                <PopoverContent side="top" className="w-80 sm:w-96 p-4">
+                  {/* Desktop: floating panel above button */}
+                  {showBulkAdd && (
+                    <div className="hidden sm:block absolute bottom-full mb-2 right-0 z-50 w-96 rounded-lg border border-border bg-card shadow-2xl p-4">
+                      <CollectionImporter
+                        onImportCards={handleBulkImport}
+                        label="Bulk Add Cards"
+                        updatedLabel="already in deck"
+                        onCancel={() => setShowBulkAdd(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Mobile: inline bulk add content */}
+              {showBulkAdd && (
+                <div className="sm:hidden">
                   <CollectionImporter
                     onImportCards={handleBulkImport}
                     label="Bulk Add Cards"
                     updatedLabel="already in deck"
                     onCancel={() => setShowBulkAdd(false)}
                   />
-                </PopoverContent>
-              </Popover>
+                </div>
+              )}
             </div>
           ) : undefined}
           onEditModeChange={setDeckEditMode}
@@ -1306,7 +1391,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               combos={generatedDeck.detectedCombos}
               hideMustInclude
               onAddToDeck={onAddCards ? (names) => onAddCards(names, 'deck') : undefined}
-              onRemoveFromDeck={onRemoveCards}
+              onRemoveFromDeck={handleRemoveCardsWithToast}
               onMoveToSideboard={onMoveToSideboard}
               onMoveToMaybeboard={onMoveToMaybeboard}
             />
@@ -1314,7 +1399,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           <TestHand />
         </DeckDisplay>
 
-        {list.commanderName && generatedDeck && (
+        {eaEnabled && list.commanderName && generatedDeck && (
           <DeckOptimizer
             commanderName={list.commanderName}
             partnerCommanderName={list.partnerCommanderName}
@@ -1325,7 +1410,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             categories={generatedDeck.categories}
             cardInclusionMap={generatedDeck.cardInclusionMap}
             onAddCards={onAddCards}
-            onRemoveCards={onRemoveCards}
+            onRemoveCards={handleRemoveCardsWithToast}
             onRemoveFromBoard={onRemoveFromBoard}
             onAddBasicLand={onChangeQuantity ? (name) => {
               const count = list.cards.filter(c => c === name).length;
@@ -1340,6 +1425,20 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           />
         )}
       </div>
+
+      {/* Action toast with undo */}
+      {actionToast && createPortal(
+        <div className="fixed bottom-6 right-6 z-[999] px-4 py-2 bg-emerald-500/90 text-white text-sm rounded-lg shadow-lg animate-fade-in flex items-center gap-3">
+          {actionToast.message}
+          <button
+            onClick={handleUndoAction}
+            className="underline underline-offset-2 hover:text-white/80 transition-colors cursor-pointer px-1 py-0.5"
+          >
+            Undo
+          </button>
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

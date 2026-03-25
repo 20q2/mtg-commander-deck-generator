@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Trash2, Check, AlertTriangle, ChevronDown, ChevronRight, ThumbsUp } from 'lucide-react';
+import { Plus, Trash2, Check, AlertTriangle, ChevronDown, ChevronRight, ThumbsUp, Ban } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
@@ -35,6 +35,7 @@ export function AnalyzedCardRow({
   menuProps?: CardRowMenuProps;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const isBanned = menuProps?.bannedNames.has(ac.card.name);
   const price = showDetails ? getCardPrice(ac.card) : null;
   const typeLine = getFrontFaceTypeLine(ac.card).toLowerCase();
   const cardType = typeLine.includes('creature') ? 'creature'
@@ -89,6 +90,11 @@ export function AnalyzedCardRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm truncate">{ac.card.name}</span>
+          {isBanned && (
+            <span title="Excluded" className="shrink-0 animate-pop-in">
+              <Ban className="w-3 h-3 text-red-400/70" />
+            </span>
+          )}
           {ac.subtypeLabel && (() => {
             const RIcon = ROLE_LABEL_ICONS[ac.subtypeLabel];
             return (
@@ -220,6 +226,7 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
   menuProps?: CardRowMenuProps;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const isBanned = menuProps?.bannedNames.has(card.name);
   const rankStyle = rank < 3 ? RANK_STYLES[rank] : null;
   const roleBadges = card.allRoleLabels && card.allRoleLabels.length > 1
     ? card.allRoleLabels
@@ -269,6 +276,11 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
           <p className={`text-sm truncate ${rankStyle ? 'font-semibold' : 'font-medium'}`}>{card.name}</p>
+          {isBanned && (
+            <span title="Excluded" className="shrink-0 animate-pop-in">
+              <Ban className="w-3 h-3 text-red-400/70" />
+            </span>
+          )}
           {roleBadges.map(label => {
             const bc = ROLE_BADGE_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];
@@ -337,6 +349,7 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
   cardInclusionMap?: Record<string, number>;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const isBanned = menuProps?.bannedNames.has(ac.card.name);
   const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank);
   const pct = rawInclusion != null ? Math.round(rawInclusion) : null;
   const isEstimate = ac.inclusion == null && cardInclusionMap?.[ac.card.name] == null && pct != null;
@@ -372,6 +385,11 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
           <p className="text-sm font-medium truncate">{ac.card.name}</p>
+          {isBanned && (
+            <span title="Excluded" className="shrink-0 animate-pop-in">
+              <Ban className="w-3 h-3 text-red-400/70" />
+            </span>
+          )}
           {roleBadges.map(label => {
             const bc = ROLE_BADGE_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];

@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Sparkles, Plus, Minus, Check,
-  Shield,
-  Lightbulb, Tag, ArrowUpDown, Pencil,
+  Shield, Ban, LayoutDashboard,
+  Lightbulb, Tag, ArrowUpDown, Pencil, Gauge,
   RotateCcw, Loader2, Info, Zap, Mountain, BarChart3,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -16,9 +16,11 @@ import {
   scryfallImg, edhrecRankToInclusion,
   ROLE_LABEL_ICONS, SUBTYPE_BADGE_COLORS,
   HEALTH_GRADE_STYLES, TEMPO_OPTIONS,
+  BRACKET_COLORS,
   SORT_KEY, sortListeners,
   type TabKey, type SuggestionSortMode,
 } from './constants';
+import { useStore } from '@/store';
 
 // ─── Suggestion Sort Hook ─────────────────────────────────────────────
 
@@ -140,13 +142,14 @@ export function SuggestionCardItem({
   // Create a minimal ScryfallCard-like object for the context menu
   const pseudoCard = useMemo(() => ({ name: rec.name, id: rec.name } as ScryfallCard), [rec.name]);
 
+  const isBanned = menuProps?.bannedNames.has(rec.name);
   const frontUrl = rec.imageUrl || scryfallImg(rec.name, 'normal');
   const backUrl = rec.backImageUrl;
   const displayUrl = flipped && backUrl ? backUrl : frontUrl;
 
   return (
     <div
-      className={`group ${added ? 'opacity-40' : ''}`}
+      className={`group relative ${added ? 'opacity-40' : ''}`}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
           e.preventDefault();
@@ -197,26 +200,31 @@ export function SuggestionCardItem({
             <RotateCcw className="w-4 h-4" />
           </span>
         )}
-        {/* Context menu */}
-        {onCardAction && menuProps && (
-          <span className={`absolute top-1 right-1 z-10 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
-            <CardContextMenu
-              card={pseudoCard}
-              onAction={onCardAction}
-              hasAddToDeck
-              hasSideboard
-              hasMaybeboard
-              isInSideboard={menuProps.sideboardNames.has(rec.name)}
-              isInMaybeboard={menuProps.maybeboardNames.has(rec.name)}
-              userLists={menuProps.userLists}
-              isMustInclude={menuProps.mustIncludeNames.has(rec.name)}
-              isBanned={menuProps.bannedNames.has(rec.name)}
-              forceOpen={contextMenuOpen}
-              onForceClose={() => setContextMenuOpen(false)}
-            />
+        {isBanned && (
+          <span className="absolute top-0 right-0 rounded-tr-lg rounded-bl-lg bg-red-900/80 text-white p-1.5 animate-pop-in" title="Excluded">
+            <Ban className="w-4 h-4" />
           </span>
         )}
       </button>
+      {/* Context menu — outside <button> to avoid nested-button DOM warning */}
+      {onCardAction && menuProps && (
+        <span className={`absolute top-1 right-1 z-10 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+          <CardContextMenu
+            card={pseudoCard}
+            onAction={onCardAction}
+            hasAddToDeck
+            hasSideboard
+            hasMaybeboard
+            isInSideboard={menuProps.sideboardNames.has(rec.name)}
+            isInMaybeboard={menuProps.maybeboardNames.has(rec.name)}
+            userLists={menuProps.userLists}
+            isMustInclude={menuProps.mustIncludeNames.has(rec.name)}
+            isBanned={menuProps.bannedNames.has(rec.name)}
+            forceOpen={contextMenuOpen}
+            onForceClose={() => setContextMenuOpen(false)}
+          />
+        </span>
+      )}
       {/* Row 1: metric, name, price */}
       <div className="flex items-center gap-1 px-4 -mt-0.5 min-w-0">
         {sortMode === 'none' ? null : sortMode === 'popularity' ? (
@@ -312,6 +320,7 @@ export function CutCardItem({
   sortMode?: 'inclusion' | 'score';
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const isBanned = menuProps?.bannedNames.has(ac.card.name);
   const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank);
   const pct = rawInclusion != null ? Math.round(rawInclusion) : null;
   const isEstimate = ac.inclusion == null && cardInclusionMap?.[ac.card.name] == null && pct != null;
@@ -381,6 +390,11 @@ export function CutCardItem({
             />
           </span>
         )}
+        {isBanned && (
+          <span className="absolute top-0 right-0 rounded-tr-lg rounded-bl-lg bg-red-900/80 text-white p-1.5 animate-pop-in" title="Excluded">
+            <Ban className="w-4 h-4" />
+          </span>
+        )}
       </button>
       {/* Row 1: metric, name, price */}
       <div className="flex items-center gap-1 px-1 -mt-0.5 min-w-0">
@@ -409,221 +423,14 @@ export function CutCardItem({
   );
 }
 
-// ─── Theme Detection Banner ───────────────────────────────────────────
-
-export function ThemeDetectionBanner({
-  detection,
-  loading,
-  allThemes,
-  primaryThemeSlug,
-  secondaryThemeSlug,
-  onThemeSelect,
-  detectedPacing,
-  userPacing,
-  onPacingChange,
-}: {
-  detection: DetectedThemeResult | null;
-  loading: boolean;
-  allThemes: EDHRECTheme[];
-  primaryThemeSlug: string | null;
-  secondaryThemeSlug: string | null;
-  onThemeSelect: (slug: string) => void;
-  detectedPacing?: Pacing;
-  userPacing: Pacing | null;
-  onPacingChange: (pacing: Pacing | null) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (allThemes.length === 0 && !loading) return null;
-
-  // Loading shimmer
-  if (loading && !detection) {
-    return (
-      <div className="bg-card/60 border border-border/30 rounded-lg p-3 animate-pulse">
-        <div className="flex items-center gap-2">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary/50" />
-          <span className="text-xs text-muted-foreground">Detecting deck themes...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!detection) return null;
-
-  // Build chip list: evaluated themes first (with scores), then remaining EDHREC themes
-  const evaluatedSlugs = new Set(detection.evaluatedThemes.map(t => t.theme.slug));
-  const chipThemes: Array<{ name: string; slug: string; score?: number }> = [];
-
-  for (const et of detection.evaluatedThemes) {
-    chipThemes.push({ name: et.theme.name, slug: et.theme.slug, score: et.score });
-  }
-  for (const theme of allThemes) {
-    if (evaluatedSlugs.has(theme.slug)) continue;
-    if (chipThemes.length >= 8) break;
-    chipThemes.push({ name: theme.name, slug: theme.slug });
-  }
-
-  const activePacing = userPacing ?? detectedPacing;
-
-  return (
-    <div className="bg-gradient-to-r from-amber-500/5 via-card/60 to-card/60 border border-amber-500/15 rounded-lg p-3">
-      <div className="flex items-center gap-2">
-        <div className="p-1 rounded-md bg-amber-500/10 shrink-0">
-          <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-        </div>
-        <p className="text-xs text-muted-foreground leading-relaxed flex-1"
-          dangerouslySetInnerHTML={{ __html: detection.detectionMessage }}
-        />
-        {loading && (
-          <Loader2 className="w-3 h-3 animate-spin text-primary/40 shrink-0" />
-        )}
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0"
-          title={expanded ? 'Hide selector' : 'Adjust themes & tempo'}
-        >
-          <Pencil className="w-2.5 h-2.5" />
-          <span>Adjust</span>
-        </button>
-      </div>
-
-      {/* Collapsible theme + tempo selector */}
-      <div
-        className="overflow-hidden transition-all duration-300 ease-out"
-        style={{ maxHeight: expanded ? '300px' : '0px', opacity: expanded ? 1 : 0 }}
-      >
-        {/* Theme chips */}
-        <div className="flex items-center gap-2 pt-2 mb-1.5">
-          <Tag className="w-3 h-3 text-muted-foreground" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Themes</span>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {chipThemes.map(chip => {
-            const isPrimary = chip.slug === primaryThemeSlug;
-            const isSecondary = chip.slug === secondaryThemeSlug;
-
-            return (
-              <button
-                key={chip.slug}
-                onClick={() => onThemeSelect(chip.slug)}
-                className={`
-                  inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
-                  transition-all duration-200 cursor-pointer
-                  ${isPrimary
-                    ? 'bg-primary/20 border-primary/40 text-primary font-semibold'
-                    : isSecondary
-                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
-                      : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
-                  }
-                `}
-                title={
-                  isPrimary ? 'Primary theme (click to deselect)'
-                    : isSecondary ? 'Secondary theme (click to deselect)'
-                      : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
-                        : 'Click to select as theme'
-                }
-              >
-                {isPrimary && (
-                  <span className="w-3.5 h-3.5 rounded-full bg-primary/30 text-[9px] font-bold flex items-center justify-center leading-none">1</span>
-                )}
-                {isSecondary && (
-                  <span className="w-3.5 h-3.5 rounded-full bg-amber-500/30 text-[9px] font-bold flex items-center justify-center leading-none">2</span>
-                )}
-                {!isPrimary && !isSecondary && <Tag className="w-2.5 h-2.5" />}
-                {chip.name}
-                {chip.score != null && chip.score >= 20 && (
-                  <span className={`text-[10px] tabular-nums ml-0.5 ${
-                    isPrimary ? 'text-primary/70' : isSecondary ? 'text-amber-400/70' : 'text-muted-foreground/50'
-                  }`}>
-                    {Math.round(chip.score)}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Tempo selector */}
-        <div className="pt-2 mt-2 border-t border-border/20">
-          <div className="flex items-center gap-2 mb-1.5">
-            <Zap className="w-3 h-3 text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tempo</span>
-            {userPacing && (
-              <button
-                onClick={() => onPacingChange(null)}
-                className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
-                title="Reset to auto-detected tempo"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {TEMPO_OPTIONS.map(opt => {
-              const isActive = activePacing === opt.value;
-              const isDetected = detectedPacing === opt.value && !userPacing;
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => onPacingChange(isActive && userPacing ? null : opt.value)}
-                  className={`
-                    inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
-                    transition-all duration-200 cursor-pointer
-                    ${isActive
-                      ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 font-semibold'
-                      : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
-                    }
-                  `}
-                  title={opt.short}
-                >
-                  {isDetected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
-                  {opt.label}
-                </button>
-              );
-            })}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="p-0.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="What do these mean?">
-                  <Info className="w-3.5 h-3.5" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="start" className="w-80 p-0">
-                <div className="p-3 border-b border-border/30">
-                  <p className="text-xs font-semibold">Tempo Guide</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Controls how the mana curve is shaped during deck building</p>
-                </div>
-                <div className="divide-y divide-border/20">
-                  {TEMPO_OPTIONS.map(opt => {
-                    const isActive = activePacing === opt.value;
-                    return (
-                      <div key={opt.value} className={`px-3 py-2 ${isActive ? 'bg-sky-500/5' : ''}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-semibold ${isActive ? 'text-sky-400' : 'text-foreground'}`}>{opt.label}</span>
-                          {isActive && <span className="text-[9px] text-sky-400/70 font-medium uppercase">Active</span>}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{opt.detail}</p>
-                        <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">{opt.examples}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Overview: Deck Health Strip ───────────────────────────────────────
 
 // ─── Summary Bullet Section ─────────────────────────────────────────
 
-const SECTION_STYLES: Record<string, { label: string; border: string; labelColor: string; bg: string }> = {
-  needs: { label: 'Needs more', border: 'border-l-amber-500/50', labelColor: 'text-amber-400/80', bg: 'bg-amber-500/5' },
-  trims: { label: 'Could trim', border: 'border-l-sky-500/50', labelColor: 'text-sky-400/80', bg: 'bg-sky-500/5' },
-  notes: { label: 'Curve shape', border: 'border-l-muted-foreground/30', labelColor: 'text-muted-foreground/70', bg: 'bg-muted/5' },
+const SECTION_STYLES: Record<string, { label: string; border: string; labelColor: string }> = {
+  needs: { label: 'Needs more', border: 'border-l-amber-500/50', labelColor: 'text-amber-400/80' },
+  trims: { label: 'Could trim', border: 'border-l-sky-500/50', labelColor: 'text-sky-400/80' },
+  notes: { label: 'Curve shape', border: 'border-l-muted-foreground/30', labelColor: 'text-muted-foreground/70' },
 };
 
 function SummarySection({ type, items, onNavigate, onNavigateRole }: {
@@ -642,17 +449,20 @@ function SummarySection({ type, items, onNavigate, onNavigateRole }: {
   };
 
   return (
-    <div className={`border-l-2 ${style.border} ${style.bg} rounded-r-lg pl-3 pr-2 py-2`}>
-      <div className={`text-[11px] font-semibold uppercase tracking-wider ${style.labelColor} mb-1`}>{style.label}</div>
+    <div className={`border-l-2 ${style.border} pl-3 pr-2 py-1`}>
+      <div className={`text-[11px] font-semibold uppercase tracking-wider ${style.labelColor} mb-0.5`}>{style.label}</div>
       {items.map((item) => (
         <button
           key={item.tab}
           onClick={() => handleClick(item.tab)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left py-0.5"
+          className="flex items-start gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left py-0.5"
         >
-          <span dangerouslySetInnerHTML={{ __html: summaryIconSvg(item.icon) }} />
-          <span className="font-semibold text-foreground/90">{item.label}</span>
-          <span>— {item.text}</span>
+          <span className="mt-0.5 shrink-0" dangerouslySetInnerHTML={{ __html: summaryIconSvg(item.icon) }} />
+          <span>
+            <span className="font-semibold text-foreground/90">{item.label}</span>
+            <span> — {item.text}</span>
+            {item.hint && <span className="text-muted-foreground/60"> · {item.hint}</span>}
+          </span>
         </button>
       ))}
     </div>
@@ -661,11 +471,24 @@ function SummarySection({ type, items, onNavigate, onNavigateRole }: {
 
 // ─── Overview: Deck Health Strip ───────────────────────────────────────
 
-export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExcess }: {
+export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExcess,
+  detection, themeLoading, allThemes, primaryThemeSlug, secondaryThemeSlug, onThemeSelect,
+  detectedPacing, userPacing, onPacingChange,
+}: {
   analysis: DeckAnalysis;
   onNavigate: (tab: TabKey) => void;
   onNavigateRole?: (role: string) => void;
   deckExcess?: number;
+  // Theme/tempo detection (optional — omit for list decks etc.)
+  detection?: DetectedThemeResult | null;
+  themeLoading?: boolean;
+  allThemes?: EDHRECTheme[];
+  primaryThemeSlug?: string | null;
+  secondaryThemeSlug?: string | null;
+  onThemeSelect?: (slug: string) => void;
+  detectedPacing?: Pacing;
+  userPacing?: Pacing | null;
+  onPacingChange?: (pacing: Pacing | null) => void;
 }) {
   const grades: { key: TabKey; label: string; icon: typeof Shield; grade: GradeResult }[] = [
     { key: 'roles', label: 'Roles', icon: Shield, grade: analysis.rolesGrade },
@@ -676,39 +499,190 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
   const summary = getDeckSummaryData(analysis, deckExcess);
   const gradeStyle = HEALTH_GRADE_STYLES[summary.gradeLetter] || HEALTH_GRADE_STYLES.C;
 
+  // Theme chips for the collapsible selector
+  const hasThemes = !!detection && !!(allThemes && allThemes.length > 0);
+  const chipThemes = useMemo(() => {
+    if (!detection || !allThemes) return [];
+    const evaluatedSlugs = new Set(detection.evaluatedThemes.map(t => t.theme.slug));
+    const chips: Array<{ name: string; slug: string; score?: number }> = [];
+    for (const et of detection.evaluatedThemes) {
+      chips.push({ name: et.theme.name, slug: et.theme.slug, score: et.score });
+    }
+    for (const theme of allThemes) {
+      if (evaluatedSlugs.has(theme.slug)) continue;
+      if (chips.length >= 8) break;
+      chips.push({ name: theme.name, slug: theme.slug });
+    }
+    return chips;
+  }, [detection, allThemes]);
+
+  const activePacing = userPacing ?? detectedPacing;
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
-        {grades.map(({ key, label, icon: Icon, grade }) => {
-          const style = HEALTH_GRADE_STYLES[grade.letter] || HEALTH_GRADE_STYLES.C;
-          return (
-            <button
-              key={key}
-              onClick={() => onNavigate(key)}
-              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
-            >
-              <div className="flex items-start gap-2.5">
-                <span className={`text-xl sm:text-2xl font-bold ${style.color} ${style.badgeBg} px-2.5 py-0.5 rounded shrink-0`}>{grade.letter}</span>
-                <div className="pt-0.5">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Icon className={`w-4 h-4 ${style.color} opacity-70`} />
-                    <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
-                  </div>
-                  <p className="text-sm leading-snug text-muted-foreground line-clamp-2">{grade.message}</p>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
+    <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 360px' }}>
       {/* Summary card */}
-      <div className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 space-y-2">
+      <div className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 space-y-2 min-w-0">
+        {/* Header row: grade badge + "Summary" + Adjust button */}
         <div className="flex items-center gap-1.5">
-          <span className={`text-sm font-black leading-none px-1.5 py-0.5 rounded ${gradeStyle.color} ${gradeStyle.badgeBg}`}>{summary.gradeLetter}</span>
+          <span className={`text-xl font-black leading-none px-2.5 py-1 rounded ${gradeStyle.color} ${gradeStyle.badgeBg}`}>{summary.gradeLetter}</span>
+          <LayoutDashboard className={`w-4 h-4 ${gradeStyle.color} opacity-70`} />
           <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Summary</span>
+          {themeLoading && !detection && (
+            <Loader2 className="w-3 h-3 animate-spin text-primary/40 ml-auto shrink-0" />
+          )}
+          {(hasThemes || themeLoading) && detection && onThemeSelect && onPacingChange && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 ml-auto"
+                  title="Adjust themes & tempo"
+                >
+                  <Pencil className="w-2.5 h-2.5" />
+                  <span>Adjust</span>
+                  {themeLoading && <Loader2 className="w-2.5 h-2.5 animate-spin text-primary/40" />}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-80 p-0">
+                <div className="px-3 pt-2.5 pb-1.5 border-b border-border/20">
+                  <p className="text-[11px] text-muted-foreground/70 leading-snug">
+                    Did we detect incorrectly? Adjust manually to affect card and curve suggestions.
+                  </p>
+                </div>
+                {/* Theme chips */}
+                <div className="p-3 pb-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Tag className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Themes</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {chipThemes.map(chip => {
+                      const isPrimary = chip.slug === primaryThemeSlug;
+                      const isSecondary = chip.slug === secondaryThemeSlug;
+                      return (
+                        <button
+                          key={chip.slug}
+                          onClick={() => onThemeSelect(chip.slug)}
+                          className={`
+                            inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
+                            transition-all duration-200 cursor-pointer
+                            ${isPrimary
+                              ? 'bg-primary/20 border-primary/40 text-primary font-semibold'
+                              : isSecondary
+                                ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
+                                : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                            }
+                          `}
+                          title={
+                            isPrimary ? 'Primary theme (click to deselect)'
+                              : isSecondary ? 'Secondary theme (click to deselect)'
+                                : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
+                                  : 'Click to select as theme'
+                          }
+                        >
+                          {isPrimary && (
+                            <span className="w-3.5 h-3.5 rounded-full bg-primary/30 text-[9px] font-bold flex items-center justify-center leading-none">1</span>
+                          )}
+                          {isSecondary && (
+                            <span className="w-3.5 h-3.5 rounded-full bg-amber-500/30 text-[9px] font-bold flex items-center justify-center leading-none">2</span>
+                          )}
+                          {!isPrimary && !isSecondary && <Tag className="w-2.5 h-2.5" />}
+                          {chip.name}
+                          {chip.score != null && chip.score >= 20 && (
+                            <span className={`text-[10px] tabular-nums ml-0.5 ${
+                              isPrimary ? 'text-primary/70' : isSecondary ? 'text-amber-400/70' : 'text-muted-foreground/50'
+                            }`}>
+                              {Math.round(chip.score)}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Tempo selector */}
+                <div className="p-3 pt-2 border-t border-border/20">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tempo</span>
+                    {userPacing && (
+                      <button
+                        onClick={() => onPacingChange(null)}
+                        className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
+                        title="Reset to auto-detected tempo"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {TEMPO_OPTIONS.map(opt => {
+                      const isActive = activePacing === opt.value;
+                      const isDetected = detectedPacing === opt.value && !userPacing;
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={() => onPacingChange(isActive && userPacing ? null : opt.value)}
+                          className={`
+                            inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
+                            transition-all duration-200 cursor-pointer
+                            ${isActive
+                              ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 font-semibold'
+                              : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                            }
+                          `}
+                          title={opt.short}
+                        >
+                          {isDetected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button className="p-0.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="What do these mean?">
+                          <Info className="w-3.5 h-3.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent side="bottom" align="start" className="w-80 p-0">
+                        <div className="p-3 border-b border-border/30">
+                          <p className="text-xs font-semibold">Tempo Guide</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">Controls how the mana curve is shaped during deck building</p>
+                        </div>
+                        <div className="divide-y divide-border/20">
+                          {TEMPO_OPTIONS.map(opt => {
+                            const isActive = activePacing === opt.value;
+                            return (
+                              <div key={opt.value} className={`px-3 py-2 ${isActive ? 'bg-sky-500/5' : ''}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-semibold ${isActive ? 'text-sky-400' : 'text-foreground'}`}>{opt.label}</span>
+                                  {isActive && <span className="text-[9px] text-sky-400/70 font-medium uppercase">Active</span>}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{opt.detail}</p>
+                                <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">{opt.examples}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
+
+        {/* Theme detection line */}
+        {detection && (
+          <div className="flex items-center gap-2">
+            <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <p className="text-xs text-muted-foreground leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: detection.detectionMessage }}
+            />
+          </div>
+        )}
+
         {/* Headline + card count note */}
         <div>
           <p className="text-sm text-muted-foreground leading-snug">{summary.headline}</p>
@@ -719,14 +693,75 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
           )}
         </div>
 
-        {/* Action item sections with backdrops */}
+        {/* Action item sections */}
         {(summary.needs.length > 0 || summary.trims.length > 0 || summary.notes.length > 0) && (
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <SummarySection type="needs" items={summary.needs} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
             <SummarySection type="trims" items={summary.trims} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
             <SummarySection type="notes" items={summary.notes} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
           </div>
         )}
+      </div>
+
+      {/* Grade navigation — stacked column */}
+      <div className="flex flex-col gap-2">
+        {grades.map(({ key, label, icon: Icon, grade }) => {
+          const style = HEALTH_GRADE_STYLES[grade.letter] || HEALTH_GRADE_STYLES.C;
+          return (
+            <button
+              key={key}
+              onClick={() => onNavigate(key)}
+              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
+            >
+              <div className="flex items-start gap-2">
+                <span className={`text-lg font-bold ${style.color} ${style.badgeBg} px-2 py-0.5 rounded shrink-0`}>{grade.letter}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Icon className={`w-3.5 h-3.5 ${style.color} opacity-70`} />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">{label}</span>
+                  </div>
+                  <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{grade.message}</p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+        {/* Bracket tile */}
+        {(() => {
+          const bracketEst = useStore.getState().generatedDeck?.bracketEstimation;
+          if (!bracketEst) return (
+            <div className="bg-card/60 border border-border/30 border-dashed rounded-lg p-2.5 sm:p-3 opacity-50">
+              <div className="flex items-start gap-2">
+                <span className="text-lg font-bold text-muted-foreground/40 bg-muted/10 px-2 py-0.5 rounded shrink-0">?</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Gauge className="w-3.5 h-3.5 text-muted-foreground/40" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/40">Bracket</span>
+                  </div>
+                  <p className="text-xs leading-snug text-muted-foreground/40">No bracket data</p>
+                </div>
+              </div>
+            </div>
+          );
+          const bc = BRACKET_COLORS[bracketEst.bracket] || BRACKET_COLORS[3];
+          return (
+            <button
+              onClick={() => onNavigate('bracket')}
+              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
+            >
+              <div className="flex items-start gap-2">
+                <span className={`text-lg font-bold ${bc.text} ${bc.bg} px-2 py-0.5 rounded shrink-0`}>{bracketEst.bracket}</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Gauge className={`w-3.5 h-3.5 ${bc.text} opacity-70`} />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">Bracket</span>
+                  </div>
+                  <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{bracketEst.label}</p>
+                </div>
+              </div>
+            </button>
+          );
+        })()}
       </div>
     </div>
   );

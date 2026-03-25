@@ -1,7 +1,7 @@
 import {
   Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
   LayoutDashboard, Mountain, BarChart3, Zap, Target, Crown,
-  MapPin, Clock,
+  MapPin, Clock, Gauge,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import type { CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
@@ -29,13 +29,14 @@ export interface DeckOptimizerProps {
   maybeboardNames?: string[];
 }
 
-export type TabKey = 'overview' | 'roles' | 'lands' | 'curve';
+export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'bracket';
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'roles',    label: 'Roles',    icon: Shield as typeof LayoutDashboard },
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
   { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
+  { key: 'bracket',  label: 'Bracket',  icon: Gauge as typeof LayoutDashboard },
 ];
 
 // ─── Utility Functions ───────────────────────────────────────────────
@@ -238,4 +239,26 @@ export const PHASE_META: Record<CurvePhase, { icon: typeof Zap; label: string }>
   early: { icon: Zap, label: 'Early Game' },
   mid:   { icon: Target as typeof Zap, label: 'Mid Game' },
   late:  { icon: Crown as typeof Zap, label: 'Late Game' },
+};
+
+// ─── Bracket Tab Constants ──────────────────────────────────────────
+
+export const BRACKET_COLORS: Record<number, { text: string; bg: string; dot: string; border: string }> = {
+  1: { text: 'text-emerald-400', bg: 'bg-emerald-500/15', dot: 'bg-emerald-400', border: 'border-emerald-500/30' },
+  2: { text: 'text-sky-400',     bg: 'bg-sky-500/15',     dot: 'bg-sky-400',     border: 'border-sky-500/30' },
+  3: { text: 'text-amber-400',   bg: 'bg-amber-500/15',   dot: 'bg-amber-400',   border: 'border-amber-500/30' },
+  4: { text: 'text-orange-400',  bg: 'bg-orange-500/15',  dot: 'bg-orange-400',  border: 'border-orange-500/30' },
+  5: { text: 'text-red-400',     bg: 'bg-red-500/15',     dot: 'bg-red-400',     border: 'border-red-500/30' },
+};
+
+export const BRACKET_LABELS: Record<number, string> = {
+  1: 'Exhibition', 2: 'Core', 3: 'Upgraded', 4: 'Optimized', 5: 'cEDH',
+};
+
+export const BRACKET_DESCRIPTIONS: Record<number, string> = {
+  1: 'Casual \u2014 theme-focused, no fast mana or combos',
+  2: 'Precon-level \u2014 light synergy, no game changers',
+  3: 'Focused \u2014 up to 3 game changers, late combos',
+  4: 'High power \u2014 strong engines, tutors, and combos',
+  5: 'Competitive \u2014 optimized to win as early as possible',
 };
