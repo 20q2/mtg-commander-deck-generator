@@ -67,6 +67,8 @@ export interface RecommendedCard {
   isThemeSynergy?: boolean;
   score?: number;
   cmc?: number;
+  isUtilityLand?: boolean;
+  isTapland?: boolean;
 }
 
 export interface AnalyzedCard {
@@ -116,9 +118,19 @@ export interface CurvePhaseAnalysis {
 
 export interface ManaTrajectoryPoint {
   turn: number;
-  expectedLands: number;
-  expectedRampMana: number;
-  totalExpectedMana: number;
+  // ── Mana availability ──
+  expectedLandsRaw: number;       // land mana ignoring tap penalty
+  expectedLands: number;          // effective land mana (tap penalty applied)
+  tapPenalty: number;             // mana lost to taplands this turn
+  expectedRampMana: number;       // mana from ramp spells
+  totalExpectedMana: number;      // effective lands + ramp
+  // ── Probabilities ──
+  landDropProbability: number;    // P(made all land drops through this turn)
+  // ── Card-based (enriched after generation — zero until enriched) ──
+  castableCards: number;          // non-land cards with CMC ≤ totalExpectedMana
+  castablePct: number;            // castableCards / totalNonLand (0-1)
+  newUnlocks: number;             // cards that become castable THIS turn (not previous)
+  manaEfficiency: number;         // estimated mana utilization (0-1, higher = busier turns)
 }
 
 export interface ColorFixingAnalysis {
@@ -551,6 +563,7 @@ export function getManaTrajectory(
   taplandRatio: number = 0,
 ): ManaTrajectoryPoint[] {
   const points: ManaTrajectoryPoint[] = [];
+  const landDropProbs = computeLandDropProbabilities(deckSize, landCount);
 
   for (let turn = 1; turn <= 7; turn++) {
     // Cards seen by this turn = 7 (opening hand) + (turn - 1) draws
@@ -558,39 +571,38 @@ export function getManaTrajectory(
 
     // Expected lands in hand/play by this turn (E[X] for hypergeometric)
     // E[X] = n * K / N for hypergeometric
-    const expectedLands = Math.min(cardsSeen * landCount / deckSize, turn + 2); // can't play more than turn+mulligan lands
+    const expectedLandsRaw = Math.min(cardsSeen * landCount / deckSize, turn + 2);
 
     // Tapland tempo penalty: the land played THIS turn has a taplandRatio chance
     // of entering tapped, costing ~taplandRatio mana this turn.
-    // On turn 1 this is most punishing; by late game it matters less relative to total mana.
     const tapPenalty = taplandRatio;
-    const effectiveLands = Math.max(0, expectedLands - tapPenalty);
+    const effectiveLands = Math.max(0, expectedLandsRaw - tapPenalty);
 
-    // Expected ramp mana: each early ramp piece has P(drawn by turn) * P(castable)
-    // Simplified: P(at least 1 copy drawn) ~ min(1, cardsSeen * count / deckSize) for the pool
-    // But we want expected count drawn, not just "at least 1"
-    // E[ramp drawn] = cardsSeen * earlyRampCount / deckSize
-    // Each drawn ramp contributes 1 mana if castable (CMC < mana available at that point)
-    // Approximate: ramp castable if its avg CMC < turn (since you have ~turn lands)
+    // Expected ramp mana
     let expectedRampMana = 0;
     if (earlyRampCount > 0 && turn >= 2) {
       const rampDrawn = cardsSeen * earlyRampCount / deckSize;
-      // Fraction of ramp that's castable by this turn: ramp with CMC <= turn-1
-      // (you need to have played it a turn before to get mana this turn)
-      // avgRampCmc gives us a rough idea; if avg is 2, most are castable by turn 3
       const castableFrac = avgRampCmc > 0 ? Math.min(1, (turn - 1) / avgRampCmc) : 1;
-      // Deployed ramp = drawn * castable fraction, but capped — can't deploy more than turns allow
       const deployedRamp = Math.min(rampDrawn * castableFrac, turn - 1);
       expectedRampMana = deployedRamp;
     }
 
     const totalExpectedMana = Math.round((effectiveLands + expectedRampMana) * 10) / 10;
+    const ldp = landDropProbs.find(l => l.turn === turn);
 
     points.push({
       turn,
+      expectedLandsRaw: Math.round(expectedLandsRaw * 10) / 10,
       expectedLands: Math.round(effectiveLands * 10) / 10,
+      tapPenalty: Math.round(tapPenalty * 100) / 100,
       expectedRampMana: Math.round(expectedRampMana * 10) / 10,
       totalExpectedMana,
+      landDropProbability: ldp?.probability ?? 0,
+      // Card-based fields — enriched later in analyzeDeck()
+      castableCards: 0,
+      castablePct: 0,
+      newUnlocks: 0,
+      manaEfficiency: 0,
     });
   }
 
@@ -668,10 +680,10 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
     const li = (text: string) => `<li class="flex items-center gap-1.5">${text}</li>`;
 
     if (cutNeeds.length > 0) {
-      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none">${cutNeeds.map(li).join('')}</ul></div>`);
+      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${cutNeeds.map(li).join('')}</ul></div>`);
     }
     if (cutTrims.length > 0) {
-      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none">${cutTrims.map(li).join('')}</ul></div>`);
+      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${cutTrims.map(li).join('')}</ul></div>`);
     }
 
     return parts.join('');
@@ -715,10 +727,10 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
   const li = (text: string) => `<li class="flex items-center gap-1.5">${text}</li>`;
 
   if (needs.length > 0) {
-    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none">${needs.map(li).join('')}</ul></div>`);
+    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${needs.map(li).join('')}</ul></div>`);
   }
   if (trims.length > 0) {
-    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none">${trims.map(li).join('')}</ul></div>`);
+    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${trims.map(li).join('')}</ul></div>`);
   }
 
   return parts.join('');
@@ -1127,6 +1139,8 @@ export function analyzeDeck(
       isThemeSynergy: card.isThemeSynergyCard || undefined,
       score: cached?.score ?? 0,
       cmc: card.cmc,
+      isUtilityLand: isUtilityLand(card.name) || undefined,
+      isTapland: isTapland(card.name) || undefined,
     };
   })
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
@@ -1197,6 +1211,8 @@ export function analyzeDeck(
       imageUrl: card.image_uris?.[0]?.normal,
       price,
       score: cached?.score ?? 0,
+      isUtilityLand: isUtilityLand(name) || undefined,
+      isTapland: isTapland(name) || undefined,
     });
   }
 
@@ -1437,6 +1453,8 @@ export function analyzeDeck(
         producedColors: getRecommendationColors(card.name, card.color_identity),
         isThemeSynergy: card.isThemeSynergyCard || undefined,
         score: landScore,
+        isUtilityLand: isUtilityLand(card.name) || undefined,
+        isTapland: isTapland(card.name) || undefined,
       };
     })
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
@@ -1569,6 +1587,8 @@ export function analyzeDeck(
       producedColors: cardColors,
       isThemeSynergy: card.isThemeSynergyCard || undefined,
       score: combinedScore,
+      isUtilityLand: isUtilityLand(name) || undefined,
+      isTapland: isTapland(name) || undefined,
     });
   }
   fixingRecommendations.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -1614,6 +1634,32 @@ export function analyzeDeck(
   const { pacing, label: pacingLabel } = detectPacing(currentCards, curveAnalysis);
   const curvePhases = getCurvePhases(curveBreakdowns, curveAnalysis, totalNonLand, pacing);
   const manaTrajectory = getManaTrajectory(deckSize, currentLands, manaSources.earlyRamp, manaSources.avgRampCmc, taplandRatio);
+
+  // --- Enrich trajectory with card-based stats ---
+  if (manaTrajectory.length > 0 && totalNonLand > 0) {
+    // Sort non-land CMCs ascending for efficient castable counting
+    const cmcs = nonLandCards.map(c => c.cmc).sort((a, b) => a - b);
+    let prevCastable = 0;
+    for (const pt of manaTrajectory) {
+      // Count cards castable with this much mana
+      let castable = 0;
+      for (const cmc of cmcs) {
+        if (cmc <= pt.totalExpectedMana) castable++;
+        else break; // sorted, no need to check further
+      }
+      pt.castableCards = castable;
+      pt.castablePct = castable / totalNonLand;
+      pt.newUnlocks = castable - prevCastable;
+      // Mana efficiency: what fraction of available mana could be spent
+      // Approximate: avg CMC of newly unlocked cards / available mana
+      if (pt.totalExpectedMana > 0 && castable > 0) {
+        const castableCmcs = cmcs.slice(0, castable);
+        const avgCastable = castableCmcs.reduce((s, c) => s + c, 0) / castable;
+        pt.manaEfficiency = Math.min(1, avgCastable / pt.totalExpectedMana);
+      }
+      prevCastable = castable;
+    }
+  }
 
   return {
     roleDeficits,

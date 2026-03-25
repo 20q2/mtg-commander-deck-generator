@@ -1,7 +1,7 @@
 import type { ScryfallCard, DeckCategory } from '@/types';
 import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype } from '@/services/tagger/client';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { getRoleTargets } from './deckGenerator';
+import { getBaseRoleTargets as getRoleTargets } from './roleTargets';
 
 export interface EnrichResult {
   categories: Record<DeckCategory, ScryfallCard[]>;

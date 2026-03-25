@@ -37,7 +37,7 @@ export function InfoTooltip({ text, children }: InfoTooltipProps) {
       )}
       {visible && createPortal(
         <span
-          className="pointer-events-none fixed w-56 rounded-lg bg-popover border border-border px-3 py-2 text-xs text-popover-foreground leading-relaxed shadow-lg z-[100] animate-fade-in"
+          className="pointer-events-none fixed w-56 rounded-lg bg-popover border border-border px-3 py-2 text-xs text-popover-foreground leading-relaxed shadow-lg z-[100] animate-fade-in whitespace-pre-line"
           style={{
             top: pos.top,
             left: pos.left,

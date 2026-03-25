@@ -6,7 +6,7 @@ import {
   Tooltip, ReferenceLine, ReferenceArea,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Check, Dices, Shuffle, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Check, Dices, Shuffle, Layers, ArrowUpDown } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { PACING_MULTIPLIERS, computeLandDropProbabilities, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
@@ -114,19 +114,45 @@ export function DeltaBarShape(props: {
 
 export function TrajectoryTooltip({ active, payload, label }: {
   active?: boolean;
-  payload?: Array<{ dataKey: string; value: number }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload?: Array<{ dataKey: string; value: number; payload?: any }>;
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
-  const total = payload.find(p => p.dataKey === 'totalExpectedMana')?.value ?? 0;
-  const lands = payload.find(p => p.dataKey === 'expectedLands')?.value ?? 0;
+  const row = payload[0]?.payload ?? {};
+  const total = row.totalExpectedMana ?? 0;
+  const lands = row.expectedLands ?? 0;
   const ramp = total - lands;
+  const tapPen = row.tapPenalty ?? 0;
+  const ldp = row.landDropProbability ?? 0;
+  const castable = row.castableCards ?? 0;
+  const castPct = row.castablePct ?? 0;
+  const unlocks = row.newUnlocks ?? 0;
+
   return (
     <div className="bg-popover border border-border rounded-md px-2.5 py-1.5 shadow-lg text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>
       <div className="font-semibold text-foreground mb-1">{label}</div>
-      <div className="text-sky-400">Total mana: {total.toFixed(1)}</div>
-      <div className="text-emerald-400/70">From lands: {lands.toFixed(1)}</div>
-      {ramp > 0 && <div className="text-sky-400/60">From ramp: +{ramp.toFixed(1)}</div>}
+      <div className="flex items-center gap-1.5 text-sky-400">
+        <span className="w-2.5 h-0.5 rounded-full bg-sky-500 shrink-0" />
+        Total mana: {total.toFixed(1)}
+      </div>
+      <div className="flex items-center gap-1.5 text-emerald-400/70">
+        <span className="w-2.5 h-0.5 rounded-full bg-emerald-500/50 shrink-0" />
+        From lands: {lands.toFixed(1)}{tapPen > 0 ? ` (−${tapPen.toFixed(1)} tap)` : ''}
+      </div>
+      {ramp > 0 && (
+        <div className="flex items-center gap-1.5 text-sky-400/60">
+          <span className="w-2.5 h-0.5 rounded-full bg-sky-400/50 shrink-0" />
+          From ramp: +{ramp.toFixed(1)}
+        </div>
+      )}
+      {ldp > 0 && <div className="text-muted-foreground/60 mt-1 pt-1 border-t border-border/30 pl-4">Hit all drops: {Math.round(ldp * 100)}%</div>}
+      {(castable > 0 || castPct > 0) && (
+        <div className="flex items-center gap-1.5 text-purple-400/70">
+          <span className="w-2.5 h-0.5 rounded-full bg-purple-500/40 shrink-0" />
+          {castable} spells castable ({Math.round(castPct * 100)}%){unlocks > 0 ? ` · +${unlocks} new` : ''}
+        </div>
+      )}
     </div>
   );
 }
@@ -219,7 +245,7 @@ export function ManaCurveLineChart({
           Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}{onCmcClick ? ' · Click a mana value to see cards' : ''}
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={120}>
+      <ResponsiveContainer width="100%" height={120} className="[&_*:focus-visible]:outline-none [&_*:focus]:outline-none">
         <ComposedChart
           data={chartData}
           margin={{ top: 6, right: 8, bottom: 0, left: -12 }}
@@ -233,7 +259,19 @@ export function ManaCurveLineChart({
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,20%)" strokeOpacity={0.3} vertical={false} />
           <XAxis
             dataKey="cmcLabel"
-            tick={{ fontSize: 10, fill: 'hsl(220,13%,55%)', fillOpacity: 0.6 }}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            tick={(props: any) => {
+              const { x, y, payload } = props as { x: number; y: number; payload: { value: string; index: number } };
+              const d = chartData[payload.index];
+              const isSelected = selectedCmc != null && d?.cmc === selectedCmc;
+              return (
+                <text x={x} y={y + 10} textAnchor="middle" fontSize={isSelected ? 11 : 10}
+                  fill={isSelected ? '#38bdf8' : 'hsl(220,13%,55%)'}
+                  fillOpacity={isSelected ? 1 : 0.6}
+                  fontWeight={isSelected ? 700 : 400}
+                >{payload.value}</text>
+              );
+            }}
             axisLine={false}
             tickLine={false}
           />
@@ -312,6 +350,38 @@ export function ManaCurveLineChart({
   );
 }
 
+type WithinGroupSort = 'inclusion' | 'name' | 'cmc';
+
+function sortWithinGroup(cards: AnalyzedCard[], mode: WithinGroupSort): AnalyzedCard[] {
+  if (mode === 'name') return [...cards].sort((a, b) => a.card.name.localeCompare(b.card.name));
+  if (mode === 'cmc') return [...cards].sort((a, b) => (a.card.cmc - b.card.cmc) || a.card.name.localeCompare(b.card.name));
+  return [...cards].sort((a, b) => (b.inclusion ?? -1) - (a.inclusion ?? -1));
+}
+
+function WithinGroupSortToggle({ mode, onChange }: { mode: WithinGroupSort; onChange: (m: WithinGroupSort) => void }) {
+  const opts: { key: WithinGroupSort; label: string }[] = [
+    { key: 'inclusion', label: 'Inclusion' },
+    { key: 'cmc', label: 'CMC' },
+    { key: 'name', label: 'Name' },
+  ];
+  return (
+    <div className="flex items-center gap-1">
+      <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
+      <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+        {opts.map((o, i) => (
+          <span key={o.key} className="flex items-center">
+            {i > 0 && <span className="w-px h-3 bg-border/50" />}
+            <button
+              onClick={() => onChange(o.key)}
+              className={`text-[10px] px-2 py-0.5 transition-colors ${mode === o.key ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+            >{o.label}</button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function CmcCardList({
   curveBreakdowns, selectedCmc, onPreview, onClose, onCardAction, menuProps,
 }: {
@@ -322,6 +392,8 @@ export function CmcCardList({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
 }) {
+  const [sortMode, setSortMode] = useState<WithinGroupSort>('inclusion');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const bucket = curveBreakdowns.find(b => b.cmc === selectedCmc);
   if (!bucket || bucket.cards.length === 0) {
     return (
@@ -339,23 +411,31 @@ export function CmcCardList({
     );
   }
 
-  // Group by type
-  const typeGroups = new Map<string, AnalyzedCard[]>();
-  for (const ac of bucket.cards) {
-    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-    let type = 'other';
-    if (tl.includes('creature')) type = 'Creature';
-    else if (tl.includes('instant')) type = 'Instant';
-    else if (tl.includes('sorcery')) type = 'Sorcery';
-    else if (tl.includes('artifact')) type = 'Artifact';
-    else if (tl.includes('enchantment')) type = 'Enchantment';
-    else if (tl.includes('planeswalker')) type = 'Planeswalker';
-    else if (tl.includes('battle')) type = 'Battle';
-    const arr = typeGroups.get(type) || [];
-    arr.push(ac);
-    typeGroups.set(type, arr);
-  }
-  const sortedGroups = [...typeGroups.entries()].sort((a, b) => b[1].length - a[1].length);
+  const groups = useMemo(() => {
+    const buckets: Record<RoleGroupKey, AnalyzedCard[]> = {
+      ramp: [], interaction: [], cardDraw: [], other: [],
+    };
+    for (const ac of bucket.cards) {
+      const role = ac.card.deckRole;
+      if (role === 'ramp') buckets.ramp.push(ac);
+      else if (role === 'removal' || role === 'boardwipe') buckets.interaction.push(ac);
+      else if (role === 'cardDraw') buckets.cardDraw.push(ac);
+      else buckets.other.push(ac);
+    }
+    for (const key of ROLE_GROUP_ORDER) {
+      buckets[key] = sortWithinGroup(buckets[key], sortMode);
+    }
+    return buckets;
+  }, [bucket.cards, sortMode]);
+
+  const toggleCollapse = useCallback((key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="bg-card/60 border border-sky-500/20 rounded-lg p-3">
@@ -363,28 +443,53 @@ export function CmcCardList({
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           CMC {selectedCmc === 7 ? '7+' : selectedCmc} — {bucket.cards.length} card{bucket.cards.length !== 1 ? 's' : ''}
         </span>
-        <button onClick={onClose} className="text-muted-foreground/80 hover:text-muted-foreground transition-colors">
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <WithinGroupSortToggle mode={sortMode} onChange={setSortMode} />
+          <button onClick={onClose} className="text-muted-foreground/80 hover:text-muted-foreground transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-0.5">
-        {sortedGroups.map(([type, cards]) => (
-          <div key={type}>
-            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-0.5 mt-1 first:mt-0">
-              {type} ({cards.length})
-            </p>
-            {cards.map(ac => (
-              <AnalyzedCardRow
-                key={ac.card.name}
-                ac={ac}
-                onPreview={onPreview}
-                showDetails
-                onCardAction={onCardAction}
-                menuProps={menuProps}
-              />
-            ))}
-          </div>
-        ))}
+      <div className="space-y-2">
+        {ROLE_GROUP_ORDER.map(key => {
+          const cards = groups[key];
+          if (cards.length === 0) return null;
+          const meta = ROLE_GROUP_META[key];
+          const Icon = meta.icon;
+          const isCollapsed = collapsed.has(key);
+          return (
+            <div key={key} className="bg-card/40 border border-border/20 rounded-lg px-3 py-2">
+              <button
+                onClick={() => toggleCollapse(key)}
+                className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              >
+                {isCollapsed
+                  ? <ChevronRight className={`w-3.5 h-3.5 ${meta.color}`} />
+                  : <ChevronDown className={`w-3.5 h-3.5 ${meta.color}`} />
+                }
+                <Icon className={`w-3.5 h-3.5 ${meta.color}`} />
+                <span className={`text-xs font-semibold ${meta.color}`}>
+                  {meta.label}
+                </span>
+                <span className="text-[11px] text-muted-foreground/80 tabular-nums">{cards.length}</span>
+              </button>
+              {!isCollapsed && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-0 mt-1">
+                  {cards.map(ac => (
+                    <AnalyzedCardRow
+                      key={ac.card.name}
+                      ac={ac}
+                      onPreview={onPreview}
+                      showDetails
+                      onCardAction={onCardAction}
+                      menuProps={menuProps}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -404,7 +509,7 @@ interface Insight {
 export function CurveInsights({
   curveAnalysis, curvePhases, manaSources, manaTrajectory,
   commanderCmc, partnerCmc, commanderName, partnerName,
-  totalNonLand, drawCount,
+  totalNonLand, drawCount, taplandCount = 0, landCount = 0,
 }: {
   curveAnalysis: CurveSlot[];
   curvePhases: CurvePhaseAnalysis[];
@@ -416,6 +521,8 @@ export function CurveInsights({
   partnerName?: string;
   totalNonLand: number;
   drawCount: number;
+  taplandCount?: number;
+  landCount?: number;
 }) {
   const insights = useMemo(() => {
     const result: Insight[] = [];
@@ -470,7 +577,19 @@ export function CurveInsights({
         text: `Only ${totalRamp} ramp — likely to fall behind on mana` });
     }
 
-    // 5. Curve shape
+    // 5. Tapland tempo penalty
+    if (taplandCount > 0 && landCount > 0) {
+      const tapPct = Math.round((taplandCount / landCount) * 100);
+      if (tapPct >= 50) {
+        result.push({ key: 'taplands', icon: Mountain, color: 'text-red-400',
+          text: `${taplandCount} of ${landCount} lands enter tapped (${tapPct}%) — severe tempo loss in early turns` });
+      } else if (tapPct >= 30) {
+        result.push({ key: 'taplands', icon: Mountain, color: 'text-amber-400',
+          text: `${taplandCount} of ${landCount} lands enter tapped (${tapPct}%) — expect sluggish early turns` });
+      }
+    }
+
+    // 6. Curve shape
     const latePhase = curvePhases.find(p => p.phase === 'late');
     const earlyPhase = curvePhases.find(p => p.phase === 'early');
     if (latePhase && totalNonLand > 0) {
@@ -489,7 +608,7 @@ export function CurveInsights({
     }
 
     return result;
-  }, [curveAnalysis, curvePhases, manaSources, manaTrajectory, commanderCmc, partnerCmc, commanderName, partnerName, totalNonLand, drawCount]);
+  }, [curveAnalysis, curvePhases, manaSources, manaTrajectory, commanderCmc, partnerCmc, commanderName, partnerName, totalNonLand, drawCount, taplandCount, landCount]);
 
   if (insights.length === 0) return null;
 
@@ -792,6 +911,9 @@ export function PhaseCardDisplay({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
 }) {
+  const [sortMode, setSortMode] = useState<WithinGroupSort>('inclusion');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
   const groups = useMemo(() => {
     const buckets: Record<RoleGroupKey, AnalyzedCard[]> = {
       ramp: [], interaction: [], cardDraw: [], other: [],
@@ -803,12 +925,20 @@ export function PhaseCardDisplay({
       else if (role === 'cardDraw') buckets.cardDraw.push(ac);
       else buckets.other.push(ac);
     }
-    // Sort each by inclusion desc
     for (const key of ROLE_GROUP_ORDER) {
-      buckets[key].sort((a, b) => (b.inclusion ?? -1) - (a.inclusion ?? -1));
+      buckets[key] = sortWithinGroup(buckets[key], sortMode);
     }
     return buckets;
-  }, [phase.cards]);
+  }, [phase.cards, sortMode]);
+
+  const toggleCollapse = useCallback((key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const phaseMeta = PHASE_META[phase.phase];
   const PhaseIcon = phaseMeta.icon;
@@ -824,36 +954,51 @@ export function PhaseCardDisplay({
           {phase.current} card{phase.current !== 1 ? 's' : ''} · CMC {phase.cmcRange[0]}-{phase.cmcRange[1] === 7 ? '7+' : phase.cmcRange[1]}
         </span>
         <InfoTooltip text={`Cards in the ${phase.label.toLowerCase()} range (CMC ${phase.cmcRange[0]}-${phase.cmcRange[1] === 7 ? '7+' : phase.cmcRange[1]}), grouped by their role in your deck. Target is ${phase.target} cards for this phase.`} />
+        <div className="ml-auto">
+          <WithinGroupSortToggle mode={sortMode} onChange={setSortMode} />
+        </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="space-y-2">
         {ROLE_GROUP_ORDER.map(key => {
           const cards = groups[key];
           if (cards.length === 0) return null;
           const meta = ROLE_GROUP_META[key];
           const Icon = meta.icon;
           const context = PHASE_ROLE_CONTEXT[phase.phase][key];
+          const isCollapsed = collapsed.has(key);
           return (
-            <div key={key}>
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <Icon className={`w-3 h-3 ${meta.color}`} />
-                <span className={`text-[11px] font-semibold ${meta.color}`}>
+            <div key={key} className="bg-card/40 border border-border/20 rounded-lg px-3 py-2">
+              <button
+                onClick={() => toggleCollapse(key)}
+                className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+              >
+                {isCollapsed
+                  ? <ChevronRight className={`w-3.5 h-3.5 ${meta.color}`} />
+                  : <ChevronDown className={`w-3.5 h-3.5 ${meta.color}`} />
+                }
+                <Icon className={`w-3.5 h-3.5 ${meta.color}`} />
+                <span className={`text-xs font-semibold ${meta.color}`}>
                   {meta.label}
                 </span>
-                <span className="text-[10px] text-muted-foreground/80 tabular-nums">{cards.length}</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground/80 mb-1 leading-snug">{context}</p>
-              <div className="space-y-0">
-                {cards.map(ac => (
-                  <AnalyzedCardRow
-                    key={ac.card.name}
-                    ac={ac}
-                    onPreview={onPreview}
-                    showDetails
-                    onCardAction={onCardAction}
-                    menuProps={menuProps}
-                  />
-                ))}
-              </div>
+                <span className="text-[11px] text-muted-foreground/80 tabular-nums">{cards.length}</span>
+              </button>
+              {!isCollapsed && (
+                <>
+                  <p className="text-[10px] text-muted-foreground/80 mb-1 mt-1 leading-snug">{context}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-0">
+                    {cards.map(ac => (
+                      <AnalyzedCardRow
+                        key={ac.card.name}
+                        ac={ac}
+                        onPreview={onPreview}
+                        showDetails
+                        onCardAction={onCardAction}
+                        menuProps={menuProps}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           );
         })}
@@ -865,11 +1010,20 @@ export function PhaseCardDisplay({
 export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajectoryPoint[] }) {
   if (trajectory.length === 0) return null;
 
+  const hasTapPenalty = trajectory.some(t => t.tapPenalty > 0);
+  const hasCastData = trajectory.some(t => t.castableCards > 0);
+
   const chartData = trajectory.map(t => ({
     turnLabel: `T${t.turn}`,
+    expectedLandsRaw: t.expectedLandsRaw,
     expectedLands: t.expectedLands,
+    tapPenalty: t.tapPenalty,
     totalExpectedMana: t.totalExpectedMana,
     rampMana: t.expectedRampMana,
+    landDropProbability: t.landDropProbability,
+    castableCards: t.castableCards,
+    castablePct: t.castablePct,
+    newUnlocks: t.newUnlocks,
   }));
 
   // Find max ramp turn for annotation
@@ -882,22 +1036,43 @@ export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajec
       <div className="flex flex-col gap-0.5 mb-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Trajectory</span>
-          <span className="text-[10px] text-muted-foreground/80 ml-auto flex items-center gap-3">
+          <InfoTooltip text={`Expected mana per turn from lands + ramp.\n` +
+            `\n` +
+            `Green — lands only\n` +
+            `Blue — total with ramp\n` +
+            (hasTapPenalty ? `Amber — before tapland penalty\n` : '') +
+            (hasCastData ? `Purple — % of spells castable\n` : '') +
+            `\n` +
+            `Steeper blue = faster acceleration.\n` +
+            `Green-to-blue gap = ramp impact.`} />
+          <span className="text-[10px] text-muted-foreground/80 ml-auto flex items-center gap-3 flex-wrap justify-end">
+            {hasTapPenalty && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-4 h-0 inline-block border-t border-dotted border-amber-500/40" />
+                pre-tap
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <span className="w-4 h-0 inline-block border-t border-dashed border-emerald-500/50" />
-              lands only
+              lands
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-4 h-0.5 rounded bg-sky-500 inline-block" />
-              lands + ramp
+              + ramp
             </span>
+            {hasCastData && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-4 h-0.5 rounded bg-purple-500/40 inline-block" />
+                castable %
+              </span>
+            )}
           </span>
         </div>
         <span className="text-[10px] text-muted-foreground/80 leading-snug">
-          Estimated mana available each turn based on your lands and ramp spells
+          Expected mana per turn · hover for land drop odds, castable spells{hasTapPenalty ? ', tapland penalty' : ''}
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={120}>
+      <ResponsiveContainer width="100%" height={140}>
         <RechartsAreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
           <XAxis
             dataKey="turnLabel"
@@ -922,7 +1097,21 @@ export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajec
             animationDuration={500}
           />
 
-          {/* Lands-only dashed line */}
+          {/* Pre-tap-penalty lands line (only when taplands exist) */}
+          {hasTapPenalty && (
+            <Line
+              type="monotone"
+              dataKey="expectedLandsRaw"
+              stroke="rgba(245,158,11,0.35)"
+              strokeWidth={1}
+              strokeDasharray="2 3"
+              dot={false}
+              isAnimationActive
+              animationDuration={500}
+            />
+          )}
+
+          {/* Effective lands dashed line */}
           <Line
             type="monotone"
             dataKey="expectedLands"
@@ -933,6 +1122,22 @@ export function ManaTrajectorySparkline({ trajectory }: { trajectory: ManaTrajec
             isAnimationActive
             animationDuration={500}
           />
+
+          {/* Castable % as subtle area on secondary axis (normalized to fit chart) */}
+          {hasCastData && (
+            <Area
+              type="monotone"
+              dataKey="castablePct"
+              stroke="rgba(168,85,247,0.3)"
+              strokeWidth={1}
+              fill="rgba(168,85,247,0.06)"
+              dot={false}
+              yAxisId="right"
+              isAnimationActive
+              animationDuration={500}
+            />
+          )}
+          {hasCastData && <YAxis yAxisId="right" hide domain={[0, 1]} />}
 
           {/* Ramp annotation at peak turn */}
           {maxRampTurn.expectedRampMana > 0 && (
@@ -1152,11 +1357,11 @@ function castTip(turn: number, cmc: number): string {
 }
 
 function CommanderCastCard({
-  card, trajectory, rampCount,
+  card, trajectory,
 }: {
   card: ScryfallCard;
   trajectory: ManaTrajectoryPoint[];
-  rampCount: number;
+  rampCount?: number;
 }) {
   const cmc = card.cmc;
   const castWithRamp = findCastTurnExtended(trajectory, cmc, true);
@@ -1452,12 +1657,13 @@ const CLASS_LABELS: Record<string, string> = {
 };
 
 export function HandSimulation({
-  currentCards, deckSize, landCount, rampCount, removalCount,
+  currentCards, deckSize, landCount, rampCount, removalCount, taplandCount = 0,
 }: {
   currentCards: ScryfallCard[];
   deckSize: number;
   landCount: number;
   rampCount: number;
+  taplandCount?: number;
   removalCount: number;
 }) {
   const [sampleHand, setSampleHand] = useState<ScryfallCard[] | null>(null);
@@ -1514,6 +1720,7 @@ export function HandSimulation({
     const rampCards = nonLand.filter(c => c.deckRole === 'ramp');
 
     const lc = lands.length;
+    const tappedLands = lands.filter(c => c.isTapland).length;
     const hasEarlyPlay = earlyPlays.length > 0;
     const keep = lc >= 2 && lc <= 4 && hasEarlyPlay;
 
@@ -1522,7 +1729,8 @@ export function HandSimulation({
     else if (lc > 4) reason = `${lc} lands — heavy on mana, light on action`;
     else if (!hasEarlyPlay) reason = `No plays under CMC 4 — slow start`;
     else {
-      const parts: string[] = [`${lc} lands`];
+      const landStr = tappedLands > 0 ? `${lc} lands (${tappedLands} tapped)` : `${lc} lands`;
+      const parts: string[] = [landStr];
       if (rampCards.length > 0) parts.push(`${rampCards.length} ramp`);
       parts.push(`${earlyPlays.length} early play${earlyPlays.length > 1 ? 's' : ''}`);
       reason = parts.join(', ');
@@ -1536,8 +1744,10 @@ export function HandSimulation({
   const floodPct = Math.round(stats.manaFlood * 100);
 
   // Composition bar data
+  const expectedTaplands = taplandCount > 0 ? Math.round((7 * taplandCount / deckSize) * 10) / 10 : 0;
   const compBars = [
     { label: 'Lands', value: stats.expectedLands, max: 7, color: 'bg-amber-500', textColor: 'text-amber-400/80' },
+    ...(taplandCount > 0 ? [{ label: 'Tapped', value: expectedTaplands, max: 7, color: 'bg-amber-700', textColor: 'text-amber-500/60' }] : []),
     { label: 'Ramp', value: stats.expectedRamp, max: 7, color: 'bg-emerald-500', textColor: 'text-emerald-400/80' },
     { label: 'Interaction', value: stats.expectedRemoval, max: 7, color: 'bg-red-500', textColor: 'text-red-400/80' },
     { label: 'Early plays', value: stats.expectedEarlyPlays, max: 7, color: 'bg-sky-500', textColor: 'text-sky-400/80' },

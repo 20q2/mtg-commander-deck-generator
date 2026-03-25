@@ -2,11 +2,20 @@ import { useMemo } from 'react';
 import { Shield, Check } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { RoleBreakdown, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
+import { useStore } from '@/store';
 import { roleBarColor, ROLE_META, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
 
 // ─── Roles Tab: Summary Strip ────────────────────────────────────────
+const PACING_LABELS: Record<string, string> = {
+  'aggressive-early': 'aggressive',
+  'fast-tempo': 'fast',
+  'midrange': 'midrange',
+  'late-game': 'late-game',
+  'balanced': 'balanced',
+};
+
 export function RoleSummaryStrip({
   roleBreakdowns, activeRole, onRoleClick,
 }: {
@@ -14,8 +23,18 @@ export function RoleSummaryStrip({
   activeRole: string | null;
   onRoleClick: (role: string) => void;
 }) {
+  const detectedArchetype = useStore(s => s.generatedDeck?.detectedArchetype);
+  const detectedPacing = useStore(s => s.generatedDeck?.detectedPacing);
+  const hasContext = detectedArchetype && detectedArchetype !== 'goodstuff';
+
   return (
-    <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 grid grid-cols-2 sm:grid-cols-4 border-b border-border/30">
+    <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4">
+    {hasContext && (
+      <div className="px-3 pt-2 pb-1.5 text-[10px] text-muted-foreground/60 italic">
+        Targets adjusted for {detectedArchetype}{detectedPacing && detectedPacing !== 'balanced' ? ` · ${PACING_LABELS[detectedPacing] ?? detectedPacing} tempo` : ''}
+      </div>
+    )}
+    <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-border/30">
       {roleBreakdowns.map((rb, i) => {
         const meta = ROLE_META[rb.role];
         const Icon = meta?.icon || Shield;
@@ -50,7 +69,7 @@ export function RoleSummaryStrip({
               <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
                 {rb.current}
               </span>
-              <span className="text-[11px] text-muted-foreground text-right">{rb.target} suggested</span>
+              <span className="text-[11px] text-muted-foreground text-right">at least {rb.target}</span>
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
               <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
@@ -58,6 +77,7 @@ export function RoleSummaryStrip({
           </button>
         );
       })}
+    </div>
     </div>
   );
 }

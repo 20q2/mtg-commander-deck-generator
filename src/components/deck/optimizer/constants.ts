@@ -1,6 +1,7 @@
 import {
   Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
   LayoutDashboard, Mountain, BarChart3, Layers, Zap, Target, Crown,
+  MapPin, Clock,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import type { CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
@@ -116,6 +117,9 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
   'Cantrip': 'bg-sky-500/15 text-sky-400/80',
   'Card Draw': 'bg-sky-500/15 text-sky-400/80',
   'Card Advantage': 'bg-sky-500/15 text-sky-400/80',
+  // Land classification tags
+  'Utility': 'bg-violet-500/15 text-violet-400/80',
+  'Tapland': 'bg-amber-500/15 text-amber-400/80',
 };
 
 export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
@@ -140,6 +144,9 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   'Wheel': BookOpen as typeof Sparkles,
   'Cantrip': BookOpen as typeof Sparkles,
   'Card Draw': BookOpen as typeof Sparkles,
+  // Land classification tags
+  'Utility': MapPin as typeof Sparkles,
+  'Tapland': Clock as typeof Sparkles,
 };
 
 // ─── Suggestion Sort ─────────────────────────────────────────────────

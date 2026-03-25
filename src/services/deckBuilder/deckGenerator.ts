@@ -28,6 +28,7 @@ import {
 } from './curveUtils';
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
+import { getDynamicRoleTargets } from './roleTargets';
 import { loadUserLists } from '@/hooks/useUserLists';
 
 interface GenerationContext {
@@ -794,19 +795,7 @@ function collectSwapCandidates(
 }
 
 // Role targets by deck size — used by balanced roles mode
-export function getRoleTargets(format: DeckFormat): Record<RoleKey, number> {
-  if (format >= 99) return { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10 };
-  if (format >= 60) return { ramp: 4, removal: 5, boardwipe: 2, cardDraw: 4 };
-  if (format >= 40) return { ramp: 2, removal: 3, boardwipe: 1, cardDraw: 2 };
-  // Scale proportionally from 99-card baseline
-  const ratio = format / 99;
-  return {
-    ramp: Math.max(1, Math.round(10 * ratio)),
-    removal: Math.max(1, Math.round(8 * ratio)),
-    boardwipe: Math.max(0, Math.round(3 * ratio)),
-    cardDraw: Math.max(1, Math.round(10 * ratio)),
-  };
-}
+// getRoleTargets moved to ./roleTargets.ts as getBaseRoleTargets / getDynamicRoleTargets
 
 // Compute role-deficit boost map for balanced roles mode
 // Subtypes per role for diversity calculations
@@ -1641,6 +1630,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   // Balanced roles tracking — declared at outer scope so return statement can access them
   let roleTargets: Record<RoleKey, number> | null = null;
+  let detectedArchetype: import('@/types').Archetype | undefined;
+  let detectedPacing: string | undefined;
   const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
   const currentSubtypeCounts: Record<string, number> = {};
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;
@@ -2280,8 +2271,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (customization.advancedTargets?.roleTargets) {
       // Advanced override always takes precedence
       roleTargets = customization.advancedTargets.roleTargets as Record<RoleKey, number>;
-    } else {
-      roleTargets = customization.balancedRoles ? getRoleTargets(format) : null;
+    } else if (customization.balancedRoles) {
+      const dynamic = getDynamicRoleTargets(format, context.selectedThemes, edhrecData?.stats);
+      roleTargets = dynamic.targets;
+      detectedArchetype = dynamic.archetype;
+      detectedPacing = dynamic.pacing;
     }
     const cardRoleMap = new Map<string, RoleKey>();
     const cardCmcMap = new Map<string, number>();
@@ -3538,5 +3532,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     deckScore,
     cardInclusionMap,
     cardRelevancyMap,
+    detectedArchetype,
+    detectedPacing,
   };
 }

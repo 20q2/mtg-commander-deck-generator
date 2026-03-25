@@ -291,6 +291,8 @@ export interface GeneratedDeck {
   deckScore?: number; // Sum of EDHREC inclusion % for all non-land cards
   cardInclusionMap?: Record<string, number>; // cardName → EDHREC inclusion %
   cardRelevancyMap?: Record<string, number>; // cardName → composite relevancy score (raw, 0-200+)
+  detectedArchetype?: Archetype; // Archetype inferred from themes for dynamic role targeting
+  detectedPacing?: string; // Pacing estimated from EDHREC stats at generation time
 }
 
 export interface DeckStats {

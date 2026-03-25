@@ -1,25 +1,20 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  Sparkles, Plus, Minus, Check, ShoppingCart,
-  Shield, Swords, Flame, BookOpen, Sprout,
-  ChevronDown, ChevronRight,
-  Lightbulb, Tag, ArrowUpDown, Pencil, ThumbsUp,
+  Sparkles, Plus, Minus, Check,
+  Shield,
+  Lightbulb, Tag, ArrowUpDown, Pencil,
   RotateCcw, Loader2, Info, Zap, Mountain, BarChart3,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, UserCardList, EDHRECTheme } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard, GradeResult } from '@/services/deckBuilder/deckAnalyzer';
 import { getDeckSummary } from '@/services/deckBuilder/deckAnalyzer';
 import type { DetectedThemeResult, Pacing } from '@/services/deckBuilder/themeDetector';
-import { generateStrategyLabel, buildDetectionMessage, PACING_PHRASE } from '@/services/deckBuilder/themeDetector';
-import { getCardPrice, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
+import { getCardPrice } from '@/services/scryfall/client';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
-import { ManaCost } from '@/components/ui/mtg-icons';
 import {
-  scryfallImg, edhrecRankToInclusion, roleBarColor,
-  ROLE_META, RANK_STYLES, ROLE_LABELS, ROLE_BADGE_COLORS, ROLE_LABEL_ICONS, SUBTYPE_BADGE_COLORS,
-  ROLE_ICON_COLORS,
+  scryfallImg, edhrecRankToInclusion,
+  ROLE_LABEL_ICONS, SUBTYPE_BADGE_COLORS,
   HEALTH_GRADE_STYLES, TEMPO_OPTIONS,
   SORT_KEY, sortListeners,
   type TabKey, type SuggestionSortMode,
@@ -137,6 +132,10 @@ export function SuggestionCardItem({
   const roleBadges = rec.allRoleLabels && rec.allRoleLabels.length > 1
     ? rec.allRoleLabels
     : rec.roleLabel ? [rec.roleLabel] : [];
+  // Land classification tags (appended after role badges)
+  const landTags: string[] = [];
+  if (rec.isUtilityLand) landTags.push('Utility');
+  const allBadges = [...roleBadges, ...landTags];
 
   // Create a minimal ScryfallCard-like object for the context menu
   const pseudoCard = useMemo(() => ({ name: rec.name, id: rec.name } as ScryfallCard), [rec.name]);
@@ -242,10 +241,10 @@ export function SuggestionCardItem({
           <span className="text-[10px] text-muted-foreground shrink-0">${rec.price}</span>
         )}
       </div>
-      {/* Row 2: role tags */}
-      {roleBadges.length > 0 && (
+      {/* Row 2: role + land tags */}
+      {allBadges.length > 0 && (
         <div className="flex items-center gap-1 px-1 min-w-0 justify-center flex-wrap">
-          {roleBadges.map(label => {
+          {allBadges.map(label => {
             const badgeColor = SUBTYPE_BADGE_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];
             if (!badgeColor || !RIcon) return null;

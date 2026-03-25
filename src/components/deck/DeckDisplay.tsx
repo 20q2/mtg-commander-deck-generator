@@ -591,6 +591,8 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           <span className={`w-5 text-center shrink-0 text-[10px] font-bold ${card.multiRole ? 'text-purple-400/70' : badge.color}`} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage' })[r]).join(' + ') : badge.title}>{
             card.multiRole ? '*' : badge.label
           }</span>
+        ) : card.isUtilityLand ? (
+          <span className="w-5 text-center shrink-0 text-[10px] font-bold text-violet-400/70" title="Utility Land">UL</span>
         ) : (
           <span className="w-5 shrink-0" />
         );
@@ -3489,7 +3491,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                     if (badge) roleBadges.push(badge);
                                   }
                                 }
-                                if (!hasGcOrPin && roleBadges.length === 0) return null;
+                                const hasLandTags = showRoles && card.isUtilityLand;
+                                if (!hasGcOrPin && roleBadges.length === 0 && !hasLandTags) return null;
                                 return (
                                   <span className="absolute bottom-1 flex gap-0.5" style={{ right: isDoubleFacedCard(card) ? 28 : 4 }}>
                                     {card.isGameChanger && (
@@ -3522,6 +3525,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                         title={badge.title}
                                       >{badge.label}</span>
                                     ))}
+                                    {showRoles && card.isUtilityLand && (
+                                      <span className="text-white rounded-full px-1.5 py-0.5 text-[8px] font-bold leading-none flex items-center bg-violet-500/80"
+                                        title="Utility Land">UL</span>
+                                    )}
                                   </span>
                                 );
                               })()}

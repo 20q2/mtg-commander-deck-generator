@@ -1153,6 +1153,8 @@ export function DeckOptimizer({
                   partnerName={partnerCommanderName}
                   totalNonLand={totalNonLand}
                   drawCount={drawCount}
+                  taplandCount={analysis.manaBase.taplandCount}
+                  landCount={analysis.manaBase.currentLands}
                 />
                 <div className="bg-card/60 border border-border/30 rounded-lg p-3">
                   <ManaTrajectorySparkline trajectory={analysis.manaTrajectory} />
