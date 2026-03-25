@@ -328,16 +328,16 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" side="bottom" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
-        {hasRemove && (
-          <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
-            <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
-            Remove from Deck
-          </button>
-        )}
         {hasAddToDeck && (
           <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
             <Plus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-emerald-400 transition-colors" />
             Add to Deck
+          </button>
+        )}
+        {hasRemove && (
+          <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
+            <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
+            Remove from Deck
           </button>
         )}
         {hasSideboard && (

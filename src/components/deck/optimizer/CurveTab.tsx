@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import { ChevronDown, ChevronRight, X, Zap, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Dices, Shuffle, Layers, ArrowUpDown } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
-import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
+import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis, RoleBreakdown } from '@/services/deckBuilder/deckAnalyzer';
 import { PACING_MULTIPLIERS, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
@@ -720,17 +720,91 @@ const PHASE_COLORS: Record<CurvePhase, string> = {
   late:  'text-purple-400',
 };
 
+/** Inline suggestions for a specific role group filtered by phase CMC range. */
+function PhaseRoleSuggestions({
+  roleGroup, phases, roleBreakdowns, deficit, onPreview,
+}: {
+  roleGroup: RoleGroupKey;
+  phases: CurvePhaseAnalysis[];
+  roleBreakdowns: RoleBreakdown[];
+  deficit: number;
+  onPreview: (name: string) => void;
+}) {
+  // Map role group to RoleBreakdown role keys
+  const roleKeys = roleGroup === 'interaction'
+    ? ['removal', 'boardwipe']
+    : roleGroup === 'cardDraw' ? ['cardDraw'] : [roleGroup];
+
+  // Collect suggestions from matching role breakdowns
+  const allSuggestions = roleBreakdowns
+    .filter(rb => roleKeys.includes(rb.role))
+    .flatMap(rb => rb.suggestedReplacements);
+
+  // Filter by phase CMC ranges
+  const cmcRanges = phases.map(p => p.cmcRange);
+  const inRange = (cmc: number) => cmcRanges.some(([lo, hi]) => {
+    const c = Math.min(Math.floor(cmc), 7);
+    return c >= lo && c <= hi;
+  });
+  const filtered = allSuggestions.filter(r => r.cmc != null && inRange(r.cmc));
+  const display = (filtered.length >= 3 ? filtered : allSuggestions).slice(0, 6);
+
+  if (display.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-dashed border-border/20">
+      <p className="text-[10px] text-muted-foreground/70 mb-1.5 flex items-center gap-1">
+        <Sparkles className="w-2.5 h-2.5" />
+        Suggestions to fill {deficit} slot{deficit !== 1 ? 's' : ''}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {display.map(rec => (
+          <button
+            key={rec.name}
+            onClick={() => onPreview(rec.name)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full border border-border/30 bg-accent/20 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+            title={`${rec.name} · ${rec.inclusion}% inclusion${rec.cmc != null ? ` · CMC ${rec.cmc}` : ''}`}
+          >
+            {rec.cmc != null && <span className="text-muted-foreground/60 tabular-nums">{rec.cmc}</span>}
+            <span className="max-w-[120px] truncate">{rec.name}</span>
+            <span className="text-muted-foreground/60 tabular-nums">{rec.inclusion}%</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PhaseCardDisplay({
-  phases, onPreview, onCardAction, menuProps,
+  phases, onPreview, onCardAction, menuProps, roleBreakdowns,
 }: {
   phases: CurvePhaseAnalysis[];
   onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
+  roleBreakdowns?: RoleBreakdown[];
 }) {
   const [sortMode, setSortMode] = useState<WithinGroupSort>('inclusion');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const multiPhase = phases.length > 1;
+
+  // Aggregate per-phase role breakdowns across selected phases
+  const roleAgg = useMemo(() => {
+    const agg: Record<RoleGroupKey, { current: number; target: number; deficit: number }> = {
+      ramp: { current: 0, target: 0, deficit: 0 },
+      interaction: { current: 0, target: 0, deficit: 0 },
+      cardDraw: { current: 0, target: 0, deficit: 0 },
+      other: { current: 0, target: 0, deficit: 0 },
+    };
+    for (const phase of phases) {
+      for (const prb of phase.phaseRoleBreakdowns) {
+        agg[prb.roleGroup].current += prb.current;
+        agg[prb.roleGroup].target += prb.target;
+        agg[prb.roleGroup].deficit += prb.deficit;
+      }
+    }
+    return agg;
+  }, [phases]);
 
   // Group cards by role, then by phase within each role
   const groups = useMemo(() => {
@@ -787,16 +861,19 @@ export function PhaseCardDisplay({
       <div className="space-y-2">
         {ROLE_GROUP_ORDER.map(key => {
           const phaseGroups = groups[key];
-          if (phaseGroups.length === 0) return null;
+          if (phaseGroups.length === 0 && (key === 'other' || roleAgg[key].target === 0)) return null;
           const meta = ROLE_GROUP_META[key];
           const Icon = meta.icon;
-          const roleTotal = phaseGroups.reduce((sum, pg) => sum + pg.cards.length, 0);
+          const ra = roleAgg[key];
+          const hasTarget = key !== 'other' && ra.target > 0;
           const isCollapsed = collapsed.has(key);
+          const pct = hasTarget ? Math.min(100, Math.round((ra.current / ra.target) * 100)) : 0;
+          const barColor = !hasTarget ? '' : ra.current >= ra.target ? 'bg-emerald-500' : ra.deficit <= 1 ? 'bg-amber-500' : 'bg-red-500';
           return (
             <div key={key} className="bg-card/40 border border-border/20 rounded-lg px-3 py-2">
               <button
                 onClick={() => toggleCollapse(key)}
-                className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                className="flex items-center gap-1.5 w-full hover:opacity-80 transition-opacity"
               >
                 {isCollapsed
                   ? <ChevronRight className={`w-3.5 h-3.5 ${meta.color}`} />
@@ -806,7 +883,21 @@ export function PhaseCardDisplay({
                 <span className={`text-xs font-semibold ${meta.color}`}>
                   {meta.label}
                 </span>
-                <span className="text-[11px] text-muted-foreground/80 tabular-nums">{roleTotal}</span>
+                {hasTarget ? (
+                  <span className="text-[11px] text-muted-foreground/80 tabular-nums">{ra.current}/{ra.target}</span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground/80 tabular-nums">{ra.current}</span>
+                )}
+                {hasTarget && ra.deficit > 0 && (
+                  <span className="text-[10px] font-semibold px-1.5 py-px rounded-full bg-red-500/15 text-red-400">
+                    -{ra.deficit}
+                  </span>
+                )}
+                {hasTarget && (
+                  <div className="flex-1 ml-2 h-1 rounded-full bg-accent/30 overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                  </div>
+                )}
               </button>
               {!isCollapsed && (
                 <div className="mt-1 space-y-1.5">
@@ -842,6 +933,15 @@ export function PhaseCardDisplay({
                       </div>
                     );
                   })}
+                  {hasTarget && ra.deficit > 0 && roleBreakdowns && (
+                    <PhaseRoleSuggestions
+                      roleGroup={key}
+                      phases={phases}
+                      roleBreakdowns={roleBreakdowns}
+                      deficit={ra.deficit}
+                      onPreview={onPreview}
+                    />
+                  )}
                 </div>
               )}
             </div>

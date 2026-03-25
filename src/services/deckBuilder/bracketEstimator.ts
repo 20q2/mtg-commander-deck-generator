@@ -1,5 +1,5 @@
 import type { DetectedCombo } from '@/types';
-import { hasTag, isMassLandDenial, isExtraTurn } from '@/services/tagger/client';
+import { hasTag, isMassLandDenial, isExtraTurn, getCardRole } from '@/services/tagger/client';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +87,9 @@ export function estimateBracket(
     if (isMassLandDenial(name)) massLandDenial.push(name);
     if (isExtraTurn(name)) extraTurns.push(name);
     if (FAST_MANA.has(name)) fastMana.push(name);
-    if (hasTag(name, 'tutor')) tutors.push(name);
+    // Only count as tutor if primary role is cardDraw — cards like Cultivate
+    // have the tutor tag but their primary role is ramp, not tutoring.
+    if (hasTag(name, 'tutor') && getCardRole(name) === 'cardDraw') tutors.push(name);
   }
 
   // ── 2. Classify combos ──

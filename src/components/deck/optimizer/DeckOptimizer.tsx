@@ -1205,6 +1205,7 @@ export function DeckOptimizer({
                   onPreview={handlePreview}
                   onCardAction={handleCardAction}
                   menuProps={menuProps}
+                  roleBreakdowns={analysis.roleBreakdowns}
                 />
               ) : (
                 <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">

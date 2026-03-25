@@ -1872,7 +1872,7 @@ export function analyzeDeck(
   const detected = detectPacing(currentCards, curveAnalysis);
   const pacing = overridePacing ?? detected.pacing;
   const pacingLabel = overridePacing ? (overridePacing.charAt(0).toUpperCase() + overridePacing.slice(1).replace('-', ' ')) : detected.label;
-  const curvePhases = getCurvePhases(curveBreakdowns, curveAnalysis, totalNonLand, pacing);
+  const curvePhases = getCurvePhases(curveBreakdowns, curveAnalysis, totalNonLand, pacing, roleTargets);
   const curveGrade = getCurveGrade(curvePhases);
   const manaTrajectory = getManaTrajectory(deckSize, currentLands, manaSources.earlyRamp, manaSources.avgRampCmc, taplandRatio);
 
