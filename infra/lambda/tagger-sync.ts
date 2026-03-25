@@ -33,6 +33,9 @@ const TAGS: Record<string, string> = {
   // Land classification
   'utility-land': 'otag:utility-land',
   tapland: 'otag:tapland',
+  // Bracket estimation tags
+  'mass-land-denial': 'otag:mass-land-denial',
+  'extra-turn': 'otag:extra-turn',
 };
 
 interface ScryfallListResponse {

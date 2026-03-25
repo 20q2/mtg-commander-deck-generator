@@ -686,23 +686,38 @@ export function getManaTrajectory(
 
 /** Generate a human-readable HTML summary about the deck's health. Returns HTML with <strong> tags. */
 const SUMMARY_SVGS: Record<string, string> = {
-  ramp:    '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
-  cardDraw:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
-  lands:   '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+  // Sprout — matches ROLE_META.ramp
+  ramp:      '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z"/>',
+  // Swords — matches ROLE_META.removal
+  removal:   '<polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" x2="19" y1="19" y2="13"/><line x1="16" x2="20" y1="16" y2="20"/><line x1="19" x2="21" y1="21" y2="19"/><polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/><line x1="5" x2="9" y1="14" y2="18"/><line x1="7" x2="4" y1="17" y2="20"/><line x1="3" x2="5" y1="19" y2="21"/>',
+  // Flame — matches ROLE_META.boardwipe
+  boardwipe: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  // BookOpen — matches ROLE_META.cardDraw
+  cardDraw:  '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  // Mountain — matches Mana tab icon
+  lands:     '<path d="m8 3 4 8 5-5 5 15H2L8 3z"/>',
+  // ChartColumn (BarChart3) — matches Tempo tab icon
+  curve:     '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
 };
 
-function summaryIcon(key: string): string {
-  const svg = SUMMARY_SVGS[key];
-  if (!svg) return '';
-  return `<svg class="inline-block w-3.5 h-3.5 mr-0.5 -mt-px opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</svg>`;
+export interface SummaryItem {
+  icon: string;       // key into SUMMARY_SVGS
+  label: string;      // e.g. "Removal"
+  tab: string;        // e.g. "roles:removal" or "lands"
+  text: string;       // e.g. "1 below target"
 }
 
-export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): string {
-  const b = (text: string, tab?: string) =>
-    tab
-      ? `<strong class="text-foreground/90 cursor-pointer hover:underline decoration-foreground/30 underline-offset-2" data-tab="${tab}">${text}</strong>`
-      : `<strong class="text-foreground/90">${text}</strong>`;
+export interface DeckSummaryData {
+  gradeLetter: string;
+  headline: string;
+  cardCountNote: string | null;   // "2 cards short of 60-card target" or "3 cards over"
+  cardCountSeverity: 'short' | 'over' | null;
+  needs: SummaryItem[];
+  trims: SummaryItem[];
+  notes: SummaryItem[];
+}
 
+export function getDeckSummaryData(analysis: DeckAnalysis, deckExcess?: number): DeckSummaryData {
   const grades = [analysis.rolesGrade, analysis.manaGrade, analysis.curveGrade];
   const avgScore = grades.reduce((s, g) => s + (GRADE_SCORES[g.letter] ?? 0), 0) / grades.length;
 
@@ -713,7 +728,6 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
   const rolesMet = analysis.roleDeficits.filter(rd => rd.current >= rd.target).length;
   const totalRoles = analysis.roleDeficits.length;
 
-  // Identify specific problems
   const deficits = analysis.roleDeficits.filter(rd => rd.deficit > 0).sort((a, b_) => b_.deficit - a.deficit);
   const excesses = analysis.roleDeficits.filter(rd => rd.current > rd.target + 2).sort((a, b_) => (b_.current - b_.target) - (a.current - a.target));
 
@@ -724,97 +738,84 @@ export function getDeckSummary(analysis: DeckAnalysis, deckExcess?: number): str
   const { currentLands, adjustedSuggestion, verdict } = analysis.manaBase;
   const landDelta = currentLands - adjustedSuggestion;
 
-  const parts: string[] = [];
+  const gradeLetter = letterFromScore(avgScore);
 
-  // ── Over-target: explain why cuts are needed ──
+  // Card count note
+  let cardCountNote: string | null = null;
+  let cardCountSeverity: 'short' | 'over' | null = null;
   if (deckExcess && deckExcess > 0) {
-    parts.push(`Your deck is ${b(`${deckExcess} cards over`)} the ${analysis.manaBase.deckSize + 1}-card target. The weakest fits are listed below.`);
+    cardCountNote = `${deckExcess} card${deckExcess > 1 ? 's' : ''} over the ${analysis.manaBase.deckSize + 1}-card target`;
+    cardCountSeverity = 'over';
+  } else if (deckExcess && deckExcess < 0) {
+    const shortage = Math.abs(deckExcess);
+    cardCountNote = `${shortage} card${shortage > 1 ? 's' : ''} short of the ${analysis.manaBase.deckSize + 1}-card target`;
+    cardCountSeverity = 'short';
+  }
 
-    const cutNeeds: string[] = [];
-    const cutTrims: string[] = [];
+  // Headline
+  let headline: string;
+  if (avgScore >= 3.5) {
+    headline = `Well-tuned — ${rolesMet} of ${totalRoles} roles met with a ${avgCmc.toFixed(1)} avg CMC.`;
+  } else if (avgScore >= 2.5) {
+    headline = `Solid foundation — ${rolesMet} of ${totalRoles} roles met with a ${avgCmc.toFixed(1)} avg CMC.`;
+  } else if (avgScore >= 1.5) {
+    headline = `Has some gaps — only ${rolesMet} of ${totalRoles} roles are on target.`;
+  } else {
+    headline = `Needs work — only ${rolesMet} of ${totalRoles} roles on target with a ${avgCmc.toFixed(1)} avg CMC.`;
+  }
 
-    if (deficits.length > 0) {
-      for (const rd of deficits.slice(0, 2)) {
-        cutNeeds.push(`${summaryIcon(rd.role)}${b(rd.label, `roles:${rd.role}`)} — ${rd.deficit} below target`);
-      }
+  if (deckExcess && deckExcess > 0) {
+    headline = `${deckExcess} cards over target — the weakest fits are listed below.`;
+  }
+
+  // Build items
+  const needs: SummaryItem[] = [];
+  const trims: SummaryItem[] = [];
+  const noteItems: SummaryItem[] = [];
+
+  if (deckExcess && deckExcess > 0) {
+    // Over-target: show up to 2 deficits and 2 excesses
+    for (const rd of deficits.slice(0, 2)) {
+      needs.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `${rd.deficit} below target` });
     }
-    if (curveShape === 'top-heavy') {
-      cutTrims.push(`${b('Tempo', 'curve')} — too many expensive spells`);
-    } else if (curveShape === 'bottom-heavy') {
-      cutTrims.push(`${b('Tempo', 'curve')} — bottom-heavy, low impact at higher CMCs`);
-    }
-    if (excesses.length > 0) {
-      for (const rd of excesses.slice(0, 2)) {
-        cutTrims.push(`${summaryIcon(rd.role)}${b(rd.label, `roles:${rd.role}`)} — ${rd.current - rd.target} over target`);
-      }
+    for (const rd of excesses.slice(0, 2)) {
+      trims.push({ icon: rd.role, label: rd.label, tab: `roles:${rd.role}`, text: `${rd.current - rd.target} over target` });
     }
     if (landDelta > 2) {
-      cutTrims.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${landDelta} above suggested count`);
+      trims.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `${landDelta} above suggested count` });
     }
-
-    const li = (text: string) => `<li class="flex items-center gap-1.5">${text}</li>`;
-
-    if (cutNeeds.length > 0) {
-      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${cutNeeds.map(li).join('')}</ul></div>`);
-    }
-    if (cutTrims.length > 0) {
-      parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${cutTrims.map(li).join('')}</ul></div>`);
-    }
-
-    return parts.join('');
-  }
-
-  // ── Under-target: explain that the deck needs more cards ──
-  if (deckExcess && deckExcess < 0) {
-    const shortage = Math.abs(deckExcess);
-    parts.push(`Your deck is ${b(`${shortage} card${shortage > 1 ? 's' : ''} short`)} of the ${analysis.manaBase.deckSize + 1}-card target. The recommendations below can help fill the gaps.`);
-  }
-
-  // ── Normal summary ──
-  if (avgScore >= 3.5) {
-    parts.push(`This deck is well-tuned — ${b(`${rolesMet} of ${totalRoles} roles met`, 'roles')} with a ${b(`${avgCmc.toFixed(1)} avg CMC`, 'curve')}.`);
-  } else if (avgScore >= 2.5) {
-    parts.push(`Solid foundation — ${b(`${rolesMet} of ${totalRoles} roles met`, 'roles')} with a ${b(`${avgCmc.toFixed(1)} avg CMC`, 'curve')}.`);
-  } else if (avgScore >= 1.5) {
-    parts.push(`This deck has some gaps — only ${b(`${rolesMet} of ${totalRoles} roles`, 'roles')} are on target.`);
   } else {
-    parts.push(`This deck needs work — only ${b(`${rolesMet} of ${totalRoles} roles`, 'roles')} are on target with a ${b(`${avgCmc.toFixed(1)} avg CMC`, 'curve')}.`);
+    // Normal: top deficit + land issues
+    if (deficits.length > 0) {
+      const top = deficits[0];
+      needs.push({ icon: top.role, label: top.label, tab: `roles:${top.role}`, text: `${top.deficit} below target` });
+    }
+    if (verdict === 'low' || verdict === 'critically-low') {
+      needs.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `${Math.abs(landDelta)} below suggested count` });
+    }
+    if (excesses.length > 0) {
+      const ex = excesses[0];
+      trims.push({ icon: ex.role, label: ex.label, tab: `roles:${ex.role}`, text: `${ex.current - ex.target} over target` });
+    }
+    if (verdict === 'high') {
+      trims.push({ icon: 'lands', label: 'Lands', tab: 'lands', text: `${landDelta} above suggested count` });
+    }
   }
 
-  // Call out specific issues as bullet points — separate needs from trims
-  const needs: string[] = [];
-  const trims: string[] = [];
-
-  if (deficits.length > 0) {
-    const top = deficits[0];
-    needs.push(`${summaryIcon(top.role)}${b(top.label, `roles:${top.role}`)} — ${top.deficit} below target`);
-  }
-  if (verdict === 'low' || verdict === 'critically-low') {
-    needs.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${Math.abs(landDelta)} below suggested count`);
-  }
   if (curveShape === 'top-heavy') {
-    needs.push(`${b('Tempo', 'curve')} — too many expensive spells`);
+    noteItems.push({ icon: 'curve', label: 'Tempo', tab: 'curve', text: 'too many expensive spells; swap some for cheaper options' });
   } else if (curveShape === 'bottom-heavy') {
-    trims.push(`${b('Tempo', 'curve')} — bottom-heavy, low impact at higher CMCs`);
-  }
-  if (excesses.length > 0) {
-    const ex = excesses[0];
-    trims.push(`${summaryIcon(ex.role)}${b(ex.label, `roles:${ex.role}`)} — ${ex.current - ex.target} over target`);
-  }
-  if (verdict === 'high') {
-    trims.push(`${summaryIcon('lands')}${b('Lands', 'lands')} — ${landDelta} above suggested count`);
+    noteItems.push({ icon: 'curve', label: 'Tempo', tab: 'curve', text: 'bottom-heavy curve; consider higher-impact cards at 4+ CMC' });
   }
 
-  const li = (text: string) => `<li class="flex items-center gap-1.5">${text}</li>`;
+  return { gradeLetter, headline, cardCountNote, cardCountSeverity, needs, trims, notes: noteItems };
+}
 
-  if (needs.length > 0) {
-    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Needs more</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${needs.map(li).join('')}</ul></div>`);
-  }
-  if (trims.length > 0) {
-    parts.push(`<div class="mt-2"><span class="text-[10px] uppercase tracking-wider text-muted-foreground/50">Could trim</span><ul class="mt-0.5 space-y-0.5 list-none pl-3">${trims.map(li).join('')}</ul></div>`);
-  }
-
-  return parts.join('');
+/** SVG markup for a summary icon */
+export function summaryIconSvg(key: string): string {
+  const svg = SUMMARY_SVGS[key];
+  if (!svg) return '';
+  return `<svg class="inline-block w-3.5 h-3.5 mr-0.5 -mt-px opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${svg}</svg>`;
 }
 
 // ─── Smart Suggestion Scoring ────────────────────────────────────────

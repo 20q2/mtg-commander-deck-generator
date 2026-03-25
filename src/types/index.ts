@@ -293,6 +293,8 @@ export interface GeneratedDeck {
   cardRelevancyMap?: Record<string, number>; // cardName → composite relevancy score (raw, 0-200+)
   detectedArchetype?: Archetype; // Archetype inferred from themes for dynamic role targeting
   detectedPacing?: string; // Pacing estimated from EDHREC stats at generation time
+  bracketEstimation?: import('@/services/deckBuilder/bracketEstimator').BracketEstimation;
+  gameChangerNames?: string[]; // Cached for bracket re-estimation on swap (avoids async)
 }
 
 export interface DeckStats {

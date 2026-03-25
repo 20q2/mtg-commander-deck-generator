@@ -27,6 +27,7 @@ import {
   hasCurveRoom,
 } from './curveUtils';
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
+import { estimateBracket } from './bracketEstimator';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets } from './roleTargets';
 import { loadUserLists } from '@/hooks/useUserLists';
@@ -3494,6 +3495,20 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Relevancy map: ${Object.keys(relMap).length} cards scored`);
   }
 
+  // ── Bracket estimation ──
+  const allDeckCardNames = Object.values(categories).flat().map(c => c.name);
+  if (commander) allDeckCardNames.push(commander.name);
+  if (partnerCommander) allDeckCardNames.push(partnerCommander.name);
+  const bracketEstimation = estimateBracket(
+    allDeckCardNames,
+    detectedCombos,
+    stats.averageCmc,
+    deckScore,
+    roleTargets ? currentRoleCounts : undefined,
+    gameChangerNames,
+  );
+  console.log(`[DeckGen] Bracket estimation: ${bracketEstimation.bracket} (${bracketEstimation.label}), soft score: ${bracketEstimation.softScore}`);
+
   return {
     commander,
     partnerCommander,
@@ -3534,5 +3549,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     cardRelevancyMap,
     detectedArchetype,
     detectedPacing,
+    bracketEstimation,
+    gameChangerNames: [...gameChangerNames],
   };
 }

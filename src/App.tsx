@@ -87,6 +87,7 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
           background: 'radial-gradient(ellipse at center top, transparent 0%, hsl(var(--background)) 70%)',
         }}
       />
+
     </div>
   );
 }

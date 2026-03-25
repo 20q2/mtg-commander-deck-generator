@@ -605,6 +605,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           removalSubtypeCounts: enrichResult.removalSubtypeCounts,
           boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
           cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+          bracketEstimation: enrichResult.bracketEstimation,
+          gameChangerNames: enrichResult.gameChangerNames,
         };
 
         const allColors = new Set<string>();
@@ -737,6 +739,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           removalSubtypeCounts: enrichResult.removalSubtypeCounts,
           boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
           cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+          bracketEstimation: enrichResult.bracketEstimation,
+          gameChangerNames: enrichResult.gameChangerNames,
         },
       });
     };

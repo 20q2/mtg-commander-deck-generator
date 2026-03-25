@@ -1,7 +1,8 @@
 import type { ScryfallCard, DeckCategory } from '@/types';
 import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype } from '@/services/tagger/client';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, getGameChangerNames } from '@/services/scryfall/client';
 import { getBaseRoleTargets as getRoleTargets } from './roleTargets';
+import { estimateBracket, type BracketEstimation } from './bracketEstimator';
 
 export interface EnrichResult {
   categories: Record<DeckCategory, ScryfallCard[]>;
@@ -11,6 +12,8 @@ export interface EnrichResult {
   removalSubtypeCounts: Record<string, number>;
   boardwipeSubtypeCounts: Record<string, number>;
   cardDrawSubtypeCounts: Record<string, number>;
+  bracketEstimation?: BracketEstimation;
+  gameChangerNames?: string[];
 }
 
 /**
@@ -48,8 +51,18 @@ export async function enrichDeckCards(
     cardDraw: 'cardDraw',
   };
 
+  let cmcSum = 0;
+  let nonLandCount = 0;
+
+  // Pre-fetch game changer names for GC stamping + bracket estimation
+  let gcSet: Set<string> | null = null;
+  try { gcSet = await getGameChangerNames(); } catch { /* non-critical */ }
+
   for (const card of cards) {
     const typeLine = getFrontFaceTypeLine(card).toLowerCase();
+
+    // Stamp game changer flag
+    if (gcSet?.has(card.name)) card.isGameChanger = true;
 
     // Stamp role + subtypes
     const role = getCardRole(card.name);
@@ -69,6 +82,12 @@ export async function enrichDeckCards(
       if (card.cardDrawSubtype) cardDrawSubtypeCounts[card.cardDrawSubtype] = (cardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
     }
 
+    // Track CMC for avg calculation
+    if (!typeLine.includes('land')) {
+      cmcSum += card.cmc ?? 0;
+      nonLandCount++;
+    }
+
     // Sort into categories — creatures stay in creatures (matches generator behavior)
     if (typeLine.includes('land')) {
       categories.lands.push(card);
@@ -85,6 +104,21 @@ export async function enrichDeckCards(
 
   const roleTargets = getRoleTargets(deckSize);
 
+  // Bracket estimation (reuses gcSet from above)
+  let bracketEstimation: BracketEstimation | undefined;
+  const gcNames = gcSet ? [...gcSet] : undefined;
+  if (gcSet) {
+    const avgCmc = nonLandCount > 0 ? parseFloat((cmcSum / nonLandCount).toFixed(2)) : 0;
+    bracketEstimation = estimateBracket(
+      cards.map(c => c.name),
+      undefined, // No combo detection for user lists
+      avgCmc,
+      undefined,
+      roleCounts,
+      gcSet,
+    );
+  }
+
   return {
     categories,
     roleCounts,
@@ -93,5 +127,7 @@ export async function enrichDeckCards(
     removalSubtypeCounts,
     boardwipeSubtypeCounts,
     cardDrawSubtypeCounts,
+    bracketEstimation,
+    gameChangerNames: gcNames,
   };
 }

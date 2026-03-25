@@ -69,6 +69,16 @@ export function isTapland(cardName: string): boolean {
   return tagSets?.['tapland']?.has(cardName) ?? false;
 }
 
+/** Check if a card denies mass land resources — Armageddon, Winter Orb, Blood Moon, etc. (Scryfall otag:mass-land-denial). */
+export function isMassLandDenial(cardName: string): boolean {
+  return tagSets?.['mass-land-denial']?.has(cardName) ?? false;
+}
+
+/** Check if a card grants extra turns — Time Warp, Expropriate, etc. (Scryfall otag:extra-turn). */
+export function isExtraTurn(cardName: string): boolean {
+  return tagSets?.['extra-turn']?.has(cardName) ?? false;
+}
+
 export type RoleKey = 'ramp' | 'removal' | 'boardwipe' | 'cardDraw';
 export type RampSubtype = 'mana-producer' | 'mana-rock' | 'cost-reducer' | 'ramp';
 export type RemovalSubtype = 'counterspell' | 'bounce' | 'spot-removal' | 'removal';

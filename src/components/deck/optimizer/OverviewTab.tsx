@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, UserCardList, EDHRECTheme } from '@/types';
-import type { DeckAnalysis, RecommendedCard, AnalyzedCard, GradeResult } from '@/services/deckBuilder/deckAnalyzer';
-import { getDeckSummary } from '@/services/deckBuilder/deckAnalyzer';
+import type { DeckAnalysis, RecommendedCard, AnalyzedCard, GradeResult, SummaryItem } from '@/services/deckBuilder/deckAnalyzer';
+import { getDeckSummaryData, summaryIconSvg } from '@/services/deckBuilder/deckAnalyzer';
 import type { DetectedThemeResult, Pacing } from '@/services/deckBuilder/themeDetector';
 import { getCardPrice } from '@/services/scryfall/client';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
@@ -618,6 +618,49 @@ export function ThemeDetectionBanner({
 
 // ─── Overview: Deck Health Strip ───────────────────────────────────────
 
+// ─── Summary Bullet Section ─────────────────────────────────────────
+
+const SECTION_STYLES: Record<string, { label: string; border: string; labelColor: string; bg: string }> = {
+  needs: { label: 'Needs more', border: 'border-l-amber-500/50', labelColor: 'text-amber-400/80', bg: 'bg-amber-500/5' },
+  trims: { label: 'Could trim', border: 'border-l-sky-500/50', labelColor: 'text-sky-400/80', bg: 'bg-sky-500/5' },
+  notes: { label: 'Curve shape', border: 'border-l-muted-foreground/30', labelColor: 'text-muted-foreground/70', bg: 'bg-muted/5' },
+};
+
+function SummarySection({ type, items, onNavigate, onNavigateRole }: {
+  type: 'needs' | 'trims' | 'notes';
+  items: SummaryItem[];
+  onNavigate: (tab: TabKey) => void;
+  onNavigateRole?: (role: string) => void;
+}) {
+  if (items.length === 0) return null;
+  const style = SECTION_STYLES[type];
+
+  const handleClick = (tab: string) => {
+    const [t, sub] = tab.split(':');
+    onNavigate(t as TabKey);
+    if (sub && onNavigateRole) onNavigateRole(sub);
+  };
+
+  return (
+    <div className={`border-l-2 ${style.border} ${style.bg} rounded-r-lg pl-3 pr-2 py-2`}>
+      <div className={`text-[11px] font-semibold uppercase tracking-wider ${style.labelColor} mb-1`}>{style.label}</div>
+      {items.map((item) => (
+        <button
+          key={item.tab}
+          onClick={() => handleClick(item.tab)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left py-0.5"
+        >
+          <span dangerouslySetInnerHTML={{ __html: summaryIconSvg(item.icon) }} />
+          <span className="font-semibold text-foreground/90">{item.label}</span>
+          <span>— {item.text}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Overview: Deck Health Strip ───────────────────────────────────────
+
 export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExcess }: {
   analysis: DeckAnalysis;
   onNavigate: (tab: TabKey) => void;
@@ -630,7 +673,9 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
     { key: 'curve', label: 'Tempo', icon: BarChart3, grade: analysis.curveGrade },
   ];
 
-  const summary = getDeckSummary(analysis, deckExcess);
+  const summary = getDeckSummaryData(analysis, deckExcess);
+  const gradeStyle = HEALTH_GRADE_STYLES[summary.gradeLetter] || HEALTH_GRADE_STYLES.C;
+
 
   return (
     <div className="space-y-2">
@@ -657,18 +702,31 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
           );
         })}
       </div>
-      <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-        <span className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Summary</span>
-        <div className="text-xs text-muted-foreground leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: summary }}
-          onClick={(e) => {
-            const raw = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab;
-            if (!raw) return;
-            const [tab, sub] = raw.split(':');
-            onNavigate(tab as TabKey);
-            if (sub && onNavigateRole) onNavigateRole(sub);
-          }}
-        />
+
+      {/* Summary card */}
+      <div className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <span className={`text-sm font-black leading-none px-1.5 py-0.5 rounded ${gradeStyle.color} ${gradeStyle.badgeBg}`}>{summary.gradeLetter}</span>
+          <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Summary</span>
+        </div>
+        {/* Headline + card count note */}
+        <div>
+          <p className="text-sm text-muted-foreground leading-snug">{summary.headline}</p>
+          {summary.cardCountNote && (
+            <p className={`text-xs mt-1 ${summary.cardCountSeverity === 'short' ? 'text-amber-400/80' : 'text-sky-400/80'}`}>
+              {summary.cardCountSeverity === 'short' ? '↓' : '↑'} {summary.cardCountNote}
+            </p>
+          )}
+        </div>
+
+        {/* Action item sections with backdrops */}
+        {(summary.needs.length > 0 || summary.trims.length > 0 || summary.notes.length > 0) && (
+          <div className="space-y-1.5">
+            <SummarySection type="needs" items={summary.needs} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
+            <SummarySection type="trims" items={summary.trims} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
+            <SummarySection type="notes" items={summary.notes} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
+          </div>
+        )}
       </div>
     </div>
   );

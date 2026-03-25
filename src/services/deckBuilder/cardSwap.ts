@@ -2,6 +2,7 @@ import type { ScryfallCard, GeneratedDeck, DeckCategory } from '@/types';
 import { calculateStats } from './deckGenerator';
 import { getCardRole, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { estimateBracket } from './bracketEstimator';
 
 const ROLE_TO_CATEGORY: Record<RoleKey, DeckCategory> = {
   ramp: 'ramp',
@@ -186,6 +187,23 @@ export function swapCard(
     // New card should already be pre-indexed (from swap candidates/gap analysis)
   }
 
+  // Re-estimate bracket with updated deck state
+  let newBracketEstimation = deck.bracketEstimation;
+  if (deck.gameChangerNames) {
+    const gcSet = new Set(deck.gameChangerNames);
+    const allNames = Object.values(newCategories).flat().map(c => c.name);
+    if (deck.commander) allNames.push(deck.commander.name);
+    if (deck.partnerCommander) allNames.push(deck.partnerCommander.name);
+    newBracketEstimation = estimateBracket(
+      allNames,
+      newDetectedCombos ?? undefined,
+      newStats.averageCmc,
+      newDeckScore,
+      newRoleCounts ?? undefined,
+      gcSet,
+    );
+  }
+
   return {
     deck: {
       ...deck,
@@ -201,6 +219,7 @@ export function swapCard(
       cardInclusionMap: newCardInclusionMap,
       cardRelevancyMap: newCardRelevancyMap,
       deckScore: newDeckScore,
+      bracketEstimation: newBracketEstimation,
     },
     success: true,
   };

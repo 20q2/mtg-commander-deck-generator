@@ -771,7 +771,7 @@ export function DeckOptimizer({
     return (
       <div className="mt-8 flex flex-col items-center gap-3">
         <p className="text-xs text-muted-foreground text-center max-w-sm">
-          Analyze your deck against EDHREC data for optimization suggestions
+          Check your deck's roles, mana base, and curve against EDHREC data with tailored suggestions to fill gaps
         </p>
         <Button
           onClick={handleOptimize}
@@ -779,7 +779,7 @@ export function DeckOptimizer({
           disabled={loading}
         >
           <Sparkles className="w-4 h-4" />
-          Optimize My Deck
+          Analyze Deck
         </Button>
       </div>
     );

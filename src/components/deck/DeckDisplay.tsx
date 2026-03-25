@@ -1530,6 +1530,52 @@ function calculateManaProduction(cards: ScryfallCard[]): Record<string, number> 
   return production;
 }
 
+// Bracket estimation helpers
+const BRACKET_DOT_COLORS: Record<number, string> = {
+  1: 'bg-emerald-400',
+  2: 'bg-sky-400',
+  3: 'bg-amber-400',
+  4: 'bg-orange-400',
+  5: 'bg-red-400',
+};
+
+const BRACKET_TEXT_COLORS: Record<number, string> = {
+  1: 'text-emerald-400',
+  2: 'text-sky-400',
+  3: 'text-amber-400',
+  4: 'text-orange-400',
+  5: 'text-red-400',
+};
+
+const BRACKET_DESCRIPTIONS: Record<number, string> = {
+  1: 'Casual — theme-focused, no fast mana or combos',
+  2: 'Precon-level — light synergy, no game changers',
+  3: 'Focused — up to 3 game changers, late combos',
+  4: 'High power — strong engines, tutors, and combos',
+  5: 'Competitive — optimized to win as early as possible',
+};
+
+function formatBracketTooltip(est: import('@/services/deckBuilder/bracketEstimator').BracketEstimation): string {
+  const lines: string[] = [BRACKET_DESCRIPTIONS[est.bracket]];
+  const { breakdown: b } = est;
+
+  const signals: string[] = [];
+  if (b.fastManaCount > 0) signals.push(`${b.fastManaCount} fast mana`);
+  if (b.tutorCount > 0) signals.push(`${b.tutorCount} tutor${b.tutorCount > 1 ? 's' : ''}`);
+  if (b.gameChangerCount > 0) signals.push(`${b.gameChangerCount} game changer${b.gameChangerCount > 1 ? 's' : ''}`);
+  if (b.earlyComboCount > 0) signals.push(`${b.earlyComboCount} early combo${b.earlyComboCount > 1 ? 's' : ''}`);
+  if (b.lateComboCount > 0) signals.push(`${b.lateComboCount} late combo${b.lateComboCount > 1 ? 's' : ''}`);
+  if (b.extraTurnCount > 0) signals.push(`${b.extraTurnCount} extra turn${b.extraTurnCount > 1 ? 's' : ''}`);
+  if (b.massLandDenialCount > 0) signals.push(`${b.massLandDenialCount} mass land denial`);
+
+  if (signals.length > 0) {
+    lines.push('');
+    lines.push(signals.join('\n'));
+  }
+
+  return lines.join('\n');
+}
+
 // Stats sidebar
 interface DeckStatsProps {
   activeFilter: StatsFilter;
@@ -1604,6 +1650,17 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               <div className="text-xs text-muted-foreground">Avg CMC</div>
             </div>
           </div>
+          {generatedDeck.bracketEstimation && (() => {
+            const b = generatedDeck.bracketEstimation;
+            return (
+              <div className="flex items-center gap-2 px-1 -mt-2">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${BRACKET_DOT_COLORS[b.bracket]}`} />
+                <span className={`text-xs font-medium ${BRACKET_TEXT_COLORS[b.bracket]}`}>Bracket {b.bracket}</span>
+                <span className="text-xs text-muted-foreground">{b.label}</span>
+                <span className="ml-auto"><InfoTooltip text={formatBracketTooltip(b)} /></span>
+              </div>
+            );
+          })()}
         </>
       )}
       {hideHeader && activeFilter && (
@@ -1624,7 +1681,6 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
           </button>
         </div>
       )}
-
 
       {/* Mana Curve */}
       <div>
