@@ -43,7 +43,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [comboDetails, setComboDetails] = useState<Map<string, ComboDetails | 'loading' | 'error'>>(new Map());
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
-  const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('popularity');
+  const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('relevance');
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
@@ -534,7 +534,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         </span>
         {expanded && (
           <span className="flex items-center rounded-md border border-border overflow-hidden shrink-0" onClick={(e) => e.stopPropagation()}>
-            {(['popularity', 'relevance'] as const).map((mode) => (
+            {(['relevance', 'popularity'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setComboSort(mode)}

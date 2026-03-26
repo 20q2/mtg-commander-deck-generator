@@ -8,7 +8,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard, ManaBaseAnalysis, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors, getCardsByNames } from '@/services/scryfall/client';
-import { getCardRole, getAllCardRoles } from '@/services/tagger/client';
+import { getCardRole, getAllCardRoles, isUtilityLand } from '@/services/tagger/client';
 import { useStore } from '@/store';
 import {
   scryfallImg, edhrecRankToInclusion,
@@ -289,12 +289,16 @@ export function LandCountDetail({
 
   const channelNames = new Set(channelLands.map(ac => ac.card.name));
 
-  const nonbasicLands = analysis.landCards.filter(ac => {
+  const allNonbasicLands = analysis.landCards.filter(ac => {
     if (mdfcNames.has(ac.card.name)) return false;
     if (channelNames.has(ac.card.name)) return false;
     const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
     return !/\bbasic\b/.test(tl);
   }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
+
+  const utilityLands = allNonbasicLands.filter(ac => isUtilityLand(ac.card.name));
+  const utilityNames = new Set(utilityLands.map(ac => ac.card.name));
+  const nonbasicLands = allNonbasicLands.filter(ac => !utilityNames.has(ac.card.name));
 
   const basicLands = analysis.landCards.filter(ac => {
     const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
@@ -302,7 +306,7 @@ export function LandCountDetail({
   });
 
   // Cut candidates: nonbasic lands excluding MDFCs and channel lands
-  const [cutSortMode, setCutSortMode] = useState<'inclusion' | 'score'>('inclusion');
+  const [cutSortMode, setCutSortMode] = useState<'inclusion' | 'score'>('score');
   const cutCandidates = useMemo(() => {
     const filtered = nonbasicLands.filter(ac => !isChannelLand(ac.card));
     const getInclusion = (ac: AnalyzedCard) =>
@@ -371,6 +375,16 @@ export function LandCountDetail({
     content: (
       <div className="space-y-0.5">
         {nonbasicLands.map(ac => (
+          <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
+        ))}
+      </div>
+    ),
+  });
+  if (utilityLands.length > 0) landCardGroups.push({
+    key: 'utility', label: 'Utility', count: utilityLands.length,
+    content: (
+      <div className="space-y-0.5">
+        {utilityLands.map(ac => (
           <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
         ))}
       </div>
@@ -485,7 +499,7 @@ export function LandCountDetail({
                   <div className="flex items-center gap-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
                       <Scissors className="w-3 h-3" />
-                      Lands to Cut ({cutCandidates.length})
+                      Lands to Cut from Your Deck ({cutCandidates.length})
                     </p>
                     <div className="ml-auto flex items-center gap-1">
                       <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
@@ -494,7 +508,7 @@ export function LandCountDetail({
                           onClick={() => setCutSortMode('score')}
                           className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'score' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
                         >
-                          Score
+                          Relevancy
                         </button>
                         <div className="w-px h-3 bg-border/50" />
                         <button
@@ -512,7 +526,7 @@ export function LandCountDetail({
               <div className="flex items-center gap-2 mb-2 px-0.5">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
                   <Scissors className="w-3 h-3" />
-                  Lands to Cut ({cutCandidates.length})
+                  Lands to Cut from Your Deck ({cutCandidates.length})
                 </p>
                 <div className="ml-auto flex items-center gap-1">
                   <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
@@ -521,7 +535,7 @@ export function LandCountDetail({
                       onClick={() => setCutSortMode('score')}
                       className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'score' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
                     >
-                      Score
+                      Relevancy
                     </button>
                     <div className="w-px h-3 bg-border/50" />
                     <button

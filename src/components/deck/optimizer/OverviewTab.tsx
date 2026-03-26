@@ -100,6 +100,7 @@ export function SuggestionCardGrid({
           <SuggestionCardItem
             key={rec.name}
             rec={rec}
+            index={i}
             added={addedCards.has(rec.name)}
             highlighted={deficit > 0 && i < deficit && !addedCards.has(rec.name)}
             onAdd={onAdd}
@@ -117,9 +118,10 @@ export function SuggestionCardGrid({
 // ─── Suggestion Card Item ─────────────────────────────────────────────
 
 export function SuggestionCardItem({
-  rec, added, highlighted, onAdd, onPreview, onCardAction, menuProps, sortMode = 'relevance',
+  rec, index = 0, added, highlighted, onAdd, onPreview, onCardAction, menuProps, sortMode = 'relevance',
 }: {
   rec: RecommendedCard;
+  index?: number;
   added: boolean;
   highlighted: boolean;
   onAdd: (name: string) => void;
@@ -149,7 +151,8 @@ export function SuggestionCardItem({
 
   return (
     <div
-      className={`group relative ${added ? 'opacity-40' : ''}`}
+      className={`group relative transition-opacity duration-300 cascade-in ${added ? 'opacity-40' : ''}`}
+      style={{ '--cascade-i': index } as React.CSSProperties}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
           e.preventDefault();
@@ -166,7 +169,7 @@ export function SuggestionCardItem({
         <img
           src={displayUrl}
           alt={rec.name}
-          className={`w-full rounded-lg shadow ${highlighted ? 'border border-emerald-500/60' : ''}`}
+          className={`w-full aspect-[5/7] rounded-lg shadow bg-accent/20 ${highlighted ? 'border border-emerald-500/60' : ''}`}
           loading="lazy"
           onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(rec.name, 'normal'); }}
         />
@@ -185,7 +188,7 @@ export function SuggestionCardItem({
             <Plus className="w-5 h-5" />
           </span>
         ) : (
-          <span className="absolute top-0 left-0 rounded-tl-lg rounded-br-lg bg-black/60 text-white p-2">
+          <span className="absolute top-0 left-0 rounded-tl-lg rounded-br-lg bg-black/60 text-white p-2 animate-pop-in">
             <Check className="w-5 h-5" />
           </span>
         )}
@@ -367,27 +370,8 @@ export function CutCardItem({
             <Minus className="w-5 h-5" />
           </span>
         ) : (
-          <span className="absolute top-0 left-0 rounded-tl-lg rounded-br-lg bg-black/60 text-white p-2">
+          <span className="absolute top-0 left-0 rounded-tl-lg rounded-br-lg bg-black/60 text-white p-2 animate-pop-in">
             <Check className="w-5 h-5" />
-          </span>
-        )}
-        {/* Context menu */}
-        {onCardAction && menuProps && (
-          <span className={`absolute top-1 right-1 z-10 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
-            <CardContextMenu
-              card={ac.card}
-              onAction={onCardAction}
-              hasRemove
-              hasSideboard
-              hasMaybeboard
-              isInSideboard={menuProps.sideboardNames.has(ac.card.name)}
-              isInMaybeboard={menuProps.maybeboardNames.has(ac.card.name)}
-              userLists={menuProps.userLists}
-              isMustInclude={menuProps.mustIncludeNames.has(ac.card.name)}
-              isBanned={menuProps.bannedNames.has(ac.card.name)}
-              forceOpen={contextMenuOpen}
-              onForceClose={() => setContextMenuOpen(false)}
-            />
           </span>
         )}
         {isBanned && (
@@ -396,6 +380,25 @@ export function CutCardItem({
           </span>
         )}
       </button>
+      {/* Context menu — outside <button> to avoid invalid nesting */}
+      {onCardAction && menuProps && (
+        <span className={`absolute top-1 right-1 z-10 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+          <CardContextMenu
+            card={ac.card}
+            onAction={onCardAction}
+            hasRemove
+            hasSideboard
+            hasMaybeboard
+            isInSideboard={menuProps.sideboardNames.has(ac.card.name)}
+            isInMaybeboard={menuProps.maybeboardNames.has(ac.card.name)}
+            userLists={menuProps.userLists}
+            isMustInclude={menuProps.mustIncludeNames.has(ac.card.name)}
+            isBanned={menuProps.bannedNames.has(ac.card.name)}
+            forceOpen={contextMenuOpen}
+            onForceClose={() => setContextMenuOpen(false)}
+          />
+        </span>
+      )}
       {/* Row 1: metric, name, price */}
       <div className="flex items-center gap-1 px-1 -mt-0.5 min-w-0">
         {sortMode === 'score' ? (
@@ -521,10 +524,10 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 360px' }}>
       {/* Summary card */}
-      <div className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 space-y-2 min-w-0">
+      <div className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-4 space-y-3 min-w-0">
         {/* Header row: grade badge + "Summary" + Adjust button */}
         <div className="flex items-center gap-1.5">
-          <span className={`text-xl font-black leading-none px-2.5 py-1 rounded ${gradeStyle.color} ${gradeStyle.badgeBg}`}>{summary.gradeLetter}</span>
+          <span className={`text-2xl font-black leading-none px-3 py-2.5 rounded ${gradeStyle.color} ${gradeStyle.badgeBg}`}>{summary.gradeLetter}</span>
           <LayoutDashboard className={`w-4 h-4 ${gradeStyle.color} opacity-70`} />
           <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Summary</span>
           {themeLoading && !detection && (
@@ -675,27 +678,30 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
 
         {/* Theme detection line */}
         {detection && (
-          <div className="flex items-center gap-2">
-            <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <p className="text-xs text-muted-foreground leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: detection.detectionMessage }}
-            />
-          </div>
+          <>
+            <div className="flex items-center gap-2">
+              <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <p className="text-xs text-muted-foreground leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: detection.detectionMessage }}
+              />
+            </div>
+            <div className="border-b border-border/30" />
+          </>
         )}
 
-        {/* Headline + card count note */}
+        {/* Headline + card count note (skip note when headline already mentions excess) */}
         <div>
           <p className="text-sm text-muted-foreground leading-snug">{summary.headline}</p>
-          {summary.cardCountNote && (
-            <p className={`text-xs mt-1 ${summary.cardCountSeverity === 'short' ? 'text-amber-400/80' : 'text-sky-400/80'}`}>
-              {summary.cardCountSeverity === 'short' ? '↓' : '↑'} {summary.cardCountNote}
+          {summary.cardCountNote && summary.cardCountSeverity === 'short' && (
+            <p className="text-xs mt-1 text-amber-400/80">
+              ↓ {summary.cardCountNote}
             </p>
           )}
         </div>
 
         {/* Action item sections */}
         {(summary.needs.length > 0 || summary.trims.length > 0 || summary.notes.length > 0) && (
-          <div className="space-y-1">
+          <div className="space-y-2.5">
             <SummarySection type="needs" items={summary.needs} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
             <SummarySection type="trims" items={summary.trims} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
             <SummarySection type="notes" items={summary.notes} onNavigate={onNavigate} onNavigateRole={onNavigateRole} />
@@ -705,13 +711,14 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
 
       {/* Grade navigation — stacked column */}
       <div className="flex flex-col gap-2">
-        {grades.map(({ key, label, icon: Icon, grade }) => {
+        {grades.map(({ key, label, icon: Icon, grade }, i) => {
           const style = HEALTH_GRADE_STYLES[grade.letter] || HEALTH_GRADE_STYLES.C;
           return (
             <button
               key={key}
               onClick={() => onNavigate(key)}
-              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
+              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-4 text-left hover:bg-accent/40 transition-all cursor-pointer group cascade-in"
+              style={{ '--cascade-i': i } as React.CSSProperties}
             >
               <div className="flex items-start gap-2">
                 <span className={`text-lg font-bold ${style.color} ${style.badgeBg} px-2 py-0.5 rounded shrink-0`}>{grade.letter}</span>
@@ -730,7 +737,7 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
         {(() => {
           const bracketEst = useStore.getState().generatedDeck?.bracketEstimation;
           if (!bracketEst) return (
-            <div className="bg-card/60 border border-border/30 border-dashed rounded-lg p-2.5 sm:p-3 opacity-50">
+            <div className="bg-card/60 border border-border/30 border-dashed rounded-lg p-2.5 sm:p-4 opacity-50">
               <div className="flex items-start gap-2">
                 <span className="text-lg font-bold text-muted-foreground/40 bg-muted/10 px-2 py-0.5 rounded shrink-0">?</span>
                 <div className="min-w-0">
@@ -747,7 +754,8 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
           return (
             <button
               onClick={() => onNavigate('bracket')}
-              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-3 text-left hover:bg-accent/40 transition-all cursor-pointer group"
+              className="bg-card/60 border border-border/30 rounded-lg p-2.5 sm:p-4 text-left hover:bg-accent/40 transition-all cursor-pointer group cascade-in"
+              style={{ '--cascade-i': grades.length } as React.CSSProperties}
             >
               <div className="flex items-start gap-2">
                 <span className={`text-lg font-bold ${bc.text} ${bc.bg} px-2 py-0.5 rounded shrink-0`}>{bracketEst.bracket}</span>

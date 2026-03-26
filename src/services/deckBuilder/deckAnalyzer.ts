@@ -1406,8 +1406,15 @@ export function analyzeDeck(
     'card-advantage': 'Card Advantage',
   };
 
-  function makeAnalyzedCard(card: ScryfallCard): AnalyzedCard {
-    const subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype;
+  function makeAnalyzedCard(card: ScryfallCard, targetRole?: string): AnalyzedCard {
+    let subtype: string | undefined;
+    switch (targetRole) {
+      case 'cardDraw':  subtype = card.cardDrawSubtype  || card.rampSubtype || card.removalSubtype || card.boardwipeSubtype; break;
+      case 'removal':   subtype = card.removalSubtype   || card.boardwipeSubtype || card.rampSubtype || card.cardDrawSubtype; break;
+      case 'boardwipe': subtype = card.boardwipeSubtype || card.removalSubtype  || card.rampSubtype || card.cardDrawSubtype; break;
+      case 'ramp':      subtype = card.rampSubtype      || card.cardDrawSubtype || card.removalSubtype || card.boardwipeSubtype; break;
+      default:          subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype; break;
+    }
     return {
       card,
       inclusion: incMap[card.name] ?? null,
@@ -1450,6 +1457,7 @@ export function analyzeDeck(
       imageUrl: card.image_uris?.[0]?.normal,
       price,
       score: cached?.score ?? 0,
+      cmc: card.cmc,
       isUtilityLand: isUtilityLand(name) || undefined,
       isTapland: isTapland(name) || undefined,
     });
@@ -1460,7 +1468,7 @@ export function analyzeDeck(
     const deficit = Math.max(0, target - current);
     const roleCards = currentCards
       .filter(c => c.deckRole === role || cardMatchesRole(c.name, role as RoleKey))
-      .map(makeAnalyzedCard)
+      .map(c => makeAnalyzedCard(c, role))
       .sort(sortByInclusion);
 
     // Gather candidates that match this role, sorted by composite score
@@ -1474,7 +1482,6 @@ export function analyzeDeck(
         seen.add(rec.name);
         suggestedReplacements.push(rec);
       }
-      if (suggestedReplacements.length >= 15) break;
     }
 
     return {
@@ -1492,20 +1499,20 @@ export function analyzeDeck(
   const curveBreakdowns: CurveBreakdown[] = curveAnalysis.map(slot => {
     const cards = nonLandCards
       .filter(c => Math.min(Math.floor(c.cmc), 7) === slot.cmc)
-      .map(makeAnalyzedCard)
+      .map(c => makeAnalyzedCard(c))
       .sort(sortByInclusion);
     return { ...slot, cards };
   });
 
   // Land cards
   const analyzedLandCards: AnalyzedCard[] = landCards
-    .map(makeAnalyzedCard)
+    .map(c => makeAnalyzedCard(c))
     .sort(sortByInclusion);
 
   // Ramp cards
   const rampCards: AnalyzedCard[] = currentCards
     .filter(c => c.deckRole === 'ramp' || cardMatchesRole(c.name, 'ramp'))
-    .map(makeAnalyzedCard)
+    .map(c => makeAnalyzedCard(c, 'ramp'))
     .sort(sortByInclusion);
 
   // Mana sources analysis
@@ -1610,7 +1617,7 @@ export function analyzeDeck(
       return c.rampSubtype === 'mana-producer' || c.rampSubtype === 'mana-rock' || c.rampSubtype === 'cost-reducer'
         || hasTag(c.name, 'mana-dork') || hasTag(c.name, 'mana-rock') || hasTag(c.name, 'cost-reducer');
     })
-    .map(makeAnalyzedCard)
+    .map(c => makeAnalyzedCard(c, 'ramp'))
     .sort(sortByInclusion);
   const manaFixCards = allNonLandRamp.filter(ac => hasTag(ac.card.name, 'mana-fix'));
   const nonFixRampCards = allNonLandRamp.filter(ac => !hasTag(ac.card.name, 'mana-fix'));
@@ -1856,13 +1863,13 @@ export function analyzeDeck(
   // --- MDFCs in Deck ---
   const mdfcsInDeck: AnalyzedCard[] = currentCards
     .filter(c => isMdfcLand(c))
-    .map(makeAnalyzedCard)
+    .map(c => makeAnalyzedCard(c))
     .sort(sortByInclusion);
 
   // --- Channel Lands in Deck ---
   const channelLandsInDeck: AnalyzedCard[] = currentCards
     .filter(c => isChannelLand(c))
-    .map(makeAnalyzedCard)
+    .map(c => makeAnalyzedCard(c))
     .sort(sortByInclusion);
 
   // --- Macro Grades ---

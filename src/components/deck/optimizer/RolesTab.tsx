@@ -55,8 +55,8 @@ export function RoleSummaryStrip({
             }`}
           >
             <div className="flex items-center gap-1.5 mb-1.5">
-              <Icon className={`w-4 h-4 ${isActive ? (meta?.color || 'text-muted-foreground') : 'text-muted-foreground'}`} />
-              <span className={`text-xs font-semibold uppercase tracking-wider truncate ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
+              <Icon className={`w-4 h-4 transition-colors duration-200 ${isActive ? (meta?.color || 'text-muted-foreground') : 'text-muted-foreground'}`} />
+              <span className={`text-xs font-semibold uppercase tracking-wider truncate transition-colors duration-200 ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {rb.label}
               </span>
               {met && <Check className="w-3.5 h-3.5 text-emerald-400/50 ml-auto shrink-0" />}
@@ -73,7 +73,7 @@ export function RoleSummaryStrip({
               <span className="text-[11px] text-muted-foreground text-right">at least {rb.target}</span>
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
+              <div className="h-full rounded-full animate-bar-grow" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
             </div>
           </button>
         );

@@ -21,7 +21,7 @@ import { CutRow, RecommendationRow } from './shared';
 import { DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, CmcCardList, CurveInsights, PhaseCardDisplay, ManaTrajectorySparkline } from './CurveTab';
+import { CurveSummaryStrip, ManaCurveLineChart, ManaTrajectorySparkline, CmcCardList, CurveDetailPanel, CurveFlagStrip, computeCurveFlags, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
 import { BracketTabContent } from './BracketTab';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -54,6 +54,7 @@ export function DeckOptimizer({
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
   const [activeCurvePhases, setActiveCurvePhases] = useState<Set<CurvePhase>>(new Set());
+  const [activeRoleGroups, setActiveRoleGroups] = useState<Set<RoleGroupKey>>(new Set([ROLE_GROUP_ORDER[0]]));
   const [selectedCmc, setSelectedCmc] = useState<number | null>(null);
 
   // Theme detection state
@@ -77,6 +78,7 @@ export function DeckOptimizer({
     const detectedPacing = detectedPacingRef.current ?? 'balanced';
     return recomputeRoleTargetsForPacing(roleTargets, detectedPacing, userPacing);
   }, [roleTargets, userPacing]);
+
 
   // Rebuild the detection banner message reflecting user overrides
   const rebuildBannerMessage = useCallback((opts: {
@@ -133,7 +135,7 @@ export function DeckOptimizer({
       setActiveSection('landCount');
     }
     if (activeCurvePhases.size === 0 && analysis.curvePhases.length > 0) {
-      setActiveCurvePhases(new Set(analysis.curvePhases.map(p => p.phase)));
+      setActiveCurvePhases(new Set([analysis.curvePhases[0].phase]));
     }
   }, [analysis]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -260,7 +262,7 @@ export function DeckOptimizer({
       const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
         const themeRb = themeResult.roleBreakdowns[idx];
         if (!themeRb) return baseRb;
-        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements, 15) };
+        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
       });
       const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
       setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
@@ -308,16 +310,18 @@ export function DeckOptimizer({
         ...(baseResult.colorFixing.fixingRecommendations || []),
         ...baseResult.roleBreakdowns.flatMap(rb => rb.suggestedReplacements),
       ];
-      const needsFetch = [...new Set(allRecs.filter(r => !r.price || !r.producedColors?.length).map(r => r.name))];
+      const needsFetch = [...new Set(allRecs.filter(r => !r.price || !r.producedColors?.length || r.cmc == null).map(r => r.name))];
 
       if (needsFetch.length > 0) {
         try {
           const scryfallCards = await getCardsByNames(needsFetch);
           const priceMap = new Map<string, string>();
           const colorMap = new Map<string, string[]>();
+          const cmcMap = new Map<string, number>();
           for (const [name, card] of scryfallCards) {
             const p = getCardPrice(card);
             if (p) priceMap.set(name, p);
+            if (card.cmc != null) cmcMap.set(name, card.cmc);
             const produced = (card.produced_mana || []).filter((c: string) => ['W', 'U', 'B', 'R', 'G'].includes(c));
             if (produced.length > 0) {
               colorMap.set(name, [...new Set(produced)]);
@@ -328,6 +332,7 @@ export function DeckOptimizer({
           for (const rec of allRecs) {
             if (!rec.price) rec.price = priceMap.get(rec.name) || undefined;
             if (!rec.producedColors?.length) rec.producedColors = colorMap.get(rec.name) || undefined;
+            if (rec.cmc == null) rec.cmc = cmcMap.get(rec.name);
           }
         } catch { /* prices/colors are nice-to-have */ }
       }
@@ -401,7 +406,7 @@ export function DeckOptimizer({
           const finalRoleBreakdowns = themeResult.roleBreakdowns.map((themeRb, idx) => {
             const baseRb = baseResult.roleBreakdowns[idx];
             if (!baseRb) return themeRb;
-            return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements, 15) };
+            return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements) };
           });
           const finalLandRecs = mergeThemeWithBaseStaples(themeResult.landRecommendations, baseResult.landRecommendations, 15);
 
@@ -479,7 +484,7 @@ export function DeckOptimizer({
       const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
         const themeRb = themeResult.roleBreakdowns[idx];
         if (!themeRb) return baseRb;
-        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements, 15) };
+        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
       });
       const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
 
@@ -559,7 +564,7 @@ export function DeckOptimizer({
       let finalRoleBreakdowns = primaryResult.roleBreakdowns.map((themeRb, idx) => {
         const baseRb = baseResult.roleBreakdowns[idx];
         if (!baseRb) return themeRb;
-        return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements, 15) };
+        return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements) };
       });
       let finalLandRecs = mergeThemeWithBaseStaples(primaryResult.landRecommendations, baseResult.landRecommendations, 15);
 
@@ -574,7 +579,7 @@ export function DeckOptimizer({
           finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
             const themeRb = secondaryResult.roleBreakdowns[idx];
             if (!themeRb) return rb;
-            return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements, 15) };
+            return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements) };
           });
           finalLandRecs = mergeRecommendations(finalLandRecs, secondaryResult.landRecommendations, 15);
         } catch (err) {
@@ -664,6 +669,7 @@ export function DeckOptimizer({
       case 'remove':
         onRemoveCards?.([name]);
         pushDeckHistory({ action: 'remove', cardName: name });
+        setAddedCards(prev => { const next = new Set(prev); next.delete(name); return next; });
         break;
       case 'addToDeck':
         onAddCards?.([name], 'deck');
@@ -895,13 +901,13 @@ export function DeckOptimizer({
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 whitespace-nowrap ${
                 isActive
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
               }`}
             >
-              <tab.icon className="w-3.5 h-3.5" />
+              <tab.icon className={`w-3.5 h-3.5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
               {tab.label}
             </button>
           );
@@ -957,7 +963,7 @@ export function DeckOptimizer({
                   <div className="flex items-center gap-2 mb-1.5">
                     <Scissors className="w-3 h-3 text-red-400/70" />
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Recommended Cuts
+                      Quick Cuts
                     </span>
                     <span className="text-[11px] text-muted-foreground">({cutCandidates.length})</span>
                     <span className="ml-auto flex items-center gap-2">
@@ -1016,10 +1022,11 @@ export function DeckOptimizer({
                       </button>
                     </div>
                     <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
-                      {cutCandidates.slice(0, deckExcess).map((ac) => (
+                      {cutCandidates.slice(0, deckExcess).map((ac, i) => (
                         <CutRow
                           key={ac.card.name}
                           ac={ac}
+                          index={i}
                           onRemove={handleRemoveCutCard}
                           onSkip={handleSkipCutCard}
                           onPreview={() => handlePreview(ac.card.name)}
@@ -1035,14 +1042,15 @@ export function DeckOptimizer({
                     <>
                       <div className="flex items-center gap-2 mb-1 px-1">
                         <div className="flex-1 h-px bg-border/30" />
-                        <span className="text-[10px] text-muted-foreground/40 uppercase tracking-wider">Other candidates</span>
+                        <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Other candidates</span>
                         <div className="flex-1 h-px bg-border/30" />
                       </div>
                       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
-                        {cutCandidates.slice(deckExcess).map((ac) => (
+                        {cutCandidates.slice(deckExcess).map((ac, i) => (
                           <CutRow
                             key={ac.card.name}
                             ac={ac}
+                            index={i}
                             onRemove={handleRemoveCutCard}
                             onSkip={handleSkipCutCard}
                             onPreview={() => handlePreview(ac.card.name)}
@@ -1149,45 +1157,49 @@ export function DeckOptimizer({
           const drawCount = roleCounts.cardDraw ?? 0;
           const allPhasesActive = activeCurvePhases.size === analysis.curvePhases.length;
           const selectedPhases = analysis.curvePhases.filter(p => activeCurvePhases.has(p.phase));
+          const curveFlags = computeCurveFlags({
+            curveAnalysis: analysis.curveAnalysis,
+            curvePhases: analysis.curvePhases,
+            manaSources: analysis.manaSources,
+            totalNonLand,
+            drawCount,
+            taplandCount: analysis.manaBase.taplandCount,
+            landCount: analysis.manaBase.currentLands,
+          });
           return (
             <div className="space-y-3">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <CurveInsights
+                <ManaCurveLineChart
                   curveAnalysis={analysis.curveAnalysis}
-                  curvePhases={analysis.curvePhases}
-                  manaSources={analysis.manaSources}
-                  manaTrajectory={analysis.manaTrajectory}
-                  commanderCmc={cmdr?.cmc ?? 0}
-                  partnerCmc={partner?.cmc}
-                  commanderName={commanderName}
-                  partnerName={partnerCommanderName}
-                  totalNonLand={totalNonLand}
-                  drawCount={drawCount}
-                  taplandCount={analysis.manaBase.taplandCount}
-                  landCount={analysis.manaBase.currentLands}
+                  curveBreakdowns={analysis.curveBreakdowns}
+                  pacing={effectivePacing}
+                  activePhases={allPhasesActive ? undefined : activeCurvePhases}
+                  selectedCmc={selectedCmc}
+                  onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
                 />
-                <div className="bg-card/60 border border-border/30 rounded-lg p-3">
-                  <ManaTrajectorySparkline trajectory={analysis.manaTrajectory} />
-                </div>
+                <ManaTrajectorySparkline
+                  trajectory={analysis.manaTrajectory}
+                  commanderCmc={cmdr?.cmc ?? 0}
+                  commanderName={commanderName}
+                  partnerCmc={partner?.cmc}
+                  partnerName={partnerCommanderName}
+                />
               </div>
+              <CurveFlagStrip flags={curveFlags} />
               <CurveSummaryStrip
                 phases={analysis.curvePhases}
                 activePhases={activeCurvePhases}
                 onPhaseClick={(phase: CurvePhase) => {
-                  setActiveCurvePhases(prev => {
-                    const next = new Set(prev);
-                    if (next.has(phase)) next.delete(phase);
-                    else next.add(phase);
-                    return next;
-                  });
+                  const scrollY = window.scrollY;
+                  setActiveCurvePhases(new Set([phase]));
+                  requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
                 }}
-              />
-              <ManaCurveLineChart
-                curveAnalysis={analysis.curveAnalysis}
-                pacing={effectivePacing}
-                activePhases={allPhasesActive ? undefined : activeCurvePhases}
-                selectedCmc={selectedCmc}
-                onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
+                activeRoleGroups={activeRoleGroups}
+                onRoleGroupClick={(group: RoleGroupKey) => {
+                  const scrollY = window.scrollY;
+                  setActiveRoleGroups(prev => prev.has(group) && prev.size === 1 ? new Set() : new Set([group]));
+                  requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
+                }}
               />
               {selectedCmc !== null && (
                 <CmcCardList
@@ -1200,12 +1212,19 @@ export function DeckOptimizer({
                 />
               )}
               {selectedPhases.length > 0 ? (
-                <PhaseCardDisplay
+                <CurveDetailPanel
                   phases={selectedPhases}
+                  roleBreakdowns={analysis.roleBreakdowns}
+                  activeRoleGroups={activeRoleGroups}
+                  addedCards={addedCards}
+                  onAdd={(name: string) => {
+                    onAddCards?.([name], 'deck');
+                    setAddedCards(prev => new Set([...prev, name]));
+                  }}
                   onPreview={handlePreview}
                   onCardAction={handleCardAction}
                   menuProps={menuProps}
-                  roleBreakdowns={analysis.roleBreakdowns}
+                  allRecommendations={analysis.recommendations}
                 />
               ) : (
                 <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">

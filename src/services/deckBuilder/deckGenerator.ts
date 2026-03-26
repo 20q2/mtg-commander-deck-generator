@@ -713,12 +713,11 @@ function categorizeCards(
 // Stamp all role subtypes on a card based on its deckRole
 export function stampRoleSubtypes(card: ScryfallCard): void {
   card.multiRole = hasMultipleRoles(card.name);
-  switch (card.deckRole) {
-    case 'ramp': card.rampSubtype = getRampSubtype(card.name) ?? undefined; break;
-    case 'removal': card.removalSubtype = getRemovalSubtype(card.name) ?? undefined; break;
-    case 'boardwipe': card.boardwipeSubtype = getBoardwipeSubtype(card.name) ?? undefined; break;
-    case 'cardDraw': card.cardDrawSubtype = getCardDrawSubtype(card.name) ?? undefined; break;
-  }
+  // Stamp all subtypes so secondary-role contexts (e.g. a ramp card in the card draw panel) show the right badge
+  card.rampSubtype = getRampSubtype(card.name) ?? undefined;
+  card.removalSubtype = getRemovalSubtype(card.name) ?? undefined;
+  card.boardwipeSubtype = getBoardwipeSubtype(card.name) ?? undefined;
+  card.cardDrawSubtype = getCardDrawSubtype(card.name) ?? undefined;
 }
 
 /** Map a ScryfallCard to a type-based swap bucket key, or null for lands. */

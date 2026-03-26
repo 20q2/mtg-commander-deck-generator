@@ -54,21 +54,23 @@ function BracketScale({ activeBracket }: { activeBracket: number }) {
 
 // ─── Hard Floor Entry ────────────────────────────────────────────────
 
-function HardFloorRow({ bracket, reason, relatedCards, onPreview }: {
+function HardFloorRow({ bracket, reason, detail, relatedCards, onPreview }: {
   bracket: number;
   reason: string;
+  detail?: string;
   relatedCards: string[];
   onPreview: (name: string) => void;
 }) {
   const colors = BRACKET_COLORS[bracket] || BRACKET_COLORS[3];
   return (
-    <div className={`flex gap-3 p-2.5 rounded-lg border border-border/20 bg-card/40 border-l-2 ${colors.border.replace('/30', '/60')}`}>
+    <div className={`flex gap-3 p-2.5 border-l-2 ${colors.border.replace('/30', '/60')}`}>
       <div className="shrink-0 flex flex-col items-center gap-0.5">
         <AlertTriangle className={`w-3.5 h-3.5 ${colors.text}`} />
         <span className={`text-[11px] font-bold ${colors.text}`}>{bracket}+</span>
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium">{reason}</p>
+        {detail && <p className="text-[10px] text-muted-foreground/70 leading-relaxed mt-0.5">{detail}</p>}
         {relatedCards.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5">
             {relatedCards.map(name => (
@@ -109,7 +111,7 @@ function SoftScoreBar({ label, value, max, detail, colorKey, cardNames, onPrevie
       </div>
       <div className="h-1.5 rounded-full bg-accent/40 overflow-hidden">
         <div
-          className="h-full rounded-full transition-all"
+          className="h-full rounded-full animate-bar-grow"
           style={{ width: `${pct}%`, backgroundColor: color }}
         />
       </div>
@@ -304,50 +306,51 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
 
       {/* ── Header ── */}
       <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto] gap-3">
-        {/* Left: Rating */}
-        <div className="rounded-lg border border-border/30 bg-card/60 p-4 flex items-center gap-3">
-          <div className={`p-2 rounded-lg ${colors.bg}`}>
-            <Gauge className={`w-5 h-5 ${colors.text}`} />
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className={`text-2xl font-bold ${colors.text}`}>{est.bracket}</span>
-              <span className={`text-sm font-semibold ${colors.text}`}>{est.label}</span>
+        {/* Left: Rating + Hard Floors */}
+        <div className="rounded-lg border border-border/30 bg-card/60 p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${colors.bg}`}>
+              <Gauge className={`w-5 h-5 ${colors.text}`} />
             </div>
-            <p className="text-xs text-muted-foreground/80">{BRACKET_DESCRIPTIONS[est.bracket]}</p>
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-2xl font-bold ${colors.text}`}>{est.bracket}</span>
+                <span className={`text-sm font-semibold ${colors.text}`}>{est.label}</span>
+              </div>
+              <p className="text-xs text-muted-foreground/80">{BRACKET_DESCRIPTIONS[est.bracket]}</p>
+            </div>
           </div>
+          {est.hardFloors.length > 0 && (
+            <div className="border-t border-border/20 pt-2.5 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-3 h-3 text-muted-foreground/60" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Hard Floors</span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  — min bracket {floor} from {est.hardFloors.length} rule{est.hardFloors.length > 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {[...est.hardFloors]
+                  .sort((a, b2) => b2.bracket - a.bracket)
+                  .map((hf, i) => (
+                    <HardFloorRow
+                      key={i}
+                      bracket={hf.bracket}
+                      reason={hf.reason}
+                      detail={hf.detail}
+                      relatedCards={floorCardMap(hf)}
+                      onPreview={onPreview}
+                    />
+                  ))}
+              </div>
+            </div>
+          )}
         </div>
         {/* Right: Scale */}
         <div className="rounded-lg border border-border/30 bg-card/60 p-3 sm:min-w-[160px]">
           <BracketScale activeBracket={est.bracket} />
         </div>
       </div>
-
-      {/* ── Hard Floors ── */}
-      {est.hardFloors.length > 0 && (
-        <div className="bg-card/60 border border-border/30 rounded-lg p-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground/60" />
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hard Floors</span>
-            <span className="text-[11px] text-muted-foreground/60">
-              — minimum bracket {floor} from {est.hardFloors.length} rule{est.hardFloors.length > 1 ? 's' : ''}
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {[...est.hardFloors]
-              .sort((a, b2) => b2.bracket - a.bracket)
-              .map((hf, i) => (
-                <HardFloorRow
-                  key={i}
-                  bracket={hf.bracket}
-                  reason={hf.reason}
-                  relatedCards={floorCardMap(hf)}
-                  onPreview={onPreview}
-                />
-              ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Soft Score with inline cards ── */}
       <div className="bg-card/60 border border-border/30 rounded-lg p-3 space-y-3">
@@ -358,6 +361,12 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
           </div>
           <span className={`text-sm font-bold tabular-nums ${colors.text}`}>{est.softScore} / 100</span>
         </div>
+        <p className="text-[10px] text-muted-foreground/70 leading-relaxed -mt-1.5">
+          Measures how optimized your deck is within its bracket. Fast mana, tutors, low curve, and heavy interaction all add points.
+          {est.softScore < 50 ? ' Your deck plays at a relaxed pace for its bracket.'
+            : est.softScore < 70 ? ' Your deck is moderately tuned — consistent but not cutthroat.'
+            : ' Your deck is highly optimized and will play at the top end of its bracket.'}
+        </p>
 
         <div className="space-y-3">
           <SoftScoreBar

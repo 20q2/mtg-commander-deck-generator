@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Trash2, Check, AlertTriangle, ChevronDown, ChevronRight, ThumbsUp, Ban } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
@@ -201,12 +201,14 @@ export function CollapsibleCardGroups({ groups, totalCount }: {
                 onClick={() => toggle(group.key)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {isOpen
-                  ? <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                  : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">{group.label} ({group.count})</span>
               </button>
-              {isOpen && group.content}
+              <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                  {group.content}
+                </div>
+              </div>
             </div>
           );
         })}
@@ -244,13 +246,14 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
 
   return (
     <div
-      className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border transition-all duration-200 ${
+      className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border transition-all duration-300 cascade-in ${
         added
           ? 'opacity-40 border-transparent'
           : rankStyle
             ? `${rankStyle.bg} ${rankStyle.border} hover:brightness-110 cursor-pointer`
             : 'border-transparent hover:bg-accent/40 cursor-pointer'
       }`}
+      style={{ '--cascade-i': rank } as React.CSSProperties}
       onClick={added ? undefined : onPreview}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
@@ -307,7 +310,7 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
             <Plus className="w-4 h-4" />
           </button>
         ) : (
-          <span className="p-1 text-emerald-400">
+          <span className="p-1 text-emerald-400 animate-scale-in">
             <Check className="w-4 h-4" />
           </span>
         )}
@@ -339,8 +342,9 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
 }
 
 // ─── Overview: Cut Row (mirrors RecommendationRow) ──────────────────
-export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProps, cardInclusionMap }: {
+export function CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardAction, menuProps, cardInclusionMap }: {
   ac: AnalyzedCard;
+  index?: number;
   onRemove: (card: ScryfallCard) => void;
   onSkip: (card: ScryfallCard) => void;
   onPreview: () => void;
@@ -349,6 +353,7 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
   cardInclusionMap?: Record<string, number>;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [exiting, setExiting] = useState(false);
   const isBanned = menuProps?.bannedNames.has(ac.card.name);
   const rawInclusion = ac.inclusion ?? cardInclusionMap?.[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank);
   const pct = rawInclusion != null ? Math.round(rawInclusion) : null;
@@ -362,9 +367,15 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
   const roleBadges: string[] = [];
   if (ac.roleLabel) roleBadges.push(ac.roleLabel);
 
+  const handleAnimatedExit = useCallback((action: (card: ScryfallCard) => void) => {
+    setExiting(true);
+    setTimeout(() => action(ac.card), 200);
+  }, [ac.card]);
+
   return (
     <div
-      className="group flex items-center gap-2 py-1 px-1.5 rounded-lg border border-transparent hover:bg-accent/40 cursor-pointer transition-all duration-200"
+      className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border border-transparent hover:bg-accent/40 cursor-pointer transition-all duration-200 ${exiting ? 'animate-row-exit' : 'cascade-in'}`}
+      style={{ '--cascade-i': index } as React.CSSProperties}
       onClick={onPreview}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
@@ -408,14 +419,14 @@ export function CutRow({ ac, onRemove, onSkip, onPreview, onCardAction, menuProp
       </div>
       <div className="flex items-center gap-2 shrink-0 ml-auto">
         <button
-          onClick={(e) => { e.stopPropagation(); onSkip(ac.card); }}
+          onClick={(e) => { e.stopPropagation(); handleAnimatedExit(onSkip); }}
           className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/60 transition-colors"
           title="Keep in deck"
         >
           <ThumbsUp className="w-4 h-4" />
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); onRemove(ac.card); }}
+          onClick={(e) => { e.stopPropagation(); handleAnimatedExit(onRemove); }}
           className="p-1 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
           title="Cut from deck"
         >

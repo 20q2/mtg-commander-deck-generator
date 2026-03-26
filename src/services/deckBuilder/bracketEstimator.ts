@@ -14,6 +14,7 @@ export interface BracketEstimation {
 export interface BracketFloor {
   bracket: number;
   reason: string;
+  detail?: string;
 }
 
 export interface BracketBreakdown {
@@ -118,27 +119,27 @@ export function estimateBracket(
   const hardFloors: BracketFloor[] = [];
 
   if (gameChangers.length >= 4) {
-    hardFloors.push({ bracket: 4, reason: `${gameChangers.length} Game Changer cards` });
+    hardFloors.push({ bracket: 4, reason: `${gameChangers.length} Game Changer cards`, detail: 'Cards that warp the game on resolution — having 4+ pushes into high-power territory.' });
   } else if (gameChangers.length > 0) {
-    hardFloors.push({ bracket: 3, reason: `${gameChangers.length} Game Changer card${gameChangers.length > 1 ? 's' : ''}` });
+    hardFloors.push({ bracket: 3, reason: `${gameChangers.length} Game Changer card${gameChangers.length > 1 ? 's' : ''}`, detail: gameChangers.length > 1 ? 'These cards can take over a game on their own. Most casual tables expect to see a few.' : 'This card can take over a game on its own. Most casual tables expect to see a few.' });
   }
 
   if (massLandDenial.length > 0) {
-    hardFloors.push({ bracket: 4, reason: `Mass land denial (${massLandDenial.join(', ')})` });
+    hardFloors.push({ bracket: 4, reason: `Mass land denial (${massLandDenial.join(', ')})`, detail: 'Destroying or locking all lands prevents opponents from playing the game — one of the strongest effects in Commander.' });
   }
 
   if (earlyComboCount >= 2) {
-    hardFloors.push({ bracket: 4, reason: `${earlyComboCount} early-game infinite combos` });
+    hardFloors.push({ bracket: 4, reason: `${earlyComboCount} early-game infinite combos`, detail: 'Multiple ways to win out of nowhere before opponents can set up. This is competitive-level power.' });
   } else if (earlyComboCount === 1) {
-    hardFloors.push({ bracket: 3, reason: '1 early-game infinite combo' });
+    hardFloors.push({ bracket: 3, reason: '1 early-game infinite combo', detail: 'An infinite combo that can fire early means games can end before everyone gets to play.' });
   }
 
   if (lateComboCount > 0) {
-    hardFloors.push({ bracket: 3, reason: `${lateComboCount} late-game combo${lateComboCount > 1 ? 's' : ''}` });
+    hardFloors.push({ bracket: 3, reason: `${lateComboCount} late-game combo${lateComboCount > 1 ? 's' : ''}`, detail: 'Infinite combos that need setup are generally accepted, but they still bump the power level.' });
   }
 
   if (extraTurns.length > 0) {
-    hardFloors.push({ bracket: 2, reason: `${extraTurns.length} extra turn spell${extraTurns.length > 1 ? 's' : ''}` });
+    hardFloors.push({ bracket: 2, reason: `${extraTurns.length} extra turn spell${extraTurns.length > 1 ? 's' : ''}`, detail: 'Extra turns are powerful but slow the game down — most groups consider them a step above casual.' });
   }
 
   const floor = hardFloors.length > 0

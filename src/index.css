@@ -333,6 +333,49 @@
   .animate-card-slide-from-left {
     animation: cardSlideInFromLeft 0.2s ease-out;
   }
+
+  /* Progress bar fill from left (GPU-accelerated) */
+  @keyframes barGrow {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+  .animate-bar-grow {
+    animation: barGrow 0.6s ease-out forwards;
+    transform-origin: left;
+  }
+
+  /* Staggered cascade entrance — set --cascade-i on each item */
+  .cascade-in {
+    animation: chipIn 0.25s ease-out both;
+    animation-delay: calc(var(--cascade-i, 0) * 30ms);
+  }
+
+  /* Staggered cascade for cuts — fade + shrink in from larger */
+  @keyframes shrinkIn {
+    from {
+      opacity: 0;
+      transform: scale(1.04);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .cascade-in-cut {
+    animation: shrinkIn 0.2s ease-out both;
+    animation-delay: calc(var(--cascade-i, 0) * 30ms);
+  }
+
+  /* Row exit: fade + slide right */
+  @keyframes rowExit {
+    to {
+      opacity: 0;
+      transform: translateX(16px);
+    }
+  }
+  .animate-row-exit {
+    animation: rowExit 0.2s ease-in forwards;
+  }
 }
 
 /* Aurora background for collection page */
