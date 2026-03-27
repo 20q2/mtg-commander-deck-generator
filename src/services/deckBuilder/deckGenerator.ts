@@ -394,6 +394,7 @@ function pickFromPrefetched(
       scryfallCard.isGameChanger = true;
       gameChangerCount.value++;
     }
+    if (edhrecCard.isThemeSynergyCard) scryfallCard.isThemeSynergyCard = true;
     result.push(scryfallCard);
     usedNames.add(edhrecCard.name);
     if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);
@@ -617,6 +618,7 @@ function pickFromPrefetchedWithCurve(
         scryfallCard.isGameChanger = true;
         gameChangerCount.value++;
       }
+      if (edhrecCard.isThemeSynergyCard) scryfallCard.isThemeSynergyCard = true;
       result.push(scryfallCard);
       usedNames.add(edhrecCard.name);
       if (scryfallCard.name !== edhrecCard.name) usedNames.add(scryfallCard.name);

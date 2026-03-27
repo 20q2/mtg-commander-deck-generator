@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  Plus, Minus, ChevronDown, ChevronRight,
+  Plus, Minus, Check, ChevronRight,
   Palette, FlipHorizontal2, Info,
   Loader2, Sparkles, Mountain, Sprout, Scissors, ArrowUpDown,
 } from 'lucide-react';
@@ -16,7 +16,7 @@ import {
   tileGradeStyles, ROLE_LABELS,
   type LandSection, type CollapsibleGroup,
 } from './constants';
-import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
+import { AnalyzedCardRow, AnimatedCollapse, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
 import { ManaTrajectorySparkline } from './CurveTab';
 
@@ -205,7 +205,7 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
         className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
-        {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <Mountain className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -218,7 +218,7 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
           <p><span className="font-semibold text-red-400">F</span> — Critically low (below 33% of deck size)</p>
         </GradeInfoPopover>
       </div>
-      {expanded && <>
+      <AnimatedCollapse open={expanded}>
         <div className={`border rounded-lg p-2.5 ${vs.border} ${vs.bg}`}>
           <div className="flex items-center gap-3">
             <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${grade.bgColor} shrink-0`}>
@@ -248,7 +248,7 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
             })}
           </div>
         </div>
-      </>}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -421,7 +421,7 @@ export function LandCountDetail({
   });
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
+    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
       <div className={`${hasRightColumn ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: rating summary + lands list */}
         <div className={`${hasRightColumn ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
@@ -593,7 +593,7 @@ export function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; 
         className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
-        {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <Sprout className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -606,7 +606,7 @@ export function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; 
           <p><span className="font-semibold text-red-400">F</span> — Fewer than {Math.round(4 * deckSize / 100)} ramp cards</p>
         </GradeInfoPopover>
       </div>
-      {expanded && <>
+      <AnimatedCollapse open={expanded}>
         <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
           <div className="flex items-center gap-3">
             <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
@@ -622,7 +622,7 @@ export function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; 
           <span className="text-border">·</span>
           <span>avg ramp cost <span className="font-semibold text-foreground/80">{ms.avgRampCmc.toFixed(1)}</span></span>
         </div>
-      </>}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -661,7 +661,7 @@ export function ManaSourcesDetail({
   const hasSuggestions = rampSuggestions.length > 0;
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
+    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: summary + ramp cards grouped */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
@@ -671,26 +671,41 @@ export function ManaSourcesDetail({
               <ManaTrajectorySparkline trajectory={analysis.manaTrajectory} />
             </div>
           )}
-          {groups.length > 0 ? groups.map(g => (
-            <div key={g.key}>
-              <button
-                onClick={() => toggleGroup(g.key)}
-                className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
-              >
-                {openGroups[g.key] !== false ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
-                  {g.label} ({g.cards.length})
-                </span>
-              </button>
-              {openGroups[g.key] !== false && (
-                <div className="space-y-0.5">
-                  {g.cards.map(ac => (
-                    <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
-                  ))}
-                </div>
+          {groups.length > 0 ? (<>
+            <div className="flex items-center gap-1 mb-1.5 px-0.5">
+              <Check className="w-3 h-3 text-emerald-400/60" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60">In Your Deck ({analysis.rampCards.length})</span>
+              {Object.values(openGroups).some(v => v !== false) ? (
+                <button onClick={() => setOpenGroups(Object.fromEntries(groups.map(g => [g.key, false])))} className="ml-auto text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+                  collapse all
+                </button>
+              ) : (
+                <button onClick={() => setOpenGroups(Object.fromEntries(groups.map(g => [g.key, true])))} className="ml-auto text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+                  expand all
+                </button>
               )}
             </div>
-          )) : (
+            {groups.map(g => (
+              <div key={g.key}>
+                <button
+                  onClick={() => toggleGroup(g.key)}
+                  className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
+                >
+                  <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${openGroups[g.key] !== false ? 'rotate-90' : ''}`} />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
+                    {g.label} ({g.cards.length})
+                  </span>
+                </button>
+                <AnimatedCollapse open={openGroups[g.key] !== false}>
+                  <div className="space-y-0.5">
+                    {g.cards.map(ac => (
+                      <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
+                    ))}
+                  </div>
+                </AnimatedCollapse>
+              </div>
+            ))}
+          </>) : (
             <p className="text-xs text-muted-foreground italic px-0.5">No ramp cards in deck</p>
           )}
           {/* Recently added from suggestions */}
@@ -757,7 +772,7 @@ export function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
         className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
-        {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <Palette className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -769,7 +784,7 @@ export function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
           <p><span className="font-semibold text-emerald-400">A</span> ≥ 85 · <span className="font-semibold text-sky-400">B</span> ≥ 70 · <span className="font-semibold text-amber-400">C</span> ≥ 50 · <span className="font-semibold text-orange-400">D</span> ≥ 30 · <span className="font-semibold text-red-400">F</span> &lt; 30</p>
         </GradeInfoPopover>
       </div>
-      {expanded && (
+      <AnimatedCollapse open={expanded}>
         <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
           <div className="flex items-center gap-3">
             <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
@@ -780,7 +795,7 @@ export function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
             </div>
           </div>
         </div>
-      )}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -912,7 +927,7 @@ export function FixingDetail({
   }, [basicGroups, selectedColors]);
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
+    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: fixing summary + mana fixers + multi-color + recently added */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
@@ -970,6 +985,27 @@ export function FixingDetail({
 
           <div className="-mx-3 sm:-mx-4 border-b border-border/30" />
 
+          {/* In Your Deck header */}
+          {(() => {
+            const totalInDeck = filteredManaFixCards.length + filteredRampCards.length + filteredFixingLands.length + filteredMonoColorLands.length + filteredUtilityLands.length + filteredTaplands.length + filteredColorlessLands.length + filteredBasicGroups.reduce((s, bg) => s + bg.count, 0);
+            const anyOpen = fixersOpen || rampOpen || multiColorOpen || monoColorOpen || colorlessOpen || utilityOpen || taplandOpen || basicOpen;
+            return totalInDeck > 0 ? (
+              <div className="flex items-center gap-1 mb-1.5 px-0.5">
+                <Check className="w-3 h-3 text-emerald-400/60" />
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400/60">In Your Deck ({totalInDeck})</span>
+                {anyOpen ? (
+                  <button onClick={() => { setFixersOpen(false); setRampOpen(false); setMultiColorOpen(false); setMonoColorOpen(false); setColorlessOpen(false); setUtilityOpen(false); setTaplandOpen(false); setBasicOpen(false); }} className="ml-auto text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+                    collapse all
+                  </button>
+                ) : (
+                  <button onClick={() => { setFixersOpen(true); setRampOpen(true); setMultiColorOpen(true); setMonoColorOpen(true); setColorlessOpen(true); setUtilityOpen(true); setTaplandOpen(true); setBasicOpen(true); }} className="ml-auto text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+                    expand all
+                  </button>
+                )}
+              </div>
+            ) : null;
+          })()}
+
           {/* Mana Fixers (cards with mana-fix tag) */}
           {filteredManaFixCards.length > 0 && (
             <div>
@@ -977,18 +1013,18 @@ export function FixingDetail({
                 onClick={() => setFixersOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {fixersOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${fixersOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Mana Fixers ({filteredManaFixCards.length})
                 </span>
               </button>
-              {fixersOpen && (
+              <AnimatedCollapse open={fixersOpen}>
                 <div className="space-y-0.5">
                   {filteredManaFixCards.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -999,18 +1035,18 @@ export function FixingDetail({
                 onClick={() => setRampOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {rampOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${rampOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Ramp ({filteredRampCards.length})
                 </span>
               </button>
-              {rampOpen && (
+              <AnimatedCollapse open={rampOpen}>
                 <div className="space-y-0.5">
                   {filteredRampCards.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1021,18 +1057,18 @@ export function FixingDetail({
                 onClick={() => setMultiColorOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {multiColorOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${multiColorOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Multi-Color Lands ({filteredFixingLands.length})
                 </span>
               </button>
-              {multiColorOpen && (
+              <AnimatedCollapse open={multiColorOpen}>
                 <div className="space-y-0.5">
                   {filteredFixingLands.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1043,18 +1079,18 @@ export function FixingDetail({
                 onClick={() => setMonoColorOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {monoColorOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${monoColorOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Other Lands ({filteredMonoColorLands.length})
                 </span>
               </button>
-              {monoColorOpen && (
+              <AnimatedCollapse open={monoColorOpen}>
                 <div className="space-y-0.5">
                   {filteredMonoColorLands.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1065,18 +1101,18 @@ export function FixingDetail({
                 onClick={() => setUtilityOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {utilityOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${utilityOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Utility Lands ({filteredUtilityLands.length})
                 </span>
               </button>
-              {utilityOpen && (
+              <AnimatedCollapse open={utilityOpen}>
                 <div className="space-y-0.5">
                   {filteredUtilityLands.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1087,18 +1123,18 @@ export function FixingDetail({
                 onClick={() => setTaplandOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {taplandOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${taplandOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Taplands ({filteredTaplands.length})
                 </span>
               </button>
-              {taplandOpen && (
+              <AnimatedCollapse open={taplandOpen}>
                 <div className="space-y-0.5">
                   {filteredTaplands.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1109,18 +1145,18 @@ export function FixingDetail({
                 onClick={() => setColorlessOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {colorlessOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${colorlessOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Colorless Lands ({filteredColorlessLands.length})
                 </span>
               </button>
-              {colorlessOpen && (
+              <AnimatedCollapse open={colorlessOpen}>
                 <div className="space-y-0.5">
                   {filteredColorlessLands.map(ac => (
                     <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showProducedMana showDetails onCardAction={onCardAction} menuProps={menuProps} />
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1131,12 +1167,12 @@ export function FixingDetail({
                 onClick={() => setBasicOpen(v => !v)}
                 className="flex items-center gap-1 w-full text-left px-0.5 mb-1 hover:opacity-80 transition-opacity"
               >
-                {basicOpen ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${basicOpen ? 'rotate-90' : ''}`} />
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
                   Basic ({filteredBasicGroups.reduce((sum, bg) => sum + bg.count, 0)})
                 </span>
               </button>
-              {basicOpen && (
+              <AnimatedCollapse open={basicOpen}>
                 <div className="space-y-0.5">
                   {filteredBasicGroups.map(bg => (
                     <div
@@ -1176,7 +1212,7 @@ export function FixingDetail({
                     </div>
                   ))}
                 </div>
-              )}
+              </AnimatedCollapse>
             </div>
           )}
 
@@ -1273,7 +1309,7 @@ export function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable
         className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
         onClick={() => setExpanded(prev => !prev)}
       >
-        {expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <FlipHorizontal2 className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -1285,7 +1321,7 @@ export function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable
           <p><span className="font-semibold text-red-400">F</span> — No flex lands</p>
         </GradeInfoPopover>
       </div>
-      {expanded && <>
+      <AnimatedCollapse open={expanded}>
         <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
           <div className="flex items-center gap-3">
             <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
@@ -1303,7 +1339,7 @@ export function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable
           )}
           {!loading && <><span className="text-border">·</span><span>{totalAvailable} MDFCs in colors</span></>}
         </div>
-      </>}
+      </AnimatedCollapse>
     </div>
   );
 }
@@ -1429,7 +1465,7 @@ export function MdfcDetail({
   });
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
+    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
       <div className="flex flex-col md:flex-row md:items-stretch gap-4">
         {/* Left: summary + all lands in deck */}
         <div className="md:w-[30%] shrink-0 space-y-3">

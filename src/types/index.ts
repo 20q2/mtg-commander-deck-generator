@@ -57,6 +57,7 @@ export interface ScryfallCard {
   games?: string[]; // Platforms: "paper", "arena", "mtgo"
   // Added during deck generation
   isGameChanger?: boolean;
+  isThemeSynergyCard?: boolean; // true if from EDHREC highsynergycards/topcards/gamechangers
   isMustInclude?: boolean;
   mustIncludeSource?: 'user' | 'deck' | 'combo'; // Where the must-include came from
   deckRole?: string; // Functional role detected by tagger/oracle text (e.g., 'ramp', 'removal')

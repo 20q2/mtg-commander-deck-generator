@@ -69,6 +69,7 @@ export interface RecommendedCard {
   cmc?: number;
   isUtilityLand?: boolean;
   isTapland?: boolean;
+  isGameChanger?: boolean;
 }
 
 export interface AnalyzedCard {
@@ -960,6 +961,236 @@ export function getDeckSummaryData(analysis: DeckAnalysis, deckExcess?: number):
   return { gradeLetter, headline, cardCountNote, cardCountSeverity, needs, trims, notes: noteItems };
 }
 
+// ─── Optimize Swaps ─────────────────────────────────────────────────
+
+export interface OptimizeCard {
+  name: string;
+  reason: string;          // "Excess Ramp", "Low synergy", "Fills Removal gap", etc.
+  reasonCategory: string;  // grouping key for UI sections
+  inclusion: number | null;
+  price?: string;
+  role?: string;
+  roleLabel?: string;
+  imageUrl?: string;
+  cmc?: number;
+  primaryType?: string;    // "Creature", "Instant", etc.
+  isGameChanger?: boolean;
+  isThemeSynergy?: boolean;
+}
+
+export interface OptimizeSwaps {
+  removals: OptimizeCard[];
+  additions: OptimizeCard[];
+}
+
+const ROLE_LABELS_MAP: Record<string, string> = {
+  ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage',
+};
+
+/**
+ * Compute balanced swap suggestions: cards to remove and cards to add.
+ * Pure function — no side effects.
+ */
+export function computeOptimizeSwaps(
+  analysis: DeckAnalysis,
+  currentCards: ScryfallCard[],
+  cardInclusionMap: Record<string, number> | undefined,
+  commanderName: string,
+  partnerCommanderName: string | undefined,
+  mustIncludeNames: Set<string>,
+  bannedNames: Set<string>,
+): OptimizeSwaps {
+  const BASIC_LANDS = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
+  const inclusionMap = cardInclusionMap ?? {};
+  const currentCardNames = new Set(currentCards.map(c => c.name));
+
+  // ── Build removal candidates with reasons ──
+  // Two-pass approach: first collect all potential candidates, then sort & cap
+
+  // Map of role → excess count (flag when 2+ over target)
+  const excessRoles = new Map<string, number>();
+  for (const rd of analysis.roleDeficits) {
+    if (rd.current > rd.target + 1) {
+      excessRoles.set(rd.role, rd.current - rd.target);
+    }
+  }
+
+  // Detect curve issues
+  const lateDelta = analysis.curveAnalysis.filter(s => s.cmc >= 5).reduce((sum, s) => sum + s.delta, 0);
+  const isTopHeavy = lateDelta > 3;
+
+  // Detect mana base issues — excess lands or taplands
+  const { currentLands, adjustedSuggestion, taplandCount } = analysis.manaBase;
+  const landExcess = currentLands - adjustedSuggestion;
+  const hasExcessLands = landExcess > 2;
+  const hasTaplandProblem = taplandCount > 0 && (taplandCount / Math.max(currentLands, 1)) > 0.3;
+
+  type CandidateCard = OptimizeCard & { sortScore: number };
+
+  // Collect all potential excess-role candidates per role (unsorted, uncapped)
+  const excessRoleCandidates = new Map<string, CandidateCard[]>();
+  // Collect all potential land cuts (unsorted, uncapped)
+  const taplandCandidates: CandidateCard[] = [];
+  const excessLandCandidates: CandidateCard[] = [];
+  // General non-land candidates
+  const generalCandidates: CandidateCard[] = [];
+
+  for (const card of currentCards) {
+    if (BASIC_LANDS.has(card.name)) continue;
+    if (card.name === commanderName || card.name === partnerCommanderName) continue;
+    if (mustIncludeNames.has(card.name)) continue;
+
+    const role = card.deckRole || getCardRole(card.name) || undefined;
+    const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
+    const cmdInclusion = inclusionMap[card.name] ?? null;
+    const globalInclusion = card.edhrec_rank != null
+      ? Math.max(1, 100 - Math.floor(card.edhrec_rank / 100))
+      : null;
+    const inclusion = cmdInclusion ?? globalInclusion ?? null;
+    const cmc = card.cmc ?? 0;
+    const typeLine = getFrontFaceTypeLine(card).split('—')[0].replace(/Legendary\s+/i, '').trim();
+    const primaryType = typeLine || undefined;
+    const isLand = primaryType?.toLowerCase().includes('land') ?? false;
+
+    const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
+
+    // ── Land-specific cuts ──
+    if (isLand) {
+      // Protect theme-synergy lands and high-inclusion utility lands
+      // (EDHREC never flags lands as theme synergy, so also protect by inclusion)
+      if (card.isThemeSynergyCard || (inclusion != null && inclusion >= 65)) { continue; }
+      if (hasTaplandProblem && isTapland(card.name)) {
+        taplandCandidates.push({ ...base, reason: 'Tapland', reasonCategory: 'tapland', sortScore: inclusion ?? 50 });
+      } else if (hasExcessLands) {
+        excessLandCandidates.push({ ...base, reason: 'Excess land', reasonCategory: 'excess-land', sortScore: inclusion ?? 50 });
+      }
+      continue;
+    }
+
+    // ── Excess role cards ──
+    // Protect theme synergy cards (e.g. tribal elves that are also ramp) — they serve double duty
+    if (role && excessRoles.has(role) && !card.isThemeSynergyCard) {
+      const bucket = excessRoleCandidates.get(role) || [];
+      bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: inclusion ?? 50 });
+      excessRoleCandidates.set(role, bucket);
+      continue; // don't also consider as general cut
+    }
+
+    // ── General non-land, non-excess-role cuts ──
+    const INCLUSION_FLOOR = 70;
+    if ((inclusion ?? 0) >= INCLUSION_FLOOR) continue;
+
+    if (!role && (inclusion ?? 100) < 35) {
+      generalCandidates.push({ ...base, reason: 'Low synergy', reasonCategory: 'low-synergy', sortScore: inclusion ?? 0 });
+    } else if (isTopHeavy && cmc >= 5 && !role && (inclusion ?? 100) < 50) {
+      generalCandidates.push({ ...base, reason: 'Curve fix', reasonCategory: 'curve-fix', sortScore: (inclusion ?? 0) - cmc * 2 });
+    } else if (!role && (inclusion ?? 100) < 50) {
+      generalCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: (inclusion ?? 0) + 20 });
+    }
+  }
+
+  // ── Now sort each bucket by sortScore (lowest inclusion = best cut) and cap ──
+  const removalCandidates: CandidateCard[] = [];
+
+  // Excess role cards: sort by inclusion ASC, take up to (excess - 1) per role
+  for (const [role, candidates] of excessRoleCandidates) {
+    const excess = excessRoles.get(role)!;
+    candidates.sort((a, b) => a.sortScore - b.sortScore);
+    removalCandidates.push(...candidates.slice(0, excess - 1));
+  }
+
+  // Taplands: sort by inclusion ASC, cap at taplandCount / 2 (cut half)
+  taplandCandidates.sort((a, b) => a.sortScore - b.sortScore);
+  removalCandidates.push(...taplandCandidates.slice(0, Math.ceil(taplandCount / 2)));
+
+  // Excess lands: sort by inclusion ASC, cap at landExcess (but don't double-count taplands already picked)
+  const pickedLandNames = new Set(removalCandidates.filter(c => c.reasonCategory === 'tapland').map(c => c.name));
+  excessLandCandidates.sort((a, b) => a.sortScore - b.sortScore);
+  let landPicked = pickedLandNames.size;
+  for (const lc of excessLandCandidates) {
+    if (landPicked >= landExcess) break;
+    if (pickedLandNames.has(lc.name)) continue;
+    removalCandidates.push(lc);
+    landPicked++;
+  }
+
+  // General candidates
+  generalCandidates.sort((a, b) => a.sortScore - b.sortScore);
+  removalCandidates.push(...generalCandidates);
+
+  // Final sort across all categories
+  removalCandidates.sort((a, b) => a.sortScore - b.sortScore);
+
+  // ── Build addition candidates from recommendations ──
+  const additionCandidates: OptimizeCard[] = [];
+
+  // Deficit roles first, sorted by severity
+  const deficitRoles = analysis.roleDeficits
+    .filter(rd => rd.deficit > 0)
+    .sort((a, b) => b.deficit - a.deficit);
+
+  const addedNames = new Set<string>();
+
+  // First pass: cards that fill role deficits
+  for (const rd of deficitRoles) {
+    const roleRecs = analysis.recommendations.filter(
+      r => r.role === rd.role && !addedNames.has(r.name) && !bannedNames.has(r.name) && !currentCardNames.has(r.name)
+    );
+    const toAdd = Math.min(rd.deficit, roleRecs.length, 3); // cap 3 per role
+    for (let i = 0; i < toAdd; i++) {
+      const rec = roleRecs[i];
+      addedNames.add(rec.name);
+      additionCandidates.push({
+        name: rec.name,
+        reason: `Fills ${rd.label} gap`,
+        reasonCategory: `fills:${rd.role}`,
+        inclusion: rec.inclusion,
+        price: rec.price,
+        role: rec.role,
+        roleLabel: rec.roleLabel,
+        imageUrl: rec.imageUrl,
+        cmc: rec.cmc,
+        primaryType: rec.primaryType,
+        isGameChanger: rec.isGameChanger,
+        isThemeSynergy: rec.isThemeSynergy,
+      });
+    }
+  }
+
+  // Second pass: top scored recommendations not yet added (min 20% inclusion)
+  for (const rec of analysis.recommendations) {
+    if (addedNames.has(rec.name) || bannedNames.has(rec.name) || currentCardNames.has(rec.name)) continue;
+    if (rec.inclusion < 20) continue;
+    addedNames.add(rec.name);
+    additionCandidates.push({
+      name: rec.name,
+      reason: rec.isThemeSynergy ? 'Theme synergy' : 'High synergy',
+      reasonCategory: rec.isThemeSynergy ? 'theme' : 'synergy',
+      inclusion: rec.inclusion,
+      price: rec.price,
+      role: rec.role,
+      roleLabel: rec.roleLabel,
+      imageUrl: rec.imageUrl,
+      cmc: rec.cmc,
+      primaryType: rec.primaryType,
+      isGameChanger: rec.isGameChanger,
+      isThemeSynergy: rec.isThemeSynergy,
+    });
+  }
+
+  // ── Cap each side independently at 10 ──
+  const removals = removalCandidates.slice(0, 10);
+
+  // Respect deck size: additions can't push us over the target
+  const targetDeckSize = analysis.manaBase.deckSize; // e.g. 99 for commander
+  const currentDeckSize = currentCards.length;
+  const netRemoved = removals.length; // assume all removals are applied for the cap
+  const additionRoom = Math.max(0, targetDeckSize - currentDeckSize + netRemoved);
+  const additions = additionCandidates.slice(0, Math.min(10, additionRoom));
+
+  return { removals, additions };
+}
+
 /** SVG markup for a summary icon */
 export function summaryIconSvg(key: string): string {
   const svg = SUMMARY_SVGS[key];
@@ -1380,6 +1611,7 @@ export function analyzeDeck(
       cmc: card.cmc,
       isUtilityLand: isUtilityLand(card.name) || undefined,
       isTapland: isTapland(card.name) || undefined,
+      isGameChanger: card.isGameChanger || undefined,
     };
   })
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
@@ -1460,6 +1692,7 @@ export function analyzeDeck(
       cmc: card.cmc,
       isUtilityLand: isUtilityLand(name) || undefined,
       isTapland: isTapland(name) || undefined,
+      isGameChanger: card.isGameChanger || undefined,
     });
   }
 
@@ -1701,6 +1934,7 @@ export function analyzeDeck(
         score: landScore,
         isUtilityLand: isUtilityLand(card.name) || undefined,
         isTapland: isTapland(card.name) || undefined,
+        isGameChanger: card.isGameChanger || undefined,
       };
     })
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
@@ -1835,6 +2069,7 @@ export function analyzeDeck(
       score: combinedScore,
       isUtilityLand: isUtilityLand(name) || undefined,
       isTapland: isTapland(name) || undefined,
+      isGameChanger: card.isGameChanger || undefined,
     });
   }
   fixingRecommendations.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));

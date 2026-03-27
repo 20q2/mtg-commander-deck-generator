@@ -12,7 +12,7 @@ import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTra
 import { PACING_MULTIPLIERS, computeHandStats } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
-import { PACING_LABELS, PHASE_META, tileGradeStyles } from './constants';
+import { PACING_LABELS, PHASE_META, tileGradeStyles, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
 import { useStore } from '@/store';
@@ -22,6 +22,24 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 // ═══════════════════════════════════════════════════════════════════════
 // Curve Tab Components
 // ═══════════════════════════════════════════════════════════════════════
+
+const SUBTYPE_DISPLAY: Record<string, string> = {
+  'mana-producer': 'Mana Dork',
+  'mana-rock': 'Mana Rock',
+  'cost-reducer': 'Cost Reducer',
+  'ramp': 'Ramp',
+  'counterspell': 'Counter',
+  'bounce': 'Bounce',
+  'spot-removal': 'Spot Removal',
+  'removal': 'Removal',
+  'bounce-wipe': 'Bounce Wipe',
+  'boardwipe': 'Board Wipe',
+  'tutor': 'Tutor',
+  'wheel': 'Wheel',
+  'cantrip': 'Cantrip',
+  'card-draw': 'Card Draw',
+  'card-advantage': 'Card Advantage',
+};
 
 const ROLE_SHORT_LABEL: Record<RoleGroupKey, string> = {
   ramp:        'RAMP',
@@ -1011,31 +1029,62 @@ function PhaseRoleCardList({
       }
     }
 
-    return ROLE_GROUP_ORDER
-      .filter(key => (activeRoleGroups.size === 0 || activeRoleGroups.has(key)) && buckets[key].length > 0)
-      .map(key => {
-        const cards = [...buckets[key]].sort((a, b) => a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name));
+    // Sub-group by subtype within each role group
+    const getSubtypeLabel = (ac: AnalyzedCard, roleGroup: RoleGroupKey): string => {
+      const c = ac.card;
+      switch (roleGroup) {
+        case 'ramp': return SUBTYPE_DISPLAY[c.rampSubtype ?? ''] ?? 'Ramp';
+        case 'interaction': return SUBTYPE_DISPLAY[c.removalSubtype ?? c.boardwipeSubtype ?? ''] ?? (c.deckRole === 'boardwipe' ? 'Board Wipe' : 'Removal');
+        case 'cardDraw': return SUBTYPE_DISPLAY[c.cardDrawSubtype ?? ''] ?? 'Card Draw';
+        default: return 'Other';
+      }
+    };
+
+    const result: CollapsibleGroup[] = [];
+    for (const key of ROLE_GROUP_ORDER) {
+      if (!(activeRoleGroups.size === 0 || activeRoleGroups.has(key)) || buckets[key].length === 0) continue;
+      const cards = [...buckets[key]].sort((a, b) => a.card.cmc - b.card.cmc || a.card.name.localeCompare(b.card.name));
+
+      if (key === 'other') {
+        // "Other" has no meaningful subtypes — keep flat
         const meta = ROLE_GROUP_META[key];
-        return {
+        result.push({
           key,
           label: meta.label,
           count: cards.length,
           content: (
             <div className="space-y-0.5">
               {cards.map(ac => (
-                <AnalyzedCardRow
-                  key={ac.card.name}
-                  ac={ac}
-                  onPreview={onPreview}
-                  showDetails
-                  onCardAction={onCardAction}
-                  menuProps={menuProps}
-                />
+                <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
               ))}
             </div>
           ),
-        };
-      });
+        });
+      } else {
+        // Sub-group by subtype
+        const subtypeBuckets = new Map<string, AnalyzedCard[]>();
+        for (const ac of cards) {
+          const st = getSubtypeLabel(ac, key);
+          if (!subtypeBuckets.has(st)) subtypeBuckets.set(st, []);
+          subtypeBuckets.get(st)!.push(ac);
+        }
+        for (const [st, stCards] of subtypeBuckets) {
+          result.push({
+            key: `${key}:${st}`,
+            label: st,
+            count: stCards.length,
+            content: (
+              <div className="space-y-0.5">
+                {stCards.map(ac => (
+                  <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
+                ))}
+              </div>
+            ),
+          });
+        }
+      }
+    }
+    return result;
   }, [phases, activeRoleGroups, onPreview, onCardAction, menuProps]);
 
   const totalCount = groups.reduce((s, g) => s + g.count, 0);

@@ -25,7 +25,7 @@ function findCardCategory(
 }
 
 /** Determine the appropriate DeckCategory for a card being swapped in. */
-function getCategoryForCard(card: ScryfallCard): DeckCategory {
+export function getCategoryForCard(card: ScryfallCard): DeckCategory {
   const typeLine = getFrontFaceTypeLine(card).toLowerCase();
   if (typeLine.includes('land')) return 'lands';
 

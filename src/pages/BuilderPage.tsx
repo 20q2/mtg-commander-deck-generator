@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
@@ -13,7 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ManaCost, ColorIdentity } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
-import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
+import { getCardByName, getCardImageUrl, getCachedCard } from '@/services/scryfall/client';
+import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
@@ -441,6 +442,34 @@ export function BuilderPage() {
     const timer = setTimeout(() => setToastMessage(null), 5000);
     return () => clearTimeout(timer);
   }, [toastMessage]);
+
+  // ── Remove/Add cards for optimizer ──
+  const handleRemoveCards = useCallback((names: string[]) => {
+    const deck = useStore.getState().generatedDeck;
+    if (!deck) return;
+    const removeSet = new Set(names);
+    const newCategories = { ...deck.categories };
+    for (const cat of Object.keys(newCategories) as Array<keyof typeof newCategories>) {
+      const filtered = newCategories[cat].filter(c => !removeSet.has(c.name));
+      if (filtered.length !== newCategories[cat].length) {
+        newCategories[cat] = filtered;
+      }
+    }
+    setGeneratedDeck({ ...deck, categories: newCategories });
+  }, [setGeneratedDeck]);
+
+  const handleAddCards = useCallback((names: string[]) => {
+    const deck = useStore.getState().generatedDeck;
+    if (!deck) return;
+    const newCategories = { ...deck.categories };
+    for (const name of names) {
+      const card = getCachedCard(name);
+      if (!card) continue;
+      const cat = getCategoryForCard(card);
+      newCategories[cat] = [...newCategories[cat], card];
+    }
+    setGeneratedDeck({ ...deck, categories: newCategories });
+  }, [setGeneratedDeck]);
 
   const handleGenerate = async () => {
     // Read fresh from store to avoid stale closures (e.g. tempBannedCards just updated)
@@ -884,6 +913,8 @@ export function BuilderPage() {
           </div>
           <DeckDisplay
             onRegenerate={handleGenerate}
+            onRemoveCards={handleRemoveCards}
+            onAddCards={(names, _dest) => handleAddCards(names)}
             hideRegenerate
             regenerateProgress={isLoading ? progressPercent : undefined}
             regenerateMessage={isLoading ? progress : undefined}

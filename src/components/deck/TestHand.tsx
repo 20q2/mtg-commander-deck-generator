@@ -226,12 +226,13 @@ function TestHandContent({ cards, landCount, onCardClick }: TestHandContentProps
   const totalCards = cards.length || 99;
   const avgLands = ((landCount / totalCards) * 7).toFixed(2);
 
-  // Dynamic overlap: keep total width roughly constant as cards are drawn
-  // With 7 cards the base overlap is 1.5rem; as more cards are added, overlap increases
+  // Dynamic overlap: keep total width roughly constant as cards are drawn.
+  // Cap at 5.5rem so cards never reverse direction even with 30+ draws.
   const baseOverlap = 1.5; // rem, for 7 cards
+  const maxOverlap = 5.5;  // rem — ~65% of card width at max size
   const overlapRem = hand.length <= 7
     ? baseOverlap
-    : baseOverlap + (hand.length - 7) * 0.35;
+    : Math.min(baseOverlap + (hand.length - 7) * 0.35, maxOverlap);
 
   return (
     <div className="px-4 pb-4">

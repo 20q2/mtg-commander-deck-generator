@@ -24,7 +24,7 @@ export function parseSetFromQuery(scryfallQuery: string): string | undefined {
 
 /** Return a shallow copy with deck-generation flags stripped so cached objects stay clean. */
 function freshCopy(card: ScryfallCard): ScryfallCard {
-  const { isMustInclude, isGameChanger, deckRole, isMdfcLand: _mdfc, ...clean } = card;
+  const { isMustInclude, isGameChanger, isThemeSynergyCard, deckRole, isMdfcLand: _mdfc, ...clean } = card;
   return clean;
 }
 

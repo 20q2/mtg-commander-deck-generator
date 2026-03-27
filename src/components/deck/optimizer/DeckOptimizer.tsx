@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Loader2, Sparkles, ShoppingCart, RefreshCw,
-  Scissors, RotateCcw, Zap,
+  Scissors, RotateCcw, Zap, Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ScryfallCard } from '@/types';
@@ -23,6 +23,7 @@ import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
 import { CurveSummaryStrip, ManaCurveLineChart, ManaTrajectorySparkline, CmcCardList, CurveDetailPanel, CurveFlagStrip, computeCurveFlags, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
 import { BracketTabContent } from './BracketTab';
+import { OptimizeView } from './OptimizeTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -56,6 +57,7 @@ export function DeckOptimizer({
   const [activeCurvePhases, setActiveCurvePhases] = useState<Set<CurvePhase>>(new Set());
   const [activeRoleGroups, setActiveRoleGroups] = useState<Set<RoleGroupKey>>(new Set([ROLE_GROUP_ORDER[0]]));
   const [selectedCmc, setSelectedCmc] = useState<number | null>(null);
+  const [optimizeView, setOptimizeView] = useState(false);
 
   // Theme detection state
   const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
@@ -816,6 +818,15 @@ export function DeckOptimizer({
     return (name: string) => { base(name); pushDeckHistory({ action: 'remove', cardName: name }); };
   }, [onRemoveBasicLandProp, onRemoveCards, pushDeckHistory]);
 
+  const handleApplyOptimize = useCallback((removals: string[], additions: string[]) => {
+    onRemoveCards?.(removals);
+    for (const name of removals) pushDeckHistory({ action: 'remove', cardName: name });
+    onAddCards?.(additions, 'deck');
+    for (const name of additions) pushDeckHistory({ action: 'add', cardName: name });
+    setAddedCards(new Set());
+    setOptimizeView(false);
+  }, [onRemoveCards, onAddCards, pushDeckHistory]);
+
   // --- Pre-analysis: prominent CTA ---
   if (!analysis && !loading) {
     return (
@@ -893,7 +904,8 @@ export function DeckOptimizer({
         </button>
       </div>
 
-      {/* Tab Bar */}
+      {/* Tab Bar — hidden in optimize view */}
+      {!optimizeView && (
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/20 bg-card/30 overflow-x-auto">
         {TABS.map(tab => {
           const isActive = activeTab === tab.key;
@@ -927,9 +939,26 @@ export function DeckOptimizer({
             : 'No themes selected'}
         </span>
       </div>
+      )}
 
       {/* Tab Content */}
       <div className="p-3 sm:p-4">
+
+        {/* ── OPTIMIZE VIEW (replaces tabs) ── */}
+        {optimizeView ? (
+          <OptimizeView
+            analysis={analysis}
+            currentCards={currentCards}
+            commanderName={commanderName}
+            partnerCommanderName={partnerCommanderName}
+            cardInclusionMap={cardInclusionMap}
+            mustIncludeNames={menuProps.mustIncludeNames}
+            bannedNames={menuProps.bannedNames}
+            onApply={handleApplyOptimize}
+            onBack={() => setOptimizeView(false)}
+            onPreview={handlePreview}
+          />
+        ) : (<>
 
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
@@ -955,6 +984,21 @@ export function DeckOptimizer({
               userPacing={userPacing}
               onPacingChange={handlePacingChange}
             />
+
+            {/* Optimize CTA */}
+            <div className="flex flex-col items-center gap-1.5 py-3">
+              <Button
+                onClick={() => setOptimizeView(true)}
+                className="btn-shimmer px-6 py-2 text-xs font-semibold gap-1.5"
+                size="sm"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                Optimize Deck
+              </Button>
+              <p className="text-[11px] text-muted-foreground/60 leading-snug">
+                See all recommended swaps in one view
+              </p>
+            </div>
 
             <div className="bg-card/60 border border-border/30 rounded-lg p-3">
               {/* Cuts View */}
@@ -1240,6 +1284,7 @@ export function DeckOptimizer({
           <BracketTabContent onPreview={handlePreview} />
         )}
 
+        </>)}
       </div>
 
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />

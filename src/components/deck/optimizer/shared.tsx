@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
@@ -20,6 +20,16 @@ export interface CardRowMenuProps {
   bannedNames: Set<string>;
   sideboardNames: Set<string>;
   maybeboardNames: Set<string>;
+}
+
+// ─── Shared: Animated Collapse wrapper ───────────────────────────────
+/** Smooth expand/collapse using CSS grid-rows trick (GPU-accelerated). */
+export function AnimatedCollapse({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+      <div className="overflow-hidden">{children}</div>
+    </div>
+  );
 }
 
 // ─── Shared: Analyzed Card Row (compact, for curve/lands/types) ──────
@@ -374,7 +384,7 @@ export function CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardActio
 
   return (
     <div
-      className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border border-transparent hover:bg-accent/40 cursor-pointer transition-all duration-200 ${exiting ? 'animate-row-exit' : 'cascade-in'}`}
+      className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border border-transparent hover:bg-accent/40 cursor-pointer transition-all duration-200 ${exiting ? 'animate-row-exit' : 'cascade-in-cut'}`}
       style={{ '--cascade-i': index } as React.CSSProperties}
       onClick={onPreview}
       onContextMenu={(e) => {

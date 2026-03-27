@@ -248,6 +248,9 @@ export function SuggestionCardItem({
           </span>
         )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{rec.name}</span>
+        {rec.isGameChanger && (
+          <span className="text-[10px] font-bold text-amber-500/70 shrink-0" title="Game Changer (EDHREC)">GC</span>
+        )}
         {rec.price && (
           <span className="text-[10px] text-muted-foreground shrink-0">${rec.price}</span>
         )}
@@ -293,6 +296,7 @@ export function CutCardGrid({
         <CutCardItem
           key={ac.card.name}
           ac={ac}
+          index={i}
           removed={removedCards.has(ac.card.name)}
           highlighted={excess > 0 && i < excess && !removedCards.has(ac.card.name)}
           onRemove={onRemove}
@@ -310,9 +314,10 @@ export function CutCardGrid({
 // ─── Cut Card Item ────────────────────────────────────────────────────
 
 export function CutCardItem({
-  ac, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap, sortMode = 'inclusion',
+  ac, index = 0, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap, sortMode = 'inclusion',
 }: {
   ac: AnalyzedCard;
+  index?: number;
   removed: boolean;
   highlighted: boolean;
   onRemove: (card: ScryfallCard) => void;
@@ -334,7 +339,8 @@ export function CutCardItem({
 
   return (
     <div
-      className={`group ${removed ? 'opacity-40' : ''}`}
+      className={`group cascade-in-cut ${removed ? 'opacity-40' : ''}`}
+      style={{ '--cascade-i': index } as React.CSSProperties}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
           e.preventDefault();
@@ -418,6 +424,9 @@ export function CutCardItem({
           </span>
         )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{ac.card.name}</span>
+        {ac.card.isGameChanger && (
+          <span className="text-[10px] font-bold text-amber-500/70 shrink-0" title="Game Changer (EDHREC)">GC</span>
+        )}
         {price && (
           <span className="text-[10px] text-muted-foreground shrink-0">${price}</span>
         )}

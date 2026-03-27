@@ -81,7 +81,8 @@
       "WebFetch(domain:magic.wizards.com)",
       "WebFetch(domain:moxfield.com)",
       "WebFetch(domain:brackcheck.com)",
-      "WebFetch(domain:commanderpowermeter.com)"
+      "WebFetch(domain:commanderpowermeter.com)",
+      "Bash(timeout 10 npx vite:*)"
     ]
   }
 }
