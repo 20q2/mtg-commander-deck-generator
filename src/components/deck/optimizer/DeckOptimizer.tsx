@@ -819,10 +819,17 @@ export function DeckOptimizer({
   }, [onRemoveBasicLandProp, onRemoveCards, pushDeckHistory]);
 
   const handleApplyOptimize = useCallback((removals: string[], additions: string[]) => {
+    // Remove first, then delay additions so the list state settles
+    // (both closures reference the same list.cards snapshot — calling them
+    // synchronously causes the add to overwrite the removal)
     onRemoveCards?.(removals);
     for (const name of removals) pushDeckHistory({ action: 'remove', cardName: name });
-    onAddCards?.(additions, 'deck');
-    for (const name of additions) pushDeckHistory({ action: 'add', cardName: name });
+    if (additions.length > 0) {
+      requestAnimationFrame(() => {
+        onAddCards?.(additions, 'deck');
+        for (const name of additions) pushDeckHistory({ action: 'add', cardName: name });
+      });
+    }
     setAddedCards(new Set());
     setOptimizeView(false);
   }, [onRemoveCards, onAddCards, pushDeckHistory]);

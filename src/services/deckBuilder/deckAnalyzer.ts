@@ -1025,6 +1025,12 @@ export function computeOptimizeSwaps(
   const hasExcessLands = landExcess > 2;
   const hasTaplandProblem = taplandCount > 0 && (taplandCount / Math.max(currentLands, 1)) > 0.3;
 
+  // ── Grade-aware protections ──
+  const manaGradeLow = ['D', 'F'].includes(analysis.manaGrade.letter);
+  const manaVerdictLow = analysis.manaBase.verdict === 'low' || analysis.manaBase.verdict === 'critically-low';
+  const protectLands = manaGradeLow || manaVerdictLow; // don't cut lands when mana is weak
+  const fixingWeak = ['C', 'D', 'F'].includes(analysis.colorFixing.fixingGrade);
+
   type CandidateCard = OptimizeCard & { sortScore: number };
 
   // Collect all potential excess-role candidates per role (unsorted, uncapped)
@@ -1039,6 +1045,7 @@ export function computeOptimizeSwaps(
     if (BASIC_LANDS.has(card.name)) continue;
     if (card.name === commanderName || card.name === partnerCommanderName) continue;
     if (mustIncludeNames.has(card.name)) continue;
+    if (card.isGameChanger) continue; // never suggest cutting a game changer
 
     const role = card.deckRole || getCardRole(card.name) || undefined;
     const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
@@ -1052,13 +1059,28 @@ export function computeOptimizeSwaps(
     const primaryType = typeLine || undefined;
     const isLand = primaryType?.toLowerCase().includes('land') ?? false;
 
+    // Curve-aware scoring: cards in overfilled CMC slots are easier to cut,
+    // cards in underfilled slots are protected
+    const cmcBucket = Math.min(Math.floor(cmc), 7);
+    const curveSlot = analysis.curveAnalysis.find(s => s.cmc === cmcBucket);
+    let curveAdjust = 0;
+    if (!isLand && curveSlot) {
+      if (curveSlot.delta > 1) curveAdjust = -curveSlot.delta * 3;       // overfilled → easier to cut
+      else if (curveSlot.delta < -1) curveAdjust = Math.abs(curveSlot.delta) * 5; // underfilled → protect
+    }
+
     const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
 
     // ── Land-specific cuts ──
     if (isLand) {
-      // Protect theme-synergy lands and high-inclusion utility lands
-      // (EDHREC never flags lands as theme synergy, so also protect by inclusion)
-      if (card.isThemeSynergyCard || (inclusion != null && inclusion >= 65)) { continue; }
+      if (protectLands) continue; // don't cut lands when mana grade is weak
+      if (card.isThemeSynergyCard) continue;
+      // Protect multi-color fixing lands when color fixing is weak
+      if (fixingWeak) {
+        const produced = getLandProducedColors(card);
+        const neededColors = analysis.colorFixing.colorsNeeded;
+        if (produced.filter(c => neededColors.includes(c)).length >= 2) continue;
+      }
       if (hasTaplandProblem && isTapland(card.name)) {
         taplandCandidates.push({ ...base, reason: 'Tapland', reasonCategory: 'tapland', sortScore: inclusion ?? 50 });
       } else if (hasExcessLands) {
@@ -1071,7 +1093,7 @@ export function computeOptimizeSwaps(
     // Protect theme synergy cards (e.g. tribal elves that are also ramp) — they serve double duty
     if (role && excessRoles.has(role) && !card.isThemeSynergyCard) {
       const bucket = excessRoleCandidates.get(role) || [];
-      bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: inclusion ?? 50 });
+      bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: (inclusion ?? 50) + curveAdjust });
       excessRoleCandidates.set(role, bucket);
       continue; // don't also consider as general cut
     }
@@ -1081,11 +1103,11 @@ export function computeOptimizeSwaps(
     if ((inclusion ?? 0) >= INCLUSION_FLOOR) continue;
 
     if (!role && (inclusion ?? 100) < 35) {
-      generalCandidates.push({ ...base, reason: 'Low synergy', reasonCategory: 'low-synergy', sortScore: inclusion ?? 0 });
+      generalCandidates.push({ ...base, reason: 'Low synergy', reasonCategory: 'low-synergy', sortScore: (inclusion ?? 0) + curveAdjust });
     } else if (isTopHeavy && cmc >= 5 && !role && (inclusion ?? 100) < 50) {
-      generalCandidates.push({ ...base, reason: 'Curve fix', reasonCategory: 'curve-fix', sortScore: (inclusion ?? 0) - cmc * 2 });
+      generalCandidates.push({ ...base, reason: 'Curve fix', reasonCategory: 'curve-fix', sortScore: (inclusion ?? 0) - cmc * 2 + curveAdjust });
     } else if (!role && (inclusion ?? 100) < 50) {
-      generalCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: (inclusion ?? 0) + 20 });
+      generalCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: (inclusion ?? 0) + 20 + curveAdjust });
     }
   }
 
@@ -1118,10 +1140,38 @@ export function computeOptimizeSwaps(
   generalCandidates.sort((a, b) => a.sortScore - b.sortScore);
   removalCandidates.push(...generalCandidates);
 
+  // ── Deck over target: fill remaining slots with lowest-inclusion cards ──
+  const targetDeckSize = analysis.manaBase.deckSize;
+  const deckExcess = currentCards.length - targetDeckSize;
+  if (deckExcess > 0 && removalCandidates.length < deckExcess) {
+    const alreadyPicked = new Set(removalCandidates.map(c => c.name));
+    const fallbackCandidates: CandidateCard[] = [];
+    for (const card of currentCards) {
+      if (BASIC_LANDS.has(card.name)) continue;
+      if (card.name === commanderName || card.name === partnerCommanderName) continue;
+      if (mustIncludeNames.has(card.name)) continue;
+      if (alreadyPicked.has(card.name)) continue;
+      if (card.isGameChanger) continue;
+      const role = card.deckRole || getCardRole(card.name) || undefined;
+      const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
+      const cmdInclusion = inclusionMap[card.name] ?? null;
+      const globalInclusion = card.edhrec_rank != null ? Math.max(1, 100 - Math.floor(card.edhrec_rank / 100)) : null;
+      const inclusion = cmdInclusion ?? globalInclusion ?? null;
+      const cmc = card.cmc ?? 0;
+      const typeLine = getFrontFaceTypeLine(card).split('—')[0].replace(/Legendary\s+/i, '').trim();
+      const primaryType = typeLine || undefined;
+      const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
+      fallbackCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: inclusion ?? 50 });
+    }
+    fallbackCandidates.sort((a, b) => a.sortScore - b.sortScore);
+    const needed = deckExcess - removalCandidates.length;
+    removalCandidates.push(...fallbackCandidates.slice(0, needed));
+  }
+
   // Final sort across all categories
   removalCandidates.sort((a, b) => a.sortScore - b.sortScore);
 
-  // ── Build addition candidates from recommendations ──
+  // ── Build addition candidates from recommendations (multi-pass, grade-aware) ──
   const additionCandidates: OptimizeCard[] = [];
 
   // Deficit roles first, sorted by severity
@@ -1131,62 +1181,104 @@ export function computeOptimizeSwaps(
 
   const addedNames = new Set<string>();
 
-  // First pass: cards that fill role deficits
+  // Helper to convert a RecommendedCard to OptimizeCard
+  const recToOptCard = (rec: RecommendedCard, reason: string, reasonCategory: string): OptimizeCard => ({
+    name: rec.name, reason, reasonCategory,
+    inclusion: rec.inclusion, price: rec.price, role: rec.role, roleLabel: rec.roleLabel,
+    imageUrl: rec.imageUrl, cmc: rec.cmc, primaryType: rec.primaryType,
+    isGameChanger: rec.isGameChanger, isThemeSynergy: rec.isThemeSynergy,
+  });
+
+  // ── Pass 1: Cards that fill role deficits (with roleBreakdown fallback) ──
   for (const rd of deficitRoles) {
-    const roleRecs = analysis.recommendations.filter(
+    let roleRecs = analysis.recommendations.filter(
       r => r.role === rd.role && !addedNames.has(r.name) && !bannedNames.has(r.name) && !currentCardNames.has(r.name)
     );
-    const toAdd = Math.min(rd.deficit, roleRecs.length, 3); // cap 3 per role
+    // Fallback: per-role suggested replacements (broader pool)
+    if (roleRecs.length < rd.deficit) {
+      const breakdown = analysis.roleBreakdowns.find(rb => rb.role === rd.role);
+      if (breakdown) {
+        const extras = breakdown.suggestedReplacements.filter(
+          r => !addedNames.has(r.name) && !bannedNames.has(r.name) && !currentCardNames.has(r.name)
+            && !roleRecs.some(rr => rr.name === r.name)
+        );
+        roleRecs = [...roleRecs, ...extras];
+      }
+    }
+    const toAdd = Math.min(rd.deficit + 1, roleRecs.length); // allow slight overcorrect
     for (let i = 0; i < toAdd; i++) {
       const rec = roleRecs[i];
       addedNames.add(rec.name);
-      additionCandidates.push({
-        name: rec.name,
-        reason: `Fills ${rd.label} gap`,
-        reasonCategory: `fills:${rd.role}`,
-        inclusion: rec.inclusion,
-        price: rec.price,
-        role: rec.role,
-        roleLabel: rec.roleLabel,
-        imageUrl: rec.imageUrl,
-        cmc: rec.cmc,
-        primaryType: rec.primaryType,
-        isGameChanger: rec.isGameChanger,
-        isThemeSynergy: rec.isThemeSynergy,
-      });
+      additionCandidates.push(recToOptCard(rec, `Fills ${rd.label} gap`, `fills:${rd.role}`));
     }
   }
 
-  // Second pass: top scored recommendations not yet added (min 20% inclusion)
+  // ── Pass 2: Land recommendations when mana is weak ──
+  const manaVerdict = analysis.manaBase.verdict;
+  if (manaVerdict === 'low' || manaVerdict === 'critically-low' || manaVerdict === 'slightly-low') {
+    const landDeficit = analysis.manaBase.adjustedSuggestion - analysis.manaBase.currentLands;
+    const landsToAdd = Math.min(Math.max(landDeficit, 0), 5);
+    let landAdded = 0;
+    for (const rec of analysis.landRecommendations) {
+      if (landAdded >= landsToAdd) break;
+      if (addedNames.has(rec.name) || bannedNames.has(rec.name) || currentCardNames.has(rec.name)) continue;
+      if (rec.isTapland) continue; // prefer untapped lands for tempo
+      addedNames.add(rec.name);
+      additionCandidates.push(recToOptCard(rec, 'Fixes mana base', 'mana-fix'));
+      landAdded++;
+    }
+  }
+
+  // ── Pass 3: Color fixers when fixing is weak ──
+  if (['C', 'D', 'F'].includes(analysis.colorFixing.fixingGrade)) {
+    let fixersAdded = 0;
+    for (const rec of analysis.colorFixing.fixingRecommendations) {
+      if (fixersAdded >= 2) break;
+      if (addedNames.has(rec.name) || bannedNames.has(rec.name) || currentCardNames.has(rec.name)) continue;
+      addedNames.add(rec.name);
+      additionCandidates.push(recToOptCard(rec, 'Fixes color', 'color-fix'));
+      fixersAdded++;
+    }
+  }
+
+  // ── Pass 4: Curve fills when tempo is weak ──
+  if (['C', 'D', 'F'].includes(analysis.curveGrade.letter)) {
+    const underfilled = analysis.curvePhases.filter(p => p.delta < -2);
+    for (const phase of underfilled) {
+      const [lo, hi] = phase.cmcRange;
+      const phaseCandidates = analysis.recommendations
+        .filter(r => !addedNames.has(r.name) && !bannedNames.has(r.name) && !currentCardNames.has(r.name))
+        .filter(r => r.cmc !== undefined && r.cmc >= lo && r.cmc <= hi)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      const toAdd = Math.min(Math.abs(phase.delta), 3, phaseCandidates.length);
+      for (let i = 0; i < toAdd; i++) {
+        const rec = phaseCandidates[i];
+        addedNames.add(rec.name);
+        additionCandidates.push(recToOptCard(rec, `${phase.label} play`, `curve:${phase.phase}`));
+      }
+    }
+  }
+
+  // ── Pass 5: Top scored recommendations not yet added (min 20% inclusion) ──
   for (const rec of analysis.recommendations) {
     if (addedNames.has(rec.name) || bannedNames.has(rec.name) || currentCardNames.has(rec.name)) continue;
     if (rec.inclusion < 20) continue;
     addedNames.add(rec.name);
-    additionCandidates.push({
-      name: rec.name,
-      reason: rec.isThemeSynergy ? 'Theme synergy' : 'High synergy',
-      reasonCategory: rec.isThemeSynergy ? 'theme' : 'synergy',
-      inclusion: rec.inclusion,
-      price: rec.price,
-      role: rec.role,
-      roleLabel: rec.roleLabel,
-      imageUrl: rec.imageUrl,
-      cmc: rec.cmc,
-      primaryType: rec.primaryType,
-      isGameChanger: rec.isGameChanger,
-      isThemeSynergy: rec.isThemeSynergy,
-    });
+    additionCandidates.push(recToOptCard(
+      rec,
+      rec.isThemeSynergy ? 'Theme synergy' : 'High synergy',
+      rec.isThemeSynergy ? 'theme' : 'synergy',
+    ));
   }
 
-  // ── Cap each side independently at 10 ──
-  const removals = removalCandidates.slice(0, 10);
+  // ── No hard caps — show all candidates the algorithm found ──
+  const removals = removalCandidates;
 
-  // Respect deck size: additions can't push us over the target
-  const targetDeckSize = analysis.manaBase.deckSize; // e.g. 99 for commander
+  // Additions: can't push past target deck size (assume all removals applied)
   const currentDeckSize = currentCards.length;
-  const netRemoved = removals.length; // assume all removals are applied for the cap
+  const netRemoved = removals.length;
   const additionRoom = Math.max(0, targetDeckSize - currentDeckSize + netRemoved);
-  const additions = additionCandidates.slice(0, Math.min(10, additionRoom));
+  const additions = additionCandidates.slice(0, additionRoom);
 
   return { removals, additions };
 }

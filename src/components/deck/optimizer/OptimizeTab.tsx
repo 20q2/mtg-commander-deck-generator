@@ -35,6 +35,8 @@ function getRemovalCategoryLabel(cat: string): string {
 const ADDITION_CATEGORY_LABELS: Record<string, string> = {
   'synergy': 'High Synergy',
   'theme': 'Theme Synergy',
+  'mana-fix': 'Land Recommendations',
+  'color-fix': 'Color Fixing',
 };
 
 function getAdditionCategoryLabel(cat: string): string {
@@ -42,6 +44,11 @@ function getAdditionCategoryLabel(cat: string): string {
     const role = cat.split(':')[1];
     const labels: Record<string, string> = { ramp: 'Fills Ramp Gap', removal: 'Fills Removal Gap', boardwipe: 'Fills Board Wipes Gap', cardDraw: 'Fills Card Draw Gap' };
     return labels[role] || `Fills ${role} gap`;
+  }
+  if (cat.startsWith('curve:')) {
+    const phase = cat.split(':')[1];
+    const labels: Record<string, string> = { early: 'Early Game Plays', mid: 'Mid Game Plays', late: 'Late Game Plays' };
+    return labels[phase] || 'Curve Fill';
   }
   return ADDITION_CATEGORY_LABELS[cat] || cat;
 }
