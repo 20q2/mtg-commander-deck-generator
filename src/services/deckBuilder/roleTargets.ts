@@ -150,6 +150,15 @@ export const PACING_ROLE_ADJUSTMENTS: Record<Pacing, Record<RoleKey, number>> = 
   'balanced':         { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00 },
 };
 
+/** Multipliers for mana curve phases by pacing. Used by both generator and analyzer. */
+export const PACING_CURVE_MULTIPLIERS: Record<Pacing, { early: number; mid: number; late: number }> = {
+  'aggressive-early': { early: 1.20, mid: 0.95, late: 0.75 },
+  'fast-tempo':       { early: 1.12, mid: 1.00, late: 0.82 },
+  'balanced':         { early: 1.00, mid: 1.00, late: 1.00 },
+  'midrange':         { early: 0.92, mid: 1.10, late: 0.95 },
+  'late-game':        { early: 0.85, mid: 0.95, late: 1.25 },
+};
+
 // ─── Pacing Estimation from EDHREC Stats ────────────────────────────
 
 /**
@@ -157,7 +166,7 @@ export const PACING_ROLE_ADJUSTMENTS: Record<Pacing, Record<RoleKey, number>> = 
  * Same thresholds as detectPacing() but computed from aggregate stats
  * without keyword analysis.
  */
-function estimatePacingFromStats(manaCurve: Record<number, number>): Pacing {
+export function estimatePacingFromStats(manaCurve: Record<number, number>): Pacing {
   const total = Object.values(manaCurve).reduce((s, v) => s + v, 0);
   if (total === 0) return 'balanced';
 

@@ -1,8 +1,9 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
 import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
-import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 import { detectPacing, type Pacing } from './themeDetector';
+import { PACING_CURVE_MULTIPLIERS } from './roleTargets';
 
 export interface RoleDeficit {
   role: string;
@@ -560,14 +561,8 @@ export function getCurveGrade(phases: CurvePhaseAnalysis[]): GradeResult {
   return { letter, message: messages[letter] || messages.F };
 }
 
-/** Pacing multipliers shift curve targets to match detected deck tempo. */
-export const PACING_MULTIPLIERS: Record<Pacing, { early: number; mid: number; late: number }> = {
-  'aggressive-early': { early: 1.20, mid: 0.95, late: 0.75 },
-  'fast-tempo':       { early: 1.12, mid: 1.00, late: 0.82 },
-  'midrange':         { early: 0.92, mid: 1.10, late: 0.95 },
-  'late-game':        { early: 0.85, mid: 0.95, late: 1.25 },
-  'balanced':         { early: 1.00, mid: 1.00, late: 1.00 },
-};
+/** Pacing multipliers shift curve targets to match detected deck tempo. Re-exported for consumers. */
+export { PACING_CURVE_MULTIPLIERS as PACING_MULTIPLIERS } from './roleTargets';
 
 /** Per-phase role distribution ratios — how global role targets split across phases. */
 const PHASE_ROLE_DIST: Record<CurvePhase, Record<PhaseRoleGroup, number>> = {
@@ -652,7 +647,7 @@ export function getCurvePhases(
     { phase: 'late',  label: 'Late Game',   range: [5, 7] },
   ];
 
-  const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
+  const multipliers = pacing ? PACING_CURVE_MULTIPLIERS[pacing] : PACING_CURVE_MULTIPLIERS.balanced;
   const phaseRoleTargets = roleTargets ? getPhaseRoleTargets(roleTargets, pacing ?? 'balanced') : null;
 
   const result = phaseDefs.map(({ phase, label, range }) => {
@@ -1075,6 +1070,8 @@ export function computeOptimizeSwaps(
     if (isLand) {
       if (protectLands) continue; // don't cut lands when mana grade is weak
       if (card.isThemeSynergyCard) continue;
+      if (isChannelLand(card)) continue; // channel lands are too good to ever cut
+      if (isMdfcLand(card)) continue; // MDFCs double as spells — never cut
       // Protect multi-color fixing lands when color fixing is weak
       if (fixingWeak) {
         const produced = getLandProducedColors(card);
@@ -1152,6 +1149,8 @@ export function computeOptimizeSwaps(
       if (mustIncludeNames.has(card.name)) continue;
       if (alreadyPicked.has(card.name)) continue;
       if (card.isGameChanger) continue;
+      if (isChannelLand(card)) continue; // channel lands are too good to ever cut
+      if (isMdfcLand(card)) continue; // MDFCs double as spells — never cut
       const role = card.deckRole || getCardRole(card.name) || undefined;
       const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
       const cmdInclusion = inclusionMap[card.name] ?? null;
@@ -1226,6 +1225,47 @@ export function computeOptimizeSwaps(
       addedNames.add(rec.name);
       additionCandidates.push(recToOptCard(rec, 'Fixes mana base', 'mana-fix'));
       landAdded++;
+    }
+  }
+
+  // ── Pass 2.5: Flex lands (channel lands + MDFCs) when below target ──
+  const flexCount = analysis.mdfcsInDeck.length + analysis.channelLandsInDeck.length;
+  const FLEX_TARGET = 3; // B-grade threshold
+  if (flexCount < FLEX_TARGET) {
+    const flexDeficit = FLEX_TARGET - flexCount;
+    let flexAdded = 0;
+
+    // First: missing channel lands for our colors (always recommend — they're free)
+    const channelInDeck = new Set(analysis.channelLandsInDeck.map(ac => ac.card.name));
+    for (const [name, color] of Object.entries(CHANNEL_LANDS)) {
+      if (flexAdded >= flexDeficit + 2) break; // allow slight over-suggest
+      if (channelInDeck.has(name)) continue;
+      if (!analysis.colorFixing.colorsNeeded.includes(color)) continue;
+      if (addedNames.has(name) || bannedNames.has(name) || currentCardNames.has(name)) continue;
+
+      const rec = analysis.landRecommendations.find(r => r.name === name);
+      addedNames.add(name);
+      if (rec) {
+        additionCandidates.push(recToOptCard(rec, 'Flex land (channel)', 'flex-land'));
+      } else {
+        additionCandidates.push({
+          name, reason: 'Flex land (channel)', reasonCategory: 'flex-land',
+          inclusion: inclusionMap[name] ?? null, primaryType: 'Land',
+        });
+      }
+      flexAdded++;
+    }
+
+    // Second: MDFCs from land recommendations
+    for (const rec of analysis.landRecommendations) {
+      if (flexAdded >= flexDeficit + 2) break;
+      if (addedNames.has(rec.name) || bannedNames.has(rec.name) || currentCardNames.has(rec.name)) continue;
+      const cached = getCachedCard(rec.name);
+      if (cached && isMdfcLand(cached)) {
+        addedNames.add(rec.name);
+        additionCandidates.push(recToOptCard(rec, 'Flex land (MDFC)', 'flex-land'));
+        flexAdded++;
+      }
     }
   }
 
@@ -1407,6 +1447,7 @@ export function analyzeDeck(
   cardInclusionMap?: Record<string, number>,
   colorIdentity?: string[],
   overridePacing?: Pacing,
+  overrideLandTarget?: number,
 ): DeckAnalysis {
   // --- Role Deficits ---
   const roleDeficits: RoleDeficit[] = Object.entries(roleTargets).map(([role, target]) => {
@@ -1496,9 +1537,16 @@ export function analyzeDeck(
     adjustedSuggestion += 1;
   }
 
+  // Manual override: user explicitly set a land target
+  if (overrideLandTarget != null) {
+    adjustedSuggestion = overrideLandTarget;
+  }
+
   // Hard floor: never suggest below 33% of deck
   const landFloor = Math.round(deckSize * 0.33);
-  adjustedSuggestion = Math.max(adjustedSuggestion, landFloor);
+  if (overrideLandTarget == null) {
+    adjustedSuggestion = Math.max(adjustedSuggestion, landFloor);
+  }
 
   // Verdict
   const landDelta = currentLands - adjustedSuggestion;
