@@ -2088,6 +2088,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (cardsToDeduct.length > 0) budgetTracker.deductMustIncludes(cardsToDeduct);
   }
 
+  // Hoisted so fixup pass can access the Scryfall card map after generation
+  let scryfallCardMap: Map<string, ScryfallCard> = new Map();
+
   // ---- Multi-copy card pipeline (self-contained, no impact if nothing found) ----
   if (edhrecData) {
     const allEdhrecNames = edhrecData.cardlists.allNonLand.map(c => c.name);
@@ -2233,6 +2236,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
     await upgradeCardPrintings(cardMap, scryfallQuery, true);
     console.log(`[DeckGen] Batch fetch returned ${cardMap.size} cards (after filtering)`);
+    scryfallCardMap = cardMap;
 
     // Update generation cache with the cardMap (not used on fast path currently,
     // but kept for potential future use)
@@ -2950,27 +2954,84 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Helper to count all cards
   const countAllCards = () => Object.values(categories).flat().length;
 
-  // If we have too many cards, trim from lowest priority categories
-  // Priority order for trimming: utility first, then creatures, then synergy
-  // Synergy cards are theme-specific and should be protected!
-  const trimOrder: DeckCategory[] = ['utility', 'creatures', 'synergy', 'cardDraw', 'ramp', 'singleRemoval', 'boardWipes'];
+  // ── Smart Trim: priority-aware, role-aware, combo-aware ──
+  const MUST_INCLUDE_BOOST = 10000;
+  const COMBO_TRIM_BOOST = 200;
+  const ROLE_DEFICIT_TRIM_BOOST = 50;
+  const ROLE_SURPLUS_TRIM_PENALTY = -30;
 
   let currentCount = countAllCards();
-  while (currentCount > targetDeckSize) {
-    const excess = currentCount - targetDeckSize;
-    let trimmed = false;
+  if (currentCount > targetDeckSize) {
+    const trimCandidates: { card: ScryfallCard; category: DeckCategory; trimResistance: number }[] = [];
 
-    for (const category of trimOrder) {
-      if (categories[category].length > 0) {
-        const toTrim = Math.min(excess, categories[category].length);
-        categories[category] = categories[category].slice(0, categories[category].length - toTrim);
-        trimmed = true;
-        break;
+    const mustIncludeSet = new Set([
+      ...customization.mustIncludeCards.map(n => n.toLowerCase()),
+      ...customization.tempMustIncludeCards.map(n => n.toLowerCase()),
+    ]);
+
+    for (const cat of Object.keys(categories) as DeckCategory[]) {
+      const cards = categories[cat];
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        // Position-based priority: cards are in priority order (index 0 = highest)
+        // So higher index = lower priority = lower trim resistance
+        let resistance = cards.length - i;
+
+        // Untouchable: must-include cards
+        if (mustIncludeSet.has(card.name.toLowerCase())) {
+          resistance += MUST_INCLUDE_BOOST;
+        }
+
+        // Soft-protected: combo pieces
+        if (comboCardNames.has(card.name)) {
+          resistance += COMBO_TRIM_BOOST;
+        }
+
+        // Role-aware: protect deficit roles, expose surplus roles
+        if (roleTargets) {
+          const role = getCardRole(card.name);
+          if (role) {
+            const target = roleTargets[role] ?? 0;
+            const current = currentRoleCounts[role] ?? 0;
+            if (current <= target) {
+              resistance += ROLE_DEFICIT_TRIM_BOOST;
+            } else if (current >= target + 3) {
+              resistance += ROLE_SURPLUS_TRIM_PENALTY;
+            }
+          }
+        }
+
+        trimCandidates.push({ card, category: cat, trimResistance: resistance });
       }
     }
 
-    if (!trimmed) break; // Safety: no more cards to trim
-    currentCount = countAllCards();
+    // Sort ascending: lowest resistance = first to trim
+    trimCandidates.sort((a, b) => a.trimResistance - b.trimResistance);
+
+    const excess = currentCount - targetDeckSize;
+    const toRemove = trimCandidates.slice(0, excess);
+
+    // Build removal sets per category for efficient filtering
+    const removeByCategory = new Map<DeckCategory, Set<ScryfallCard>>();
+    for (const { card, category } of toRemove) {
+      if (!removeByCategory.has(category)) removeByCategory.set(category, new Set());
+      removeByCategory.get(category)!.add(card);
+    }
+
+    // Apply removals
+    for (const [cat, removeSet] of removeByCategory) {
+      categories[cat] = categories[cat].filter(c => !removeSet.has(c));
+    }
+
+    // Update role counts for trimmed role cards
+    if (roleTargets) {
+      for (const { card } of toRemove) {
+        const role = getCardRole(card.name);
+        if (role && currentRoleCounts[role] > 0) {
+          currentRoleCounts[role]--;
+        }
+      }
+    }
   }
 
   // Track how many basic lands are added as filler when collection is too small
@@ -3385,6 +3446,144 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Detected ${detectedCombos.filter(c => c.isComplete).length} complete combos, ${detectedCombos.filter(c => !c.isComplete).length} near-misses`);
 
     if (detectedCombos.length === 0) detectedCombos = undefined;
+  }
+
+  // ── Post-Generation Fixup Pass (light touch) ──
+  // Only fix critical gaps: roles ≤50% of target, dead CMC 1/2 slots
+  if (edhrecData && customization.balancedRoles) {
+    const MAX_FIXUP_SWAPS = 5;
+    let fixupSwaps = 0;
+
+    const fixupMustIncludeSet = new Set([
+      ...customization.mustIncludeCards.map(n => n.toLowerCase()),
+      ...customization.tempMustIncludeCards.map(n => n.toLowerCase()),
+    ]);
+
+    // Helper: find the lowest-priority non-protected card matching a filter
+    function findWeakestCard(filter?: (card: ScryfallCard, cat: DeckCategory) => boolean): { card: ScryfallCard; category: DeckCategory } | null {
+      let weakest: { card: ScryfallCard; category: DeckCategory; priority: number } | null = null;
+      for (const cat of Object.keys(categories) as DeckCategory[]) {
+        const cards = categories[cat];
+        for (let i = cards.length - 1; i >= 0; i--) {
+          const card = cards[i];
+          if (fixupMustIncludeSet.has(card.name.toLowerCase())) continue;
+          if (comboCardNames.has(card.name)) continue;
+          if (filter && !filter(card, cat)) continue;
+          const priority = cards.length - i;
+          if (!weakest || priority < weakest.priority) {
+            weakest = { card, category: cat, priority };
+          }
+        }
+      }
+      return weakest ? { card: weakest.card, category: weakest.category } : null;
+    }
+
+    // Helper: remove a card from its category and update tracking
+    function fixupRemoveCard(card: ScryfallCard, category: DeckCategory) {
+      categories[category] = categories[category].filter(c => c !== card);
+      usedNames.delete(card.name);
+      const role = getCardRole(card.name);
+      if (role && currentRoleCounts[role] > 0) currentRoleCounts[role]--;
+    }
+
+    // Helper: add a card to the appropriate category
+    function fixupAddCard(card: ScryfallCard) {
+      stampRoleSubtypes(card);
+      const role = getCardRole(card.name);
+      const typeLine = (card.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) {
+        categories.creatures.push(card);
+      } else if (role === 'boardwipe') {
+        categories.boardWipes.push(card);
+      } else if (role === 'removal') {
+        categories.singleRemoval.push(card);
+      } else if (role === 'ramp') {
+        categories.ramp.push(card);
+      } else if (role === 'cardDraw') {
+        categories.cardDraw.push(card);
+      } else {
+        categories.synergy.push(card);
+      }
+      usedNames.add(card.name);
+      if (role) currentRoleCounts[role] = (currentRoleCounts[role] || 0) + 1;
+    }
+
+    // Helper: find best EDHREC candidate for a role that's already fetched
+    function findRoleCandidate(role: RoleKey): ScryfallCard | null {
+      const candidates = edhrecData!.cardlists.allNonLand
+        .filter(c => !usedNames.has(c.name) && getCardRole(c.name) === role && scryfallCardMap.has(c.name))
+        .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a));
+      return candidates.length > 0 ? scryfallCardMap.get(candidates[0].name)! : null;
+    }
+
+    // 5a: Critical Role Deficits (≤50% of target)
+    if (roleTargets) {
+      const roleKeys: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+      for (const role of roleKeys) {
+        if (fixupSwaps >= MAX_FIXUP_SWAPS) break;
+        const target = roleTargets[role] ?? 0;
+        const current = currentRoleCounts[role] ?? 0;
+        if (target > 0 && current <= target * 0.5) {
+          const swapsForRole = Math.min(2, MAX_FIXUP_SWAPS - fixupSwaps);
+          for (let i = 0; i < swapsForRole; i++) {
+            const weak = findWeakestCard((card) => getCardRole(card.name) !== role);
+            if (!weak) break;
+            const replacement = findRoleCandidate(role);
+            if (!replacement) break;
+            fixupRemoveCard(weak.card, weak.category);
+            fixupAddCard(replacement);
+            if (swapCandidates) {
+              const key = `type:${(weak.card.type_line || 'unknown').split(' ')[0].toLowerCase()}`;
+              if (!swapCandidates[key]) swapCandidates[key] = [];
+              swapCandidates[key].push(weak.card);
+            }
+            fixupSwaps++;
+          }
+        }
+      }
+    }
+
+    // 5b: Dead CMC Slots (zero cards at CMC 1 or 2)
+    if (!customization.tinyLeaders && !customization.advancedTargets?.curvePercentages) {
+      for (const targetCmc of [1, 2]) {
+        if (fixupSwaps >= MAX_FIXUP_SWAPS) break;
+        const cardsAtCmc = Object.values(categories).flat().filter(c => (c.cmc ?? 0) === targetCmc).length;
+        if (cardsAtCmc === 0) {
+          const cmcCounts: Record<number, number> = {};
+          for (const cards of Object.values(categories)) {
+            for (const card of cards) {
+              cmcCounts[card.cmc ?? 0] = (cmcCounts[card.cmc ?? 0] || 0) + 1;
+            }
+          }
+          const overfullEntry = Object.entries(cmcCounts)
+            .filter(([cmc]) => Number(cmc) !== targetCmc)
+            .sort(([, a], [, b]) => b - a)[0];
+          if (overfullEntry) {
+            const weak = findWeakestCard((card) => (card.cmc ?? 0) === Number(overfullEntry[0]));
+            if (weak) {
+              const candidates = edhrecData!.cardlists.allNonLand
+                .filter(c => !usedNames.has(c.name) && scryfallCardMap.has(c.name) && (scryfallCardMap.get(c.name)!.cmc ?? 0) === targetCmc)
+                .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a));
+              if (candidates.length > 0) {
+                const replacement = scryfallCardMap.get(candidates[0].name)!;
+                fixupRemoveCard(weak.card, weak.category);
+                fixupAddCard(replacement);
+                if (swapCandidates) {
+                  const key = `type:${(weak.card.type_line || 'unknown').split(' ')[0].toLowerCase()}`;
+                  if (!swapCandidates[key]) swapCandidates[key] = [];
+                  swapCandidates[key].push(weak.card);
+                }
+                fixupSwaps++;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (fixupSwaps > 0) {
+      console.log(`[DeckGen] Fixup pass: ${fixupSwaps} swap(s) applied`);
+    }
   }
 
   // Build deck score from EDHREC inclusion percentages
