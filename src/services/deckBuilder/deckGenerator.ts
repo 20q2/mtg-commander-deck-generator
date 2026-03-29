@@ -1633,7 +1633,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Balanced roles tracking — declared at outer scope so return statement can access them
   let roleTargets: Record<RoleKey, number> | null = null;
   let detectedArchetype: import('@/types').Archetype | undefined;
-  let detectedPacing: string | undefined;
+  let detectedPacing: import('@/types').Pacing | undefined;
   const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
   const currentSubtypeCounts: Record<string, number> = {};
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;

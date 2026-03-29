@@ -199,6 +199,8 @@ const defaultCustomization: Customization = {
   appliedExcludeLists: loadAppliedExcludeLists(),
   appliedIncludeLists: loadAppliedIncludeLists(),
   advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null },
+  tempoAutoDetect: true,
+  tempoPacing: 'balanced' as const,
 };
 
 export const useStore = create<AppState>((set, get) => ({

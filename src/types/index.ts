@@ -293,7 +293,7 @@ export interface GeneratedDeck {
   cardInclusionMap?: Record<string, number>; // cardName → EDHREC inclusion %
   cardRelevancyMap?: Record<string, number>; // cardName → composite relevancy score (raw, 0-200+)
   detectedArchetype?: Archetype; // Archetype inferred from themes for dynamic role targeting
-  detectedPacing?: string; // Pacing estimated from EDHREC stats at generation time
+  detectedPacing?: Pacing; // Pacing estimated from EDHREC stats at generation time
   bracketEstimation?: import('@/services/deckBuilder/bracketEstimator').BracketEstimation;
   gameChangerNames?: string[]; // Cached for bracket re-estimation on swap (avoids async)
 }
@@ -380,6 +380,8 @@ export interface AppliedList {
   enabled: boolean;
 }
 
+export type Pacing = 'aggressive-early' | 'fast-tempo' | 'balanced' | 'midrange' | 'late-game';
+
 // Advanced deck framework targets — null fields mean "use EDHREC/fallback defaults"
 export interface AdvancedTargets {
   curvePercentages: Record<number, number> | null;   // CMC bucket → percentage of non-land cards
@@ -417,6 +419,8 @@ export interface Customization {
   appliedExcludeLists: AppliedList[]; // User lists toggled on as exclude lists
   appliedIncludeLists: AppliedList[]; // User lists toggled on as must-include lists
   advancedTargets: AdvancedTargets; // Advanced framework overrides (null = use defaults)
+  tempoAutoDetect: boolean;
+  tempoPacing: Pacing;
 }
 
 // Store state

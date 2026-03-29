@@ -5,7 +5,8 @@ import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
-export type Pacing = 'aggressive-early' | 'fast-tempo' | 'midrange' | 'late-game' | 'balanced';
+import type { Pacing } from '@/types';
+export type { Pacing };
 
 export interface ThemeMatchResult {
   theme: EDHRECTheme;
