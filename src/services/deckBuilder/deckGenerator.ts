@@ -29,7 +29,8 @@ import {
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
-import { getDynamicRoleTargets } from './roleTargets';
+import { getDynamicRoleTargets, estimatePacingFromStats } from './roleTargets';
+import type { Pacing } from '@/types';
 import { loadUserLists } from '@/hooks/useUserLists';
 
 interface GenerationContext {
@@ -101,7 +102,8 @@ function applyAdvancedOverrides(
 function calculateTargetCounts(
   customization: Customization,
   edhrecStats?: EDHRECCommanderStats,
-  hasPartner?: boolean
+  hasPartner?: boolean,
+  pacing?: Pacing
 ): TargetCountsResult {
   const format = customization.deckFormat;
 
@@ -116,7 +118,11 @@ function calculateTargetCounts(
   // If we have EDHREC stats, use percentage-based targets
   if (edhrecStats && edhrecStats.numDecks > 0) {
     const typeTargets = calculateTypeTargets(edhrecStats, nonLandCards);
-    const curveTargets = calculateCurveTargets(edhrecStats.manaCurve, nonLandCards, undefined);
+    const curveTargets = calculateCurveTargets(
+      edhrecStats.manaCurve,
+      nonLandCards,
+      customization.advancedTargets?.curvePercentages ? undefined : pacing
+    );
 
     // Composition is now just for tracking - actual selection uses typeTargets
     const composition: DeckComposition = {
@@ -1633,7 +1639,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Balanced roles tracking — declared at outer scope so return statement can access them
   let roleTargets: Record<RoleKey, number> | null = null;
   let detectedArchetype: import('@/types').Archetype | undefined;
-  let detectedPacing: import('@/types').Pacing | undefined;
+  // resolvedPacing is set after edhrecData is available; detectedPacing mirrors it for the return value
+  let resolvedPacing: Pacing = 'balanced';
+  let detectedPacing: Pacing = 'balanced';
   const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
   const currentSubtypeCounts: Record<string, number> = {};
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;
@@ -1983,11 +1991,20 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log('[DeckGen] Generation cache populated for fast regeneration');
   }
 
+  // Resolve pacing: user override > auto-detect from EDHREC stats > fallback
+  if (!customization.tempoAutoDetect) {
+    resolvedPacing = customization.tempoPacing;
+  } else if (edhrecData?.stats?.manaCurve) {
+    resolvedPacing = estimatePacingFromStats(edhrecData.stats.manaCurve);
+  }
+  detectedPacing = resolvedPacing;
+
   // Calculate target counts with type and curve targets
   const { composition: targets, typeTargets, curveTargets } = calculateTargetCounts(
     customization,
     edhrecData?.stats,
-    !!partnerCommander
+    !!partnerCommander,
+    resolvedPacing
   );
 
   // Compress curve targets for Tiny Leaders (CMC cap at 3)
@@ -2277,7 +2294,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       const dynamic = getDynamicRoleTargets(format, context.selectedThemes, edhrecData?.stats);
       roleTargets = dynamic.targets;
       detectedArchetype = dynamic.archetype;
-      detectedPacing = dynamic.pacing;
+      // When auto-detect is on, prefer the richer archetype-aware pacing from getDynamicRoleTargets
+      if (customization.tempoAutoDetect) {
+        resolvedPacing = dynamic.pacing;
+        detectedPacing = dynamic.pacing;
+      }
     }
     const cardRoleMap = new Map<string, RoleKey>();
     const cardCmcMap = new Map<string, number>();
