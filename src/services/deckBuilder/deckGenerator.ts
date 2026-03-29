@@ -116,7 +116,7 @@ function calculateTargetCounts(
   // If we have EDHREC stats, use percentage-based targets
   if (edhrecStats && edhrecStats.numDecks > 0) {
     const typeTargets = calculateTypeTargets(edhrecStats, nonLandCards);
-    const curveTargets = calculateCurveTargets(edhrecStats.manaCurve, nonLandCards);
+    const curveTargets = calculateCurveTargets(edhrecStats.manaCurve, nonLandCards, undefined);
 
     // Composition is now just for tracking - actual selection uses typeTargets
     const composition: DeckComposition = {

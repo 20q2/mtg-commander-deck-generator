@@ -1,4 +1,6 @@
 import type { EDHRECCommanderStats } from '@/types';
+import type { Pacing } from '@/types';
+import { PACING_CURVE_MULTIPLIERS } from './roleTargets';
 
 /**
  * Calculate type distribution as percentages of non-land cards
@@ -60,14 +62,14 @@ export function calculateCurvePercentages(manaCurve: Record<number, number>): Re
  */
 export function calculateCurveTargets(
   manaCurve: Record<number, number>,
-  totalNonLandCards: number
+  totalNonLandCards: number,
+  pacing?: Pacing
 ): Record<number, number> {
   const percentages = calculateCurvePercentages(manaCurve);
   const targets: Record<number, number> = {};
 
   if (Object.keys(percentages).length === 0) {
-    // Fallback: balanced curve if no data
-    return {
+    const fallback: Record<number, number> = {
       0: Math.round(totalNonLandCards * 0.02),
       1: Math.round(totalNonLandCards * 0.12),
       2: Math.round(totalNonLandCards * 0.20),
@@ -77,6 +79,21 @@ export function calculateCurveTargets(
       6: Math.round(totalNonLandCards * 0.06),
       7: Math.round(totalNonLandCards * 0.05),
     };
+    if (pacing && pacing !== 'balanced') {
+      const mult = PACING_CURVE_MULTIPLIERS[pacing];
+      for (const cmc of Object.keys(fallback).map(Number)) {
+        const phase = cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
+        fallback[cmc] = Math.round(fallback[cmc] * mult[phase]);
+      }
+      let newTotal = Object.values(fallback).reduce((a, b) => a + b, 0);
+      const normDiff = totalNonLandCards - newTotal;
+      if (normDiff !== 0) {
+        const largest = Object.keys(fallback).map(Number).reduce((max, cmc) =>
+          (fallback[cmc] || 0) > (fallback[max] || 0) ? cmc : max, 3);
+        fallback[largest] = (fallback[largest] || 0) + normDiff;
+      }
+    }
+    return fallback;
   }
 
   let allocated = 0;
@@ -95,6 +112,23 @@ export function calculateCurveTargets(
     const largestCmc = cmcKeys.reduce((max, cmc) =>
       (targets[cmc] || 0) > (targets[max] || 0) ? cmc : max, cmcKeys[0]);
     targets[largestCmc] = (targets[largestCmc] || 0) + diff;
+  }
+
+  // Apply pacing multipliers to shift curve shape (skip if balanced or not specified)
+  if (pacing && pacing !== 'balanced') {
+    const mult = PACING_CURVE_MULTIPLIERS[pacing];
+    for (const cmc of cmcKeys) {
+      const phase = cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
+      targets[cmc] = Math.round(targets[cmc] * mult[phase]);
+    }
+    // Re-normalize to maintain exact total
+    let newTotal = Object.values(targets).reduce((a, b) => a + b, 0);
+    const normDiff = totalNonLandCards - newTotal;
+    if (normDiff !== 0) {
+      const largest = cmcKeys.reduce((max, cmc) =>
+        (targets[cmc] || 0) > (targets[max] || 0) ? cmc : max, cmcKeys[0]);
+      targets[largest] = (targets[largest] || 0) + normDiff;
+    }
   }
 
   return targets;
