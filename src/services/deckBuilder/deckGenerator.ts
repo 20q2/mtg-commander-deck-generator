@@ -26,7 +26,7 @@ import {
   calculateCurveTargets,
   hasCurveRoom,
 } from './curveUtils';
-import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
+import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats } from './roleTargets';
@@ -977,6 +977,14 @@ const BASIC_LAND_NAMES = new Set([
 // ============================================================
 const DEFAULT_MULTI_COPY_COUNT = 15; // Fallback when EDHREC average deck is unavailable
 
+const TAPLAND_PENALTIES: Record<Pacing, number> = {
+  'aggressive-early': -30,
+  'fast-tempo': -20,
+  'balanced': -10,
+  'midrange': -5,
+  'late-game': 0,
+};
+
 interface MultiCopyResult {
   card: ScryfallCard;
   copies: ScryfallCard[];
@@ -1137,7 +1145,8 @@ async function generateLands(
   preferredSet?: string,
   collectionStrategy: CollectionStrategy = 'full',
   collectionOwnedPercent: number = 100,
-  ignoreOwnedBudget: boolean = false
+  ignoreOwnedBudget: boolean = false,
+  pacing: Pacing = 'balanced'
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1173,7 +1182,21 @@ async function generateLands(
       }
     }
     await upgradeCardPrintings(landCardMap, scryfallQuery, true);
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget);
+
+    // Build tapland penalty map for pacing-aware land selection
+    const landPenalties = new Map<string, number>();
+    const basePenalty = TAPLAND_PENALTIES[pacing];
+    if (basePenalty !== 0) {
+      for (const [name, card] of landCardMap) {
+        if (isTapland(name)) {
+          // MDFC taplands get half penalty — the spell side compensates
+          const penalty = isMdfcLand(card) ? Math.round(basePenalty / 2) : basePenalty;
+          landPenalties.set(name, penalty);
+        }
+      }
+    }
+
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, landPenalties.size > 0 ? landPenalties : undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -2647,7 +2670,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         preferredSet,
         collectionStrategy,
         collectionOwnedPercent,
-        ignoreOwnedBudget
+        ignoreOwnedBudget,
+        resolvedPacing
       ),
     ];
 
@@ -2912,7 +2936,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         preferredSet,
         collectionStrategy,
         collectionOwnedPercent,
-        ignoreOwnedBudget
+        ignoreOwnedBudget,
+        resolvedPacing
       ),
     ];
   }
