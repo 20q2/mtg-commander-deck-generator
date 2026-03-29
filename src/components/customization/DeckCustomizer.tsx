@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { useStore } from '@/store';
-import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, MaxRarity } from '@/types';
+import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, MaxRarity, Pacing } from '@/types';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
@@ -13,6 +13,14 @@ import { isEuropean } from '@/lib/region';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 
 const IS_EU = isEuropean() || location.hostname === 'localhost';
+
+const PACING_LABELS: { value: Pacing; label: string }[] = [
+  { value: 'aggressive-early', label: 'Aggressive' },
+  { value: 'fast-tempo', label: 'Fast' },
+  { value: 'balanced', label: 'Balanced' },
+  { value: 'midrange', label: 'Midrange' },
+  { value: 'late-game', label: 'Late Game' },
+];
 
 
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void } = {}) {
@@ -368,6 +376,42 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
           <span>{Math.floor(customization.landCount / 2)} (Balanced)</span>
           <span>{customization.landCount} (Varied)</span>
         </div>
+      </div>
+
+      {/* Tempo / Pacing */}
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <label className="text-sm font-medium flex items-center gap-1.5">
+            Tempo
+            <InfoTooltip text="Controls the speed of the deck — aggressive decks want cheap cards and untapped lands, late-game decks prioritize haymakers." />
+          </label>
+          <button
+            onClick={() => updateCustomization({ tempoAutoDetect: !customization.tempoAutoDetect })}
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+              customization.tempoAutoDetect
+                ? 'bg-primary/15 border-primary/30 text-primary'
+                : 'bg-muted border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Auto-detect
+          </button>
+        </div>
+        {!customization.tempoAutoDetect && (
+          <>
+            <Slider
+              value={PACING_LABELS.findIndex(p => p.value === customization.tempoPacing)}
+              min={0}
+              max={PACING_LABELS.length - 1}
+              step={1}
+              onChange={(value) => updateCustomization({ tempoPacing: PACING_LABELS[value].value })}
+            />
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>Aggressive</span>
+              <span>Balanced</span>
+              <span>Late Game</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Budget Options Accordion */}
