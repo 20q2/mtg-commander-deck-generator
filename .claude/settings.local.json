@@ -82,7 +82,11 @@
       "WebFetch(domain:moxfield.com)",
       "WebFetch(domain:brackcheck.com)",
       "WebFetch(domain:commanderpowermeter.com)",
-      "Bash(timeout 10 npx vite:*)"
+      "Bash(timeout 10 npx vite:*)",
+      "Read(//c/Users/andje/.claude/plugins/cache/superpowers-marketplace/superpowers/5.0.6/skills/subagent-driven-development/**)"
+    ],
+    "additionalDirectories": [
+      "a:\\Coding\\MtgMakeDeckForMe\\docs\\superpowers"
     ]
   }
 }

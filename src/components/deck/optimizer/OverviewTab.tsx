@@ -486,6 +486,7 @@ function SummarySection({ type, items, onNavigate, onNavigateRole }: {
 export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExcess,
   detection, themeLoading, allThemes, primaryThemeSlug, secondaryThemeSlug, onThemeSelect,
   detectedPacing, userPacing, onPacingChange,
+  userLandTarget, onLandTargetChange, deckSize,
 }: {
   analysis: DeckAnalysis;
   onNavigate: (tab: TabKey) => void;
@@ -501,6 +502,9 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
   detectedPacing?: Pacing;
   userPacing?: Pacing | null;
   onPacingChange?: (pacing: Pacing | null) => void;
+  userLandTarget?: number | null;
+  onLandTargetChange?: (target: number | null) => void;
+  deckSize?: number;
 }) {
   const grades: { key: TabKey; label: string; icon: typeof Shield; grade: GradeResult }[] = [
     { key: 'roles', label: 'Roles', icon: Shield, grade: analysis.rolesGrade },
@@ -611,6 +615,56 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
                     })}
                   </div>
                 </div>
+
+                {/* Land Target override */}
+                {onLandTargetChange && (
+                <div className="p-3 pt-2 border-t border-border/20">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mountain className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Target</span>
+                    {userLandTarget != null && (
+                      <button
+                        onClick={() => onLandTargetChange(null)}
+                        className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
+                        title="Reset to auto-detected land target"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+                        const min = Math.floor((deckSize ?? 99) * 0.25);
+                        if (current > min) onLandTargetChange(current - 1);
+                      }}
+                      className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-sm font-bold tabular-nums ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
+                        {userLandTarget ?? analysis.manaBase.adjustedSuggestion}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/50">lands</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+                        const max = Math.floor((deckSize ?? 99) * 0.50);
+                        if (current < max) onLandTargetChange(current + 1);
+                      }}
+                      className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                    {userLandTarget == null && (
+                      <span className="text-[10px] text-muted-foreground/40 ml-1">Auto-detected</span>
+                    )}
+                  </div>
+                </div>
+                )}
 
                 {/* Tempo selector */}
                 <div className="p-3 pt-2 border-t border-border/20">

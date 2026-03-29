@@ -446,6 +446,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     });
   }, []);
 
+  // Total deck price
+  const totalDeckPrice = useMemo(() => {
+    if (!generatedDeck) return null;
+    const allCards = Object.values(generatedDeck.categories).flat();
+    const commanders = [generatedDeck.commander, generatedDeck.partnerCommander].filter(Boolean) as ScryfallCard[];
+    return [...commanders, ...allCards].reduce((sum, c) => {
+      const price = parseFloat(getCardPrice(c, customization.currency) || '0');
+      return sum + (isNaN(price) ? 0 : price);
+    }, 0);
+  }, [generatedDeck, customization.currency]);
+  const priceSym = customization.currency === 'EUR' ? '€' : '$';
+
   // Action toast with undo (for add/remove cards)
   const [actionToast, setActionToast] = useState<{ message: string; onUndo: () => void } | null>(null);
   const actionToastTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -1074,6 +1086,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             </h2>
           )}
           <div className="flex items-center gap-2 shrink-0">
+            {totalDeckPrice !== null && totalDeckPrice > 0 && (
+              <span className="text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
+            )}
             {list.commanderName && (
               <TooltipProvider delayDuration={300}>
                 <Tooltip>

@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { DeckDisplay } from '@/components/deck/DeckDisplay';
+import { DeckOptimizer } from '@/components/deck/optimizer';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { TestHand } from '@/components/deck/TestHand';
@@ -42,6 +43,7 @@ export function BuilderPage() {
   const saveInputRef = useRef<HTMLInputElement>(null);
   const { createList } = useUserLists();
   const exportTriggerRef = useRef<(() => void) | null>(null);
+  const eaEnabled = localStorage.getItem('ea-features-enabled') === 'true';
 
   const {
     commander,
@@ -918,7 +920,17 @@ export function BuilderPage() {
             hideRegenerate
             regenerateProgress={isLoading ? progressPercent : undefined}
             regenerateMessage={isLoading ? progress : undefined}
-            renderHeaderActions={({ onExport }) => { exportTriggerRef.current = onExport; return null; }}
+            renderHeaderActions={({ onExport }) => {
+              exportTriggerRef.current = onExport;
+              return (
+                <div className="flex items-center gap-2 xl:hidden">
+                  <Button onClick={onExport} className="btn-shimmer">
+                    <Copy className="w-4 h-4 mr-2" />
+                    Export
+                  </Button>
+                </div>
+              );
+            }}
             sidebarHeader={
               <div className="flex items-center justify-end gap-2">
                 <Popover open={showSaveInput && !savedToList} onOpenChange={(open) => { if (!open) { setShowSaveInput(false); setSaveListName(''); } }}>
@@ -1006,6 +1018,20 @@ export function BuilderPage() {
             )}
             <TestHand />
           </DeckDisplay>
+          {eaEnabled && commander && generatedDeck && (
+            <DeckOptimizer
+              commanderName={commander.name}
+              partnerCommanderName={partnerCommander?.name}
+              currentCards={Object.values(generatedDeck.categories).flat()}
+              deckSize={customization.deckFormat - (partnerCommander ? 1 : 0)}
+              roleCounts={generatedDeck.roleCounts || {}}
+              roleTargets={generatedDeck.roleTargets || {}}
+              categories={generatedDeck.categories}
+              cardInclusionMap={generatedDeck.cardInclusionMap}
+              onAddCards={(names, _dest) => handleAddCards(names)}
+              onRemoveCards={handleRemoveCards}
+            />
+          )}
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
           )}

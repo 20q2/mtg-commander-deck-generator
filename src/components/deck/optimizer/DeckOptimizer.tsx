@@ -50,7 +50,7 @@ export function DeckOptimizer({
   const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
-  const prevCardCountRef = useRef(currentCards.length);
+  const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
@@ -70,6 +70,9 @@ export function DeckOptimizer({
   // User-overridable tempo (null = use auto-detected)
   const [userPacing, setUserPacing] = useState<Pacing | null>(null);
   const detectedPacingRef = useRef<Pacing | null>(null);
+
+  // User-overridable land target (null = use auto-computed)
+  const [userLandTarget, setUserLandTarget] = useState<number | null>(null);
 
   // The effective pacing: user override > auto-detected
   const effectivePacing: Pacing | undefined = userPacing ?? analysis?.pacing ?? undefined;
@@ -228,6 +231,41 @@ export function DeckOptimizer({
       .slice(0, limit);
   }, []);
 
+  // When user changes land target, re-run analysis with the new override
+  const handleLandTargetChange = useCallback((newTarget: number | null) => {
+    setUserLandTarget(newTarget);
+
+    const cachedBase = cachedEdhrecDataRef.current;
+    if (!cachedBase || !analysis) return;
+
+    const storeColorIdentity = useStore.getState().colorIdentity;
+    const baseInclusionMap = buildInclusionMap(cachedBase);
+
+    const baseResult = analyzeDeck(
+      cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize,
+      baseInclusionMap, storeColorIdentity, userPacing ?? undefined, newTarget ?? undefined,
+    );
+
+    const themeData = themeEnhancedDataRef.current;
+    if (themeData) {
+      const themeInclusionMap = buildInclusionMap(themeData);
+      const themeResult = analyzeDeck(
+        themeData, currentCards, roleCounts, effectiveRoleTargets, deckSize,
+        themeInclusionMap, storeColorIdentity, userPacing ?? undefined, newTarget ?? undefined,
+      );
+      const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
+      const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
+        const themeRb = themeResult.roleBreakdowns[idx];
+        if (!themeRb) return baseRb;
+        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
+      });
+      const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
+      setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
+    } else {
+      setAnalysis(baseResult);
+    }
+  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, userPacing]);
+
   // When user changes pacing, re-run full analysis with adjusted role targets
   const handlePacingChange = useCallback((newPacing: Pacing | null) => {
     setUserPacing(newPacing);
@@ -249,7 +287,7 @@ export function DeckOptimizer({
 
     const baseResult = analyzeDeck(
       cachedBase, currentCards, roleCounts, newTargets, deckSize,
-      baseInclusionMap, storeColorIdentity, newPacing ?? undefined,
+      baseInclusionMap, storeColorIdentity, newPacing ?? undefined, userLandTarget ?? undefined,
     );
 
     // If theme-enhanced data exists, merge its recommendations
@@ -258,7 +296,7 @@ export function DeckOptimizer({
       const themeInclusionMap = buildInclusionMap(themeData);
       const themeResult = analyzeDeck(
         themeData, currentCards, roleCounts, newTargets, deckSize,
-        themeInclusionMap, storeColorIdentity, newPacing ?? undefined,
+        themeInclusionMap, storeColorIdentity, newPacing ?? undefined, userLandTarget ?? undefined,
       );
       const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
       const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
@@ -303,6 +341,8 @@ export function DeckOptimizer({
         deckSize,
         effectiveInclusionMap,
         storeColorIdentity,
+        undefined,
+        userLandTarget ?? undefined,
       );
 
       // Enrich recommendations with Scryfall prices/colors
@@ -401,6 +441,8 @@ export function DeckOptimizer({
             deckSize,
             themeInclusionMap,
             storeColorIdentity,
+            undefined,
+            userLandTarget ?? undefined,
           );
 
           // Theme drives; base staples (50%+ inclusion) backfill
@@ -449,8 +491,9 @@ export function DeckOptimizer({
   // Re-run analysis when cards change (add/remove) if we have cached EDHREC data
   useEffect(() => {
     if (!cachedEdhrecDataRef.current || !analysis) return;
-    if (currentCards.length === prevCardCountRef.current) return;
-    prevCardCountRef.current = currentCards.length;
+    const cardKey = currentCards.map(c => c.name).join('\0');
+    if (cardKey === prevCardKeyRef.current) return;
+    prevCardKeyRef.current = cardKey;
 
     const baseData = cachedEdhrecDataRef.current;
     const storeColorIdentity = useStore.getState().colorIdentity;
@@ -465,6 +508,7 @@ export function DeckOptimizer({
       baseInclusionMap,
       storeColorIdentity,
       userPacing ?? undefined,
+      userLandTarget ?? undefined,
     );
 
     // If theme-enhanced data exists, merge its recommendations
@@ -480,6 +524,7 @@ export function DeckOptimizer({
         themeInclusionMap,
         storeColorIdentity,
         userPacing ?? undefined,
+        userLandTarget ?? undefined,
       );
 
       const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
@@ -533,7 +578,7 @@ export function DeckOptimizer({
     if (!primary && !secondary) {
       themeEnhancedDataRef.current = null;
       const baseInclusionMap = buildInclusionMap(cachedBase);
-      const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined);
+      const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
 
       setAnalysis(prev => prev ? {
         ...prev,
@@ -552,14 +597,14 @@ export function DeckOptimizer({
 
     // Base analysis (for staple backfill — only high-inclusion cards leak through)
     const baseInclusionMap = buildInclusionMap(cachedBase);
-    const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined);
+    const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
 
     // Primary theme → main data source, backfilled with base staples
     try {
       const primaryData = await fetchThemeData(primary!);
       themeEnhancedDataRef.current = primaryData;
       const primaryIncMap = buildInclusionMap(primaryData);
-      const primaryResult = analyzeDeck(primaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, primaryIncMap, storeColorIdentity, userPacing ?? undefined);
+      const primaryResult = analyzeDeck(primaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, primaryIncMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
 
       // Theme drives recommendations; base staples (50%+ inclusion) backfill gaps
       let finalRecs = mergeThemeWithBaseStaples(primaryResult.recommendations, baseResult.recommendations);
@@ -575,7 +620,7 @@ export function DeckOptimizer({
         try {
           const secondaryData = await fetchThemeData(secondary);
           const secondaryIncMap = buildInclusionMap(secondaryData);
-          const secondaryResult = analyzeDeck(secondaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, secondaryIncMap, storeColorIdentity, userPacing ?? undefined);
+          const secondaryResult = analyzeDeck(secondaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, secondaryIncMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
 
           finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
           finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
@@ -987,6 +1032,9 @@ export function DeckOptimizer({
               detectedPacing={detectedPacingRef.current ?? analysis.pacing}
               userPacing={userPacing}
               onPacingChange={handlePacingChange}
+              userLandTarget={userLandTarget}
+              onLandTargetChange={handleLandTargetChange}
+              deckSize={deckSize}
             />
 
             {/* Optimize CTA */}

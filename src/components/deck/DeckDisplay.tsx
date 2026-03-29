@@ -2003,6 +2003,8 @@ interface DeckDisplayProps {
   onEditModeChange?: (editing: boolean) => void;
   /** Content rendered above the Statistics sidebar on desktop (e.g. Export/Save buttons) */
   sidebarHeader?: React.ReactNode;
+  /** Extra buttons rendered on the left side of the sidebar header row (next to Edit) */
+  sidebarLeftActions?: React.ReactNode;
   /** Sideboard/maybeboard card names for text editor tabs */
   sideboardNames?: string[];
   maybeboardNames?: string[];
@@ -2011,7 +2013,7 @@ interface DeckDisplayProps {
   children?: React.ReactNode;
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -3640,22 +3642,27 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
           {/* Stats Sidebar - Desktop only */}
           <div className="hidden xl:block w-64 shrink-0">
-            <div className="mb-4 flex items-center justify-end gap-2 flex-wrap">
-              {!readOnly && !isEditMode && (
-                <button
-                  onClick={() => setIsEditMode(true)}
-                  className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  title="Modify Deck"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-              )}
-              {!readOnly && isEditMode && (
-                <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-                  Exit Modify
-                </button>
-              )}
-              {sidebarHeader || deckSummary}
+            <div className="mb-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {!readOnly && !isEditMode && (
+                    <button
+                      onClick={() => setIsEditMode(true)}
+                      className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      title="Modify Deck"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
+                  {!readOnly && isEditMode && (
+                    <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+                      Exit Modify
+                    </button>
+                  )}
+                  {sidebarLeftActions}
+                </div>
+                {sidebarHeader || deckSummary}
+              </div>
             </div>
             <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} />
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
