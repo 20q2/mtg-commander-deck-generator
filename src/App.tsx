@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Settings } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
 import { BuilderPage } from '@/pages/BuilderPage';
 import { OptimizePage } from '@/pages/OptimizePage';
@@ -290,7 +292,26 @@ function Layout({ children }: { children: React.ReactNode }) {
                     </span>
                   )}
                 </button>
-                <span className="text-xs text-muted-foreground/50">v{__APP_VERSION__}</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer">
+                      v{__APP_VERSION__}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="bottom" align="end" className="w-72 max-h-80 overflow-y-auto p-3 text-xs">
+                    <p className="font-semibold text-sm text-foreground mb-2">Patch Notes</p>
+                    {patchNotes.map((entry, i) => (
+                      <div key={entry.version} className={i > 0 ? 'mt-3 pt-3 border-t border-border/50' : ''}>
+                        <p className="font-medium text-foreground/80 mb-1">v{entry.version}</p>
+                        <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                          {entry.notes.map((note, j) => (
+                            <li key={j}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
           </div>

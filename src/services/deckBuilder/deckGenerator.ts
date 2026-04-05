@@ -3511,7 +3511,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Helper: find best EDHREC candidate for a role that's already fetched
     function findRoleCandidate(role: RoleKey): ScryfallCard | null {
       const candidates = edhrecData!.cardlists.allNonLand
-        .filter(c => !usedNames.has(c.name) && getCardRole(c.name) === role && scryfallCardMap.has(c.name))
+        .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name) && getCardRole(c.name) === role && scryfallCardMap.has(c.name))
         .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a));
       return candidates.length > 0 ? scryfallCardMap.get(candidates[0].name)! : null;
     }
@@ -3562,7 +3562,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             const weak = findWeakestCard((card) => (card.cmc ?? 0) === Number(overfullEntry[0]));
             if (weak) {
               const candidates = edhrecData!.cardlists.allNonLand
-                .filter(c => !usedNames.has(c.name) && scryfallCardMap.has(c.name) && (scryfallCardMap.get(c.name)!.cmc ?? 0) === targetCmc)
+                .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name) && scryfallCardMap.has(c.name) && (scryfallCardMap.get(c.name)!.cmc ?? 0) === targetCmc)
                 .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a));
               if (candidates.length > 0) {
                 const replacement = scryfallCardMap.get(candidates[0].name)!;

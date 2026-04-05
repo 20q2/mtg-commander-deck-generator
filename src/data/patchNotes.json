@@ -1,0 +1,35 @@
+[
+  {
+    "version": "1.2.15",
+    "notes": [
+      "Clickable version label with patch notes (thats this!)",
+      "Fixed ban lists not applying during deck generation"
+    ]
+  },
+  {
+    "version": "1.2.14",
+    "notes": [
+      "Tempo slider for controlling deck pacing",
+      "Smarter deck generation with better role balancing",
+      "Export button now visible on mobile",
+      "Analyzer available on generated decks"
+    ]
+  },
+  {
+    "version": "1.2.13",
+    "notes": [
+      "Deck analyzer with land and curve grading",
+      "Revamped deck toolbar and editing workflow",
+      "Context menus and combo detail previews",
+      "Text view for deck editing"
+    ]
+  },
+  {
+    "version": "1.2.12",
+    "notes": [
+      "Budget mode that ignores the price of owned cards",
+      "EDHREC inclusion % displayed per card",
+      "Improved card replacement suggestions"
+    ]
+  }
+]
