@@ -911,6 +911,27 @@ export function BuilderPage() {
                   · Built with: <span className="font-medium">{generatedDeck.usedThemes.join(', ')}</span>
                 </span>
               )}
+              {(() => {
+                const sym = customization.currency === 'EUR' ? '€' : '$';
+                const details: string[] = [];
+                if (customization.bracketLevel !== 'all') details.push(`Bracket ${customization.bracketLevel}`);
+                if (customization.budgetOption === 'budget') details.push('Budget');
+                if (customization.budgetOption === 'expensive') details.push('Expensive');
+                if (customization.maxCardPrice !== null) details.push(`<${sym}${customization.maxCardPrice}/card`);
+                if (customization.deckBudget !== null) details.push(`${sym}${customization.deckBudget} deck budget`);
+                if (customization.maxRarity) details.push(`${customization.maxRarity.charAt(0).toUpperCase() + customization.maxRarity.slice(1)} max`);
+                if (customization.tinyLeaders) details.push('Tiny Leaders');
+                if (customization.arenaOnly) details.push('Arena Only');
+                if (customization.collectionMode) details.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
+                if (customization.hyperFocus) details.push('Hyper-focused');
+                if (customization.comboCount === 0) details.push('No combos');
+                if (customization.comboCount === 2) details.push('Extra combos');
+                if (customization.comboCount === 3) details.push('Combo-heavy');
+                if (customization.scryfallQuery) details.push(`Query: ${customization.scryfallQuery}`);
+                return details.length > 0 ? (
+                  <span className="ml-1 text-xs"> · {details.join(' · ')}</span>
+                ) : null;
+              })()}
             </div>
           </div>
           <DeckDisplay

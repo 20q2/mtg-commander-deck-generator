@@ -2054,13 +2054,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [isEditMode, _setIsEditMode] = useState(false);
+  const editModeRef = useRef(false);
   const setIsEditMode = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     _setIsEditMode(prev => {
       const next = typeof v === 'function' ? v(prev) : v;
-      if (next !== prev) onEditModeChange?.(next);
+      editModeRef.current = next;
       return next;
     });
-  }, [onEditModeChange]);
+  }, []);
+  // Notify parent of edit mode changes outside of render
+  useEffect(() => {
+    onEditModeChange?.(isEditMode);
+  }, [isEditMode, onEditModeChange]);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
   const [editDrawerTab, setEditDrawerTab] = useState<'actions' | 'move' | 'add'>('actions');
@@ -2903,32 +2908,47 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       {renderHeaderActions && renderHeaderActions({ onExport: () => setShowExportModal(true) })}
       <div className="flex items-center justify-end gap-2 sm:gap-4 xl:gap-3 flex-wrap">
         <div className="text-sm text-muted-foreground xl:hidden">
-          {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
-          {showPrice && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
-            <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
-          )}
-          {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
-            <span className="text-xs">
-              {' · '}
-              {[
-                boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
-                boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
-              ].filter(Boolean).join(' · ')}
-            </span>
-          )}
-          {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
-            <span className="ml-1 text-xs">
-              ({[
-                customization.budgetOption === 'budget' ? 'Budget' : customization.budgetOption === 'expensive' ? 'Expensive' : null,
-                customization.maxCardPrice !== null ? `<${sym}${customization.maxCardPrice}/card` : null,
-                customization.deckBudget !== null ? `${totalPrice > customization.deckBudget ? '~' : ''}${sym}${customization.deckBudget} budget, excludes commander` : null,
-              ].filter(Boolean).join(' · ')})
-            </span>
-          )}
-          {usedThemes && usedThemes.length > 0 && (
-            <span className="ml-2">
-              · Built with: <span className="font-medium">{usedThemes.join(', ')}</span>
-            </span>
+          {/* When renderHeaderActions is set (BuilderPage), the outer header already shows card count, themes, and settings — only show price here */}
+          {renderHeaderActions ? (
+            <>
+              {showPrice && (
+                <span>{sym}{totalPrice.toFixed(2)}
+                  {nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
+                    <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
+                  )}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
+              {showPrice && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
+                <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
+              )}
+              {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
+                <span className="text-xs">
+                  {' · '}
+                  {[
+                    boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
+                    boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              )}
+              {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
+                <span className="ml-1 text-xs">
+                  ({[
+                    customization.budgetOption === 'budget' ? 'Budget' : customization.budgetOption === 'expensive' ? 'Expensive' : null,
+                    customization.maxCardPrice !== null ? `<${sym}${customization.maxCardPrice}/card` : null,
+                    customization.deckBudget !== null ? `${totalPrice > customization.deckBudget ? '~' : ''}${sym}${customization.deckBudget} budget, excludes commander` : null,
+                  ].filter(Boolean).join(' · ')})
+                </span>
+              )}
+              {usedThemes && usedThemes.length > 0 && (
+                <span className="ml-2">
+                  · Built with: <span className="font-medium">{usedThemes.join(', ')}</span>
+                </span>
+              )}
+            </>
           )}
         </div>
         {(isDirty || removedCards.size > 0 || pendingRegenerate) && onRegenerate && !hideRegenerate && (
@@ -3133,11 +3153,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           >
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Statistics</span>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
-                <span>{(generatedDeck.stats.totalCards + (generatedDeck.commander ? 1 : 0) + (generatedDeck.partnerCommander ? 1 : 0))} cards</span>
-                <span>·</span>
-                <span>{generatedDeck.stats.averageCmc} avg CMC</span>
-              </div>
+              <span className="text-xs text-muted-foreground/70">{generatedDeck.stats.averageCmc} avg CMC</span>
             </div>
             <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${mobileStatsOpen ? 'rotate-180' : ''}`} />
           </button>
@@ -3321,10 +3337,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               title="Modify Deck"
             >
               <Pencil className="w-3.5 h-3.5" />
+              <span>Modify Deck</span>
             </button>
           )}
           {!readOnly && isEditMode && (
-            <button onClick={handleExitEditMode} className="xl:hidden px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+            <button onClick={handleExitEditMode} className="xl:hidden w-full sm:w-auto px-2 py-2 sm:py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
               Exit Modify
             </button>
           )}

@@ -260,6 +260,22 @@ export function OptimizeView({
     setTimeout(() => onApply(rems, adds), 600);
   }, [totalChanges, checkedRemovals, checkedAdditions, onApply, targetDeckSize, currentDeckSize]);
 
+  const priceDelta = useMemo(() => {
+    let removedTotal = 0, addedTotal = 0;
+    let hasAnyPrice = false;
+    for (const c of checkedRemovals) {
+      const p = resolvePrice(c);
+      if (p) { removedTotal += parseFloat(p); hasAnyPrice = true; }
+    }
+    const maxAdds = Math.max(0, effectiveAdditions);
+    for (const c of checkedAdditions.slice(0, maxAdds)) {
+      const p = resolvePrice(c);
+      if (p) { addedTotal += parseFloat(p); hasAnyPrice = true; }
+    }
+    if (!hasAnyPrice) return null;
+    return addedTotal - removedTotal;
+  }, [checkedRemovals, checkedAdditions, effectiveAdditions]);
+
   const noSwaps = removals.length === 0 && additions.length === 0;
 
   return (
@@ -322,7 +338,15 @@ export function OptimizeView({
               </span>
             </>
           )}
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-3">
+            {priceDelta != null && (
+              <>
+                <span className={`tabular-nums text-[11px] ${priceDelta > 0 ? 'text-red-400/70' : priceDelta < 0 ? 'text-emerald-400/70' : 'text-muted-foreground/60'}`}>
+                  {priceDelta > 0 ? '+' : ''}{priceDelta < 0 ? '−' : ''}{priceDelta < 0 ? '' : ''}${Math.abs(priceDelta).toFixed(2)}
+                </span>
+                <div className="w-px h-4 bg-border/40" />
+              </>
+            )}
             {(() => {
               const resultSize = currentDeckSize - checkedRemovals.length + Math.max(0, effectiveAdditions);
               const netChange = resultSize - currentDeckSize;

@@ -103,12 +103,16 @@ async function scryfallFetch<T>(endpoint: string): Promise<T> {
 export async function searchCommanders(query: string): Promise<ScryfallCard[]> {
   if (!query.trim()) return [];
 
-  const encodedQuery = encodeURIComponent(`is:commander f:commander ${query}`);
-  const response = await scryfallFetch<ScryfallSearchResponse>(
-    `/cards/search?q=${encodedQuery}&order=edhrec`
-  );
-
-  return response.data;
+  try {
+    const encodedQuery = encodeURIComponent(`is:commander f:commander ${query}`);
+    const response = await scryfallFetch<ScryfallSearchResponse>(
+      `/cards/search?q=${encodedQuery}&order=edhrec`
+    );
+    return response.data;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('404')) return [];
+    throw err;
+  }
 }
 
 export async function searchCards(

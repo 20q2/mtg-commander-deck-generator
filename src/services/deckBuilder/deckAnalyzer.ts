@@ -1372,8 +1372,10 @@ export function scoreRecommendation(
   }
 
   // ── Component 2: Role Deficit Boost (ports computeRoleBoosts) ──
+  // Skip lands — fetch lands get otag:ramp but shouldn't receive role boosts
+  const isLand = card.primary_type === 'Land';
   let roleBoost = 0;
-  if (cardRole) {
+  if (cardRole && !isLand) {
     const rd = context.roleDeficits.find(r => r.role === cardRole);
     if (rd && rd.deficit > 0 && rd.target > 0) {
       roleBoost = (rd.deficit / rd.target) * 75;
@@ -1704,8 +1706,9 @@ export function analyzeDeck(
       : 50; // neutral default if no rank
     // Composite: 50% commander-specific inclusion, 25% global rank, 25% synergy-boosted inclusion
     const synergyBoost = Math.max(0, synergy) * 50;
-    const role = getCardRole(card.name);
-    // Role deficit boost (same logic as scoreRecommendation)
+    const isLand = (card.type_line || '').toLowerCase().includes('land');
+    const role = isLand ? null : getCardRole(card.name);
+    // Role deficit boost (same logic as scoreRecommendation) — skip lands
     let roleBoost = 0;
     if (role) {
       const rd = roleDeficits.find(r => r.role === role);
