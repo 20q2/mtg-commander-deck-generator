@@ -1077,13 +1077,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               autoFocus
             />
           ) : (
-            <h2
-              className="text-lg font-bold truncate min-w-0 cursor-pointer hover:text-muted-foreground transition-colors"
-              onClick={() => { setNameInput(list.name); setEditingName(true); }}
-              title="Click to rename"
-            >
-              {list.name}
-            </h2>
+            <div className="min-w-0">
+              <h2
+                className="text-lg font-bold truncate min-w-0 cursor-pointer hover:text-muted-foreground transition-colors"
+                onClick={() => { setNameInput(list.name); setEditingName(true); }}
+                title="Click to rename"
+              >
+                {list.name}
+              </h2>
+              {list.generationSummary && (
+                <p className="text-xs text-muted-foreground truncate">{list.generationSummary}</p>
+              )}
+            </div>
           )}
           <div className="flex items-center gap-2 shrink-0">
             {totalDeckPrice !== null && totalDeckPrice > 0 && (

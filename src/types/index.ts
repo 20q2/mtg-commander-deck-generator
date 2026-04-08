@@ -366,6 +366,7 @@ export interface UserCardList {
   partnerCommanderName?: string;
   deckSize?: number; // Total intended deck size including commander(s)
   primer?: string; // Strategy notes / deck primer (deck type only)
+  generationSummary?: string; // "Built with: X · Bracket 3 · Budget" — cleared on first edit
   createdAt: number;
   updatedAt: number;
   // Cached display data (computed on save to avoid Scryfall fetches on browse)

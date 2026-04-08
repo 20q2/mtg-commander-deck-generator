@@ -84,6 +84,7 @@ interface CreateListOptions {
   partnerCommanderName?: string;
   deckSize?: number;
   primer?: string;
+  generationSummary?: string;
 }
 
 // ─── Shared state: all useUserLists() instances stay in sync ─────────
@@ -137,6 +138,7 @@ export function useUserLists() {
       partnerCommanderName: options?.partnerCommanderName,
       deckSize: options?.deckSize,
       primer: options?.primer,
+      generationSummary: options?.generationSummary,
       createdAt: now,
       updatedAt: now,
     };
@@ -150,7 +152,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary'>>) => {
     updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));

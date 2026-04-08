@@ -923,6 +923,10 @@ export function BuilderPage() {
                 if (customization.tinyLeaders) details.push('Tiny Leaders');
                 if (customization.arenaOnly) details.push('Arena Only');
                 if (customization.collectionMode) details.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
+                if (!customization.tempoAutoDetect) {
+                  const pacingLabels: Record<string, string> = { 'aggressive-early': 'Aggressive Early', 'fast-tempo': 'Fast Tempo', 'balanced': 'Balanced', 'midrange': 'Midrange', 'late-game': 'Late Game' };
+                  details.push(pacingLabels[customization.tempoPacing] || customization.tempoPacing);
+                }
                 if (customization.hyperFocus) details.push('Hyper-focused');
                 if (customization.comboCount === 0) details.push('No combos');
                 if (customization.comboCount === 2) details.push('Extra combos');
@@ -989,11 +993,38 @@ export function BuilderPage() {
                         for (const cards of Object.values(generatedDeck.categories)) {
                           for (const card of cards) allCards.push(card.name);
                         }
+                        // Build generation summary (same logic as the header grey text)
+                        const summaryParts: string[] = [];
+                        if (generatedDeck.usedThemes && generatedDeck.usedThemes.length > 0) {
+                          summaryParts.push(`Built with: ${generatedDeck.usedThemes.join(', ')}`);
+                        }
+                        const sym = customization.currency === 'EUR' ? '€' : '$';
+                        if (customization.bracketLevel !== 'all') summaryParts.push(`Bracket ${customization.bracketLevel}`);
+                        if (customization.budgetOption === 'budget') summaryParts.push('Budget');
+                        if (customization.budgetOption === 'expensive') summaryParts.push('Expensive');
+                        if (customization.maxCardPrice !== null) summaryParts.push(`<${sym}${customization.maxCardPrice}/card`);
+                        if (customization.deckBudget !== null) summaryParts.push(`${sym}${customization.deckBudget} deck budget`);
+                        if (customization.maxRarity) summaryParts.push(`${customization.maxRarity.charAt(0).toUpperCase() + customization.maxRarity.slice(1)} max`);
+                        if (customization.tinyLeaders) summaryParts.push('Tiny Leaders');
+                        if (customization.arenaOnly) summaryParts.push('Arena Only');
+                        if (customization.collectionMode) summaryParts.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
+                        if (!customization.tempoAutoDetect) {
+                          const pacingLabels: Record<string, string> = { 'aggressive-early': 'Aggressive Early', 'fast-tempo': 'Fast Tempo', 'balanced': 'Balanced', 'midrange': 'Midrange', 'late-game': 'Late Game' };
+                          summaryParts.push(pacingLabels[customization.tempoPacing] || customization.tempoPacing);
+                        }
+                        if (customization.hyperFocus) summaryParts.push('Hyper-focused');
+                        if (customization.comboCount === 0) summaryParts.push('No combos');
+                        if (customization.comboCount === 2) summaryParts.push('Extra combos');
+                        if (customization.comboCount === 3) summaryParts.push('Combo-heavy');
+                        if (customization.scryfallQuery) summaryParts.push(`Query: ${customization.scryfallQuery}`);
+                        const generationSummary = summaryParts.length > 0 ? summaryParts.join(' · ') : undefined;
+
                         createList(deckName, allCards, '', {
                           type: 'deck',
                           commanderName: commander?.name,
                           partnerCommanderName: partnerCommander?.name,
                           deckSize: allCards.length,
+                          generationSummary,
                         });
                         trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
                         setSavedToList(true);
