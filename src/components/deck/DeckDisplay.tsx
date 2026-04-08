@@ -1648,7 +1648,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
           </div>
 
           {/* Basic Stats */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={`grid gap-3 ${ownedCount !== null ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <div className="bg-accent/30 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
               <div className="text-xs text-muted-foreground">Cards</div>
@@ -1657,6 +1657,12 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               <div className="text-2xl font-bold text-foreground">{stats.averageCmc}</div>
               <div className="text-xs text-muted-foreground">Avg CMC</div>
             </div>
+            {ownedCount !== null && (
+              <div className="bg-accent/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-foreground">{ownedCount}</div>
+                <div className="text-xs text-muted-foreground">Owned</div>
+              </div>
+            )}
           </div>
           {generatedDeck.bracketEstimation && (() => {
             const b = generatedDeck.bracketEstimation;
