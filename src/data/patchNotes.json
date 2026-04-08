@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.2.18",
+    "notes": [
+      "Saved decks now show their generation settings (themes, bracket, budget, tempo, etc.)",
+      "Generation summary clears when you edit the deck",
+      "Renamed 'Save to List' to 'Save Deck'"
+    ]
+  },
+  {
     "version": "1.2.17",
     "notes": [
       "Fixed a bug with the tag file that affected deck generation from 4/6/26 - 4/8/26",
@@ -27,15 +35,6 @@
       "Smarter deck generation with better role balancing",
       "Export button now visible on mobile",
       "Analyzer available on generated decks"
-    ]
-  },
-  {
-    "version": "1.2.13",
-    "notes": [
-      "Deck analyzer with land and curve grading",
-      "Revamped deck toolbar and editing workflow",
-      "Context menus and combo detail previews",
-      "Text view for deck editing"
     ]
   }
 ]
