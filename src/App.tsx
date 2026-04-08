@@ -98,7 +98,7 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
 export function PreferencesDropdown() {
   const [open, setOpen] = useState(false);
   const [showCollectionChecks, setShowCollectionChecks] = useState(
-    () => localStorage.getItem('mtg-deck-builder-show-collection-checks') === 'true'
+    () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
   const btnRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);

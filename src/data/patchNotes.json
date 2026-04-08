@@ -3,8 +3,7 @@
     "version": "1.2.19",
     "notes": [
       "Statistics panel now shows how many cards you own from the current deck",
-      "Collection ownership count only appears when 'In Collection' is enabled",
-      "'In Collection' toggle now defaults to off — enable it when you want to see what you own"
+      "Easily see the number of cards from your collection you own in the shown deck"
     ]
   },
   {
