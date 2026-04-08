@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.2.19",
+    "notes": [
+      "Statistics panel now shows how many cards you own from the current deck",
+      "Collection ownership count only appears when 'In Collection' is enabled",
+      "'In Collection' toggle now defaults to off — enable it when you want to see what you own"
+    ]
+  },
+  {
     "version": "1.2.18",
     "notes": [
       "Saved decks now show their generation settings (themes, bracket, budget, tempo, etc.)",
@@ -18,7 +26,7 @@
     "version": "1.2.16",
     "notes": [
       "Optimizer now shows price difference for each swap",
-      "Deck optimizer values fetchlands less now"      
+      "Deck optimizer values fetchlands less now"
     ]
   },
   {
@@ -26,15 +34,6 @@
     "notes": [
       "Clickable version label with patch notes (thats this!)",
       "Fixed ban lists not applying during deck generation"
-    ]
-  },
-  {
-    "version": "1.2.14",
-    "notes": [
-      "Tempo slider for controlling deck pacing",
-      "Smarter deck generation with better role balancing",
-      "Export button now visible on mobile",
-      "Analyzer available on generated decks"
     ]
   }
 ]
