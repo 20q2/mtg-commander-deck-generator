@@ -2058,7 +2058,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [showInclusion, setShowInclusion] = useState(() => localStorage.getItem('mtg-deck-show-inclusion') === 'true');
   const [showRelevancy, setShowRelevancy] = useState(() => localStorage.getItem('mtg-deck-show-relevancy') === 'true');
   const [showCollectionChecks, setShowCollectionChecks] = useState(
-    () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
+    () => localStorage.getItem('mtg-deck-builder-show-collection-checks') === 'true'
   );
   const [showPinBan, setShowPinBan] = useState(() => localStorage.getItem('mtg-deck-show-pin-ban') !== 'false');
   const [showIcons, setShowIcons] = useState(() => localStorage.getItem('mtg-deck-show-icons') !== 'false');
