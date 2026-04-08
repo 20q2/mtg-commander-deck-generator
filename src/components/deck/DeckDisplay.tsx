@@ -922,7 +922,7 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
             </Button>
             <Button onClick={handleSaveToList} variant="outline" className="flex-col h-auto py-3" disabled={saved}>
               {saved ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Bookmark className="w-5 h-5 mb-1" />}
-              <span className="text-xs">{saved ? 'Saved!' : 'Save to List'}</span>
+              <span className="text-xs">{saved ? 'Saved!' : 'Save Deck'}</span>
             </Button>
           </div>
 
@@ -1583,9 +1583,11 @@ interface DeckStatsProps {
   showRoles: boolean;
   onToggleRoles: () => void;
   hideHeader?: boolean;
+  collectionNames?: Set<string> | null;
+  showCollection?: boolean;
 }
 
-function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection }: DeckStatsProps) {
   const { generatedDeck, colorIdentity } = useStore();
   if (!generatedDeck) return null;
 
@@ -1596,6 +1598,12 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
 
   // Get all cards for mana calculations
   const allCards = Object.values(categories).flat();
+  const ownedCount = (showCollection && collectionNames)
+    ? allCards.filter(c => {
+        const name = c.name.includes(' // ') ? c.name.split(' // ')[0] : c.name;
+        return collectionNames.has(name);
+      }).length
+    : null;
   const nonLandCards = allCards.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land'));
 
   // Calculate mana pips and production
@@ -3734,11 +3742,37 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           if (commander) trackEvent('deck_exported', { commanderName: commander.name, format });
         }}
         onSaveToList={(name, cards) => {
+          // Build generation summary
+          const summaryParts: string[] = [];
+          if (generatedDeck?.usedThemes && generatedDeck.usedThemes.length > 0) {
+            summaryParts.push(`Built with: ${generatedDeck.usedThemes.join(', ')}`);
+          }
+          const sym = customization.currency === 'EUR' ? '€' : '$';
+          if (customization.bracketLevel !== 'all') summaryParts.push(`Bracket ${customization.bracketLevel}`);
+          if (customization.budgetOption === 'budget') summaryParts.push('Budget');
+          if (customization.budgetOption === 'expensive') summaryParts.push('Expensive');
+          if (customization.maxCardPrice !== null) summaryParts.push(`<${sym}${customization.maxCardPrice}/card`);
+          if (customization.deckBudget !== null) summaryParts.push(`${sym}${customization.deckBudget} deck budget`);
+          if (customization.maxRarity) summaryParts.push(`${customization.maxRarity.charAt(0).toUpperCase() + customization.maxRarity.slice(1)} max`);
+          if (customization.tinyLeaders) summaryParts.push('Tiny Leaders');
+          if (customization.arenaOnly) summaryParts.push('Arena Only');
+          if (customization.collectionMode) summaryParts.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
+          if (!customization.tempoAutoDetect) {
+            const pacingLabels: Record<string, string> = { 'aggressive-early': 'Aggressive Early', 'fast-tempo': 'Fast Tempo', 'balanced': 'Balanced', 'midrange': 'Midrange', 'late-game': 'Late Game' };
+            summaryParts.push(pacingLabels[customization.tempoPacing] || customization.tempoPacing);
+          }
+          if (customization.hyperFocus) summaryParts.push('Hyper-focused');
+          if (customization.comboCount === 0) summaryParts.push('No combos');
+          if (customization.comboCount === 2) summaryParts.push('Extra combos');
+          if (customization.comboCount === 3) summaryParts.push('Combo-heavy');
+          if (customization.scryfallQuery) summaryParts.push(`Query: ${customization.scryfallQuery}`);
+
           createList(name, cards, '', {
             type: 'deck',
             commanderName: commander?.name,
             partnerCommanderName: generatedDeck?.partnerCommander?.name,
             deckSize: cards.length,
+            generationSummary: summaryParts.length > 0 ? summaryParts.join(' · ') : undefined,
           });
           trackEvent('list_created', { listName: name, cardCount: cards.length });
           setShowSavedToast(true);
