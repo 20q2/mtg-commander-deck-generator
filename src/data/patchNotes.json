@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.2.16",
+    "notes": [
+      "Optimizer now shows price difference for each swap",
+      "Deck optimizer values fetchlands less now"      
+    ]
+  },
+  {
     "version": "1.2.15",
     "notes": [
       "Clickable version label with patch notes (thats this!)",
@@ -22,14 +29,6 @@
       "Revamped deck toolbar and editing workflow",
       "Context menus and combo detail previews",
       "Text view for deck editing"
-    ]
-  },
-  {
-    "version": "1.2.12",
-    "notes": [
-      "Budget mode that ignores the price of owned cards",
-      "EDHREC inclusion % displayed per card",
-      "Improved card replacement suggestions"
     ]
   }
 ]
