@@ -4,7 +4,7 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, isMdfcLand } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, isMdfcLand, getCachedCard } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
@@ -1955,7 +1955,7 @@ export function RemovedCardsDialog({ removedCards, onClose }: { removedCards: st
           }}
         >
           <img
-            src={`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(hoveredCard)}&format=image&version=normal`}
+            src={(() => { const c = getCachedCard(hoveredCard); return c ? getCardImageUrl(c, 'normal') : `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(hoveredCard)}&format=image&version=normal`; })()}
             alt={hoveredCard}
             className="w-[250px] rounded-xl shadow-2xl border border-border/50"
           />

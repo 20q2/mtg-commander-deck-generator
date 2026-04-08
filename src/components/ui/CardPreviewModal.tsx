@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import { useStore } from '@/store';
@@ -24,6 +24,11 @@ function getCardType(card: ScryfallCard): CardType {
 }
 
 function getScryfallImageUrl(cardName: string): string {
+  const cached = getCachedCard(cardName);
+  if (cached) {
+    const url = getCardImageUrl(cached, 'normal');
+    if (url) return url;
+  }
   return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(cardName)}&format=image&version=normal`;
 }
 

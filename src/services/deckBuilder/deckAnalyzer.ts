@@ -1,6 +1,6 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
 import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
-import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 import { detectPacing, type Pacing } from './themeDetector';
 import { PACING_CURVE_MULTIPLIERS } from './roleTargets';
@@ -212,6 +212,16 @@ const ROLE_LABELS: Record<string, string> = {
   boardwipe: 'Board Wipes',
   cardDraw: 'Card Advantage',
 };
+
+/**
+ * Resolve a card's small image URL from the Scryfall cache first,
+ * falling back to EDHREC's image_uris if not cached.
+ */
+function resolveImageUrl(name: string, edhrecImageUris?: Array<{ normal: string }> | null): string | undefined {
+  const cached = getCachedCard(name);
+  if (cached) return getCardImageUrl(cached, 'small');
+  return edhrecImageUris?.[0]?.normal;
+}
 
 // Binomial coefficient C(n, k)
 function binomial(n: number, k: number): number {
@@ -1064,7 +1074,8 @@ export function computeOptimizeSwaps(
       else if (curveSlot.delta < -1) curveAdjust = Math.abs(curveSlot.delta) * 5; // underfilled → protect
     }
 
-    const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
+    const imageUrl = getCardImageUrl(card, 'small');
+    const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, imageUrl, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
 
     // ── Land-specific cuts ──
     if (isLand) {
@@ -1159,7 +1170,8 @@ export function computeOptimizeSwaps(
       const cmc = card.cmc ?? 0;
       const typeLine = getFrontFaceTypeLine(card).split('—')[0].replace(/Legendary\s+/i, '').trim();
       const primaryType = typeLine || undefined;
-      const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
+      const imageUrl = getCardImageUrl(card, 'small');
+      const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, imageUrl, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
       fallbackCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: inclusion ?? 50 });
     }
     fallbackCandidates.sort((a, b) => a.sortScore - b.sortScore);
@@ -1747,7 +1759,7 @@ export function analyzeDeck(
       allRoleLabels: allRoles.length > 0 ? allRoles.map(r => ROLE_LABELS[r] || r) : undefined,
       fillsDeficit,
       primaryType: card.primary_type,
-      imageUrl: card.image_uris?.[0]?.normal,
+      imageUrl: resolveImageUrl(card.name, card.image_uris),
       price,
       isThemeSynergy: card.isThemeSynergyCard || undefined,
       score: cached?.score ?? 0,
@@ -1829,7 +1841,7 @@ export function analyzeDeck(
       allRoleLabels: allRoles.length > 0 ? allRoles.map(r => ROLE_LABELS[r] || r) : undefined,
       fillsDeficit: role ? deficitRoles.has(role) : false,
       primaryType: card.primary_type,
-      imageUrl: card.image_uris?.[0]?.normal,
+      imageUrl: resolveImageUrl(name, card.image_uris),
       price,
       score: cached?.score ?? 0,
       cmc: card.cmc,
@@ -2070,7 +2082,7 @@ export function analyzeDeck(
         roleLabel: role ? ROLE_LABELS[role] : undefined,
         fillsDeficit: false,
         primaryType: card.primary_type,
-        imageUrl: card.image_uris?.[0]?.normal,
+        imageUrl: resolveImageUrl(card.name, card.image_uris),
         price,
         producedColors: getRecommendationColors(card.name, card.color_identity),
         isThemeSynergy: card.isThemeSynergyCard || undefined,
@@ -2205,7 +2217,7 @@ export function analyzeDeck(
       allRoleLabels: allRoles.length > 0 ? allRoles.map(r => ROLE_LABELS[r] || r) : undefined,
       fillsDeficit: role ? deficitRoles.has(role) : false,
       primaryType: card.primary_type,
-      imageUrl: card.image_uris?.[0]?.normal,
+      imageUrl: resolveImageUrl(name, card.image_uris),
       price,
       producedColors: cardColors,
       isThemeSynergy: card.isThemeSynergyCard || undefined,

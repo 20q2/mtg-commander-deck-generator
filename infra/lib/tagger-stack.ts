@@ -47,7 +47,7 @@ export class TaggerStack extends cdk.Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '..', 'lambda', 'tagger-sync.ts'),
       handler: 'handler',
-      timeout: cdk.Duration.minutes(5), // Scryfall pagination can take a while
+      timeout: cdk.Duration.minutes(15), // 19 tags with heavy pagination + retry backoff (Lambda max)
       memorySize: 256,
       environment: {
         BUCKET_NAME: bucket.bucketName,
@@ -58,7 +58,7 @@ export class TaggerStack extends cdk.Stack {
       },
     });
 
-    bucket.grantWrite(syncFn);
+    bucket.grantReadWrite(syncFn);
 
     // Weekly cron — every Monday at 6am UTC
     new events.Rule(this, 'WeeklyTaggerSync', {

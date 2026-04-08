@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.2.17",
+    "notes": [
+      "Fixed a bug with the tag file that affected deck generation from 4/6/26 - 4/8/26",
+      "Updated other parts of the app to respect scryfall's new cooldown policy"
+    ]
+  },
+  {
     "version": "1.2.16",
     "notes": [
       "Optimizer now shows price difference for each swap",
