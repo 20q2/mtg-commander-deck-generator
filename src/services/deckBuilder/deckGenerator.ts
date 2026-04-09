@@ -1474,6 +1474,11 @@ export function clearGenerationCache(): void {
   console.log('[DeckGen] Generation cache cleared');
 }
 
+/** Expose the cached EDHREC data from the most recent generation (avoids re-fetching). */
+export function getGenerationCacheEdhrecData(): EDHRECCommanderData | null {
+  return generationCache?.edhrecData ?? null;
+}
+
 // Main deck generation function
 export async function generateDeck(context: GenerationContext): Promise<GeneratedDeck> {
   const {
@@ -3446,6 +3451,162 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Detected ${detectedCombos.filter(c => c.isComplete).length} complete combos, ${detectedCombos.filter(c => !c.isComplete).length} near-misses`);
 
     if (detectedCombos.length === 0) detectedCombos = undefined;
+  }
+
+  // ── Combo Integrity Audit ──
+  // After deck assembly: if a combo piece slipped in but its combo is incomplete,
+  // either complete the combo (swap in missing pieces) or evict the low-value orphan.
+  if (detectedCombos && edhrecData && comboCountSetting > 0) {
+    const ORPHAN_INCLUSION_THRESHOLD = 15; // below this %, the card is considered combo-dependent
+    const MAX_AUDIT_SWAPS = 4;
+    let auditSwaps = 0;
+
+    // Build inclusion index from EDHREC pool
+    const auditInclusion = new Map<string, number>();
+    for (const c of edhrecData.cardlists.allNonLand) auditInclusion.set(c.name, c.inclusion);
+
+    // Build must-include protection set
+    const auditMustInclude = new Set([
+      ...customization.mustIncludeCards.map(n => n.toLowerCase()),
+      ...customization.tempMustIncludeCards.map(n => n.toLowerCase()),
+    ]);
+
+    // Track cards that are part of a COMPLETE combo — never evict them
+    const completeComboCards = new Set<string>();
+    for (const dc of detectedCombos) {
+      if (dc.isComplete) for (const name of dc.cards) completeComboCards.add(name);
+    }
+
+    // Helper: find the weakest (lowest inclusion%) evictable non-land card
+    function auditWeakest(skipNames?: Set<string>): { card: ScryfallCard; category: DeckCategory } | null {
+      let best: { card: ScryfallCard; category: DeckCategory; incl: number } | null = null;
+      for (const cat of Object.keys(categories) as DeckCategory[]) {
+        if (cat === 'lands') continue;
+        for (const card of categories[cat]) {
+          if (auditMustInclude.has(card.name.toLowerCase())) continue;
+          if (completeComboCards.has(card.name)) continue;
+          if (skipNames?.has(card.name)) continue;
+          const incl = auditInclusion.get(card.name) ?? 0;
+          if (!best || incl < best.incl) best = { card, category: cat, incl };
+        }
+      }
+      return best ? { card: best.card, category: best.category } : null;
+    }
+
+    function auditRemove(card: ScryfallCard, category: DeckCategory) {
+      categories[category] = categories[category].filter(c => c !== card);
+      usedNames.delete(card.name);
+    }
+
+    function auditAdd(card: ScryfallCard): boolean {
+      if (usedNames.has(card.name)) return false; // guard against duplicates
+      if (bannedCards.has(card.name)) return false; // respect banlist
+      stampRoleSubtypes(card);
+      const role = getCardRole(card.name);
+      const typeLine = (card.type_line || '').toLowerCase();
+      if (typeLine.includes('creature')) categories.creatures.push(card);
+      else if (role === 'boardwipe') categories.boardWipes.push(card);
+      else if (role === 'removal') categories.singleRemoval.push(card);
+      else if (role === 'ramp') categories.ramp.push(card);
+      else if (role === 'cardDraw') categories.cardDraw.push(card);
+      else categories.synergy.push(card);
+      usedNames.add(card.name);
+      return true;
+    }
+
+    for (const dc of detectedCombos) {
+      if (dc.isComplete || auditSwaps >= MAX_AUDIT_SWAPS) continue;
+
+      // Find in-deck pieces that only justify their slot because of this combo
+      const orphans = dc.cards.filter(name => {
+        if (!usedNames.has(name)) return false;
+        if (auditMustInclude.has(name.toLowerCase())) return false;
+        return (auditInclusion.get(name) ?? 0) <= ORPHAN_INCLUSION_THRESHOLD;
+      });
+
+      if (orphans.length === 0) continue; // all in-deck pieces are fine standalone
+
+      // Check if we can complete the combo: missing pieces must be available, not banned, and not already in deck
+      const trulyMissing = dc.missingCards.filter(n => !usedNames.has(n));
+      const missingResolved = trulyMissing
+        .filter(n => !bannedCards.has(n))
+        .map(n => scryfallCardMap.get(n))
+        .filter((c): c is ScryfallCard => !!c);
+
+      // If all "missing" pieces are actually already in the deck now, mark complete and move on
+      if (trulyMissing.length === 0) {
+        dc.isComplete = true;
+        dc.missingCards = [];
+        continue;
+      }
+
+      const canComplete = missingResolved.length === trulyMissing.length
+        && auditSwaps + trulyMissing.length <= MAX_AUDIT_SWAPS;
+
+      if (canComplete) {
+        // Swap in the missing pieces by evicting the weakest non-essential cards
+        const evicted = new Set<string>();
+        let ok = true;
+        for (const missing of missingResolved) {
+          if (usedNames.has(missing.name)) continue; // already in deck from a prior combo
+          const weak = auditWeakest(evicted);
+          if (!weak) { ok = false; break; }
+          evicted.add(weak.card.name);
+          auditRemove(weak.card, weak.category);
+          if (!auditAdd(missing)) { ok = false; break; }
+          auditSwaps++;
+        }
+        if (ok) {
+          console.log(`[DeckGen] Combo audit: completed combo ${dc.comboId} → added ${missingResolved.map(c => c.name).join(', ')}`);
+          dc.isComplete = true;
+          dc.missingCards = [];
+        }
+      } else {
+        // Can't complete — evict the orphaned low-value pieces, replace with best EDHREC candidates
+        for (const orphanName of orphans) {
+          if (auditSwaps >= MAX_AUDIT_SWAPS) break;
+          let found: { card: ScryfallCard; category: DeckCategory } | null = null;
+          for (const cat of Object.keys(categories) as DeckCategory[]) {
+            const card = categories[cat].find(c => c.name === orphanName);
+            if (card) { found = { card, category: cat }; break; }
+          }
+          if (!found) continue;
+          const replacement = edhrecData.cardlists.allNonLand
+            .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name) && scryfallCardMap.has(c.name))
+            .sort((a, b) => b.inclusion - a.inclusion)[0];
+          if (!replacement) continue;
+          auditRemove(found.card, found.category);
+          auditAdd(scryfallCardMap.get(replacement.name)!);
+          auditSwaps++;
+          console.log(`[DeckGen] Combo audit: evicted orphan ${orphanName} (${auditInclusion.get(orphanName) ?? 0}% inclusion) → ${replacement.name}`);
+        }
+      }
+    }
+
+    // Rebuild detectedCombos if deck changed so completeness flags are accurate
+    if (auditSwaps > 0) {
+      const newDeckNames = new Set<string>();
+      if (commander) {
+        newDeckNames.add(commander.name);
+        if (commander.name.includes(' // ')) newDeckNames.add(commander.name.split(' // ')[0]);
+      }
+      if (partnerCommander) {
+        newDeckNames.add(partnerCommander.name);
+        if (partnerCommander.name.includes(' // ')) newDeckNames.add(partnerCommander.name.split(' // ')[0]);
+      }
+      for (const c of Object.values(categories).flat()) {
+        newDeckNames.add(c.name);
+        if (c.name.includes(' // ')) newDeckNames.add(c.name.split(' // ')[0]);
+      }
+      detectedCombos = detectedCombos
+        .map(dc => {
+          const missing = dc.cards.filter(n => !newDeckNames.has(n));
+          return { ...dc, isComplete: missing.length === 0, missingCards: missing };
+        })
+        .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
+      if (detectedCombos.length === 0) detectedCombos = undefined;
+      console.log(`[DeckGen] Combo audit complete: ${auditSwaps} swap(s) applied`);
+    }
   }
 
   // ── Post-Generation Fixup Pass (light touch) ──

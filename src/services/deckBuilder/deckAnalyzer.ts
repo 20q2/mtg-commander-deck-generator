@@ -914,11 +914,11 @@ export function getDeckSummaryData(analysis: DeckAnalysis, deckExcess?: number):
       headline = `${parts[0]}, but ${issues[0]}.${issues.length > 1 ? ` Also ${issues.slice(1).join(', ')}.` : ''}`;
     } else if (parts.length > 0) {
       // No issues — everything looks good
-      headline = `${parts[0]} with a balanced ${avgCmc.toFixed(1)} avg CMC — looking sharp.`;
+      headline = `${parts[0]} — looking sharp.`;
     } else if (issues.length > 0) {
       headline = `${issues[0].charAt(0).toUpperCase() + issues[0].slice(1)}.${issues.length > 1 ? ` ${issues.slice(1).map(i => i.charAt(0).toUpperCase() + i.slice(1)).join('. ')}.` : ''}`;
     } else {
-      headline = `Balanced build at ${avgCmc.toFixed(1)} avg CMC.`;
+      headline = 'Well-balanced build — looking sharp.';
     }
   }
 

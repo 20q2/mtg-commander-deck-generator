@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ManaCost, ColorIdentity } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
-import { getCardByName, getCardImageUrl, getCachedCard } from '@/services/scryfall/client';
+import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/services/scryfall/client';
 import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
@@ -44,6 +44,7 @@ export function BuilderPage() {
   const { createList } = useUserLists();
   const exportTriggerRef = useRef<(() => void) | null>(null);
   const eaEnabled = localStorage.getItem('ea-features-enabled') === 'true';
+  const [headerCollectionNames, setHeaderCollectionNames] = useState<Set<string> | null>(null);
 
   const {
     commander,
@@ -75,6 +76,37 @@ export function BuilderPage() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
+
+  // Load collection names for header price display
+  useEffect(() => {
+    import('@/services/collection/db').then(({ getCollectionNameSet }) =>
+      getCollectionNameSet().then(names => {
+        if (names.size > 0) setHeaderCollectionNames(names);
+      })
+    );
+  }, [generatedDeck]);
+
+  // Compute total deck price and non-owned price for header
+  const { headerTotalPrice, headerNewPrice } = useMemo(() => {
+    if (!generatedDeck) return { headerTotalPrice: 0, headerNewPrice: null as number | null };
+    const allCards = Object.values(generatedDeck.categories).flat();
+    const currency = customization.currency;
+    let total = 0;
+    let newOnly = 0;
+    for (const card of allCards) {
+      const p = parseFloat(getCardPrice(card, currency) || '0');
+      if (isNaN(p)) continue;
+      total += p;
+      if (headerCollectionNames) {
+        const name = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+        if (!headerCollectionNames.has(name)) newOnly += p;
+      }
+    }
+    return {
+      headerTotalPrice: total,
+      headerNewPrice: headerCollectionNames ? newOnly : null,
+    };
+  }, [generatedDeck, customization.currency, headerCollectionNames]);
 
   // Load commander from URL if not already loaded
   useEffect(() => {
@@ -172,16 +204,21 @@ export function BuilderPage() {
     loadCommanderFromUrl();
   }, [commanderName]);
 
-  // Load partner commander from URL if present
+  // Load partner commander from URL if present, or clear if absent
   useEffect(() => {
+    if (!commander) return;
+
+    if (!partnerName) {
+      // URL has no partner — clear stale partner from store
+      const { partnerCommander: current } = useStore.getState();
+      if (current) setPartnerCommander(null);
+      return;
+    }
+
+    const decodedPartnerName = decodeURIComponent(partnerName);
+    if (partnerCommander?.name === decodedPartnerName) return;
+
     async function loadPartnerFromUrl() {
-      if (!partnerName || !commander) return;
-
-      const decodedPartnerName = decodeURIComponent(partnerName);
-
-      // Check if we already have this partner in store
-      if (partnerCommander?.name === decodedPartnerName) return;
-
       try {
         const partnerCard = await getCardByName(decodedPartnerName, true);
         if (partnerCard) {
@@ -196,14 +233,16 @@ export function BuilderPage() {
     loadPartnerFromUrl();
   }, [partnerName, commander?.name]);
 
-  // Update URL when partner commander changes
+  // Update URL when partner commander changes (e.g. user removes partner via UI)
   useEffect(() => {
     if (!commander || !commanderName) return;
 
     const currentUrlPartner = partnerName ? decodeURIComponent(partnerName) : null;
     const storePartner = partnerCommander?.name ?? null;
 
-    // Only update URL if the partner in store differs from URL
+    // Don't push a stale store partner into a clean URL — the load effect handles clearing
+    if (!currentUrlPartner && storePartner) return;
+
     if (storePartner !== currentUrlPartner) {
       const basePath = `/build/${encodeURIComponent(commander.name)}`;
       const newPath = storePartner
@@ -906,6 +945,17 @@ export function BuilderPage() {
             </div>
             <div className="text-sm text-muted-foreground">
               {generatedDeck.stats.totalCards + (commander ? 1 : 0) + (partnerCommander ? 1 : 0)} cards
+              {headerTotalPrice > 0 && (() => {
+                const sym = customization.currency === 'EUR' ? '€' : '$';
+                return (
+                  <span className="ml-1">
+                    · {sym}{headerTotalPrice.toFixed(2)}
+                    {headerNewPrice !== null && headerNewPrice < headerTotalPrice && (
+                      <span className="ml-1 text-xs opacity-70">({sym}{headerNewPrice.toFixed(2)} new)</span>
+                    )}
+                  </span>
+                );
+              })()}
               {generatedDeck.usedThemes && generatedDeck.usedThemes.length > 0 && (
                 <span className="ml-1">
                   · Built with: <span className="font-medium">{generatedDeck.usedThemes.join(', ')}</span>

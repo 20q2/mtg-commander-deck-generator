@@ -59,6 +59,14 @@ export function DeckOptimizer({
   const [selectedCmc, setSelectedCmc] = useState<number | null>(null);
   const [optimizeView, setOptimizeView] = useState(false);
 
+  // Listen for "See more" from deck grade badge
+  const handleOptimizeRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const handler = () => { handleOptimizeRef.current?.(); };
+    document.addEventListener('deck-optimizer-open', handler);
+    return () => document.removeEventListener('deck-optimizer-open', handler);
+  }, []);
+
   // Theme detection state
   const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
   const [themeLoading, setThemeLoading] = useState(false);
@@ -74,8 +82,8 @@ export function DeckOptimizer({
   // User-overridable land target (null = use auto-computed)
   const [userLandTarget, setUserLandTarget] = useState<number | null>(null);
 
-  // The effective pacing: user override > auto-detected
-  const effectivePacing: Pacing | undefined = userPacing ?? analysis?.pacing ?? undefined;
+  // The effective pacing: user override > theme-detected > base analysis
+  const effectivePacing: Pacing | undefined = userPacing ?? themeDetection?.pacing ?? analysis?.pacing ?? undefined;
 
   // Role targets adjusted for user pacing override
   const effectiveRoleTargets = useMemo(() => {
@@ -488,6 +496,8 @@ export function DeckOptimizer({
     }
   };
 
+  handleOptimizeRef.current = handleOptimize;
+
   // Re-run analysis when cards change (add/remove) if we have cached EDHREC data
   useEffect(() => {
     if (!cachedEdhrecDataRef.current || !analysis) return;
@@ -879,7 +889,7 @@ export function DeckOptimizer({
   // --- Pre-analysis: prominent CTA ---
   if (!analysis && !loading) {
     return (
-      <div className="mt-8 flex flex-col items-center gap-3">
+      <div id="deck-optimizer" className="mt-8 flex flex-col items-center gap-3">
         <p className="text-xs text-muted-foreground text-center max-w-sm">
           Check your deck's roles, mana base, and curve against EDHREC data with tailored suggestions to fill gaps
         </p>
@@ -898,7 +908,7 @@ export function DeckOptimizer({
   // --- Loading ---
   if (loading) {
     return (
-      <div className="mt-8 p-6 rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm">
+      <div id="deck-optimizer" className="mt-8 p-6 rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm">
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="relative">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -935,7 +945,7 @@ export function DeckOptimizer({
   // Dashboard Render
   // ═════════════════════════════════════════════════════════════════════
   return (
-    <div className="mt-6 rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm overflow-hidden">
+    <div id="deck-optimizer" className="mt-6 rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
         <div className="flex items-center gap-2">

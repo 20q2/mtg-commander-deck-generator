@@ -5,7 +5,7 @@ import { bulkImport, type BulkImportCard } from '@/services/collection/db';
 import { Upload, FileUp, Loader2, Check, AlertCircle } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
-interface ImportResult {
+export interface ImportResult {
   added: number;
   updated: number;
   updatedLabel?: string;
@@ -31,14 +31,74 @@ interface CollectionImporterProps {
   onPendingChange?: (hasPending: boolean) => void;
   /** Called when the user clicks Cancel — use to close a surrounding popover */
   onCancel?: () => void;
+  /** Extra className for the textarea (e.g. to override height) */
+  textareaClassName?: string;
+  /** Hide the inline result/progress — parent will render it externally */
+  externalResult?: boolean;
+  /** Called when import result changes, so parent can render it elsewhere */
+  onResultChange?: (result: ImportResult | null) => void;
+  /** Called when progress text changes */
+  onProgressChange?: (progress: string) => void;
+  /** Called with all legendary creatures found during import, for commander selection */
+  onLegendariesDetected?: (legendaries: import('@/types').ScryfallCard[]) => void;
 }
 
-export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, onPendingChange, onCancel }: CollectionImporterProps = {}) {
+export function ImportResultDisplay({ result, updatedLabel, progress }: { result: ImportResult | null; updatedLabel?: string; progress?: string }) {
+  const updatedText = updatedLabel ?? 'cards updated';
+  return (
+    <>
+      {progress && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          {progress}
+        </div>
+      )}
+      {result && (
+        <div className="p-3 rounded-lg border border-border/50 bg-accent/30 space-y-1">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Check className="w-4 h-4 text-green-500" />
+            Import Complete
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {result.added > 0 && `${result.added} cards added`}
+            {result.added > 0 && result.updated > 0 && ', '}
+            {result.updated > 0 && `${result.updated} ${updatedText}`}
+            {result.added === 0 && result.updated === 0 && 'No new cards added'}
+          </p>
+          {result.notFound.length > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-1 text-xs text-amber-500">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {result.notFound.length} card{result.notFound.length > 1 ? 's' : ''} not found:
+              </div>
+              <ul className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                {result.notFound.slice(0, 10).map(name => (
+                  <li key={name} className="flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-muted-foreground shrink-0" />
+                    {name}
+                  </li>
+                ))}
+                {result.notFound.length > 10 && (
+                  <li className="text-muted-foreground/70">and {result.notFound.length - 10} more</li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected }: CollectionImporterProps = {}) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-  const [progress, setProgress] = useState('');
-  const [result, setResult] = useState<ImportResult | null>(null);
+  const [progress, _setProgress] = useState('');
+  const [result, _setResult] = useState<ImportResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const setProgress = (p: string) => { _setProgress(p); onProgressChange?.(p); };
+  const setResult = (r: ImportResult | null) => { _setResult(r); onResultChange?.(r); };
 
   const handleImport = async (text: string) => {
     if (!text.trim()) return;
@@ -73,6 +133,7 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
       const validatedNames: string[] = [];
       const validatedParsed: { name: string; quantity: number; card: typeof cardMap extends Map<string, infer V> ? V : never }[] = [];
 
+      let commanderDetected = false;
       for (const { name, quantity, isCommander } of parsed) {
         const scryfallCard = cardMap.get(name);
         if (scryfallCard) {
@@ -80,10 +141,27 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
           validatedParsed.push({ name: scryfallCard.name, quantity, card: scryfallCard });
           if (isCommander && onCommanderDetected) {
             onCommanderDetected(scryfallCard);
+            commanderDetected = true;
           }
         } else {
           notFound.push(name);
         }
+      }
+
+      // Collect all legendary creatures for commander dropdown
+      const allLegendaries = validatedParsed
+        .filter(({ card }) => {
+          const tl = (card.type_line ?? '').toLowerCase();
+          return tl.includes('legendary') && tl.includes('creature');
+        })
+        .map(({ card }) => card);
+      if (allLegendaries.length > 0) {
+        onLegendariesDetected?.(allLegendaries);
+      }
+
+      // Auto-detect commander: first legendary creature in the list
+      if (!commanderDetected && onCommanderDetected && allLegendaries.length > 0) {
+        onCommanderDetected(allLegendaries[0]);
       }
 
       if (onImportCards) {
@@ -152,7 +230,6 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
     e.target.value = '';
   };
 
-  const updatedText = result?.updatedLabel ?? 'cards updated';
 
   return (
     <div className="space-y-4">
@@ -185,7 +262,7 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
           onChange={(e) => { setImportText(e.target.value); onPendingChange?.(!!e.target.value.trim()); }}
           disabled={isImporting}
           placeholder={"1 Sol Ring\n4 Lightning Bolt\n1 Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports"}
-          className="w-full h-48 px-3 py-2 text-sm bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+          className={`w-full h-48 px-3 py-2 text-sm bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 ${textareaClassName ?? ''}`}
         />
 
         <div className="flex justify-end gap-2 mt-2">
@@ -227,48 +304,8 @@ export function CollectionImporter({ onImportCards, onCommanderDetected, onMetaD
         </div>
       </div>
 
-      {/* Progress */}
-      {progress && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          {progress}
-        </div>
-      )}
-
-      {/* Result */}
-      {result && (
-        <div className="p-3 rounded-lg border border-border/50 bg-accent/30 space-y-1">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Check className="w-4 h-4 text-green-500" />
-            Import Complete
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {result.added > 0 && `${result.added} cards added`}
-            {result.added > 0 && result.updated > 0 && ', '}
-            {result.updated > 0 && `${result.updated} ${updatedText}`}
-            {result.added === 0 && result.updated === 0 && 'No new cards added'}
-          </p>
-          {result.notFound.length > 0 && (
-            <div className="mt-2">
-              <div className="flex items-center gap-1 text-xs text-amber-500">
-                <AlertCircle className="w-3.5 h-3.5" />
-                {result.notFound.length} card{result.notFound.length > 1 ? 's' : ''} not found:
-              </div>
-              <ul className="text-xs text-muted-foreground mt-1 space-y-0.5">
-                {result.notFound.slice(0, 10).map(name => (
-                  <li key={name} className="flex items-center gap-1.5">
-                    <span className="w-1 h-1 rounded-full bg-muted-foreground shrink-0" />
-                    {name}
-                  </li>
-                ))}
-                {result.notFound.length > 10 && (
-                  <li className="text-muted-foreground/70">and {result.notFound.length - 10} more</li>
-                )}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Progress & Result — only inline when not externally rendered */}
+      {!externalResult && <ImportResultDisplay result={result} updatedLabel={updatedLabel} progress={progress} />}
     </div>
   );
 }

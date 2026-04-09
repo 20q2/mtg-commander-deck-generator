@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Loader2, List, Wand2, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Sparkles } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Sparkles } from 'lucide-react';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -418,7 +417,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
   const { lists: userLists, updateList } = useUserLists();
-  const navigate = useNavigate();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [artUrl, setArtUrl] = useState<string | null>(null);
@@ -1094,26 +1093,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             {totalDeckPrice !== null && totalDeckPrice > 0 && (
               <span className="text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
             )}
-            {list.commanderName && (
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => navigate(`/build-from-deck/${list.id}`)}
-                      className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      Build From Deck
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-[240px] text-center">
-                    {list.deckSize && list.cards.length !== list.deckSize
-                      ? `${list.cards.length}/${list.deckSize} cards — re-generate with the deck builder to ${list.cards.length < list.deckSize ? 'fill the remaining slots' : 'trim to size'} using EDHREC data`
-                      : 'Re-generate this deck using the deck builder — keeps your cards as a starting point and optimizes with EDHREC data'}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
             <div className="relative" ref={overflowRef}>
               <button
                 onClick={() => setShowOverflow(prev => !prev)}
@@ -1123,16 +1102,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               </button>
               {showOverflow && (
                 <div className="absolute right-0 top-full mt-1 w-44 bg-card border border-border rounded-lg shadow-2xl py-1 z-50">
-                  {/* Mobile-only: show Build From Deck + View as List */}
-                  {list.commanderName && (
-                    <button
-                      onClick={() => { setShowOverflow(false); navigate(`/build-from-deck/${list.id}`); }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 sm:hidden"
-                    >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      Build From Deck
-                    </button>
-                  )}
                   {onViewAsList && (
                     <button
                       onClick={() => { setShowOverflow(false); onViewAsList(); }}

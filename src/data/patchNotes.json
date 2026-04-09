@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.2.20",
+    "notes": [
+      "Deck generator less likely to leave orphaned combo pieces in the final result",
+      "Deck score visible in the Statistics column as an EA feature",
+      "Improved UI when importing decks or lists"
+    ]
+  },
+  {
     "version": "1.2.19",
     "notes": [
       "Statistics panel now shows how many cards you own from the current deck",
@@ -26,13 +34,6 @@
     "notes": [
       "Optimizer now shows price difference for each swap",
       "Deck optimizer values fetchlands less now"
-    ]
-  },
-  {
-    "version": "1.2.15",
-    "notes": [
-      "Clickable version label with patch notes (thats this!)",
-      "Fixed ban lists not applying during deck generation"
     ]
   }
 ]

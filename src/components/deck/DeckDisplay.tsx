@@ -49,7 +49,10 @@ import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
-import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
+import { analyzeDeck, getDeckSummaryData } from '@/services/deckBuilder/deckAnalyzer';
+import { HEALTH_GRADE_STYLES } from '@/components/deck/optimizer/constants';
+import { getGenerationCacheEdhrecData } from '@/services/deckBuilder/deckGenerator';
+import { cardMatchesRole, getCardRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getCollectionNameSet } from '@/services/collection/db';
@@ -1585,9 +1588,11 @@ interface DeckStatsProps {
   hideHeader?: boolean;
   collectionNames?: Set<string> | null;
   showCollection?: boolean;
+  showRelevancy?: boolean;
+  overallGrade?: { letter: string; headline: string } | null;
 }
 
-function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade }: DeckStatsProps) {
   const { generatedDeck, colorIdentity } = useStore();
   if (!generatedDeck) return null;
 
@@ -1675,6 +1680,31 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                   <span className="ml-auto"><InfoTooltip text={formatBracketTooltip(b)} /></span>
                 </div>
                 <div className="text-[10px] text-muted-foreground/60 px-1 -mt-1">Estimated from deck contents</div>
+              </div>
+            );
+          })()}
+          {overallGrade && (() => {
+            const style = HEALTH_GRADE_STYLES[overallGrade.letter] || HEALTH_GRADE_STYLES.C;
+            return (
+              <div className="flex items-center gap-3 bg-accent/30 rounded-lg px-3 py-2.5 -mt-2">
+                <span className={`text-2xl font-black leading-none px-2 py-1 rounded ${style.color} ${style.badgeBg}`}>{overallGrade.letter}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-foreground">Deck Grade</span>
+                    <button
+                      onClick={() => {
+                        document.dispatchEvent(new CustomEvent('deck-optimizer-open'));
+                        setTimeout(() => {
+                          document.getElementById('deck-optimizer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }}
+                      className="text-[10px] text-primary hover:text-primary/80 transition-colors"
+                    >
+                      See more →
+                    </button>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-snug">{overallGrade.headline}</div>
+                </div>
               </div>
             );
           })()}
@@ -2029,7 +2059,7 @@ interface DeckDisplayProps {
 
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
-  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory } = useStore();
+  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory, colorIdentity } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -2125,6 +2155,69 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
   }, [generatedDeck]);
 
+  // Background deck analysis for overall grade (EA only)
+  const [overallGrade, setOverallGrade] = useState<{ letter: string; headline: string } | null>(null);
+  useEffect(() => {
+    if (!generatedDeck || localStorage.getItem('ea-features-enabled') !== 'true') {
+      setOverallGrade(null);
+      return;
+    }
+    if (!generatedDeck.roleTargets) {
+      setOverallGrade(null);
+      return;
+    }
+    let cancelled = false;
+
+    const runAnalysis = (edhrecData: import('@/types').EDHRECCommanderData) => {
+      if (cancelled) return;
+      try {
+        const allCards = Object.values(generatedDeck.categories).flat();
+        const deckSize = generatedDeck.stats.totalCards;
+        // Recompute role counts from actual current cards (not stale generation-time counts)
+        const freshRoleCounts: Record<string, number> = {};
+        for (const card of allCards) {
+          const role = getCardRole(card.name);
+          if (role) freshRoleCounts[role] = (freshRoleCounts[role] || 0) + 1;
+        }
+        const analysis = analyzeDeck(
+          edhrecData,
+          allCards,
+          freshRoleCounts,
+          generatedDeck.roleTargets!,
+          deckSize,
+          generatedDeck.cardInclusionMap,
+          colorIdentity,
+        );
+        const summary = getDeckSummaryData(analysis);
+        if (!cancelled) setOverallGrade({ letter: summary.gradeLetter, headline: summary.headline });
+      } catch {
+        if (!cancelled) setOverallGrade(null);
+      }
+    };
+
+    // Try generation cache first (free, already fetched)
+    const cached = getGenerationCacheEdhrecData();
+    if (cached) {
+      const id = requestAnimationFrame(() => runAnalysis(cached));
+      return () => { cancelled = true; cancelAnimationFrame(id); };
+    }
+
+    // No cache — fetch EDHREC data in background (e.g. list deck view)
+    const commanderName = generatedDeck.commander?.name;
+    const partnerName = generatedDeck.partnerCommander?.name;
+    if (!commanderName) {
+      setOverallGrade(null);
+      return;
+    }
+    (partnerName
+      ? import('@/services/edhrec/client').then(m => m.fetchPartnerCommanderData(commanderName, partnerName))
+      : import('@/services/edhrec/client').then(m => m.fetchCommanderData(commanderName))
+    ).then(data => { if (!cancelled) runAnalysis(data); })
+     .catch(() => { if (!cancelled) setOverallGrade(null); });
+
+    return () => { cancelled = true; };
+  }, [generatedDeck, colorIdentity, customization.deckFormat]);
+
   // Only show owned indicators if not every card in the deck is owned
   const showOwnedIndicators = useMemo(() => {
     if (!collectionNames || !generatedDeck) return false;
@@ -2182,9 +2275,12 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const deckIdentity = generatedDeck?.commander?.name ?? null;
   const prevDeckRef = useRef(generatedDeck);
   const prevDeckIdentityRef = useRef(deckIdentity);
+  // Tracks cards being replaced via "Replace" toolbar action so we can push history after regen
+  const pendingReplaceRef = useRef<string[] | null>(null);
   useEffect(() => {
     const commanderChanged = prevDeckIdentityRef.current !== deckIdentity;
     const deckRegenerated = prevDeckRef.current !== generatedDeck;
+    const prevDeck = prevDeckRef.current;
     prevDeckIdentityRef.current = deckIdentity;
     prevDeckRef.current = generatedDeck;
     if (commanderChanged) {
@@ -2194,7 +2290,22 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     if (commanderChanged || deckRegenerated) {
       setRemovedCards(new Set());
     }
-  }, [deckIdentity, generatedDeck]);
+    // Push history entries for replace-triggered regens
+    if (deckRegenerated && !commanderChanged && pendingReplaceRef.current && prevDeck && generatedDeck) {
+      const replaced = pendingReplaceRef.current;
+      pendingReplaceRef.current = null;
+      const oldNames = new Set(Object.values(prevDeck.categories).flat().map(c => c.name));
+      const newNames = new Set(Object.values(generatedDeck.categories).flat().map(c => c.name));
+      for (const name of replaced) {
+        pushDeckHistory({ action: 'remove', cardName: name });
+      }
+      for (const name of newNames) {
+        if (!oldNames.has(name)) {
+          pushDeckHistory({ action: 'add', cardName: name });
+        }
+      }
+    }
+  }, [deckIdentity, generatedDeck, pushDeckHistory]);
 
   const handleToggleRoles = useCallback(() => {
     setShowRoles(prev => {
@@ -2496,6 +2607,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
     setToastMessage({ text: `Replacing ${namesToBan.length} card${namesToBan.length > 1 ? 's' : ''}...` });
     setSelectedCards(new Set());
+    pendingReplaceRef.current = namesToBan;
     // Trigger regeneration immediately
     handleRegenerate();
   }, [selectedCards, groupedCards, updateCustomization, handleRegenerate]);
@@ -3173,7 +3285,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </button>
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
-              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showOwnedIndicators && showCollectionChecks} />
+              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
               <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
@@ -3695,7 +3807,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {sidebarHeader || deckSummary}
               </div>
             </div>
-            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showOwnedIndicators && showCollectionChecks} />
+            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>
@@ -3738,6 +3850,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         showPrice={showPrice}
         prevCardImage={prevCardImage}
         nextCardImage={nextCardImage}
+        onBuildDeck={(cardName) => navigate(`/build/${encodeURIComponent(cardName)}`)}
       />
       <ExportModal
         isOpen={showExportModal}

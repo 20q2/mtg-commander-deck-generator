@@ -382,7 +382,7 @@ export function ListsPage() {
   if (currentView.view === 'create') {
     const createMode = searchParams.get('type') === 'deck' ? 'deck' : 'list';
     return (
-      <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
+      <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl lg:max-w-5xl">
         <div className="aurora-bg" />
         <ListCreateEditForm
           mode={createMode}
@@ -409,7 +409,7 @@ export function ListsPage() {
     const list = lists.find(l => l.id === currentView.listId);
     if (!list) return null; // useEffect will redirect
     return (
-      <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
+      <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl lg:max-w-5xl">
         <div className="aurora-bg" />
         <ListCreateEditForm
           existingList={list}

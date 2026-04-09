@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
-import { CollectionImporter } from '@/components/collection/CollectionImporter';
+import { CollectionImporter, ImportResultDisplay, type ImportResult } from '@/components/collection/CollectionImporter';
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
@@ -46,6 +46,10 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   // Track whether the importer has un-imported text
   const [hasPendingImport, setHasPendingImport] = useState(false);
 
+  // Import result/progress — rendered in its own row below the columns
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importProgress, setImportProgress] = useState('');
+
   // Card type tracking for live breakdown badges
   const cardTypeMapRef = useRef<Map<string, string>>(new Map());
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>(() => existingList?.cachedTypeBreakdown ?? {});
@@ -54,6 +58,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   const [commanderName, setCommanderName] = useState(existingList?.commanderName ?? '');
   const [commanderCard, setCommanderCard] = useState<ScryfallCard | null>(null);
   const [partnerCommanderName, setPartnerCommanderName] = useState(existingList?.partnerCommanderName ?? '');
+  const [importedLegendaries, setImportedLegendaries] = useState<ScryfallCard[]>([]);
   const [commanderQuery, setCommanderQuery] = useState('');
   const [commanderResults, setCommanderResults] = useState<ScryfallCard[]>([]);
   const [isSearchingCommander, setIsSearchingCommander] = useState(false);
@@ -399,81 +404,74 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
         )}
       </div>
 
-      {/* Name & Description */}
-      <div className="space-y-3">
-        <div>
-          <label className="text-sm font-medium mb-1.5 block">Name</label>
-          <Input
-            ref={nameInputRef}
-            type="text"
-            placeholder={isDeck ? "e.g. Korvold Treasures, Atraxa Superfriends..." : "e.g. My Salt List, Staples, Pet Cards..."}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="h-10 bg-background"
-          />
-        </div>
-        {!isDeck && (
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Description <span className="text-muted-foreground font-normal">(optional)</span></label>
-            <Input
-              type="text"
-              placeholder="What is this list for?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="h-10 bg-background"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Commander — deck mode only */}
-      {isDeck && <div className="space-y-3">
-        <label className="text-sm font-medium flex items-center gap-1.5">
-          <CommanderIcon size={14} className="text-muted-foreground" />
-          Commander <span className="text-muted-foreground font-normal">(optional)</span>
-        </label>
-
-        {/* Selected commander */}
-        {commanderName ? (
-          <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border border-border/30">
-            <span className="text-sm font-medium flex-1 truncate">{commanderName}</span>
-            <button
-              onClick={() => {
-                // Remove commander and partner from cards list
-                setCards(prev => prev.filter(c => c !== commanderName && c !== partnerCommanderName));
-                setCommanderName(''); setCommanderCard(null); setPartnerCommanderName(''); setDeckSize('');
-              }}
-              className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="relative" ref={commanderSearchRef}>
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search for a commander..."
-              value={commanderField === 'commander' ? commanderQuery : ''}
-              onChange={(e) => { setCommanderField('commander'); setCommanderQuery(e.target.value); }}
-              onFocus={() => { setCommanderField('commander'); (commanderResults.length > 0) && setShowCommanderResults(true); }}
-              className="pl-9 pr-9 h-9 text-sm bg-background"
-            />
-            {isSearchingCommander && commanderField === 'commander' && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+      {/* Two-column layout: metadata left, cards right (stacked on mobile) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 lg:items-start">
+        {/* Left column — Name, Commander, Primer */}
+        <div className="space-y-6 bg-accent/20 rounded-xl p-4 border border-border/20">
+          {/* Name & Description */}
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Name</label>
+              <Input
+                ref={nameInputRef}
+                type="text"
+                placeholder={isDeck ? "e.g. Korvold Treasures, Atraxa Superfriends..." : "e.g. My Salt List, Staples, Pet Cards..."}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-10 bg-background"
+              />
+            </div>
+            {!isDeck && (
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Description <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <Input
+                  type="text"
+                  placeholder="What is this list for?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="h-10 bg-background"
+                />
+              </div>
             )}
           </div>
-        )}
 
-        {/* Partner commander — only show when commander supports partners */}
-        {commanderName && canPartner && (
-          <>
-            {partnerCommanderName ? (
+          {/* Commander — deck mode only */}
+          {isDeck && <div className="space-y-3">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <CommanderIcon size={14} className="text-muted-foreground" />
+              Commander <span className="text-muted-foreground font-normal">(optional)</span>
+            </label>
+
+            {/* Commander selection — dropdown from imported legendaries, or search fallback */}
+            {importedLegendaries.length > 0 ? (
+              <select
+                value={commanderName}
+                onChange={(e) => {
+                  const selected = importedLegendaries.find(c => c.name === e.target.value);
+                  if (selected) {
+                    setCommanderName(selected.name);
+                    setCommanderCard(selected);
+                    setPartnerCommanderName('');
+                    if (!deckSize) setDeckSize(100);
+                  } else {
+                    setCommanderName(''); setCommanderCard(null); setPartnerCommanderName(''); setDeckSize('');
+                  }
+                }}
+                className="w-full h-9 px-3 text-sm bg-background border border-border/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary truncate"
+              >
+                <option value="">Select a commander...</option>
+                {importedLegendaries.map(card => (
+                  <option key={card.id} value={card.name}>{card.name}</option>
+                ))}
+              </select>
+            ) : commanderName ? (
               <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border border-border/30">
-                <span className="text-xs text-muted-foreground">{getPartnerTypeLabel(partnerType)}:</span>
-                <span className="text-sm font-medium flex-1 truncate">{partnerCommanderName}</span>
+                <span className="text-sm font-medium flex-1 truncate">{commanderName}</span>
                 <button
-                  onClick={() => { setCards(prev => prev.filter(c => c !== partnerCommanderName)); setPartnerCommanderName(''); }}
+                  onClick={() => {
+                    setCards(prev => prev.filter(c => c !== commanderName && c !== partnerCommanderName));
+                    setCommanderName(''); setCommanderCard(null); setPartnerCommanderName(''); setDeckSize('');
+                  }}
                   className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -484,133 +482,179 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder={partnerSearchPlaceholder}
-                  value={commanderField === 'partner' ? commanderQuery : ''}
-                  onChange={(e) => { setCommanderField('partner'); setCommanderQuery(e.target.value); }}
-                  onFocus={() => { setCommanderField('partner'); (commanderResults.length > 0) && setShowCommanderResults(true); }}
+                  placeholder="Search for a commander..."
+                  value={commanderField === 'commander' ? commanderQuery : ''}
+                  onChange={(e) => { setCommanderField('commander'); setCommanderQuery(e.target.value); }}
+                  onFocus={() => { setCommanderField('commander'); (commanderResults.length > 0) && setShowCommanderResults(true); }}
                   className="pl-9 pr-9 h-9 text-sm bg-background"
                 />
-                {isSearchingCommander && commanderField === 'partner' && (
+                {isSearchingCommander && commanderField === 'commander' && (
                   <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
                 )}
               </div>
             )}
-          </>
-        )}
 
-        {/* Commander search dropdown — anchored to commanderSearchRef */}
-        {showCommanderResults && commanderResults.length > 0 && commanderSearchRef.current && createPortal(
-          <>
-            <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
-            <Card className="absolute top-full left-0 right-0 mt-1 z-[999] max-h-[250px] overflow-auto shadow-xl">
-              <CardContent className="p-1">
-                {commanderResults.map((card) => (
-                  <button
-                    key={card.id}
-                    onClick={() => handleSelectCommander(card)}
-                    className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
-                  >
-                    <img
-                      src={getCardImageUrl(card, 'small')}
-                      alt={card.name}
-                      className="w-8 h-auto rounded shadow"
+            {/* Partner commander — only show when commander supports partners */}
+            {commanderName && canPartner && (
+              <>
+                {partnerCommanderName ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border border-border/30">
+                    <span className="text-xs text-muted-foreground">{getPartnerTypeLabel(partnerType)}:</span>
+                    <span className="text-sm font-medium flex-1 truncate">{partnerCommanderName}</span>
+                    <button
+                      onClick={() => { setCards(prev => prev.filter(c => c !== partnerCommanderName)); setPartnerCommanderName(''); }}
+                      className="p-0.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative" ref={commanderSearchRef}>
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      placeholder={partnerSearchPlaceholder}
+                      value={commanderField === 'partner' ? commanderQuery : ''}
+                      onChange={(e) => { setCommanderField('partner'); setCommanderQuery(e.target.value); }}
+                      onFocus={() => { setCommanderField('partner'); (commanderResults.length > 0) && setShowCommanderResults(true); }}
+                      className="pl-9 pr-9 h-9 text-sm bg-background"
                     />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                        {card.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {card.type_line}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-          </>,
-          commanderSearchRef.current
-        )}
+                    {isSearchingCommander && commanderField === 'partner' && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
-        {/* Deck size — only shown when a commander is set */}
-        {commanderName && (
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground whitespace-nowrap">Deck size</label>
-            <input
-              type="number"
-              min={1}
-              max={999}
-              value={deckSize}
-              onChange={(e) => setDeckSize(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 0))}
-              className="w-20 px-2 py-1 text-sm bg-background border border-border/30 rounded-lg focus:outline-none focus:border-primary text-center"
-              placeholder="100"
-            />
-            <span className="text-xs text-muted-foreground">cards (including commander{canPartner ? 's' : ''})</span>
-          </div>
-        )}
+            {/* Commander search dropdown — anchored to commanderSearchRef */}
+            {showCommanderResults && commanderResults.length > 0 && commanderSearchRef.current && createPortal(
+              <>
+                <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
+                <Card className="absolute top-full left-0 right-0 mt-1 z-[999] max-h-[250px] overflow-auto shadow-xl">
+                  <CardContent className="p-1">
+                    {commanderResults.map((card) => (
+                      <button
+                        key={card.id}
+                        onClick={() => handleSelectCommander(card)}
+                        className="w-full flex items-center gap-3 p-2 hover:bg-accent/50 rounded-md text-left transition-colors group"
+                      >
+                        <img
+                          src={getCardImageUrl(card, 'small')}
+                          alt={card.name}
+                          className="w-8 h-auto rounded shadow"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                            {card.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {card.type_line}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+              </>,
+              commanderSearchRef.current
+            )}
 
-        {/* Commander no results */}
-        {showCommanderResults && commanderResults.length === 0 && commanderSearchedQuery.trim() && !isSearchingCommander && commanderSearchRef.current && createPortal(
-          <>
-            <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
-            <Card className="absolute top-full left-0 right-0 mt-1 z-[999] shadow-xl">
-              <CardContent className="p-4 text-center">
-                <p className="text-sm text-muted-foreground">No commanders found for "{commanderSearchedQuery}"</p>
-              </CardContent>
-            </Card>
-          </>,
-          commanderSearchRef.current
-        )}
-      </div>}
+            {/* Deck size — only shown when a commander is set */}
+            {commanderName && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground whitespace-nowrap">Deck size</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={deckSize}
+                  onChange={(e) => setDeckSize(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 0))}
+                  className="w-20 px-2 py-1 text-sm bg-background border border-border/30 rounded-lg focus:outline-none focus:border-primary text-center"
+                  placeholder="100"
+                />
+                <span className="text-xs text-muted-foreground">cards (including commander{canPartner ? 's' : ''})</span>
+              </div>
+            )}
 
-      {/* Primer — deck mode only */}
-      {isDeck && (
-        <div>
-          <label className="text-sm font-medium mb-1.5 block">Primer / Strategy Notes <span className="text-muted-foreground font-normal">(optional)</span></label>
-          <div className="border border-border rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-primary">
-            <div className="flex items-center gap-0.5 px-2 py-1 bg-accent/30 border-b border-border/50">
-              {[
-                { icon: Bold, action: () => insertFormat('**', '**'), title: 'Bold' },
-                { icon: Italic, action: () => insertFormat('*', '*'), title: 'Italic' },
-                { icon: Heading2, action: () => insertLinePrefix('## '), title: 'Heading' },
-                { icon: List, action: () => insertLinePrefix('- '), title: 'Bullet list' },
-                { icon: ListOrdered, action: () => insertLinePrefix('1. '), title: 'Numbered list' },
-                { icon: Minus, action: () => insertFormat('\n---\n'), title: 'Divider' },
-              ].map(({ icon: Icon, action, title }) => (
-                <button
-                  key={title}
-                  type="button"
-                  onClick={action}
-                  title={title}
-                  className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                </button>
-              ))}
+            {/* Commander no results */}
+            {showCommanderResults && commanderResults.length === 0 && commanderSearchedQuery.trim() && !isSearchingCommander && commanderSearchRef.current && createPortal(
+              <>
+                <div className="fixed inset-0 z-[998]" onClick={() => setShowCommanderResults(false)} />
+                <Card className="absolute top-full left-0 right-0 mt-1 z-[999] shadow-xl">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-sm text-muted-foreground">No commanders found for "{commanderSearchedQuery}"</p>
+                  </CardContent>
+                </Card>
+              </>,
+              commanderSearchRef.current
+            )}
+          </div>}
+
+          {/* Primer — deck mode only */}
+          {isDeck && (
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Primer / Strategy Notes <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <div className="border border-border rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-primary">
+                <div className="flex items-center gap-0.5 px-2 py-1 bg-accent/30 border-b border-border/50">
+                  {[
+                    { icon: Bold, action: () => insertFormat('**', '**'), title: 'Bold' },
+                    { icon: Italic, action: () => insertFormat('*', '*'), title: 'Italic' },
+                    { icon: Heading2, action: () => insertLinePrefix('## '), title: 'Heading' },
+                    { icon: List, action: () => insertLinePrefix('- '), title: 'Bullet list' },
+                    { icon: ListOrdered, action: () => insertLinePrefix('1. '), title: 'Numbered list' },
+                    { icon: Minus, action: () => insertFormat('\n---\n'), title: 'Divider' },
+                  ].map(({ icon: Icon, action, title }) => (
+                    <button
+                      key={title}
+                      type="button"
+                      onClick={action}
+                      title={title}
+                      className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  ref={primerRef}
+                  value={primer}
+                  onChange={(e) => setPrimer(e.target.value)}
+                  placeholder="Describe your deck's strategy, key combos, win conditions, mulliganing tips..."
+                  className="w-full h-28 px-3 py-2 text-sm bg-background resize-none focus:outline-none"
+                />
+              </div>
             </div>
-            <textarea
-              ref={primerRef}
-              value={primer}
-              onChange={(e) => setPrimer(e.target.value)}
-              placeholder="Describe your deck's strategy, key combos, win conditions, mulliganing tips..."
-              className="w-full h-28 px-3 py-2 text-sm bg-background resize-none focus:outline-none"
-            />
-          </div>
+          )}
         </div>
+
+        {/* Right column — Import */}
+        <div className="space-y-6 bg-accent/20 rounded-xl p-4 border border-border/20">
+          {/* Import Cards — shared component */}
+          <CollectionImporter
+            label="Import Cards"
+            onImportCards={handleImportCards}
+            onCommanderDetected={handleCommanderDetected}
+            onMetaDetected={handleMetaDetected}
+            onLegendariesDetected={setImportedLegendaries}
+            updatedLabel="duplicates skipped"
+            onPendingChange={setHasPendingImport}
+            textareaClassName="lg:h-64"
+            externalResult
+            onResultChange={setImportResult}
+            onProgressChange={setImportProgress}
+          />
+        </div>
+      </div>
+
+      {/* Import result/progress — full-width row */}
+      {(importResult || importProgress) && (
+        <ImportResultDisplay result={importResult} updatedLabel="duplicates skipped" progress={importProgress} />
       )}
 
-      {/* Import Cards — shared component */}
-      <CollectionImporter
-        label="Import Cards"
-        onImportCards={handleImportCards}
-        onCommanderDetected={handleCommanderDetected}
-        onMetaDetected={handleMetaDetected}
-        updatedLabel="duplicates skipped"
-        onPendingChange={setHasPendingImport}
-      />
-
-      {/* Cards — only show when cards have been added */}
+      {/* Cards — full-width row below the two columns */}
       {cards.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-3 bg-accent/20 rounded-xl p-4 border border-border/20">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium">Cards ({cards.length})</label>
             <button
@@ -700,21 +744,29 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
           </div>
 
           {/* Current cards as chips */}
-          <div className="flex flex-wrap gap-1.5 max-h-60 overflow-auto p-2 bg-background rounded-lg border border-border/30">
-            {cards.map((name, idx) => (
-              <span
-                key={`${name}-${idx}`}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-accent/50 text-foreground text-xs rounded-md border border-border/30"
-              >
-                <span className="truncate max-w-[180px]">{name}</span>
-                <button
-                  onClick={() => handleRemoveCard(name)}
-                  className="hover:bg-destructive/20 rounded p-0.5 transition-colors text-muted-foreground hover:text-destructive"
+          <div className="flex flex-wrap gap-1.5 max-h-60 lg:max-h-80 overflow-auto p-2 bg-background rounded-lg border border-border/30">
+            {cards.map((name, idx) => {
+              const isCommander = name === commanderName || name === partnerCommanderName;
+              return (
+                <span
+                  key={`${name}-${idx}`}
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border ${
+                    isCommander
+                      ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+                      : 'bg-accent/50 text-foreground border-border/30'
+                  }`}
                 >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
+                  {isCommander && <CommanderIcon size={10} className="text-amber-400 shrink-0" />}
+                  <span className="truncate max-w-[180px]">{name}</span>
+                  <button
+                    onClick={() => handleRemoveCard(name)}
+                    className="hover:bg-destructive/20 rounded p-0.5 transition-colors text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              );
+            })}
           </div>
         </div>
       )}

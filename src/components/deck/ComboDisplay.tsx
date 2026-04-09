@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react';
 import type { DetectedCombo, ScryfallCard } from '@/types';
-import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
+import { getCardByName, getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -67,32 +67,36 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     return () => { cancelled = true; };
   }, [expanded]);
 
-  // Fetch card images when expanded
+  // Fetch card images when expanded (bulk batch via /cards/collection)
   useEffect(() => {
     if (!expanded) return;
 
     const allNames = [...new Set(combos.flatMap(c => c.cards))];
-    const missing = allNames.filter(n => !cardImages.has(n));
-    if (missing.length === 0) return;
+    const missing = allNames.filter(n => !cardImages.has(n) && !cardDataCache.has(n));
+    // Build images from already-cached cards first
+    const newImages = new Map(cardImages);
+    for (const name of allNames) {
+      if (newImages.has(name)) continue;
+      const cached = cardDataCache.get(name);
+      if (cached) newImages.set(name, getCardImageUrl(cached, 'small'));
+    }
+    if (missing.length === 0) {
+      if (newImages.size !== cardImages.size) setCardImages(newImages);
+      return;
+    }
 
     let cancelled = false;
 
     (async () => {
-      const newImages = new Map(cardImages);
-      for (const name of missing) {
-        if (cancelled) break;
-        try {
-          let card = cardDataCache.get(name);
-          if (!card) {
-            card = await getCardByName(name);
-            if (card) cardDataCache.set(name, card);
-          }
-          if (card) {
-            newImages.set(name, getCardImageUrl(card, 'small'));
-          }
-        } catch {
-          // skip failed fetches
+      try {
+        const cardMap = await getCardsByNames(missing);
+        if (cancelled) return;
+        for (const [name, card] of cardMap) {
+          cardDataCache.set(name, card);
+          newImages.set(name, getCardImageUrl(card, 'small'));
         }
+      } catch {
+        // skip failed bulk fetch
       }
       if (!cancelled) setCardImages(newImages);
     })();
