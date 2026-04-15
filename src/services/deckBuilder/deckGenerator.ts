@@ -30,7 +30,7 @@ import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultiple
 import { estimateBracket } from './bracketEstimator';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats } from './roleTargets';
-import type { Pacing } from '@/types';
+import type { Pacing, RoleTargetBreakdown } from '@/types';
 import { loadUserLists } from '@/hooks/useUserLists';
 
 interface GenerationContext {
@@ -1666,6 +1666,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   // Balanced roles tracking — declared at outer scope so return statement can access them
   let roleTargets: Record<RoleKey, number> | null = null;
+  let roleTargetBreakdown: Record<RoleKey, RoleTargetBreakdown> | undefined;
   let detectedArchetype: import('@/types').Archetype | undefined;
   // resolvedPacing is set after edhrecData is available; detectedPacing mirrors it for the return value
   let resolvedPacing: Pacing = 'balanced';
@@ -2323,9 +2324,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // Advanced override always takes precedence
       roleTargets = customization.advancedTargets.roleTargets as Record<RoleKey, number>;
     } else if (customization.balancedRoles) {
-      const dynamic = getDynamicRoleTargets(format, context.selectedThemes, edhrecData?.stats);
+      const dynamic = getDynamicRoleTargets(
+        format,
+        context.selectedThemes,
+        edhrecData?.stats,
+        edhrecData,
+        customization.advancedTargets?.edhrecBlendWeight ?? null,
+        customization.advancedTargets?.edhrecInclusionThreshold ?? null,
+      );
       roleTargets = dynamic.targets;
       detectedArchetype = dynamic.archetype;
+      roleTargetBreakdown = dynamic.breakdown;
       // When auto-detect is on, prefer the richer archetype-aware pacing from getDynamicRoleTargets
       if (customization.tempoAutoDetect) {
         resolvedPacing = dynamic.pacing;
@@ -3930,6 +3939,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     dataSource,
     roleCounts: roleTargets ? { ...currentRoleCounts } : undefined,
     roleTargets: roleTargets ? { ...roleTargets } : undefined,
+    roleTargetBreakdown,
     ...roleTargets ? (() => {
       const rampSub: Record<string, number> = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
       const removalSub: Record<string, number> = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
