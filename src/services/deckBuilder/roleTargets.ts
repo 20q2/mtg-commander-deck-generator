@@ -2,6 +2,16 @@ import { Archetype, type DeckFormat, type ThemeResult, type EDHRECCommanderStats
 import type { Pacing } from './themeDetector';
 import type { RoleKey } from '@/services/tagger/client';
 
+// ─── EDHREC Blend Tuning ────────────────────────────────────────────
+// Threshold for "cards in the typical deck for this commander" — a card above
+// this inclusion % is played in roughly 1 of every 4 tracked decks.
+export const EDHREC_INCLUSION_THRESHOLD = 25; // percent
+
+// Weight for the EDHREC-derived role counts in the final blended target.
+// Default 0.6 means 60% EDHREC / 40% archetype model. Overridable per-deck
+// via customization.advancedTargets.edhrecBlendWeight.
+export const EDHREC_BLEND_WEIGHT = 0.6;
+
 // ─── Theme → Archetype Mapping ──────────────────────────────────────
 
 const THEME_TO_ARCHETYPE: Record<string, Archetype> = {
