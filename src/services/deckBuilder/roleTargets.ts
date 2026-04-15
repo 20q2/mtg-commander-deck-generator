@@ -1,4 +1,4 @@
-import { Archetype, type DeckFormat, type ThemeResult, type EDHRECCommanderStats, type EDHRECCommanderData } from '@/types';
+import { Archetype, type DeckFormat, type ThemeResult, type EDHRECCommanderStats, type EDHRECCommanderData, type RoleTargetBreakdown } from '@/types';
 import type { Pacing } from './themeDetector';
 import { getCardRole, type RoleKey } from '@/services/tagger/client';
 
@@ -265,7 +265,15 @@ export function getDynamicRoleTargets(
   format: DeckFormat,
   selectedThemes?: ThemeResult[],
   edhrecStats?: EDHRECCommanderStats,
-): { targets: Record<RoleKey, number>; archetype: Archetype; pacing: Pacing } {
+  edhrecData?: EDHRECCommanderData | null,
+  overrideBlendWeight?: number | null,
+  overrideThreshold?: number | null,
+): {
+  targets: Record<RoleKey, number>;
+  archetype: Archetype;
+  pacing: Pacing;
+  breakdown: Record<RoleKey, RoleTargetBreakdown>;
+} {
   const base = getBaseRoleTargets(format);
 
   const archetype = inferArchetype(selectedThemes);
@@ -276,13 +284,35 @@ export function getDynamicRoleTargets(
     : 'balanced';
   const pacingMults = PACING_ROLE_ADJUSTMENTS[pacing];
 
+  // EDHREC-derived counts (zero-filled when edhrecData is missing)
+  const edhrecCounts = edhrecData
+    ? computeEdhrecRoleTargets(edhrecData, overrideThreshold ?? EDHREC_INCLUSION_THRESHOLD)
+    : null;
+
+  const blendWeight = Math.min(1, Math.max(0, overrideBlendWeight ?? EDHREC_BLEND_WEIGHT));
+
   const result = {} as Record<RoleKey, number>;
+  const breakdown = {} as Record<RoleKey, RoleTargetBreakdown>;
   let total = 0;
 
   for (const role of ROLE_KEYS) {
-    const raw = base[role] * archetypeMults[role] * pacingMults[role];
-    result[role] = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(raw));
-    total += result[role];
+    const archetypeTarget = base[role] * archetypeMults[role];
+    const blendedPrePacing = edhrecCounts
+      ? blendWeight * edhrecCounts[role] + (1 - blendWeight) * archetypeTarget
+      : archetypeTarget;
+    const afterPacing = blendedPrePacing * pacingMults[role];
+
+    const floor = role === 'boardwipe' ? 0 : 1;
+    const finalCount = Math.max(floor, Math.round(afterPacing));
+    result[role] = finalCount;
+    total += finalCount;
+
+    breakdown[role] = {
+      edhrecCount: edhrecCounts ? edhrecCounts[role] : null,
+      archetypeTarget: Math.round(archetypeTarget),
+      pacingMultiplier: pacingMults[role],
+      blended: finalCount,
+    };
   }
 
   // Cap total to reasonable range (scaled by format)
@@ -292,19 +322,26 @@ export function getDynamicRoleTargets(
   if (total > maxTotal) {
     const scale = maxTotal / total;
     for (const role of ROLE_KEYS) {
-      result[role] = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(result[role] * scale));
+      const floor = role === 'boardwipe' ? 0 : 1;
+      result[role] = Math.max(floor, Math.round(result[role] * scale));
+      breakdown[role].blended = result[role];
     }
   } else if (total < minTotal) {
     const scale = minTotal / total;
     for (const role of ROLE_KEYS) {
-      result[role] = Math.round(result[role] * scale);
+      const floor = role === 'boardwipe' ? 0 : 1;
+      result[role] = Math.max(floor, Math.round(result[role] * scale));
+      breakdown[role].blended = result[role];
     }
   }
 
-  console.log(`[DeckGen] Dynamic role targets: archetype=${archetype}, pacing=${pacing}`, result,
-    `(total=${Object.values(result).reduce((s, v) => s + v, 0)})`);
+  console.log(
+    `[DeckGen] Dynamic role targets: archetype=${archetype}, pacing=${pacing}, blend=${blendWeight}`,
+    result,
+    `(total=${Object.values(result).reduce((s, v) => s + v, 0)}, edhrecCounts=${edhrecCounts ? JSON.stringify(edhrecCounts) : 'null'})`,
+  );
 
-  return { targets: result, archetype, pacing };
+  return { targets: result, archetype, pacing, breakdown };
 }
 
 // ─── Recompute Role Targets for Pacing Override ─────────────────────
