@@ -1,6 +1,6 @@
-import { Archetype, type DeckFormat, type ThemeResult, type EDHRECCommanderStats } from '@/types';
+import { Archetype, type DeckFormat, type ThemeResult, type EDHRECCommanderStats, type EDHRECCommanderData } from '@/types';
 import type { Pacing } from './themeDetector';
-import type { RoleKey } from '@/services/tagger/client';
+import { getCardRole, type RoleKey } from '@/services/tagger/client';
 
 // ─── EDHREC Blend Tuning ────────────────────────────────────────────
 // Threshold for "cards in the typical deck for this commander" — a card above
@@ -11,6 +11,27 @@ export const EDHREC_INCLUSION_THRESHOLD = 25; // percent
 // Default 0.6 means 60% EDHREC / 40% archetype model. Overridable per-deck
 // via customization.advancedTargets.edhrecBlendWeight.
 export const EDHREC_BLEND_WEIGHT = 0.6;
+
+// ─── EDHREC-Derived Role Counts ─────────────────────────────────────
+// For the current commander, count cards per role whose EDHREC inclusion
+// meets the threshold. Lands are skipped (basics dominate the distribution
+// and role classification doesn't apply). Cards whose role is undefined
+// are assumed to be synergy/payoff pieces and correctly contribute nothing.
+export function computeEdhrecRoleTargets(
+  edhrecData: EDHRECCommanderData | null | undefined,
+  threshold: number = EDHREC_INCLUSION_THRESHOLD,
+): Record<RoleKey, number> {
+  const counts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  if (!edhrecData?.cardlists?.allNonLand) return counts;
+
+  for (const card of edhrecData.cardlists.allNonLand) {
+    if (card.inclusion < threshold) continue;
+    const role = getCardRole(card.name);
+    if (role) counts[role]++;
+  }
+
+  return counts;
+}
 
 // ─── Theme → Archetype Mapping ──────────────────────────────────────
 
