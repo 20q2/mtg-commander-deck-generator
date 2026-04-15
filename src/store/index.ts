@@ -198,7 +198,7 @@ const defaultCustomization: Customization = {
   currency: loadCurrency(),
   appliedExcludeLists: loadAppliedExcludeLists(),
   appliedIncludeLists: loadAppliedIncludeLists(),
-  advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null },
+  advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null, edhrecBlendWeight: null, edhrecInclusionThreshold: null },
   tempoAutoDetect: true,
   tempoPacing: 'balanced' as const,
 };

@@ -303,11 +303,11 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
   }, [commitToStore]);
 
   const resetRoles = useCallback(() => {
-    commitToStore({ roleTargets: null });
+    commitToStore({ roleTargets: null, edhrecBlendWeight: null });
   }, [commitToStore]);
 
   const resetAll = useCallback(() => {
-    updateCustomization({ advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null } });
+    updateCustomization({ advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null, edhrecBlendWeight: null, edhrecInclusionThreshold: null } });
   }, [updateCustomization]);
 
   const normalizeCurve = useCallback(() => {
@@ -451,7 +451,8 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
 
   const hasAnyOverride = advancedTargets.curvePercentages !== null
     || advancedTargets.typePercentages !== null
-    || advancedTargets.roleTargets !== null;
+    || advancedTargets.roleTargets !== null
+    || advancedTargets.edhrecBlendWeight !== null;
 
   // Closing animation state
   const [closing, setClosing] = useState(false);

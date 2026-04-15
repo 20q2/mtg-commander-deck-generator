@@ -283,6 +283,7 @@ export interface GeneratedDeck {
   dataSource?: DeckDataSource;
   roleCounts?: Record<string, number>; // Actual role counts when balanced roles mode was active
   roleTargets?: Record<string, number>; // Target role counts when balanced roles mode was active
+  roleTargetBreakdown?: Record<string, RoleTargetBreakdown>; // Per-role derivation when balanced roles mode was active
   rampSubtypeCounts?: Record<string, number>;
   removalSubtypeCounts?: Record<string, number>;
   boardwipeSubtypeCounts?: Record<string, number>;
@@ -383,11 +384,22 @@ export interface AppliedList {
 
 export type Pacing = 'aggressive-early' | 'fast-tempo' | 'balanced' | 'midrange' | 'late-game';
 
+// Per-role breakdown of how the final target count was derived.
+// Used by the optimizer UI to show an "EDHREC-typical + archetype + pacing" tooltip.
+export interface RoleTargetBreakdown {
+  edhrecCount: number | null;   // null when no EDHREC data was passed in
+  archetypeTarget: number;      // base × archetype multiplier (before blend, before pacing)
+  pacingMultiplier: number;     // pacing multiplier applied after the blend
+  blended: number;              // final target after blend + pacing + clamp
+}
+
 // Advanced deck framework targets — null fields mean "use EDHREC/fallback defaults"
 export interface AdvancedTargets {
   curvePercentages: Record<number, number> | null;   // CMC bucket → percentage of non-land cards
   typePercentages: Record<string, number> | null;    // card type → percentage of non-land cards
-  roleTargets: Record<string, number> | null;        // role → absolute count target
+  roleTargets: Record<string, number> | null;        // role → absolute count target (still wins outright when set)
+  edhrecBlendWeight: number | null;                  // 0..1, null = default (0.6). 0 = archetype only, 1 = EDHREC only.
+  edhrecInclusionThreshold: number | null;           // percent, null = default (25). Dev-only tuning knob.
 }
 
 // User customization

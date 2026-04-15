@@ -857,7 +857,7 @@ export function BuilderPage() {
                           currency,
                           appliedExcludeLists: [],
                           appliedIncludeLists: [],
-                          advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null },
+                          advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null, edhrecBlendWeight: null, edhrecInclusionThreshold: null },
                         });
                       }}
                       className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
