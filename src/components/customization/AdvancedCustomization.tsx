@@ -6,6 +6,7 @@ import { PieChart } from '@/components/ui/pie-chart';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { calculateCurvePercentages, calculateTypePercentages } from '@/services/deckBuilder/curveUtils';
+import { EDHREC_BLEND_WEIGHT } from '@/services/deckBuilder/roleTargets';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import type { AdvancedTargets } from '@/types';
 
@@ -635,6 +636,26 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
                     <div className="flex-1" />
                     <span className="text-xs font-mono text-muted-foreground/60">{otherCount}</span>
                   </div>
+                </div>
+                <div className="border-t border-border/30 mt-3 pt-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs text-foreground/80">EDHREC Match Strength</span>
+                    <span className="relative group">
+                      <Info className="w-3 h-3 text-muted-foreground/40 cursor-help" />
+                      <span className="absolute left-full top-1/2 -translate-y-1/2 ml-1.5 w-56 px-2.5 py-1.5 rounded bg-popover border border-border text-[10px] text-popover-foreground leading-tight opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-lg">
+                        How closely role targets follow this commander's typical EDHREC build vs the generic archetype model. 0% = archetype only, 100% = EDHREC only. Default 60%.
+                      </span>
+                    </span>
+                  </div>
+                  <SliderRow
+                    label="Weight"
+                    value={Math.round((advancedTargets.edhrecBlendWeight ?? EDHREC_BLEND_WEIGHT) * 100)}
+                    min={0}
+                    max={100}
+                    color={ROLE_COLORS.other}
+                    unit="%"
+                    onChange={(v) => commitToStore({ edhrecBlendWeight: v / 100 })}
+                  />
                 </div>
               </>
             )}
