@@ -3538,6 +3538,61 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       return true;
     }
 
+    // ── Phase 1: Multi-combo enablers ──
+    // Before processing individual combos, find single cards NOT in the deck that
+    // would complete the most near-miss combos. One Gravecrawler completing 5 combos
+    // is far more valuable than 2 cards completing 1 isolated combo.
+    {
+      // For each missing card across all near-miss combos, count how many combos
+      // it would complete if added (i.e., it's the ONLY missing piece for that combo).
+      const enablerScore = new Map<string, number>(); // cardName → combos it would complete
+      const enablerCombos = new Map<string, string[]>(); // cardName → combo IDs
+
+      for (const dc of detectedCombos) {
+        if (dc.isComplete) continue;
+        const trulyMissing = dc.missingCards.filter(n => !usedNames.has(n));
+        // Only count combos where this card is the sole missing piece
+        if (trulyMissing.length !== 1) continue;
+        const name = trulyMissing[0];
+        if (bannedCards.has(name) || !scryfallCardMap.has(name)) continue;
+        enablerScore.set(name, (enablerScore.get(name) ?? 0) + 1);
+        const ids = enablerCombos.get(name) ?? [];
+        ids.push(dc.comboId);
+        enablerCombos.set(name, ids);
+      }
+
+      // Sort by combos completed (descending), only consider cards completing 2+ combos
+      const topEnablers = [...enablerScore.entries()]
+        .filter(([, count]) => count >= 2)
+        .sort(([, a], [, b]) => b - a);
+
+      for (const [name, combosCompleted] of topEnablers) {
+        if (auditSwaps >= MAX_AUDIT_SWAPS) break;
+        const card = scryfallCardMap.get(name)!;
+        const weak = auditWeakest();
+        if (!weak) break;
+        auditRemove(weak.card, weak.category);
+        if (auditAdd(card)) {
+          auditSwaps++;
+          // Mark all combos this card completes
+          for (const dc of detectedCombos) {
+            if (dc.isComplete) continue;
+            const stillMissing = dc.missingCards.filter(n => !usedNames.has(n));
+            if (stillMissing.length === 0) {
+              dc.isComplete = true;
+              dc.missingCards = [];
+            }
+          }
+          // Update completeComboCards so newly completed combo pieces are protected
+          for (const dc of detectedCombos) {
+            if (dc.isComplete) for (const n of dc.cards) completeComboCards.add(n);
+          }
+          console.log(`[DeckGen] Combo audit: added multi-combo enabler ${name} (completes ${combosCompleted} combos) → evicted ${weak.card.name} (${auditInclusion.get(weak.card.name) ?? 0}%)`);
+        }
+      }
+    }
+
+    // ── Phase 2: Per-combo completion / orphan eviction (existing logic) ──
     for (const dc of detectedCombos) {
       if (dc.isComplete || auditSwaps >= MAX_AUDIT_SWAPS) continue;
 
@@ -3546,6 +3601,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       const orphans = dc.cards.filter(name => {
         if (!usedNames.has(name)) return false;
         if (auditMustInclude.has(name.toLowerCase())) return false;
+        if (completeComboCards.has(name)) return false;
         if ((cardComboCount.get(name) ?? 0) >= 2) return false;
         return (auditInclusion.get(name) ?? 0) <= ORPHAN_INCLUSION_THRESHOLD;
       });
