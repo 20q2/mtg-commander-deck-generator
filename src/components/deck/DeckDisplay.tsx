@@ -48,6 +48,7 @@ import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { analyzeDeck, getDeckSummaryData } from '@/services/deckBuilder/deckAnalyzer';
 import { HEALTH_GRADE_STYLES } from '@/components/deck/optimizer/constants';
@@ -1880,9 +1881,33 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                 >
                   <div className="flex items-center justify-between text-xs mb-0.5">
                     <span className="flex items-center gap-1.5"><Icon className="w-3 h-3 text-muted-foreground" />{label}</span>
-                    <span className={met ? 'text-emerald-500' : 'text-amber-500'}>
-                      {count}{import.meta.env.DEV && <> / {target}</>}
-                    </span>
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={met ? 'text-emerald-500 cursor-help' : 'text-amber-500 cursor-help'}>
+                            {count}{import.meta.env.DEV && <> / {target}</>}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="max-w-[260px] text-[11px] leading-snug">
+                          {(() => {
+                            const bd = generatedDeck.roleTargetBreakdown?.[key];
+                            if (!bd) {
+                              return <span>Target: {target}</span>;
+                            }
+                            return (
+                              <div className="space-y-0.5">
+                                <div className="font-semibold">Target: {bd.blended}</div>
+                                {bd.edhrecCount !== null && (
+                                  <div>EDHREC-typical: <span className="tabular-nums">{bd.edhrecCount}</span> cards tagged {label.toLowerCase()} above threshold</div>
+                                )}
+                                <div>Archetype baseline: <span className="tabular-nums">{bd.archetypeTarget}</span>{generatedDeck.detectedArchetype ? ` (${generatedDeck.detectedArchetype})` : ''}</div>
+                                <div>Pacing: <span className="tabular-nums">×{bd.pacingMultiplier.toFixed(2)}</span>{generatedDeck.detectedPacing ? ` (${generatedDeck.detectedPacing})` : ''}</div>
+                              </div>
+                            );
+                          })()}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                   <div className="h-1.5 bg-accent/50 rounded-full overflow-hidden">
                     <div
