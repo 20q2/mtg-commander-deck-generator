@@ -49,10 +49,8 @@ import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
-import { analyzeDeck, getDeckSummaryData } from '@/services/deckBuilder/deckAnalyzer';
 import { HEALTH_GRADE_STYLES } from '@/components/deck/optimizer/constants';
-import { getGenerationCacheEdhrecData } from '@/services/deckBuilder/deckGenerator';
-import { cardMatchesRole, getCardRole, type RoleKey } from '@/services/tagger/client';
+import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getCollectionNameSet } from '@/services/collection/db';
@@ -2059,7 +2057,7 @@ interface DeckDisplayProps {
 
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
-  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory, colorIdentity } = useStore();
+  const { generatedDeck, commander, customization, swapDeckCard, updateCustomization, pushDeckHistory } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -2155,10 +2153,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
   }, [generatedDeck]);
 
-  // Background deck analysis for overall grade (EA only)
+  // Sidebar grade: sourced exclusively from the Optimizer's analysis via event.
+  // No independent analysis — avoids grade mismatches between sidebar and Optimizer.
   const [overallGrade, setOverallGrade] = useState<{ letter: string; headline: string } | null>(null);
 
-  // When the Optimizer runs, it emits its grade — update sidebar to match
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -2168,69 +2166,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return () => document.removeEventListener('deck-optimizer-grade', handler);
   }, []);
 
+  // Reset grade when deck changes (new generation)
   useEffect(() => {
-    if (!generatedDeck || localStorage.getItem('ea-features-enabled') !== 'true') {
-      setOverallGrade(null);
-      return;
-    }
-    if (!generatedDeck.roleTargets) {
-      setOverallGrade(null);
-      return;
-    }
-    let cancelled = false;
-
-    const runAnalysis = (edhrecData: import('@/types').EDHRECCommanderData) => {
-      if (cancelled) return;
-      try {
-        const allCards = Object.values(generatedDeck.categories).flat();
-        // Use target format size (same as Optimizer) so grades match,
-        // not actual card count which can be 1-2 short.
-        // deckFormat already excludes the main commander; partners take one additional slot.
-        const deckSize = customization.deckFormat - (generatedDeck.partnerCommander ? 1 : 0);
-        // Recompute role counts from actual current cards (not stale generation-time counts)
-        const freshRoleCounts: Record<string, number> = {};
-        for (const card of allCards) {
-          const role = getCardRole(card.name);
-          if (role) freshRoleCounts[role] = (freshRoleCounts[role] || 0) + 1;
-        }
-        const analysis = analyzeDeck(
-          edhrecData,
-          allCards,
-          freshRoleCounts,
-          generatedDeck.roleTargets!,
-          deckSize,
-          generatedDeck.cardInclusionMap,
-          colorIdentity,
-        );
-        const summary = getDeckSummaryData(analysis);
-        if (!cancelled) setOverallGrade({ letter: summary.gradeLetter, headline: summary.headline });
-      } catch {
-        if (!cancelled) setOverallGrade(null);
-      }
-    };
-
-    // Try generation cache first (free, already fetched)
-    const cached = getGenerationCacheEdhrecData();
-    if (cached) {
-      const id = requestAnimationFrame(() => runAnalysis(cached));
-      return () => { cancelled = true; cancelAnimationFrame(id); };
-    }
-
-    // No cache — fetch EDHREC data in background (e.g. list deck view)
-    const commanderName = generatedDeck.commander?.name;
-    const partnerName = generatedDeck.partnerCommander?.name;
-    if (!commanderName) {
-      setOverallGrade(null);
-      return;
-    }
-    (partnerName
-      ? import('@/services/edhrec/client').then(m => m.fetchPartnerCommanderData(commanderName, partnerName))
-      : import('@/services/edhrec/client').then(m => m.fetchCommanderData(commanderName))
-    ).then(data => { if (!cancelled) runAnalysis(data); })
-     .catch(() => { if (!cancelled) setOverallGrade(null); });
-
-    return () => { cancelled = true; };
-  }, [generatedDeck, colorIdentity, customization.deckFormat]);
+    setOverallGrade(null);
+  }, [generatedDeck]);
 
   // Only show owned indicators if not every card in the deck is owned
   const showOwnedIndicators = useMemo(() => {
