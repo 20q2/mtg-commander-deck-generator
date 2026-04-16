@@ -614,8 +614,9 @@ function pickFromPrefetchedWithCurve(
           // User explicitly set curve targets — respect them strictly
           continue;
         }
-        // High synergy cards or high inclusion (> 40%) can break curve
-        if (!isHighSynergyCard(edhrecCard) && edhrecCard.inclusion < 40) {
+        // High synergy, high inclusion (> 40%), or high combo boost can break curve
+        const comboBoost = comboPriorityBoost?.get(edhrecCard.name) ?? 0;
+        if (!isHighSynergyCard(edhrecCard) && edhrecCard.inclusion < 40 && comboBoost < 100) {
           continue;
         }
       }
@@ -1622,6 +1623,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const existing = staticComboBoosts.get(card.name) ?? 0;
         staticComboBoosts.set(card.name, existing + staticBoost);
       }
+    }
+    // Log multi-combo enablers (cards in 2+ combos get disproportionately high boosts)
+    const multiComboCards = [...staticComboBoosts.entries()].filter(([, boost]) => boost > staticBoost);
+    if (multiComboCards.length > 0) {
+      console.log(`[DeckGen] Multi-combo enablers: ${multiComboCards.map(([name, boost]) => `${name} (${boost / staticBoost} combos, ${boost}pts)`).join(', ')}`);
     }
     console.log(`[DeckGen] Combo priority boost applied to ${staticComboBoosts.size} unique cards from top ${combosToAttempt.length} combos (static boost: ${staticBoost}pts)`);
   }
@@ -3466,7 +3472,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // After deck assembly: if a combo piece slipped in but its combo is incomplete,
   // either complete the combo (swap in missing pieces) or evict the low-value orphan.
   if (detectedCombos && edhrecData && comboCountSetting > 0) {
-    const ORPHAN_INCLUSION_THRESHOLD = 15; // below this %, the card is considered combo-dependent
+    const ORPHAN_INCLUSION_THRESHOLD = 25; // below this %, the card is considered combo-dependent
     const MAX_AUDIT_SWAPS = 4;
     let auditSwaps = 0;
 
@@ -3484,6 +3490,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const completeComboCards = new Set<string>();
     for (const dc of detectedCombos) {
       if (dc.isComplete) for (const name of dc.cards) completeComboCards.add(name);
+    }
+
+    // Count how many detected combos (complete or near-miss) each card appears in.
+    // Cards in 2+ combos are valuable enablers and should not be treated as orphans.
+    const cardComboCount = new Map<string, number>();
+    for (const dc of detectedCombos) {
+      for (const name of dc.cards) {
+        if (usedNames.has(name)) cardComboCount.set(name, (cardComboCount.get(name) ?? 0) + 1);
+      }
     }
 
     // Helper: find the weakest (lowest inclusion%) evictable non-land card
@@ -3526,10 +3541,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     for (const dc of detectedCombos) {
       if (dc.isComplete || auditSwaps >= MAX_AUDIT_SWAPS) continue;
 
-      // Find in-deck pieces that only justify their slot because of this combo
+      // Find in-deck pieces that only justify their slot because of this combo.
+      // Cards in 2+ combos are valuable enablers — never treat them as orphans.
       const orphans = dc.cards.filter(name => {
         if (!usedNames.has(name)) return false;
         if (auditMustInclude.has(name.toLowerCase())) return false;
+        if ((cardComboCount.get(name) ?? 0) >= 2) return false;
         return (auditInclusion.get(name) ?? 0) <= ORPHAN_INCLUSION_THRESHOLD;
       });
 
