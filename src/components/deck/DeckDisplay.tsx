@@ -2174,7 +2174,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         const allCards = Object.values(generatedDeck.categories).flat();
         // Use target format size (same as Optimizer) so grades match,
         // not actual card count which can be 1-2 short.
-        const deckSize = customization.deckFormat - (generatedDeck.partnerCommander ? 2 : 1);
+        // deckFormat already excludes the main commander; partners take one additional slot.
+        const deckSize = customization.deckFormat - (generatedDeck.partnerCommander ? 1 : 0);
         // Recompute role counts from actual current cards (not stale generation-time counts)
         const freshRoleCounts: Record<string, number> = {};
         for (const card of allCards) {
