@@ -2157,6 +2157,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
   // Background deck analysis for overall grade (EA only)
   const [overallGrade, setOverallGrade] = useState<{ letter: string; headline: string } | null>(null);
+
+  // When the Optimizer runs, it emits its grade — update sidebar to match
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.letter) setOverallGrade({ letter: detail.letter, headline: detail.headline });
+    };
+    document.addEventListener('deck-optimizer-grade', handler);
+    return () => document.removeEventListener('deck-optimizer-grade', handler);
+  }, []);
+
   useEffect(() => {
     if (!generatedDeck || localStorage.getItem('ea-features-enabled') !== 'true') {
       setOverallGrade(null);

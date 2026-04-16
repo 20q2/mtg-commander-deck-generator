@@ -8,7 +8,7 @@ import type { ScryfallCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { loadTaggerData, getCardRole } from '@/services/tagger/client';
-import { analyzeDeck, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
+import { analyzeDeck, getDeckSummaryData, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
 import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -392,6 +392,12 @@ export function DeckOptimizer({
       setAddedCards(new Set());
       setLoading(false); // Dashboard visible NOW
 
+      // Emit grade to sidebar so both display the same result
+      const baseSummary = getDeckSummaryData(baseResult);
+      document.dispatchEvent(new CustomEvent('deck-optimizer-grade', {
+        detail: { letter: baseSummary.gradeLetter, headline: baseSummary.headline },
+      }));
+
       // ── Phase 2: Theme detection (non-blocking) ──
       const topThemes = (edhrecData.themes || []).slice(0, 4);
       if (topThemes.length === 0) return; // no themes available
@@ -694,6 +700,7 @@ export function DeckOptimizer({
   const { customization, updateCustomization, pushDeckHistory } = useStore();
   const storeSelectedThemes = useStore(s => s.selectedThemes);
   const usedThemes = useStore(s => s.generatedDeck?.usedThemes);
+  const detectedCombos = useStore(s => s.generatedDeck?.detectedCombos);
   const displayThemeNames = useMemo(() => {
     // 1. If user selected themes in the optimizer, show those
     if (primaryThemeSlug || secondaryThemeSlug) {
@@ -1013,6 +1020,7 @@ export function DeckOptimizer({
             cardInclusionMap={cardInclusionMap}
             mustIncludeNames={menuProps.mustIncludeNames}
             bannedNames={menuProps.bannedNames}
+            detectedCombos={detectedCombos}
             onApply={handleApplyOptimize}
             onBack={() => setOptimizeView(false)}
             onPreview={handlePreview}
