@@ -28,7 +28,7 @@ import {
 } from './curveUtils';
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
-import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
+import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats } from './roleTargets';
 import type { Pacing, RoleTargetBreakdown } from '@/types';
 import { loadUserLists } from '@/hooks/useUserLists';
@@ -4088,5 +4088,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     detectedPacing,
     bracketEstimation,
     gameChangerNames: [...gameChangerNames],
+    deckGrade: (() => {
+      if (!edhrecData || !roleTargets) return undefined;
+      try {
+        const allCards = Object.values(categories).flat();
+        const analysis = analyzeDeck(
+          edhrecData, allCards, currentRoleCounts, roleTargets,
+          format, cardInclusionMap, context.colorIdentity,
+        );
+        const summary = getDeckSummaryData(analysis);
+        return { letter: summary.gradeLetter, headline: summary.headline };
+      } catch { return undefined; }
+    })(),
   };
 }

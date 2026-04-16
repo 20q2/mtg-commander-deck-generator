@@ -297,6 +297,7 @@ export interface GeneratedDeck {
   detectedPacing?: Pacing; // Pacing estimated from EDHREC stats at generation time
   bracketEstimation?: import('@/services/deckBuilder/bracketEstimator').BracketEstimation;
   gameChangerNames?: string[]; // Cached for bracket re-estimation on swap (avoids async)
+  deckGrade?: { letter: string; headline: string }; // Overall grade computed at end of generation
 }
 
 export interface DeckStats {

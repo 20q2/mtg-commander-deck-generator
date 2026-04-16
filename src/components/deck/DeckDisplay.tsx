@@ -2153,9 +2153,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
   }, [generatedDeck]);
 
-  // Sidebar grade: sourced exclusively from the Optimizer's analysis via event.
-  // No independent analysis — avoids grade mismatches between sidebar and Optimizer.
+  // Sidebar grade: computed at the end of deck generation, stored on the deck object.
+  // Optimizer may update it via event if the user makes changes (swaps, theme changes, etc.)
   const [overallGrade, setOverallGrade] = useState<{ letter: string; headline: string } | null>(null);
+
+  useEffect(() => {
+    setOverallGrade(generatedDeck?.deckGrade ?? null);
+  }, [generatedDeck]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2165,11 +2169,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     document.addEventListener('deck-optimizer-grade', handler);
     return () => document.removeEventListener('deck-optimizer-grade', handler);
   }, []);
-
-  // Reset grade when deck changes (new generation)
-  useEffect(() => {
-    setOverallGrade(null);
-  }, [generatedDeck]);
 
   // Only show owned indicators if not every card in the deck is owned
   const showOwnedIndicators = useMemo(() => {
