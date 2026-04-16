@@ -1612,8 +1612,37 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Scale combo attempts by deck size (baseline: 99 cards → 1→2, 2→4, 3→7)
     const sizeScale = Math.max(0.5, format / 99);
     const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 2.33 * sizeScale));
-    const combosToAttempt = combos.slice(0, comboSliceCount)
-      .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)));
+
+    // Build inclusion index for this commander so we can prefer combos whose pieces
+    // actually appear in this commander's typical builds over globally-popular combos.
+    const comboInclusionIndex = new Map<string, number>();
+    if (edhrecData) {
+      for (const c of edhrecData.cardlists.allNonLand) comboInclusionIndex.set(c.name, c.inclusion);
+    }
+
+    // Score each combo by: EDHREC rank (already sorted) + relevance to this commander.
+    // A combo where all pieces have 0% inclusion is deprioritized vs one with pieces
+    // that players of this commander actually run.
+    const scoredCombos = combos
+      .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)))
+      .map(combo => {
+        const avgInclusion = combo.cards.reduce((sum, c) => sum + (comboInclusionIndex.get(c.name) ?? 0), 0) / combo.cards.length;
+        // Rank score: lower rank = better (invert so higher is better)
+        const rankScore = Math.max(0, 100 - combo.rank);
+        // Relevance score: average inclusion % of combo pieces for this commander
+        const relevanceScore = avgInclusion * 2;
+        // Fewer pieces = easier to assemble
+        const pieceBonus = combo.cards.length <= 2 ? 10 : 0;
+        return { combo, score: rankScore + relevanceScore + pieceBonus };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    const combosToAttempt = scoredCombos.slice(0, comboSliceCount).map(s => s.combo);
+    console.log(`[DeckGen] Combo selection (top ${comboSliceCount} of ${scoredCombos.length}):`,
+      scoredCombos.slice(0, comboSliceCount).map(s => {
+        const avgIncl = s.combo.cards.reduce((sum, c) => sum + (comboInclusionIndex.get(c.name) ?? 0), 0) / s.combo.cards.length;
+        return `${s.combo.cards.map(c => c.name).join(' + ')} (score=${s.score.toFixed(0)}, avgIncl=${avgIncl.toFixed(0)}%)`;
+      }));
     const staticBoost = 75 * comboCountSetting; // 1→75, 2→150, 3→225
     for (const combo of combosToAttempt) {
       const cardSet = new Set(combo.cards.map(c => c.name));
