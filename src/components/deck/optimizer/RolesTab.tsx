@@ -4,6 +4,7 @@ import type { ScryfallCard } from '@/types';
 import type { RoleBreakdown, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getRoleVerdict } from '@/services/deckBuilder/deckAnalyzer';
 import { useStore } from '@/store';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { roleBarColor, ROLE_META, VERDICT_STYLES, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
@@ -26,6 +27,7 @@ export function RoleSummaryStrip({
 }) {
   const detectedArchetype = useStore(s => s.generatedDeck?.detectedArchetype);
   const detectedPacing = useStore(s => s.generatedDeck?.detectedPacing);
+  const roleTargetBreakdown = useStore(s => s.generatedDeck?.roleTargetBreakdown);
   const hasContext = detectedArchetype && detectedArchetype !== 'goodstuff';
 
   return (
@@ -70,7 +72,29 @@ export function RoleSummaryStrip({
               <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
                 {rb.current}
               </span>
-              <span className="text-[11px] text-muted-foreground text-right">at least {rb.target}</span>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-[11px] text-muted-foreground text-right cursor-help">at least {rb.target}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[260px] text-[11px] leading-snug">
+                    {(() => {
+                      const bd = roleTargetBreakdown?.[rb.role];
+                      if (!bd) return <span>Target: {rb.target}</span>;
+                      return (
+                        <div className="space-y-0.5">
+                          <div className="font-semibold">Target: {bd.blended}</div>
+                          {bd.edhrecCount !== null && (
+                            <div>EDHREC-typical: <span className="tabular-nums">{bd.edhrecCount}</span> cards tagged {rb.label.toLowerCase()} above threshold</div>
+                          )}
+                          <div>Archetype baseline: <span className="tabular-nums">{bd.archetypeTarget}</span>{detectedArchetype ? ` (${detectedArchetype})` : ''}</div>
+                          <div>Pacing: <span className="tabular-nums">×{bd.pacingMultiplier.toFixed(2)}</span>{detectedPacing ? ` (${detectedPacing})` : ''}</div>
+                        </div>
+                      );
+                    })()}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
               <div className="h-full rounded-full animate-bar-grow" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
