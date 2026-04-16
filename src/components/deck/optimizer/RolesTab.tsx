@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { Shield, Check } from 'lucide-react';
+import { Shield, Check, Info } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { RoleBreakdown, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getRoleVerdict } from '@/services/deckBuilder/deckAnalyzer';
 import { useStore } from '@/store';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { roleBarColor, ROLE_META, VERDICT_STYLES, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
@@ -72,29 +72,38 @@ export function RoleSummaryStrip({
               <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
                 {rb.current}
               </span>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="text-[11px] text-muted-foreground text-right cursor-help">at least {rb.target}</span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-[260px] text-[11px] leading-snug">
+              <span className="flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground text-right">at least {rb.target}</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-0.5 rounded hover:bg-accent/60 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                    >
+                      <Info className="w-3 h-3" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="bottom" align="center" className="w-64 p-3 text-xs text-muted-foreground leading-relaxed space-y-2" onClick={(e) => e.stopPropagation()}>
                     {(() => {
                       const bd = roleTargetBreakdown?.[rb.role];
-                      if (!bd) return <span>Target: {rb.target}</span>;
+                      if (!bd) return <p>Target: {rb.target}</p>;
                       return (
-                        <div className="space-y-0.5">
-                          <div className="font-semibold">Target: {bd.blended}</div>
+                        <>
+                          <p className="font-semibold text-foreground/80">Target Breakdown</p>
                           {bd.edhrecCount !== null && (
-                            <div>EDHREC-typical: <span className="tabular-nums">{bd.edhrecCount}</span> cards tagged {rb.label.toLowerCase()} above threshold</div>
+                            <p><span className="font-semibold text-sky-400 tabular-nums">{bd.edhrecCount}</span> — EDHREC-typical {rb.label.toLowerCase()} cards above 25% inclusion</p>
                           )}
-                          <div>Archetype baseline: <span className="tabular-nums">{bd.archetypeTarget}</span>{detectedArchetype ? ` (${detectedArchetype})` : ''}</div>
-                          <div>Pacing: <span className="tabular-nums">×{bd.pacingMultiplier.toFixed(2)}</span>{detectedPacing ? ` (${detectedPacing})` : ''}</div>
-                        </div>
+                          <p><span className="font-semibold text-amber-400 tabular-nums">{bd.archetypeTarget}</span> — Archetype baseline{detectedArchetype ? ` (${detectedArchetype})` : ''}</p>
+                          <p><span className="font-semibold text-purple-400 tabular-nums">x{bd.pacingMultiplier.toFixed(2)}</span> — Pacing multiplier{detectedPacing ? ` (${detectedPacing})` : ''}</p>
+                          <p className="border-t border-border/30 pt-2 text-muted-foreground/60">
+                            Final target blends EDHREC data (60%) with the archetype model (40%), then applies pacing.
+                          </p>
+                        </>
                       );
                     })()}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                  </PopoverContent>
+                </Popover>
+              </span>
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
               <div className="h-full rounded-full animate-bar-grow" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
