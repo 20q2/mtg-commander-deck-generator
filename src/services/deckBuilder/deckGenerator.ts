@@ -1147,7 +1147,8 @@ async function generateLands(
   collectionStrategy: CollectionStrategy = 'full',
   collectionOwnedPercent: number = 100,
   ignoreOwnedBudget: boolean = false,
-  pacing: Pacing = 'balanced'
+  pacing: Pacing = 'balanced',
+  priorityBoosts?: Map<string, number>,
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1194,6 +1195,13 @@ async function generateLands(
           const penalty = isMdfcLand(card) ? Math.round(basePenalty / 2) : basePenalty;
           landPenalties.set(name, penalty);
         }
+      }
+    }
+
+    // Merge external priority boosts (e.g. channel land bonus) into the penalty/boost map
+    if (priorityBoosts) {
+      for (const [name, boost] of priorityBoosts) {
+        landPenalties.set(name, (landPenalties.get(name) ?? 0) + boost);
       }
     }
 
@@ -2700,6 +2708,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...categories.utility,
       ...categories.synergy,
     ];
+
+    // Build channel land priority boosts so generateLands can prioritize them
+    const channelLandBoosts = new Map<string, number>();
+    for (const [name, card] of cardMap) {
+      if ((card as ScryfallCard & { isChannelLand?: boolean }).isChannelLand) {
+        channelLandBoosts.set(name, 40);
+      }
+    }
+
     categories.lands = [
       ...mustIncludeLands,
       ...await generateLands(
@@ -2724,7 +2741,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         collectionStrategy,
         collectionOwnedPercent,
         ignoreOwnedBudget,
-        resolvedPacing
+        resolvedPacing,
+        channelLandBoosts.size > 0 ? channelLandBoosts : undefined,
       ),
     ];
 
@@ -2990,7 +3008,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         collectionStrategy,
         collectionOwnedPercent,
         ignoreOwnedBudget,
-        resolvedPacing
+        resolvedPacing,
       ),
     ];
   }

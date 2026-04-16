@@ -2172,7 +2172,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       if (cancelled) return;
       try {
         const allCards = Object.values(generatedDeck.categories).flat();
-        const deckSize = generatedDeck.stats.totalCards;
+        // Use target format size (same as Optimizer) so grades match,
+        // not actual card count which can be 1-2 short.
+        const deckSize = customization.deckFormat - (generatedDeck.partnerCommander ? 2 : 1);
         // Recompute role counts from actual current cards (not stale generation-time counts)
         const freshRoleCounts: Record<string, number> = {};
         for (const card of allCards) {
