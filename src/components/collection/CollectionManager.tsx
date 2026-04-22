@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { useCollection } from '@/hooks/useCollection';
@@ -608,10 +609,11 @@ export function CollectionManager() {
 
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} onBuildDeck={handleBuildDeck} />
 
-      {copiedCount !== null && (
+      {copiedCount !== null && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-2 bg-emerald-500/90 text-white text-sm rounded-lg shadow-lg animate-fade-in">
           Copied {copiedCount} cards to clipboard!
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

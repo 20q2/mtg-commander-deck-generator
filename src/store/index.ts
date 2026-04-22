@@ -187,6 +187,7 @@ const defaultCustomization: Customization = {
   maxRarity: null,
   tinyLeaders: false,
   ignoreOwnedBudget: false,
+  ignoreOwnedRarity: false,
   collectionMode: false,
   collectionStrategy: 'full' as const,
   collectionOwnedPercent: 75,

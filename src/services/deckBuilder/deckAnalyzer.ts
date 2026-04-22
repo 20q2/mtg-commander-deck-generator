@@ -1816,6 +1816,11 @@ export function analyzeDeck(
       case 'ramp':      subtype = card.rampSubtype      || card.cardDrawSubtype || card.removalSubtype || card.boardwipeSubtype; break;
       default:          subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype; break;
     }
+    let subtypeLabel = subtype ? SUBTYPE_LABELS[subtype] || subtype : undefined;
+    // Lands with ramp role get their own subcategory
+    if (targetRole === 'ramp' && card.type_line?.includes('Land')) {
+      subtypeLabel = 'Ramp Land';
+    }
     return {
       card,
       inclusion: incMap[card.name] ?? null,
@@ -1823,7 +1828,7 @@ export function analyzeDeck(
       role: card.deckRole || undefined,
       roleLabel: card.deckRole ? ROLE_LABELS[card.deckRole] : undefined,
       subtype: subtype || undefined,
-      subtypeLabel: subtype ? SUBTYPE_LABELS[subtype] || subtype : undefined,
+      subtypeLabel,
     };
   }
 
@@ -1866,12 +1871,13 @@ export function analyzeDeck(
   }
 
   const roleBreakdowns: RoleBreakdown[] = Object.entries(roleTargets).map(([role, target]) => {
-    const current = roleCounts[role] || 0;
-    const deficit = Math.max(0, target - current);
     const roleCards = currentCards
       .filter(c => c.deckRole === role || cardMatchesRole(c.name, role as RoleKey))
       .map(c => makeAnalyzedCard(c, role))
       .sort(sortByInclusion);
+    // Use card list length so lands with roles are included in the displayed count
+    const current = roleCards.length;
+    const deficit = Math.max(0, target - current);
 
     // Gather candidates that match this role, sorted by composite score
     const seen = new Set<string>();

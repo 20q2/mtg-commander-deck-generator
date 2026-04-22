@@ -1078,6 +1078,20 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                   </button>
                 ))}
               </div>
+              {customization.maxRarity !== null && collectionCount > 0 && (
+                <label className="flex items-center gap-3 mt-2 ml-3 select-none group cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={customization.ignoreOwnedRarity}
+                    onChange={(e) => updateCustomization({ ignoreOwnedRarity: e.target.checked })}
+                    className="rounded border-border accent-primary w-4 h-4"
+                  />
+                  <span className="text-sm font-medium group-hover:text-primary transition-colors">
+                    Owned Cards Skip Rarity
+                  </span>
+                  <InfoTooltip text="Owned cards won't be restricted by the max rarity setting. Useful when you already own rares/mythics you want to include." />
+                </label>
+              )}
             </div>
 
             {/* Tiny Leaders */}

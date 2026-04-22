@@ -555,6 +555,8 @@ export function BuilderPage() {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }
       setGeneratedDeck(deck);
+      // Scroll to top after view swaps from settings to deck display
+      requestAnimationFrame(() => window.scrollTo({ top: 0 }));
       setSavedToList(false);
       trackEvent('deck_generated', {
         commanderName: cmd.name,

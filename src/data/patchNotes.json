@@ -1,13 +1,22 @@
 [
   {
+    "version": "1.2.22",
+    "notes": [
+      "Moved the Modify Deck button next to the view toggle for easier access",
+      "Fixed text editor showing false changes for double-faced cards on freshly generated decks",
+      "Owned Cards Skip Rarity feature"
+    ]
+  },
+  {
     "version": "1.2.21",
     "notes": [
       "Greatly rebalanced the way the deck generator handles combos, synergy combos should show up with greater frequency than simply popular combos now",
+      "Category (ramp/card advantage etc) number recommendations are now based on averge decks for your commander",
       "Two sided cards with '//' in their name should import correctly now",
       "Channel lands and MDFC lands should show up more frequently when generating decks",
       "Inclusion score updated to be more accurrate to our internal ranking system",
       "Fixed deck generator producing too few lands when using a large must-include list",
-      "Cards from include lists are now properly protected during deck balancing"      
+      "Cards from include lists are now properly protected during deck balancing"
     ]
   },
   {

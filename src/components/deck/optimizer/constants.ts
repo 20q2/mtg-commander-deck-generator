@@ -112,6 +112,7 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
   'Mana Rock': 'bg-emerald-500/15 text-emerald-400/80',
   'Cost Reducer': 'bg-emerald-500/15 text-emerald-400/80',
   'Ramp': 'bg-emerald-500/15 text-emerald-400/80',
+  'Ramp Land': 'bg-emerald-500/15 text-emerald-400/80',
   'Counter': 'bg-rose-500/15 text-rose-400/80',
   'Bounce': 'bg-rose-500/15 text-rose-400/80',
   'Spot Removal': 'bg-rose-500/15 text-rose-400/80',
@@ -138,6 +139,7 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   'Mana Dork': Sprout as typeof Sparkles,
   'Mana Rock': Sprout as typeof Sparkles,
   'Cost Reducer': Sprout as typeof Sparkles,
+  'Ramp Land': MapPin as typeof Sparkles,
   // Removal subtypes
   'Counter': Swords as typeof Sparkles,
   'Bounce': Swords as typeof Sparkles,
@@ -216,7 +218,7 @@ export function tileGradeStyles(letter: string) {
 // ─── Role Known Subtypes ─────────────────────────────────────────────
 
 export const ROLE_KNOWN_SUBTYPES: Record<string, Set<string>> = {
-  ramp: new Set(['Mana Dork', 'Mana Rock', 'Cost Reducer', 'Ramp']),
+  ramp: new Set(['Mana Dork', 'Mana Rock', 'Cost Reducer', 'Ramp', 'Ramp Land']),
   removal: new Set(['Counter', 'Bounce', 'Spot Removal', 'Removal']),
   boardwipe: new Set(['Bounce Wipe', 'Board Wipe']),
   cardDraw: new Set(['Tutor', 'Wheel', 'Cantrip', 'Card Draw', 'Card Advantage']),

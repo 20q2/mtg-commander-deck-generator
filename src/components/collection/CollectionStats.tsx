@@ -36,59 +36,6 @@ const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment',
 const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 const PIE_COLORS = [...COLOR_ORDER, 'M' as const, 'C' as const];
 
-function PieChart({ data, size = 80 }: { data: { key: string; value: number; color: string }[]; size?: number }) {
-  const total = data.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return null;
-
-  const r = size / 2;
-  const cx = r;
-  const cy = r;
-  const ir = r * 0.55; // donut inner radius
-
-  let cumAngle = -Math.PI / 2; // start from top
-  const slices = data.filter(d => d.value > 0).map(d => {
-    const angle = (d.value / total) * Math.PI * 2;
-    const startAngle = cumAngle;
-    cumAngle += angle;
-    const endAngle = cumAngle;
-
-    // For a single slice that takes the whole pie
-    if (angle >= Math.PI * 2 - 0.001) {
-      return (
-        <g key={d.key}>
-          <circle cx={cx} cy={cy} r={r} fill={d.color} />
-          <circle cx={cx} cy={cy} r={ir} fill="hsl(var(--card))" />
-        </g>
-      );
-    }
-
-    const largeArc = angle > Math.PI ? 1 : 0;
-    const x1o = cx + r * Math.cos(startAngle);
-    const y1o = cy + r * Math.sin(startAngle);
-    const x2o = cx + r * Math.cos(endAngle);
-    const y2o = cy + r * Math.sin(endAngle);
-    const x1i = cx + ir * Math.cos(endAngle);
-    const y1i = cy + ir * Math.sin(endAngle);
-    const x2i = cx + ir * Math.cos(startAngle);
-    const y2i = cy + ir * Math.sin(startAngle);
-
-    const path = [
-      `M ${x1o} ${y1o}`,
-      `A ${r} ${r} 0 ${largeArc} 1 ${x2o} ${y2o}`,
-      `L ${x1i} ${y1i}`,
-      `A ${ir} ${ir} 0 ${largeArc} 0 ${x2i} ${y2i}`,
-      'Z',
-    ].join(' ');
-
-    return <path key={d.key} d={path} fill={d.color} />;
-  });
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {slices}
-    </svg>
-  );
-}
 
 export function CollectionStats({ cards }: CollectionStatsProps) {
   const stats = useMemo(() => {
@@ -149,37 +96,44 @@ export function CollectionStats({ cards }: CollectionStatsProps) {
   const totalRarityCards = Object.values(stats.rarityCounts).reduce((s, v) => s + v, 0);
   const maxRarityCount = Math.max(...Object.values(stats.rarityCounts));
 
-  // Pie chart data
-  const pieData = PIE_COLORS.map(c => ({
-    key: c,
-    value: stats.colorCounts[c] || 0,
-    color: c === 'C' ? '#6B7280' : c === 'M' ? '#D4A843' : COLOR_HEX[c],
-  }));
-
   return (
     <div className="grid sm:grid-cols-3 gap-3">
-      {/* Colors — pie chart */}
-      <div className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-3 space-y-2.5">
+      {/* Colors — horizontal bars */}
+      <div className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-3 space-y-2">
         <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Colors</h3>
-        <div className="flex items-center gap-4">
-          <PieChart data={pieData} size={72} />
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 flex-1">
-            {PIE_COLORS.map(c => {
-              const count = stats.colorCounts[c] || 0;
-              if (count === 0) return null;
-              const bg = c === 'C' ? '#6B7280' : c === 'M' ? '#D4A843' : COLOR_HEX[c];
-              return (
-                <div key={c} className="flex items-center gap-1.5" title={COLOR_LABELS[c]}>
-                  {c !== 'M' && c !== 'C' ? (
-                    <i className={`ms ms-${c.toLowerCase()} ms-cost text-xs`} style={{ opacity: 0.85 }} />
-                  ) : (
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: bg }} />
-                  )}
-                  <span className="text-[10px] text-muted-foreground tabular-nums">{count}</span>
+        <div className="space-y-1.5">
+          {PIE_COLORS.map(c => {
+            const count = stats.colorCounts[c] || 0;
+            if (count === 0) return null;
+            const bg = c === 'C' ? '#6B7280' : c === 'M' ? '#D4A843' : COLOR_HEX[c];
+            const maxColorCount = Math.max(...PIE_COLORS.map(k => stats.colorCounts[k] || 0));
+            const fillPct = maxColorCount > 0 ? (count / maxColorCount) * 100 : 0;
+            const pctOfTotal = ((count / cards.length) * 100).toFixed(0);
+            return (
+              <div key={c} className="space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    {c === 'M' ? (
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: bg }} />
+                    ) : (
+                      <i className={`ms ms-${c.toLowerCase()} ms-cost text-xs`} style={{ opacity: 0.85 }} />
+                    )}
+                    <span className="text-[11px] text-muted-foreground">{COLOR_LABELS[c]}</span>
+                  </div>
+                  <span className="text-[11px] tabular-nums">
+                    <span className="text-foreground font-medium">{count}</span>
+                    <span className="text-muted-foreground/60 ml-1">({pctOfTotal}%)</span>
+                  </span>
                 </div>
-              );
-            })}
-          </div>
+                <div className="h-1.5 bg-border/30 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${fillPct}%`, backgroundColor: bg }}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

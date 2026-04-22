@@ -1087,7 +1087,9 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
       const match = line.match(/^(\d+)\s+(.+)/);
       if (!match) continue;
       const qty = parseInt(match[1], 10);
-      const name = match[2].trim().toLowerCase();
+      const raw = match[2].trim();
+      // Strip DFC back face to match parseCollectionList normalization
+      const name = raw.replace(/\s*\/\/\s*.+$/, '').trim().toLowerCase();
       map.set(name, (map.get(name) || 0) + qty);
     }
     return map;
@@ -3179,47 +3181,46 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               )}
             </div>
 
-            {/* Modify Deck */}
-            {!readOnly && !isEditMode && (
-              <button
-                onClick={() => setIsEditMode(true)}
-                className="flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                title="Modify Deck"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Modify Deck</span>
-              </button>
-            )}
-            {!readOnly && isEditMode && (
-              <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-                Exit Modify
-              </button>
-            )}
-
-            {/* View Toggle + Text Editor — pushed to flex-end */}
-            <div className="ml-auto flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-              <button
-                onClick={() => setShowTextEditor(v => !v)}
-                className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
-              >
-                <FileText className="w-4 h-4" />
-              </button>
-              <div className="w-px h-4 bg-border/60 mx-1" />
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="Grid view"
-              >
-                <Grid3X3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="List view"
-              >
-                <List className="w-4 h-4" />
-              </button>
+            {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
+            <div className="ml-auto flex items-center gap-1.5">
+              {!readOnly && !isEditMode && (
+                <button
+                  onClick={() => setIsEditMode(true)}
+                  className="flex items-center bg-card/50 rounded-lg p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Modify Deck"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+              )}
+              {!readOnly && isEditMode && (
+                <button onClick={handleExitEditMode} className="flex items-center bg-card/50 rounded-lg px-2.5 py-1.5 border border-border/50 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+                  Exit Modify
+                </button>
+              )}
+              <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+                <button
+                  onClick={() => setShowTextEditor(v => !v)}
+                  className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
+                >
+                  <FileText className="w-4 h-4" />
+                </button>
+                <div className="w-px h-4 bg-border/60 mx-1" />
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  title="Grid view"
+                >
+                  <Grid3X3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  title="List view"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
 
@@ -3410,47 +3411,46 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             )}
           </div>
 
-          {/* Modify Deck — mobile/tablet only (on xl it's in sidebar) */}
-          {!readOnly && !isEditMode && (
-            <button
-              onClick={() => setIsEditMode(true)}
-              className="xl:hidden flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Modify Deck"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              <span>Modify Deck</span>
-            </button>
-          )}
-          {!readOnly && isEditMode && (
-            <button onClick={handleExitEditMode} className="xl:hidden w-full sm:w-auto px-2 py-2 sm:py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-              Exit Modify
-            </button>
-          )}
-
-          {/* View Toggle + Text Editor — pushed to flex-end */}
-          <div className="ml-auto flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-            <button
-              onClick={() => setShowTextEditor(v => !v)}
-              className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
-            >
-              <FileText className="w-4 h-4" />
-            </button>
-            <div className="w-px h-4 bg-border/60 mx-1" />
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              title="Grid view"
-            >
-              <Grid3X3 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              title="List view"
-            >
-              <List className="w-4 h-4" />
-            </button>
+          {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
+          <div className="ml-auto flex items-center gap-1.5">
+            {!readOnly && !isEditMode && (
+              <button
+                onClick={() => setIsEditMode(true)}
+                className="flex items-center bg-card/50 rounded-md p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+                title="Modify Deck"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            )}
+            {!readOnly && isEditMode && (
+              <button onClick={handleExitEditMode} className="flex items-center bg-card/50 rounded-lg px-2.5 py-1.5 border border-border/50 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+                Exit Modify
+              </button>
+            )}
+            <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+              <button
+                onClick={() => setShowTextEditor(v => !v)}
+                className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+              <div className="w-px h-4 bg-border/60 mx-1" />
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title="Grid view"
+              >
+                <Grid3X3 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                title="List view"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -3743,20 +3743,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             <div className="mb-4 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  {!readOnly && !isEditMode && (
-                    <button
-                      onClick={() => setIsEditMode(true)}
-                      className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                      title="Modify Deck"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  )}
-                  {!readOnly && isEditMode && (
-                    <button onClick={handleExitEditMode} className="px-2 py-1.5 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-                      Exit Modify
-                    </button>
-                  )}
                   {sidebarLeftActions}
                 </div>
                 {sidebarHeader || deckSummary}

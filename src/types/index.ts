@@ -430,6 +430,7 @@ export interface Customization {
   hyperFocus: boolean; // When true, boost unique theme cards and penalize generic multi-theme cards
   balancedRoles: boolean; // When true, boost cards that fill underrepresented functional roles (ramp, removal, etc.)
   ignoreOwnedBudget: boolean; // When true, owned cards don't count against budget limits
+  ignoreOwnedRarity: boolean; // When true, owned cards skip max-rarity restriction
   currency: 'USD' | 'EUR'; // Price currency for budget filtering and display
   appliedExcludeLists: AppliedList[]; // User lists toggled on as exclude lists
   appliedIncludeLists: AppliedList[]; // User lists toggled on as must-include lists
