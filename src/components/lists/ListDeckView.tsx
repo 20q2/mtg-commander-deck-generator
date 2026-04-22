@@ -12,7 +12,6 @@ import { TestHand } from '@/components/deck/TestHand';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { DeckOptimizer } from '@/components/deck/optimizer';
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
 
