@@ -19,7 +19,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
@@ -978,6 +978,11 @@ const BASIC_LAND_NAMES = new Set([
 // ============================================================
 const DEFAULT_MULTI_COPY_COUNT = 15; // Fallback when EDHREC average deck is unavailable
 
+/** Priority boost for Kamigawa channel lands — near-auto-includes in their color. */
+export const CHANNEL_LAND_BOOST = 80;
+/** Priority boost for MDFC spell/lands — strictly better than spell-only equivalents. */
+export const MDFC_LAND_BOOST = 50;
+
 const TAPLAND_PENALTIES: Record<Pacing, number> = {
   'aggressive-early': -30,
   'fast-tempo': -20,
@@ -1171,11 +1176,22 @@ async function generateLands(
     onProgress?.('Discovering exotic lands...', 82);
     console.log(`[DeckGen] Picking ${nonBasicTarget} non-basic lands from ${nonBasicEdhrecLands.length} EDHREC suggestions`);
 
-    // Batch fetch candidate lands
+    // Batch fetch candidate lands — fetch more than needed to account for filtering
     const landNamesToFetch = nonBasicEdhrecLands
       .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
-      .slice(0, nonBasicTarget * 2)  // Fetch more than needed to account for filtering
+      .slice(0, nonBasicTarget * 2)
       .map(c => c.name);
+
+    // Ensure channel lands for this color identity are always fetched and in
+    // the candidate list, even if EDHREC doesn't recommend them for this commander
+    const edhrecLandNames = new Set(nonBasicEdhrecLands.map(c => c.name));
+    for (const [name, color] of Object.entries(CHANNEL_LANDS)) {
+      if (!colorIdentity.includes(color) || usedNames.has(name) || bannedCards.has(name)) continue;
+      if (!landNamesToFetch.includes(name)) landNamesToFetch.push(name);
+      if (!edhrecLandNames.has(name)) {
+        nonBasicEdhrecLands.push({ name, sanitized: name, primary_type: 'Land', inclusion: 0, num_decks: 0 });
+      }
+    }
 
     const landCardMap = await getCardsByNames(landNamesToFetch, undefined, preferredSet);
     if (preferredSet) {
@@ -1185,20 +1201,32 @@ async function generateLands(
     }
     await upgradeCardPrintings(landCardMap, scryfallQuery, true);
 
-    // Build tapland penalty map for pacing-aware land selection
+    // Build priority boost / penalty map for pacing-aware land selection
     const landPenalties = new Map<string, number>();
+
+    // Flex land boosts: channel lands and MDFCs have low EDHREC inclusion but are
+    // format staples — boost aggressively so they're picked over generic lands.
+    for (const [name, card] of landCardMap) {
+      if (isChannelLand(card)) {
+        landPenalties.set(name, (landPenalties.get(name) ?? 0) + CHANNEL_LAND_BOOST);
+      } else if (isMdfcLand(card)) {
+        landPenalties.set(name, (landPenalties.get(name) ?? 0) + MDFC_LAND_BOOST);
+      }
+    }
+
+    // Tapland penalties based on deck pacing
     const basePenalty = TAPLAND_PENALTIES[pacing];
     if (basePenalty !== 0) {
       for (const [name, card] of landCardMap) {
         if (isTapland(name)) {
           // MDFC taplands get half penalty — the spell side compensates
           const penalty = isMdfcLand(card) ? Math.round(basePenalty / 2) : basePenalty;
-          landPenalties.set(name, penalty);
+          landPenalties.set(name, (landPenalties.get(name) ?? 0) + penalty);
         }
       }
     }
 
-    // Merge external priority boosts (e.g. channel land bonus) into the penalty/boost map
+    // Merge any external priority boosts
     if (priorityBoosts) {
       for (const [name, boost] of priorityBoosts) {
         landPenalties.set(name, (landPenalties.get(name) ?? 0) + boost);
@@ -1631,6 +1659,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     // Score each combo by: EDHREC rank (already sorted) + relevance to this commander.
     // A combo where all pieces have 0% inclusion is deprioritized vs one with pieces
     // that players of this commander actually run.
+    // At lower combo settings, require pieces to actually fit this commander's builds
+    // so we don't pull in random 2-card combos that aren't thematically relevant.
+    const comboInclusionFloor = comboCountSetting === 1 ? 25 : comboCountSetting === 2 ? 10 : 0;
     const scoredCombos = combos
       .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)))
       .map(combo => {
@@ -1641,8 +1672,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const relevanceScore = avgInclusion * 2;
         // Fewer pieces = easier to assemble
         const pieceBonus = combo.cards.length <= 2 ? 10 : 0;
-        return { combo, score: rankScore + relevanceScore + pieceBonus };
+        return { combo, score: rankScore + relevanceScore + pieceBonus, avgInclusion };
       })
+      .filter(s => s.avgInclusion >= comboInclusionFloor)
       .sort((a, b) => b.score - a.score);
 
     const combosToAttempt = scoredCombos.slice(0, comboSliceCount).map(s => s.combo);
@@ -2295,34 +2327,33 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
     // MDFC land boost: prioritize spell/land MDFCs in spell pools.
     // These are strictly better than their spell-only equivalents since they can
-    // also be played as lands. A modest +30 boost makes them appear more often
-    // without overwhelming synergy/combo picks.
+    // also be played as lands.
     let mdfcLandCount = 0;
     for (const [name, card] of cardMap) {
       if (isMdfcLand(card)) {
         card.isMdfcLand = true;
         const existing = staticComboBoosts.get(name) ?? 0;
-        staticComboBoosts.set(name, existing + 30);
+        staticComboBoosts.set(name, existing + MDFC_LAND_BOOST);
         mdfcLandCount++;
       }
     }
     if (mdfcLandCount > 0) {
-      console.log(`[DeckGen] MDFC land boost applied to ${mdfcLandCount} spell/land cards (+30 priority)`);
+      console.log(`[DeckGen] MDFC land boost applied to ${mdfcLandCount} spell/land cards (+${MDFC_LAND_BOOST} priority)`);
     }
 
-    // Channel land boost: Kamigawa channel lands are strictly better than basic
-    // lands in their color — enter untapped and offer a free spell mode via discard.
+    // Channel land boost: Kamigawa channel lands are near-auto-includes —
+    // enter untapped and offer a free spell mode via discard.
     let channelLandCount = 0;
     for (const [name, card] of cardMap) {
       if (isChannelLand(card)) {
         card.isChannelLand = true;
         const existing = staticComboBoosts.get(name) ?? 0;
-        staticComboBoosts.set(name, existing + 40);
+        staticComboBoosts.set(name, existing + CHANNEL_LAND_BOOST);
         channelLandCount++;
       }
     }
     if (channelLandCount > 0) {
-      console.log(`[DeckGen] Channel land boost applied to ${channelLandCount} Kamigawa lands (+40 priority)`);
+      console.log(`[DeckGen] Channel land boost applied to ${channelLandCount} Kamigawa lands (+${CHANNEL_LAND_BOOST} priority)`);
     }
 
     // Inject combo pieces into the correct type pools so they can actually be picked
@@ -2709,14 +2740,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...categories.synergy,
     ];
 
-    // Build channel land priority boosts so generateLands can prioritize them
-    const channelLandBoosts = new Map<string, number>();
-    for (const [name, card] of cardMap) {
-      if ((card as ScryfallCard & { isChannelLand?: boolean }).isChannelLand) {
-        channelLandBoosts.set(name, 40);
-      }
-    }
-
     categories.lands = [
       ...mustIncludeLands,
       ...await generateLands(
@@ -2742,7 +2765,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         collectionOwnedPercent,
         ignoreOwnedBudget,
         resolvedPacing,
-        channelLandBoosts.size > 0 ? channelLandBoosts : undefined,
       ),
     ];
 
@@ -3031,10 +3053,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   if (currentCount > targetDeckSize) {
     const trimCandidates: { card: ScryfallCard; category: DeckCategory; trimResistance: number }[] = [];
 
-    const mustIncludeSet = new Set([
-      ...customization.mustIncludeCards.map(n => n.toLowerCase()),
-      ...customization.tempMustIncludeCards.map(n => n.toLowerCase()),
-    ]);
+    // Protect lands: calculate how many non-must-include lands we can afford to trim
+    const currentLandCount = categories.lands.length;
+    const landTrimBudget = Math.max(0, currentLandCount - targets.lands);
+    const LAND_PROTECTION_BOOST = 5000; // below must-include but above everything else
 
     for (const cat of Object.keys(categories) as DeckCategory[]) {
       const cards = categories[cat];
@@ -3044,9 +3066,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         // So higher index = lower priority = lower trim resistance
         let resistance = cards.length - i;
 
-        // Untouchable: must-include cards
-        if (mustIncludeSet.has(card.name.toLowerCase())) {
+        // Untouchable: must-include cards (check the card's flag, not just the customization arrays,
+        // so applied include lists and optimize deck cards are also protected)
+        if (card.isMustInclude) {
           resistance += MUST_INCLUDE_BOOST;
+        }
+
+        // Protect lands from being trimmed below the user's land target
+        if (cat === 'lands' && !card.isMustInclude) {
+          resistance += LAND_PROTECTION_BOOST;
         }
 
         // Soft-protected: combo pieces
@@ -3076,7 +3104,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     trimCandidates.sort((a, b) => a.trimResistance - b.trimResistance);
 
     const excess = currentCount - targetDeckSize;
-    const toRemove = trimCandidates.slice(0, excess);
+    // Respect the land trim budget: don't trim more lands than we can afford
+    const toRemove: typeof trimCandidates = [];
+    let landsTrimmed = 0;
+    for (const candidate of trimCandidates) {
+      if (toRemove.length >= excess) break;
+      if (candidate.category === 'lands' && !candidate.card.isMustInclude) {
+        if (landsTrimmed >= landTrimBudget) continue; // skip — would go below land target
+        landsTrimmed++;
+      }
+      toRemove.push(candidate);
+    }
 
     // Build removal sets per category for efficient filtering
     const removeByCategory = new Map<DeckCategory, Set<ScryfallCard>>();
@@ -3426,6 +3464,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             inclusion: c.inclusion,
             synergy: c.synergy ?? 0,
             typeLine: scryfall?.type_line ?? '',
+            cmc: scryfall?.cmc,
             imageUrl: scryfall?.image_uris?.small,
             isOwned: context.collectionNames!.has(c.name),
             role,
@@ -3996,7 +4035,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         if (!ec) { relMap[card.name] = 0; continue; }
         const role = (card.deckRole as RoleKey) || null;
         const sub = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype || null;
-        relMap[card.name] = Math.round(scoreRecommendation(ec, role, sub, scoringCtx));
+        let score = scoreRecommendation(ec, role, sub, scoringCtx);
+        // Apply the same boosts used during card selection so the displayed
+        // relevancy score reflects why the generator actually picked this card
+        score += staticComboBoosts.get(card.name) ?? 0;
+        if (isChannelLand(card)) score += CHANNEL_LAND_BOOST;
+        else if (card.isMdfcLand || isMdfcLand(card)) score += MDFC_LAND_BOOST;
+        relMap[card.name] = Math.round(score);
       }
     }
     // Also index swap candidates
@@ -4009,7 +4054,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           if (!ec) continue;
           const role = (card.deckRole as RoleKey) || null;
           const sub = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype || null;
-          relMap[card.name] = Math.round(scoreRecommendation(ec, role, sub, scoringCtx));
+          let score = scoreRecommendation(ec, role, sub, scoringCtx);
+          score += staticComboBoosts.get(card.name) ?? 0;
+          if (isChannelLand(card)) score += CHANNEL_LAND_BOOST;
+          else if (card.isMdfcLand || isMdfcLand(card)) score += MDFC_LAND_BOOST;
+          relMap[card.name] = Math.round(score);
         }
       }
     }
@@ -4022,6 +4071,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           primary_type: g.typeLine.split(' ').find(t =>
             ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'].includes(t)) || 'Unknown',
           inclusion: g.inclusion, num_decks: 0, synergy: g.synergy,
+          cmc: g.cmc,
         };
         const role = (g.role as RoleKey) || null;
         relMap[g.name] = Math.round(scoreRecommendation(pseudoEc, role, null, scoringCtx));

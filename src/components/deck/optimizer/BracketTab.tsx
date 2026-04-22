@@ -195,8 +195,8 @@ function CalculationSummary({ est }: { est: BracketEstimation }) {
   const floorColors = BRACKET_COLORS[floor] || BRACKET_COLORS[1];
   const finalColors = BRACKET_COLORS[est.bracket];
 
-  const wasElevatedTo5 = floor >= 4 && est.softScore >= 70 && est.bracket === 5;
-  const wasElevatedBy1 = floor < 4 && est.softScore >= 50 && est.bracket === floor + 1;
+  const wasElevatedTo5 = floor >= 4 && est.softScore >= 80 && est.bracket === 5;
+  const wasElevatedBy1 = floor < 4 && est.softScore >= 66 && est.bracket === floor + 1;
   const wasElevated = wasElevatedTo5 || wasElevatedBy1;
 
   return (
@@ -218,8 +218,8 @@ function CalculationSummary({ est }: { est: BracketEstimation }) {
             <span className="text-muted-foreground/30">=</span>
             <span className="text-muted-foreground">
               {wasElevatedTo5
-                ? <span className="text-red-400">Score {'\u2265'}70 + floor 4+ pushed to 5</span>
-                : <span className={finalColors.text}>Score {'\u2265'}50 bumped {floor} {'\u2192'} {est.bracket}</span>
+                ? <span className="text-red-400">Score {'\u2265'}80 + floor 4+ pushed to 5</span>
+                : <span className={finalColors.text}>Score {'\u2265'}66 bumped {floor} {'\u2192'} {est.bracket}</span>
               }
             </span>
           </>
@@ -298,8 +298,8 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
   const floor = est.hardFloors.length > 0
     ? Math.max(...est.hardFloors.map(f => f.bracket))
     : 1;
-  const score50Met = est.softScore >= 50;
-  const score70Met = est.softScore >= 70;
+  const score66Met = est.softScore >= 66;
+  const score80Met = est.softScore >= 80;
 
   return (
     <div className="space-y-3">
@@ -363,8 +363,8 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
         </div>
         <p className="text-[10px] text-muted-foreground/70 leading-relaxed -mt-1.5">
           Measures how optimized your deck is within its bracket. Fast mana, tutors, low curve, and heavy interaction all add points.
-          {est.softScore < 50 ? ' Your deck plays at a relaxed pace for its bracket.'
-            : est.softScore < 70 ? ' Your deck is moderately tuned — consistent but not cutthroat.'
+          {est.softScore < 66 ? ' Your deck plays at a relaxed pace for its bracket.'
+            : est.softScore < 80 ? ' Your deck is moderately tuned — consistent but not cutthroat.'
             : ' Your deck is highly optimized and will play at the top end of its bracket.'}
         </p>
 
@@ -408,19 +408,19 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
         {/* Thresholds — compact inline */}
         <div className="border-t border-border/20 pt-2 flex flex-wrap gap-x-4 gap-y-1">
           <div className="flex items-center gap-1.5">
-            <div className={`w-1.5 h-1.5 rounded-full ${score50Met ? 'bg-emerald-400' : 'bg-muted-foreground/20'}`} />
-            <p className={`text-[11px] ${score50Met ? 'text-foreground/70' : 'text-muted-foreground/40'}`}>
-              {'\u2265'}50 + floor {'<'}4: +1 bracket
-              {score50Met && floor < 4 && <span className="text-emerald-400 ml-1">{'\u2714'}</span>}
-              {score50Met && floor >= 4 && <span className="text-muted-foreground/40 ml-1">(floor too high)</span>}
+            <div className={`w-1.5 h-1.5 rounded-full ${score66Met ? 'bg-emerald-400' : 'bg-muted-foreground/20'}`} />
+            <p className={`text-[11px] ${score66Met ? 'text-foreground/70' : 'text-muted-foreground/40'}`}>
+              {'\u2265'}66 + floor {'<'}4: +1 bracket
+              {score66Met && floor < 4 && <span className="text-emerald-400 ml-1">{'\u2714'}</span>}
+              {score66Met && floor >= 4 && <span className="text-muted-foreground/40 ml-1">(floor too high)</span>}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className={`w-1.5 h-1.5 rounded-full ${score70Met ? 'bg-red-400' : 'bg-muted-foreground/20'}`} />
-            <p className={`text-[11px] ${score70Met ? 'text-foreground/70' : 'text-muted-foreground/40'}`}>
-              {'\u2265'}70 + floor 4+: cEDH
-              {score70Met && floor >= 4 && <span className="text-red-400 ml-1">{'\u2714'}</span>}
-              {!score70Met && <span className="text-muted-foreground/40 ml-1">({70 - est.softScore} more)</span>}
+            <div className={`w-1.5 h-1.5 rounded-full ${score80Met ? 'bg-red-400' : 'bg-muted-foreground/20'}`} />
+            <p className={`text-[11px] ${score80Met ? 'text-foreground/70' : 'text-muted-foreground/40'}`}>
+              {'\u2265'}80 + floor 4+: cEDH
+              {score80Met && floor >= 4 && <span className="text-red-400 ml-1">{'\u2714'}</span>}
+              {!score80Met && <span className="text-muted-foreground/40 ml-1">({80 - est.softScore} more)</span>}
             </p>
           </div>
         </div>

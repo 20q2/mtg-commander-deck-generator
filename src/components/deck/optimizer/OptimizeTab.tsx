@@ -4,7 +4,7 @@ import {
   ArrowRightLeft, TrendingUp, TrendingDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { ScryfallCard } from '@/types';
+import type { ScryfallCard, DetectedCombo } from '@/types';
 import type { DeckAnalysis, OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { computeOptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getCachedCard } from '@/services/scryfall/client';
@@ -196,6 +196,7 @@ export interface OptimizeViewProps {
   cardInclusionMap?: Record<string, number>;
   mustIncludeNames: Set<string>;
   bannedNames: Set<string>;
+  detectedCombos?: DetectedCombo[];
   onApply: (removals: string[], additions: string[]) => void;
   onBack: () => void;
   onPreview: (name: string) => void;
@@ -203,7 +204,7 @@ export interface OptimizeViewProps {
 
 export function OptimizeView({
   analysis, currentCards, commanderName, partnerCommanderName,
-  cardInclusionMap, mustIncludeNames, bannedNames,
+  cardInclusionMap, mustIncludeNames, bannedNames, detectedCombos,
   onApply, onBack, onPreview,
 }: OptimizeViewProps) {
   // Selected cards (checked = will be applied). Default: all checked.
@@ -212,8 +213,8 @@ export function OptimizeView({
   const [applied, setApplied] = useState(false);
 
   const allSwaps = useMemo(() =>
-    computeOptimizeSwaps(analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames),
-    [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames]
+    computeOptimizeSwaps(analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos),
+    [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos]
   );
 
   const { removals, additions } = allSwaps;

@@ -250,16 +250,23 @@ export function getSwapCandidatesForCard(
   if (!deck.swapCandidates) return [];
 
   // Build a set of name variants to exclude (handles DFC "Front // Back" vs "Front")
-  const selfNames = new Set<string>([card.name]);
-  if (card.name.includes(' // ')) selfNames.add(card.name.split(' // ')[0]);
+  const excludeNames = new Set<string>([card.name]);
+  if (card.name.includes(' // ')) excludeNames.add(card.name.split(' // ')[0]);
+  // Never suggest commander(s) as swap candidates
+  for (const cmdr of [deck.commander, deck.partnerCommander]) {
+    if (cmdr) {
+      excludeNames.add(cmdr.name);
+      if (cmdr.name.includes(' // ')) excludeNames.add(cmdr.name.split(' // ')[0]);
+    }
+  }
 
-  const isSelf = (c: ScryfallCard) => selfNames.has(c.name);
+  const isExcluded = (c: ScryfallCard) => excludeNames.has(c.name);
   const roleCandidates = card.deckRole
-    ? (deck.swapCandidates[card.deckRole] ?? []).filter(c => !isSelf(c))
+    ? (deck.swapCandidates[card.deckRole] ?? []).filter(c => !isExcluded(c))
     : [];
   const typeKey = getPrimaryTypeKey(card);
   const typeCandidates = typeKey
-    ? (deck.swapCandidates[typeKey] ?? []).filter(c => !isSelf(c))
+    ? (deck.swapCandidates[typeKey] ?? []).filter(c => !isExcluded(c))
     : [];
 
   // If role bucket has enough candidates, use it

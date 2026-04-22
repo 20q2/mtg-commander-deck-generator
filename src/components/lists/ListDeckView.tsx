@@ -643,7 +643,13 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
         if (cancelled) return;
 
-        const enrichResult = await enrichDeckCards(deckCards, list.deckSize || list.cards.length, detectedCombos);
+        const enrichResult = await enrichDeckCards(
+          deckCards,
+          list.deckSize || list.cards.length,
+          detectedCombos,
+          commanderCard?.name,
+          partnerCard?.name,
+        );
 
         const syntheticDeck: GeneratedDeck = {
           commander: commanderCard,
@@ -659,6 +665,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
           bracketEstimation: enrichResult.bracketEstimation,
           gameChangerNames: enrichResult.gameChangerNames,
+          cardInclusionMap: enrichResult.cardInclusionMap,
+          cardRelevancyMap: enrichResult.cardRelevancyMap,
+          deckScore: enrichResult.deckScore,
         };
 
         const allColors = new Set<string>();
@@ -778,7 +787,13 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
         : currentDeck.detectedCombos;
 
-      const enrichResult = await enrichDeckCards(allDeckCards, list.deckSize || list.cards.length, detectedCombos);
+      const enrichResult = await enrichDeckCards(
+        allDeckCards,
+        list.deckSize || list.cards.length,
+        detectedCombos,
+        currentDeck.commander?.name,
+        currentDeck.partnerCommander?.name,
+      );
 
       useStore.setState({
         generatedDeck: {
@@ -794,6 +809,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
           bracketEstimation: enrichResult.bracketEstimation,
           gameChangerNames: enrichResult.gameChangerNames,
+          cardInclusionMap: enrichResult.cardInclusionMap,
+          cardRelevancyMap: enrichResult.cardRelevancyMap,
+          deckScore: enrichResult.deckScore,
         },
       });
     };

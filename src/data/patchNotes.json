@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.2.21",
+    "notes": [
+      "Greatly rebalanced the way the deck generator handles combos, synergy combos should show up with greater frequency than simply popular combos now",
+      "Two sided cards with '//' in their name should import correctly now",
+      "Channel lands and MDFC lands should show up more frequently when generating decks",
+      "Inclusion score updated to be more accurrate to our internal ranking system",
+      "Fixed deck generator producing too few lands when using a large must-include list",
+      "Cards from include lists are now properly protected during deck balancing"      
+    ]
+  },
+  {
     "version": "1.2.20",
     "notes": [
       "Deck generator less likely to leave orphaned combo pieces in the final result",
@@ -27,13 +38,6 @@
     "notes": [
       "Fixed a bug with the tag file that affected deck generation from 4/6/26 - 4/8/26",
       "Updated other parts of the app to respect scryfall's new cooldown policy"
-    ]
-  },
-  {
-    "version": "1.2.16",
-    "notes": [
-      "Optimizer now shows price difference for each swap",
-      "Deck optimizer values fetchlands less now"
     ]
   }
 ]

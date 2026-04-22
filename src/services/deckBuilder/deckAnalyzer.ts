@@ -1,4 +1,4 @@
-import type { ScryfallCard, EDHRECCommanderData, EDHRECCard } from '@/types';
+import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, DetectedCombo } from '@/types';
 import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
@@ -1004,10 +1004,22 @@ export function computeOptimizeSwaps(
   partnerCommanderName: string | undefined,
   mustIncludeNames: Set<string>,
   bannedNames: Set<string>,
+  detectedCombos?: DetectedCombo[],
 ): OptimizeSwaps {
   const BASIC_LANDS = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
   const inclusionMap = cardInclusionMap ?? {};
   const currentCardNames = new Set(currentCards.map(c => c.name));
+
+  // Build combo participation map: card name → number of complete combos it enables
+  const comboCountMap = new Map<string, number>();
+  if (detectedCombos) {
+    for (const combo of detectedCombos) {
+      if (!combo.isComplete) continue;
+      for (const card of combo.cards) {
+        comboCountMap.set(card, (comboCountMap.get(card) || 0) + 1);
+      }
+    }
+  }
 
   // ── Build removal candidates with reasons ──
   // Two-pass approach: first collect all potential candidates, then sort & cap
@@ -1051,6 +1063,7 @@ export function computeOptimizeSwaps(
     if (card.name === commanderName || card.name === partnerCommanderName) continue;
     if (mustIncludeNames.has(card.name)) continue;
     if (card.isGameChanger) continue; // never suggest cutting a game changer
+    if (comboCountMap.has(card.name)) continue; // never suggest cutting a combo piece
 
     const role = card.deckRole || getCardRole(card.name) || undefined;
     const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
@@ -1160,6 +1173,7 @@ export function computeOptimizeSwaps(
       if (mustIncludeNames.has(card.name)) continue;
       if (alreadyPicked.has(card.name)) continue;
       if (card.isGameChanger) continue;
+      if (comboCountMap.has(card.name)) continue;
       if (isChannelLand(card)) continue; // channel lands are too good to ever cut
       if (isMdfcLand(card)) continue; // MDFCs double as spells — never cut
       const role = card.deckRole || getCardRole(card.name) || undefined;

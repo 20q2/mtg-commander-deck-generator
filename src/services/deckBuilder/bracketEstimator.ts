@@ -159,9 +159,9 @@ export function estimateBracket(
 
   let bracket: number = floor;
 
-  if (floor >= 4 && softScore >= 70) {
+  if (floor >= 4 && softScore >= 80) {
     bracket = 5;
-  } else if (floor < 4 && softScore >= 50) {
+  } else if (floor < 4 && softScore >= 66) {
     bracket = Math.min(floor + 1, 4);
   }
 

@@ -254,6 +254,7 @@ export interface GapAnalysisCard {
   inclusion: number;
   synergy: number;
   typeLine: string;
+  cmc?: number;        // Mana value — used for early ramp CMC multiplier in scoring
   imageUrl?: string;
   isOwned?: boolean;
   role?: string;       // Functional role from tagger (e.g. 'ramp', 'removal')

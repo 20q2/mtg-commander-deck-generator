@@ -51,10 +51,13 @@ const ROLE_SHORT_LABEL: Record<RoleGroupKey, string> = {
 function getRoleGroupGrade(current: number, target: number): string {
   if (target === 0) return current > 0 ? 'A' : '-';
   if (current >= target) return 'A';
-  const deficit = (target - current) / target;
+  const gap = target - current;
+  const deficit = gap / target;
+  // For small targets (≤5), a single card off shouldn't tank the grade
+  if (gap <= 1) return deficit <= 0.20 ? 'A' : 'B';
   if (deficit <= 0.15) return 'B';
-  if (deficit <= 0.30) return 'C';
-  if (deficit <= 0.50) return 'D';
+  if (deficit <= 0.35) return 'C';
+  if (deficit <= 0.55) return 'D';
   return 'F';
 }
 

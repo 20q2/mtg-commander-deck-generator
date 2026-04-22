@@ -218,8 +218,11 @@ function parseCSV(lines: string[]): ParsedCard[] {
   return result;
 }
 
-/** Strip common card name suffixes: tags (*f*, *F*), set/collector codes, trailing IDs */
+/** Strip common card name suffixes: tags (*f*, *F*), set/collector codes, trailing IDs, DFC back face */
 function stripSuffixes(cardName: string): string {
+  // Strip DFC back face: "Delver of Secrets // Insectile Aberration" → "Delver of Secrets"
+  // Scryfall's collection endpoint matches front-face names; it returns the full canonical name.
+  cardName = cardName.replace(/\s*\/\/\s*.+$/, '').trim();
   // Strip tags like *f* (foil), *e* (etched), *s* (showcase), *F*, *Foil*, etc.
   cardName = cardName.replace(/\s*\*[a-zA-Z]+\*\s*/g, '').trim();
   // Strip set/collector suffix: "(M21) 123", "(cmr) 45", or just "(JMP)"

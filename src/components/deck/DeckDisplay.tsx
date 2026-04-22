@@ -2890,6 +2890,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const previewSwapCandidates = useMemo(() => {
     if (!previewCard || !generatedDeck?.swapCandidates) return undefined;
     if (previewCard.isMustInclude) return undefined;
+    // Don't offer replacements for the commander(s)
+    if (previewCard.name === generatedDeck.commander?.name) return undefined;
+    if (previewCard.name === generatedDeck.partnerCommander?.name) return undefined;
     return getSwapCandidatesForCard(generatedDeck, previewCard);
   }, [previewCard, generatedDeck]);
 
