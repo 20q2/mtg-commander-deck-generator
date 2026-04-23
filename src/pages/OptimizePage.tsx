@@ -170,8 +170,11 @@ export function OptimizePage() {
         const themes = data.themes;
 
         const { landDistribution } = data.stats;
-        const suggestedLands = Math.round(landDistribution.total);
-        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        const optFormat = useStore.getState().customization.deckFormat;
+        const optDeckCards = optFormat === 99 ? 99 : optFormat - 1;
+        const optScale = optDeckCards / 99;
+        const suggestedLands = Math.round(landDistribution.total * optScale);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic * optScale);
         if (suggestedLands > 0) {
           if (!useStore.getState().userEditedLands) {
             updateCustomization({
@@ -257,8 +260,11 @@ export function OptimizePage() {
         }
 
         const { landDistribution } = data.stats;
-        const suggestedLands = Math.round(landDistribution.total);
-        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        const optFormat2 = useStore.getState().customization.deckFormat;
+        const optDeckCards2 = optFormat2 === 99 ? 99 : optFormat2 - 1;
+        const optScale2 = optDeckCards2 / 99;
+        const suggestedLands = Math.round(landDistribution.total * optScale2);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic * optScale2);
         if (suggestedLands > 0) {
           if (!useStore.getState().userEditedLands) {
             updateCustomization({

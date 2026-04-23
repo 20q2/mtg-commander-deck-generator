@@ -110,22 +110,27 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
     const formatConfig = getDeckFormatConfig(format);
     // Scale non-basic count proportionally to new format
     const defaultNonBasic = Math.min(15, Math.floor(formatConfig.defaultLands * 0.4));
-    updateCustomization({
-      deckFormat: format,
-      landCount: formatConfig.defaultLands,
-      nonBasicLandCount: defaultNonBasic,
-    });
+    // Reset land counts to format defaults and clear userEditedLands
+    // so EDHREC can suggest format-appropriate values
+    useStore.setState(state => ({
+      customization: {
+        ...state.customization,
+        deckFormat: format,
+        landCount: formatConfig.defaultLands,
+        nonBasicLandCount: defaultNonBasic,
+      },
+      userEditedLands: false,
+    }));
   };
 
   // Handle land count change - ensure non-basic doesn't exceed total
   const handleLandCountChange = (newLandCount: number) => {
     const newNonBasic = Math.min(customization.nonBasicLandCount, newLandCount);
-    updateCustomization({
-      landCount: newLandCount,
-      nonBasicLandCount: newNonBasic,
-    });
-    // Mark that the user manually adjusted lands so EDHREC doesn't override
-    useStore.setState({ userEditedLands: true });
+    // Atomic update: set landCount + userEditedLands together to prevent EDHREC race
+    useStore.setState(state => ({
+      customization: { ...state.customization, landCount: newLandCount, nonBasicLandCount: newNonBasic },
+      userEditedLands: true,
+    }));
   };
 
   // Focus inputs when entering edit mode
@@ -369,7 +374,12 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
           min={0}
           max={customization.landCount}
           step={1}
-          onChange={(value) => updateCustomization({ nonBasicLandCount: value })}
+          onChange={(value) => {
+            useStore.setState(state => ({
+              customization: { ...state.customization, nonBasicLandCount: value },
+              userEditedLands: true,
+            }));
+          }}
         />
         <div className="flex justify-between text-xs text-muted-foreground mt-1">
           <span>0 (Basic)</span>

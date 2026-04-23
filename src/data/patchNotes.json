@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.2.23",
+    "notes": [
+      "Fixed deck generator not respecting your land count ",
+      "Collection-only decks no longer sneak in combo pieces you don't own"
+    ]
+  },
+  {
     "version": "1.2.22",
     "notes": [
       "Moved the Modify Deck button next to the view toggle for easier access",
@@ -32,21 +39,6 @@
     "notes": [
       "Statistics panel now shows how many cards you own from the current deck",
       "Easily see the number of cards from your collection you own in the shown deck"
-    ]
-  },
-  {
-    "version": "1.2.18",
-    "notes": [
-      "Saved decks now show their generation settings (themes, bracket, budget, tempo, etc.)",
-      "Generation summary clears when you edit the deck",
-      "Renamed 'Save to List' to 'Save Deck'"
-    ]
-  },
-  {
-    "version": "1.2.17",
-    "notes": [
-      "Fixed a bug with the tag file that affected deck generation from 4/6/26 - 4/8/26",
-      "Updated other parts of the app to respect scryfall's new cooldown policy"
     ]
   }
 ]

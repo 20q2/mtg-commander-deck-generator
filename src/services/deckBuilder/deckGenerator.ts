@@ -3849,9 +3849,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     ]);
 
     // Helper: find the lowest-priority non-protected card matching a filter
+    // Never evict lands — they have their own target and shouldn't be swapped for spells
     function findWeakestCard(filter?: (card: ScryfallCard, cat: DeckCategory) => boolean): { card: ScryfallCard; category: DeckCategory } | null {
       let weakest: { card: ScryfallCard; category: DeckCategory; priority: number } | null = null;
       for (const cat of Object.keys(categories) as DeckCategory[]) {
+        if (cat === 'lands') continue;
         const cards = categories[cat];
         for (let i = cards.length - 1; i >= 0; i--) {
           const card = cards[i];

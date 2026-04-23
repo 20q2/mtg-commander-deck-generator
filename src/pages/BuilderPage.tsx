@@ -159,9 +159,13 @@ export function BuilderPage() {
 
         // Apply EDHREC land stats — more accurate than hardcoded defaults
         // Only override if the user hasn't manually adjusted the land count
+        // EDHREC stats are for 99-card Commander decks; scale to current format
         const { landDistribution } = data.stats;
-        const suggestedLands = Math.round(landDistribution.total);
-        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        const currentFormat = useStore.getState().customization.deckFormat;
+        const deckCards = currentFormat === 99 ? 99 : currentFormat - 1;
+        const scale = deckCards / 99;
+        const suggestedLands = Math.round(landDistribution.total * scale);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic * scale);
         if (suggestedLands > 0) {
           if (!useStore.getState().userEditedLands) {
             updateCustomization({
@@ -305,9 +309,13 @@ export function BuilderPage() {
 
         // Apply EDHREC land stats for the updated commander pairing
         // Only override if the user hasn't manually adjusted the land count
+        // EDHREC stats are for 99-card Commander decks; scale to current format
         const { landDistribution } = data.stats;
-        const suggestedLands = Math.round(landDistribution.total);
-        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        const currentFormat2 = useStore.getState().customization.deckFormat;
+        const deckCards2 = currentFormat2 === 99 ? 99 : currentFormat2 - 1;
+        const scale2 = deckCards2 / 99;
+        const suggestedLands = Math.round(landDistribution.total * scale2);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic * scale2);
         if (suggestedLands > 0) {
           if (!useStore.getState().userEditedLands) {
             updateCustomization({
@@ -405,9 +413,13 @@ export function BuilderPage() {
         }
 
         // Update land suggestions from bracket-specific stats
+        // EDHREC stats are for 99-card Commander decks; scale to current format
         const { landDistribution } = data.stats;
-        const suggestedLands = Math.round(landDistribution.total);
-        const suggestedNonBasic = Math.round(landDistribution.nonbasic);
+        const currentFormat3 = useStore.getState().customization.deckFormat;
+        const deckCards3 = currentFormat3 === 99 ? 99 : currentFormat3 - 1;
+        const scale3 = deckCards3 / 99;
+        const suggestedLands = Math.round(landDistribution.total * scale3);
+        const suggestedNonBasic = Math.round(landDistribution.nonbasic * scale3);
         if (suggestedLands > 0) {
           if (!useStore.getState().userEditedLands) {
             updateCustomization({
@@ -555,6 +567,7 @@ export function BuilderPage() {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }
       setGeneratedDeck(deck);
+      useStore.getState().clearDeckHistory();
       // Scroll to top after view swaps from settings to deck display
       requestAnimationFrame(() => window.scrollTo({ top: 0 }));
       setSavedToList(false);
@@ -1127,7 +1140,7 @@ export function BuilderPage() {
               commanderName={commander.name}
               partnerCommanderName={partnerCommander?.name}
               currentCards={Object.values(generatedDeck.categories).flat()}
-              deckSize={customization.deckFormat - (partnerCommander ? 1 : 0)}
+              deckSize={customization.deckFormat === 99 ? (100 - (partnerCommander ? 2 : 1)) : (customization.deckFormat - (partnerCommander ? 2 : 1))}
               roleCounts={generatedDeck.roleCounts || {}}
               roleTargets={generatedDeck.roleTargets || {}}
               categories={generatedDeck.categories}
