@@ -19,7 +19,7 @@ import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -1131,6 +1131,15 @@ export function BuilderPage() {
                     </form>
                   </PopoverContent>
                 </Popover>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/playtest/generated')}
+                  disabled={!generatedDeck}
+                >
+                  <Swords className="w-4 h-4 mr-1.5" />
+                  Playtest
+                </Button>
                 <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
                   <Copy className="w-4 h-4 mr-2" />
                   Export

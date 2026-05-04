@@ -9,6 +9,7 @@ import { BuilderPage } from '@/pages/BuilderPage';
 import { OptimizePage } from '@/pages/OptimizePage';
 import { CollectionPage } from '@/pages/CollectionPage';
 import { ListsPage } from '@/pages/ListsPage';
+import { PlaytestPage } from '@/pages/PlaytestPage';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import { loadUserLists } from '@/hooks/useUserLists';
@@ -408,6 +409,8 @@ function App() {
         <Route path="/build-from-deck/:listId" element={<Layout><OptimizePage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
         <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
+        <Route path="/playtest/list/:listId" element={<PlaytestPage kind="list" />} />
+        <Route path="/playtest/generated" element={<PlaytestPage kind="generated" />} />
         {import.meta.env.DEV && MetricsPage && (
           <Route path="/metrics" element={<Layout><Suspense fallback={null}><MetricsPage /></Suspense></Layout>} />
         )}

@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords } from 'lucide-react';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
+import { Button } from '@/components/ui/button';
 import { fetchCommanderCombos } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
@@ -411,6 +413,7 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
 // --- Main Component ---
 
 export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
+  const navigate = useNavigate();
   const generatedDeck = useStore(s => s.generatedDeck);
   const colorIdentity = useStore(s => s.colorIdentity) || [];
   const customization = useStore(s => s.customization);
@@ -1111,6 +1114,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             {totalDeckPrice !== null && totalDeckPrice > 0 && (
               <span className="text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/playtest/list/${list.id}`)}
+            >
+              <Swords className="w-4 h-4 mr-1.5" />
+              Playtest
+            </Button>
             <div className="relative" ref={overflowRef}>
               <button
                 onClick={() => setShowOverflow(prev => !prev)}
