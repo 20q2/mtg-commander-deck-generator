@@ -1,3 +1,91 @@
+import { useState } from 'react';
+import { Plus, Minus, Sparkles, BookOpen, Trash2, Crown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { usePlaytestStore } from '@/store/playtestStore';
+import { getCardImageUrl } from '@/services/scryfall/client';
+import type { ZoneKey } from '@/components/playtest/types';
+
+interface PileSpec {
+  zone: Exclude<ZoneKey, 'hand'>;
+  label: string;
+  Icon: typeof Crown;
+  bgClass: string;
+  faceUp: boolean; // library renders face-down
+}
+
+const PILES: PileSpec[] = [
+  { zone: 'command',   label: 'Command',   Icon: Crown,    bgClass: 'bg-purple-500/10 border-purple-400/30',  faceUp: true },
+  { zone: 'library',   label: 'Library',   Icon: BookOpen, bgClass: 'bg-blue-500/10 border-blue-400/30',      faceUp: false },
+  { zone: 'graveyard', label: 'Graveyard', Icon: Trash2,   bgClass: 'bg-zinc-500/15 border-zinc-400/30',      faceUp: true },
+  { zone: 'exile',     label: 'Exile',     Icon: Sparkles, bgClass: 'bg-amber-500/10 border-amber-400/30',    faceUp: true },
+];
+
 export function PlaytestSidebar() {
-  return <aside className="w-32 border-r border-border/50 p-2 text-xs">Sidebar</aside>;
+  const life = usePlaytestStore(s => s.life);
+  const adjustLife = usePlaytestStore(s => s.adjustLife);
+  const setLife = usePlaytestStore(s => s.setLife);
+
+  return (
+    <aside className="w-36 border-r border-border/50 p-3 flex flex-col gap-3 overflow-y-auto bg-card/30">
+      <LifePanel life={life} onAdjust={adjustLife} onSet={setLife} />
+      {PILES.map(p => <Pile key={p.zone} spec={p} />)}
+    </aside>
+  );
+}
+
+function LifePanel({ life, onAdjust, onSet }: { life: number; onAdjust: (d: number) => void; onSet: (n: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(life));
+  return (
+    <div className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-2 text-center">
+      <div className="text-[9px] uppercase opacity-60 tracking-wide">Life</div>
+      {editing ? (
+        <input
+          autoFocus
+          type="number"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={() => { setEditing(false); const n = parseInt(draft, 10); if (!isNaN(n)) onSet(n); }}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          className="w-full text-2xl font-bold bg-transparent text-center outline-none"
+        />
+      ) : (
+        <button className="block w-full text-2xl font-bold" onClick={() => { setDraft(String(life)); setEditing(true); }}>
+          {life}
+        </button>
+      )}
+      <div className="grid grid-cols-2 gap-1 mt-1">
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onAdjust(-1)}><Minus className="w-3 h-3" />1</Button>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onAdjust(1)}><Plus className="w-3 h-3" />1</Button>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onAdjust(-5)}><Minus className="w-3 h-3" />5</Button>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => onAdjust(5)}><Plus className="w-3 h-3" />5</Button>
+      </div>
+    </div>
+  );
+}
+
+function Pile({ spec }: { spec: PileSpec }) {
+  const cards = usePlaytestStore(s => s.zones[spec.zone]);
+  const openModal = usePlaytestStore(s => s.openModal);
+  const top = cards[0];
+  const Icon = spec.Icon;
+  const onClick = () => openModal({ kind: 'zoneViewer', zone: spec.zone });
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all`}
+    >
+      <div className="aspect-[5/7] w-full rounded-md overflow-hidden bg-black/20 flex items-center justify-center">
+        {top && spec.faceUp
+          ? <img src={getCardImageUrl(top, 'small')} alt={top.name} className="w-full h-full object-cover" />
+          : <Icon className="w-6 h-6 opacity-60" />}
+      </div>
+      <div className="mt-1 text-[10px] flex items-center justify-between">
+        <span>{spec.label}</span>
+        <span className="font-bold">{cards.length}</span>
+      </div>
+    </button>
+  );
 }
