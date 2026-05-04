@@ -90,6 +90,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
     transition: isDragging ? 'none' : 'transform 200ms ease',
     width: 'clamp(80px, 11vw, 130px)',
     cursor: isDragging ? 'grabbing' : 'pointer',
+    opacity: isDragging ? 0 : 1,
   };
 
   return (

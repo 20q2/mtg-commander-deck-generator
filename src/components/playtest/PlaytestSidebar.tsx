@@ -110,7 +110,7 @@ function Pile({ spec }: { spec: PileSpec }) {
             ref={drag.setNodeRef}
             {...drag.attributes}
             {...drag.listeners}
-            className={`absolute inset-0 cursor-grab ${drag.isDragging ? 'opacity-50' : ''}`}
+            className={`absolute inset-0 cursor-grab ${drag.isDragging ? 'opacity-0' : ''}`}
           >
             <img
               src={spec.faceUp ? getCardImageUrl(top, 'small') : `${import.meta.env.BASE_URL}card-back.png`}

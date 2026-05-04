@@ -104,7 +104,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
       onContextMenu={onContextMenu}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
-      className={`absolute select-none touch-none ${isDragging ? 'opacity-80 z-50' : 'z-10'}`}
+      className={`absolute select-none touch-none ${isDragging ? 'opacity-0 z-50' : 'z-10'}`}
       style={{
         left: xPx,
         top: yPx,

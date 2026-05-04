@@ -1,10 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DndContext, PointerSensor, KeyboardSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePlaytestStore } from '@/store/playtestStore';
 import type { MoveSource } from '@/components/playtest/types';
+import { getCardImageUrl } from '@/services/scryfall/client';
+import type { ScryfallCard } from '@/types';
 import { PlaytestToolbar } from '@/components/playtest/PlaytestToolbar';
 import { PlaytestSidebar } from '@/components/playtest/PlaytestSidebar';
 import { Battlefield } from '@/components/playtest/Battlefield';
@@ -51,7 +53,33 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     useSensor(KeyboardSensor),
   );
 
+  const [activeCard, setActiveCard] = useState<ScryfallCard | null>(null);
+  const [activeFaceDown, setActiveFaceDown] = useState(false);
+
+  function onDragStart(event: DragStartEvent) {
+    const data = event.active.data.current as { source?: MoveSource } | undefined;
+    const source = data?.source;
+    if (!source) return;
+    const state = usePlaytestStore.getState();
+    let card: ScryfallCard | undefined;
+    let faceDown = false;
+    if (source.kind === 'zone') {
+      card = state.zones[source.zone][source.index];
+      if (source.zone === 'library') faceDown = true;
+    } else {
+      const bf = state.battlefield.find(b => b.instanceId === source.instanceId);
+      card = bf?.card;
+      faceDown = bf?.faceDown ?? false;
+    }
+    if (card) {
+      setActiveCard(card);
+      setActiveFaceDown(faceDown);
+    }
+  }
+
   function onDragEnd(event: DragEndEvent) {
+    setActiveCard(null);
+    setActiveFaceDown(false);
     const { active, over } = event;
     if (!over) return;
     const sourceData = active.data.current as { source?: MoveSource } | undefined;
@@ -119,7 +147,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
   if (!ready) return null;
 
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveCard(null); setActiveFaceDown(false); }}>
       <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
         <PlaytestToolbar onExit={() => navigate(-1)} />
         <div className="flex-1 flex min-h-0">
@@ -136,6 +164,17 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
         {modal?.kind === 'zoneViewer' && <ZoneViewerModal />}
         {modal?.kind === 'tokens' && <TokenSpawnModal />}
       </div>
+      <DragOverlay dropAnimation={null}>
+        {activeCard ? (
+          <img
+            src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
+            alt={activeCard.name}
+            className="rounded-md shadow-2xl ring-2 ring-primary/40"
+            style={{ width: 110, cursor: 'grabbing' }}
+            draggable={false}
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }
