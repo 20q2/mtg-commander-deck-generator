@@ -334,7 +334,14 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     // 2) insert into target
     let targetLabel = '';
     if (target.kind === 'zone') {
-      next.zones[target.zone].push(card);
+      // Face-up piles (command, graveyard, exile) show the most recently
+      // added card on top, so insert at the front. Hand has no concept of
+      // "top" — append to keep insertion order.
+      if (target.zone === 'hand') {
+        next.zones[target.zone].push(card);
+      } else {
+        next.zones[target.zone].unshift(card);
+      }
       targetLabel = target.zone;
     } else if (target.kind === 'library') {
       if (target.position === 'top') next.zones.library.unshift(card);

@@ -32,7 +32,6 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
   const error = usePlaytestStore(s => s.error);
   const modal = usePlaytestStore(s => s.modal);
   const moveCard = usePlaytestStore(s => s.moveCard);
-  const attach = usePlaytestStore(s => s.attach);
 
   useEffect(() => {
     if (kind === 'generated') {
@@ -86,20 +85,6 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string } | undefined;
     const source = sourceData?.source;
     if (!source) return;
-
-    // Attachment: dropped onto a battlefield card?
-    if (overData?.kind === 'battlefield-card' && overData.instanceId) {
-      if (source.kind === 'battlefield' && source.instanceId === overData.instanceId) return; // self-drop
-      if (source.kind === 'battlefield') {
-        attach(source.instanceId, overData.instanceId);
-        return;
-      }
-      // From hand → battlefield (drop the card normally; user can drag-attach as a separate step)
-      if (source.kind === 'zone' && source.zone === 'hand') {
-        moveCard({ source, target: { kind: 'battlefield', x: 0, y: 0, arrived: true } });
-        return;
-      }
-    }
 
     // Battlefield container: position drop
     if (over.id === 'battlefield' && overData?.kind === 'battlefield') {

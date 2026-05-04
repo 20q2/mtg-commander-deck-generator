@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDraggable } from '@dnd-kit/core';
 import type { DraggableAttributes } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
@@ -25,10 +25,6 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
     id: `bf:${card.instanceId}`,
     data: { source: { kind: 'battlefield', instanceId: card.instanceId } },
   });
-  const droppable = useDroppable({
-    id: `bf-card:${card.instanceId}`,
-    data: { kind: 'battlefield-card', instanceId: card.instanceId },
-  });
 
   // Compute attachment offset: how many cards are attached above us in the stack?
   let xPx = card.x;
@@ -49,8 +45,6 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
         ref={draggable.setNodeRef}
         attributes={draggable.attributes}
         listeners={draggable.listeners}
-        droppableRef={droppable.setNodeRef}
-        droppableIsOver={droppable.isOver}
         card={card}
         xPx={xPx}
         yPx={yPx}
@@ -77,8 +71,6 @@ interface PositionedProps {
   isDragging: boolean;
   attributes: DraggableAttributes;
   listeners: Record<string, unknown> | undefined;
-  droppableRef: (node: HTMLElement | null) => void;
-  droppableIsOver: boolean;
   onTap: () => void;
   onAdjust: (type: string, delta: number) => void;
   onHover: (v: boolean) => void;
@@ -86,7 +78,7 @@ interface PositionedProps {
 }
 
 const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(function PositionedCard(props, ref) {
-  const { card, xPx, yPx, transform, isDragging, attributes, listeners, droppableRef, droppableIsOver, onTap, onAdjust, onHover, onContextMenu } = props;
+  const { card, xPx, yPx, transform, isDragging, attributes, listeners, onTap, onAdjust, onHover, onContextMenu } = props;
   const cardWidth = 100;
   const allCounterEntries = Object.entries(card.counters).filter(([, v]) => v > 0);
   const loyaltyValue = card.counters['loyalty'] ?? 0;
@@ -113,11 +105,6 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
         cursor: isDragging ? 'grabbing' : 'grab',
       }}
     >
-      {/* Droppable overlay (for aura/equipment attachment) */}
-      <div
-        ref={droppableRef}
-        className={`absolute inset-0 pointer-events-none rounded-md ${droppableIsOver ? 'ring-2 ring-emerald-400' : ''}`}
-      />
       <div
         className="relative w-full"
         style={{ transform: card.tapped ? 'rotate(90deg)' : undefined, transformOrigin: 'center', transition: 'transform 150ms ease' }}
