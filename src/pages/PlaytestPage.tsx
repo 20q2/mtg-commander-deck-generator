@@ -95,7 +95,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
           battlefield: updated,
         });
       } else {
-        moveCard({ source, target: { kind: 'battlefield', x, y, arrived: true } });
+        moveCard({ source, target: { kind: 'battlefield', x, y, arrived: false } });
       }
       return;
     }
