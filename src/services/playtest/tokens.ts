@@ -24,7 +24,9 @@ export async function resolveTokens(colorIdentity: string): Promise<ScryfallCard
       return [];
     }
     const data = await res.json();
-    const cards: ScryfallCard[] = (data.data ?? []).slice(0, 60);
+    const cards: ScryfallCard[] = (data.data ?? [])
+      .filter((c: ScryfallCard & { set_type?: string }) => c.set_type === 'token')
+      .slice(0, 60);
     tokenCache.set(key, cards);
     return cards;
   } catch {

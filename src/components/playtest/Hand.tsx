@@ -94,8 +94,8 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContex
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      onPointerDown={() => { movedRef.current = false; }}
-      onPointerMove={() => { movedRef.current = true; }}
+      onPointerDown={(e) => { movedRef.current = false; listeners?.onPointerDown?.(e as unknown as PointerEvent); }}
+      onPointerMove={(e) => { movedRef.current = true; listeners?.onPointerMove?.(e as unknown as PointerEvent); }}
       onClick={() => { if (!movedRef.current) onClickPreview(); }}
       onContextMenu={onContextMenu}
       className={`relative shrink-0 rounded-lg select-none touch-none transition-transform ${
