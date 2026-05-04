@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
@@ -77,8 +77,6 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContex
     data: { source: { kind: 'zone', zone: 'hand', index: indexInHand } },
   });
 
-  // Suppress click when a drag actually moved the pointer
-  const movedRef = useRef(false);
   const overlap = total <= 7 ? 24 : Math.min(24 + (total - 7) * 6, 88);
   const style: React.CSSProperties = {
     marginLeft: fanIndex === 0 ? 0 : `-${overlap}px`,
@@ -94,9 +92,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContex
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      onPointerDown={(e) => { movedRef.current = false; listeners?.onPointerDown?.(e as unknown as PointerEvent); }}
-      onPointerMove={(e) => { movedRef.current = true; listeners?.onPointerMove?.(e as unknown as PointerEvent); }}
-      onClick={() => { if (!movedRef.current) onClickPreview(); }}
+      onClick={onClickPreview}
       onContextMenu={onContextMenu}
       className={`relative shrink-0 rounded-lg select-none touch-none transition-transform ${
         isDragging ? '' : 'hover:-translate-y-2 hover:z-20'

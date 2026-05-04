@@ -85,7 +85,9 @@ function Pile({ spec }: { spec: PileSpec }) {
       <div className="aspect-[5/7] w-full rounded-md overflow-hidden bg-black/20 flex items-center justify-center">
         {top && spec.faceUp
           ? <img src={getCardImageUrl(top, 'small')} alt={top.name} className="w-full h-full object-cover" />
-          : <Icon className="w-6 h-6 opacity-60" />}
+          : !spec.faceUp && cards.length > 0
+            ? <img src={`${import.meta.env.BASE_URL}card-back.png`} alt="Library" className="w-full h-full object-cover" />
+            : <Icon className="w-6 h-6 opacity-60" />}
       </div>
       <div className="mt-1 text-[10px] flex items-center justify-between">
         <span>{spec.label}</span>

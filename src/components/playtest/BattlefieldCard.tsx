@@ -92,16 +92,12 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   const tx = transform?.x ?? 0;
   const ty = transform?.y ?? 0;
 
-  const movedRef = React.useRef(false);
-
   return (
     <div
       ref={ref}
       {...attributes}
       {...(listeners as Record<string, unknown>)}
-      onPointerDown={(e) => { movedRef.current = false; (listeners as any)?.onPointerDown?.(e as unknown as PointerEvent); }}
-      onPointerMove={(e) => { movedRef.current = true; (listeners as any)?.onPointerMove?.(e as unknown as PointerEvent); }}
-      onClick={(e) => { e.stopPropagation(); if (!movedRef.current) onTap(); }}
+      onClick={(e) => { e.stopPropagation(); onTap(); }}
       onContextMenu={onContextMenu}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
