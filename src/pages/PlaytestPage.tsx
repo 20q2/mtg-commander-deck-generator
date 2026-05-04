@@ -15,8 +15,10 @@ import { SearchLibraryModal } from '@/components/playtest/modals/SearchLibraryMo
 import { ScryMillSurveilModal } from '@/components/playtest/modals/ScryMillSurveilModal';
 import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
+import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
 
 export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
+  usePlaytestHotkeys();
   const navigate = useNavigate();
   const params = useParams<{ listId: string }>();
   const generatedDeck = useStore(s => s.generatedDeck);
