@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { DraggableAttributes } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
+import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
 
 const COUNTER_COLOR: Record<string, string> = {
@@ -18,6 +19,7 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
   const adjustCounter = usePlaytestStore(s => s.adjustCounter);
   const setHovered = usePlaytestStore(s => s.setHovered);
   const battlefield = usePlaytestStore(s => s.battlefield);
+  const [menu, setMenu] = useState<CardMenuTarget | null>(null);
 
   const draggable = useDraggable({
     id: `bf:${card.instanceId}`,
@@ -42,21 +44,28 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
   }
 
   return (
-    <PositionedCard
-      ref={draggable.setNodeRef}
-      attributes={draggable.attributes}
-      listeners={draggable.listeners}
-      droppableRef={droppable.setNodeRef}
-      droppableIsOver={droppable.isOver}
-      card={card}
-      xPx={xPx}
-      yPx={yPx}
-      transform={draggable.transform}
-      isDragging={draggable.isDragging}
-      onTap={() => toggleTap(card.instanceId)}
-      onAdjust={(t, d) => adjustCounter(card.instanceId, t, d)}
-      onHover={(v) => setHovered(v ? card.instanceId : null)}
-    />
+    <>
+      <PositionedCard
+        ref={draggable.setNodeRef}
+        attributes={draggable.attributes}
+        listeners={draggable.listeners}
+        droppableRef={droppable.setNodeRef}
+        droppableIsOver={droppable.isOver}
+        card={card}
+        xPx={xPx}
+        yPx={yPx}
+        transform={draggable.transform}
+        isDragging={draggable.isDragging}
+        onTap={() => toggleTap(card.instanceId)}
+        onAdjust={(t, d) => adjustCounter(card.instanceId, t, d)}
+        onHover={(v) => setHovered(v ? card.instanceId : null)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ kind: 'battlefield', instanceId: card.instanceId, card: card.card, x: e.clientX, y: e.clientY });
+        }}
+      />
+      <PlaytestCardMenu target={menu} onClose={() => setMenu(null)} />
+    </>
   );
 }
 
@@ -73,10 +82,11 @@ interface PositionedProps {
   onTap: () => void;
   onAdjust: (type: string, delta: number) => void;
   onHover: (v: boolean) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
 const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(function PositionedCard(props, ref) {
-  const { card, xPx, yPx, transform, isDragging, attributes, listeners, droppableRef, droppableIsOver, onTap, onAdjust, onHover } = props;
+  const { card, xPx, yPx, transform, isDragging, attributes, listeners, droppableRef, droppableIsOver, onTap, onAdjust, onHover, onContextMenu } = props;
   const cardWidth = 100;
   const counterEntries = Object.entries(card.counters).filter(([, v]) => v > 0);
   const tx = transform?.x ?? 0;
@@ -92,6 +102,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
       onPointerDown={() => { movedRef.current = false; }}
       onPointerMove={() => { movedRef.current = true; }}
       onClick={(e) => { e.stopPropagation(); if (!movedRef.current) onTap(); }}
+      onContextMenu={onContextMenu}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
       className={`absolute select-none touch-none ${isDragging ? 'opacity-80 z-50' : 'z-10'}`}

@@ -3,6 +3,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import type { ScryfallCard } from '@/types';
 
 type SortMode = 'none' | 'cmc' | 'type';
@@ -11,6 +12,7 @@ export function Hand() {
   const hand = usePlaytestStore(s => s.zones.hand);
   const [sort, setSort] = useState<SortMode>('none');
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
+  const [menu, setMenu] = useState<CardMenuTarget | null>(null);
 
   const display = sortedHand(hand, sort);
 
@@ -38,11 +40,16 @@ export function Hand() {
               fanIndex={i}
               total={display.length}
               onClickPreview={() => setPreview(card)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ kind: 'hand', handIndex: originalIndex, card, x: e.clientX, y: e.clientY });
+              }}
             />
           ))}
         </div>
       </div>
       <CardPreviewModal card={preview} onClose={() => setPreview(null)} />
+      <PlaytestCardMenu target={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }
@@ -60,9 +67,10 @@ interface HandCardProps {
   fanIndex: number;
   total: number;
   onClickPreview: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function HandCard({ card, indexInHand, fanIndex, total, onClickPreview }: HandCardProps) {
+function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -89,6 +97,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPreview }: HandCa
       onPointerDown={() => { movedRef.current = false; }}
       onPointerMove={() => { movedRef.current = true; }}
       onClick={() => { if (!movedRef.current) onClickPreview(); }}
+      onContextMenu={onContextMenu}
       className={`relative shrink-0 rounded-lg select-none touch-none transition-transform ${
         isDragging ? '' : 'hover:-translate-y-2 hover:z-20'
       }`}
