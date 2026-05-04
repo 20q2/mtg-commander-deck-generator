@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Minus, Sparkles, BookOpen, Trash2, Crown } from 'lucide-react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
@@ -68,31 +68,65 @@ function LifePanel({ life, onAdjust, onSet }: { life: number; onAdjust: (d: numb
 function Pile({ spec }: { spec: PileSpec }) {
   const cards = usePlaytestStore(s => s.zones[spec.zone]);
   const openModal = usePlaytestStore(s => s.openModal);
-  const { setNodeRef, isOver } = useDroppable({
+  const moveCard = usePlaytestStore(s => s.moveCard);
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `pile:${spec.zone}`,
     data: { kind: 'pile', zone: spec.zone },
+  });
+  const drag = useDraggable({
+    id: `pile-top:${spec.zone}`,
+    data: { source: { kind: 'zone', zone: spec.zone, index: 0 } },
+    disabled: cards.length === 0,
   });
   const top = cards[0];
   const Icon = spec.Icon;
 
+  const playTop = () => {
+    if (cards.length === 0) return;
+    moveCard({
+      source: { kind: 'zone', zone: spec.zone, index: 0 },
+      target: { kind: 'battlefield', x: 50, y: 0, arrived: true },
+    });
+  };
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    openModal({ kind: 'zoneViewer', zone: spec.zone });
+  };
+
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      onClick={() => openModal({ kind: 'zoneViewer', zone: spec.zone })}
-      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all ${isOver ? 'ring-2 ring-primary' : ''}`}
+    <div
+      ref={setDropRef}
+      onClick={cards.length === 0 ? () => openModal({ kind: 'zoneViewer', zone: spec.zone }) : playTop}
+      onContextMenu={onContextMenu}
+      role="button"
+      tabIndex={0}
+      title={cards.length > 0 ? `Click to play top card · right-click to view ${spec.label.toLowerCase()}` : `View ${spec.label.toLowerCase()}`}
+      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all cursor-pointer select-none ${isOver ? 'ring-2 ring-primary' : ''}`}
     >
-      <div className="aspect-[5/7] w-full rounded-md overflow-hidden bg-black/20 flex items-center justify-center">
-        {top && spec.faceUp
-          ? <img src={getCardImageUrl(top, 'small')} alt={top.name} className="w-full h-full object-cover" />
-          : !spec.faceUp && cards.length > 0
-            ? <img src={`${import.meta.env.BASE_URL}card-back.png`} alt="Library" className="w-full h-full object-cover" />
-            : <Icon className="w-6 h-6 opacity-60" />}
+      <div className="aspect-[5/7] w-full rounded-md overflow-hidden bg-black/20 flex items-center justify-center relative">
+        {cards.length > 0 ? (
+          <div
+            ref={drag.setNodeRef}
+            {...drag.attributes}
+            {...drag.listeners}
+            className={`absolute inset-0 cursor-grab ${drag.isDragging ? 'opacity-50' : ''}`}
+          >
+            <img
+              src={spec.faceUp ? getCardImageUrl(top, 'small') : `${import.meta.env.BASE_URL}card-back.png`}
+              alt={spec.faceUp ? top.name : spec.label}
+              className="w-full h-full object-cover pointer-events-none"
+              draggable={false}
+            />
+          </div>
+        ) : (
+          <Icon className="w-6 h-6 opacity-60" />
+        )}
       </div>
       <div className="mt-1 text-[10px] flex items-center justify-between">
         <span>{spec.label}</span>
         <span className="font-bold">{cards.length}</span>
       </div>
-    </button>
+    </div>
   );
 }

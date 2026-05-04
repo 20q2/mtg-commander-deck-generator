@@ -88,7 +88,10 @@ interface PositionedProps {
 const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(function PositionedCard(props, ref) {
   const { card, xPx, yPx, transform, isDragging, attributes, listeners, droppableRef, droppableIsOver, onTap, onAdjust, onHover, onContextMenu } = props;
   const cardWidth = 100;
-  const counterEntries = Object.entries(card.counters).filter(([, v]) => v > 0);
+  const allCounterEntries = Object.entries(card.counters).filter(([, v]) => v > 0);
+  const loyaltyValue = card.counters['loyalty'] ?? 0;
+  const counterEntries = allCounterEntries.filter(([type]) => type !== 'loyalty');
+  const isPlaneswalker = card.card.type_line.toLowerCase().includes('planeswalker');
   const tx = transform?.x ?? 0;
   const ty = transform?.y ?? 0;
 
@@ -146,6 +149,30 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
                 {n} {type}
               </button>
             ))}
+          </div>
+        )}
+        {/* Loyalty shield (planeswalkers) — bottom-right, larger and prominent */}
+        {isPlaneswalker && (
+          <div
+            className="absolute bottom-1 right-1 flex items-center gap-0.5 pointer-events-auto"
+            style={{ transform: card.tapped ? 'rotate(-90deg)' : undefined, transformOrigin: 'center' }}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); onAdjust('loyalty', -1); }}
+              className="w-5 h-5 rounded-full bg-black/70 text-white text-xs font-bold flex items-center justify-center hover:bg-red-600/80"
+              title="−1 loyalty"
+            >−</button>
+            <div
+              className="min-w-[28px] h-7 px-1.5 rounded-md bg-blue-600 text-white font-bold flex items-center justify-center shadow-md ring-2 ring-blue-300/60 text-sm"
+              title={`${loyaltyValue} loyalty`}
+            >
+              {loyaltyValue}
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onAdjust('loyalty', 1); }}
+              className="w-5 h-5 rounded-full bg-black/70 text-white text-xs font-bold flex items-center justify-center hover:bg-emerald-600/80"
+              title="+1 loyalty"
+            >+</button>
           </div>
         )}
       </div>

@@ -191,7 +191,6 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const rest = state.zones.library.slice(7);
     return {
       zones: { ...state.zones, hand: draw, library: rest },
-      modal: { kind: 'mulligan', mulliganCount: state.mulliganCount },
       log: [...state.log, makeLogEntry(`Drew opening hand (${draw.length})`)],
     };
   }),
@@ -349,6 +348,12 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         x = snapped.x;
         y = snapped.y;
       }
+      const counters: Record<string, number> = {};
+      // Planeswalkers arrive with starting loyalty
+      if (card.type_line.toLowerCase().includes('planeswalker') && card.loyalty) {
+        const loyalty = parseInt(card.loyalty, 10);
+        if (!isNaN(loyalty) && loyalty > 0) counters.loyalty = loyalty;
+      }
       next.battlefield.push({
         instanceId: makeInstanceId(),
         card,
@@ -356,7 +361,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         y,
         tapped: false,
         faceDown: false,
-        counters: {},
+        counters,
       });
       targetLabel = 'battlefield';
     }

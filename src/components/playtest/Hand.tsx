@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import type { ScryfallCard } from '@/types';
 
@@ -10,11 +9,18 @@ type SortMode = 'none' | 'cmc' | 'type';
 
 export function Hand() {
   const hand = usePlaytestStore(s => s.zones.hand);
+  const moveCard = usePlaytestStore(s => s.moveCard);
   const [sort, setSort] = useState<SortMode>('none');
-  const [preview, setPreview] = useState<ScryfallCard | null>(null);
   const [menu, setMenu] = useState<CardMenuTarget | null>(null);
 
   const display = sortedHand(hand, sort);
+
+  const playToBattlefield = (handIndex: number) => {
+    moveCard({
+      source: { kind: 'zone', zone: 'hand', index: handIndex },
+      target: { kind: 'battlefield', x: 50, y: 0, arrived: true },
+    });
+  };
 
   return (
     <div className="border-t border-border/50 bg-card/30 px-4 py-3 flex flex-col">
@@ -39,7 +45,7 @@ export function Hand() {
               indexInHand={originalIndex}
               fanIndex={i}
               total={display.length}
-              onClickPreview={() => setPreview(card)}
+              onClickPlay={() => playToBattlefield(originalIndex)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ kind: 'hand', handIndex: originalIndex, card, x: e.clientX, y: e.clientY });
@@ -48,7 +54,6 @@ export function Hand() {
           ))}
         </div>
       </div>
-      <CardPreviewModal card={preview} onClose={() => setPreview(null)} />
       <PlaytestCardMenu target={menu} onClose={() => setMenu(null)} />
     </div>
   );
@@ -63,14 +68,14 @@ function sortedHand(hand: ScryfallCard[], mode: SortMode) {
 
 interface HandCardProps {
   card: ScryfallCard;
-  indexInHand: number;     // index in the underlying zones.hand array (used by drag payload)
+  indexInHand: number;
   fanIndex: number;
   total: number;
-  onClickPreview: () => void;
+  onClickPlay: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContextMenu }: HandCardProps) {
+function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -84,7 +89,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContex
     zIndex: isDragging ? 50 : fanIndex,
     transition: isDragging ? 'none' : 'transform 200ms ease',
     width: 'clamp(80px, 11vw, 130px)',
-    cursor: isDragging ? 'grabbing' : 'grab',
+    cursor: isDragging ? 'grabbing' : 'pointer',
   };
 
   return (
@@ -92,8 +97,9 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPreview, onContex
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      onClick={onClickPreview}
+      onClick={onClickPlay}
       onContextMenu={onContextMenu}
+      title={`Click to play ${card.name} · right-click for more options`}
       className={`relative shrink-0 rounded-lg select-none touch-none transition-transform ${
         isDragging ? '' : 'hover:-translate-y-2 hover:z-20'
       }`}
