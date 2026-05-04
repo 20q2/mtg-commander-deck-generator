@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, Minus, Sparkles, BookOpen, Trash2, Crown } from 'lucide-react';
+import { useDroppable } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
@@ -67,15 +68,19 @@ function LifePanel({ life, onAdjust, onSet }: { life: number; onAdjust: (d: numb
 function Pile({ spec }: { spec: PileSpec }) {
   const cards = usePlaytestStore(s => s.zones[spec.zone]);
   const openModal = usePlaytestStore(s => s.openModal);
+  const { setNodeRef, isOver } = useDroppable({
+    id: `pile:${spec.zone}`,
+    data: { kind: 'pile', zone: spec.zone },
+  });
   const top = cards[0];
   const Icon = spec.Icon;
-  const onClick = () => openModal({ kind: 'zoneViewer', zone: spec.zone });
 
   return (
     <button
+      ref={setNodeRef}
       type="button"
-      onClick={onClick}
-      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all`}
+      onClick={() => openModal({ kind: 'zoneViewer', zone: spec.zone })}
+      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all ${isOver ? 'ring-2 ring-primary' : ''}`}
     >
       <div className="aspect-[5/7] w-full rounded-md overflow-hidden bg-black/20 flex items-center justify-center">
         {top && spec.faceUp
