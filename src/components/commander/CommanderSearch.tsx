@@ -213,10 +213,16 @@ export function CommanderSearch() {
     setIsSearching(true);
     try {
       if (colorFilter.size > 0) {
-        // Color filter active — fetch from all EDHREC color combos that include the selected colors
+        // Color filter active — fetch superset, then narrow to commanders whose color identity
+        // matches the filter exactly (e.g. GB filter → only GB commanders, not GBW/GBU/etc.)
         const commanders = await fetchCommandersIncludingColors([...colorFilter]);
-        if (commanders.length === 0) return;
-        const pick = commanders[Math.floor(Math.random() * commanders.length)];
+        const exactMatches = commanders.filter(c =>
+          c.colorIdentity.length === colorFilter.size &&
+          c.colorIdentity.every(color => colorFilter.has(color))
+        );
+        const pool = exactMatches.length > 0 ? exactMatches : commanders;
+        if (pool.length === 0) return;
+        const pick = pool[Math.floor(Math.random() * pool.length)];
         const card = await getCardByName(pick.name);
         handleSelectCommander(card);
       } else {

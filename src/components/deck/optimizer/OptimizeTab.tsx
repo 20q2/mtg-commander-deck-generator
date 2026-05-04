@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   Wand2, ArrowLeft, Check, Sparkles, Zap,
   ArrowRightLeft, TrendingUp, TrendingDown,
+  Mountain, Minus, Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ScryfallCard, DetectedCombo } from '@/types';
@@ -200,12 +201,16 @@ export interface OptimizeViewProps {
   onApply: (removals: string[], additions: string[]) => void;
   onBack: () => void;
   onPreview: (name: string) => void;
+  userLandTarget?: number | null;
+  onLandTargetChange?: (target: number | null) => void;
+  deckSize?: number;
 }
 
 export function OptimizeView({
   analysis, currentCards, commanderName, partnerCommanderName,
   cardInclusionMap, mustIncludeNames, bannedNames, detectedCombos,
   onApply, onBack, onPreview,
+  userLandTarget, onLandTargetChange, deckSize,
 }: OptimizeViewProps) {
   // Selected cards (checked = will be applied). Default: all checked.
   const [uncheckedRemovals, setUncheckedRemovals] = useState<Set<string>>(new Set());
@@ -361,6 +366,49 @@ export function OptimizeView({
               );
             })()}
           </div>
+        </div>
+      )}
+
+      {/* Land target control */}
+      {onLandTargetChange && (
+        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card/60 border border-border/30">
+          <Mountain className="w-3.5 h-3.5 text-muted-foreground/60" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Target</span>
+          <button
+            onClick={() => {
+              const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+              const min = Math.floor((deckSize ?? 99) * 0.25);
+              if (current > min) onLandTargetChange(current - 1);
+            }}
+            className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+          <span className={`text-sm font-bold tabular-nums ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
+            {userLandTarget ?? analysis.manaBase.adjustedSuggestion}
+          </span>
+          <span className="text-[10px] text-muted-foreground/50">lands</span>
+          <button
+            onClick={() => {
+              const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+              const max = Math.floor((deckSize ?? 99) * 0.50);
+              if (current < max) onLandTargetChange(current + 1);
+            }}
+            className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+          {userLandTarget != null ? (
+            <button
+              onClick={() => onLandTargetChange(null)}
+              className="text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors ml-1"
+              title="Reset to auto-detected"
+            >
+              Reset
+            </button>
+          ) : (
+            <span className="text-[10px] text-muted-foreground/40 ml-1">Auto-detected from commander data</span>
+          )}
         </div>
       )}
 

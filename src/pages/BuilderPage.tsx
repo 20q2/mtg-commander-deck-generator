@@ -43,7 +43,15 @@ export function BuilderPage() {
   const saveInputRef = useRef<HTMLInputElement>(null);
   const { createList } = useUserLists();
   const exportTriggerRef = useRef<(() => void) | null>(null);
-  const eaEnabled = localStorage.getItem('ea-features-enabled') === 'true';
+  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      setEaEnabled(!!detail?.enabled);
+    };
+    window.addEventListener('ea-features-changed', handler);
+    return () => window.removeEventListener('ea-features-changed', handler);
+  }, []);
   const [headerCollectionNames, setHeaderCollectionNames] = useState<Set<string> | null>(null);
 
   const {

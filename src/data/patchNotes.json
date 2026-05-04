@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.2.24",
+    "notes": [
+      "Sol Ring and Arcane Signet are now auto-included in every legal deck (respects bans, budget, and collection-only mode)",
+      "New land count target control in the deck optimizer — bump it up or down to match how mana-hungry you want the deck",
+      "Random commander with a color filter now prefers an exact color identity match (e.g. GB filter picks GB commanders, not GBW or GBU)",
+      "EA Features toggle moved to the version/patch notes popover so it's available from anywhere",
+      "Cleaner alignment for combo cards in the combo panel"
+    ]
+  },
+  {
     "version": "1.2.23",
     "notes": [
       "Fixed deck generator not respecting your land count ",

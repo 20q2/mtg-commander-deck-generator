@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { Settings } from 'lucide-react';
+import { Settings, Sparkles } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
@@ -182,6 +182,16 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const isCollectionPage = location.pathname === '/collection' || location.pathname.startsWith('/lists');
 
+  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
+  const toggleEaFeatures = useCallback(() => {
+    setEaEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('ea-features-enabled', String(next));
+      window.dispatchEvent(new CustomEvent('ea-features-changed', { detail: { enabled: next } }));
+      return next;
+    });
+  }, []);
+
   // Track page views
   useEffect(() => {
     trackEvent('page_viewed', {
@@ -299,17 +309,27 @@ function Layout({ children }: { children: React.ReactNode }) {
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="bottom" align="end" className="w-72 max-h-80 overflow-y-auto p-3 text-xs">
-                    <p className="font-semibold text-sm text-foreground mb-2">Patch Notes</p>
-                    {patchNotes.map((entry, i) => (
-                      <div key={entry.version} className={i > 0 ? 'mt-3 pt-3 border-t border-border/50' : ''}>
-                        <p className="font-medium text-foreground/80 mb-1">v{entry.version}</p>
-                        <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
-                          {entry.notes.map((note, j) => (
-                            <li key={j}>{note}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
+                    <button
+                      onClick={toggleEaFeatures}
+                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-2"
+                    >
+                      <Sparkles className={`w-3.5 h-3.5 ${eaEnabled ? 'text-purple-400' : 'text-muted-foreground'}`} />
+                      <span className={`text-sm ${eaEnabled ? 'text-purple-400' : ''}`}>EA Features</span>
+                      {eaEnabled && <span className="ml-auto text-[10px] text-purple-400/70 font-medium">ON</span>}
+                    </button>
+                    <div className="border-t border-border/50 pt-3">
+                      <p className="font-semibold text-sm text-foreground mb-2">Patch Notes</p>
+                      {patchNotes.map((entry, i) => (
+                        <div key={entry.version} className={i > 0 ? 'mt-3 pt-3 border-t border-border/50' : ''}>
+                          <p className="font-medium text-foreground/80 mb-1">v{entry.version}</p>
+                          <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                            {entry.notes.map((note, j) => (
+                              <li key={j}>{note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>

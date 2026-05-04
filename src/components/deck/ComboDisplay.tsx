@@ -555,7 +555,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[8000px] opacity-100' : 'max-h-0 opacity-0'}`}>
         {/* Complete combos */}
         {completeCombos.length > 0 && (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
             {completeCombos.map(combo => renderComboCard(combo))}
           </div>
         )}
@@ -569,7 +569,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                 <div className="flex-1 border-t border-border/30" />
               </div>
             )}
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
               {(showAllNearMisses ? nearMisses : nearMisses.slice(0, 10)).map(combo => renderComboCard(combo))}
             </div>
             {nearMisses.length > 10 && !showAllNearMisses && (
@@ -601,7 +601,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                 <p className="text-[11px] text-muted-foreground mb-2">
                   These combos involve cards on your exclude list.
                 </p>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
                   {excludedCombos.map(combo => renderComboCard(combo, true))}
                 </div>
               </>

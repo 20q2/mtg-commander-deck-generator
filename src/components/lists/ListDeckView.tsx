@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Sparkles } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus } from 'lucide-react';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -434,14 +434,15 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const [showOverflow, setShowOverflow] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
 
-  // EA Features toggle (persisted in localStorage)
+  // EA Features toggle (controlled from the patch notes popover in the header)
   const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
-  const toggleEaFeatures = useCallback(() => {
-    setEaEnabled(prev => {
-      const next = !prev;
-      localStorage.setItem('ea-features-enabled', String(next));
-      return next;
-    });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
+      setEaEnabled(!!detail?.enabled);
+    };
+    window.addEventListener('ea-features-changed', handler);
+    return () => window.removeEventListener('ea-features-changed', handler);
   }, []);
 
   // Total deck price
@@ -1146,15 +1147,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                       Duplicate
                     </button>
                   )}
-                  <div className="h-px bg-border/50 my-1" />
-                  <button
-                    onClick={toggleEaFeatures}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${eaEnabled ? 'text-purple-400' : ''}`} />
-                    <span className={eaEnabled ? 'text-purple-400' : ''}>EA Features</span>
-                    {eaEnabled && <span className="ml-auto text-[10px] text-purple-400/70 font-medium">ON</span>}
-                  </button>
                 </div>
               )}
             </div>

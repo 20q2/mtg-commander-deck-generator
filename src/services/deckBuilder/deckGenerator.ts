@@ -3088,6 +3088,43 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     ];
   }
 
+  // ── Auto-include staple mana rocks (like Command Tower for lands) ──
+  // Sol Ring goes in every Commander deck. Arcane Signet goes in every 2+ color deck.
+  // These are so universally played that a deck with Charcoal Diamond but no Arcane Signet is wrong.
+  const stapleRocks: { name: string; minColors: number }[] = [
+    { name: 'Sol Ring', minColors: 0 },
+    { name: 'Arcane Signet', minColors: 1 },
+  ];
+  if (format === 99) {
+    for (const staple of stapleRocks) {
+      if (colorIdentity.length < staple.minColors) continue;
+      if (usedNames.has(staple.name) || bannedCards.has(staple.name)) continue;
+      // Respect collection-only mode
+      if (collectionStrategy === 'full' && notInCollection(staple.name, context.collectionNames)) continue;
+      try {
+        const card = await getCardByName(staple.name, true);
+        // Respect budget, rarity, arena-only constraints
+        if (!isOwnedBudgetExempt(staple.name, context.collectionNames, ignoreOwnedBudget) && exceedsMaxPrice(card, maxCardPrice, currency)) continue;
+        if (!isOwnedRarityExempt(staple.name, context.collectionNames, ignoreOwnedRarity) && exceedsMaxRarity(card, maxRarity)) continue;
+        if (notOnArena(card, arenaOnly)) continue;
+        markUsed(card.name);
+        categorizeCards([card], categories);
+        const cmc = Math.min(Math.floor(card.cmc), 7);
+        currentCurveCounts[cmc] = (currentCurveCounts[cmc] ?? 0) + 1;
+        // Stamp role if available (use tagger directly since cardRoleMap is EDHREC-path only)
+        const role = getCardRole(card.name);
+        if (role) {
+          currentRoleCounts[role]++;
+          card.deckRole = role;
+          stampRoleSubtypes(card);
+        }
+        console.log(`[DeckGen] Auto-included staple: ${staple.name}`);
+      } catch {
+        // Ignore if not found
+      }
+    }
+  }
+
   // Calculate the target deck size (commander(s) are separate)
   // With partner, we need one fewer card since both commanders count toward the total
   const commanderCount = partnerCommander ? 2 : 1;

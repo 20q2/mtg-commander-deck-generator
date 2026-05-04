@@ -1023,6 +1023,9 @@ export function DeckOptimizer({
             detectedCombos={detectedCombos}
             onApply={handleApplyOptimize}
             onBack={() => setOptimizeView(false)}
+            userLandTarget={userLandTarget}
+            onLandTargetChange={handleLandTargetChange}
+            deckSize={deckSize}
             onPreview={handlePreview}
           />
         ) : (<>
