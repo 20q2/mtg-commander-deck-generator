@@ -50,10 +50,10 @@ export function TokenSpawnModal() {
               <button
                 key={t.id}
                 onClick={() => { spawnToken(t); closeModal(); }}
-                className="rounded-[4px] hover:ring-2 hover:ring-primary transition-all"
+                className="rounded-[5px] hover:ring-2 hover:ring-primary transition-all"
                 title={`Spawn ${t.name}`}
               >
-                <img src={getCardImageUrl(t, 'small')} alt={t.name} className="w-full rounded-[4px] shadow" />
+                <img src={getCardImageUrl(t, 'small')} alt={t.name} className="w-full rounded-[5px] shadow" />
               </button>
             ))}
           </div>
