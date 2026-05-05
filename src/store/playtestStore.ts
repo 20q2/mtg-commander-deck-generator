@@ -383,7 +383,10 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       targetLabel = 'battlefield';
     }
 
-    next.log.push(makeLogEntry(`${card.name}: ${sourceLabel} → ${targetLabel}`));
+    // Skip the log entry when the move is just hand reordering (hand → hand).
+    if (sourceLabel !== 'hand' || targetLabel !== 'hand') {
+      next.log.push(makeLogEntry(`${card.name}: ${sourceLabel} → ${targetLabel}`));
+    }
     return { ...next, history };
   }),
 
