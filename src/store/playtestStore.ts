@@ -334,13 +334,18 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     // 2) insert into target
     let targetLabel = '';
     if (target.kind === 'zone') {
-      // Face-up piles (command, graveyard, exile) show the most recently
-      // added card on top, so insert at the front. Hand has no concept of
-      // "top" — append to keep insertion order.
-      if (target.zone === 'hand') {
-        next.zones[target.zone].push(card);
+      const arr = next.zones[target.zone];
+      if (typeof target.index === 'number') {
+        // Explicit position requested (e.g. drop between hand cards)
+        const idx = Math.max(0, Math.min(target.index, arr.length));
+        arr.splice(idx, 0, card);
+      } else if (target.zone === 'hand') {
+        // Default for hand: append (e.g. draw, return-to-hand without position)
+        arr.push(card);
       } else {
-        next.zones[target.zone].unshift(card);
+        // Face-up piles (command, graveyard, exile) show the most recently
+        // added card on top → insert at the front.
+        arr.unshift(card);
       }
       targetLabel = target.zone;
     } else if (target.kind === 'library') {

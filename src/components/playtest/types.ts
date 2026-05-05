@@ -72,7 +72,7 @@ export type MoveSource =
   | { kind: 'battlefield'; instanceId: string };
 
 export type MoveTarget =
-  | { kind: 'zone'; zone: 'graveyard' | 'exile' | 'hand' | 'command' }
+  | { kind: 'zone'; zone: 'graveyard' | 'exile' | 'hand' | 'command'; index?: number }
   | { kind: 'library'; position: 'top' | 'bottom' }
   | { kind: 'battlefield'; x: number; y: number; arrived: boolean }; // arrived=true means apply snap rule
 

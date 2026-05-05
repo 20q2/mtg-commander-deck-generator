@@ -85,10 +85,18 @@ interface HandCardProps {
 
 function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: dragId,
     data: { source: { kind: 'zone', zone: 'hand', index: indexInHand } },
   });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `hand-slot:${indexInHand}`,
+    data: { kind: 'hand-slot', index: indexInHand },
+  });
+  const composedRef = (node: HTMLDivElement | null) => {
+    setDragRef(node);
+    setDropRef(node);
+  };
 
   const overlap = total <= 7 ? 24 : Math.min(24 + (total - 7) * 6, 88);
   const style: React.CSSProperties = {
@@ -103,7 +111,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
 
   return (
     <div
-      ref={setNodeRef}
+      ref={composedRef}
       {...attributes}
       {...listeners}
       onClick={onClickPlay}
@@ -111,7 +119,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
       title={`Click to play ${card.name} · right-click for more options`}
       className={`relative shrink-0 rounded-lg select-none touch-none transition-transform ${
         isDragging ? '' : 'hover:-translate-y-2 hover:z-20'
-      }`}
+      } ${isOver && !isDragging ? 'ring-2 ring-primary' : ''}`}
       style={style}
     >
       <img

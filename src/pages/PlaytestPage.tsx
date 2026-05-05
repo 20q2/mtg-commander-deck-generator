@@ -82,7 +82,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     const { active, over } = event;
     if (!over) return;
     const sourceData = active.data.current as { source?: MoveSource } | undefined;
-    const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string } | undefined;
+    const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number } | undefined;
     const source = sourceData?.source;
     if (!source) return;
 
@@ -110,6 +110,17 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
       } else {
         moveCard({ source, target: { kind: 'battlefield', x, y, arrived: false } });
       }
+      return;
+    }
+
+    // Drop on a specific hand slot — insert at that position
+    if (overData?.kind === 'hand-slot' && typeof overData.index === 'number') {
+      let insertIndex = overData.index;
+      // If reordering within the hand, removing the source first shifts later indices
+      if (source.kind === 'zone' && source.zone === 'hand' && source.index < insertIndex) {
+        insertIndex--;
+      }
+      moveCard({ source, target: { kind: 'zone', zone: 'hand', index: insertIndex } });
       return;
     }
 
