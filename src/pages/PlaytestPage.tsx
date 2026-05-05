@@ -173,7 +173,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
           <img
             src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
             alt={activeCard.name}
-            className="rounded-sm shadow-2xl ring-2 ring-primary/40"
+            className="rounded-[4px] shadow-2xl ring-2 ring-primary/40"
             style={{
               width: 110,
               cursor: 'grabbing',

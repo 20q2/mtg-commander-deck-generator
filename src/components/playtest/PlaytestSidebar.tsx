@@ -112,7 +112,7 @@ function Pile({ spec }: { spec: PileSpec }) {
       title={cards.length > 0 ? `Click to play top card · right-click to view ${spec.label.toLowerCase()}` : `View ${spec.label.toLowerCase()}`}
       className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all cursor-pointer select-none ${isOver ? 'ring-2 ring-primary' : ''}`}
     >
-      <div className="aspect-[5/7] w-full rounded-sm overflow-hidden bg-black/20 flex items-center justify-center relative">
+      <div className="aspect-[5/7] w-full rounded-[4px] overflow-hidden bg-black/20 flex items-center justify-center relative">
         {cards.length > 0 ? (
           <div
             ref={drag.setNodeRef}

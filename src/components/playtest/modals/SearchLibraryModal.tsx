@@ -34,10 +34,10 @@ export function SearchLibraryModal() {
             <button
               key={card.id}
               onClick={() => searchLibraryTakeToHand(card.id)}
-              className="rounded-sm transition-all hover:ring-2 hover:ring-primary"
+              className="rounded-[4px] transition-all hover:ring-2 hover:ring-primary"
               title={`Take ${card.name} (and shuffle)`}
             >
-              <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-full rounded-sm shadow" />
+              <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-full rounded-[4px] shadow" />
             </button>
           ))}
         </div>

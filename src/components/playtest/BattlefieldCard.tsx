@@ -112,7 +112,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
         <img
           src={card.faceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(card.card, 'normal')}
           alt={card.faceDown ? 'Face-down' : card.card.name}
-          className="w-full rounded-sm shadow-lg pointer-events-none"
+          className="w-full rounded-[4px] shadow-lg pointer-events-none"
           draggable={false}
         />
         {/* Counter chips, counter-rotated to stay upright when card is tapped */}

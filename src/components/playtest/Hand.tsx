@@ -117,7 +117,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
       onClick={onClickPlay}
       onContextMenu={onContextMenu}
       title={`Click to play ${card.name} · right-click for more options`}
-      className={`relative shrink-0 rounded-sm select-none touch-none transition-transform ${
+      className={`relative shrink-0 rounded-[4px] select-none touch-none transition-transform ${
         isDragging ? '' : 'hover:-translate-y-2 hover:z-20'
       } ${isOver && !isDragging ? 'ring-2 ring-primary' : ''}`}
       style={style}
@@ -125,7 +125,7 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
       <img
         src={getCardImageUrl(card, 'normal')}
         alt={card.name}
-        className="w-full rounded-sm shadow-md pointer-events-none"
+        className="w-full rounded-[4px] shadow-md pointer-events-none"
         loading="lazy"
         draggable={false}
       />

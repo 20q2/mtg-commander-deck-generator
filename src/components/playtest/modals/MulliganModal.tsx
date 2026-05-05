@@ -62,9 +62,9 @@ export function MulliganModal() {
               <button
                 key={`${card.id}-${i}`}
                 onClick={() => picking && togglePick(i)}
-                className={`relative rounded-sm transition-all ${picking ? 'cursor-pointer' : 'cursor-default'} ${sel ? 'ring-4 ring-amber-400' : ''}`}
+                className={`relative rounded-[4px] transition-all ${picking ? 'cursor-pointer' : 'cursor-default'} ${sel ? 'ring-4 ring-amber-400' : ''}`}
               >
-                <img src={getCardImageUrl(card, 'normal')} alt={card.name} className="w-full rounded-sm shadow" />
+                <img src={getCardImageUrl(card, 'normal')} alt={card.name} className="w-full rounded-[4px] shadow" />
                 {sel && <span className="absolute top-1 right-1 bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded">↓ bottom</span>}
               </button>
             );
