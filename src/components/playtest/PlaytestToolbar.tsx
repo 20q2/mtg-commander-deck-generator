@@ -73,6 +73,10 @@ export function PlaytestToolbar({ onExit }: { onExit: () => void }) {
         <button onClick={() => adjustLife(5)} className={tinyBtn} title="+5 life">+5</button>
       </div>
 
+      <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Playtest settings" className="ml-1">
+        <SettingsIcon className="w-4 h-4" />
+      </Button>
+
       <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
         <Button variant="outline" size="sm" onClick={() => draw(1)}><Plus className="w-3.5 h-3.5 mr-1" />Draw</Button>
         <Button variant="outline" size="sm" onClick={untapAll}><RotateCcw className="w-3.5 h-3.5 mr-1" />Untap</Button>
@@ -96,9 +100,6 @@ export function PlaytestToolbar({ onExit }: { onExit: () => void }) {
         <Button variant="outline" size="sm" onClick={() => openModal({ kind: 'tokens' })}><Sparkles className="w-3.5 h-3.5 mr-1" />Tokens</Button>
         <Button variant="ghost" size="sm" disabled={historyLen === 0} onClick={undo}><Undo2 className="w-3.5 h-3.5 mr-1" />Undo</Button>
         <Button variant="ghost" size="sm" onClick={reset}><RefreshCw className="w-3.5 h-3.5 mr-1" />Reset</Button>
-        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Playtest settings">
-          <SettingsIcon className="w-4 h-4" />
-        </Button>
       </div>
       <PlaytestSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
