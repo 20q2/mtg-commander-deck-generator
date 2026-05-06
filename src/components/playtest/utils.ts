@@ -38,3 +38,47 @@ export function snapArrival(
   const y = isLand(card) ? Math.max(margin, containerHeight - cardHeight - margin) : margin;
   return { x: rawX, y };
 }
+
+/**
+ * Find a non-overlapping slot for an arriving card. Starts at (startX,startY),
+ * bumps right by 0.75 * card width, and wraps to a new row when out of horizontal
+ * space. Lands move up (their snap is the bottom row), spells move down.
+ */
+export function findArrivalSlot(
+  battlefield: { x: number; y: number }[],
+  startX: number,
+  startY: number,
+  containerWidth: number,
+  containerHeight: number,
+  goingUp: boolean,
+  cardWidth = 100,
+  cardHeight = 140,
+): { x: number; y: number } {
+  if (containerWidth <= 0 || containerHeight <= 0) return { x: startX, y: startY };
+  const stepX = Math.round(cardWidth * 0.75);
+  const stepY = cardHeight + 8;
+  const margin = 16;
+  const overlaps = (x: number, y: number) =>
+    battlefield.some(b => Math.abs(b.x - x) < cardWidth && Math.abs(b.y - y) < cardHeight);
+  let x = startX;
+  let y = startY;
+  const minY = margin;
+  const maxY = Math.max(margin, containerHeight - cardHeight - margin);
+  for (let row = 0; row < 12; row++) {
+    while (x + cardWidth <= containerWidth - margin) {
+      if (!overlaps(x, y)) return { x, y };
+      x += stepX;
+    }
+    x = startX;
+    y = goingUp ? y - stepY : y + stepY;
+    if (y < minY || y > maxY) {
+      y = goingUp ? minY : maxY;
+      while (x + cardWidth <= containerWidth - margin) {
+        if (!overlaps(x, y)) return { x, y };
+        x += stepX;
+      }
+      return { x: startX, y };
+    }
+  }
+  return { x: startX, y: startY };
+}

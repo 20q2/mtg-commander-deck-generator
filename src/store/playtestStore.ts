@@ -14,7 +14,7 @@ import {
   type ZoneKey,
   PHASES,
 } from '@/components/playtest/types';
-import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival } from '@/components/playtest/utils';
+import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 
 const HISTORY_CAP = 20;
 const STARTING_LIFE = 40;
@@ -362,8 +362,16 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       let { x, y } = target;
       if (target.arrived) {
         const snapped = snapArrival(card, x, y, state.battlefieldRect.height);
-        x = snapped.x;
-        y = snapped.y;
+        const slot = findArrivalSlot(
+          next.battlefield,
+          snapped.x,
+          snapped.y,
+          state.battlefieldRect.width,
+          state.battlefieldRect.height,
+          _isLand(card),
+        );
+        x = slot.x;
+        y = slot.y;
       }
       const counters: Record<string, number> = {};
       // Planeswalkers arrive with starting loyalty

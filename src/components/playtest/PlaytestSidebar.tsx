@@ -33,6 +33,8 @@ export function PlaytestSidebar() {
 function Pile({ spec }: { spec: PileSpec }) {
   const cards = usePlaytestStore(s => s.zones[spec.zone]);
   const openModal = usePlaytestStore(s => s.openModal);
+  const closeModal = usePlaytestStore(s => s.closeModal);
+  const currentModal = usePlaytestStore(s => s.modal);
   const moveCard = usePlaytestStore(s => s.moveCard);
   const draw = usePlaytestStore(s => s.draw);
   const shuffleTick = usePlaytestStore(s => s.shuffleTick);
@@ -73,6 +75,11 @@ function Pile({ spec }: { spec: PileSpec }) {
 
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    // Toggle: if this zone's viewer is already open, close it.
+    if (currentModal?.kind === 'zoneViewer' && currentModal.zone === spec.zone) {
+      closeModal();
+      return;
+    }
     if (cards.length === 0 && spec.zone !== 'library') return;
     openModal({ kind: 'zoneViewer', zone: spec.zone });
   };
