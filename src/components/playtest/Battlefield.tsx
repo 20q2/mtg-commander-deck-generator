@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings, BG_STYLES } from '@/store/playtestSettingsStore';
 import { BattlefieldCard } from '@/components/playtest/BattlefieldCard';
 
 export function Battlefield() {
   const cards = usePlaytestStore(s => s.battlefield);
   const setRect = usePlaytestStore(s => s.setBattlefieldRect);
+  const bg = usePlaytestSettings(s => s.bg);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Track size for arrival snap
@@ -39,7 +41,7 @@ export function Battlefield() {
     <div
       ref={composedRef}
       className={`flex-1 relative border-b border-border/50 overflow-hidden ${isOver ? 'ring-2 ring-primary/40 ring-inset' : ''}`}
-      style={{ background: 'radial-gradient(ellipse at center, rgba(40,60,100,0.12), transparent 70%)' }}
+      style={{ background: BG_STYLES[bg].background }}
     >
       {sorted.map(b => <BattlefieldCard key={b.instanceId} card={b} />)}
     </div>

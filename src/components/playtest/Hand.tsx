@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import type { ScryfallCard } from '@/types';
@@ -100,11 +101,13 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
 
   // Arrival grow: cards mount slightly smaller and transition up to full size
   // when they enter the hand (draw / return-to-hand / mulligan).
-  const [arrived, setArrived] = useState(false);
+  const animations = usePlaytestSettings(s => s.animations);
+  const [arrived, setArrived] = useState(!animations);
   useEffect(() => {
+    if (!animations) { setArrived(true); return; }
     const id = requestAnimationFrame(() => setArrived(true));
     return () => cancelAnimationFrame(id);
-  }, []);
+  }, [animations]);
 
   const overlap = total <= 7 ? 24 : Math.min(24 + (total - 7) * 6, 88);
   const dragTransform = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(1.05)` : undefined;

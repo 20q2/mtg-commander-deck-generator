@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Hand as HandIcon, Heart, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus, Undo2, RefreshCw, X } from 'lucide-react';
+import { Hand as HandIcon, Heart, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus, Settings as SettingsIcon, Undo2, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { PHASE_LABELS } from '@/components/playtest/types';
+import { PlaytestSettingsModal } from '@/components/playtest/PlaytestSettingsModal';
 
 export function PlaytestToolbar({ onExit }: { onExit: () => void }) {
   const sourceName = usePlaytestStore(s => s.source?.name ?? '');
@@ -25,6 +26,7 @@ export function PlaytestToolbar({ onExit }: { onExit: () => void }) {
   const [scryN, setScryN] = useState(1);
   const [editingLife, setEditingLife] = useState(false);
   const [draftLife, setDraftLife] = useState(String(life));
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const tinyBtn = 'px-1.5 py-0.5 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium';
 
@@ -94,7 +96,11 @@ export function PlaytestToolbar({ onExit }: { onExit: () => void }) {
         <Button variant="outline" size="sm" onClick={() => openModal({ kind: 'tokens' })}><Sparkles className="w-3.5 h-3.5 mr-1" />Tokens</Button>
         <Button variant="ghost" size="sm" disabled={historyLen === 0} onClick={undo}><Undo2 className="w-3.5 h-3.5 mr-1" />Undo</Button>
         <Button variant="ghost" size="sm" onClick={reset}><RefreshCw className="w-3.5 h-3.5 mr-1" />Reset</Button>
+        <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Playtest settings">
+          <SettingsIcon className="w-4 h-4" />
+        </Button>
       </div>
+      <PlaytestSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

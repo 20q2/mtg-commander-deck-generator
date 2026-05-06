@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import type { DraggableAttributes } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
@@ -89,11 +90,13 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
 
   // Arrival shrink: cards mount briefly larger then transition down to the
   // battlefield's normal size, matching the visual "drop from hand" intent.
-  const [arrived, setArrived] = React.useState(false);
+  const animations = usePlaytestSettings(s => s.animations);
+  const [arrived, setArrived] = React.useState(!animations);
   React.useEffect(() => {
+    if (!animations) { setArrived(true); return; }
     const id = requestAnimationFrame(() => setArrived(true));
     return () => cancelAnimationFrame(id);
-  }, []);
+  }, [animations]);
 
   const innerTransform = [
     arrived ? 'scale(1)' : 'scale(1.15)',
