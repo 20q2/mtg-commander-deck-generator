@@ -32,6 +32,7 @@ function Pile({ spec }: { spec: PileSpec }) {
   const cards = usePlaytestStore(s => s.zones[spec.zone]);
   const openModal = usePlaytestStore(s => s.openModal);
   const moveCard = usePlaytestStore(s => s.moveCard);
+  const draw = usePlaytestStore(s => s.draw);
   const shuffleTick = usePlaytestStore(s => s.shuffleTick);
   const [jiggle, setJiggle] = useState(false);
   useEffect(() => {
@@ -52,8 +53,12 @@ function Pile({ spec }: { spec: PileSpec }) {
   const top = cards[0];
   const Icon = spec.Icon;
 
-  const playTop = () => {
+  const onClickPile = () => {
     if (cards.length === 0) return;
+    if (spec.zone === 'library') {
+      draw(1);
+      return;
+    }
     moveCard({
       source: { kind: 'zone', zone: spec.zone, index: 0 },
       target: { kind: 'battlefield', x: 50, y: 0, arrived: true },
@@ -62,18 +67,26 @@ function Pile({ spec }: { spec: PileSpec }) {
 
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (cards.length === 0 && spec.zone !== 'library') return;
     openModal({ kind: 'zoneViewer', zone: spec.zone });
   };
+
+  const interactive = cards.length > 0;
+  const titleText = !interactive
+    ? spec.label
+    : spec.zone === 'library'
+      ? `Click to draw a card · right-click to search ${spec.label.toLowerCase()}`
+      : `Click to play top card · right-click to view ${spec.label.toLowerCase()}`;
 
   return (
     <div
       ref={setDropRef}
-      onClick={cards.length === 0 ? () => openModal({ kind: 'zoneViewer', zone: spec.zone }) : playTop}
+      onClick={onClickPile}
       onContextMenu={onContextMenu}
-      role="button"
-      tabIndex={0}
-      title={cards.length > 0 ? `Click to play top card · right-click to view ${spec.label.toLowerCase()}` : `View ${spec.label.toLowerCase()}`}
-      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center hover:brightness-125 transition-all cursor-pointer select-none ${isOver ? 'ring-2 ring-primary' : ''}`}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      title={titleText}
+      className={`relative rounded-lg border ${spec.bgClass} p-2 text-center transition-all select-none ${interactive ? 'hover:brightness-125 cursor-pointer' : 'opacity-60'} ${isOver ? 'ring-2 ring-primary' : ''}`}
     >
       <div className="aspect-[5/7] w-full rounded-[5px] overflow-hidden bg-black/20 flex items-center justify-center relative">
         {cards.length > 0 ? (

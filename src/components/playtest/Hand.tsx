@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
@@ -98,12 +98,22 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
     setDropRef(node);
   };
 
+  // Arrival grow: cards mount slightly smaller and transition up to full size
+  // when they enter the hand (draw / return-to-hand / mulligan).
+  const [arrived, setArrived] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setArrived(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   const overlap = total <= 7 ? 24 : Math.min(24 + (total - 7) * 6, 88);
+  const dragTransform = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(1.05)` : undefined;
+  const arriveScale = arrived ? 'scale(1)' : 'scale(0.85)';
   const style: React.CSSProperties = {
     marginLeft: fanIndex === 0 ? 0 : `-${overlap}px`,
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(1.05)` : undefined,
+    transform: dragTransform ?? arriveScale,
     zIndex: isDragging ? 50 : fanIndex,
-    transition: isDragging ? 'none' : 'transform 200ms ease',
+    transition: isDragging ? 'none' : 'transform 220ms ease-out',
     width: 'clamp(80px, 11vw, 130px)',
     cursor: isDragging ? 'grabbing' : 'pointer',
     opacity: isDragging ? 0 : 1,

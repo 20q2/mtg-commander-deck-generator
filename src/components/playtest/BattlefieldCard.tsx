@@ -87,6 +87,19 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   const tx = transform?.x ?? 0;
   const ty = transform?.y ?? 0;
 
+  // Arrival shrink: cards mount briefly larger then transition down to the
+  // battlefield's normal size, matching the visual "drop from hand" intent.
+  const [arrived, setArrived] = React.useState(false);
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => setArrived(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const innerTransform = [
+    arrived ? 'scale(1)' : 'scale(1.15)',
+    card.tapped ? 'rotate(90deg)' : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <div
       ref={ref}
@@ -107,7 +120,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
     >
       <div
         className="relative w-full"
-        style={{ transform: card.tapped ? 'rotate(90deg)' : undefined, transformOrigin: 'center', transition: 'transform 150ms ease' }}
+        style={{ transform: innerTransform, transformOrigin: 'center', transition: 'transform 220ms ease-out' }}
       >
         <img
           src={card.faceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(card.card, 'normal')}
