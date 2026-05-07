@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { getCardImageUrl } from '@/services/scryfall/client';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
+import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
 
 export function SearchLibraryModal() {
   const library = usePlaytestStore(s => s.zones.library);
@@ -52,7 +52,7 @@ export function SearchLibraryModal() {
                 className="rounded-[5px] transition-all hover:ring-2 hover:ring-primary"
                 title={`Take ${card.name} (and shuffle)`}
               >
-                <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-full rounded-[5px] shadow" />
+                <HoverPreviewImage card={card} size="small" className="w-full rounded-[5px] shadow" />
               </button>
             ))}
           </div>

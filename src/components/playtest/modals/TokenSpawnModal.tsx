@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { getCardImageUrl } from '@/services/scryfall/client';
 import { resolveDeckTokens, resolveTokens, deriveColorIdentity } from '@/services/playtest/tokens';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
+import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
 import type { ScryfallCard } from '@/types';
 
 export function TokenSpawnModal() {
@@ -101,7 +101,7 @@ export function TokenSpawnModal() {
                 className="rounded-[5px] hover:ring-2 hover:ring-primary transition-all"
                 title={`Spawn ${t.name}`}
               >
-                <img src={getCardImageUrl(t, 'small')} alt={t.name} className="w-full rounded-[5px] shadow" />
+                <HoverPreviewImage card={t} size="small" className="w-full rounded-[5px] shadow" />
               </button>
             ))}
           </div>

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
 import type { ScryfallCard } from '@/types';
 
 export function ScryMillSurveilModal() {
@@ -24,7 +24,7 @@ export function ScryMillSurveilModal() {
       <ModalShell title={`Mill ${n}`} onClose={closeModal}>
         <p className="text-sm text-muted-foreground mb-3">These {n} cards will be moved from library to graveyard:</p>
         <div className="grid grid-cols-7 gap-2 mb-5">
-          {top.map((c, i) => <img key={`${c.id}-${i}`} src={getCardImageUrl(c, 'normal')} alt={c.name} className="w-full rounded-[5px] shadow" />)}
+          {top.map((c, i) => <HoverPreviewImage key={`${c.id}-${i}`} card={c} size="normal" className="w-full rounded-[5px] shadow" />)}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={closeModal}>Cancel</Button>
@@ -63,7 +63,7 @@ function ScryUI({ top, onConfirm, onClose, title }: { top: ScryfallCard[]; onCon
         {top.map((c, i) => (
           <button key={`${c.id}-${i}`} onClick={() => setDecisions(d => d.map((x, j) => j === i ? (x === 'top' ? 'bottom' : 'top') : x))}
             className={`relative rounded-[5px] ${decisions[i] === 'bottom' ? 'opacity-60 ring-2 ring-amber-400' : 'ring-2 ring-emerald-400'}`}>
-            <img src={getCardImageUrl(c, 'normal')} alt={c.name} className="w-full rounded-[5px] shadow" />
+            <HoverPreviewImage card={c} size="normal" className="w-full rounded-[5px] shadow" />
             <span className={`absolute top-1 right-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${decisions[i] === 'bottom' ? 'bg-amber-500 text-black' : 'bg-emerald-500 text-black'}`}>{decisions[i]}</span>
           </button>
         ))}
@@ -86,7 +86,7 @@ function SurveilUI({ top, onConfirm, onClose, title }: { top: ScryfallCard[]; on
         {top.map((c, i) => (
           <button key={`${c.id}-${i}`} onClick={() => setDecisions(d => d.map((x, j) => j === i ? (x === 'top' ? 'graveyard' : 'top') : x))}
             className={`relative rounded-[5px] ${decisions[i] === 'graveyard' ? 'opacity-60 ring-2 ring-zinc-400' : 'ring-2 ring-emerald-400'}`}>
-            <img src={getCardImageUrl(c, 'normal')} alt={c.name} className="w-full rounded-[5px] shadow" />
+            <HoverPreviewImage card={c} size="normal" className="w-full rounded-[5px] shadow" />
             <span className={`absolute top-1 right-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${decisions[i] === 'graveyard' ? 'bg-zinc-500 text-white' : 'bg-emerald-500 text-black'}`}>{decisions[i] === 'graveyard' ? 'GY' : 'top'}</span>
           </button>
         ))}

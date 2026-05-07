@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
 
 export function MulliganModal() {
   const hand = usePlaytestStore(s => s.zones.hand);
@@ -64,7 +64,7 @@ export function MulliganModal() {
                 onClick={() => picking && togglePick(i)}
                 className={`relative rounded-[5px] transition-all ${picking ? 'cursor-pointer' : 'cursor-default'} ${sel ? 'ring-4 ring-amber-400' : ''}`}
               >
-                <img src={getCardImageUrl(card, 'normal')} alt={card.name} className="w-full rounded-[5px] shadow" />
+                <HoverPreviewImage card={card} size="normal" className="w-full rounded-[5px] shadow" />
                 {sel && <span className="absolute top-1 right-1 bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded">↓ bottom</span>}
               </button>
             );
