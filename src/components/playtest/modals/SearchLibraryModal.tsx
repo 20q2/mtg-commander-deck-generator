@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
+import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 
 export function SearchLibraryModal() {
   const library = usePlaytestStore(s => s.zones.library);
@@ -21,28 +19,45 @@ export function SearchLibraryModal() {
     );
   }, [library, q]);
 
-  return createPortal(
-    <div className="fixed inset-0 z-[100] bg-background/90 backdrop-blur-sm flex flex-col p-6">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold">Search Library ({filtered.length} of {library.length})</h2>
-        <Button variant="ghost" size="icon" onClick={closeModal}><X className="w-4 h-4" /></Button>
+  const title = (
+    <>
+      Search Library
+      <span className="text-muted-foreground font-normal ml-1.5">
+        ({filtered.length}{filtered.length !== library.length ? ` of ${library.length}` : ''})
+      </span>
+    </>
+  );
+
+  return (
+    <FloatingDialog title={title} onClose={closeModal}>
+      <div className="px-5 py-3 border-b border-border/40">
+        <Input
+          autoFocus
+          placeholder="Search by name or type…"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
       </div>
-      <Input autoFocus placeholder="Search by name or type…" value={q} onChange={e => setQ(e.target.value)} className="mb-4" />
-      <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2">
-          {filtered.map(card => (
-            <button
-              key={card.id}
-              onClick={() => searchLibraryTakeToHand(card.id)}
-              className="rounded-[5px] transition-all hover:ring-2 hover:ring-primary"
-              title={`Take ${card.name} (and shuffle)`}
-            >
-              <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-full rounded-[5px] shadow" />
-            </button>
-          ))}
-        </div>
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        {filtered.length === 0 ? (
+          <div className="text-sm text-muted-foreground italic text-center py-10">
+            {library.length === 0 ? 'Library is empty.' : 'No cards match the filter.'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2.5">
+            {filtered.map(card => (
+              <button
+                key={card.id}
+                onClick={() => searchLibraryTakeToHand(card.id)}
+                className="rounded-[5px] transition-all hover:ring-2 hover:ring-primary"
+                title={`Take ${card.name} (and shuffle)`}
+              >
+                <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-full rounded-[5px] shadow" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-    </div>,
-    document.body,
+    </FloatingDialog>
   );
 }

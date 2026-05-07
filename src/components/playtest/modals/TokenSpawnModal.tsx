@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Loader2, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { resolveTokens, deriveColorIdentity } from '@/services/playtest/tokens';
+import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import type { ScryfallCard } from '@/types';
 
 export function TokenSpawnModal() {
@@ -30,22 +29,43 @@ export function TokenSpawnModal() {
     return () => { alive = false; };
   }, [command]);
 
-  const filtered = tokens.filter(t => !q || t.name.toLowerCase().includes(q.toLowerCase()) || t.type_line.toLowerCase().includes(q.toLowerCase()));
+  const filtered = tokens.filter(t =>
+    !q || t.name.toLowerCase().includes(q.toLowerCase()) || t.type_line.toLowerCase().includes(q.toLowerCase()),
+  );
 
-  return createPortal(
-    <div className="fixed inset-0 z-[100] bg-background/90 backdrop-blur-sm flex flex-col p-6">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold">Spawn Token</h2>
-        <Button variant="ghost" size="icon" onClick={closeModal}><X className="w-4 h-4" /></Button>
+  const title = (
+    <>
+      Spawn Token
+      {!loading && (
+        <span className="text-muted-foreground font-normal ml-1.5">
+          ({filtered.length}{filtered.length !== tokens.length ? ` of ${tokens.length}` : ''})
+        </span>
+      )}
+    </>
+  );
+
+  return (
+    <FloatingDialog title={title} onClose={closeModal}>
+      <div className="px-5 py-3 border-b border-border/40">
+        <Input
+          autoFocus
+          placeholder="Filter tokens…"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
       </div>
-      <Input autoFocus placeholder="Filter tokens…" value={q} onChange={e => setQ(e.target.value)} className="mb-4" />
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto px-5 py-4">
         {loading ? (
-          <div className="flex items-center justify-center h-48 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mr-2" />Loading tokens…</div>
+          <div className="flex items-center justify-center h-48 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            Loading tokens…
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="text-muted-foreground">No tokens found.</div>
+          <div className="text-sm text-muted-foreground italic text-center py-10">
+            {tokens.length === 0 ? 'No tokens found for this color identity.' : 'No tokens match the filter.'}
+          </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2.5">
             {filtered.map(t => (
               <button
                 key={t.id}
@@ -59,7 +79,6 @@ export function TokenSpawnModal() {
           </div>
         )}
       </div>
-    </div>,
-    document.body,
+    </FloatingDialog>
   );
 }
