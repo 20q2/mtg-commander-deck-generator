@@ -1340,10 +1340,18 @@ export function computeOptimizeSwaps(
   // ── No hard caps — show all candidates the algorithm found ──
   const removals = removalCandidates;
 
-  // Additions: can't push past target deck size (assume all removals applied)
+  // Additions: can't push past target deck size (assume all removals applied),
+  // but when mana base is light reserve room for land-deficit recommendations
+  // — the user has signaled they want more lands and will cut other cards to make room.
   const currentDeckSize = currentCards.length;
   const netRemoved = removals.length;
-  const additionRoom = Math.max(0, targetDeckSize - currentDeckSize + netRemoved);
+  const manaLight = analysis.manaBase.verdict === 'low'
+    || analysis.manaBase.verdict === 'critically-low'
+    || analysis.manaBase.verdict === 'slightly-low';
+  const landDeficitRoom = manaLight
+    ? Math.min(5, Math.max(0, analysis.manaBase.adjustedSuggestion - analysis.manaBase.currentLands))
+    : 0;
+  const additionRoom = Math.max(0, targetDeckSize - currentDeckSize + netRemoved) + landDeficitRoom;
   const additions = additionCandidates.slice(0, additionRoom);
 
   return { removals, additions };
