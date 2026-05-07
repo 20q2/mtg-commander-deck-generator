@@ -16,6 +16,7 @@ export function Hand() {
   const moveCard = usePlaytestStore(s => s.moveCard);
   const [sort, setSort] = useState<SortMode>('none');
   const [menu, setMenu] = useState<CardMenuTarget | null>(null);
+  const [hoveredFanIndex, setHoveredFanIndex] = useState<number | null>(null);
 
   const display = sortedHand(hand, sort);
 
@@ -58,6 +59,8 @@ export function Hand() {
               indexInHand={originalIndex}
               fanIndex={i}
               total={display.length}
+              hoveredFanIndex={hoveredFanIndex}
+              onHoverChange={(h) => setHoveredFanIndex(prev => h ? i : (prev === i ? null : prev))}
               onClickPlay={() => playToBattlefield(originalIndex)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -84,11 +87,13 @@ interface HandCardProps {
   indexInHand: number;
   fanIndex: number;
   total: number;
+  hoveredFanIndex: number | null;
+  onHoverChange: (hovered: boolean) => void;
   onClickPlay: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMenu }: HandCardProps) {
+function HandCard({ card, indexInHand, fanIndex, total, hoveredFanIndex, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -108,19 +113,11 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
   const magnify = useMagnifyKey();
   const showPreview = magnify && hovered && !isDragging;
 
-  // Arrival grow: cards mount slightly smaller and transition up to full size
-  // when they enter the hand (draw / return-to-hand / mulligan).
-  const animations = usePlaytestSettings(s => s.animations);
-  const [arrived, setArrived] = useState(!animations);
-  useEffect(() => {
-    if (!animations) { setArrived(true); return; }
-    const id = requestAnimationFrame(() => setArrived(true));
-    return () => cancelAnimationFrame(id);
-  }, [animations]);
-
   // Deal-in: capture the lastDrawRange at MOUNT to detect cards that were
-  // freshly drawn (vs ones that arrived in the hand from other zones). Only
-  // freshly drawn cards run the deal-in keyframe.
+  // freshly drawn (vs ones that just remounted because their key shifted on
+  // a reorder, or arrived from another zone). Only freshly drawn cards run
+  // the deal-in keyframe; everything else snaps into place without growing.
+  const animations = usePlaytestSettings(s => s.animations);
   const [drawRangeAtMount] = useState(() => usePlaytestStore.getState().lastDrawRange);
   const isFreshlyDrawn =
     animations &&
@@ -135,19 +132,40 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
 
   const overlap = total <= 7 ? 24 : Math.min(24 + (total - 7) * 6, 88);
   const dragTransform = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(1.05)` : undefined;
-  const arriveScale = arrived ? 'scale(1)' : 'scale(0.85)';
+
+  // Hover-fan-spread: when a sibling is hovered, push neighbors away to make
+  // room. The hovered card itself lifts and scales up slightly.
+  const isHovered = hoveredFanIndex === fanIndex;
+  const spreadPx = (() => {
+    if (isDragging || dealing || hoveredFanIndex === null || isHovered) return 0;
+    const dist = fanIndex - hoveredFanIndex;
+    const direction = dist > 0 ? 1 : -1;
+    const magnitude = Math.max(0, Math.min(overlap, 18 - (Math.abs(dist) - 1) * 6));
+    return direction * magnitude;
+  })();
+
+  const restingTransform = (() => {
+    const parts: string[] = [];
+    if (spreadPx) parts.push(`translateX(${spreadPx}px)`);
+    if (isHovered) {
+      parts.push('translateY(-14px)');
+      parts.push('scale(1.06)');
+    }
+    return parts.join(' ') || undefined;
+  })();
+
   // While dealing, let the CSS keyframe drive transform — don't set an inline
   // transform (it would override the keyframe). Drag still wins if it starts.
   const inlineTransform = isDragging
     ? dragTransform
     : dealing
       ? undefined
-      : arriveScale;
+      : restingTransform;
   const style: React.CSSProperties = {
     marginLeft: fanIndex === 0 ? 0 : `-${overlap}px`,
     transform: inlineTransform,
-    zIndex: isDragging ? 50 : fanIndex,
-    transition: isDragging || dealing ? 'none' : 'transform 120ms ease-out',
+    zIndex: isDragging ? 50 : isHovered ? 30 : fanIndex,
+    transition: isDragging || dealing ? 'none' : 'transform 160ms ease-out',
     width: 'clamp(80px, 11vw, 130px)',
     cursor: isDragging ? 'grabbing' : 'pointer',
     opacity: isDragging ? 0 : 1,
@@ -160,12 +178,12 @@ function HandCard({ card, indexInHand, fanIndex, total, onClickPlay, onContextMe
       {...listeners}
       onClick={onClickPlay}
       onContextMenu={onContextMenu}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => { setHovered(true); onHoverChange(true); }}
+      onMouseLeave={() => { setHovered(false); onHoverChange(false); }}
       title={`Click to play ${card.name} · right-click for more options`}
-      className={`relative shrink-0 rounded-[5px] select-none touch-none transition-transform ${
-        isDragging ? '' : 'hover:-translate-y-2 hover:z-20'
-      } ${isOver && !isDragging ? 'ring-2 ring-primary' : ''} ${dealing && !isDragging ? 'animate-deal-in' : ''}`}
+      className={`relative shrink-0 rounded-[5px] select-none touch-none ${
+        isOver && !isDragging ? 'ring-2 ring-primary' : ''
+      } ${dealing && !isDragging ? 'animate-deal-in' : ''}`}
       style={style}
     >
       <img

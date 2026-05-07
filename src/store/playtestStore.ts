@@ -418,7 +418,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     if (sourceLabel !== 'hand' || targetLabel !== 'hand') {
       next.log.push(makeLogEntry(`${card.name}: ${sourceLabel} → ${targetLabel}`, 'move'));
     }
-    return { ...next, history };
+    // Any move invalidates the deal-in window — only freshly drawn cards
+    // (set by the draw() action) should ever play that animation.
+    return { ...next, history, lastDrawRange: { start: -1, end: -1 } };
   }),
 
   // ─────────────────────── battlefield card actions ───────────────────────
