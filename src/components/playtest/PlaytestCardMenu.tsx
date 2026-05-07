@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePlaytestStore } from '@/store/playtestStore';
 import type { ScryfallCard } from '@/types';
@@ -43,6 +43,34 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
     };
   }, [target, onClose]);
 
+  // Flip / clamp the menu so it stays on screen.
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [adjusted, setAdjusted] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!target || !menuRef.current) {
+      setAdjusted(null);
+      return;
+    }
+    const rect = menuRef.current.getBoundingClientRect();
+    const margin = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = target.x;
+    let top = target.y;
+    // Flip leftward when the menu would overflow the right edge.
+    if (left + rect.width + margin > vw) {
+      left = Math.max(margin, target.x - rect.width);
+    }
+    // Flip upward when the menu would overflow the bottom edge.
+    if (top + rect.height + margin > vh) {
+      top = Math.max(margin, target.y - rect.height);
+    }
+    // Final clamp so the menu can't sit off-screen even if the card itself was near an edge.
+    left = Math.max(margin, Math.min(vw - rect.width - margin, left));
+    top = Math.max(margin, Math.min(vh - rect.height - margin, top));
+    setAdjusted({ left, top });
+  }, [target]);
+
   if (!target) return null;
 
   const onBattlefield = target.kind === 'battlefield';
@@ -61,10 +89,15 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
 
   return createPortal(
     <div
+      ref={menuRef}
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] min-w-[180px] bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
-      style={{ left: target.x, top: target.y }}
+      className="fixed z-[200] min-w-[180px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
+      style={{
+        left: adjusted ? adjusted.left : target.x,
+        top: adjusted ? adjusted.top : target.y,
+        visibility: adjusted ? 'visible' : 'hidden',
+      }}
     >
       <div className="px-3 py-1.5 text-[10px] uppercase opacity-50">{target.card.name}</div>
       <Item onClick={() => move('hand')}>→ Hand</Item>
