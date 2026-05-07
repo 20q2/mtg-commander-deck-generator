@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Check, ChevronRight,
   Palette, FlipHorizontal2, Info,
-  Loader2, Sparkles, Mountain, Sprout, Scissors, ArrowUpDown,
+  Loader2, Sparkles, Mountain, Sprout, Scissors,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard } from '@/types';
@@ -331,17 +331,25 @@ export function LandCountDetail({
     [cutSelection],
   );
 
-  const [cutSortMode] = useState<'inclusion' | 'score'>('score');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const setCutSortMode = (_mode: 'inclusion' | 'score') => {};
+  const cutSortMode = 'score' as 'inclusion' | 'score';
 
   const [showCuts, setShowCuts] = useState(isOverTarget);
   const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
 
-  const handleRemoveCard = useCallback((card: ScryfallCard) => {
-    onCardAction?.(card, { type: 'remove' });
-    setRemovedCards(prev => new Set([...prev, card.name]));
-  }, [onCardAction]);
+  const handleRemoveLandCut = useCallback((cut: import('@/services/deckBuilder/landCutSelection').LandCut) => {
+    if (cut.kind === 'basic') {
+      onRemoveBasicLand?.(cut.ac.card.name);
+    } else {
+      onCardAction?.(cut.ac.card, { type: 'remove' });
+      setRemovedCards(prev => new Set([...prev, cut.ac.card.name]));
+    }
+  }, [onRemoveBasicLand, onCardAction]);
+
+  const handleCutAllTopN = useCallback(() => {
+    for (const cut of cutSelection.topN) {
+      handleRemoveLandCut(cut);
+    }
+  }, [cutSelection.topN, handleRemoveLandCut]);
 
   const hasRightColumn = hasSuggestions || (isOverTarget && cutCandidates.length > 0);
 
@@ -486,9 +494,9 @@ export function LandCountDetail({
         {/* Right: cut candidates or land suggestions */}
         {(hasSuggestions || (isOverTarget && cutCandidates.length > 0)) && (
           <div className="flex-1 min-w-0">
-            {/* Toggle header */}
+            {/* Toggle header (Cuts / Suggestions) — only show when both panels available */}
             {isOverTarget && cutCandidates.length > 0 && hasSuggestions ? (
-              <div className="mb-2 px-0.5 space-y-1.5">
+              <div className="mb-2 px-0.5">
                 <div className="flex items-center gap-2">
                   {showCuts && <span className="text-xs text-red-400/60">{excess} over target</span>}
                   <div className="flex items-center border border-border/50 rounded-md overflow-hidden ml-auto">
@@ -509,72 +517,69 @@ export function LandCountDetail({
                     </button>
                   </div>
                 </div>
-                {showCuts ? (
-                  <div className="flex items-center gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
-                      <Scissors className="w-3 h-3" />
-                      Lands to Cut from Your Deck ({cutCandidates.length})
-                    </p>
-                    <div className="ml-auto flex items-center gap-1">
-                      <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
-                      <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
-                        <button
-                          onClick={() => setCutSortMode('score')}
-                          className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'score' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
-                        >
-                          Relevancy
-                        </button>
-                        <div className="w-px h-3 bg-border/50" />
-                        <button
-                          onClick={() => setCutSortMode('inclusion')}
-                          className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'inclusion' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
-                        >
-                          Inclusion
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : showCuts && cutCandidates.length > 0 ? (
-              <div className="flex items-center gap-2 mb-2 px-0.5">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1">
-                  <Scissors className="w-3 h-3" />
-                  Lands to Cut from Your Deck ({cutCandidates.length})
-                </p>
-                <div className="ml-auto flex items-center gap-1">
-                  <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
-                  <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
-                    <button
-                      onClick={() => setCutSortMode('score')}
-                      className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'score' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
-                    >
-                      Relevancy
-                    </button>
-                    <div className="w-px h-3 bg-border/50" />
-                    <button
-                      onClick={() => setCutSortMode('inclusion')}
-                      className={`text-[10px] px-2 py-0.5 transition-colors ${cutSortMode === 'inclusion' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
-                    >
-                      Inclusion
-                    </button>
-                  </div>
-                </div>
               </div>
             ) : null}
             {/* Content */}
             {showCuts && cutCandidates.length > 0 ? (
-              <CutCardGrid
-                cards={cutCandidates}
-                onRemove={handleRemoveCard}
-                onPreview={onPreview}
-                removedCards={removedCards}
-                excess={excess}
-                onCardAction={onCardAction}
-                menuProps={menuProps}
-                cardInclusionMap={resolvedInclusionMap}
-                sortMode={cutSortMode}
-              />
+              <>
+                {cutSelection.topN.length > 0 && (
+                  <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-2 mb-3">
+                    <div className="flex items-center justify-between mb-1.5 px-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400/80">
+                        Cut these {cutSelection.topN.length} to hit {effectiveTarget} lands
+                      </p>
+                      <button
+                        onClick={handleCutAllTopN}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded border border-red-500/30 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <Scissors className="w-2.5 h-2.5" />
+                        Cut all
+                      </button>
+                    </div>
+                    <CutCardGrid
+                      cards={cutSelection.topN.map(c => c.ac)}
+                      onRemove={(card) => {
+                        const cut = cutSelection.topN.find(c => c.ac.card.name === card.name);
+                        if (cut) handleRemoveLandCut(cut);
+                      }}
+                      onPreview={onPreview}
+                      removedCards={removedCards}
+                      excess={cutSelection.topN.length}
+                      onCardAction={onCardAction}
+                      menuProps={menuProps}
+                      cardInclusionMap={resolvedInclusionMap}
+                      sortMode={cutSortMode}
+                    />
+                    <p className="text-[10px] text-muted-foreground/60 mt-1.5 px-1">
+                      Deck will be {currentCards.length - cutSelection.topN.length} cards after cuts. Use Suggestions to backfill.
+                    </p>
+                  </div>
+                )}
+                {cutSelection.topN.length > 0 && cutSelection.others.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-2 mb-1.5 px-1">
+                      <div className="flex-1 h-px bg-border/30" />
+                      <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Other candidates</span>
+                      <div className="flex-1 h-px bg-border/30" />
+                    </div>
+                    <CutCardGrid
+                      cards={cutSelection.others.map(c => c.ac)}
+                      onRemove={(card) => {
+                        const cut = cutSelection.others.find(c => c.ac.card.name === card.name);
+                        if (cut) handleRemoveLandCut(cut);
+                      }}
+                      onPreview={onPreview}
+                      removedCards={removedCards}
+                      excess={0}
+                      onCardAction={onCardAction}
+                      menuProps={menuProps}
+                      cardInclusionMap={resolvedInclusionMap}
+                      sortMode={cutSortMode}
+                    />
+                  </>
+                )}
+                {cutSelection.topN.length === 0 && null}
+              </>
             ) : (
               <SuggestionCardGrid
                 title={<>Suggested Lands ({analysis.landRecommendations.length})</>}
