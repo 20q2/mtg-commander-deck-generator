@@ -57,8 +57,20 @@ export async function resolveDeckTokens(deckCards: ScryfallCard[]): Promise<Scry
   // Restore the original ids ordering (collection endpoint doesn't guarantee order)
   const byId = new Map(cards.map(c => [c.id, c] as const));
   const ordered = ids.map(id => byId.get(id)).filter((c): c is ScryfallCard => !!c);
-  deckTokensCache.set(cacheKey, ordered);
-  return ordered;
+
+  // Dedupe by name + type_line so different printings of the "same" token
+  // (different art / set) only appear once in the spawn list.
+  const seenKey = new Set<string>();
+  const deduped: ScryfallCard[] = [];
+  for (const c of ordered) {
+    const key = `${c.name.toLowerCase()}|${c.type_line.toLowerCase()}`;
+    if (seenKey.has(key)) continue;
+    seenKey.add(key);
+    deduped.push(c);
+  }
+
+  deckTokensCache.set(cacheKey, deduped);
+  return deduped;
 }
 
 /**
