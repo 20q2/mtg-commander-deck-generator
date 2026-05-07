@@ -2,6 +2,23 @@
 import type { ScryfallCard } from '@/types';
 import type { AnalyzedCard, ColorFixingAnalysis } from './deckAnalyzer';
 
+const BASIC_FETCH_RE = /search(?:es)?\s+(?:your|their)\s+library\s+for\s+(?:up\s+to\s+\w+\s+)?(?:a\s+)?basic\s+(?:land|forest|island|swamp|mountain|plains)/i;
+
+/** Count cards whose oracle text searches the library for a basic land. */
+export function countBasicFetchers(cards: ScryfallCard[]): number {
+  let n = 0;
+  for (const c of cards) {
+    const oracle = c.oracle_text || c.card_faces?.[0]?.oracle_text || '';
+    if (BASIC_FETCH_RE.test(oracle)) n++;
+  }
+  return n;
+}
+
+/** Minimum basics to keep so basic-fetchers (Cultivate etc.) have live targets. */
+export function computeBasicFloor(basicFetcherCount: number): number {
+  return Math.max(2, basicFetcherCount * 2);
+}
+
 export type LandCutKind = 'basic' | 'nonbasic' | 'fallback';
 
 export interface LandCut {
