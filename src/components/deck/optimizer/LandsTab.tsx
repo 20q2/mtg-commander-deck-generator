@@ -19,6 +19,7 @@ import {
 import { AnalyzedCardRow, AnimatedCollapse, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
 import { ManaTrajectorySparkline } from './CurveTab';
+import { selectLandCuts } from '@/services/deckBuilder/landCutSelection';
 
 // ═══════════════════════════════════════════════════════════════════════
 // LANDS TAB Components
@@ -254,12 +255,13 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
 }
 
 export function LandCountDetail({
-  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap,
+  analysis, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap,
 }: {
   analysis: DeckAnalysis;
   onPreview: (name: string) => void;
   onAdd: (name: string) => void;
   addedCards: Set<string>;
+  currentCards: ScryfallCard[];
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   colorIdentity: string[];
@@ -305,21 +307,33 @@ export function LandCountDetail({
     return /\bbasic\b/.test(tl);
   });
 
-  // Cut candidates: nonbasic lands excluding MDFCs and channel lands
-  const [cutSortMode, setCutSortMode] = useState<'inclusion' | 'score'>('score');
-  const cutCandidates = useMemo(() => {
-    const filtered = nonbasicLands.filter(ac => !isChannelLand(ac.card));
-    const getInclusion = (ac: AnalyzedCard) =>
-      ac.inclusion ?? resolvedInclusionMap[ac.card.name] ?? edhrecRankToInclusion(ac.card.edhrec_rank) ?? 0;
-    if (cutSortMode === 'inclusion') {
-      filtered.sort((a, b) => getInclusion(a) - getInclusion(b));
-    } else {
-      // Sort by relevance score ascending (lowest score = weakest = most cuttable)
-      filtered.sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
-    }
-    const limit = Math.min(Math.max(excess + 4, 5), 15);
-    return filtered.slice(0, limit);
-  }, [nonbasicLands, resolvedInclusionMap, excess, cutSortMode]);
+  // Cut candidates via selectLandCuts helper
+  const nonLandCardsInDeck = useMemo(
+    () => currentCards.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land') && !isMdfcLand(c)),
+    [currentCards],
+  );
+
+  const effectiveTarget = mb.adjustedSuggestion;
+
+  const cutSelection = useMemo(() => selectLandCuts({
+    landCards: analysis.landCards,
+    nonLandCards: nonLandCardsInDeck,
+    colorFixing: analysis.colorFixing,
+    colorIdentity,
+    target: effectiveTarget,
+    currentLands: mb.currentLands,
+    mustIncludeNames: menuProps?.mustIncludeNames ?? new Set(),
+  }), [analysis.landCards, nonLandCardsInDeck, analysis.colorFixing, colorIdentity,
+       effectiveTarget, mb.currentLands, menuProps?.mustIncludeNames]);
+
+  const cutCandidates: AnalyzedCard[] = useMemo(
+    () => [...cutSelection.topN, ...cutSelection.others].map(c => c.ac),
+    [cutSelection],
+  );
+
+  const [cutSortMode] = useState<'inclusion' | 'score'>('score');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const setCutSortMode = (_mode: 'inclusion' | 'score') => {};
 
   const [showCuts, setShowCuts] = useState(isOverTarget);
   const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
@@ -1678,7 +1692,7 @@ export function LandsTabContent({
         channelLandCount={(analysis.channelLandsInDeck || []).length}
       />
       {activeSection === 'landCount' && (
-        <LandCountDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
+        <LandCountDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
       )}
       {activeSection === 'manaSources' && (
         <ManaSourcesDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
