@@ -74,14 +74,14 @@ export function PlaytestToolbar({ onExit }: { onExit: () => void }) {
       </div>
 
       <span
-        className="hidden lg:inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 ml-2 select-none"
+        className="hidden lg:inline-flex items-center gap-1 text-[10px] text-muted-foreground/70 mx-auto select-none"
         title="Hold Ctrl while hovering a card for a larger preview"
       >
         Hold <kbd className="px-1 py-0.5 rounded border border-border/60 bg-accent/30 font-mono text-[9px]">Ctrl</kbd>
         + hover to magnify
       </span>
 
-      <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
+      <div className="flex items-center gap-1.5 flex-wrap justify-end lg:ml-0 ml-auto">
         <Button variant="outline" size="sm" onClick={() => draw(1)}><Plus className="w-3.5 h-3.5 mr-1" />Draw</Button>
         <Button variant="outline" size="sm" onClick={untapAll}><RotateCcw className="w-3.5 h-3.5 mr-1" />Untap</Button>
         <Button variant="outline" size="sm" onClick={shuffle}><Shuffle className="w-3.5 h-3.5 mr-1" />Shuffle</Button>
