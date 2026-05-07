@@ -3,6 +3,7 @@ import type { ScryfallCard } from '@/types';
 import { buildLibrary } from '@/services/playtest/libraryBuilder';
 import {
   type BattlefieldCard,
+  type LogCategory,
   type LogEntry,
   type Modal,
   type MoveArgs,
@@ -128,8 +129,8 @@ function pushHistory(history: PlaytestSnapshot[], snap: PlaytestSnapshot): Playt
   return next;
 }
 
-function makeLogEntry(text: string): LogEntry {
-  return { id: makeInstanceId(), ts: Date.now(), text };
+function makeLogEntry(text: string, category: LogCategory = 'system'): LogEntry {
+  return { id: makeInstanceId(), ts: Date.now(), text, category };
 }
 
 export const usePlaytestStore = create<Store>((set, get) => ({
@@ -147,7 +148,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         loading: false,
         source: { kind: built.kind, name: built.name, commanderNames: built.commanderNames },
         zones: built.zones,
-        log: [makeLogEntry(`Loaded "${built.name}" (${built.zones.library.length} cards in library)`)],
+        log: [makeLogEntry(`Loaded "${built.name}" (${built.zones.library.length} cards in library)`, 'system')],
       });
       get().dealOpeningHand();
     } catch (e) {
@@ -178,7 +179,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         loading: false,
         source,
         zones: { ...emptyZones(), library: reshuffled, command: [...state.zones.command] },
-        log: [makeLogEntry('Reset')],
+        log: [makeLogEntry('Reset', 'system')],
       };
     });
     get().dealOpeningHand();
@@ -195,7 +196,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const rest = state.zones.library.slice(7);
     return {
       zones: { ...state.zones, hand: draw, library: rest },
-      log: [...state.log, makeLogEntry(`Drew opening hand (${draw.length})`)],
+      log: [...state.log, makeLogEntry(`Drew opening hand (${draw.length})`, 'library')],
     };
   }),
 
@@ -203,7 +204,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const history = pushHistory(state.history, snapshotOf(state));
     const drawn = state.zones.library.slice(0, n);
     if (drawn.length === 0) {
-      return { log: [...state.log, makeLogEntry('Library is empty')] };
+      return { log: [...state.log, makeLogEntry('Library is empty', 'library')] };
     }
     return {
       history,
@@ -212,7 +213,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         hand: [...state.zones.hand, ...drawn],
         library: state.zones.library.slice(drawn.length),
       },
-      log: [...state.log, makeLogEntry(drawn.length === 1 ? `Drew ${drawn[0].name}` : `Drew ${drawn.length} cards`)],
+      log: [...state.log, makeLogEntry(drawn.length === 1 ? `Drew ${drawn[0].name}` : `Drew ${drawn.length} cards`, 'library')],
     };
   }),
 
@@ -222,7 +223,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       history,
       zones: { ...state.zones, library: fisherYates(state.zones.library) },
       shuffleTick: state.shuffleTick + 1,
-      log: [...state.log, makeLogEntry('Shuffled library')],
+      log: [...state.log, makeLogEntry('Shuffled library', 'library')],
     };
   }),
 
@@ -238,7 +239,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       zones: { ...state.zones, hand: draw, library: rest },
       shuffleTick: state.shuffleTick + 1,
       modal: { kind: 'mulligan', mulliganCount: newCount },
-      log: [...state.log, makeLogEntry(`Mulligan to ${Math.max(0, 7 - newCount)} (drew 7)`)],
+      log: [...state.log, makeLogEntry(`Mulligan to ${Math.max(0, 7 - newCount)} (drew 7)`, 'library')],
     };
   }),
 
@@ -253,7 +254,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       zones: { ...state.zones, hand: newHand, library: [...state.zones.library, ...sentDown] },
       modal: null,
-      log: [...state.log, makeLogEntry(`Sent ${sentDown.length} card(s) to bottom of library`)],
+      log: [...state.log, makeLogEntry(`Sent ${sentDown.length} card(s) to bottom of library`, 'library')],
     };
   }),
 
@@ -265,7 +266,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     }
     return {
       modal: null,
-      log: [...state.log, makeLogEntry(`Kept opening hand`)],
+      log: [...state.log, makeLogEntry(`Kept opening hand`, 'library')],
     };
   }),
 
@@ -274,16 +275,16 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   setLife: (n) => set(state => ({
     history: pushHistory(state.history, snapshotOf(state)),
     life: n,
-    log: [...state.log, makeLogEntry(`Life set to ${n}`)],
+    log: [...state.log, makeLogEntry(`Life set to ${n}`, 'life')],
   })),
 
   adjustLife: (delta) => set(state => ({
     history: pushHistory(state.history, snapshotOf(state)),
     life: state.life + delta,
-    log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${state.life + delta})`)],
+    log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${state.life + delta})`, 'life')],
   })),
 
-  setPhase: (phase) => set(state => ({ phase, log: [...state.log, makeLogEntry(`Phase: ${phase}`)] })),
+  setPhase: (phase) => set(state => ({ phase, log: [...state.log, makeLogEntry(`Phase: ${phase}`, 'turn')] })),
 
   advancePhase: () => set(state => {
     const idx = PHASES.indexOf(state.phase);
@@ -294,7 +295,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       phase: nextPhase,
       turn: nextTurn,
-      log: [...state.log, makeLogEntry(wrapped ? `Turn ${nextTurn} — ${nextPhase}` : `Phase: ${nextPhase}`)],
+      log: [...state.log, makeLogEntry(wrapped ? `Turn ${nextTurn} — ${nextPhase}` : `Phase: ${nextPhase}`, 'turn')],
     };
   }),
 
@@ -394,7 +395,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
     // Skip the log entry when the move is just hand reordering (hand → hand).
     if (sourceLabel !== 'hand' || targetLabel !== 'hand') {
-      next.log.push(makeLogEntry(`${card.name}: ${sourceLabel} → ${targetLabel}`));
+      next.log.push(makeLogEntry(`${card.name}: ${sourceLabel} → ${targetLabel}`, 'move'));
     }
     return { ...next, history };
   }),
@@ -410,7 +411,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield,
-      log: [...state.log, makeLogEntry(target ? `${target.tapped ? 'Untapped' : 'Tapped'} ${target.card.name}` : '')],
+      log: [...state.log, makeLogEntry(target ? `${target.tapped ? 'Untapped' : 'Tapped'} ${target.card.name}` : '', 'tap')],
     };
   }),
 
@@ -423,7 +424,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield,
-      log: [...state.log, makeLogEntry(target ? `Flipped ${target.card.name} ${target.faceDown ? 'face up' : 'face down'}` : '')],
+      log: [...state.log, makeLogEntry(target ? `Flipped ${target.card.name} ${target.faceDown ? 'face up' : 'face down'}` : '', 'move')],
     };
   }),
 
@@ -445,7 +446,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const current = card.counters[type] ?? 0;
     get().setCounter(instanceId, type, current + delta);
     set(state => ({
-      log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} ${type} on ${card.card.name}`)],
+      log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} ${type} on ${card.card.name}`, 'counter')],
     }));
   },
 
@@ -465,7 +466,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield: [...state.battlefield, copy],
-      log: [...state.log, makeLogEntry(`Created copy of ${original.card.name}`)],
+      log: [...state.log, makeLogEntry(`Created copy of ${original.card.name}`, 'move')],
     };
   }),
 
@@ -481,7 +482,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield,
-      log: [...state.log, makeLogEntry(`Attached ${child.card.name} to ${parent.card.name}`)],
+      log: [...state.log, makeLogEntry(`Attached ${child.card.name} to ${parent.card.name}`, 'move')],
     };
   }),
 
@@ -494,7 +495,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield,
-      log: [...state.log, makeLogEntry(target ? `Unattached ${target.card.name}` : '')],
+      log: [...state.log, makeLogEntry(target ? `Unattached ${target.card.name}` : '', 'move')],
     };
   }),
 
@@ -514,7 +515,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield: [...state.battlefield, token],
-      log: [...state.log, makeLogEntry(`Spawned ${card.name} token`)],
+      log: [...state.log, makeLogEntry(`Spawned ${card.name} token`, 'move')],
     };
   }),
 
@@ -534,7 +535,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       history,
       zones: { ...state.zones, library: [...tops, ...rest, ...bottoms] },
       modal: null,
-      log: [...state.log, makeLogEntry(`Scry ${decisions.length}: ${tops.length} top, ${bottoms.length} bottom`)],
+      log: [...state.log, makeLogEntry(`Scry ${decisions.length}: ${tops.length} top, ${bottoms.length} bottom`, 'library')],
     };
   }),
 
@@ -556,7 +557,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         graveyard: [...state.zones.graveyard, ...toGrave],
       },
       modal: null,
-      log: [...state.log, makeLogEntry(`Surveil ${decisions.length}: ${keepTop.length} top, ${toGrave.length} graveyard`)],
+      log: [...state.log, makeLogEntry(`Surveil ${decisions.length}: ${keepTop.length} top, ${toGrave.length} graveyard`, 'library')],
     };
   }),
 
@@ -568,7 +569,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       history,
       zones: { ...state.zones, library: rest, graveyard: [...state.zones.graveyard, ...milled] },
       modal: null,
-      log: [...state.log, makeLogEntry(`Milled ${milled.length} card(s)`)],
+      log: [...state.log, makeLogEntry(`Milled ${milled.length} card(s)`, 'library')],
     };
   }),
 
@@ -583,7 +584,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       history,
       zones: { ...state.zones, library: shuffled, hand: [...state.zones.hand, card] },
       shuffleTick: state.shuffleTick + 1,
-      log: [...state.log, makeLogEntry(`Searched library: took ${card.name} (and shuffled)`)],
+      log: [...state.log, makeLogEntry(`Searched library: took ${card.name} (and shuffled)`, 'library')],
       modal: null,
     };
   }),
@@ -595,7 +596,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield: state.battlefield.map(b => ({ ...b, tapped: false })),
-      log: [...state.log, makeLogEntry('Untapped all')],
+      log: [...state.log, makeLogEntry('Untapped all', 'tap')],
     };
   }),
 
@@ -609,7 +610,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       life: prev.life,
       turn: prev.turn,
       phase: prev.phase,
-      log: [...state.log, makeLogEntry('Undo')],
+      log: [...state.log, makeLogEntry('Undo', 'system')],
     };
   }),
 
