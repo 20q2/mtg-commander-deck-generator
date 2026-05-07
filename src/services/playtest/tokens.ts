@@ -1,20 +1,72 @@
 import type { ScryfallCard } from '@/types';
 import { searchCards } from '@/services/scryfall/client';
 
+const SCRYFALL_BASE = 'https://api.scryfall.com';
+
 /**
- * Resolves a list of Scryfall token cards filtered for the deck's color identity.
- * Returns up to ~60 of the most popular tokens within the color identity.
+ * Resolves the tokens this deck can actually create by walking each card's
+ * Scryfall `all_parts` field for entries with component === 'token'.
  *
- * `colorIdentity` is a string like 'WUB' (subset of WUBRG). Empty string means colorless.
+ * Token cards are fetched in a single batched POST to /cards/collection.
+ * Results are cached in-memory per session (keyed by sorted token-id list).
  *
- * Routes through the shared scryfall client so it inherits rate limiting,
- * the search-result cache, and any future request middleware.
+ * Returns deduped tokens, preserving first-encountered order so the
+ * commanders' tokens tend to surface near the top.
+ */
+const deckTokensCache = new Map<string, ScryfallCard[]>();
+
+export async function resolveDeckTokens(deckCards: ScryfallCard[]): Promise<ScryfallCard[]> {
+  // Collect unique token ids (preserve order of first appearance)
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const card of deckCards) {
+    const parts = card.all_parts ?? [];
+    for (const p of parts) {
+      if (p.component !== 'token') continue;
+      // Skip self-references (some cards include themselves in all_parts)
+      if (p.id === card.id) continue;
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      ids.push(p.id);
+    }
+  }
+  if (ids.length === 0) return [];
+
+  const cacheKey = [...ids].sort().join(',');
+  const cached = deckTokensCache.get(cacheKey);
+  if (cached) return cached;
+
+  // Scryfall /cards/collection accepts up to 75 identifiers per request.
+  const cards: ScryfallCard[] = [];
+  for (let i = 0; i < ids.length; i += 75) {
+    const batch = ids.slice(i, i + 75).map(id => ({ id }));
+    try {
+      const res = await fetch(`${SCRYFALL_BASE}/cards/collection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifiers: batch }),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const c of data.data ?? []) cards.push(c);
+    } catch {
+      /* swallow — return whatever we managed to fetch */
+    }
+  }
+
+  // Restore the original ids ordering (collection endpoint doesn't guarantee order)
+  const byId = new Map(cards.map(c => [c.id, c] as const));
+  const ordered = ids.map(id => byId.get(id)).filter((c): c is ScryfallCard => !!c);
+  deckTokensCache.set(cacheKey, ordered);
+  return ordered;
+}
+
+/**
+ * Color-identity-based token search. Used as a fallback when the deck has
+ * no all_parts data (e.g. older cached cards without that field).
  */
 export async function resolveTokens(colorIdentity: string): Promise<ScryfallCard[]> {
   const ci = colorIdentity ? colorIdentity.toUpperCase().split('') : [];
-  // Tokens are not commander-legal, so skip the f:commander filter.
-  // For colorless decks, embed id:c directly since searchCards drops the
-  // color filter when the array is empty.
   const query = ci.length === 0 ? 'is:token id:c' : 'is:token';
   try {
     const response = await searchCards(query, ci, {

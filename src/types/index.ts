@@ -55,6 +55,15 @@ export interface ScryfallCard {
     [format: string]: string;
   };
   games?: string[]; // Platforms: "paper", "arena", "mtgo"
+  // Scryfall "related cards" — tokens this card creates, meld parts, etc.
+  all_parts?: Array<{
+    id: string;
+    object: 'related_card';
+    component: 'token' | 'meld_part' | 'meld_result' | 'combo_piece';
+    name: string;
+    type_line: string;
+    uri: string;
+  }>;
   // Added during deck generation
   isGameChanger?: boolean;
   isThemeSynergyCard?: boolean; // true if from EDHREC highsynergycards/topcards/gamechangers
