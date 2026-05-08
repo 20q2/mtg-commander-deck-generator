@@ -51,6 +51,7 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const copyCard = usePlaytestStore(s => s.copyCard);
   const unattach = usePlaytestStore(s => s.unattach);
   const battlefield = usePlaytestStore(s => s.battlefield);
+  const commanderNames = usePlaytestStore(s => s.source?.commanderNames ?? []);
 
   useEffect(() => {
     if (!target) return;
@@ -180,7 +181,9 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
       <Item icon={<ArrowDownToLine className="w-3.5 h-3.5" />} onClick={() => move('libbot')}>Move to library bottom</Item>
       <Item icon={<Trash2 className="w-3.5 h-3.5" />}          onClick={() => move('graveyard')}>Move to graveyard</Item>
       <Item icon={<Sparkles className="w-3.5 h-3.5" />}        onClick={() => move('exile')}>Move to exile</Item>
-      <Item icon={<Crown className="w-3.5 h-3.5" />}           onClick={() => move('command')}>Move to command zone</Item>
+      {commanderNames.includes(target.card.name) && (
+        <Item icon={<Crown className="w-3.5 h-3.5" />}         onClick={() => move('command')}>Move to command zone</Item>
+      )}
 
       {/* Counters */}
       {onBattlefield && bfCard && (
