@@ -1,5 +1,20 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  ArrowDownToLine,
+  ArrowUpToLine,
+  Copy as CopyIcon,
+  Crown,
+  Eye,
+  EyeOff,
+  Hand as HandIcon,
+  Link2Off,
+  Plus,
+  Repeat,
+  RotateCcw,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { isDoubleFacedCard, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
@@ -19,12 +34,12 @@ interface Props {
   onClose: () => void;
 }
 
-const COUNTER_CHIPS: Array<{ key: string; label: string; cls: string }> = [
-  { key: '+1/+1',   label: '+1/+1',   cls: 'bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-200 border-emerald-400/40' },
-  { key: '-1/-1',   label: '-1/-1',   cls: 'bg-red-500/20 hover:bg-red-500/35 text-red-200 border-red-400/40' },
-  { key: 'loyalty', label: 'Loyalty', cls: 'bg-blue-500/20 hover:bg-blue-500/35 text-blue-200 border-blue-400/40' },
-  { key: 'charge',  label: 'Charge',  cls: 'bg-yellow-500/20 hover:bg-yellow-500/35 text-yellow-100 border-yellow-400/40' },
-  { key: 'storage', label: 'Storage', cls: 'bg-zinc-500/20 hover:bg-zinc-500/35 text-zinc-200 border-zinc-400/40' },
+const COUNTER_TYPES: Array<{ key: string; label: string }> = [
+  { key: '+1/+1',   label: '+1/+1' },
+  { key: '-1/-1',   label: '−1/−1' },
+  { key: 'loyalty', label: 'Loyalty' },
+  { key: 'charge',  label: 'Charge' },
+  { key: 'storage', label: 'Storage' },
 ];
 
 export function PlaytestCardMenu({ target, onClose }: Props) {
@@ -99,7 +114,7 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
       ref={menuRef}
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] min-w-[200px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
+      className="fixed z-[200] w-[220px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
       style={{
         left: adjusted ? adjusted.left : target.x,
         top: adjusted ? adjusted.top : target.y,
@@ -107,53 +122,79 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
       }}
     >
       {/* Header */}
-      <div className="px-3 pt-1.5 pb-1.5 border-b border-border/40 mb-1">
+      <div className="px-2.5 pt-1 pb-1.5">
         <div className="text-[12px] font-semibold leading-tight truncate">{target.card.name}</div>
         {typeLine && (
-          <div className="text-[10px] text-muted-foreground/80 leading-tight truncate">
-            {typeLine}
-          </div>
+          <div className="text-[10px] text-muted-foreground/80 leading-tight truncate">{typeLine}</div>
         )}
       </div>
+      <Sep />
 
-      {onBattlefield && (
-        <Item onClick={() => move('hand')}>→ Hand</Item>
+      {/* Battlefield-only: card-state actions first (most common) */}
+      {onBattlefield && bfCard && (
+        <>
+          <Item
+            icon={<RotateCcw className={`w-3.5 h-3.5 ${bfCard.tapped ? '' : 'rotate-90'}`} />}
+            onClick={() => { toggleTap(bfCard.instanceId); onClose(); }}
+            shortcut="T"
+          >
+            {bfCard.tapped ? 'Untap' : 'Tap'}
+          </Item>
+          {isDFC && (
+            <Item
+              icon={<Repeat className="w-3.5 h-3.5" />}
+              onClick={() => { toggleFlipped(bfCard.instanceId); onClose(); }}
+            >
+              {bfCard.flipped ? 'Show front face' : 'Transform'}
+            </Item>
+          )}
+          <Item
+            icon={bfCard.faceDown ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            onClick={() => { toggleFaceDown(bfCard.instanceId); onClose(); }}
+          >
+            {bfCard.faceDown ? 'Flip face up' : 'Flip face down'}
+          </Item>
+          <Item
+            icon={<CopyIcon className="w-3.5 h-3.5" />}
+            onClick={() => { copyCard(bfCard.instanceId); onClose(); }}
+          >
+            Create copy
+          </Item>
+          {isAttached && (
+            <Item
+              icon={<Link2Off className="w-3.5 h-3.5" />}
+              onClick={() => { unattach(bfCard.instanceId); onClose(); }}
+            >
+              Unattach
+            </Item>
+          )}
+          <Sep />
+        </>
       )}
-      <Item onClick={() => move('libtop')}>→ Library Top</Item>
-      <Item onClick={() => move('libbot')}>→ Library Bottom</Item>
-      <Item onClick={() => move('graveyard')}>→ Graveyard</Item>
-      <Item onClick={() => move('exile')}>→ Exile</Item>
-      <Item onClick={() => move('command')}>→ Command Zone</Item>
 
+      {/* Move destinations */}
+      {onBattlefield && (
+        <Item icon={<HandIcon className="w-3.5 h-3.5" />} onClick={() => move('hand')}>Move to hand</Item>
+      )}
+      <Item icon={<ArrowUpToLine className="w-3.5 h-3.5" />}   onClick={() => move('libtop')}>Move to library top</Item>
+      <Item icon={<ArrowDownToLine className="w-3.5 h-3.5" />} onClick={() => move('libbot')}>Move to library bottom</Item>
+      <Item icon={<Trash2 className="w-3.5 h-3.5" />}          onClick={() => move('graveyard')}>Move to graveyard</Item>
+      <Item icon={<Sparkles className="w-3.5 h-3.5" />}        onClick={() => move('exile')}>Move to exile</Item>
+      <Item icon={<Crown className="w-3.5 h-3.5" />}           onClick={() => move('command')}>Move to command zone</Item>
+
+      {/* Counters */}
       {onBattlefield && bfCard && (
         <>
           <Sep />
-          <Item onClick={() => { toggleTap(bfCard.instanceId); onClose(); }}>{bfCard.tapped ? 'Untap' : 'Tap'}</Item>
-          {isDFC && (
-            <Item onClick={() => { toggleFlipped(bfCard.instanceId); onClose(); }}>
-              {bfCard.flipped ? 'Show front face' : 'Transform / show back face'}
+          {COUNTER_TYPES.map(c => (
+            <Item
+              key={c.key}
+              icon={<Plus className="w-3.5 h-3.5" />}
+              onClick={() => { adjustCounter(bfCard.instanceId, c.key, 1); onClose(); }}
+            >
+              Add {c.label} counter
             </Item>
-          )}
-          <Item onClick={() => { toggleFaceDown(bfCard.instanceId); onClose(); }}>
-            {bfCard.faceDown ? 'Flip face up' : 'Flip face down (morph)'}
-          </Item>
-          <Item onClick={() => { copyCard(bfCard.instanceId); onClose(); }}>Create copy</Item>
-          {isAttached && <Item onClick={() => { unattach(bfCard.instanceId); onClose(); }}>Unattach</Item>}
-
-          <Sep />
-          <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase opacity-50">Add counter</div>
-          <div className="px-2 pb-1.5 pt-1 flex flex-wrap gap-1">
-            {COUNTER_CHIPS.map(c => (
-              <button
-                key={c.key}
-                onClick={() => { adjustCounter(bfCard.instanceId, c.key, 1); onClose(); }}
-                className={`text-[10px] font-medium px-2 py-0.5 rounded-full border transition-colors ${c.cls}`}
-                title={`+1 ${c.key}`}
-              >
-                +1 {c.label}
-              </button>
-            ))}
-          </div>
+          ))}
         </>
       )}
     </div>,
@@ -161,7 +202,31 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   );
 }
 
-function Item({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return <button onClick={onClick} className="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors">{children}</button>;
+function Item({
+  icon, onClick, shortcut, children,
+}: {
+  icon?: React.ReactNode;
+  onClick: () => void;
+  shortcut?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      role="menuitem"
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-accent transition-colors"
+    >
+      <span className="w-4 flex items-center justify-center opacity-70 shrink-0">{icon}</span>
+      <span className="flex-1 truncate">{children}</span>
+      {shortcut && (
+        <kbd className="ml-2 px-1 py-0.5 rounded border border-border/60 bg-accent/30 font-mono text-[9px] text-muted-foreground shrink-0">
+          {shortcut}
+        </kbd>
+      )}
+    </button>
+  );
 }
-function Sep() { return <div className="h-px bg-border/60 my-1" />; }
+
+function Sep() {
+  return <div className="h-px bg-border/60 my-1" />;
+}
