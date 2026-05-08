@@ -66,7 +66,12 @@ export function ZoneViewerModal() {
     x: Math.max(40, (typeof window !== 'undefined' ? window.innerWidth : 1200) / 2 - 300),
     y: 80,
   }));
+  const [size, setSize] = useState(() => ({
+    width: 600,
+    height: Math.min(typeof window !== 'undefined' ? Math.floor(window.innerHeight * 0.7) : 520, 520),
+  }));
   const dragOffset = useRef<{ dx: number; dy: number } | null>(null);
+  const resizeStart = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
   // Hooks must run unconditionally — derive zone before bailing out below.
   const dialogZone: Exclude<ZoneKey, 'hand'> = modal && modal.kind === 'zoneViewer' ? modal.zone : 'graveyard';
@@ -120,6 +125,30 @@ export function ZoneViewerModal() {
     window.addEventListener('pointerup', onUp);
   };
 
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resizeStart.current = { startX: e.clientX, startY: e.clientY, startW: size.width, startH: size.height };
+    const onMove = (ev: PointerEvent) => {
+      if (!resizeStart.current) return;
+      const { startX, startY, startW, startH } = resizeStart.current;
+      const maxW = window.innerWidth - pos.x - 8;
+      const maxH = window.innerHeight - pos.y - 8;
+      setSize({
+        width:  Math.max(320, Math.min(maxW, startW + (ev.clientX - startX))),
+        height: Math.max(240, Math.min(maxH, startH + (ev.clientY - startY))),
+      });
+    };
+    const onUp = () => {
+      resizeStart.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const moveTo = (idx: number, target: ZoneTargetKey) => {
     const source: { kind: 'zone'; zone: Exclude<ZoneKey, 'hand'>; index: number } = { kind: 'zone', zone, index: idx };
     if (target === 'libtop') moveCard({ source, target: { kind: 'library', position: 'top' } });
@@ -130,8 +159,8 @@ export function ZoneViewerModal() {
   return createPortal(
     <div
       ref={droppable.setNodeRef}
-      className={`fixed z-[150] bg-card border rounded-lg shadow-2xl w-[600px] max-w-[90vw] max-h-[70vh] flex flex-col ${droppable.isOver ? 'border-primary ring-2 ring-primary/60' : 'border-border'}`}
-      style={{ left: pos.x, top: pos.y }}
+      className={`fixed z-[150] bg-card border rounded-lg shadow-2xl flex flex-col ${droppable.isOver ? 'border-primary ring-2 ring-primary/60' : 'border-border'}`}
+      style={{ left: pos.x, top: pos.y, width: size.width, height: size.height }}
     >
       <div
         onPointerDown={startHeaderDrag}
@@ -177,6 +206,20 @@ export function ZoneViewerModal() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Resize handle (bottom-right corner) */}
+      <div
+        onPointerDown={startResize}
+        title="Drag to resize"
+        className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize text-muted-foreground/60 hover:text-foreground"
+        style={{ touchAction: 'none' }}
+      >
+        <svg viewBox="0 0 16 16" className="w-full h-full" fill="currentColor" aria-hidden>
+          <circle cx="13" cy="13" r="1" />
+          <circle cx="13" cy="9" r="1" />
+          <circle cx="9" cy="13" r="1" />
+        </svg>
       </div>
     </div>,
     document.body,
