@@ -41,6 +41,25 @@ export const LOG_CATEGORIES: { key: LogCategory; label: string; chip: string }[]
   { key: 'system',  label: 'System',   chip: 'bg-zinc-500/15 text-zinc-300 border-zinc-400/40' },
 ];
 
+export type CounterColor = 'emerald' | 'red' | 'blue' | 'amber' | 'purple' | 'zinc';
+
+export const COUNTER_COLORS: { key: CounterColor; label: string; chip: string; ring: string }[] = [
+  { key: 'emerald', label: 'Green',  chip: 'bg-emerald-600 text-white', ring: 'ring-emerald-300' },
+  { key: 'red',     label: 'Red',    chip: 'bg-red-600 text-white',     ring: 'ring-red-300' },
+  { key: 'blue',    label: 'Blue',   chip: 'bg-blue-600 text-white',    ring: 'ring-blue-300' },
+  { key: 'amber',   label: 'Yellow', chip: 'bg-amber-500 text-black',   ring: 'ring-amber-200' },
+  { key: 'purple',  label: 'Purple', chip: 'bg-purple-600 text-white',  ring: 'ring-purple-300' },
+  { key: 'zinc',    label: 'Gray',   chip: 'bg-zinc-600 text-white',    ring: 'ring-zinc-300' },
+];
+
+export interface FreeCounter {
+  id: string;
+  x: number;
+  y: number;
+  value: number;
+  color: CounterColor;
+}
+
 export interface LogEntry {
   id: string;
   ts: number;

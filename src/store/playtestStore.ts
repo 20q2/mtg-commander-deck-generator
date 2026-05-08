@@ -3,6 +3,8 @@ import type { ScryfallCard } from '@/types';
 import { buildLibrary } from '@/services/playtest/libraryBuilder';
 import {
   type BattlefieldCard,
+  type CounterColor,
+  type FreeCounter,
   type LogCategory,
   type LogEntry,
   type Modal,
@@ -45,6 +47,8 @@ interface PlaytestState {
   // component checks this at HandCard mount-time to play the deal-in animation
   // only on freshly drawn cards (not on cards returned from other zones).
   lastDrawRange: { start: number; end: number };
+  // Free-floating counter objects on the battlefield (separate from per-card counters).
+  freeCounters: FreeCounter[];
 }
 
 interface PlaytestActions {
@@ -90,6 +94,12 @@ interface PlaytestActions {
 
   appendLog: (text: string) => void;
   clearLog: () => void;
+
+  addFreeCounter: (color?: CounterColor) => void;
+  adjustFreeCounter: (id: string, delta: number) => void;
+  removeFreeCounter: (id: string) => void;
+  setFreeCounterColor: (id: string, color: CounterColor) => void;
+  moveFreeCounter: (id: string, x: number, y: number) => void;
 }
 
 type Store = PlaytestState & PlaytestActions;
@@ -112,6 +122,7 @@ const initial: PlaytestState = {
   mulliganCount: 0,
   shuffleTick: 0,
   lastDrawRange: { start: -1, end: -1 },
+  freeCounters: [],
 };
 
 function snapshotOf(s: PlaytestState): PlaytestSnapshot {
@@ -676,6 +687,37 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
   clearLog: () => set({ log: [] }),
+
+  addFreeCounter: (color = 'emerald') => set(state => {
+    const cx = Math.floor(state.battlefieldRect.width / 2 - 20);
+    const cy = Math.floor(state.battlefieldRect.height / 2 - 20);
+    return {
+      freeCounters: [
+        ...state.freeCounters,
+        { id: makeInstanceId(), x: cx, y: cy, value: 1, color },
+      ],
+      log: [...state.log, makeLogEntry('Added a counter', 'counter')],
+    };
+  }),
+
+  adjustFreeCounter: (id, delta) => set(state => ({
+    freeCounters: state.freeCounters.map(c =>
+      c.id === id ? { ...c, value: Math.max(0, c.value + delta) } : c
+    ),
+  })),
+
+  removeFreeCounter: (id) => set(state => ({
+    freeCounters: state.freeCounters.filter(c => c.id !== id),
+    log: [...state.log, makeLogEntry('Removed a counter', 'counter')],
+  })),
+
+  setFreeCounterColor: (id, color) => set(state => ({
+    freeCounters: state.freeCounters.map(c => (c.id === id ? { ...c, color } : c)),
+  })),
+
+  moveFreeCounter: (id, x, y) => set(state => ({
+    freeCounters: state.freeCounters.map(c => (c.id === id ? { ...c, x, y } : c)),
+  })),
 }));
 
 // Helper: serializable selector for zone counts (used by Sidebar to avoid re-rendering on every change)

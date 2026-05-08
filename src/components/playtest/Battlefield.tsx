@@ -3,9 +3,11 @@ import { useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings, BG_STYLES } from '@/store/playtestSettingsStore';
 import { BattlefieldCard } from '@/components/playtest/BattlefieldCard';
+import { FreeCounter } from '@/components/playtest/FreeCounter';
 
 export function Battlefield() {
   const cards = usePlaytestStore(s => s.battlefield);
+  const freeCounters = usePlaytestStore(s => s.freeCounters);
   const setRect = usePlaytestStore(s => s.setBattlefieldRect);
   const bg = usePlaytestSettings(s => s.bg);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +46,7 @@ export function Battlefield() {
       style={{ background: BG_STYLES[bg].background }}
     >
       {sorted.map(b => <BattlefieldCard key={b.instanceId} card={b} />)}
+      {freeCounters.map(c => <FreeCounter key={c.id} counter={c} />)}
     </div>
   );
 }

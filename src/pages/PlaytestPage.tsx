@@ -107,7 +107,9 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     setActiveTapped(false);
     const { active, over } = event;
     if (!over) return;
-    const sourceData = active.data.current as { source?: MoveSource; tokenCard?: ScryfallCard } | undefined;
+    const sourceData = active.data.current as
+      | { source?: MoveSource | { kind: 'freecounter'; id: string }; tokenCard?: ScryfallCard }
+      | undefined;
     const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number } | undefined;
 
     // Token spawn from the token dialog → only valid drop is the battlefield
@@ -121,7 +123,19 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
       return;
     }
 
-    const source = sourceData?.source;
+    // Free counter drag → reposition on the battlefield (or no-op if dropped elsewhere)
+    if (sourceData?.source && (sourceData.source as { kind: string }).kind === 'freecounter') {
+      const cs = sourceData.source as { kind: 'freecounter'; id: string };
+      if (over.id === 'battlefield' && overData?.kind === 'battlefield') {
+        const rect = over.rect as DOMRect | undefined;
+        const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
+        const y = (active.rect.current.translated?.top  ?? 0) - (rect?.top  ?? 0);
+        usePlaytestStore.getState().moveFreeCounter(cs.id, x, y);
+      }
+      return;
+    }
+
+    const source = sourceData?.source as MoveSource | undefined;
     if (!source) return;
 
     // Battlefield container: position drop

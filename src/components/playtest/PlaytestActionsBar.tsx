@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Hand as HandIcon, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus } from 'lucide-react';
+import { Hand as HandIcon, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus, Circle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { COUNTER_COLORS, type CounterColor } from '@/components/playtest/types';
 
 export function PlaytestActionsBar() {
   const draw = usePlaytestStore(s => s.draw);
@@ -10,9 +11,16 @@ export function PlaytestActionsBar() {
   const shuffle = usePlaytestStore(s => s.shuffle);
   const beginMulligan = usePlaytestStore(s => s.beginMulligan);
   const openModal = usePlaytestStore(s => s.openModal);
+  const addFreeCounter = usePlaytestStore(s => s.addFreeCounter);
 
   const [scryN, setScryN] = useState(1);
   const [mullOpen, setMullOpen] = useState(false);
+  const [counterOpen, setCounterOpen] = useState(false);
+
+  const addCounter = (color: CounterColor) => {
+    addFreeCounter(color);
+    setCounterOpen(false);
+  };
 
   const btn = 'h-6 px-2 text-[11px]';
   const icon = 'w-3 h-3 mr-1';
@@ -50,6 +58,24 @@ export function PlaytestActionsBar() {
         </PopoverContent>
       </Popover>
       <Button variant="outline" size="sm" className={btn} onClick={() => openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
+      <Popover open={counterOpen} onOpenChange={setCounterOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className={btn} title="Add a free-floating counter"><Circle className={icon} />Counter</Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-44 p-2">
+          <p className="text-[10px] uppercase opacity-60 px-1 pb-1">Pick a color</p>
+          <div className="grid grid-cols-6 gap-1">
+            {COUNTER_COLORS.map(c => (
+              <button
+                key={c.key}
+                onClick={() => addCounter(c.key)}
+                title={c.label}
+                className={`w-6 h-6 rounded-full ${c.chip} hover:ring-2 hover:ring-foreground/40`}
+              />
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
