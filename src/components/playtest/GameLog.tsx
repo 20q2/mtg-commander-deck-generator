@@ -2,16 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ChevronLeft, ListFilter, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { LOG_CATEGORIES, type LogCategory } from '@/components/playtest/types';
 
 export function GameLog() {
   const log = usePlaytestStore(s => s.log);
   const clearLog = usePlaytestStore(s => s.clearLog);
+  // Persisted filter preferences — survive deck switches and page reloads.
+  const enabled = usePlaytestSettings(s => s.logFilter);
+  const setLogFilter = usePlaytestSettings(s => s.setLogFilter);
+  const toggleLogCategory = usePlaytestSettings(s => s.toggleLogCategory);
   const [open, setOpen] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [enabled, setEnabled] = useState<Record<LogCategory, boolean>>({
-    move: true, tap: true, library: true, counter: true, life: true, turn: true, system: true,
-  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(
@@ -40,9 +42,9 @@ export function GameLog() {
     );
   }
 
-  const toggle = (key: LogCategory) => setEnabled(prev => ({ ...prev, [key]: !prev[key] }));
+  const toggle = (key: LogCategory) => toggleLogCategory(key);
   const setAll = (v: boolean) =>
-    setEnabled({ move: v, tap: v, library: v, counter: v, life: v, turn: v, system: v });
+    setLogFilter({ move: v, tap: v, library: v, counter: v, life: v, turn: v, system: v });
 
   return (
     <aside className="w-56 border-l border-border/50 bg-card/30 flex flex-col">
