@@ -407,10 +407,15 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         y = slot.y;
       }
       const counters: Record<string, number> = {};
-      // Planeswalkers arrive with starting loyalty
-      if (card.type_line.toLowerCase().includes('planeswalker') && card.loyalty) {
-        const loyalty = parseInt(card.loyalty, 10);
-        if (!isNaN(loyalty) && loyalty > 0) counters.loyalty = loyalty;
+      // Planeswalkers arrive with starting loyalty. Check the front face's
+      // type/loyalty first so DFCs where the front is a planeswalker work,
+      // then fall back to the top-level fields (single-faced cards).
+      const frontFace = card.card_faces?.[0] as { type_line?: string; loyalty?: string } | undefined;
+      const playedTypeLine = (frontFace?.type_line ?? card.type_line ?? '').toLowerCase();
+      const loyaltyStr = frontFace?.loyalty ?? card.loyalty;
+      if (playedTypeLine.includes('planeswalker') && loyaltyStr) {
+        const n = parseInt(loyaltyStr, 10);
+        if (!isNaN(n)) counters.loyalty = Math.max(0, n);
       }
       next.battlefield.push({
         instanceId: makeInstanceId(),
