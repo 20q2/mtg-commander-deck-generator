@@ -189,7 +189,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
               onClick={(e) => { e.stopPropagation(); onAdjust('loyalty', 1); }}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust('loyalty', -1); }}
               className="relative cursor-pointer drop-shadow-[0_2px_4px_rgba(0,0,0,0.75)] hover:brightness-110 active:scale-95 transition"
-              style={{ width: 60, height: 38 }}
+              style={{ width: 44, height: 28 }}
               title={`${loyaltyValue} loyalty · click +1 · right-click −1`}
             >
               <img
@@ -200,7 +200,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
                 aria-hidden
               />
               <span
-                className="absolute inset-0 flex items-center justify-center text-white font-extrabold text-[14px] leading-none tabular-nums"
+                className="absolute inset-0 flex items-center justify-center text-white font-extrabold text-[11px] leading-none tabular-nums"
                 style={{
                   paddingTop: '24%', // push past the top notch into the black area
                   textShadow: '0 1px 2px rgba(0,0,0,0.9)',
