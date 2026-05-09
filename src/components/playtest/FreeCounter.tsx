@@ -33,6 +33,11 @@ export function FreeCounter({ counter }: Props) {
     }
   }, [drag.isDragging]);
 
+  // Distinguish single-click (increment) from double-click (open menu).
+  // Defer the increment briefly; cancel if a dblclick follows.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (clickTimer.current) clearTimeout(clickTimer.current); }, []);
+
   const colorCfg = COUNTER_COLORS.find(c => c.key === counter.color) ?? COUNTER_COLORS[0];
 
   return (
@@ -44,24 +49,28 @@ export function FreeCounter({ counter }: Props) {
         onClick={(e) => {
           e.stopPropagation();
           if (dragMovedRef.current) return;
-          adjustFreeCounter(counter.id, 1);
+          // Defer the increment so a follow-up dblclick can cancel it.
+          if (clickTimer.current) clearTimeout(clickTimer.current);
+          clickTimer.current = setTimeout(() => {
+            adjustFreeCounter(counter.id, 1);
+            clickTimer.current = null;
+          }, 200);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          if (e.shiftKey) {
-            // shift-right-click opens the color/delete menu
-            setMenu({ x: e.clientX, y: e.clientY });
-          } else {
-            adjustFreeCounter(counter.id, -1);
-          }
+          adjustFreeCounter(counter.id, -1);
         }}
         onDoubleClick={(e) => {
-          // Double-click also opens the menu (extra discoverability)
           e.stopPropagation();
+          // Cancel any pending single-click increment from this gesture.
+          if (clickTimer.current) {
+            clearTimeout(clickTimer.current);
+            clickTimer.current = null;
+          }
           setMenu({ x: e.clientX, y: e.clientY });
         }}
-        title={`${counter.value} · left-click +1, right-click −1, shift-right-click for options`}
+        title={`${counter.value} · click +1, right-click −1, double-click for options`}
         className={`absolute select-none touch-none flex items-center justify-center rounded-full font-bold text-base shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring}`}
         style={{
           left: counter.x,
