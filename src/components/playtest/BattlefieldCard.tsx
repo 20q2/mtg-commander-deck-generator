@@ -182,44 +182,46 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
             className="absolute bottom-1 right-1 flex items-end gap-1 pointer-events-auto"
             style={{ transform: card.tapped ? 'rotate(-90deg)' : undefined, transformOrigin: 'center' }}
           >
-            {/* Planeswalker loyalty shield (pentagon with flat top, V point bottom) */}
+            {/* Planeswalker loyalty shield — wings up, U-notch top, V-point bottom */}
             <div
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust('loyalty', -1); }}
-              className="relative w-11 h-[52px] flex items-center justify-center cursor-default drop-shadow-[0_2px_4px_rgba(0,0,0,0.65)]"
+              className="relative cursor-default drop-shadow-[0_2px_3px_rgba(0,0,0,0.7)]"
+              style={{ width: 60, height: 38 }}
               title={`${loyaltyValue} loyalty (right-click −1)`}
             >
-              <svg viewBox="0 0 40 48" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
-                <defs>
-                  <linearGradient id={`loy-bg-${card.instanceId}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#262629" />
-                    <stop offset="55%" stopColor="#0d0d10" />
-                    <stop offset="100%" stopColor="#000" />
-                  </linearGradient>
-                </defs>
-                {/* Outer shield: flat-ish top, gentle shoulders, V point bottom */}
+              <svg viewBox="0 0 168 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
                 <path
-                  d="M 4 4 L 36 4 L 38 14 L 38 28 L 20 46 L 2 28 L 2 14 Z"
-                  fill={`url(#loy-bg-${card.instanceId})`}
-                  stroke="rgba(255,255,255,0.85)"
-                  strokeWidth="1.8"
+                  d="
+                    M 8 8
+                    C 30 12, 52 16, 76 18
+                    A 8 8 0 0 0 92 18
+                    C 116 16, 138 12, 160 8
+                    C 168 26, 168 46, 154 64
+                    C 138 84, 110 96, 86 99
+                    L 84 100
+                    L 82 99
+                    C 58 96, 30 84, 14 64
+                    C 0 46, 0 26, 8 8
+                    Z
+                  "
+                  fill="#000"
+                  stroke="#cfcfd2"
+                  strokeWidth="5"
                   strokeLinejoin="round"
                 />
-                {/* Inner highlight for depth */}
-                <path
-                  d="M 7 7 L 33 7 L 35 14.5 L 35 27 L 20 42 L 5 27 L 5 14.5 Z"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.14)"
-                  strokeWidth="1"
-                  strokeLinejoin="round"
-                />
+                <text
+                  x="84"
+                  y="82"
+                  textAnchor="middle"
+                  fontSize="46"
+                  fontWeight="800"
+                  fill="#fff"
+                  fontFamily="ui-sans-serif, system-ui, sans-serif"
+                >
+                  {loyaltyValue}
+                </text>
               </svg>
-              <span
-                className="relative text-white font-bold text-[16px] leading-none tabular-nums -translate-y-[2px]"
-                style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}
-              >
-                {loyaltyValue}
-              </span>
             </div>
 
             {/* Stacked +/- spinners */}
