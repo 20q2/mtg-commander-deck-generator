@@ -39,7 +39,6 @@ const COUNTER_TYPES: Array<{ key: string; label: string }> = [
   { key: '-1/-1',   label: '−1/−1' },
   { key: 'loyalty', label: 'Loyalty' },
   { key: 'charge',  label: 'Charge' },
-  { key: 'storage', label: 'Storage' },
 ];
 
 export function PlaytestCardMenu({ target, onClose }: Props) {

@@ -95,7 +95,7 @@ interface PlaytestActions {
   appendLog: (text: string) => void;
   clearLog: () => void;
 
-  addFreeCounter: (color?: CounterColor) => void;
+  addFreeCounter: (color?: CounterColor, position?: { x: number; y: number }) => void;
   adjustFreeCounter: (id: string, delta: number) => void;
   removeFreeCounter: (id: string) => void;
   setFreeCounterColor: (id: string, color: CounterColor) => void;
@@ -705,9 +705,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
   clearLog: () => set({ log: [] }),
 
-  addFreeCounter: (color = 'emerald') => set(state => {
-    const cx = Math.floor(state.battlefieldRect.width / 2 - 20);
-    const cy = Math.floor(state.battlefieldRect.height / 2 - 20);
+  addFreeCounter: (color = 'emerald', position) => set(state => {
+    const cx = position ? Math.round(position.x - 22) : Math.floor(state.battlefieldRect.width / 2 - 22);
+    const cy = position ? Math.round(position.y - 22) : Math.floor(state.battlefieldRect.height / 2 - 22);
     return {
       freeCounters: [
         ...state.freeCounters,
