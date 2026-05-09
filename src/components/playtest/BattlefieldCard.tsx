@@ -182,46 +182,31 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
             className="absolute bottom-1 right-1 flex items-end gap-1 pointer-events-auto"
             style={{ transform: card.tapped ? 'rotate(-90deg)' : undefined, transformOrigin: 'center' }}
           >
-            {/* Planeswalker loyalty shield — wings up, U-notch top, V-point bottom */}
+            {/* Planeswalker loyalty shield — uses the SVG asset under public/icons/ */}
             <div
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust('loyalty', -1); }}
               className="relative cursor-default drop-shadow-[0_2px_3px_rgba(0,0,0,0.7)]"
-              style={{ width: 60, height: 38 }}
+              style={{ width: 64, height: 40 }}
               title={`${loyaltyValue} loyalty (right-click −1)`}
             >
-              <svg viewBox="0 0 168 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
-                <path
-                  d="
-                    M 8 8
-                    C 30 12, 52 16, 76 18
-                    A 8 8 0 0 0 92 18
-                    C 116 16, 138 12, 160 8
-                    C 168 26, 168 46, 154 64
-                    C 138 84, 110 96, 86 99
-                    L 84 100
-                    L 82 99
-                    C 58 96, 30 84, 14 64
-                    C 0 46, 0 26, 8 8
-                    Z
-                  "
-                  fill="#000"
-                  stroke="#cfcfd2"
-                  strokeWidth="5"
-                  strokeLinejoin="round"
-                />
-                <text
-                  x="84"
-                  y="82"
-                  textAnchor="middle"
-                  fontSize="46"
-                  fontWeight="800"
-                  fill="#fff"
-                  fontFamily="ui-sans-serif, system-ui, sans-serif"
-                >
-                  {loyaltyValue}
-                </text>
-              </svg>
+              <img
+                src={`${import.meta.env.BASE_URL}icons/Loyalty.svg`}
+                alt=""
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                draggable={false}
+                aria-hidden
+              />
+              {/* Value sits in the lower black area of the shield */}
+              <span
+                className="absolute inset-0 flex items-center justify-center text-white font-bold text-[15px] leading-none tabular-nums"
+                style={{
+                  paddingTop: '24%', // push down past the top notch into the black area
+                  textShadow: '0 1px 2px rgba(0,0,0,0.85)',
+                }}
+              >
+                {loyaltyValue}
+              </span>
             </div>
 
             {/* Stacked +/- spinners */}
