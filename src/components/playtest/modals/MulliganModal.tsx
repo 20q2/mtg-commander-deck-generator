@@ -46,7 +46,7 @@ export function MulliganModal() {
 
   return createPortal(
     <div className="fixed inset-0 z-[100] bg-background/85 backdrop-blur-sm flex items-center justify-center p-6">
-      <div className="bg-card border border-border rounded-lg shadow-2xl max-w-4xl w-full p-6">
+      <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-2xl max-w-4xl w-full p-6">
         <h2 className="text-lg font-semibold mb-1">
           {picking ? `Send ${toBottomCount - picked.size} more to bottom` : `Opening hand · keeping ${handSize}`}
         </h2>

@@ -70,7 +70,7 @@ export function FloatingDialog({
   return createPortal(
     <div
       ref={outerRef}
-      className={`fixed z-[150] bg-card border border-border rounded-lg shadow-2xl max-w-[90vw] max-h-[80vh] flex flex-col ${outerClassName}`}
+      className={`fixed z-[150] bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-2xl max-w-[90vw] max-h-[80vh] flex flex-col ${outerClassName}`}
       style={{ left: pos.x, top: pos.y, width }}
     >
       <div

@@ -159,7 +159,7 @@ export function ZoneViewerModal() {
   return createPortal(
     <div
       ref={droppable.setNodeRef}
-      className={`fixed z-[150] bg-card border rounded-lg shadow-2xl flex flex-col ${droppable.isOver ? 'border-primary ring-2 ring-primary/60' : 'border-border'}`}
+      className={`fixed z-[150] bg-card/95 backdrop-blur-sm border rounded-lg shadow-2xl flex flex-col ${droppable.isOver ? 'border-primary ring-2 ring-primary/60' : 'border-border'}`}
       style={{ left: pos.x, top: pos.y, width: size.width, height: size.height }}
     >
       <div

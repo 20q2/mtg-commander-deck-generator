@@ -248,43 +248,61 @@ function ComboRow({
   const result = combo.results?.[0] ?? '';
   return (
     <div
-      className={`px-2 py-1.5 hover:bg-accent/30 transition-colors border-l-2 ${
+      className={`px-2 pt-1.5 pb-2 hover:bg-accent/30 transition-colors border-l-2 ${
         hasCommander ? 'border-amber-400/70' : 'border-transparent'
       }`}
-      title={combo.cards.join(' + ')}
     >
-      <div className="flex items-center gap-1 mb-0.5">
-        {hasCommander && <Crown className="w-2.5 h-2.5 text-amber-300/90 shrink-0" />}
-        <div className="flex gap-0.5 min-w-0">
-          {combo.cards.map((name, i) => {
-            const card = cardByName.get(name);
-            const artUrl =
-              card?.image_uris?.art_crop ??
-              card?.card_faces?.[0]?.image_uris?.art_crop ??
-              null;
-            return (
-              <div
-                key={`${name}-${i}`}
-                className="w-7 h-[18px] rounded-sm overflow-hidden bg-black/50 ring-1 ring-black/40 shrink-0"
-                title={name}
-              >
-                {artUrl ? (
-                  <img
-                    src={artUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                    loading="lazy"
-                  />
-                ) : null}
-              </div>
-            );
-          })}
+      {/* Full-width art banner — equal sections, one per card */}
+      <div className="flex h-7 rounded-sm overflow-hidden ring-1 ring-black/50 bg-black/40 mb-1">
+        {combo.cards.map((name, i) => {
+          const card = cardByName.get(name);
+          const artUrl =
+            card?.image_uris?.art_crop ??
+            card?.card_faces?.[0]?.image_uris?.art_crop ??
+            null;
+          return (
+            <div
+              key={`${name}-${i}`}
+              className={`flex-1 min-w-0 relative ${i > 0 ? 'border-l border-black/60' : ''}`}
+              title={name}
+            >
+              {artUrl ? (
+                <img
+                  src={artUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[8px] text-muted-foreground/60 px-0.5 truncate">
+                  {name}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Card names listed: Card A + Card B + Card C */}
+      <div className="text-[10px] leading-snug text-foreground/85 mb-0.5">
+        {hasCommander && (
+          <Crown className="w-2.5 h-2.5 inline -mt-px mr-1 text-amber-300/90 align-baseline" />
+        )}
+        {combo.cards.map((name, i) => (
+          <span key={`name-${i}`}>
+            {i > 0 && <span className="text-muted-foreground/50 mx-0.5">+</span>}
+            <span className="text-foreground/90">{name}</span>
+          </span>
+        ))}
+      </div>
+
+      {/* Result — full text, no truncation */}
+      {result && (
+        <div className="text-[10px] italic text-muted-foreground/85 leading-snug">
+          {result}
         </div>
-      </div>
-      <div className="text-[10px] italic text-muted-foreground/85 truncate">
-        {result}
-      </div>
+      )}
     </div>
   );
 }

@@ -41,7 +41,7 @@ export function ScryMillSurveilModal() {
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return createPortal(
     <div className="fixed inset-0 z-[100] bg-background/85 backdrop-blur-sm flex items-center justify-center p-6">
-      <div className="bg-card border border-border rounded-lg shadow-2xl max-w-4xl w-full p-6">
+      <div className="bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-2xl max-w-4xl w-full p-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">{title}</h2>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="w-4 h-4" /></Button>
