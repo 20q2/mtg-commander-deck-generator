@@ -98,6 +98,7 @@ function OptimizeCardRow({
   onPreview: (name: string) => void;
 }) {
   const pct = card.inclusion != null ? Math.round(card.inclusion) : null;
+  const scoreVal = card.score != null ? Math.round(card.score) : null;
   const RIcon = card.roleLabel ? ROLE_LABEL_ICONS[card.roleLabel] : null;
   const badgeColor = card.roleLabel ? ROLE_BADGE_COLORS[card.roleLabel] : null;
   const price = resolvePrice(card);
@@ -175,10 +176,19 @@ function OptimizeCardRow({
         {price && (
           <span className="text-[10px] text-muted-foreground tabular-nums">${price}</span>
         )}
+        {scoreVal != null && (
+          <span
+            className="text-[10px] font-medium tabular-nums text-muted-foreground/70 w-9 text-right"
+            title="Relevancy score"
+          >
+            {scoreVal}
+          </span>
+        )}
         {pct != null && (
           <span
             className="text-[10px] font-bold tabular-nums w-7 text-right"
             style={{ color: `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` }}
+            title="EDHREC inclusion %"
           >
             {pct}%
           </span>

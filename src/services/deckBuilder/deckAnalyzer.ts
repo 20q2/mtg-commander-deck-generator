@@ -973,6 +973,8 @@ export interface OptimizeCard {
   reason: string;          // "Excess Ramp", "Low synergy", "Fills Removal gap", etc.
   reasonCategory: string;  // grouping key for UI sections
   inclusion: number | null;
+  /** Relevancy score: cut-worthiness for removals (lower = weaker), pick-worthiness for additions (higher = better). */
+  score?: number;
   price?: string;
   role?: string;
   roleLabel?: string;
@@ -1209,7 +1211,7 @@ export function computeOptimizeSwaps(
   // Helper to convert a RecommendedCard to OptimizeCard
   const recToOptCard = (rec: RecommendedCard, reason: string, reasonCategory: string): OptimizeCard => ({
     name: rec.name, reason, reasonCategory,
-    inclusion: rec.inclusion, price: rec.price, role: rec.role, roleLabel: rec.roleLabel,
+    inclusion: rec.inclusion, score: rec.score, price: rec.price, role: rec.role, roleLabel: rec.roleLabel,
     imageUrl: rec.imageUrl, cmc: rec.cmc, primaryType: rec.primaryType,
     isGameChanger: rec.isGameChanger, isThemeSynergy: rec.isThemeSynergy,
   });
@@ -1338,7 +1340,8 @@ export function computeOptimizeSwaps(
   }
 
   // ── No hard caps — show all candidates the algorithm found ──
-  const removals = removalCandidates;
+  // Surface each candidate's sortScore as `score` for UI display.
+  const removals = removalCandidates.map(c => ({ ...c, score: c.sortScore }));
 
   // Additions: can't push past target deck size (assume all removals applied),
   // but when mana base is light reserve room for land-deficit recommendations
@@ -1396,7 +1399,7 @@ export function computeOptimizeSwaps(
       });
     }
     balanceCandidates.sort((a, b) => a.sortScore - b.sortScore);
-    removals.push(...balanceCandidates.slice(0, sizeOverflow));
+    removals.push(...balanceCandidates.slice(0, sizeOverflow).map(c => ({ ...c, score: c.sortScore })));
   }
 
   return { removals, additions };
