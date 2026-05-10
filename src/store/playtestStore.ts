@@ -730,7 +730,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   adjustFreeCounter: (id, delta) => set(state => ({
     freeCounters: state.freeCounters.map(c =>
-      c.id === id ? { ...c, value: Math.max(0, c.value + delta) } : c
+      c.id === id ? { ...c, value: c.value + delta } : c
     ),
   })),
 

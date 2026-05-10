@@ -33,11 +33,6 @@ export function FreeCounter({ counter }: Props) {
     }
   }, [drag.isDragging]);
 
-  // Distinguish single-click (increment) from double-click (open menu).
-  // Defer the increment briefly; cancel if a dblclick follows.
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (clickTimer.current) clearTimeout(clickTimer.current); }, []);
-
   const colorCfg = COUNTER_COLORS.find(c => c.key === counter.color) ?? COUNTER_COLORS[0];
 
   return (
@@ -49,35 +44,25 @@ export function FreeCounter({ counter }: Props) {
         onClick={(e) => {
           e.stopPropagation();
           if (dragMovedRef.current) return;
-          // Defer the increment so a follow-up dblclick can cancel it.
-          if (clickTimer.current) clearTimeout(clickTimer.current);
-          clickTimer.current = setTimeout(() => {
-            adjustFreeCounter(counter.id, 1);
-            clickTimer.current = null;
-          }, 200);
+          if (e.shiftKey) {
+            setMenu({ x: e.clientX, y: e.clientY });
+            return;
+          }
+          adjustFreeCounter(counter.id, 1);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
           adjustFreeCounter(counter.id, -1);
         }}
-        onDoubleClick={(e) => {
-          e.stopPropagation();
-          // Cancel any pending single-click increment from this gesture.
-          if (clickTimer.current) {
-            clearTimeout(clickTimer.current);
-            clickTimer.current = null;
-          }
-          setMenu({ x: e.clientX, y: e.clientY });
-        }}
-        title={`${counter.value} · click +1, right-click −1, double-click for options`}
-        className={`absolute select-none touch-none flex items-center justify-center rounded-full font-bold text-base shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring}`}
+        title={`${counter.value} · click +1, right-click −1, shift-click for options`}
+        className={`absolute select-none touch-none flex items-center justify-center rounded-md font-bold text-sm shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring}`}
         style={{
           left: counter.x,
           top: counter.y,
           transform: `translate3d(${tx}px, ${ty}px, 0)`,
-          width: 44,
-          height: 44,
+          width: 34,
+          height: 34,
           cursor: drag.isDragging ? 'grabbing' : 'grab',
           // Counters always sit ABOVE battlefield cards (cards are z-10/z-50).
           zIndex: drag.isDragging ? 70 : 60,
@@ -91,7 +76,7 @@ export function FreeCounter({ counter }: Props) {
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          onColor={(c) => { setFreeCounterColor(counter.id, c); setMenu(null); }}
+          onColor={(c) => { setFreeCounterColor(counter.id, c); }}
           onDelete={() => { removeFreeCounter(counter.id); setMenu(null); }}
           activeColor={counter.color}
         />

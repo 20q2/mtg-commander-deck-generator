@@ -519,14 +519,18 @@ export function DeckOptimizer({
 
   // Re-run analysis when cards change (add/remove). Debounced so rapid
   // multi-add interactions don't trigger several full analyses in a row.
+  // prevCardKeyRef must only be updated AFTER the timeout fires — if we
+  // update it eagerly, an unrelated re-render before 80ms elapses cancels
+  // the cleanup's clearTimeout but then bails on the cardKey-match check,
+  // and the analysis never runs.
   const hasAnalysis = analysis != null;
   useEffect(() => {
     if (!cachedEdhrecDataRef.current || !hasAnalysis) return;
     const cardKey = currentCards.map(c => c.name).join('\0');
     if (cardKey === prevCardKeyRef.current) return;
-    prevCardKeyRef.current = cardKey;
 
     const handle = setTimeout(() => {
+      prevCardKeyRef.current = cardKey;
       const result = runAnalysisFor({
         targets: effectiveRoleTargets,
         pacing: userPacing ?? undefined,
