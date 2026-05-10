@@ -650,7 +650,10 @@ export function getCardImageUrl(
  * Falls back through: usd → usd_foil → usd_etched → eur → eur_foil
  * Returns the price string or null if no price is available.
  */
-const BASIC_LAND_NAMES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
+/** Names of the six basic lands, including Wastes. Snow-covered variants check separately. */
+export const BASIC_LAND_NAMES: ReadonlySet<string> = new Set([
+  'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes',
+]);
 
 export function getCardPrice(card: ScryfallCard, currency: 'USD' | 'EUR' = 'USD'): string | null {
   if (BASIC_LAND_NAMES.has(card.name)) return '0.05';
@@ -687,6 +690,46 @@ export function isMdfcLand(card: ScryfallCard): boolean {
   const frontType = card.card_faces[0].type_line?.toLowerCase() ?? '';
   const backType = card.card_faces[1].type_line?.toLowerCase() ?? '';
   return !frontType.includes('land') && backType.includes('land');
+}
+
+/** The five colors of mana, in WUBRG order. */
+export const WUBRG = ['W', 'U', 'B', 'R', 'G'] as const;
+
+/** True if the card's front face type line includes "Land". */
+export function isLand(card: ScryfallCard): boolean {
+  return getFrontFaceTypeLine(card).toLowerCase().includes('land');
+}
+
+/** True if the card is a land OR a spell/land MDFC (its back face is a land). */
+export function isAnyLand(card: ScryfallCard): boolean {
+  return isLand(card) || isMdfcLand(card);
+}
+
+/** True if the card's type line is a basic land (snow-covered counts). */
+export function isBasicLand(card: ScryfallCard): boolean {
+  const tl = getFrontFaceTypeLine(card).toLowerCase();
+  return tl.includes('land') && /\bbasic\b/.test(tl);
+}
+
+/**
+ * Infer which of WUBRG (and 'C' as a fallback) a card produces.
+ * Uses Scryfall's `produced_mana` first, falls back to oracle-text scanning
+ * for cards that lack the field.
+ */
+export function getProducedColors(card: ScryfallCard): string[] {
+  const produced = card.produced_mana || [];
+  const colors = [...new Set(produced.filter(c => (WUBRG as readonly string[]).includes(c)))];
+  if (colors.length > 0) return colors.sort((a, b) => WUBRG.indexOf(a as typeof WUBRG[number]) - WUBRG.indexOf(b as typeof WUBRG[number]));
+  const oracle = (card.oracle_text || '').toLowerCase();
+  if (oracle.includes('any color') || oracle.includes('any type')) return [...WUBRG];
+  const found: string[] = [];
+  if (oracle.includes('add {w}')) found.push('W');
+  if (oracle.includes('add {u}')) found.push('U');
+  if (oracle.includes('add {b}')) found.push('B');
+  if (oracle.includes('add {r}')) found.push('R');
+  if (oracle.includes('add {g}')) found.push('G');
+  if (found.length === 0 && produced.includes('C')) return ['C'];
+  return found;
 }
 
 // The 5 Kamigawa: Neon Dynasty channel lands — legendary lands with Channel abilities.

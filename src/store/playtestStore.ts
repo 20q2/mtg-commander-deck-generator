@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { ScryfallCard } from '@/types';
+import type { DetectedCombo, ScryfallCard } from '@/types';
 import { buildLibrary } from '@/services/playtest/libraryBuilder';
+import { resolveCombos } from '@/services/playtest/combos';
 import {
   type BattlefieldCard,
   type CounterColor,
@@ -49,6 +50,8 @@ interface PlaytestState {
   lastDrawRange: { start: number; end: number };
   // Free-floating counter objects on the battlefield (separate from per-card counters).
   freeCounters: FreeCounter[];
+  // Combos detected in the deck (static — populated at hydrate time).
+  combos: DetectedCombo[];
 }
 
 interface PlaytestActions {
@@ -123,6 +126,7 @@ const initial: PlaytestState = {
   shuffleTick: 0,
   lastDrawRange: { start: -1, end: -1 },
   freeCounters: [],
+  combos: [],
 };
 
 function snapshotOf(s: PlaytestState): PlaytestSnapshot {
@@ -169,6 +173,13 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         log: [makeLogEntry(`Loaded "${built.name}" (${built.zones.library.length} cards in library)`, 'system')],
       });
       get().dealOpeningHand();
+      // Resolve combos in the background — don't block initial render.
+      resolveCombos(input)
+        .then((combos) => {
+          // Only apply if the user hasn't navigated away to another deck since.
+          if (get().source?.name === built.name) set({ combos });
+        })
+        .catch(() => { /* swallow */ });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       set({ loading: false, error: msg });

@@ -7,7 +7,7 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard, ManaBaseAnalysis, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
-import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, searchMdfcLands, getChannelLandsForColors, getCardsByNames } from '@/services/scryfall/client';
+import { isMdfcLand, isChannelLand, isAnyLand, isBasicLand, getProducedColors, WUBRG, searchMdfcLands, getChannelLandsForColors, getCardsByNames } from '@/services/scryfall/client';
 import { getCardRole, getAllCardRoles, isUtilityLand } from '@/services/tagger/client';
 import { useStore } from '@/store';
 import {
@@ -24,6 +24,53 @@ import { selectLandCuts, type LandCut } from '@/services/deckBuilder/landCutSele
 // ═══════════════════════════════════════════════════════════════════════
 // LANDS TAB Components
 // ═══════════════════════════════════════════════════════════════════════
+
+interface BasicLandRowProps {
+  bg: { name: string; count: number };
+  onPreview: (name: string) => void;
+  onAdd?: (name: string) => void;
+  onRemove?: (name: string) => void;
+}
+
+function BasicLandRow({ bg, onPreview, onAdd, onRemove }: BasicLandRowProps) {
+  return (
+    <div
+      key={bg.name}
+      className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
+      onClick={() => bg.count > 0 && onPreview(bg.name)}
+    >
+      <img
+        src={scryfallImg(bg.name)}
+        alt={bg.name}
+        className="w-10 h-auto rounded shadow shrink-0"
+        loading="lazy"
+        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+      />
+      <div className="flex-1 min-w-0">
+        <span className="text-sm truncate block">{bg.name}</span>
+        <span className="text-[10px] text-muted-foreground">Land — Basic</span>
+      </div>
+      <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+        <button
+          className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
+          disabled={bg.count === 0}
+          onClick={() => onRemove?.(bg.name)}
+          title={`Remove a ${bg.name}`}
+        >
+          <Minus className="w-3 h-3" />
+        </button>
+        <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
+        <button
+          className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => onAdd?.(bg.name)}
+          title={`Add a ${bg.name}`}
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function getMdfcGrade(count: number): { letter: string; color: string } {
   if (count >= 6) return { letter: 'A', color: 'text-emerald-400' };
@@ -278,38 +325,34 @@ export function LandCountDetail({
   const storeInclusionMap = useStore(s => s.generatedDeck?.cardInclusionMap);
   const resolvedInclusionMap = cardInclusionMap || storeInclusionMap || {};
 
-  // Split lands into MDFC, nonbasic, and basic groups
-  const mdfcLands = analysis.landCards.filter(ac => isMdfcLand(ac.card))
-    .sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
-
-  const mdfcNames = new Set(mdfcLands.map(ac => ac.card.name));
-
-  const channelLands = analysis.landCards.filter(ac => {
-    if (mdfcNames.has(ac.card.name)) return false;
-    return isChannelLand(ac.card);
-  }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
-
-  const channelNames = new Set(channelLands.map(ac => ac.card.name));
-
-  const allNonbasicLands = analysis.landCards.filter(ac => {
-    if (mdfcNames.has(ac.card.name)) return false;
-    if (channelNames.has(ac.card.name)) return false;
-    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-    return !/\bbasic\b/.test(tl);
-  }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
-
-  const utilityLands = allNonbasicLands.filter(ac => isUtilityLand(ac.card.name));
-  const utilityNames = new Set(utilityLands.map(ac => ac.card.name));
-  const nonbasicLands = allNonbasicLands.filter(ac => !utilityNames.has(ac.card.name));
-
-  const basicLands = analysis.landCards.filter(ac => {
-    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-    return /\bbasic\b/.test(tl);
-  });
+  // Split lands into MDFC, channel, nonbasic (utility/non-utility), and basic groups
+  // in a single pass so we only walk landCards once per analysis change.
+  const { mdfcLands, channelLands, utilityLands, nonbasicLands, basicLands } = useMemo(() => {
+    const mdfc: AnalyzedCard[] = [];
+    const channel: AnalyzedCard[] = [];
+    const utility: AnalyzedCard[] = [];
+    const nonbasic: AnalyzedCard[] = [];
+    const basic: AnalyzedCard[] = [];
+    for (const ac of analysis.landCards) {
+      if (isMdfcLand(ac.card)) mdfc.push(ac);
+      else if (isChannelLand(ac.card)) channel.push(ac);
+      else if (isBasicLand(ac.card)) basic.push(ac);
+      else if (isUtilityLand(ac.card.name)) utility.push(ac);
+      else nonbasic.push(ac);
+    }
+    const byInclusion = (a: AnalyzedCard, b: AnalyzedCard) => (b.inclusion ?? 0) - (a.inclusion ?? 0);
+    return {
+      mdfcLands: mdfc.sort(byInclusion),
+      channelLands: channel.sort(byInclusion),
+      utilityLands: utility.sort(byInclusion),
+      nonbasicLands: nonbasic.sort(byInclusion),
+      basicLands: basic,
+    };
+  }, [analysis.landCards]);
 
   // Cut candidates via selectLandCuts helper
   const nonLandCardsInDeck = useMemo(
-    () => currentCards.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land') && !isMdfcLand(c)),
+    () => currentCards.filter(c => !isAnyLand(c)),
     [currentCards],
   );
 
@@ -412,26 +455,7 @@ export function LandCountDetail({
     content: (
       <div className="space-y-0.5">
         {basicGroups.map(bg => (
-          <div
-            key={bg.name}
-            className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
-            onClick={() => bg.count > 0 && onPreview(bg.name)}
-          >
-            <img src={scryfallImg(bg.name)} alt={bg.name} className="w-10 h-auto rounded shadow shrink-0" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            <div className="flex-1 min-w-0">
-              <span className="text-sm truncate block">{bg.name}</span>
-              <span className="text-[10px] text-muted-foreground">Land — Basic</span>
-            </div>
-            <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none" disabled={bg.count === 0} onClick={() => onRemoveBasicLand?.(bg.name)} title={`Remove a ${bg.name}`}>
-                <Minus className="w-3 h-3" />
-              </button>
-              <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
-              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" onClick={() => onAddBasicLand?.(bg.name)} title={`Add a ${bg.name}`}>
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
-          </div>
+          <BasicLandRow key={bg.name} bg={bg} onPreview={onPreview} onAdd={onAddBasicLand} onRemove={onRemoveBasicLand} />
         ))}
       </div>
     ),
@@ -858,8 +882,7 @@ export function FixingDetail({
   const monoColorLands = useMemo(() =>
     analysis.landCards.filter(ac => {
       if (multiColorNames.has(ac.card.name) || colorlessNames.has(ac.card.name)) return false;
-      const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-      return !/\bbasic\b/.test(tl);
+      return !isBasicLand(ac.card);
     }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0)),
     [analysis.landCards, multiColorNames, colorlessNames]
   );
@@ -872,8 +895,7 @@ export function FixingDetail({
   }
   if (colorIdentity.length === 0) basicCountMap.set('Wastes', 0);
   for (const ac of analysis.landCards) {
-    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-    if (/\bbasic\b/.test(tl)) basicCountMap.set(ac.card.name, (basicCountMap.get(ac.card.name) || 0) + 1);
+    if (isBasicLand(ac.card)) basicCountMap.set(ac.card.name, (basicCountMap.get(ac.card.name) || 0) + 1);
   }
   const basicGroups = [...basicCountMap.entries()]
     .map(([name, count]) => ({ name, count }))
@@ -904,26 +926,9 @@ export function FixingDetail({
     return colors.some(c => selectedColors.has(c));
   };
 
-  // Get produced colors from a card (for filtering left-column cards)
-  const getCardProducedColors = (card: ScryfallCard): string[] => {
-    const WUBRG = ['W', 'U', 'B', 'R', 'G'];
-    const produced = card.produced_mana || [];
-    const colors = [...new Set(produced.filter(c => WUBRG.includes(c)))];
-    if (colors.length > 0) return colors;
-    const oracle = (card.oracle_text || '').toLowerCase();
-    if (oracle.includes('any color') || oracle.includes('any type')) return WUBRG;
-    const found: string[] = [];
-    if (oracle.includes('add {w}')) found.push('W');
-    if (oracle.includes('add {u}')) found.push('U');
-    if (oracle.includes('add {b}')) found.push('B');
-    if (oracle.includes('add {r}')) found.push('R');
-    if (oracle.includes('add {g}')) found.push('G');
-    return found;
-  };
-
   const cardMatchesColorFilter = (card: ScryfallCard) => {
     if (selectedColors.size === 0) return true;
-    return getCardProducedColors(card).some(c => selectedColors.has(c));
+    return getProducedColors(card).some(c => selectedColors.has(c));
   };
 
   const filteredLandSuggestions = useMemo(() => {
@@ -960,8 +965,7 @@ export function FixingDetail({
           {/* Demand vs Supply — per-color breakdown */}
           {(cf.colorsNeeded?.length || 0) >= 2 && (() => {
             const pipTotal = cf.pipDemandTotal || 1;
-            const WUBRG = ['W', 'U', 'B', 'R', 'G'];
-            const colors = [...(cf.colorsNeeded || [])].sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
+            const colors = [...(cf.colorsNeeded || [])].sort((a, b) => WUBRG.indexOf(a as typeof WUBRG[number]) - WUBRG.indexOf(b as typeof WUBRG[number]));
             return (
               <div>
               <div className="flex items-center gap-1 mb-1.5 px-0.5">
@@ -1199,41 +1203,7 @@ export function FixingDetail({
               <AnimatedCollapse open={basicOpen}>
                 <div className="space-y-0.5">
                   {filteredBasicGroups.map(bg => (
-                    <div
-                      key={bg.name}
-                      className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
-                      onClick={() => bg.count > 0 && onPreview(bg.name)}
-                    >
-                      <img
-                        src={scryfallImg(bg.name)}
-                        alt={bg.name}
-                        className="w-10 h-auto rounded shadow shrink-0"
-                        loading="lazy"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm truncate block">{bg.name}</span>
-                        <span className="text-[10px] text-muted-foreground">Land — Basic</span>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                        <button
-                          className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                          disabled={bg.count === 0}
-                          onClick={() => onRemoveBasicLand?.(bg.name)}
-                          title={`Remove a ${bg.name}`}
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
-                        <button
-                          className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                          onClick={() => onAddBasicLand?.(bg.name)}
-                          title={`Add a ${bg.name}`}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
+                    <BasicLandRow key={bg.name} bg={bg} onPreview={onPreview} onAdd={onAddBasicLand} onRemove={onRemoveBasicLand} />
                   ))}
                 </div>
               </AnimatedCollapse>
@@ -1387,25 +1357,22 @@ export function MdfcDetail({
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
 }) {
-  // Split lands into MDFC, channel, nonbasic, and basic groups
-  const mdfcLands = analysis.landCards.filter(ac => isMdfcLand(ac.card))
-    .sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
-  const mdfcNames = new Set(mdfcLands.map(ac => ac.card.name));
-
   const channelLands = analysis.channelLandsInDeck || [];
-  const channelNames = new Set(channelLands.map(ac => ac.card.name));
-
-  const nonbasicLands = analysis.landCards.filter(ac => {
-    if (mdfcNames.has(ac.card.name)) return false;
-    if (channelNames.has(ac.card.name)) return false;
-    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-    return !/\bbasic\b/.test(tl);
-  }).sort((a, b) => (b.inclusion ?? 0) - (a.inclusion ?? 0));
-
-  const basicLands = analysis.landCards.filter(ac => {
-    const tl = getFrontFaceTypeLine(ac.card).toLowerCase();
-    return /\bbasic\b/.test(tl);
-  });
+  // Single-pass partition over landCards (with the channel-set excluded)
+  const channelNames = useMemo(() => new Set(channelLands.map(ac => ac.card.name)), [channelLands]);
+  const { mdfcLands, nonbasicLands, basicLands } = useMemo(() => {
+    const mdfc: AnalyzedCard[] = [];
+    const nonbasic: AnalyzedCard[] = [];
+    const basic: AnalyzedCard[] = [];
+    for (const ac of analysis.landCards) {
+      if (isMdfcLand(ac.card)) mdfc.push(ac);
+      else if (channelNames.has(ac.card.name)) continue;
+      else if (isBasicLand(ac.card)) basic.push(ac);
+      else nonbasic.push(ac);
+    }
+    const byInclusion = (a: AnalyzedCard, b: AnalyzedCard) => (b.inclusion ?? 0) - (a.inclusion ?? 0);
+    return { mdfcLands: mdfc.sort(byInclusion), nonbasicLands: nonbasic.sort(byInclusion), basicLands: basic };
+  }, [analysis.landCards, channelNames]);
   const COLOR_TO_BASIC: Record<string, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
   const basicCountMap = new Map<string, number>();
   for (const c of colorIdentity) {
@@ -1463,26 +1430,7 @@ export function MdfcDetail({
     content: (
       <div className="space-y-0.5">
         {basicGroups.map(bg => (
-          <div
-            key={bg.name}
-            className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition-colors ${bg.count === 0 ? 'opacity-40' : 'cursor-pointer hover:bg-accent/40'}`}
-            onClick={() => bg.count > 0 && onPreview(bg.name)}
-          >
-            <img src={scryfallImg(bg.name)} alt={bg.name} className="w-10 h-auto rounded shadow shrink-0" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            <div className="flex-1 min-w-0">
-              <span className="text-sm truncate block">{bg.name}</span>
-              <span className="text-[10px] text-muted-foreground">Land — Basic</span>
-            </div>
-            <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none" disabled={bg.count === 0} onClick={() => onRemoveBasicLand?.(bg.name)} title={`Remove a ${bg.name}`}>
-                <Minus className="w-3 h-3" />
-              </button>
-              <span className="text-xs tabular-nums w-5 text-center font-medium">{bg.count}</span>
-              <button className="w-5 h-5 flex items-center justify-center rounded bg-accent/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" onClick={() => onAddBasicLand?.(bg.name)} title={`Add a ${bg.name}`}>
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
-          </div>
+          <BasicLandRow key={bg.name} bg={bg} onPreview={onPreview} onAdd={onAddBasicLand} onRemove={onRemoveBasicLand} />
         ))}
       </div>
     ),

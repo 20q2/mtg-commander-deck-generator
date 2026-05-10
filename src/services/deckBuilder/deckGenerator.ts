@@ -29,7 +29,7 @@ import {
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
 import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
-import { getDynamicRoleTargets, estimatePacingFromStats } from './roleTargets';
+import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
 import type { Pacing, RoleTargetBreakdown } from '@/types';
 import { loadUserLists } from '@/hooks/useUserLists';
 
@@ -3547,7 +3547,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (gapCandidates.length > 0) {
       const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name), undefined, preferredSet);
 
-      const ROLE_LABELS: Record<string, string> = { ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' };
       gapAnalysis = gapCandidates
         .map(c => {
           const scryfall = gapCardMap.get(c.name);
@@ -4241,10 +4240,15 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       if (!edhrecData || !roleTargets) return undefined;
       try {
         const allCards = Object.values(categories).flat();
-        const analysis = analyzeDeck(
-          edhrecData, allCards, currentRoleCounts, roleTargets,
-          format, cardInclusionMap, context.colorIdentity,
-        );
+        const analysis = analyzeDeck({
+          edhrecData,
+          currentCards: allCards,
+          roleCounts: currentRoleCounts,
+          roleTargets,
+          deckSize: format,
+          cardInclusionMap,
+          colorIdentity: context.colorIdentity,
+        });
         const summary = getDeckSummaryData(analysis);
         return { letter: summary.gradeLetter, headline: summary.headline };
       } catch { return undefined; }

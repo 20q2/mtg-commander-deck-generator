@@ -11,7 +11,7 @@ import { computeOptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getCachedCard } from '@/services/scryfall/client';
 import {
   scryfallImg,
-  ROLE_BADGE_COLORS, ROLE_LABEL_ICONS,
+  ROLE_BADGE_COLORS, ROLE_LABEL_ICONS, ROLE_LABELS,
 } from './constants';
 
 // ─── Reason category labels ─────────────────────────────────────────
@@ -28,8 +28,8 @@ const REMOVAL_CATEGORY_LABELS: Record<string, string> = {
 function getRemovalCategoryLabel(cat: string): string {
   if (cat.startsWith('excess:')) {
     const role = cat.split(':')[1];
-    const labels: Record<string, string> = { ramp: 'Excess Ramp', removal: 'Excess Removal', boardwipe: 'Excess Board Wipes', cardDraw: 'Excess Card Draw' };
-    return labels[role] || `Excess ${role}`;
+    const label = ROLE_LABELS[role as keyof typeof ROLE_LABELS];
+    return label ? `Excess ${label}` : `Excess ${role}`;
   }
   return REMOVAL_CATEGORY_LABELS[cat] || cat;
 }
@@ -45,8 +45,8 @@ const ADDITION_CATEGORY_LABELS: Record<string, string> = {
 function getAdditionCategoryLabel(cat: string): string {
   if (cat.startsWith('fills:')) {
     const role = cat.split(':')[1];
-    const labels: Record<string, string> = { ramp: 'Fills Ramp Gap', removal: 'Fills Removal Gap', boardwipe: 'Fills Board Wipes Gap', cardDraw: 'Fills Card Draw Gap' };
-    return labels[role] || `Fills ${role} gap`;
+    const label = ROLE_LABELS[role as keyof typeof ROLE_LABELS];
+    return label ? `Fills ${label} Gap` : `Fills ${role} gap`;
   }
   if (cat.startsWith('curve:')) {
     const phase = cat.split(':')[1];
@@ -230,7 +230,7 @@ export function OptimizeView({
   const [applied, setApplied] = useState(false);
 
   const allSwaps = useMemo(() =>
-    computeOptimizeSwaps(analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos),
+    computeOptimizeSwaps({ analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos }),
     [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos]
   );
 

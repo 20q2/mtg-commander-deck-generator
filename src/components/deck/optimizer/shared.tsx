@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
-import { getCardPrice, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
+import { getCardPrice, getFrontFaceTypeLine, getCachedCard, getProducedColors } from '@/services/scryfall/client';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaCost } from '@/components/ui/mtg-icons';
 import {
@@ -33,7 +33,7 @@ export function AnimatedCollapse({ open, children }: { open: boolean; children: 
 }
 
 // ─── Shared: Analyzed Card Row (compact, for curve/lands/types) ──────
-export function AnalyzedCardRow({
+function _AnalyzedCardRow({
   ac, onPreview, warning, showDetails, showProducedMana, onCardAction, menuProps,
 }: {
   ac: AnalyzedCard;
@@ -60,22 +60,7 @@ export function AnalyzedCardRow({
 
   const primaryType = cardType.charAt(0).toUpperCase() + cardType.slice(1);
 
-  const producedColors = showProducedMana ? (() => {
-    const WUBRG = ['W', 'U', 'B', 'R', 'G'];
-    const produced = ac.card.produced_mana || [];
-    const colors = [...new Set(produced.filter(c => WUBRG.includes(c)))];
-    if (colors.length > 0) return colors.sort((a, b) => WUBRG.indexOf(a) - WUBRG.indexOf(b));
-    const oracle = (ac.card.oracle_text || '').toLowerCase();
-    if (oracle.includes('any color') || oracle.includes('any type')) return WUBRG;
-    const found: string[] = [];
-    if (oracle.includes('add {w}')) found.push('W');
-    if (oracle.includes('add {u}')) found.push('U');
-    if (oracle.includes('add {b}')) found.push('B');
-    if (oracle.includes('add {r}')) found.push('R');
-    if (oracle.includes('add {g}')) found.push('G');
-    if (found.length === 0 && produced.includes('C')) return ['C'];
-    return found;
-  })() : null;
+  const producedColors = showProducedMana ? getProducedColors(ac.card) : null;
 
   return (
     <div
@@ -228,11 +213,11 @@ export function CollapsibleCardGroups({ groups, totalCount }: {
 }
 
 // ─── Overview: Recommendation Row ────────────────────────────────────
-export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction, menuProps }: {
+function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction, menuProps }: {
   card: RecommendedCard;
   rank: number;
-  onAdd: () => void;
-  onPreview: () => void;
+  onAdd: (name: string) => void;
+  onPreview: (name: string) => void;
   added: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
@@ -264,7 +249,7 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
             : 'border-transparent hover:bg-accent/40 cursor-pointer'
       }`}
       style={{ '--cascade-i': rank } as React.CSSProperties}
-      onClick={added ? undefined : onPreview}
+      onClick={added ? undefined : () => onPreview(card.name)}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
           e.preventDefault();
@@ -313,7 +298,7 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
       <div className="flex items-center gap-2 shrink-0 ml-auto">
         {!added ? (
           <button
-            onClick={(e) => { e.stopPropagation(); onAdd(); }}
+            onClick={(e) => { e.stopPropagation(); onAdd(card.name); }}
             className="p-1 rounded-md text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
             title="Add to deck"
           >
@@ -352,12 +337,12 @@ export function RecommendationRow({ card, rank, onAdd, onPreview, added, onCardA
 }
 
 // ─── Overview: Cut Row (mirrors RecommendationRow) ──────────────────
-export function CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardAction, menuProps, cardInclusionMap }: {
+function _CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardAction, menuProps, cardInclusionMap }: {
   ac: AnalyzedCard;
   index?: number;
   onRemove: (card: ScryfallCard) => void;
   onSkip: (card: ScryfallCard) => void;
-  onPreview: () => void;
+  onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   cardInclusionMap?: Record<string, number>;
@@ -386,7 +371,7 @@ export function CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardActio
     <div
       className={`group flex items-center gap-2 py-1 px-1.5 rounded-lg border border-transparent hover:bg-accent/40 cursor-pointer transition-all duration-200 ${exiting ? 'animate-row-exit' : 'cascade-in-cut'}`}
       style={{ '--cascade-i': index } as React.CSSProperties}
-      onClick={onPreview}
+      onClick={() => onPreview(ac.card.name)}
       onContextMenu={(e) => {
         if (onCardAction && menuProps) {
           e.preventDefault();
@@ -470,3 +455,9 @@ export function CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardActio
     </div>
   );
 }
+
+// Memoized exports — these rows render in long lists and benefit from
+// skipping when their props are reference-equal across renders.
+export const AnalyzedCardRow = React.memo(_AnalyzedCardRow);
+export const RecommendationRow = React.memo(_RecommendationRow);
+export const CutRow = React.memo(_CutRow);

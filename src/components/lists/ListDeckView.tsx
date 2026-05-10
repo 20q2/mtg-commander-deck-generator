@@ -10,7 +10,6 @@ import { fetchCommanderCombos } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
-import { TestHand } from '@/components/deck/TestHand';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { DeckOptimizer } from '@/components/deck/optimizer';
@@ -1417,7 +1416,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               onMoveToMaybeboard={onMoveToMaybeboard}
             />
           )}
-          <TestHand />
         </DeckDisplay>
 
         {eaEnabled && list.commanderName && generatedDeck && (

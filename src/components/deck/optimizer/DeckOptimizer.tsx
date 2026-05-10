@@ -10,13 +10,13 @@ import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRA
 import { loadTaggerData, getCardRole } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, type DeckAnalysis, type RecommendedCard, type AnalyzedCard, type CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
-import { getCardByName, getCardsByNames, getCardPrice, getFrontFaceTypeLine, isMdfcLand } from '@/services/scryfall/client';
+import { getCardByName, getCardsByNames, getCardPrice, isAnyLand, WUBRG } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 
-import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, edhrecRankToInclusion } from './constants';
+import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, ROLE_LABELS, HEALTH_GRADE_STYLES, edhrecRankToInclusion } from './constants';
 import { CutRow, RecommendationRow } from './shared';
 import { DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
@@ -47,6 +47,10 @@ export function DeckOptimizer({
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after async price enrichment writes prices in place on existing
+  // recommendation objects, so price-displaying rows re-render without
+  // invalidating every memo that depends on the analysis reference.
+  const [, setPricesReady] = useState(0);
   const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
@@ -67,6 +71,14 @@ export function DeckOptimizer({
     return () => document.removeEventListener('deck-optimizer-open', handler);
   }, []);
 
+  // Card key of the last completed analysis. Compared against currentCards
+  // each render to surface a "dirty" indicator on the Re-analyze button
+  // when the deck has changed since the last analysis snapshot.
+  const [analyzedCardKey, setAnalyzedCardKey] = useState<string>('');
+  // Auto-trigger the initial analysis once on mount so users don't have to
+  // click "Analyze Deck" every time the page loads.
+  const hasAutoAnalyzedRef = useRef(false);
+
   // Theme detection state
   const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
   const [themeLoading, setThemeLoading] = useState(false);
@@ -81,6 +93,13 @@ export function DeckOptimizer({
 
   // User-overridable land target (null = use auto-computed)
   const [userLandTarget, setUserLandTarget] = useState<number | null>(null);
+
+  // Store subscriptions used inside the analysis handlers below — declared
+  // here so handlers can reference them in their dep arrays.
+  const colorIdentity = useStore(s => s.colorIdentity);
+  const storeCommander = useStore(s => s.commander);
+  const storePartner = useStore(s => s.partnerCommander);
+  const pushDeckHistory = useStore(s => s.pushDeckHistory);
 
   // The effective pacing: user override > theme-detected > base analysis
   const effectivePacing: Pacing | undefined = userPacing ?? themeDetection?.pacing ?? analysis?.pacing ?? undefined;
@@ -239,87 +258,73 @@ export function DeckOptimizer({
       .slice(0, limit);
   }, []);
 
+  /** Run base + (optional) theme analysis and merge results.
+   *  Returns null when no cached EDHREC data is available. */
+  const runAnalysisFor = useCallback((opts: {
+    targets: Record<string, number>;
+    pacing?: Pacing;
+    landTarget?: number;
+  }) => {
+    const baseData = cachedEdhrecDataRef.current;
+    if (!baseData) return null;
+
+    const baseInclusionMap = buildInclusionMap(baseData);
+    const baseResult = analyzeDeck({
+      edhrecData: baseData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
+      cardInclusionMap: baseInclusionMap, colorIdentity,
+      overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
+    });
+
+    const themeData = themeEnhancedDataRef.current;
+    if (!themeData) return baseResult;
+
+    const themeInclusionMap = buildInclusionMap(themeData);
+    const themeResult = analyzeDeck({
+      edhrecData: themeData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
+      cardInclusionMap: themeInclusionMap, colorIdentity,
+      overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
+    });
+    const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
+    const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
+      const themeRb = themeResult.roleBreakdowns[idx];
+      if (!themeRb) return baseRb;
+      return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
+    });
+    const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
+    return { ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs };
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity]);
+
   // When user changes land target, re-run analysis with the new override
   const handleLandTargetChange = useCallback((newTarget: number | null) => {
     setUserLandTarget(newTarget);
-
-    const cachedBase = cachedEdhrecDataRef.current;
-    if (!cachedBase || !analysis) return;
-
-    const storeColorIdentity = useStore.getState().colorIdentity;
-    const baseInclusionMap = buildInclusionMap(cachedBase);
-
-    const baseResult = analyzeDeck(
-      cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize,
-      baseInclusionMap, storeColorIdentity, userPacing ?? undefined, newTarget ?? undefined,
-    );
-
-    const themeData = themeEnhancedDataRef.current;
-    if (themeData) {
-      const themeInclusionMap = buildInclusionMap(themeData);
-      const themeResult = analyzeDeck(
-        themeData, currentCards, roleCounts, effectiveRoleTargets, deckSize,
-        themeInclusionMap, storeColorIdentity, userPacing ?? undefined, newTarget ?? undefined,
-      );
-      const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
-      const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
-        const themeRb = themeResult.roleBreakdowns[idx];
-        if (!themeRb) return baseRb;
-        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
-      });
-      const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
-      setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
-    } else {
-      setAnalysis(baseResult);
-    }
-  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, userPacing]);
+    if (!analysis) return;
+    const result = runAnalysisFor({
+      targets: effectiveRoleTargets,
+      pacing: userPacing ?? undefined,
+      landTarget: newTarget ?? undefined,
+    });
+    if (result) setAnalysis(result);
+  }, [analysis, effectiveRoleTargets, userPacing, runAnalysisFor]);
 
   // When user changes pacing, re-run full analysis with adjusted role targets
   const handlePacingChange = useCallback((newPacing: Pacing | null) => {
     setUserPacing(newPacing);
-
-    const cachedBase = cachedEdhrecDataRef.current;
-    if (!cachedBase || !analysis) {
+    if (!analysis) {
       rebuildBannerMessage({ pacingOverride: newPacing });
       return;
     }
-
-    // Recompute role targets for the new pacing
     const detPacing = detectedPacingRef.current ?? 'balanced';
     const newTargets = newPacing
       ? recomputeRoleTargetsForPacing(roleTargets, detPacing, newPacing)
-      : roleTargets; // null = reset to detected
-
-    const storeColorIdentity = useStore.getState().colorIdentity;
-    const baseInclusionMap = buildInclusionMap(cachedBase);
-
-    const baseResult = analyzeDeck(
-      cachedBase, currentCards, roleCounts, newTargets, deckSize,
-      baseInclusionMap, storeColorIdentity, newPacing ?? undefined, userLandTarget ?? undefined,
-    );
-
-    // If theme-enhanced data exists, merge its recommendations
-    const themeData = themeEnhancedDataRef.current;
-    if (themeData) {
-      const themeInclusionMap = buildInclusionMap(themeData);
-      const themeResult = analyzeDeck(
-        themeData, currentCards, roleCounts, newTargets, deckSize,
-        themeInclusionMap, storeColorIdentity, newPacing ?? undefined, userLandTarget ?? undefined,
-      );
-      const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
-      const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
-        const themeRb = themeResult.roleBreakdowns[idx];
-        if (!themeRb) return baseRb;
-        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
-      });
-      const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
-      setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
-    } else {
-      setAnalysis(baseResult);
-    }
-
+      : roleTargets;
+    const result = runAnalysisFor({
+      targets: newTargets,
+      pacing: newPacing ?? undefined,
+      landTarget: userLandTarget ?? undefined,
+    });
+    if (result) setAnalysis(result);
     rebuildBannerMessage({ pacingOverride: newPacing });
-  }, [analysis, rebuildBannerMessage, roleTargets, currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations]);
+  }, [analysis, rebuildBannerMessage, roleTargets, userLandTarget, runAnalysisFor]);
 
   const handleOptimize = async () => {
     setLoading(true);
@@ -339,19 +344,17 @@ export function DeckOptimizer({
       cachedEdhrecDataRef.current = edhrecData;
 
       const effectiveInclusionMap = buildInclusionMap(edhrecData);
-      const storeColorIdentity = useStore.getState().colorIdentity;
 
-      const baseResult = analyzeDeck(
+      const baseResult = analyzeDeck({
         edhrecData,
         currentCards,
         roleCounts,
         roleTargets,
         deckSize,
-        effectiveInclusionMap,
-        storeColorIdentity,
-        undefined,
-        userLandTarget ?? undefined,
-      );
+        cardInclusionMap: effectiveInclusionMap,
+        colorIdentity,
+        overrideLandTarget: userLandTarget ?? undefined,
+      });
 
       // Enrich recommendations with Scryfall prices/colors
       const allRecs: RecommendedCard[] = [
@@ -372,7 +375,7 @@ export function DeckOptimizer({
             const p = getCardPrice(card);
             if (p) priceMap.set(name, p);
             if (card.cmc != null) cmcMap.set(name, card.cmc);
-            const produced = (card.produced_mana || []).filter((c: string) => ['W', 'U', 'B', 'R', 'G'].includes(c));
+            const produced = (card.produced_mana || []).filter((c: string) => (WUBRG as readonly string[]).includes(c));
             if (produced.length > 0) {
               colorMap.set(name, [...new Set(produced)]);
             } else if (card.color_identity?.length) {
@@ -447,17 +450,16 @@ export function DeckOptimizer({
           themeEnhancedDataRef.current = bestThemeData;
 
           const themeInclusionMap = buildInclusionMap(bestThemeData);
-          const themeResult = analyzeDeck(
-            bestThemeData,
+          const themeResult = analyzeDeck({
+            edhrecData: bestThemeData,
             currentCards,
             roleCounts,
             roleTargets,
             deckSize,
-            themeInclusionMap,
-            storeColorIdentity,
-            undefined,
-            userLandTarget ?? undefined,
-          );
+            cardInclusionMap: themeInclusionMap,
+            colorIdentity,
+            overrideLandTarget: userLandTarget ?? undefined,
+          });
 
           // Theme drives; base staples (50%+ inclusion) backfill
           const finalRecs = mergeThemeWithBaseStaples(themeResult.recommendations, baseResult.recommendations);
@@ -487,7 +489,7 @@ export function DeckOptimizer({
                   if (p) rec.price = p;
                 }
               }
-              setAnalysis(prev => prev ? { ...prev } : prev);
+              setPricesReady(p => p + 1);
             } catch { /* non-critical */ }
           }
         }
@@ -504,72 +506,56 @@ export function DeckOptimizer({
 
   handleOptimizeRef.current = handleOptimize;
 
-  // Re-run analysis when cards change (add/remove) if we have cached EDHREC data
+  // Auto-fire the initial analysis once on mount when we have a commander.
   useEffect(() => {
-    if (!cachedEdhrecDataRef.current || !analysis) return;
+    if (hasAutoAnalyzedRef.current) return;
+    if (analysis || loading || !commanderName) return;
+    hasAutoAnalyzedRef.current = true;
+    handleOptimizeRef.current?.();
+  }, [commanderName, analysis, loading]);
+
+  // Re-run analysis when cards change (add/remove). Debounced so rapid
+  // multi-add interactions don't trigger several full analyses in a row.
+  const hasAnalysis = analysis != null;
+  useEffect(() => {
+    if (!cachedEdhrecDataRef.current || !hasAnalysis) return;
     const cardKey = currentCards.map(c => c.name).join('\0');
     if (cardKey === prevCardKeyRef.current) return;
     prevCardKeyRef.current = cardKey;
 
-    const baseData = cachedEdhrecDataRef.current;
-    const storeColorIdentity = useStore.getState().colorIdentity;
-    const baseInclusionMap = buildInclusionMap(baseData);
-
-    const baseResult = analyzeDeck(
-      baseData,
-      currentCards,
-      roleCounts,
-      effectiveRoleTargets,
-      deckSize,
-      baseInclusionMap,
-      storeColorIdentity,
-      userPacing ?? undefined,
-      userLandTarget ?? undefined,
-    );
-
-    // If theme-enhanced data exists, merge its recommendations
-    const themeData = themeEnhancedDataRef.current;
-    if (themeData) {
-      const themeInclusionMap = buildInclusionMap(themeData);
-      const themeResult = analyzeDeck(
-        themeData,
-        currentCards,
-        roleCounts,
-        effectiveRoleTargets,
-        deckSize,
-        themeInclusionMap,
-        storeColorIdentity,
-        userPacing ?? undefined,
-        userLandTarget ?? undefined,
-      );
-
-      const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
-      const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
-        const themeRb = themeResult.roleBreakdowns[idx];
-        if (!themeRb) return baseRb;
-        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
+    const handle = setTimeout(() => {
+      const result = runAnalysisFor({
+        targets: effectiveRoleTargets,
+        pacing: userPacing ?? undefined,
+        landTarget: userLandTarget ?? undefined,
       });
-      const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
+      if (result) setAnalysis(result);
+    }, 80);
+    return () => clearTimeout(handle);
+  }, [currentCards, effectiveRoleTargets, userPacing, userLandTarget, hasAnalysis, runAnalysisFor]);
 
-      setAnalysis({ ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs });
-    } else {
-      setAnalysis(baseResult);
+  // Snapshot the card key whenever a new analysis lands, so we can show a
+  // "deck has changed since last analysis" indicator on the Re-analyze button.
+  useEffect(() => {
+    if (analysis) {
+      setAnalyzedCardKey(currentCards.map(c => c.name).join('\0'));
     }
-  }, [currentCards, roleCounts, effectiveRoleTargets, deckSize, cardInclusionMap, analysis, buildInclusionMap, mergeRecommendations, userPacing]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis]);
 
-  const handleAddCard = (name: string) => {
+  const handleAddCard = useCallback((name: string) => {
     if (!onAddCards) return;
     onAddCards([name], 'deck');
     pushDeckHistory({ action: 'add', cardName: name });
     setAddedCards(prev => new Set([...prev, name]));
-  };
+  }, [onAddCards, pushDeckHistory]);
 
-  const handlePreview = async (name: string) => {
+  const handlePreview = useCallback(async (name: string) => {
     try {
       const card = await getCardByName(name);
       if (card) setPreviewCard(card);
     } catch { /* silently fail */ }
-  };
+  }, []);
 
   // Fetch theme data helper (cached)
   const fetchThemeData = useCallback(async (slug: string) => {
@@ -588,13 +574,15 @@ export function DeckOptimizer({
     const cachedBase = cachedEdhrecDataRef.current;
     if (!cachedBase || !analysis) return;
 
-    const storeColorIdentity = useStore.getState().colorIdentity;
-
     // No themes → revert to base-only analysis
     if (!primary && !secondary) {
       themeEnhancedDataRef.current = null;
       const baseInclusionMap = buildInclusionMap(cachedBase);
-      const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
+      const baseResult = analyzeDeck({
+        edhrecData: cachedBase, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
+        cardInclusionMap: baseInclusionMap, colorIdentity,
+        overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
+      });
 
       setAnalysis(prev => prev ? {
         ...prev,
@@ -613,14 +601,22 @@ export function DeckOptimizer({
 
     // Base analysis (for staple backfill — only high-inclusion cards leak through)
     const baseInclusionMap = buildInclusionMap(cachedBase);
-    const baseResult = analyzeDeck(cachedBase, currentCards, roleCounts, effectiveRoleTargets, deckSize, baseInclusionMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
+    const baseResult = analyzeDeck({
+      edhrecData: cachedBase, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
+      cardInclusionMap: baseInclusionMap, colorIdentity,
+      overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
+    });
 
     // Primary theme → main data source, backfilled with base staples
     try {
       const primaryData = await fetchThemeData(primary!);
       themeEnhancedDataRef.current = primaryData;
       const primaryIncMap = buildInclusionMap(primaryData);
-      const primaryResult = analyzeDeck(primaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, primaryIncMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
+      const primaryResult = analyzeDeck({
+        edhrecData: primaryData, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
+        cardInclusionMap: primaryIncMap, colorIdentity,
+        overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
+      });
 
       // Theme drives recommendations; base staples (50%+ inclusion) backfill gaps
       let finalRecs = mergeThemeWithBaseStaples(primaryResult.recommendations, baseResult.recommendations);
@@ -636,7 +632,11 @@ export function DeckOptimizer({
         try {
           const secondaryData = await fetchThemeData(secondary);
           const secondaryIncMap = buildInclusionMap(secondaryData);
-          const secondaryResult = analyzeDeck(secondaryData, currentCards, roleCounts, effectiveRoleTargets, deckSize, secondaryIncMap, storeColorIdentity, userPacing ?? undefined, userLandTarget ?? undefined);
+          const secondaryResult = analyzeDeck({
+            edhrecData: secondaryData, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
+            cardInclusionMap: secondaryIncMap, colorIdentity,
+            overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
+          });
 
           finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
           finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
@@ -666,7 +666,7 @@ export function DeckOptimizer({
     rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, commanderName, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, themeDetection, fetchThemeData, rebuildBannerMessage, userPacing]);
+  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity]);
 
   // Sequential-pick theme selection handler
   const handleThemeSelect = useCallback(async (slug: string) => {
@@ -697,7 +697,8 @@ export function DeckOptimizer({
   }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection]);
 
   // Context menu support
-  const { customization, updateCustomization, pushDeckHistory } = useStore();
+  const customization = useStore(s => s.customization);
+  const updateCustomization = useStore(s => s.updateCustomization);
   const storeSelectedThemes = useStore(s => s.selectedThemes);
   const usedThemes = useStore(s => s.generatedDeck?.usedThemes);
   const detectedCombos = useStore(s => s.generatedDeck?.detectedCombos);
@@ -801,6 +802,24 @@ export function DeckOptimizer({
     'Snow-Covered Mountain', 'Snow-Covered Forest', 'Wastes',
   ]), []);
   const deckExcess = currentCards.length - deckSize;
+
+  // True when the deck cards differ from what was analyzed — drives the
+  // "this is stale, re-run me" gold treatment on the Re-analyze button.
+  const currentCardKey = useMemo(() => currentCards.map(c => c.name).join('\0'), [currentCards]);
+  const isAnalysisDirty = analysis != null && analyzedCardKey !== '' && analyzedCardKey !== currentCardKey;
+
+  // Per-tab rollup grades shown in the tab bar — same letters as the
+  // overview summary card so the user sees consistent grading at a glance.
+  // Bracket has no rollup grade (uses level 1-5 instead) so it's omitted.
+  const tabGrades = useMemo<Partial<Record<TabKey, string>>>(() => {
+    if (!analysis) return {};
+    return {
+      overview: getDeckSummaryData(analysis, deckExcess).gradeLetter,
+      roles: analysis.rolesGrade.letter,
+      lands: analysis.manaGrade.letter,
+      curve: analysis.curveGrade.letter,
+    };
+  }, [analysis, deckExcess]);
   const [removedCutCards, setRemovedCutCards] = useState<Set<string>>(new Set());
   const [skippedCutCards, setSkippedCutCards] = useState<Set<string>>(new Set());
   const [excludeLandsFromCuts, setExcludeLandsFromCuts] = useState(false);
@@ -819,20 +838,20 @@ export function DeckOptimizer({
         if (BASIC_LANDS.has(c.name) || c.name === commanderName || c.name === partnerCommanderName) return false;
         if (menuProps.mustIncludeNames.has(c.name)) return false;
         if (dismissed.has(c.name)) return false;
-        if (excludeLandsFromCuts && (getFrontFaceTypeLine(c).toLowerCase().includes('land') || isMdfcLand(c))) return false;
+        if (excludeLandsFromCuts && isAnyLand(c)) return false;
         return true;
       })
       .map(c => {
         // For lands, use the higher of commander-specific inclusion and global edhrec_rank
         // so format staples (e.g. Urborg) aren't suggested as cuts for new/niche commanders
-        const isLand = getFrontFaceTypeLine(c).toLowerCase().includes('land') || isMdfcLand(c);
+        const isLand = isAnyLand(c);
         const cmdInclusion = inclusionMap[c.name] ?? null;
         const globalInclusion = edhrecRankToInclusion(c.edhrec_rank);
         const inclusion = isLand
           ? Math.max(cmdInclusion ?? 0, globalInclusion ?? 0) || null
           : cmdInclusion ?? globalInclusion ?? null;
         const role = c.deckRole || getCardRole(c.name);
-        return { card: c, inclusion, role, roleLabel: role ? ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' }[role] || role) : undefined } as AnalyzedCard;
+        return { card: c, inclusion, role, roleLabel: role ? (ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role) : undefined } as AnalyzedCard;
       })
       .sort((a, b) => {
         // Cards filling a role deficit are harder to cut — push them down
@@ -963,7 +982,12 @@ export function DeckOptimizer({
         </div>
         <button
           onClick={handleOptimize}
-          className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg border border-border/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+          title={isAnalysisDirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
+          className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg border transition-colors ${
+            isAnalysisDirty
+              ? 'border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
+              : 'border-border/50 hover:bg-accent text-muted-foreground hover:text-foreground'
+          }`}
         >
           <RefreshCw className="w-3 h-3" />
           Re-analyze
@@ -975,6 +999,8 @@ export function DeckOptimizer({
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/20 bg-card/30 overflow-x-auto">
         {TABS.map(tab => {
           const isActive = activeTab === tab.key;
+          const tabGrade = tabGrades[tab.key];
+          const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
           return (
             <button
               key={tab.key}
@@ -987,6 +1013,11 @@ export function DeckOptimizer({
             >
               <tab.icon className={`w-3.5 h-3.5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
               {tab.label}
+              {gradeStyle && (
+                <span className={`ml-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded tabular-nums ${gradeStyle.color} ${gradeStyle.badgeBg}`}>
+                  {tabGrade}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1146,7 +1177,7 @@ export function DeckOptimizer({
                           index={i}
                           onRemove={handleRemoveCutCard}
                           onSkip={handleSkipCutCard}
-                          onPreview={() => handlePreview(ac.card.name)}
+                          onPreview={handlePreview}
                           onCardAction={handleCardAction}
                           menuProps={menuProps}
                           cardInclusionMap={cardInclusionMap}
@@ -1170,7 +1201,7 @@ export function DeckOptimizer({
                             index={i}
                             onRemove={handleRemoveCutCard}
                             onSkip={handleSkipCutCard}
-                            onPreview={() => handlePreview(ac.card.name)}
+                            onPreview={handlePreview}
                             onCardAction={handleCardAction}
                             menuProps={menuProps}
                             cardInclusionMap={cardInclusionMap}
@@ -1220,8 +1251,8 @@ export function DeckOptimizer({
                         key={rec.name}
                         card={rec}
                         rank={i}
-                        onAdd={() => handleAddCard(rec.name)}
-                        onPreview={() => handlePreview(rec.name)}
+                        onAdd={handleAddCard}
+                        onPreview={handlePreview}
                         added={addedCards.has(rec.name)}
                         onCardAction={handleCardAction}
                         menuProps={menuProps}
@@ -1268,8 +1299,8 @@ export function DeckOptimizer({
 
         {/* ── CURVE TAB ── */}
         {activeTab === 'curve' && (() => {
-          const cmdr = useStore.getState().commander;
-          const partner = useStore.getState().partnerCommander;
+          const cmdr = storeCommander;
+          const partner = storePartner;
           const totalNonLand = analysis.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
           const drawCount = roleCounts.cardDraw ?? 0;
           const allPhasesActive = activeCurvePhases.size === analysis.curvePhases.length;

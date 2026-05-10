@@ -9,6 +9,7 @@ import type { ScryfallCard, DeckCategory } from '@/types';
 import { getCachedCard, getCardImageUrl } from '@/services/scryfall/client';
 export type { UserCardList } from '@/types';
 import type { ReactNode } from 'react';
+export { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 
 // ─── Props & Tab Types ───────────────────────────────────────────────
 
@@ -80,10 +81,6 @@ export const RANK_STYLES = [
   { bg: 'bg-slate-300/10', border: 'border-slate-400/30', badge: 'bg-slate-400 text-slate-950', label: '2nd' },
   { bg: 'bg-orange-700/10', border: 'border-orange-600/30', badge: 'bg-orange-700 text-orange-100', label: '3rd' },
 ];
-
-export const ROLE_LABELS: Record<string, string> = {
-  ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage',
-};
 
 export const ROLE_BADGE_COLORS: Record<string, string> = {
   Ramp: 'bg-emerald-500/20 text-emerald-400',

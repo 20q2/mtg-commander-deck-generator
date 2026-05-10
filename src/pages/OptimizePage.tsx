@@ -5,7 +5,6 @@ import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { DeckDisplay, RemovedCardsDialog } from '@/components/deck/DeckDisplay';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
-import { TestHand } from '@/components/deck/TestHand';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ColorIdentity, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
@@ -725,7 +724,6 @@ export function OptimizePage() {
             {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
               <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />
             )}
-            <TestHand />
           </DeckDisplay>
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />

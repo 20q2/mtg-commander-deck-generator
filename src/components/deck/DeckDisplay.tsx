@@ -3242,7 +3242,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </button>
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
-              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
+              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
               <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
@@ -3749,7 +3749,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {sidebarHeader || deckSummary}
               </div>
             </div>
-            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
+            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>

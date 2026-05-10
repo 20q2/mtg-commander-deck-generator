@@ -6,7 +6,7 @@ import { PieChart } from '@/components/ui/pie-chart';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { calculateCurvePercentages, calculateTypePercentages } from '@/services/deckBuilder/curveUtils';
-import { EDHREC_BLEND_WEIGHT } from '@/services/deckBuilder/roleTargets';
+import { EDHREC_BLEND_WEIGHT, ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import type { AdvancedTargets } from '@/types';
 
@@ -34,10 +34,6 @@ const TYPE_LABELS: Record<string, string> = {
 
 const ROLE_COLORS: Record<string, string> = {
   ramp: '#10b981', removal: '#ef4444', boardwipe: '#f97316', cardDraw: '#3b82f6', other: '#6b7280',
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage',
 };
 
 const FALLBACK_CURVE: Record<number, number> = {

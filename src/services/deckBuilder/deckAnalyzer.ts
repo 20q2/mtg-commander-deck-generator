@@ -3,7 +3,7 @@ import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, 
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 import { detectPacing, type Pacing } from './themeDetector';
-import { PACING_CURVE_MULTIPLIERS } from './roleTargets';
+import { PACING_CURVE_MULTIPLIERS, ROLE_LABELS } from './roleTargets';
 
 export interface RoleDeficit {
   role: string;
@@ -205,13 +205,6 @@ export interface DeckAnalysis {
   pacing: Pacing;
   pacingLabel: string;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  ramp: 'Ramp',
-  removal: 'Removal',
-  boardwipe: 'Board Wipes',
-  cardDraw: 'Card Advantage',
-};
 
 /**
  * Resolve a card's small image URL from the Scryfall cache first,
@@ -990,24 +983,32 @@ export interface OptimizeSwaps {
   additions: OptimizeCard[];
 }
 
-const ROLE_LABELS_MAP: Record<string, string> = {
-  ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage',
-};
-
 /**
  * Compute balanced swap suggestions: cards to remove and cards to add.
  * Pure function — no side effects.
  */
-export function computeOptimizeSwaps(
-  analysis: DeckAnalysis,
-  currentCards: ScryfallCard[],
-  cardInclusionMap: Record<string, number> | undefined,
-  commanderName: string,
-  partnerCommanderName: string | undefined,
-  mustIncludeNames: Set<string>,
-  bannedNames: Set<string>,
-  detectedCombos?: DetectedCombo[],
-): OptimizeSwaps {
+export interface ComputeOptimizeSwapsOptions {
+  analysis: DeckAnalysis;
+  currentCards: ScryfallCard[];
+  cardInclusionMap: Record<string, number> | undefined;
+  commanderName: string;
+  partnerCommanderName: string | undefined;
+  mustIncludeNames: Set<string>;
+  bannedNames: Set<string>;
+  detectedCombos?: DetectedCombo[];
+}
+
+export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): OptimizeSwaps {
+  const {
+    analysis,
+    currentCards,
+    cardInclusionMap,
+    commanderName,
+    partnerCommanderName,
+    mustIncludeNames,
+    bannedNames,
+    detectedCombos,
+  } = opts;
   const BASIC_LANDS = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
   const inclusionMap = cardInclusionMap ?? {};
   const currentCardNames = new Set(currentCards.map(c => c.name));
@@ -1070,7 +1071,7 @@ export function computeOptimizeSwaps(
     if (comboCountMap.has(card.name)) continue; // never suggest cutting a combo piece
 
     const role = card.deckRole || getCardRole(card.name) || undefined;
-    const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
+    const roleLabel = role ? (ROLE_LABELS[role] || role) : undefined;
     const cmdInclusion = inclusionMap[card.name] ?? null;
     const globalInclusion = card.edhrec_rank != null
       ? Math.max(1, 100 - Math.floor(card.edhrec_rank / 100))
@@ -1181,7 +1182,7 @@ export function computeOptimizeSwaps(
       if (isChannelLand(card)) continue; // channel lands are too good to ever cut
       if (isMdfcLand(card)) continue; // MDFCs double as spells — never cut
       const role = card.deckRole || getCardRole(card.name) || undefined;
-      const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
+      const roleLabel = role ? (ROLE_LABELS[role] || role) : undefined;
       const cmdInclusion = inclusionMap[card.name] ?? null;
       const globalInclusion = card.edhrec_rank != null ? Math.max(1, 100 - Math.floor(card.edhrec_rank / 100)) : null;
       const inclusion = cmdInclusion ?? globalInclusion ?? null;
@@ -1430,7 +1431,7 @@ export function computeOptimizeSwaps(
       if (isLand) continue; // we want MORE lands here, not fewer
 
       const role = card.deckRole || getCardRole(card.name) || undefined;
-      const roleLabel = role ? (ROLE_LABELS_MAP[role] || role) : undefined;
+      const roleLabel = role ? (ROLE_LABELS[role] || role) : undefined;
       const cmdInclusion = inclusionMap[card.name] ?? null;
       const globalInclusion = card.edhrec_rank != null
         ? Math.max(1, 100 - Math.floor(card.edhrec_rank / 100))
@@ -1570,17 +1571,30 @@ export function scoreRecommendation(
  * Analyze a deck against EDHREC data.
  * Returns deficits, curve/type analysis, mana base insights, and card recommendations.
  */
-export function analyzeDeck(
-  edhrecData: EDHRECCommanderData,
-  currentCards: ScryfallCard[],
-  roleCounts: Record<string, number>,
-  roleTargets: Record<string, number>,
-  deckSize: number,
-  cardInclusionMap?: Record<string, number>,
-  colorIdentity?: string[],
-  overridePacing?: Pacing,
-  overrideLandTarget?: number,
-): DeckAnalysis {
+export interface AnalyzeDeckOptions {
+  edhrecData: EDHRECCommanderData;
+  currentCards: ScryfallCard[];
+  roleCounts: Record<string, number>;
+  roleTargets: Record<string, number>;
+  deckSize: number;
+  cardInclusionMap?: Record<string, number>;
+  colorIdentity?: string[];
+  overridePacing?: Pacing;
+  overrideLandTarget?: number;
+}
+
+export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
+  const {
+    edhrecData,
+    currentCards,
+    roleCounts,
+    roleTargets,
+    deckSize,
+    cardInclusionMap,
+    colorIdentity,
+    overridePacing,
+    overrideLandTarget,
+  } = opts;
   // --- Role Deficits ---
   const roleDeficits: RoleDeficit[] = Object.entries(roleTargets).map(([role, target]) => {
     const current = roleCounts[role] || 0;

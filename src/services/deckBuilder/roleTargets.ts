@@ -2,6 +2,17 @@ import { Archetype, type DeckFormat, type ThemeResult, type EDHRECCommanderStats
 import type { Pacing } from './themeDetector';
 import { getCardRole, type RoleKey } from '@/services/tagger/client';
 
+// ─── Role Labels ────────────────────────────────────────────────────
+// Canonical role display labels. Imported by both services (analyzer/generator)
+// and the optimizer UI. Do not redeclare locally.
+
+export const ROLE_LABELS: Record<string, string> = {
+  ramp: 'Ramp',
+  removal: 'Removal',
+  boardwipe: 'Board Wipes',
+  cardDraw: 'Card Advantage',
+};
+
 // ─── EDHREC Blend Tuning ────────────────────────────────────────────
 // Threshold for "cards in the typical deck for this commander" — a card above
 // this inclusion % is played in roughly 1 of every 4 tracked decks.
