@@ -1218,47 +1218,36 @@ export function computeOptimizeSwaps(
     isGameChanger: rec.isGameChanger, isThemeSynergy: rec.isThemeSynergy,
   });
 
-  // ── Pass 0: Combo enablers — cards that complete or contribute to near-miss combos ──
-  // Highest-priority additions: a single card that finishes (or strongly progresses)
-  // multiple in-deck combos is a no-brainer add. Tag with reasonCategory 'combo-enabler'
-  // and place at the front of additionCandidates so they survive any downstream slicing.
+  // ── Pass 0: Combo enablers — high-bar additions ──
+  // Only surface a card if it would COMPLETE 3+ combos with a single add. This is
+  // the "no-brainer" tier — one card unlocks multiple combos at once. Lower bars
+  // (1 combo, near-miss progression) are too noisy to surface here; the user can
+  // discover those via the dedicated combo UI.
+  const COMBO_ENABLER_MIN_COMBOS = 3;
   if (detectedCombos && detectedCombos.length > 0) {
-    // Map: missing card name → list of combos it would help, with completion status per combo
-    const enablerMap = new Map<string, { completes: DetectedCombo[]; progresses: DetectedCombo[] }>();
+    // Count how many combos each missing card would COMPLETE in one add.
+    const completionCount = new Map<string, DetectedCombo[]>();
     for (const combo of detectedCombos) {
       if (combo.isComplete) continue;
-      // Skip combos that need more than 2 missing pieces — too far from realizable
-      if (combo.missingCards.length > 2) continue;
-      const wouldComplete = combo.missingCards.length === 1;
-      for (const missing of combo.missingCards) {
-        if (currentCardNames.has(missing) || bannedNames.has(missing)) continue;
-        const entry = enablerMap.get(missing) ?? { completes: [], progresses: [] };
-        if (wouldComplete) entry.completes.push(combo);
-        else entry.progresses.push(combo);
-        enablerMap.set(missing, entry);
-      }
+      if (combo.missingCards.length !== 1) continue; // must be the *only* missing piece
+      const missing = combo.missingCards[0];
+      if (currentCardNames.has(missing) || bannedNames.has(missing)) continue;
+      const list = completionCount.get(missing) ?? [];
+      list.push(combo);
+      completionCount.set(missing, list);
     }
-    // Sort enablers: most combos COMPLETED first, then by total combos touched
-    const enablers = [...enablerMap.entries()]
-      .map(([name, info]) => ({ name, ...info, totalImpact: info.completes.length * 2 + info.progresses.length }))
-      .sort((a, b) => {
-        if (b.completes.length !== a.completes.length) return b.completes.length - a.completes.length;
-        return b.totalImpact - a.totalImpact;
-      })
-      .slice(0, 5); // cap at 5 to avoid flooding additions
+    const enablers = [...completionCount.entries()]
+      .filter(([, combos]) => combos.length >= COMBO_ENABLER_MIN_COMBOS)
+      .sort((a, b) => b[1].length - a[1].length);
 
-    for (const e of enablers) {
-      const cached = getCachedCard(e.name);
-      const rec = analysis.recommendations.find(r => r.name === e.name)
-        ?? analysis.landRecommendations.find(r => r.name === e.name);
-      const reason = e.completes.length > 0
-        ? `Completes ${e.completes.length} combo${e.completes.length > 1 ? 's' : ''}`
-        : `Enables ${e.progresses.length} near-miss combo${e.progresses.length > 1 ? 's' : ''}`;
-      const inclusion = rec?.inclusion ?? inclusionMap[e.name] ?? null;
-      // Boost: completed-combo enabler scores in the 200+ range to dominate other additions
-      const enablerScore = 100 + (e.completes.length * 50) + (e.progresses.length * 15);
+    for (const [name, combos] of enablers) {
+      const cached = getCachedCard(name);
+      const rec = analysis.recommendations.find(r => r.name === name)
+        ?? analysis.landRecommendations.find(r => r.name === name);
+      const inclusion = rec?.inclusion ?? inclusionMap[name] ?? null;
+      const enablerScore = 100 + (combos.length * 50);
       additionCandidates.push({
-        name: e.name, reason, reasonCategory: 'combo-enabler',
+        name, reason: `Completes ${combos.length} combos`, reasonCategory: 'combo-enabler',
         inclusion, score: enablerScore,
         price: rec?.price,
         role: rec?.role, roleLabel: rec?.roleLabel,
@@ -1268,7 +1257,7 @@ export function computeOptimizeSwaps(
         isGameChanger: rec?.isGameChanger,
         isThemeSynergy: rec?.isThemeSynergy,
       });
-      addedNames.add(e.name);
+      addedNames.add(name);
     }
   }
 
