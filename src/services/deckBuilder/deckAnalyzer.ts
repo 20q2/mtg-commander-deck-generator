@@ -1012,11 +1012,13 @@ export function computeOptimizeSwaps(
   const inclusionMap = cardInclusionMap ?? {};
   const currentCardNames = new Set(currentCards.map(c => c.name));
 
-  // Build combo participation map: card name → number of complete combos it enables
+  // Build combo participation map: card name → number of combos it enables.
+  // Protect cards in BOTH complete combos and near-misses-in-progress (deckCount >= 2),
+  // so cards we just suggested as combo enablers don't immediately get suggested as cuts.
   const comboCountMap = new Map<string, number>();
   if (detectedCombos) {
     for (const combo of detectedCombos) {
-      if (!combo.isComplete) continue;
+      if (!combo.isComplete && combo.deckCount < 2) continue;
       for (const card of combo.cards) {
         comboCountMap.set(card, (comboCountMap.get(card) || 0) + 1);
       }
