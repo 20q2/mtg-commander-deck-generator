@@ -35,6 +35,7 @@ function getRemovalCategoryLabel(cat: string): string {
 }
 
 const ADDITION_CATEGORY_LABELS: Record<string, string> = {
+  'combo-enabler': 'Combo Enablers',
   'synergy': 'High Synergy',
   'theme': 'Theme Synergy',
   'mana-fix': 'Land Recommendations',
