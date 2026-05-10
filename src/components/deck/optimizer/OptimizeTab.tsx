@@ -310,37 +310,82 @@ export function OptimizeView({
         </Button>
       </div>
 
-      {/* Summary bar */}
-      {!noSwaps && (
+      {/* Summary bar (with land target merged in) */}
+      {(!noSwaps || onLandTargetChange) && (
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/60 border border-border/30 text-xs">
-          <div className="flex items-center gap-1.5">
-            <TrendingDown className="w-3.5 h-3.5 text-red-400/70" />
-            <span className="text-red-400/80 font-medium">-{checkedRemovals.length}</span>
-            <span className="text-muted-foreground/60">selected</span>
-          </div>
-          <div className="w-px h-4 bg-border/40" />
-          <div className="flex items-center gap-1.5">
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400/70" />
-            <span className="text-emerald-400/80 font-medium">+{checkedAdditions.length}</span>
-            <span className="text-muted-foreground/60">selected</span>
-          </div>
-          <div className="w-px h-4 bg-border/40" />
-          <div className="flex items-center gap-1.5">
-            <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground/50" />
-            <span className="text-muted-foreground">
-              {totalChanges} change{totalChanges !== 1 ? 's' : ''} will apply
-            </span>
-          </div>
-          {overBy > 0 && (
+          {onLandTargetChange && (
             <>
+              <div className="flex items-center gap-1.5">
+                <Mountain className="w-3.5 h-3.5 text-muted-foreground/60" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Lands</span>
+                <button
+                  onClick={() => {
+                    const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+                    const min = Math.floor((deckSize ?? 99) * 0.25);
+                    if (current > min) onLandTargetChange(current - 1);
+                  }}
+                  className="p-0.5 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                >
+                  <Minus className="w-2.5 h-2.5" />
+                </button>
+                <span className={`text-xs font-bold tabular-nums ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
+                  {userLandTarget ?? analysis.manaBase.adjustedSuggestion}
+                </span>
+                <button
+                  onClick={() => {
+                    const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+                    const max = Math.floor((deckSize ?? 99) * 0.50);
+                    if (current < max) onLandTargetChange(current + 1);
+                  }}
+                  className="p-0.5 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                >
+                  <Plus className="w-2.5 h-2.5" />
+                </button>
+                {userLandTarget != null && (
+                  <button
+                    onClick={() => onLandTargetChange(null)}
+                    className="text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors"
+                    title="Reset to auto-detected"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              {!noSwaps && <div className="w-px h-4 bg-border/40" />}
+            </>
+          )}
+          {!noSwaps && (
+            <>
+              <div className="flex items-center gap-1.5">
+                <TrendingDown className="w-3.5 h-3.5 text-red-400/70" />
+                <span className="text-red-400/80 font-medium">-{checkedRemovals.length}</span>
+                <span className="text-muted-foreground/60">selected</span>
+              </div>
               <div className="w-px h-4 bg-border/40" />
-              <span className="text-amber-400/80 text-[10px]">
-                deck will be {overBy} over target
-              </span>
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400/70" />
+                <span className="text-emerald-400/80 font-medium">+{checkedAdditions.length}</span>
+                <span className="text-muted-foreground/60">selected</span>
+              </div>
+              <div className="w-px h-4 bg-border/40" />
+              <div className="flex items-center gap-1.5">
+                <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground/50" />
+                <span className="text-muted-foreground">
+                  {totalChanges} change{totalChanges !== 1 ? 's' : ''} will apply
+                </span>
+              </div>
+              {overBy > 0 && (
+                <>
+                  <div className="w-px h-4 bg-border/40" />
+                  <span className="text-amber-400/80 text-[10px]">
+                    deck will be {overBy} over target
+                  </span>
+                </>
+              )}
             </>
           )}
           <div className="ml-auto flex items-center gap-3">
-            {priceDelta != null && (
+            {!noSwaps && priceDelta != null && (
               <>
                 <span className={`tabular-nums text-[11px] ${priceDelta > 0 ? 'text-red-400/70' : priceDelta < 0 ? 'text-emerald-400/70' : 'text-muted-foreground/60'}`}>
                   {priceDelta > 0 ? '+' : ''}{priceDelta < 0 ? '−' : ''}{priceDelta < 0 ? '' : ''}${Math.abs(priceDelta).toFixed(2)}
@@ -348,7 +393,7 @@ export function OptimizeView({
                 <div className="w-px h-4 bg-border/40" />
               </>
             )}
-            {(() => {
+            {!noSwaps && (() => {
               const resultSize = currentDeckSize - checkedRemovals.length + checkedAdditions.length;
               const netChange = resultSize - currentDeckSize;
               if (netChange === 0) {
@@ -361,49 +406,6 @@ export function OptimizeView({
               );
             })()}
           </div>
-        </div>
-      )}
-
-      {/* Land target control */}
-      {onLandTargetChange && (
-        <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-card/60 border border-border/30">
-          <Mountain className="w-3.5 h-3.5 text-muted-foreground/60" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Target</span>
-          <button
-            onClick={() => {
-              const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
-              const min = Math.floor((deckSize ?? 99) * 0.25);
-              if (current > min) onLandTargetChange(current - 1);
-            }}
-            className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-          >
-            <Minus className="w-3 h-3" />
-          </button>
-          <span className={`text-sm font-bold tabular-nums ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
-            {userLandTarget ?? analysis.manaBase.adjustedSuggestion}
-          </span>
-          <span className="text-[10px] text-muted-foreground/50">lands</span>
-          <button
-            onClick={() => {
-              const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
-              const max = Math.floor((deckSize ?? 99) * 0.50);
-              if (current < max) onLandTargetChange(current + 1);
-            }}
-            className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-          </button>
-          {userLandTarget != null ? (
-            <button
-              onClick={() => onLandTargetChange(null)}
-              className="text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors ml-1"
-              title="Reset to auto-detected"
-            >
-              Reset
-            </button>
-          ) : (
-            <span className="text-[10px] text-muted-foreground/40 ml-1">Auto-detected from commander data</span>
-          )}
         </div>
       )}
 

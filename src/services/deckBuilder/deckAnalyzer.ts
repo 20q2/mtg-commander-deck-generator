@@ -1800,7 +1800,11 @@ export function analyzeDeck(
         }
       }
     }
-    const score = (inclusion * 0.5) + (rankScore * 0.25) + (synergyBoost * 0.25) + roleBoost;
+    // MDFC bump: modal double-faced lands double as a spell, so a "weak" land
+    // score under-represents their value. A small flat bump keeps them above
+    // pure nonbasics in cut-sorted views.
+    const mdfcBump = isLand && isMdfcLand(card) ? 15 : 0;
+    const score = (inclusion * 0.5) + (rankScore * 0.25) + (synergyBoost * 0.25) + roleBoost + mdfcBump;
     inDeckScoreMap.set(card.name, score);
   }
 
