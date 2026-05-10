@@ -52,6 +52,8 @@ interface PlaytestState {
   freeCounters: FreeCounter[];
   // Combos detected in the deck (static — populated at hydrate time).
   combos: DetectedCombo[];
+  // Battlefield instanceIds currently selected via marquee (rectangle) selection.
+  selectedIds: string[];
 }
 
 interface PlaytestActions {
@@ -103,6 +105,9 @@ interface PlaytestActions {
   removeFreeCounter: (id: string) => void;
   setFreeCounterColor: (id: string, color: CounterColor) => void;
   moveFreeCounter: (id: string, x: number, y: number) => void;
+
+  setSelectedIds: (ids: string[]) => void;
+  clearSelection: () => void;
 }
 
 type Store = PlaytestState & PlaytestActions;
@@ -127,6 +132,7 @@ const initial: PlaytestState = {
   lastDrawRange: { start: -1, end: -1 },
   freeCounters: [],
   combos: [],
+  selectedIds: [],
 };
 
 function snapshotOf(s: PlaytestState): PlaytestSnapshot {
@@ -746,6 +752,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   moveFreeCounter: (id, x, y) => set(state => ({
     freeCounters: state.freeCounters.map(c => (c.id === id ? { ...c, x, y } : c)),
   })),
+
+  setSelectedIds: (ids) => set({ selectedIds: ids }),
+  clearSelection: () => set(state => (state.selectedIds.length === 0 ? {} : { selectedIds: [] })),
 }));
 
 // Helper: serializable selector for zone counts (used by Sidebar to avoid re-rendering on every change)
