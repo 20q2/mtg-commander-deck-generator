@@ -149,6 +149,7 @@ function ComboSection({ combos, onPreview }: { combos: DetectedCombo[]; onPrevie
         <p className={`text-[11px] font-semibold uppercase tracking-wider ${colorClass}`}>
           {label} ({comboList.length})
         </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
         {comboList.map((combo, i) => (
           <div key={combo.comboId || i} className="bg-card/40 border border-border/20 rounded-lg p-2">
             <div className="flex flex-wrap gap-1">
@@ -169,6 +170,7 @@ function ComboSection({ combos, onPreview }: { combos: DetectedCombo[]; onPrevie
             )}
           </div>
         ))}
+        </div>
       </div>
     );
   };

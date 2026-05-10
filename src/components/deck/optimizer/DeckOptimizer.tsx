@@ -16,7 +16,7 @@ import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 
-import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, ROLE_LABELS, HEALTH_GRADE_STYLES, edhrecRankToInclusion } from './constants';
+import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, ROLE_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS, edhrecRankToInclusion } from './constants';
 import { CutRow, RecommendationRow } from './shared';
 import { DeckHealthStrip } from './OverviewTab';
 import { RolesTabContent } from './RolesTab';
@@ -47,10 +47,6 @@ export function DeckOptimizer({
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Bumped after async price enrichment writes prices in place on existing
-  // recommendation objects, so price-displaying rows re-render without
-  // invalidating every memo that depends on the analysis reference.
-  const [, setPricesReady] = useState(0);
   const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
@@ -470,15 +466,16 @@ export function DeckOptimizer({
           });
           const finalLandRecs = mergeThemeWithBaseStaples(themeResult.landRecommendations, baseResult.landRecommendations, 15);
 
-          setAnalysis(prev => prev ? {
-            ...prev,
-            recommendations: finalRecs,
-            roleBreakdowns: finalRoleBreakdowns,
-            landRecommendations: finalLandRecs,
-          } : prev);
-
-          // Enrich new theme-only recs with prices
-          const newRecs = finalRecs.filter((r: RecommendedCard) => !r.price);
+          // Enrich theme-only recs with prices BEFORE committing the analysis.
+          // Rows are React.memo'd, so mutating rec.price after setAnalysis
+          // wouldn't trigger a re-render — prices must be in place when the
+          // new rec objects first land in state.
+          const allFinalRecs: RecommendedCard[] = [
+            ...finalRecs,
+            ...finalLandRecs,
+            ...finalRoleBreakdowns.flatMap(rb => rb.suggestedReplacements),
+          ];
+          const newRecs = allFinalRecs.filter(r => !r.price);
           if (newRecs.length > 0) {
             try {
               const cards = await getCardsByNames(newRecs.map(r => r.name));
@@ -489,9 +486,15 @@ export function DeckOptimizer({
                   if (p) rec.price = p;
                 }
               }
-              setPricesReady(p => p + 1);
             } catch { /* non-critical */ }
           }
+
+          setAnalysis(prev => prev ? {
+            ...prev,
+            recommendations: finalRecs,
+            roleBreakdowns: finalRoleBreakdowns,
+            landRecommendations: finalLandRecs,
+          } : prev);
         }
       }
 
@@ -702,6 +705,7 @@ export function DeckOptimizer({
   const storeSelectedThemes = useStore(s => s.selectedThemes);
   const usedThemes = useStore(s => s.generatedDeck?.usedThemes);
   const detectedCombos = useStore(s => s.generatedDeck?.detectedCombos);
+  const bracketLevel = useStore(s => s.generatedDeck?.bracketEstimation?.bracket);
   const displayThemeNames = useMemo(() => {
     // 1. If user selected themes in the optimizer, show those
     if (primaryThemeSlug || secondaryThemeSlug) {
@@ -1001,6 +1005,7 @@ export function DeckOptimizer({
           const isActive = activeTab === tab.key;
           const tabGrade = tabGrades[tab.key];
           const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
+          const bracketBadge = tab.key === 'bracket' && bracketLevel ? BRACKET_COLORS[bracketLevel] : null;
           return (
             <button
               key={tab.key}
@@ -1016,6 +1021,11 @@ export function DeckOptimizer({
               {gradeStyle && (
                 <span className={`ml-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded tabular-nums ${gradeStyle.color} ${gradeStyle.badgeBg}`}>
                   {tabGrade}
+                </span>
+              )}
+              {bracketBadge && (
+                <span className={`ml-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded tabular-nums ${bracketBadge.text} ${bracketBadge.bg}`}>
+                  {bracketLevel}
                 </span>
               )}
             </button>

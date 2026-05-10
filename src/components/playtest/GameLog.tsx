@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronLeft, ListFilter, Trash2, Sparkles, Check, AlertTriangle } from 'lucide-react';
+import { ChevronRight, ChevronLeft, ListFilter, Trash2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { LOG_CATEGORIES, type LogCategory } from '@/components/playtest/types';
+import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 
 type Tab = 'log' | 'combos';
@@ -52,7 +53,10 @@ export function GameLog() {
           Log{!allEnabled && tab === 'log' ? ` · ${filtered.length}/${log.length}` : ''}
         </TabButton>
         <TabButton active={tab === 'combos'} onClick={() => setTab('combos')}>
-          Combos{combos.length > 0 ? ` · ${combos.length}` : ''}
+          {(() => {
+            const completeCount = combos.filter(c => c.isComplete).length;
+            return `Combos${completeCount > 0 ? ` · ${completeCount}` : ''}`;
+          })()}
         </TabButton>
         <Button
           variant="ghost"
@@ -176,45 +180,21 @@ function CombosPanel({ combos }: { combos: DetectedCombo[] }) {
     return m;
   }, [zones, battlefield]);
 
-  if (combos.length === 0) {
+  // Only complete combos — near-misses live elsewhere.
+  const complete = combos.filter(c => c.isComplete);
+
+  if (complete.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto px-3 py-3 text-[11px] text-muted-foreground italic">
         <Sparkles className="w-3.5 h-3.5 inline mr-1 opacity-60" />
-        No combos detected for this deck.
+        No combos in this deck.
       </div>
     );
   }
 
-  const complete = combos.filter(c => c.isComplete);
-  const nearMisses = combos.filter(c => !c.isComplete);
-
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3 text-[11px] leading-snug">
-      {complete.length > 0 && (
-        <div>
-          <SectionHeader icon={Check} tone="text-emerald-300" label={`Complete · ${complete.length}`} />
-          <div className="space-y-2">
-            {complete.map(c => <ComboCard key={c.comboId} combo={c} cardByName={cardByName} />)}
-          </div>
-        </div>
-      )}
-      {nearMisses.length > 0 && (
-        <div>
-          <SectionHeader icon={AlertTriangle} tone="text-amber-300" label={`Near miss · ${nearMisses.length}`} />
-          <div className="space-y-2">
-            {nearMisses.map(c => <ComboCard key={c.comboId} combo={c} cardByName={cardByName} />)}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SectionHeader({ icon: Icon, tone, label }: { icon: typeof Check; tone: string; label: string }) {
-  return (
-    <div className={`flex items-center gap-1 text-[9px] uppercase tracking-wider mb-1.5 ${tone}`}>
-      <Icon className="w-3 h-3" />
-      {label}
+    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 text-[11px] leading-snug">
+      {complete.map(c => <ComboCard key={c.comboId} combo={c} cardByName={cardByName} />)}
     </div>
   );
 }
@@ -222,20 +202,26 @@ function SectionHeader({ icon: Icon, tone, label }: { icon: typeof Check; tone: 
 function ComboCard({ combo, cardByName }: { combo: DetectedCombo; cardByName: Map<string, ScryfallCard> }) {
   const result = combo.results?.[0];
   return (
-    <div className={`rounded border ${combo.isComplete ? 'border-emerald-400/30 bg-emerald-500/5' : 'border-amber-400/25 bg-amber-500/5'} p-1.5`}>
-      <div className="flex flex-wrap gap-1 mb-1">
+    <div className="rounded border border-emerald-400/25 bg-emerald-500/5 p-1.5">
+      <div className="flex flex-wrap gap-1 mb-1.5">
         {combo.cards.map((name, i) => {
           const card = cardByName.get(name);
-          const missing = combo.missingCards.includes(name);
+          if (card) {
+            return (
+              <div key={`${name}-${i}`} className="w-[42px] shrink-0" title={name}>
+                <HoverPreviewImage
+                  card={card}
+                  size="small"
+                  className="w-full rounded-[3px] shadow"
+                />
+              </div>
+            );
+          }
           return (
             <span
               key={`${name}-${i}`}
-              className={`inline-block text-[10px] px-1.5 py-0.5 rounded border ${
-                missing
-                  ? 'border-amber-400/40 bg-amber-500/10 text-amber-200/90 line-through opacity-70'
-                  : 'border-border/60 bg-accent/30 text-foreground/90'
-              }`}
-              title={missing ? `${name} (missing)` : (card ? `${name} — ${card.type_line}` : name)}
+              className="inline-block text-[10px] px-1.5 py-0.5 rounded border border-border/60 bg-accent/30 text-foreground/90"
+              title={name}
             >
               {name}
             </span>
