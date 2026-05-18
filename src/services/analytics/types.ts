@@ -17,7 +17,8 @@ export type AnalyticsEventType =
   | 'must_include_added'
   | 'build_mode_toggled'
   | 'deck_optimized'
-  | 'deck_imported';
+  | 'deck_imported'
+  | 'playtest_started';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -68,6 +69,18 @@ export interface AnalyticsEventMetadata {
   build_mode_toggled: { commanderName: string; mode: 'balanced' | 'classic' };
   deck_optimized: { commanderName: string; partnerName?: string; listName: string; originalCardCount: number; deckFormat: number; themes: string[]; totalCards: number; isRegeneration: boolean };
   deck_imported: { source: string; cardCount: number; deckName: string };
+  playtest_started: {
+    /** Where the playtest was launched from. */
+    source: 'list' | 'generated';
+    /** Deck name (commander name for generated, list name for lists). */
+    deckName: string;
+    /** Commander(s) — concatenated with " // " for partner pairs. */
+    commanderName?: string;
+    /** Library size at the start of the session (after opening hand is dealt). */
+    libraryCount: number;
+    /** Total cards in the deck (library + opening hand + command zone). */
+    totalCards: number;
+  };
 }
 
 export interface AnalyticsEvent {

@@ -73,6 +73,7 @@ const EVENT_LABELS: Record<string, string> = {
   list_deleted: 'Lists Deleted',
   list_exported: 'Lists Exported',
   list_toggled: 'List Toggles',
+  playtest_started: 'Playtest Sessions',
 };
 
 const REGION_FLAGS: Record<string, string> = {

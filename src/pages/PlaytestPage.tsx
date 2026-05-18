@@ -19,6 +19,7 @@ import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
+import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
 
 // For drags originating in the Create dialog: the active draggable is a large
@@ -69,6 +70,28 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     return () => exit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, params.listId]);
+
+  // Fire a playtest_started event once the hydrate completes, so we can track
+  // adoption of the playtest feature.
+  useEffect(() => {
+    if (!ready) return;
+    const state = usePlaytestStore.getState();
+    const src = state.source;
+    if (!src) return;
+    const zones = state.zones;
+    const totalCards =
+      zones.library.length + zones.hand.length + zones.command.length +
+      zones.graveyard.length + zones.exile.length;
+    trackEvent('playtest_started', {
+      source: src.kind,
+      deckName: src.name,
+      commanderName: src.commanderNames?.join(' // ') || undefined,
+      libraryCount: zones.library.length,
+      totalCards,
+    });
+    // Only fire on the rising edge of `ready`; if user re-hydrates we'll see a
+    // new mount via the route change.
+  }, [ready]);
 
   // Single PointerSensor handles mouse + touch + pen via Pointer Events. A
   // small 5px activation distance lets a quick tap pass through as a click

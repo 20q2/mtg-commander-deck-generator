@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.2.26",
+    "notes": [
+      "The app has a name now - ManaFoundry!",
+      "Take your new deck out for a spin with the new playtest feature!",
+      "Made 'EDHRec Rank' available under the 'show' menu",
+      "Majorly improved the mobile experice across many parts of the app (I see you mobile users)"
+    ]
+  },
+  {
     "version": "1.2.25",
     "notes": [
       "Playtest area — drag cards onto a free-position battlefield, tap, add counters, mulligan, scry/mill/surveil, search library, spawn tokens. Open from any deck via the new Playtest button.",
