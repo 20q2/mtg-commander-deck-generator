@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { COUNTER_COLORS, type CounterColor } from '@/components/playtest/types';
+import { Plus, ClipboardPaste, Sparkles, RotateCcw } from 'lucide-react';
+import { usePlaytestStore } from '@/store/playtestStore';
 
 export interface BattlefieldMenuTarget {
   /** Viewport coords for placing the menu UI */
@@ -14,10 +15,14 @@ export interface BattlefieldMenuTarget {
 interface Props {
   target: BattlefieldMenuTarget | null;
   onClose: () => void;
-  onAddCounter: (color: CounterColor, position: { x: number; y: number }) => void;
 }
 
-export function BattlefieldContextMenu({ target, onClose, onAddCounter }: Props) {
+export function BattlefieldContextMenu({ target, onClose }: Props) {
+  const openModal = usePlaytestStore(s => s.openModal);
+  const pasteClipboard = usePlaytestStore(s => s.pasteClipboard);
+  const untapAll = usePlaytestStore(s => s.untapAll);
+  const hasClipboard = usePlaytestStore(s => s.clipboard !== null);
+
   useEffect(() => {
     if (!target) return;
     const close = (e: MouseEvent | KeyboardEvent) => {
@@ -52,34 +57,65 @@ export function BattlefieldContextMenu({ target, onClose, onAddCounter }: Props)
 
   if (!target) return null;
 
+  const itemBase =
+    'w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left transition-colors';
+  const itemEnabled = `${itemBase} hover:bg-accent`;
+  const itemDisabled = `${itemBase} opacity-50 cursor-not-allowed`;
+
   return createPortal(
     <div
       ref={ref}
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] w-[200px] bg-popover border border-border rounded-md shadow-2xl text-xs py-2"
+      className="fixed z-[200] w-[200px] bg-popover/95 backdrop-blur-sm border border-border rounded-md shadow-2xl text-xs py-1.5"
       style={{
         left: adjusted ? adjusted.left : target.screenX,
         top: adjusted ? adjusted.top : target.screenY,
         visibility: adjusted ? 'visible' : 'hidden',
       }}
     >
-      <div className="px-2.5 pb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-        Add counter
-      </div>
-      <div className="px-2 grid grid-cols-6 gap-1">
-        {COUNTER_COLORS.map((c) => (
-          <button
-            key={c.key}
-            onClick={() => {
-              onAddCounter(c.key, { x: target.bfX, y: target.bfY });
-              onClose();
-            }}
-            title={c.label}
-            className={`w-6 h-6 rounded-full ${c.chip} hover:ring-2 hover:ring-foreground/40`}
-          />
-        ))}
-      </div>
+      <button
+        className={itemEnabled}
+        onClick={() => { openModal({ kind: 'create' }); onClose(); }}
+      >
+        <Plus className="w-3.5 h-3.5 text-muted-foreground" />
+        <span>Create…</span>
+      </button>
+
+      <button
+        className={hasClipboard ? itemEnabled : itemDisabled}
+        disabled={!hasClipboard}
+        onClick={() => {
+          if (!hasClipboard) return;
+          pasteClipboard({ x: target.bfX, y: target.bfY });
+          onClose();
+        }}
+      >
+        <ClipboardPaste className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="flex-1">Paste</span>
+        <span className="text-[10px] font-mono text-muted-foreground/60">Ctrl+V</span>
+      </button>
+
+      <div className="h-px bg-border/60 my-1" />
+
+      <button
+        className={itemEnabled}
+        onClick={() => { openModal({ kind: 'tokens' }); onClose(); }}
+      >
+        <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
+        <span>Spawn token…</span>
+      </button>
+
+      <div className="h-px bg-border/60 my-1" />
+
+      <button
+        className={itemEnabled}
+        onClick={() => { untapAll(); onClose(); }}
+      >
+        <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="flex-1">Untap all</span>
+        <span className="text-[10px] font-mono text-muted-foreground/60">U</span>
+      </button>
     </div>,
     document.body,
   );

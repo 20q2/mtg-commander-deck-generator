@@ -25,6 +25,19 @@ export function FreeCounter({ counter }: Props) {
   const setFreeCounterColor = usePlaytestStore(s => s.setFreeCounterColor);
   const setFreeCounterValue = useFreeCounterSetValue();
   const selected = usePlaytestStore(s => s.selectedCounterIds.includes(counter.id));
+  // Follow during a group drag (another selected item is being dragged).
+  const followDelta = usePlaytestStore(s => {
+    const aid = s.dragActiveId;
+    if (!aid) return null;
+    if (aid.kind === 'counter' && aid.id === counter.id) return null;
+    if (!s.selectedCounterIds.includes(counter.id)) return null;
+    const activeSelected =
+      aid.kind === 'card'    ? s.selectedIds.includes(aid.id)
+    : aid.kind === 'counter' ? s.selectedCounterIds.includes(aid.id)
+    :                          s.selectedDieIds.includes(aid.id);
+    if (!activeSelected) return null;
+    return s.dragDelta;
+  });
 
   const drag = useDraggable({
     id: `freecounter:${counter.id}`,
@@ -32,8 +45,8 @@ export function FreeCounter({ counter }: Props) {
   });
 
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const tx = drag.transform?.x ?? 0;
-  const ty = drag.transform?.y ?? 0;
+  const tx = drag.transform?.x ?? followDelta?.x ?? 0;
+  const ty = drag.transform?.y ?? followDelta?.y ?? 0;
 
   // Suppress click after a drag of any meaningful distance
   const dragMovedRef = useRef(false);

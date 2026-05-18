@@ -14,7 +14,6 @@ export function Battlefield() {
   const freeCounters = usePlaytestStore(s => s.freeCounters);
   const freeDice = usePlaytestStore(s => s.freeDice);
   const setRect = usePlaytestStore(s => s.setBattlefieldRect);
-  const addFreeCounter = usePlaytestStore(s => s.addFreeCounter);
   const setMarqueeSelection = usePlaytestStore(s => s.setMarqueeSelection);
   const clearSelection = usePlaytestStore(s => s.clearSelection);
   const bg = usePlaytestSettings(s => s.bg);
@@ -141,6 +140,7 @@ export function Battlefield() {
   return (
     <div
       ref={composedRef}
+      data-battlefield
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
       className={`flex-1 relative border-b border-border/50 overflow-hidden ${isOver ? 'ring-2 ring-primary/40 ring-inset' : ''}`}
@@ -179,11 +179,7 @@ export function Battlefield() {
           }}
         />
       )}
-      <BattlefieldContextMenu
-        target={menu}
-        onClose={() => setMenu(null)}
-        onAddCounter={(color, position) => addFreeCounter(color, position)}
-      />
+      <BattlefieldContextMenu target={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }

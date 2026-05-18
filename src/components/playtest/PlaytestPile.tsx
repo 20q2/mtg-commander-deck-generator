@@ -29,6 +29,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const closeModal = usePlaytestStore(s => s.closeModal);
   const currentModal = usePlaytestStore(s => s.modal);
   const moveCard = usePlaytestStore(s => s.moveCard);
+  const setHoveredPile = usePlaytestStore(s => s.setHoveredPile);
   const draw = usePlaytestStore(s => s.draw);
   const shuffleTick = usePlaytestStore(s => s.shuffleTick);
   const libraryTopPushTick = usePlaytestStore(s => s.libraryTopPushTick);
@@ -126,8 +127,8 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
     >
       <div
         ref={imgRef}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={() => { setHovered(true); setHoveredPile(spec.zone); }}
+        onMouseLeave={() => { setHovered(false); setHoveredPile(null); }}
         className="aspect-[5/7] w-full rounded-[5px] overflow-hidden bg-black/20 flex items-center justify-center relative"
       >
         {!baseTop && <Icon className="w-6 h-6 opacity-60" />}

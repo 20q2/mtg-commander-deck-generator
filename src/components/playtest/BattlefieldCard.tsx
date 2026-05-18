@@ -27,9 +27,16 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
   // should visually translate by the same delta until drop.
   const followDelta = usePlaytestStore(s => {
     const aid = s.dragActiveId;
-    if (!aid || aid === card.instanceId) return null;
+    if (!aid) return null;
+    // Skip if this card is itself the active drag target.
+    if (aid.kind === 'card' && aid.id === card.instanceId) return null;
     if (!s.selectedIds.includes(card.instanceId)) return null;
-    if (!s.selectedIds.includes(aid)) return null;
+    // Only follow if the active draggable is part of the marquee selection.
+    const activeSelected =
+      aid.kind === 'card'    ? s.selectedIds.includes(aid.id)
+    : aid.kind === 'counter' ? s.selectedCounterIds.includes(aid.id)
+    :                          s.selectedDieIds.includes(aid.id);
+    if (!activeSelected) return null;
     return s.dragDelta;
   });
   const [menu, setMenu] = useState<CardMenuTarget | null>(null);
@@ -142,9 +149,10 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
     return () => { clearTimeout(swap); clearTimeout(end); };
   }, [card.faceDown, animations]);
 
+  const totalRotation = (card.tapped ? 90 : 0) + (card.rotation ?? 0);
   const innerTransform = [
     arrived ? 'scale(1)' : 'scale(1.15)',
-    card.tapped ? 'rotate(90deg)' : '',
+    totalRotation !== 0 ? `rotate(${totalRotation}deg)` : '',
   ].filter(Boolean).join(' ');
 
   return (

@@ -42,6 +42,7 @@ interface PlaytestState {
   history: PlaytestSnapshot[];
   modal: Modal;
   hovered: string | null;
+  hoveredPile: Exclude<ZoneKey, 'hand'> | null;
   battlefieldRect: { width: number; height: number };     // updated by Battlefield component on mount/resize
   // Mulligan state machine
   mulliganCount: number;
@@ -74,8 +75,20 @@ interface PlaytestState {
   selectedCounterIds: string[];
   selectedDieIds: string[];
   // Active multi-drag tracking — used so non-active selected cards visually follow.
-  dragActiveId: string | null;
+  dragActiveId: { kind: 'card' | 'counter' | 'die'; id: string } | null;
   dragDelta: { x: number; y: number } | null;
+  // In-memory clipboard for Ctrl+C / Ctrl+V — stores snapshots of cards,
+  // counters, and dice along with their absolute positions plus a cumulative
+  // paste offset so chained pastes cascade rather than stacking.
+  clipboard: {
+    cards: BattlefieldCard[];
+    counters: FreeCounter[];
+    dice: FreeDie[];
+    pasteOffset: { x: number; y: number };
+  } | null;
+  // Ephemeral feedback toast — incrementing tick triggers a fresh display in
+  // the UI. Cleared automatically after the toast fades.
+  toast: { text: string; tick: number } | null;
 }
 
 interface PlaytestActions {
@@ -102,6 +115,11 @@ interface PlaytestActions {
   toggleTap: (instanceId: string) => void;
   toggleFaceDown: (instanceId: string) => void;
   toggleFlipped: (instanceId: string) => void;
+  rotateCard: (instanceId: string, delta: number) => void;
+  rotateCards: (instanceIds: string[], delta: number) => void;
+  toggleTapMany: (instanceIds: string[]) => void;
+  toggleFaceDownMany: (instanceIds: string[]) => void;
+  shufflePile: (zone: Exclude<ZoneKey, 'hand'>) => void;
   setCounter: (instanceId: string, type: string, value: number) => void;
   adjustCounter: (instanceId: string, type: string, delta: number) => void;
   copyCard: (instanceId: string) => void;
@@ -118,6 +136,7 @@ interface PlaytestActions {
   openModal: (modal: Modal) => void;
   closeModal: () => void;
   setHovered: (id: string | null) => void;
+  setHoveredPile: (zone: Exclude<ZoneKey, 'hand'> | null) => void;
 
   appendLog: (text: string) => void;
   clearLog: () => void;
@@ -139,9 +158,12 @@ interface PlaytestActions {
   setMarqueeSelection: (sel: { cards: string[]; counters: string[]; dice: string[] }) => void;
   clearSelection: () => void;
 
-  setDragActive: (instanceId: string | null) => void;
+  setDragActive: (active: { kind: 'card' | 'counter' | 'die'; id: string } | null) => void;
   setDragDelta: (delta: { x: number; y: number } | null) => void;
-  applyGroupMove: (activeId: string, dx: number, dy: number) => void;
+  applyGroupMove: (active: { kind: 'card' | 'counter' | 'die'; id: string }, dx: number, dy: number) => void;
+
+  copyToClipboard: () => void;
+  pasteClipboard: (target?: { x: number; y: number }) => void;
 }
 
 type Store = PlaytestState & PlaytestActions;
@@ -160,6 +182,7 @@ const initial: PlaytestState = {
   history: [],
   modal: null,
   hovered: null,
+  hoveredPile: null,
   battlefieldRect: { width: 0, height: 0 },
   mulliganCount: 0,
   shuffleTick: 0,
@@ -176,6 +199,8 @@ const initial: PlaytestState = {
   selectedDieIds: [],
   dragActiveId: null,
   dragDelta: null,
+  clipboard: null,
+  toast: null,
 };
 
 function snapshotOf(s: PlaytestState): PlaytestSnapshot {
@@ -608,6 +633,62 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
+  rotateCard: (instanceId, delta) => set(state => {
+    // Accumulate without modulo so CSS transition spins the short way the user
+    // intended (e.g. 270 → 360 spins clockwise, not 270 → 0 counter-clockwise).
+    const battlefield = state.battlefield.map(b =>
+      b.instanceId === instanceId ? { ...b, rotation: (b.rotation ?? 0) + delta } : b
+    );
+    return { battlefield };
+  }),
+
+  rotateCards: (instanceIds, delta) => set(state => {
+    const ids = new Set(instanceIds);
+    if (ids.size === 0) return {};
+    return {
+      battlefield: state.battlefield.map(b =>
+        ids.has(b.instanceId) ? { ...b, rotation: (b.rotation ?? 0) + delta } : b
+      ),
+    };
+  }),
+
+  toggleTapMany: (instanceIds) => set(state => {
+    const ids = new Set(instanceIds);
+    if (ids.size === 0) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    return {
+      history,
+      battlefield: state.battlefield.map(b =>
+        ids.has(b.instanceId) ? { ...b, tapped: !b.tapped } : b
+      ),
+      log: [...state.log, makeLogEntry(`Toggled tap on ${ids.size} card${ids.size === 1 ? '' : 's'}`, 'tap')],
+    };
+  }),
+
+  toggleFaceDownMany: (instanceIds) => set(state => {
+    const ids = new Set(instanceIds);
+    if (ids.size === 0) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    return {
+      history,
+      battlefield: state.battlefield.map(b =>
+        ids.has(b.instanceId) ? { ...b, faceDown: !b.faceDown } : b
+      ),
+      log: [...state.log, makeLogEntry(`Toggled face-down on ${ids.size} card${ids.size === 1 ? '' : 's'}`, 'move')],
+    };
+  }),
+
+  shufflePile: (zone) => set(state => {
+    const history = pushHistory(state.history, snapshotOf(state));
+    const next = fisherYates(state.zones[zone]);
+    return {
+      history,
+      zones: { ...state.zones, [zone]: next },
+      shuffleTick: zone === 'library' ? state.shuffleTick + 1 : state.shuffleTick,
+      log: [...state.log, makeLogEntry(`Shuffled ${zone}`, 'library')],
+    };
+  }),
+
   setCounter: (instanceId, type, value) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const battlefield = state.battlefield.map(b => {
@@ -825,6 +906,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   openModal: (modal) => set({ modal }),
   closeModal: () => set({ modal: null }),
   setHovered: (id) => set({ hovered: id }),
+  setHoveredPile: (zone) => set({ hoveredPile: zone }),
 
   appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
   clearLog: () => set({ log: [] }),
@@ -916,17 +998,132 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       : { selectedIds: [], selectedCounterIds: [], selectedDieIds: [] }
   )),
 
-  setDragActive: (instanceId) => set({ dragActiveId: instanceId }),
+  setDragActive: (active) => set({ dragActiveId: active }),
   setDragDelta: (delta) => set({ dragDelta: delta }),
 
-  applyGroupMove: (activeId, dx, dy) => set(state => {
-    if (state.selectedIds.length <= 1) return {};
-    if (!state.selectedIds.includes(activeId)) return {};
-    const moveSet = new Set(state.selectedIds.filter(id => id !== activeId));
-    if (moveSet.size === 0) return {};
+  // Apply (dx, dy) to every selected battlefield card, free counter, and free
+  // die except the active draggable itself. Used at drop time to keep a
+  // marquee-selected group moving together regardless of which item the user
+  // grabbed to start the drag.
+  copyToClipboard: () => set(state => {
+    // Prefer the marquee selection. If nothing's selected, fall back to the
+    // hovered battlefield card (single-item copy).
+    const hasSelection =
+      state.selectedIds.length > 0 ||
+      state.selectedCounterIds.length > 0 ||
+      state.selectedDieIds.length > 0;
+
+    let cards: BattlefieldCard[] = [];
+    let counters: FreeCounter[] = [];
+    let dice: FreeDie[] = [];
+
+    if (hasSelection) {
+      const cardSet = new Set(state.selectedIds);
+      const ctrSet  = new Set(state.selectedCounterIds);
+      const dieSet  = new Set(state.selectedDieIds);
+      cards    = state.battlefield.filter(b  => cardSet.has(b.instanceId)).map(b => ({ ...b, counters: { ...b.counters } }));
+      counters = state.freeCounters.filter(c => ctrSet.has(c.id)).map(c => ({ ...c }));
+      dice     = state.freeDice.filter(d     => dieSet.has(d.id)).map(d => ({ ...d }));
+    } else if (state.hovered) {
+      const bf = state.battlefield.find(b => b.instanceId === state.hovered);
+      if (bf) cards = [{ ...bf, counters: { ...bf.counters } }];
+    }
+
+    if (cards.length === 0 && counters.length === 0 && dice.length === 0) return {};
+
+    const total = cards.length + counters.length + dice.length;
+    return {
+      clipboard: { cards, counters, dice, pasteOffset: { x: 24, y: 24 } },
+      toast: { text: `Copied ${total} item${total === 1 ? '' : 's'}`, tick: (state.toast?.tick ?? 0) + 1 },
+      log: [...state.log, makeLogEntry(`Copied ${total} item${total === 1 ? '' : 's'}`, 'system')],
+    };
+  }),
+
+  pasteClipboard: (target) => set(state => {
+    const cb = state.clipboard;
+    if (!cb) return {};
+
+    // Determine the offset to apply to every clipboard item:
+    //   • If a target was provided (e.g. cursor on battlefield), shift the
+    //     centroid of the copied group's CENTERS (not top-left corners) to it
+    //     so the cursor lands at the middle of the pasted card/group.
+    //   • Otherwise cascade by the cumulative pasteOffset.
+    let dx: number, dy: number;
+    const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
+    const centers = [
+      ...cb.cards.map(c    => ({ x: c.x + cw / 2,  y: c.y + ch / 2  })),
+      ...cb.counters.map(c => ({ x: c.x + 17,      y: c.y + 17      })), // 34px / 2
+      ...cb.dice.map(d     => ({ x: d.x + 22,      y: d.y + 22      })), // 44px / 2
+    ];
+    if (target && centers.length > 0) {
+      const cx = centers.reduce((s, p) => s + p.x, 0) / centers.length;
+      const cy = centers.reduce((s, p) => s + p.y, 0) / centers.length;
+      dx = target.x - cx;
+      dy = target.y - cy;
+    } else {
+      dx = cb.pasteOffset.x;
+      dy = cb.pasteOffset.y;
+    }
+
+    const newCards: BattlefieldCard[] = cb.cards.map(c => ({
+      ...c,
+      counters: { ...c.counters },
+      instanceId: makeInstanceId(),
+      x: c.x + dx,
+      y: c.y + dy,
+      attachedTo: undefined,
+    }));
+    const newCounters: FreeCounter[] = cb.counters.map(c => ({
+      ...c,
+      id: makeInstanceId(),
+      x: c.x + dx,
+      y: c.y + dy,
+    }));
+    const newDice: FreeDie[] = cb.dice.map(d => ({
+      ...d,
+      id: makeInstanceId(),
+      x: d.x + dx,
+      y: d.y + dy,
+    }));
+
+    const total = newCards.length + newCounters.length + newDice.length;
+    return {
+      history: pushHistory(state.history, snapshotOf(state)),
+      battlefield: [...state.battlefield, ...newCards],
+      freeCounters: [...state.freeCounters, ...newCounters],
+      freeDice: [...state.freeDice, ...newDice],
+      // Re-select the newly pasted items so the user can immediately drag the
+      // pasted group around or paste again with cascading offset.
+      selectedIds: newCards.map(c => c.instanceId),
+      selectedCounterIds: newCounters.map(c => c.id),
+      selectedDieIds: newDice.map(d => d.id),
+      // Reset cascading offset when pasted at a specific cursor target so the
+      // next plain Ctrl+V starts a fresh cascade from the new spot.
+      clipboard: target ? { ...cb, pasteOffset: { x: 24, y: 24 } } : { ...cb, pasteOffset: { x: cb.pasteOffset.x + 24, y: cb.pasteOffset.y + 24 } },
+      log: [...state.log, makeLogEntry(`Pasted ${total} item${total === 1 ? '' : 's'}`, 'system')],
+    };
+  }),
+
+  applyGroupMove: (active, dx, dy) => set(state => {
+    // Confirm the active item is in the selection of its own kind.
+    const inSel =
+      active.kind === 'card'    ? state.selectedIds.includes(active.id)
+    : active.kind === 'counter' ? state.selectedCounterIds.includes(active.id)
+    :                             state.selectedDieIds.includes(active.id);
+    if (!inSel) return {};
+    const moveCards    = new Set(state.selectedIds.filter(id => !(active.kind === 'card' && id === active.id)));
+    const moveCounters = new Set(state.selectedCounterIds.filter(id => !(active.kind === 'counter' && id === active.id)));
+    const moveDice     = new Set(state.selectedDieIds.filter(id => !(active.kind === 'die' && id === active.id)));
+    if (moveCards.size === 0 && moveCounters.size === 0 && moveDice.size === 0) return {};
     return {
       battlefield: state.battlefield.map(b =>
-        moveSet.has(b.instanceId) ? { ...b, x: b.x + dx, y: b.y + dy } : b
+        moveCards.has(b.instanceId) ? { ...b, x: b.x + dx, y: b.y + dy } : b
+      ),
+      freeCounters: state.freeCounters.map(c =>
+        moveCounters.has(c.id) ? { ...c, x: c.x + dx, y: c.y + dy } : c
+      ),
+      freeDice: state.freeDice.map(d =>
+        moveDice.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d
       ),
     };
   }),

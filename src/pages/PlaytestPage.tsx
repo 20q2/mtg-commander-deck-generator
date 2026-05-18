@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, pointerWithin, rectIntersection, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, pointerWithin, rectIntersection, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent, type Modifier } from '@dnd-kit/core';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePlaytestStore } from '@/store/playtestStore';
@@ -18,7 +18,28 @@ import { ScryMillSurveilModal } from '@/components/playtest/modals/ScryMillSurve
 import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
+import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
+
+// For drags originating in the Create dialog: the active draggable is a large
+// (~72px) tile, but the rendered overlay preview (chip/die) is much smaller.
+// Default DragOverlay positions the overlay at the active node's translated
+// origin, leaving the preview visibly offset from the cursor. This modifier
+// re-centers the overlay box on the cursor for create drags only.
+const centerCreateOnCursor: Modifier = ({ activatorEvent, draggingNodeRect, transform, active }) => {
+  const data = active?.data.current as { createCounter?: unknown; createDie?: unknown } | undefined;
+  if (!data?.createCounter && !data?.createDie) return transform;
+  if (!draggingNodeRect || !activatorEvent) return transform;
+  const ev = activatorEvent as MouseEvent | PointerEvent;
+  if (typeof ev.clientX !== 'number' || typeof ev.clientY !== 'number') return transform;
+  const offsetX = ev.clientX - draggingNodeRect.left;
+  const offsetY = ev.clientY - draggingNodeRect.top;
+  return {
+    ...transform,
+    x: transform.x + offsetX - draggingNodeRect.width / 2,
+    y: transform.y + offsetY - draggingNodeRect.height / 2,
+  };
+};
 
 export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
   usePlaytestHotkeys();
@@ -84,7 +105,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
 
   function onDragStart(event: DragStartEvent) {
     const data = event.active.data.current as {
-      source?: MoveSource;
+      source?: MoveSource | { kind: 'freecounter'; id: string } | { kind: 'freedie'; id: string };
       tokenCard?: ScryfallCard;
       createCounter?: { color: CounterColor };
       createDie?: { sides: DieSides; color: CounterColor };
@@ -106,19 +127,53 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     const source = data?.source;
     if (!source) return;
     const state = usePlaytestStore.getState();
+
+    // If the user grabs something that isn't part of the current marquee
+    // selection, clear that selection — they're starting a fresh interaction.
+    const srcKind = (source as { kind: string }).kind;
+    const srcId =
+      srcKind === 'battlefield' ? (source as { instanceId: string }).instanceId
+    : srcKind === 'freecounter' || srcKind === 'freedie' ? (source as { id: string }).id
+    : null;
+    if (srcId) {
+      const inSel =
+        srcKind === 'battlefield' ? state.selectedIds.includes(srcId)
+      : srcKind === 'freecounter' ? state.selectedCounterIds.includes(srcId)
+      : srcKind === 'freedie'     ? state.selectedDieIds.includes(srcId)
+      :                             false;
+      const hasSel =
+        state.selectedIds.length > 0 ||
+        state.selectedCounterIds.length > 0 ||
+        state.selectedDieIds.length > 0;
+      if (hasSel && !inSel) state.clearSelection();
+    }
+
+    // Free counter / free die drags participate in group movement.
+    if (srcKind === 'freecounter') {
+      state.setDragActive({ kind: 'counter', id: (source as { id: string }).id });
+      state.setDragDelta({ x: 0, y: 0 });
+      return;
+    }
+    if (srcKind === 'freedie') {
+      state.setDragActive({ kind: 'die', id: (source as { id: string }).id });
+      state.setDragDelta({ x: 0, y: 0 });
+      return;
+    }
+
+    const moveSource = source as MoveSource;
     let card: ScryfallCard | undefined;
     let faceDown = false;
     let tapped = false;
-    if (source.kind === 'zone') {
-      card = state.zones[source.zone][source.index];
-      if (source.zone === 'library') faceDown = true;
+    if (moveSource.kind === 'zone') {
+      card = state.zones[moveSource.zone][moveSource.index];
+      if (moveSource.zone === 'library') faceDown = true;
     } else {
-      const bf = state.battlefield.find(b => b.instanceId === source.instanceId);
+      const bf = state.battlefield.find(b => b.instanceId === moveSource.instanceId);
       card = bf?.card;
       faceDown = bf?.faceDown ?? false;
       tapped = bf?.tapped ?? false;
       // Track active battlefield card for group-drag follow rendering.
-      state.setDragActive(source.instanceId);
+      state.setDragActive({ kind: 'card', id: moveSource.instanceId });
       state.setDragDelta({ x: 0, y: 0 });
     }
     if (card) {
@@ -129,9 +184,10 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
   }
 
   function onDragMove(event: DragMoveEvent) {
-    const data = event.active.data.current as { source?: MoveSource } | undefined;
-    const source = data?.source;
-    if (!source || source.kind !== 'battlefield') return;
+    const data = event.active.data.current as { source?: MoveSource | { kind: string } } | undefined;
+    const source = data?.source as { kind?: string } | undefined;
+    if (!source) return;
+    if (source.kind !== 'battlefield' && source.kind !== 'freecounter' && source.kind !== 'freedie') return;
     const { x, y } = event.delta;
     usePlaytestStore.getState().setDragDelta({ x, y });
   }
@@ -163,16 +219,27 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
       | undefined;
     const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number } | undefined;
 
-    // Counter/die spawn from the Create popover → battlefield drop spawns at cursor
+    // Counter/die spawn from the Create dialog → spawn centered under the cursor.
+    // The drag handle is a large tile (~72px), but the spawned chip is much
+    // smaller (counter 34, die 44). Using the tile's translated origin would
+    // leave the new piece offset from the cursor, so derive the actual cursor
+    // position from the original pointer event + the drag delta.
     if (sourceData?.createCounter || sourceData?.createDie) {
       if (over.id === 'battlefield' && overData?.kind === 'battlefield') {
         const rect = over.rect as DOMRect | undefined;
-        const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
-        const y = (active.rect.current.translated?.top  ?? 0) - (rect?.top  ?? 0);
+        const activator = event.activatorEvent as { clientX?: number; clientY?: number } | undefined;
+        const cursorX = (activator?.clientX ?? 0) + event.delta.x;
+        const cursorY = (activator?.clientY ?? 0) + event.delta.y;
         const state = usePlaytestStore.getState();
         if (sourceData.createCounter) {
+          // FreeCounter is 34×34 → center under cursor.
+          const x = cursorX - (rect?.left ?? 0) - 17;
+          const y = cursorY - (rect?.top  ?? 0) - 17;
           state.addFreeCounter(sourceData.createCounter.color, { x, y });
         } else if (sourceData.createDie) {
+          // FreeDie is 44×44 → center under cursor.
+          const x = cursorX - (rect?.left ?? 0) - 22;
+          const y = cursorY - (rect?.top  ?? 0) - 22;
           state.addFreeDie(sourceData.createDie.sides, { x, y }, sourceData.createDie.color);
         }
       }
@@ -197,7 +264,12 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
         const rect = over.rect as DOMRect | undefined;
         const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
         const y = (active.rect.current.translated?.top  ?? 0) - (rect?.top  ?? 0);
-        usePlaytestStore.getState().moveFreeCounter(cs.id, x, y);
+        const state = usePlaytestStore.getState();
+        const existing = state.freeCounters.find(c => c.id === cs.id);
+        const dx = existing ? x - existing.x : 0;
+        const dy = existing ? y - existing.y : 0;
+        state.moveFreeCounter(cs.id, x, y);
+        state.applyGroupMove({ kind: 'counter', id: cs.id }, dx, dy);
       }
       return;
     }
@@ -209,7 +281,12 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
         const rect = over.rect as DOMRect | undefined;
         const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
         const y = (active.rect.current.translated?.top  ?? 0) - (rect?.top  ?? 0);
-        usePlaytestStore.getState().moveFreeDie(ds.id, x, y);
+        const state = usePlaytestStore.getState();
+        const existing = state.freeDice.find(d => d.id === ds.id);
+        const dx = existing ? x - existing.x : 0;
+        const dy = existing ? y - existing.y : 0;
+        state.moveFreeDie(ds.id, x, y);
+        state.applyGroupMove({ kind: 'die', id: ds.id }, dx, dy);
       }
       return;
     }
@@ -231,15 +308,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
         if (!target) return;
         const dx = x - target.x;
         const dy = y - target.y;
-        const groupIds = state.selectedIds.includes(source.instanceId) && state.selectedIds.length > 1
-          ? state.selectedIds.filter(id => id !== source.instanceId)
-          : [];
-        const groupSet = new Set(groupIds);
+        // Move only the active card here; other selected cards (plus selected
+        // counters & dice) are repositioned by applyGroupMove. Doing both
+        // here would double-apply the delta to followers.
         const others = state.battlefield.filter(b => b.instanceId !== source.instanceId);
-        const repositioned = others.map(b =>
-          groupSet.has(b.instanceId) ? { ...b, x: b.x + dx, y: b.y + dy } : b
-        );
-        const updated = [...repositioned, { ...target, x, y }];
+        const updated = [...others, { ...target, x, y }];
         usePlaytestStore.setState({
           history: [...state.history, {
             zones: state.zones,
@@ -250,6 +323,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
           }].slice(-20),
           battlefield: updated,
         });
+        usePlaytestStore.getState().applyGroupMove({ kind: 'card', id: source.instanceId }, dx, dy);
       } else {
         moveCard({ source, target: { kind: 'battlefield', x, y, arrived: false } });
       }
@@ -397,8 +471,9 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
         {modal?.kind === 'zoneViewer' && <ZoneViewerModal />}
         {modal?.kind === 'tokens' && <TokenSpawnModal />}
         {modal?.kind === 'create' && <CreateModal />}
+        <PlaytestToast />
       </div>
-      <DragOverlay dropAnimation={null} zIndex={9999}>
+      <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>
         {activeCard ? (
           <img
             src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
@@ -417,11 +492,13 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
           (() => {
             const cfg = COUNTER_COLORS.find(c => c.key === activeCreate.color) ?? COUNTER_COLORS[0];
             return (
-              <div
-                className={`flex items-center justify-center rounded-md font-bold text-sm shadow-lg ring-2 ${cfg.chip} ${cfg.ring}`}
-                style={{ width: 34, height: 34, cursor: 'grabbing' }}
-              >
-                1
+              <div className="w-full h-full flex items-center justify-center pointer-events-none">
+                <div
+                  className={`flex items-center justify-center rounded-md font-bold text-sm shadow-lg ring-2 ${cfg.chip} ${cfg.ring}`}
+                  style={{ width: 34, height: 34, cursor: 'grabbing' }}
+                >
+                  1
+                </div>
               </div>
             );
           })()
@@ -429,12 +506,14 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
           (() => {
             const cfg = COUNTER_COLORS.find(c => c.key === activeCreate.color) ?? COUNTER_COLORS[2];
             return (
-              <div
-                className={`flex flex-col items-center justify-center rounded-md font-bold shadow-lg ring-2 ${cfg.chip} ${cfg.ring}`}
-                style={{ width: 44, height: 44, cursor: 'grabbing' }}
-              >
-                <span className="text-base leading-none tabular-nums">?</span>
-                <span className="text-[8px] uppercase tracking-wider opacity-80 leading-none mt-0.5">d{activeCreate.sides}</span>
+              <div className="w-full h-full flex items-center justify-center pointer-events-none">
+                <div
+                  className={`flex flex-col items-center justify-center rounded-md font-bold shadow-lg ring-2 ${cfg.chip} ${cfg.ring}`}
+                  style={{ width: 44, height: 44, cursor: 'grabbing' }}
+                >
+                  <span className="text-base leading-none tabular-nums">?</span>
+                  <span className="text-[8px] uppercase tracking-wider opacity-80 leading-none mt-0.5">d{activeCreate.sides}</span>
+                </div>
               </div>
             );
           })()

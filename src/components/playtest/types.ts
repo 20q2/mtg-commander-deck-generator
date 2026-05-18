@@ -25,6 +25,8 @@ export interface BattlefieldCard {
   faceDown: boolean;
   /** For double-faced / transform / MDFC / battle cards: show the back face when true. */
   flipped: boolean;
+  /** Free rotation in degrees (multiples of 90), independent of `tapped`. */
+  rotation?: number;
   counters: Record<string, number>;
   attachedTo?: string;
 }

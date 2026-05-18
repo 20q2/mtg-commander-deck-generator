@@ -5,8 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { COUNTER_COLORS, DIE_SIDES, type CounterColor, type DieSides } from '@/components/playtest/types';
 
-// Polyhedral silhouettes (percent coords). Each is visually distinct — d10 is a
-// kite (4 vertices), d12 is a pentagon (5 vertices), so they no longer collide.
+// Polyhedral silhouettes (percent coords) — distinct per die.
 const DIE_SHAPES: Record<DieSides, string> = {
   4:  'polygon(50% 4%, 96% 96%, 4% 96%)',
   6:  'polygon(8% 8%, 92% 8%, 92% 92%, 8% 92%)',
@@ -29,16 +28,19 @@ export function CreateModal() {
       title="Create"
       onClose={closeModal}
       storageKey="playtest:dialog-pos:create"
-      width={320}
-      headerExtra={
-        <span className="ml-2 text-[10px] text-muted-foreground/70 hidden sm:inline">
-          click · drag to place
-        </span>
-      }
+      width={360}
     >
-      <div className="px-4 py-3 space-y-3">
-        {/* Color picker — additive selection (no dimming of unselected). */}
-        <div className="flex items-center gap-1.5">
+      <div className="px-5 py-4 space-y-4">
+        {/* Header row: section label + current color name */}
+        <div className="flex items-baseline justify-between">
+          <div className="text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/80">
+            Palette
+          </div>
+          <div className="text-xs font-medium text-foreground/90">{colorCfg.label}</div>
+        </div>
+
+        {/* Color picker — large, clearly tappable swatches in a single row */}
+        <div className="grid grid-cols-6 gap-2">
           {COUNTER_COLORS.map(c => {
             const active = color === c.key;
             return (
@@ -48,53 +50,46 @@ export function CreateModal() {
                 title={c.label}
                 aria-label={c.label}
                 aria-pressed={active}
-                className={`relative w-8 h-8 rounded-full ${c.chip} shadow-sm transition-transform duration-150 ${
+                className={`relative h-9 rounded-md ${c.chip} transition-all duration-150 ${
                   active
-                    ? `ring-2 ring-offset-2 ring-offset-card ${c.ring} scale-110`
-                    : 'hover:scale-105'
+                    ? `ring-2 ring-offset-2 ring-offset-card ${c.ring} -translate-y-0.5 shadow-md`
+                    : 'hover:-translate-y-0.5 hover:shadow-sm opacity-90 hover:opacity-100'
                 }`}
               >
                 {active && (
-                  <Check className="absolute inset-0 m-auto w-3.5 h-3.5 drop-shadow" strokeWidth={3} />
+                  <Check className="absolute inset-0 m-auto w-4 h-4 text-white drop-shadow" strokeWidth={3} />
                 )}
               </button>
             );
           })}
         </div>
 
-        {/* Unified palette: counter + dice are siblings with identical weight. */}
-        <div className="grid grid-cols-4 gap-2">
-          <CounterTile
-            color={color}
-            chipClass={colorCfg.chip}
-            ringClass={colorCfg.ring}
-            onClick={() => addFreeCounter(color)}
-          />
+        <div className="border-t border-border/40" />
+
+        {/* Palette grid — counter + 6 dice, tinted with current color at rest */}
+        <div className="grid grid-cols-4 gap-3">
+          <CounterTile color={color} colorCfg={colorCfg} onClick={() => addFreeCounter(color)} />
           {DIE_SIDES.map(n => (
             <DieTile
               key={n}
               sides={n}
               color={color}
-              chipClass={colorCfg.chip}
-              ringClass={colorCfg.ring}
+              colorCfg={colorCfg}
               onClick={() => addFreeDie(n, undefined, color)}
             />
           ))}
         </div>
+
+        <p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60 text-center">
+          Tap to spawn · drag onto the battlefield
+        </p>
       </div>
     </FloatingDialog>
   );
 }
 
-const TILE_HEIGHT = 'h-[68px]';
-
-function CounterTile({
-  color, chipClass, ringClass, onClick,
-}: {
-  color: CounterColor;
-  chipClass: string;
-  ringClass: string;
-  onClick: () => void;
+function CounterTile({ color, colorCfg, onClick }: {
+  color: CounterColor; colorCfg: typeof COUNTER_COLORS[number]; onClick: () => void;
 }) {
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: `create-counter:${color}`,
@@ -106,34 +101,29 @@ function CounterTile({
       {...attributes}
       {...listeners}
       onClick={onClick}
-      title="Counter · click to spawn, drag to place"
+      title="Counter"
       aria-label="Counter"
-      className={`group relative ${TILE_HEIGHT} rounded-lg border border-border/60 bg-card/40 hover:bg-card/80 hover:border-border transition-all duration-150 touch-none flex flex-col items-center justify-center gap-1 ${
-        isDragging ? 'opacity-0' : 'hover:-translate-y-0.5'
+      className={`group relative h-[72px] rounded-md border border-border/60 hover:border-foreground/40 transition-colors duration-150 touch-none flex flex-col items-center justify-center gap-1.5 ${
+        isDragging ? 'opacity-0' : ''
       }`}
     >
+      {/* Tinted chip preview — softly the active color at rest, full on hover */}
       <div
-        className={`flex items-center justify-center rounded-md font-bold text-xs shadow ring-2 ${chipClass} ${ringClass}`}
-        style={{ width: 24, height: 24 }}
-        aria-hidden
+        className={`relative w-7 h-7 rounded-md ${colorCfg.chip} opacity-40 group-hover:opacity-100 transition-opacity duration-150 ring-2 ${colorCfg.ring} ring-offset-0`}
       >
-        1
+        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-white/0 group-hover:text-white transition-colors">
+          1
+        </span>
       </div>
-      <span className="text-[9px] uppercase tracking-[0.12em] font-semibold text-muted-foreground group-hover:text-foreground transition-colors">
+      <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/80 group-hover:text-foreground transition-colors">
         Counter
       </span>
     </button>
   );
 }
 
-function DieTile({
-  sides, color, chipClass, ringClass, onClick,
-}: {
-  sides: DieSides;
-  color: CounterColor;
-  chipClass: string;
-  ringClass: string;
-  onClick: () => void;
+function DieTile({ sides, color, colorCfg, onClick }: {
+  sides: DieSides; color: CounterColor; colorCfg: typeof COUNTER_COLORS[number]; onClick: () => void;
 }) {
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: `create-die:${sides}:${color}`,
@@ -146,32 +136,25 @@ function DieTile({
       {...attributes}
       {...listeners}
       onClick={onClick}
-      title={`d${sides} · click to spawn, drag to place`}
+      title={`d${sides}`}
       aria-label={`d${sides}`}
-      className={`group relative ${TILE_HEIGHT} transition-transform duration-150 touch-none ${
-        isDragging ? 'opacity-0' : 'hover:-translate-y-0.5'
+      className={`group relative h-[72px] rounded-md border border-border/60 hover:border-foreground/40 transition-colors touch-none ${
+        isDragging ? 'opacity-0' : ''
       }`}
     >
-      {/* Base color fill, clipped to the polygon. */}
+      {/* Tinted polygon — soft fill in the active color at rest, full on hover. */}
       <span
         aria-hidden
-        className={`absolute inset-0 ${chipClass} ${ringClass}`}
+        className={`absolute inset-2 ${colorCfg.chip} opacity-30 group-hover:opacity-100 transition-opacity duration-150`}
         style={clip}
       />
-      {/* Top sheen — follows the polygon silhouette. */}
+      {/* Subtle top sheen — only visible at full opacity (on hover) */}
       <span
         aria-hidden
-        className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/0 to-transparent"
+        className="absolute inset-2 bg-gradient-to-b from-white/25 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-150"
         style={clip}
       />
-      {/* Bottom shade for depth. */}
-      <span
-        aria-hidden
-        className="absolute inset-0 bg-gradient-to-t from-black/25 via-black/0 to-transparent"
-        style={clip}
-      />
-      {/* Label */}
-      <span className="relative z-10 flex items-center justify-center w-full h-full font-extrabold tabular-nums text-sm leading-none drop-shadow">
+      <span className="relative z-10 flex items-center justify-center w-full h-full font-semibold tabular-nums text-xs text-foreground/85 group-hover:text-white transition-colors">
         d{sides}
       </span>
     </button>

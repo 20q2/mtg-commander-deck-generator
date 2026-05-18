@@ -15,6 +15,18 @@ export function FreeDie({ die }: Props) {
   const setFreeDieColor = usePlaytestStore(s => s.setFreeDieColor);
   const removeFreeDie = usePlaytestStore(s => s.removeFreeDie);
   const selected = usePlaytestStore(s => s.selectedDieIds.includes(die.id));
+  const followDelta = usePlaytestStore(s => {
+    const aid = s.dragActiveId;
+    if (!aid) return null;
+    if (aid.kind === 'die' && aid.id === die.id) return null;
+    if (!s.selectedDieIds.includes(die.id)) return null;
+    const activeSelected =
+      aid.kind === 'card'    ? s.selectedIds.includes(aid.id)
+    : aid.kind === 'counter' ? s.selectedCounterIds.includes(aid.id)
+    :                          s.selectedDieIds.includes(aid.id);
+    if (!activeSelected) return null;
+    return s.dragDelta;
+  });
 
   const colorCfg = COUNTER_COLORS.find(c => c.key === die.color) ?? COUNTER_COLORS[2]; // default to blue
 
@@ -24,8 +36,15 @@ export function FreeDie({ die }: Props) {
   });
 
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const tx = drag.transform?.x ?? 0;
-  const ty = drag.transform?.y ?? 0;
+  const tx = drag.transform?.x ?? followDelta?.x ?? 0;
+  const ty = drag.transform?.y ?? followDelta?.y ?? 0;
+
+  // Brief wiggle when the die is rolled (click). Cleared after the keyframe.
+  const [rolling, setRolling] = useState(false);
+  const wiggle = () => {
+    setRolling(true);
+    setTimeout(() => setRolling(false), 450);
+  };
 
   const dragMovedRef = useRef(false);
   useEffect(() => {
@@ -50,6 +69,7 @@ export function FreeDie({ die }: Props) {
             return;
           }
           rollFreeDie(die.id);
+          wiggle();
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -57,7 +77,7 @@ export function FreeDie({ die }: Props) {
           setMenu({ x: e.clientX, y: e.clientY });
         }}
         title={`d${die.sides} = ${die.value} · click to roll · right-click / shift-click for options`}
-        className={`absolute select-none touch-none flex flex-col items-center justify-center rounded-md font-bold shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring} ${selected ? 'outline outline-2 outline-offset-2 outline-primary' : ''}`}
+        className={`absolute select-none touch-none flex flex-col items-center justify-center rounded-md font-bold shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring} ${selected ? 'outline outline-2 outline-offset-2 outline-primary' : ''} ${rolling ? 'animate-jiggle' : ''}`}
         style={{
           left: die.x,
           top: die.y,
@@ -68,7 +88,7 @@ export function FreeDie({ die }: Props) {
           zIndex: drag.isDragging ? 70 : 60,
         }}
       >
-        <span className="text-base leading-none tabular-nums">{die.value}</span>
+        <span className="text-base leading-none tabular-nums">{rolling ? '–' : die.value}</span>
         <span className="text-[8px] uppercase tracking-wider opacity-80 leading-none mt-0.5">d{die.sides}</span>
       </div>
 
