@@ -1,19 +1,5 @@
 import type { ScryfallCard, UserCardList, GeneratedDeck } from '@/types';
 
-export type Phase = 'untap' | 'upkeep' | 'draw' | 'main1' | 'combat' | 'main2' | 'end';
-
-export const PHASES: Phase[] = ['untap', 'upkeep', 'draw', 'main1', 'combat', 'main2', 'end'];
-
-export const PHASE_LABELS: Record<Phase, string> = {
-  untap: 'Untap',
-  upkeep: 'Upkeep',
-  draw: 'Draw',
-  main1: 'Main 1',
-  combat: 'Combat',
-  main2: 'Main 2',
-  end: 'End',
-};
-
 export type ZoneKey = 'library' | 'hand' | 'graveyard' | 'exile' | 'command';
 
 export interface BattlefieldCard {
@@ -96,7 +82,6 @@ export interface PlaytestSnapshot {
   battlefield: BattlefieldCard[];
   life: number;
   turn: number;
-  phase: Phase;
 }
 
 export type SourceInput =

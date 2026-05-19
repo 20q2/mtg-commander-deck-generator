@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { PHASES } from '@/components/playtest/types';
 
 export function usePlaytestHotkeys() {
   // Track the most recent cursor position so Ctrl+V can paste at the cursor.
@@ -83,12 +82,6 @@ export function usePlaytestHotkeys() {
           }
         }
         s.pasteClipboard(target);
-        return;
-      }
-      if (/^[1-7]$/.test(e.key)) {
-        e.preventDefault();
-        const idx = parseInt(e.key, 10) - 1;
-        s.setPhase(PHASES[idx]);
         return;
       }
     };

@@ -177,7 +177,7 @@ function KeybindingsTab() {
     (acc[kb.category] ??= []).push(kb);
     return acc;
   }, {});
-  const order: Array<keyof typeof grouped> = ['Library', 'Card', 'Selection', 'Turn', 'Other'];
+  const order: Array<keyof typeof grouped> = ['Library', 'Card', 'Selection', 'Other'];
 
   return (
     <div className="px-5 py-4 space-y-4 text-sm max-h-[60vh] overflow-y-auto">

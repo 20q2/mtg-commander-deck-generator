@@ -342,7 +342,6 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
             battlefield: state.battlefield,
             life: state.life,
             turn: state.turn,
-            phase: state.phase,
           }].slice(-20),
           battlefield: updated,
         });

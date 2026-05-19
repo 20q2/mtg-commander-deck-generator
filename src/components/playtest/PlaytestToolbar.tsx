@@ -28,9 +28,9 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
 
   return (
     <div className="border-b border-border/50 bg-card/50 backdrop-blur px-2 sm:px-4 py-2 flex items-center gap-1 sm:gap-2 text-sm flex-wrap">
-      <Button variant="ghost" size="sm" onClick={onExit}><X className="w-4 h-4 mr-1" />Exit</Button>
+      <Button variant="ghost" size="sm" onClick={onExit}><X className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Exit</span></Button>
       <span className="text-muted-foreground/60 hidden sm:inline">|</span>
-      <span className="font-semibold truncate max-w-[40vw] sm:max-w-none">{sourceName}</span>
+      <span className="font-semibold truncate max-w-[28vw] sm:max-w-none">{sourceName}</span>
       <span className="text-muted-foreground/60 hidden sm:inline">·</span>
       <span className="text-xs text-muted-foreground/80 px-1 hidden sm:inline">Turn {turn}</span>
 
@@ -89,15 +89,19 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
       </div>
 
       <div className="flex items-center gap-0.5 sm:gap-1 justify-end ml-auto">
-        <Button variant="ghost" size="sm" disabled={historyLen === 0} onClick={undo} title="Undo last action (Ctrl+Z)"><Undo2 className="w-3.5 h-3.5 mr-1" />Undo</Button>
-        <Button variant="ghost" size="sm" onClick={reset} title="Reset playtest"><RefreshCw className="w-3.5 h-3.5 mr-1" />Reset</Button>
+        <Button variant="ghost" size="sm" disabled={historyLen === 0} onClick={undo} title="Undo last action (Ctrl+Z)">
+          <Undo2 className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline">Undo</span>
+        </Button>
+        <Button variant="ghost" size="sm" onClick={reset} title="Reset playtest">
+          <RefreshCw className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline">Reset</span>
+        </Button>
         {onToggleSidePanel && (
           <Button variant="ghost" size="sm" className="md:hidden" onClick={onToggleSidePanel} title="Open log & combos panel">
-            <PanelRight className="w-4 h-4 mr-1" />Log
+            <PanelRight className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Log</span>
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)} title="Playtest settings">
-          <SettingsIcon className="w-4 h-4 mr-1" />Settings
+          <SettingsIcon className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Settings</span>
         </Button>
       </div>
       <PlaytestSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

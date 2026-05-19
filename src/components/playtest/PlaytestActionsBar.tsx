@@ -20,7 +20,7 @@ export function PlaytestActionsBar() {
   const [drawOpen, setDrawOpen] = useState(false);
   const [mullOpen, setMullOpen] = useState(false);
 
-  const btn = 'h-6 px-2 text-[11px]';
+  const btn = 'h-6 px-1.5 sm:px-2 text-[11px]';
   const icon = 'w-3 h-3 mr-1';
 
   const drawBtn = (
@@ -111,7 +111,7 @@ export function PlaytestActionsBar() {
   );
 
   return (
-    <div className="flex items-center justify-center gap-1 flex-wrap">
+    <div className="flex items-center justify-center gap-0.5 sm:gap-1 flex-wrap">
       {/* Always-visible essentials */}
       <Group>
         <Button variant="outline" size="sm" className={btn} onClick={untapAll} title="Untap all (U)"><RotateCcw className={icon} />Untap</Button>
@@ -122,7 +122,7 @@ export function PlaytestActionsBar() {
         <Button variant="outline" size="sm" className={btn} onClick={shuffle} title="Shuffle library (S)"><Shuffle className={icon} />Shuffle</Button>
         {mulliganBtn}
       </Group>
-      <Sep />
+      <div className="hidden md:block"><Sep /></div>
       <Group>
         {scryBtn}
         <Button variant={searchOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => openModal({ kind: 'zoneViewer', zone: 'library' })} title="Search library"><Search className={icon} />Search</Button>

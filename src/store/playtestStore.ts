@@ -12,13 +12,11 @@ import {
   type LogEntry,
   type Modal,
   type MoveArgs,
-  type Phase,
   type PlaytestSnapshot,
   type SourceInput,
   type SourceMeta,
   type Zones,
   type ZoneKey,
-  PHASES,
 } from '@/components/playtest/types';
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
@@ -37,7 +35,6 @@ interface PlaytestState {
   battlefield: BattlefieldCard[];
   life: number;
   turn: number;
-  phase: Phase;
   log: LogEntry[];
   history: PlaytestSnapshot[];
   modal: Modal;
@@ -107,8 +104,6 @@ interface PlaytestActions {
   untapAll: () => void;
   setLife: (n: number) => void;
   adjustLife: (delta: number) => void;
-  setPhase: (phase: Phase) => void;
-  advancePhase: () => void;
   nextTurn: () => void;
 
   moveCard: (args: MoveArgs) => void;
@@ -177,7 +172,6 @@ const initial: PlaytestState = {
   battlefield: [],
   life: STARTING_LIFE,
   turn: 1,
-  phase: 'main1',
   log: [],
   history: [],
   modal: null,
@@ -215,7 +209,6 @@ function snapshotOf(s: PlaytestState): PlaytestSnapshot {
     battlefield: s.battlefield.map(b => ({ ...b, counters: { ...b.counters } })),
     life: s.life,
     turn: s.turn,
-    phase: s.phase,
   };
 }
 
@@ -377,7 +370,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
-  // ─────────────────────── life / turn / phase ───────────────────────
+  // ─────────────────────── life / turn ───────────────────────
 
   setLife: (n) => set(state => ({
     history: pushHistory(state.history, snapshotOf(state)),
@@ -391,29 +384,13 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${state.life + delta})`, 'life')],
   })),
 
-  setPhase: (phase) => set(state => ({ phase, log: [...state.log, makeLogEntry(`Phase: ${phase}`, 'turn')] })),
-
   nextTurn: () => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const nextTurn = state.turn + 1;
     return {
       history,
       turn: nextTurn,
-      phase: PHASES[0],
-      log: [...state.log, makeLogEntry(`Turn ${nextTurn} — ${PHASES[0]}`, 'turn')],
-    };
-  }),
-
-  advancePhase: () => set(state => {
-    const idx = PHASES.indexOf(state.phase);
-    const nextIdx = (idx + 1) % PHASES.length;
-    const wrapped = nextIdx === 0;
-    const nextPhase = PHASES[nextIdx];
-    const nextTurn = wrapped ? state.turn + 1 : state.turn;
-    return {
-      phase: nextPhase,
-      turn: nextTurn,
-      log: [...state.log, makeLogEntry(wrapped ? `Turn ${nextTurn} — ${nextPhase}` : `Phase: ${nextPhase}`, 'turn')],
+      log: [...state.log, makeLogEntry(`Turn ${nextTurn}`, 'turn')],
     };
   }),
 
@@ -898,7 +875,6 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       battlefield: prev.battlefield,
       life: prev.life,
       turn: prev.turn,
-      phase: prev.phase,
       log,
     };
   }),
