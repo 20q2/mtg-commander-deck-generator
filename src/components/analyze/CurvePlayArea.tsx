@@ -135,6 +135,19 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
     lands: buckets.lands.map(col => sortBy(col, sortKey)),
   }), [buckets, sortKey]);
 
+  // Only render CMC columns that actually have cards (counting lands too,
+  // so column 0 stays in once you've got a Sol Ring / Mox / land base).
+  // Empty columns vanish entirely and the survivors share the freed space.
+  const activeCmcs = useMemo(
+    () => COLUMN_LABELS
+      .map((_, i) => i)
+      .filter(i => buckets.creatures[i].length > 0
+                || buckets.noncreatures[i].length > 0
+                || buckets.lands[i].length > 0),
+    [buckets],
+  );
+  const gridTemplate = `64px repeat(${activeCmcs.length}, minmax(0, 200px))`;
+
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
 
@@ -233,32 +246,46 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
         </div>
       ) : (
         // Full viewport width — cards fill their column instead of floating
-        // small inside it. Column max keeps things sane on ultrawide.
-        <div className="px-2 sm:px-4">
+        // small inside it. Empty CMC columns are skipped entirely so the
+        // remaining ones share the freed space. Subtle dot grid background
+        // gives the area a playmat feel.
+        <div
+          className="px-2 sm:px-4"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, hsl(var(--muted-foreground) / 0.18) 1px, transparent 1px)',
+            backgroundSize: '22px 22px',
+            backgroundPosition: '11px 11px',
+          }}
+        >
           {/* CMC column headers */}
-          <div className="grid grid-cols-[64px_repeat(8,minmax(0,200px))] justify-center gap-2 pt-2 text-[10px] text-muted-foreground/70">
+          <div
+            className="grid justify-center gap-2 pt-2 text-[10px] text-muted-foreground/70"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
             <div></div>
-            {COLUMN_LABELS.map((label, i) => (
+            {activeCmcs.map(i => (
               <button
                 key={i}
                 type="button"
                 onClick={() => onCmcSelect?.(i)}
                 className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                aria-label={`Filter analyzer to CMC ${label}`}
+                aria-label={`Filter analyzer to CMC ${COLUMN_LABELS[i]}`}
               >
-                {label} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
+                {COLUMN_LABELS[i]} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
               </button>
             ))}
           </div>
 
-          <CurveRow label="Creatures" rowCards={sortedBuckets.creatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
-          <CurveRow label="Non-creatures" rowCards={sortedBuckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+          <CurveRow label="Creatures" rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+          <CurveRow label="Non-creatures" rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
 
           <div className="border-t border-border/30">
             <button
               type="button"
               onClick={toggleLands}
-              className="w-full grid grid-cols-[64px_repeat(8,minmax(0,200px))] justify-center gap-2 py-2 items-center hover:bg-accent/20 transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="w-full grid justify-center gap-2 py-2 items-center hover:bg-accent/20 transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              style={{ gridTemplateColumns: gridTemplate }}
               aria-expanded={landsExpanded}
             >
               <div className="text-[10px] uppercase tracking-wider text-foreground/70 font-semibold flex items-center gap-1">
@@ -267,13 +294,16 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
                   : <ChevronRight className="w-3 h-3" />}
                 Lands
               </div>
-              <div className="col-span-8 text-xs text-muted-foreground/80">
+              <div
+                className="text-xs text-muted-foreground/80"
+                style={{ gridColumn: `span ${Math.max(activeCmcs.length, 1)}` }}
+              >
                 <span className="font-semibold text-foreground/80">{buckets.landCount}</span> lands
                 {!landsExpanded && <span className="text-muted-foreground/50"> · click to expand</span>}
               </div>
             </button>
             {landsExpanded && (
-              <CurveRow label="" rowCards={sortedBuckets.lands} onHover={handleHover} onSelect={setPreviewCard} />
+              <CurveRow label="" rowCards={sortedBuckets.lands} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} />
             )}
           </div>
         </div>
@@ -304,14 +334,19 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
 interface CurveRowProps {
   label: string;
   rowCards: ScryfallCard[][];
+  activeCmcs: number[];
+  gridTemplate: string;
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onSelect: (card: ScryfallCard) => void;
   onCmcSelect?: (cmc: number) => void;
 }
 
-function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowProps) {
+function CurveRow({ label, rowCards, activeCmcs, gridTemplate, onHover, onSelect, onCmcSelect }: CurveRowProps) {
   return (
-    <div className="grid grid-cols-[64px_repeat(8,minmax(0,200px))] justify-center gap-2 py-2 items-end">
+    <div
+      className="grid justify-center gap-2 py-2 items-end"
+      style={{ gridTemplateColumns: gridTemplate }}
+    >
       {/* Row label as a chunky tag — readable, not a faint afterthought */}
       {label
         ? (
@@ -322,8 +357,8 @@ function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowP
           </div>
         )
         : <div />}
-      {rowCards.map((col, i) => (
-        <CurveCell key={i} cards={col} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={onCmcSelect ? () => onCmcSelect(i) : undefined} />
+      {activeCmcs.map(i => (
+        <CurveCell key={i} cards={rowCards[i]} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={onCmcSelect ? () => onCmcSelect(i) : undefined} />
       ))}
     </div>
   );
@@ -338,8 +373,6 @@ interface CurveCellProps {
 }
 
 function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCellProps) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
   if (cards.length === 0) {
     if (!onEmptyClick) {
       return <div className="w-full aspect-[5/7] min-h-[120px]" />;
@@ -355,10 +388,9 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
   }
   // Arena-style fan, fully responsive. Cards fill the column width via
   // `w-full aspect-[5/7]`, and each non-first card sits via a negative
-  // margin-top equal to 119% of the column width — which is ~85% of the
-  // card's height (since card height = column-width × 7/5). The result:
-  // each upper card peeks ~22% of its height, and the layout scales
-  // smoothly from narrow mobile columns to wide desktop columns.
+  // margin-top equal to 112% of the column width — leaving a ~20% top
+  // sliver visible. Hovered cards do NOT lift in the stack (the floating
+  // preview to the right is the hover signal).
   return (
     <div className="relative flex flex-col w-full">
       {cards.map((card, idx) => {
@@ -366,16 +398,15 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
         const badgeClass = role ? (ROLE_BADGE[role] ?? '') : '';
         const badgeLabel = role ? (ROLE_LABEL[role] ?? '') : '';
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
-        const isHovered = hoveredIdx === idx;
         return (
           <button
             key={card.name + idx}
             type="button"
-            className={`relative w-full aspect-[5/7] transition-transform duration-150 hover:scale-[1.15] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded ${idx > 0 ? '-mt-[112%]' : ''}`}
-            style={{ zIndex: isHovered ? 50 : idx }}
+            className={`relative w-full aspect-[5/7] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded ${idx > 0 ? '-mt-[112%]' : ''}`}
+            style={{ zIndex: idx }}
             onClick={() => onSelect(card)}
-            onMouseEnter={(e) => { setHoveredIdx(idx); onHover(card, e); }}
-            onMouseLeave={() => { setHoveredIdx(null); onHover(null); }}
+            onMouseEnter={(e) => onHover(card, e)}
+            onMouseLeave={() => onHover(null)}
           >
             <img
               src={imgUrl}
