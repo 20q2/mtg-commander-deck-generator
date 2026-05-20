@@ -59,6 +59,7 @@ import { getCollectionNameSet } from '@/services/collection/db';
 import { Select } from '@/components/ui/select';
 import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/grouping';
 import { StacksColumn } from './visualGrid/StacksColumn';
+import { MasonryStacks } from './visualGrid/MasonryStacks';
 
 // Role badge display properties for each subtype
 function getRoleBadgeProps(card: ScryfallCard): { color: string; bgColor: string; title: string; label: string } | null {
@@ -3814,45 +3815,87 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 ))}
               </div>
             ) : (
-              <div className={`p-4 ${gridLayout === 'stacks' ? 'flex flex-wrap gap-4 items-start' : 'space-y-1'}`}>
-                {groupedForDisplay.map(({ label, cards }) => {
-                  const visibleCards = combinedMatchingIds
-                    ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
-                    : cards;
-                  if (visibleCards.length === 0) return null;
-                  const isCommanderGroup = label === 'Commander';
-                  const isTypeGroup = groupBy === 'type';
-                  return (
-                    <div key={label} className={gridLayout === 'stacks' ? 'w-[170px] shrink-0' : ''}>
-                      <button
-                        onClick={() => setCollapsedGridCategories(prev => {
-                          const next = new Set(prev);
-                          next.has(label) ? next.delete(label) : next.add(label);
-                          return next;
-                        })}
-                        className="flex items-center gap-1.5 pt-2 pb-1 w-full text-left group"
-                      >
-                        <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsedGridCategories.has(label) ? '-rotate-90' : ''}`} />
-                        {(isTypeGroup || isCommanderGroup) && <CardTypeIcon type={label as CardType} size="sm" className="opacity-60" />}
-                        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-                        <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
-                      </button>
-                      {!collapsedGridCategories.has(label) && (
-                        gridLayout === 'stacks' ? (
-                          <StacksColumn
-                            cards={visibleCards}
-                            renderTile={(card, quantity) => renderCardTile(card, quantity, isCommanderGroup)}
-                          />
-                        ) : (
+              gridLayout === 'stacks' ? (
+                <div className="p-4">
+                  <MasonryStacks
+                    items={groupedForDisplay
+                      .map(({ label, cards }) => {
+                        const visibleCards = combinedMatchingIds
+                          ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
+                          : cards;
+                        if (visibleCards.length === 0) return null;
+                        const isCommanderGroup = label === 'Commander';
+                        const isTypeGroup = groupBy === 'type';
+                        const collapsed = collapsedGridCategories.has(label);
+                        // Estimate height: header ~28px, card aspect ~238px @ 170w, stack offset 36px
+                        const stackHeight = collapsed
+                          ? 0
+                          : (visibleCards.length - 1) * 36 + 238;
+                        return {
+                          key: label,
+                          estimatedHeight: 28 + stackHeight,
+                          render: () => (
+                            <div>
+                              <button
+                                onClick={() => setCollapsedGridCategories(prev => {
+                                  const next = new Set(prev);
+                                  next.has(label) ? next.delete(label) : next.add(label);
+                                  return next;
+                                })}
+                                className="flex items-center gap-1.5 pt-2 pb-1 w-full text-left group"
+                              >
+                                <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                                {(isTypeGroup || isCommanderGroup) && <CardTypeIcon type={label as CardType} size="sm" className="opacity-60" />}
+                                <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                                <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
+                              </button>
+                              {!collapsed && (
+                                <StacksColumn
+                                  cards={visibleCards}
+                                  renderTile={(card, quantity) => renderCardTile(card, quantity, isCommanderGroup)}
+                                />
+                              )}
+                            </div>
+                          ),
+                        };
+                      })
+                      .filter((x): x is NonNullable<typeof x> => x !== null)}
+                  />
+                </div>
+              ) : (
+                <div className="p-4 space-y-1">
+                  {groupedForDisplay.map(({ label, cards }) => {
+                    const visibleCards = combinedMatchingIds
+                      ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
+                      : cards;
+                    if (visibleCards.length === 0) return null;
+                    const isCommanderGroup = label === 'Commander';
+                    const isTypeGroup = groupBy === 'type';
+                    return (
+                      <div key={label}>
+                        <button
+                          onClick={() => setCollapsedGridCategories(prev => {
+                            const next = new Set(prev);
+                            next.has(label) ? next.delete(label) : next.add(label);
+                            return next;
+                          })}
+                          className="flex items-center gap-1.5 pt-2 pb-1 w-full text-left group"
+                        >
+                          <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsedGridCategories.has(label) ? '-rotate-90' : ''}`} />
+                          {(isTypeGroup || isCommanderGroup) && <CardTypeIcon type={label as CardType} size="sm" className="opacity-60" />}
+                          <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                          <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
+                        </button>
+                        {!collapsedGridCategories.has(label) && (
                           <div ref={gridAnimateRef} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
                             {visibleCards.map(({ card, quantity }) => renderCardTile(card, quantity, isCommanderGroup))}
                           </div>
-                        )
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             )}
           {deckFooter}
           </div>{/* end Deck View */}
