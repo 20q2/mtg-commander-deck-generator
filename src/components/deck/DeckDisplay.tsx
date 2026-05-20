@@ -3802,7 +3802,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 ))}
               </div>
             ) : (
-              <div className={`p-4 ${gridLayout === 'stacks' ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 items-start' : 'space-y-1'}`}>
+              <div className={`p-4 ${gridLayout === 'stacks' ? 'columns-2 sm:columns-3 md:columns-4 lg:columns-6 gap-4 [&>div]:break-inside-avoid [&>div]:mb-4' : 'space-y-1'}`}>
                 {groupedForDisplay.map(({ label, cards }) => {
                   const visibleCards = combinedMatchingIds
                     ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
