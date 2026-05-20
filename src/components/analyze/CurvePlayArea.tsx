@@ -144,7 +144,7 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
               </div>
             </button>
             {landsExpanded && (
-              <CurveRow label="" rowCards={buckets.lands} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+              <CurveRow label="" rowCards={buckets.lands} onHover={handleHover} onSelect={setPreviewCard} />
             )}
           </div>
         </>
@@ -185,7 +185,7 @@ function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowP
     <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-2 items-end min-h-[140px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
-        <CurveCell key={i} cards={col} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={() => onCmcSelect?.(i)} />
+        <CurveCell key={i} cards={col} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={onCmcSelect ? () => onCmcSelect(i) : undefined} />
       ))}
     </div>
   );
@@ -203,6 +203,9 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (cards.length === 0) {
+    if (!onEmptyClick) {
+      return <div className="min-h-[100px]" />;
+    }
     return (
       <button
         type="button"
