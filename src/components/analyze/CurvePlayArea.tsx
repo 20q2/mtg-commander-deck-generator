@@ -182,7 +182,7 @@ interface CurveRowProps {
 
 function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowProps) {
   return (
-    <div className="grid grid-cols-[64px_repeat(8,1fr)] gap-1 px-2 sm:px-4 py-1.5 items-end min-h-[100px]">
+    <div className="grid grid-cols-[64px_repeat(8,1fr)] gap-1 px-2 sm:px-4 py-2 items-end min-h-[160px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
         <CurveCell key={i} cards={col} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={onCmcSelect ? () => onCmcSelect(i) : undefined} />
@@ -204,23 +204,23 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
 
   if (cards.length === 0) {
     if (!onEmptyClick) {
-      return <div className="min-h-[80px]" />;
+      return <div className="min-h-[120px]" />;
     }
     return (
       <button
         type="button"
         onClick={onEmptyClick}
-        className="min-h-[80px] w-full rounded hover:bg-primary/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="min-h-[120px] w-full rounded hover:bg-primary/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         aria-label={`Filter analyzer to CMC ${cmcIndex === 7 ? '7+' : cmcIndex} (empty column)`}
       />
     );
   }
-  // Tight Arena-style fan: cap card width (~64px) and overlap so only the
-  // top title sliver of upper cards shows. Card aspect is ~5:7 → height ≈ 90px
-  // at width 64; overlap of 14 means each upper card peeks ~14px.
-  const CARD_W = 64;
+  // Tight Arena-style fan: cap card width (~96px) and overlap so only the
+  // top title sliver of upper cards shows. Card aspect is ~5:7 → height ≈ 134px
+  // at width 96; overlap of 22 means each upper card peeks ~22px.
+  const CARD_W = 96;
   const CARD_H = Math.round(CARD_W * 1.4);
-  const OVERLAP = 14;
+  const OVERLAP = 22;
   const stackHeight = (cards.length - 1) * OVERLAP + CARD_H;
   return (
     <div className="relative mx-auto" style={{ width: `${CARD_W}px`, height: `${stackHeight}px` }}>
@@ -232,7 +232,7 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
           <button
             key={card.name + idx}
             type="button"
-            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-[1.4] text-left w-full p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-[1.25] text-left w-full p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
             style={{ top: `${idx * OVERLAP}px`, zIndex: isHovered ? 50 : idx }}
             onClick={() => onSelect(card)}
             onMouseEnter={(e) => { setHoveredIdx(idx); onHover(card, e); }}
