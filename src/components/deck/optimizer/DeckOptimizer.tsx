@@ -1134,12 +1134,6 @@ export function DeckOptimizer({
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-500/20 bg-purple-500/5">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400/80 shrink-0" />
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                <span className="font-medium text-purple-400/80">Early Access</span> — analysis results may change as this feature is refined with feedback.
-              </p>
-            </div>
             <DeckHealthStrip
               analysis={analysis}
               onNavigate={setActiveTab}
