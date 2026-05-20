@@ -43,6 +43,18 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
     });
   };
 
+  const LANDS_KEY = 'analyze-play-area-lands-expanded';
+
+  const [landsExpanded, setLandsExpanded] = useState<boolean>(() => localStorage.getItem(LANDS_KEY) === 'true');
+
+  const toggleLands = () => {
+    setLandsExpanded(prev => {
+      const next = !prev;
+      localStorage.setItem(LANDS_KEY, String(next));
+      return next;
+    });
+  };
+
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
 
@@ -114,9 +126,26 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
           <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
           <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
 
-          <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 border-t border-border/20 items-center">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Lands</div>
-            <div className="col-span-8 text-[11px] text-muted-foreground/60">{buckets.landCount} lands</div>
+          <div className="border-t border-border/20">
+            <button
+              type="button"
+              onClick={toggleLands}
+              className="w-full grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 items-center hover:bg-accent/20 transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-expanded={landsExpanded}
+            >
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1">
+                {landsExpanded
+                  ? <ChevronDown className="w-3 h-3" />
+                  : <ChevronRight className="w-3 h-3" />}
+                Lands
+              </div>
+              <div className="col-span-8 text-[11px] text-muted-foreground/60">
+                {buckets.landCount} lands{landsExpanded ? '' : ' · click to expand'}
+              </div>
+            </button>
+            {landsExpanded && (
+              <CurveRow label="" rowCards={buckets.lands} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+            )}
           </div>
         </>
       )}
