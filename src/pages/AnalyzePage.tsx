@@ -3,6 +3,7 @@ import { LaneTabs, type LaneKey } from '@/components/analyze/LaneTabs';
 import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
 import { PasteLane, type PasteLaneResult } from '@/components/analyze/PasteLane';
 import { ListsLane } from '@/components/analyze/ListsLane';
+import { GenerateLane } from '@/components/analyze/GenerateLane';
 import { hydrateDeckForAnalysis } from '@/components/analyze/analyzeHydration';
 import { useStore } from '@/store';
 import type { UserCardList } from '@/types';
@@ -104,11 +105,7 @@ export function AnalyzePage() {
         {activeLane === 'lists' && (
           <ListsLane onPick={handleListPick} loading={loading} loadingListId={loadingListId} />
         )}
-        {activeLane === 'generate' && (
-          <p className="text-sm text-muted-foreground text-center py-10">
-            Generate lane (coming in Task 6)
-          </p>
-        )}
+        {activeLane === 'generate' && <GenerateLane />}
       </div>
 
       <WhatYoullSeeStrip />
