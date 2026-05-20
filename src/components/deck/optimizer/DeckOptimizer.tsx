@@ -18,7 +18,8 @@ import { useUserLists } from '@/hooks/useUserLists';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, ROLE_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS, edhrecRankToInclusion } from './constants';
 import { CutRow, RecommendationRow } from './shared';
-import { DeckHealthStrip } from './OverviewTab';
+import { DeckHealthStrip, AdjustPopoverContent } from './OverviewTab';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
 import { CurveSummaryStrip, ManaCurveLineChart, ManaTrajectorySparkline, CmcCardList, CurveDetailPanel, CurveFlagStrip, computeCurveFlags, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
@@ -1053,32 +1054,61 @@ export function DeckOptimizer({
             </button>
           );
         })}
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('overview');
-            // Defer one tick so the Overview tab is mounted before we
-            // dispatch the event its Adjust popover listens for.
-            requestAnimationFrame(() => {
-              document.dispatchEvent(new CustomEvent('deck-optimizer-adjust'));
-            });
-          }}
-          title="Click to adjust themes & tempo"
-          className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap px-2 py-1 rounded-md hover:bg-accent/40 hover:text-foreground transition-colors cursor-pointer"
-        >
-          {effectivePacing && (
-            <span className="flex items-center gap-1">
-              <Zap className="w-3 h-3" />
-              {PACING_LABELS[effectivePacing] || 'Balanced'}
-            </span>
-          )}
-          {effectivePacing && displayThemeNames && displayThemeNames.length > 0 && (
-            <span className="text-border">|</span>
-          )}
-          {displayThemeNames && displayThemeNames.length > 0
-            ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
-            : 'No themes selected'}
-        </button>
+        {themeDetection && analysis ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                title="Click to adjust themes & tempo"
+                className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap px-2 py-1 rounded-md hover:bg-accent/40 hover:text-foreground transition-colors cursor-pointer"
+              >
+                {effectivePacing && (
+                  <span className="flex items-center gap-1">
+                    <Zap className="w-3 h-3" />
+                    {PACING_LABELS[effectivePacing] || 'Balanced'}
+                  </span>
+                )}
+                {effectivePacing && displayThemeNames && displayThemeNames.length > 0 && (
+                  <span className="text-border">|</span>
+                )}
+                {displayThemeNames && displayThemeNames.length > 0
+                  ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
+                  : 'No themes selected'}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" className="w-80 p-0">
+              <AdjustPopoverContent
+                analysis={analysis}
+                detection={themeDetection}
+                allThemes={cachedEdhrecDataRef.current?.themes || []}
+                primaryThemeSlug={primaryThemeSlug}
+                secondaryThemeSlug={secondaryThemeSlug}
+                onThemeSelect={handleThemeSelect}
+                userLandTarget={userLandTarget}
+                onLandTargetChange={handleLandTargetChange}
+                deckSize={deckSize}
+                detectedPacing={detectedPacingRef.current ?? undefined}
+                userPacing={userPacing}
+                onPacingChange={handlePacingChange}
+              />
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+            {effectivePacing && (
+              <span className="flex items-center gap-1">
+                <Zap className="w-3 h-3" />
+                {PACING_LABELS[effectivePacing] || 'Balanced'}
+              </span>
+            )}
+            {effectivePacing && displayThemeNames && displayThemeNames.length > 0 && (
+              <span className="text-border">|</span>
+            )}
+            {displayThemeNames && displayThemeNames.length > 0
+              ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
+              : 'No themes selected'}
+          </span>
+        )}
       </div>
       )}
 

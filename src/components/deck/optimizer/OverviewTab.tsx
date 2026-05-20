@@ -504,6 +504,235 @@ function SummarySection({ type, items, onNavigate, onNavigateRole }: {
   );
 }
 
+// ─── Adjust Popover Content ────────────────────────────────────────────
+// Shared body of the "Adjust themes & tempo" popover. Rendered in two
+// places: by the Overview tab's existing Adjust button and by the
+// pacing/themes status strip in the analyzer's tab bar.
+
+export function AdjustPopoverContent({
+  analysis,
+  detection,
+  allThemes,
+  primaryThemeSlug,
+  secondaryThemeSlug,
+  onThemeSelect,
+  userLandTarget,
+  onLandTargetChange,
+  deckSize,
+  detectedPacing,
+  userPacing,
+  onPacingChange,
+}: {
+  analysis: DeckAnalysis;
+  detection: DetectedThemeResult;
+  allThemes: EDHRECTheme[];
+  primaryThemeSlug?: string | null;
+  secondaryThemeSlug?: string | null;
+  onThemeSelect: (slug: string) => void;
+  userLandTarget?: number | null;
+  onLandTargetChange?: (target: number | null) => void;
+  deckSize?: number;
+  detectedPacing?: Pacing;
+  userPacing?: Pacing | null;
+  onPacingChange: (pacing: Pacing | null) => void;
+}) {
+  const chipThemes = useMemo(() => {
+    const evaluatedSlugs = new Set(detection.evaluatedThemes.map(t => t.theme.slug));
+    const chips: Array<{ name: string; slug: string; score?: number }> = [];
+    for (const et of detection.evaluatedThemes) {
+      chips.push({ name: et.theme.name, slug: et.theme.slug, score: et.score });
+    }
+    for (const theme of allThemes) {
+      if (evaluatedSlugs.has(theme.slug)) continue;
+      if (chips.length >= 8) break;
+      chips.push({ name: theme.name, slug: theme.slug });
+    }
+    return chips;
+  }, [detection, allThemes]);
+
+  const activePacing = userPacing ?? detectedPacing;
+
+  return (
+    <>
+      <div className="px-3 pt-2.5 pb-1.5 border-b border-border/20">
+        <p className="text-[11px] text-muted-foreground/70 leading-snug">
+          Did we detect incorrectly? Adjust manually to affect card and curve suggestions.
+        </p>
+      </div>
+      {/* Theme chips */}
+      <div className="p-3 pb-2">
+        <div className="flex items-center gap-2 mb-2">
+          <Tag className="w-3 h-3 text-muted-foreground" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Themes</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {chipThemes.map(chip => {
+            const isPrimary = chip.slug === primaryThemeSlug;
+            const isSecondary = chip.slug === secondaryThemeSlug;
+            return (
+              <button
+                key={chip.slug}
+                onClick={() => onThemeSelect(chip.slug)}
+                className={`
+                  inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
+                  transition-all duration-200 cursor-pointer
+                  ${isPrimary
+                    ? 'bg-primary/20 border-primary/40 text-primary font-semibold'
+                    : isSecondary
+                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
+                      : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                  }
+                `}
+                title={
+                  isPrimary ? 'Primary theme (click to deselect)'
+                    : isSecondary ? 'Secondary theme (click to deselect)'
+                      : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
+                        : 'Click to select as theme'
+                }
+              >
+                {isPrimary && (
+                  <span className="w-3.5 h-3.5 rounded-full bg-primary/30 text-[9px] font-bold flex items-center justify-center leading-none">1</span>
+                )}
+                {isSecondary && (
+                  <span className="w-3.5 h-3.5 rounded-full bg-amber-500/30 text-[9px] font-bold flex items-center justify-center leading-none">2</span>
+                )}
+                {!isPrimary && !isSecondary && <Tag className="w-2.5 h-2.5" />}
+                {chip.name}
+                {chip.score != null && chip.score >= 20 && (
+                  <span className={`text-[10px] tabular-nums ml-0.5 ${
+                    isPrimary ? 'text-primary/70' : isSecondary ? 'text-amber-400/70' : 'text-muted-foreground/50'
+                  }`}>
+                    {Math.round(chip.score)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Land Target override */}
+      {onLandTargetChange && (
+      <div className="p-3 pt-2 border-t border-border/20">
+        <div className="flex items-center gap-2 mb-2">
+          <Mountain className="w-3 h-3 text-muted-foreground" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Target</span>
+          {userLandTarget != null && (
+            <button
+              onClick={() => onLandTargetChange(null)}
+              className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
+              title="Reset to auto-detected land target"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+              const min = Math.floor((deckSize ?? 99) * 0.25);
+              if (current > min) onLandTargetChange(current - 1);
+            }}
+            className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+          >
+            <Minus className="w-3 h-3" />
+          </button>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-sm font-bold tabular-nums ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
+              {userLandTarget ?? analysis.manaBase.adjustedSuggestion}
+            </span>
+            <span className="text-[10px] text-muted-foreground/50">lands</span>
+          </div>
+          <button
+            onClick={() => {
+              const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
+              const max = Math.floor((deckSize ?? 99) * 0.50);
+              if (current < max) onLandTargetChange(current + 1);
+            }}
+            className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+          </button>
+          {userLandTarget == null && (
+            <span className="text-[10px] text-muted-foreground/40 ml-1">Auto-detected</span>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Tempo selector */}
+      <div className="p-3 pt-2 border-t border-border/20">
+        <div className="flex items-center gap-2 mb-2">
+          <Zap className="w-3 h-3 text-muted-foreground" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tempo</span>
+          {userPacing && (
+            <button
+              onClick={() => onPacingChange(null)}
+              className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
+              title="Reset to auto-detected tempo"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {TEMPO_OPTIONS.map(opt => {
+            const isActive = activePacing === opt.value;
+            const isDetected = detectedPacing === opt.value && !userPacing;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onPacingChange(isActive && userPacing ? null : opt.value)}
+                className={`
+                  inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
+                  transition-all duration-200 cursor-pointer
+                  ${isActive
+                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 font-semibold'
+                    : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                  }
+                `}
+                title={opt.short}
+              >
+                {isDetected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
+                {opt.label}
+              </button>
+            );
+          })}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="p-0.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="What do these mean?">
+                <Info className="w-3.5 h-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="start" className="w-80 p-0">
+              <div className="p-3 border-b border-border/30">
+                <p className="text-xs font-semibold">Tempo Guide</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Controls how the mana curve is shaped during deck building</p>
+              </div>
+              <div className="divide-y divide-border/20">
+                {TEMPO_OPTIONS.map(opt => {
+                  const isActive = activePacing === opt.value;
+                  return (
+                    <div key={opt.value} className={`px-3 py-2 ${isActive ? 'bg-sky-500/5' : ''}`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-semibold ${isActive ? 'text-sky-400' : 'text-foreground'}`}>{opt.label}</span>
+                        {isActive && <span className="text-[9px] text-sky-400/70 font-medium uppercase">Active</span>}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{opt.detail}</p>
+                      <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">{opt.examples}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Overview: Deck Health Strip ───────────────────────────────────────
 
 export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExcess,
@@ -538,34 +767,7 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
   const summary = getDeckSummaryData(analysis, deckExcess);
   const gradeStyle = HEALTH_GRADE_STYLES[summary.gradeLetter] || HEALTH_GRADE_STYLES.C;
 
-  // Theme chips for the collapsible selector
   const hasThemes = !!detection && !!(allThemes && allThemes.length > 0);
-  const chipThemes = useMemo(() => {
-    if (!detection || !allThemes) return [];
-    const evaluatedSlugs = new Set(detection.evaluatedThemes.map(t => t.theme.slug));
-    const chips: Array<{ name: string; slug: string; score?: number }> = [];
-    for (const et of detection.evaluatedThemes) {
-      chips.push({ name: et.theme.name, slug: et.theme.slug, score: et.score });
-    }
-    for (const theme of allThemes) {
-      if (evaluatedSlugs.has(theme.slug)) continue;
-      if (chips.length >= 8) break;
-      chips.push({ name: theme.name, slug: theme.slug });
-    }
-    return chips;
-  }, [detection, allThemes]);
-
-  const activePacing = userPacing ?? detectedPacing;
-
-  // Controlled-open state so external triggers (e.g. clicking the
-  // tempo/themes status strip in the analyzer tab bar) can open the
-  // Adjust popover.
-  const [adjustOpen, setAdjustOpen] = useState(false);
-  useEffect(() => {
-    const handler = () => setAdjustOpen(true);
-    document.addEventListener('deck-optimizer-adjust', handler);
-    return () => document.removeEventListener('deck-optimizer-adjust', handler);
-  }, []);
 
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 360px' }}>
@@ -580,7 +782,7 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
             <Loader2 className="w-3 h-3 animate-spin text-primary/40 ml-auto shrink-0" />
           )}
           {(hasThemes || themeLoading) && detection && onThemeSelect && onPacingChange && (
-            <Popover open={adjustOpen} onOpenChange={setAdjustOpen}>
+            <Popover>
               <PopoverTrigger asChild>
                 <button
                   className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 ml-auto"
@@ -592,181 +794,20 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
                 </button>
               </PopoverTrigger>
               <PopoverContent side="bottom" align="end" className="w-80 p-0">
-                <div className="px-3 pt-2.5 pb-1.5 border-b border-border/20">
-                  <p className="text-[11px] text-muted-foreground/70 leading-snug">
-                    Did we detect incorrectly? Adjust manually to affect card and curve suggestions.
-                  </p>
-                </div>
-                {/* Theme chips */}
-                <div className="p-3 pb-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Tag className="w-3 h-3 text-muted-foreground" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Themes</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {chipThemes.map(chip => {
-                      const isPrimary = chip.slug === primaryThemeSlug;
-                      const isSecondary = chip.slug === secondaryThemeSlug;
-                      return (
-                        <button
-                          key={chip.slug}
-                          onClick={() => onThemeSelect(chip.slug)}
-                          className={`
-                            inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
-                            transition-all duration-200 cursor-pointer
-                            ${isPrimary
-                              ? 'bg-primary/20 border-primary/40 text-primary font-semibold'
-                              : isSecondary
-                                ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
-                                : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
-                            }
-                          `}
-                          title={
-                            isPrimary ? 'Primary theme (click to deselect)'
-                              : isSecondary ? 'Secondary theme (click to deselect)'
-                                : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
-                                  : 'Click to select as theme'
-                          }
-                        >
-                          {isPrimary && (
-                            <span className="w-3.5 h-3.5 rounded-full bg-primary/30 text-[9px] font-bold flex items-center justify-center leading-none">1</span>
-                          )}
-                          {isSecondary && (
-                            <span className="w-3.5 h-3.5 rounded-full bg-amber-500/30 text-[9px] font-bold flex items-center justify-center leading-none">2</span>
-                          )}
-                          {!isPrimary && !isSecondary && <Tag className="w-2.5 h-2.5" />}
-                          {chip.name}
-                          {chip.score != null && chip.score >= 20 && (
-                            <span className={`text-[10px] tabular-nums ml-0.5 ${
-                              isPrimary ? 'text-primary/70' : isSecondary ? 'text-amber-400/70' : 'text-muted-foreground/50'
-                            }`}>
-                              {Math.round(chip.score)}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Land Target override */}
-                {onLandTargetChange && (
-                <div className="p-3 pt-2 border-t border-border/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Mountain className="w-3 h-3 text-muted-foreground" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land Target</span>
-                    {userLandTarget != null && (
-                      <button
-                        onClick={() => onLandTargetChange(null)}
-                        className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
-                        title="Reset to auto-detected land target"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
-                        const min = Math.floor((deckSize ?? 99) * 0.25);
-                        if (current > min) onLandTargetChange(current - 1);
-                      }}
-                      className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-sm font-bold tabular-nums ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
-                        {userLandTarget ?? analysis.manaBase.adjustedSuggestion}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/50">lands</span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const current = userLandTarget ?? analysis.manaBase.adjustedSuggestion;
-                        const max = Math.floor((deckSize ?? 99) * 0.50);
-                        if (current < max) onLandTargetChange(current + 1);
-                      }}
-                      className="p-1 rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                    {userLandTarget == null && (
-                      <span className="text-[10px] text-muted-foreground/40 ml-1">Auto-detected</span>
-                    )}
-                  </div>
-                </div>
-                )}
-
-                {/* Tempo selector */}
-                <div className="p-3 pt-2 border-t border-border/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className="w-3 h-3 text-muted-foreground" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tempo</span>
-                    {userPacing && (
-                      <button
-                        onClick={() => onPacingChange(null)}
-                        className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
-                        title="Reset to auto-detected tempo"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {TEMPO_OPTIONS.map(opt => {
-                      const isActive = activePacing === opt.value;
-                      const isDetected = detectedPacing === opt.value && !userPacing;
-                      return (
-                        <button
-                          key={opt.value}
-                          onClick={() => onPacingChange(isActive && userPacing ? null : opt.value)}
-                          className={`
-                            inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
-                            transition-all duration-200 cursor-pointer
-                            ${isActive
-                              ? 'bg-sky-500/20 border-sky-500/40 text-sky-400 font-semibold'
-                              : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
-                            }
-                          `}
-                          title={opt.short}
-                        >
-                          {isDetected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button className="p-0.5 rounded-full text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="What do these mean?">
-                          <Info className="w-3.5 h-3.5" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent side="bottom" align="start" className="w-80 p-0">
-                        <div className="p-3 border-b border-border/30">
-                          <p className="text-xs font-semibold">Tempo Guide</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">Controls how the mana curve is shaped during deck building</p>
-                        </div>
-                        <div className="divide-y divide-border/20">
-                          {TEMPO_OPTIONS.map(opt => {
-                            const isActive = activePacing === opt.value;
-                            return (
-                              <div key={opt.value} className={`px-3 py-2 ${isActive ? 'bg-sky-500/5' : ''}`}>
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-xs font-semibold ${isActive ? 'text-sky-400' : 'text-foreground'}`}>{opt.label}</span>
-                                  {isActive && <span className="text-[9px] text-sky-400/70 font-medium uppercase">Active</span>}
-                                </div>
-                                <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{opt.detail}</p>
-                                <p className="text-[11px] text-muted-foreground/50 italic mt-0.5">{opt.examples}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
+                <AdjustPopoverContent
+                  analysis={analysis}
+                  detection={detection}
+                  allThemes={allThemes ?? []}
+                  primaryThemeSlug={primaryThemeSlug}
+                  secondaryThemeSlug={secondaryThemeSlug}
+                  onThemeSelect={onThemeSelect}
+                  userLandTarget={userLandTarget}
+                  onLandTargetChange={onLandTargetChange}
+                  deckSize={deckSize}
+                  detectedPacing={detectedPacing}
+                  userPacing={userPacing}
+                  onPacingChange={onPacingChange}
+                />
               </PopoverContent>
             </Popover>
           )}
