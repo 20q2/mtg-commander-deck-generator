@@ -11,9 +11,17 @@ import { DeckOptimizer } from '@/components/deck/optimizer';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
-import type { UserCardList } from '@/types';
+import { trackEvent } from '@/services/analytics';
+import type { UserCardList, GeneratedDeck } from '@/types';
 
 const LANE_STORAGE_KEY = 'analyze-active-lane';
+
+function countCards(deck: GeneratedDeck): number {
+  const partner = deck.partnerCommander ? 1 : 0;
+  const commander = deck.commander ? 1 : 0;
+  const body = Object.values(deck.categories).reduce((n, a) => n + a.length, 0);
+  return commander + partner + body;
+}
 
 export function AnalyzePage() {
   const [activeLane, setActiveLane] = useState<LaneKey>(() => {
@@ -32,9 +40,22 @@ export function AnalyzePage() {
   const [searchParams] = useSearchParams();
   const listIdParam = searchParams.get('listId');
 
+  const prevLaneRef = useRef<LaneKey>(activeLane);
   useEffect(() => {
     localStorage.setItem(LANE_STORAGE_KEY, activeLane);
+    if (prevLaneRef.current !== activeLane) {
+      trackEvent('analyze_lane_switched', { from: prevLaneRef.current, to: activeLane });
+      prevLaneRef.current = activeLane;
+    }
   }, [activeLane]);
+
+  // Page-view event with source attribution (one-shot on mount).
+  useEffect(() => {
+    const generated = useStore.getState().generatedDeck;
+    const src = listIdParam ? 'from_list' : (generated ? 'from_generate' : 'direct');
+    trackEvent('analyze_page_viewed', { source: src });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Hydrate from ?listId= (bridge from ListDeckView) on mount.
   const hydratedListIdRef = useRef<string | null>(null);
@@ -59,6 +80,11 @@ export function AnalyzePage() {
           generatedDeck: deck,
         });
         setSource({ kind: 'list', listId: list.id, listName: list.name });
+        trackEvent('analyze_deck_loaded', {
+          source: 'list',
+          cardCount: countCards(deck),
+          hasCommander: !!deck.commander,
+        });
       })
       .catch(e => {
         console.error('[AnalyzePage] listId hydration failed', e);
@@ -73,6 +99,11 @@ export function AnalyzePage() {
     if (source !== null) return;
     if (generatedDeck && !listIdParam) {
       setSource({ kind: 'generated' });
+      trackEvent('analyze_deck_loaded', {
+        source: 'generated',
+        cardCount: countCards(generatedDeck),
+        hasCommander: !!generatedDeck.commander,
+      });
     }
   }, [generatedDeck, listIdParam, source]);
 
@@ -100,6 +131,11 @@ export function AnalyzePage() {
         generatedDeck: deck,
       });
       setSource({ kind: 'paste' });
+      trackEvent('analyze_deck_loaded', {
+        source: 'paste',
+        cardCount: countCards(deck),
+        hasCommander: !!deck.commander,
+      });
     } catch (e) {
       console.error('[AnalyzePage] paste hydration failed', e);
       setError('Could not analyze this deck. Check the card names and try again.');
@@ -126,6 +162,11 @@ export function AnalyzePage() {
         generatedDeck: deck,
       });
       setSource({ kind: 'list', listId: list.id, listName: list.name });
+      trackEvent('analyze_deck_loaded', {
+        source: 'list',
+        cardCount: countCards(deck),
+        hasCommander: !!deck.commander,
+      });
     } catch (e) {
       console.error('[AnalyzePage] list hydration failed', e);
       setError('Could not analyze this list. Please try again.');
