@@ -1053,7 +1053,19 @@ export function DeckOptimizer({
             </button>
           );
         })}
-        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('overview');
+            // Defer one tick so the Overview tab is mounted before we
+            // dispatch the event its Adjust popover listens for.
+            requestAnimationFrame(() => {
+              document.dispatchEvent(new CustomEvent('deck-optimizer-adjust'));
+            });
+          }}
+          title="Click to adjust themes & tempo"
+          className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap px-2 py-1 rounded-md hover:bg-accent/40 hover:text-foreground transition-colors cursor-pointer"
+        >
           {effectivePacing && (
             <span className="flex items-center gap-1">
               <Zap className="w-3 h-3" />
@@ -1066,7 +1078,7 @@ export function DeckOptimizer({
           {displayThemeNames && displayThemeNames.length > 0
             ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
             : 'No themes selected'}
-        </span>
+        </button>
       </div>
       )}
 

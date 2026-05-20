@@ -557,6 +557,16 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
 
   const activePacing = userPacing ?? detectedPacing;
 
+  // Controlled-open state so external triggers (e.g. clicking the
+  // tempo/themes status strip in the analyzer tab bar) can open the
+  // Adjust popover.
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  useEffect(() => {
+    const handler = () => setAdjustOpen(true);
+    document.addEventListener('deck-optimizer-adjust', handler);
+    return () => document.removeEventListener('deck-optimizer-adjust', handler);
+  }, []);
+
   return (
     <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 360px' }}>
       {/* Summary card */}
@@ -570,7 +580,7 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
             <Loader2 className="w-3 h-3 animate-spin text-primary/40 ml-auto shrink-0" />
           )}
           {(hasThemes || themeLoading) && detection && onThemeSelect && onPacingChange && (
-            <Popover>
+            <Popover open={adjustOpen} onOpenChange={setAdjustOpen}>
               <PopoverTrigger asChild>
                 <button
                   className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors shrink-0 ml-auto"
