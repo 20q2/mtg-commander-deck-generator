@@ -1,5 +1,5 @@
 // src/components/analyze/CurvePlayArea.tsx
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './CurvePlayArea.buckets';
 import { getCardImageUrl } from '@/services/scryfall/client';
@@ -18,11 +18,26 @@ const ROLE_STRIPE: Record<string, string> = {
   cardDraw:  'bg-sky-500',
 };
 
+interface HoverState {
+  card: ScryfallCard;
+  anchor: { right: number; top: number; height: number };
+}
+
 export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
   );
+  const [hover, setHover] = useState<HoverState | null>(null);
+
+  const handleHover = (card: ScryfallCard | null, e?: React.MouseEvent) => {
+    if (card && e) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setHover({ card, anchor: { right: rect.right, top: rect.top, height: rect.height } });
+    } else {
+      setHover(null);
+    }
+  };
 
   return (
     <div className="mb-2 rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm overflow-hidden">
@@ -44,17 +59,30 @@ export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps
         ))}
       </div>
 
-      {/* Creatures row */}
-      <CurveRow label="Creatures" rowCards={buckets.creatures} />
+      <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} />
+      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} />
 
-      {/* Non-creatures row */}
-      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} />
-
-      {/* Lands row (collapsed summary for now — Task 8 will add expand) */}
       <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 border-t border-border/20 items-center">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Lands</div>
         <div className="col-span-8 text-[11px] text-muted-foreground/60">{buckets.landCount} lands</div>
       </div>
+
+      {/* Floating hover preview — hidden on small viewports */}
+      {hover && (
+        <div
+          className="fixed z-[100] pointer-events-none hidden lg:block"
+          style={{
+            left: hover.anchor.right + 12,
+            top: Math.min(Math.max(8, hover.anchor.top + hover.anchor.height / 2 - 180), window.innerHeight - 400),
+          }}
+        >
+          <img
+            src={getCardImageUrl(hover.card, 'normal') ?? ''}
+            alt={hover.card.name}
+            className="w-64 rounded-lg shadow-2xl border border-border/50"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -62,14 +90,15 @@ export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps
 interface CurveRowProps {
   label: string;
   rowCards: ScryfallCard[][];
+  onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
 }
 
-function CurveRow({ label, rowCards }: CurveRowProps) {
+function CurveRow({ label, rowCards, onHover }: CurveRowProps) {
   return (
     <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-2 items-end min-h-[140px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
-        <CurveCell key={i} cards={col} />
+        <CurveCell key={i} cards={col} onHover={onHover} />
       ))}
     </div>
   );
@@ -77,15 +106,14 @@ function CurveRow({ label, rowCards }: CurveRowProps) {
 
 interface CurveCellProps {
   cards: ScryfallCard[];
+  onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
 }
 
-function CurveCell({ cards }: CurveCellProps) {
+function CurveCell({ cards, onHover }: CurveCellProps) {
   if (cards.length === 0) {
     return <div className="min-h-[100px]" />;
   }
-  // Fan: each card offset down from the previous so only a thin slice of
-  // upper cards is visible. The last card in the array is shown fully.
-  const OVERLAP = 18; // px each card peeks below the previous
+  const OVERLAP = 18;
   return (
     <div className="relative" style={{ height: `${(cards.length - 1) * OVERLAP + 90}px` }}>
       {cards.map((card, idx) => {
@@ -94,8 +122,10 @@ function CurveCell({ cards }: CurveCellProps) {
         return (
           <div
             key={card.name + idx}
-            className="absolute left-0 right-0"
+            className="absolute left-0 right-0 transition-transform duration-150 hover:z-50 hover:scale-110"
             style={{ top: `${idx * OVERLAP}px`, zIndex: idx }}
+            onMouseEnter={(e) => onHover(card, e)}
+            onMouseLeave={() => onHover(null)}
           >
             {stripeClass && <div className={`absolute top-0 left-0 right-0 h-[3px] z-10 ${stripeClass} rounded-t`} />}
             <img
