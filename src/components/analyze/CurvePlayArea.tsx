@@ -68,9 +68,9 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
   };
 
   return (
-    <div className="mb-2 rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm overflow-hidden">
+    <div className="mb-2 border-y border-border/40">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30">
+      <div className="flex items-center justify-between px-2 sm:px-4 py-1.5 border-b border-border/30">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Curve</span>
         <div className="flex items-center gap-3">
           <span className="text-[11px] text-muted-foreground/60">
@@ -89,7 +89,7 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
       </div>
 
       {collapsed ? (
-        <div className="px-3 py-2 grid grid-cols-8 gap-1 items-end h-12">
+        <div className="px-2 sm:px-4 py-2 grid grid-cols-8 gap-1 items-end h-12">
           {buckets.countsByCmc.map((count, i) => {
             const max = Math.max(...buckets.countsByCmc, 1);
             const heightPct = Math.max(8, Math.round((count / max) * 100));
@@ -108,7 +108,7 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
       ) : (
         <>
           {/* CMC column headers */}
-          <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 pt-2 text-[10px] text-muted-foreground/70">
+          <div className="grid grid-cols-[64px_repeat(8,1fr)] gap-1 px-2 sm:px-4 pt-2 text-[10px] text-muted-foreground/70">
             <div></div>
             {COLUMN_LABELS.map((label, i) => (
               <button
@@ -130,7 +130,7 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
             <button
               type="button"
               onClick={toggleLands}
-              className="w-full grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 items-center hover:bg-accent/20 transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="w-full grid grid-cols-[64px_repeat(8,1fr)] gap-1 px-2 sm:px-4 py-1.5 items-center hover:bg-accent/20 transition-colors text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-expanded={landsExpanded}
             >
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 flex items-center gap-1">
@@ -182,7 +182,7 @@ interface CurveRowProps {
 
 function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowProps) {
   return (
-    <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-2 items-end min-h-[140px]">
+    <div className="grid grid-cols-[64px_repeat(8,1fr)] gap-1 px-2 sm:px-4 py-1.5 items-end min-h-[100px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
         <CurveCell key={i} cards={col} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={onCmcSelect ? () => onCmcSelect(i) : undefined} />
@@ -204,20 +204,26 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
 
   if (cards.length === 0) {
     if (!onEmptyClick) {
-      return <div className="min-h-[100px]" />;
+      return <div className="min-h-[80px]" />;
     }
     return (
       <button
         type="button"
         onClick={onEmptyClick}
-        className="min-h-[100px] w-full rounded hover:bg-primary/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="min-h-[80px] w-full rounded hover:bg-primary/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         aria-label={`Filter analyzer to CMC ${cmcIndex === 7 ? '7+' : cmcIndex} (empty column)`}
       />
     );
   }
-  const OVERLAP = 18;
+  // Tight Arena-style fan: cap card width (~64px) and overlap so only the
+  // top title sliver of upper cards shows. Card aspect is ~5:7 → height ≈ 90px
+  // at width 64; overlap of 14 means each upper card peeks ~14px.
+  const CARD_W = 64;
+  const CARD_H = Math.round(CARD_W * 1.4);
+  const OVERLAP = 14;
+  const stackHeight = (cards.length - 1) * OVERLAP + CARD_H;
   return (
-    <div className="relative" style={{ height: `${(cards.length - 1) * OVERLAP + 90}px` }}>
+    <div className="relative mx-auto" style={{ width: `${CARD_W}px`, height: `${stackHeight}px` }}>
       {cards.map((card, idx) => {
         const stripeClass = card.deckRole ? (ROLE_STRIPE[card.deckRole] ?? '') : '';
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
@@ -226,13 +232,13 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
           <button
             key={card.name + idx}
             type="button"
-            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-110 text-left w-full p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-[1.4] text-left w-full p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
             style={{ top: `${idx * OVERLAP}px`, zIndex: isHovered ? 50 : idx }}
             onClick={() => onSelect(card)}
             onMouseEnter={(e) => { setHoveredIdx(idx); onHover(card, e); }}
             onMouseLeave={() => { setHoveredIdx(null); onHover(null); }}
           >
-            {stripeClass && <div className={`absolute top-0 left-0 right-0 h-[3px] z-10 ${stripeClass} rounded-t`} />}
+            {stripeClass && <div className={`absolute top-0 left-0 right-0 h-[2px] z-10 ${stripeClass} rounded-t`} />}
             <img
               src={imgUrl}
               alt={card.name}
