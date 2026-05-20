@@ -9,6 +9,7 @@ import { GenerateLane } from '@/components/analyze/GenerateLane';
 import { CommanderStrip, type AnalyzeSource } from '@/components/analyze/CommanderStrip';
 import { hydrateDeckForAnalysis } from '@/components/analyze/analyzeHydration';
 import { DeckOptimizer } from '@/components/deck/optimizer';
+import { CurvePlayArea } from '@/components/analyze/CurvePlayArea';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
@@ -246,18 +247,29 @@ export function AnalyzePage() {
         />
         </div>
         {generatedDeck.commander && (
-          <DeckOptimizer
-            commanderName={generatedDeck.commander.name}
-            partnerCommanderName={generatedDeck.partnerCommander?.name}
-            currentCards={Object.values(generatedDeck.categories).flat()}
-            deckSize={analyzerDeckSize}
-            roleCounts={generatedDeck.roleCounts || {}}
-            roleTargets={generatedDeck.roleTargets || {}}
-            categories={generatedDeck.categories}
-            cardInclusionMap={generatedDeck.cardInclusionMap}
-            activeTab={activeAnalyzerTab}
-            onTabChange={handleAnalyzerTabChange}
-          />
+          <>
+            <CurvePlayArea
+              currentCards={Object.values(generatedDeck.categories).flat()}
+              excludeNames={(() => {
+                const s = new Set<string>();
+                if (generatedDeck.commander) s.add(generatedDeck.commander.name);
+                if (generatedDeck.partnerCommander) s.add(generatedDeck.partnerCommander.name);
+                return s;
+              })()}
+            />
+            <DeckOptimizer
+              commanderName={generatedDeck.commander.name}
+              partnerCommanderName={generatedDeck.partnerCommander?.name}
+              currentCards={Object.values(generatedDeck.categories).flat()}
+              deckSize={analyzerDeckSize}
+              roleCounts={generatedDeck.roleCounts || {}}
+              roleTargets={generatedDeck.roleTargets || {}}
+              categories={generatedDeck.categories}
+              cardInclusionMap={generatedDeck.cardInclusionMap}
+              activeTab={activeAnalyzerTab}
+              onTabChange={handleAnalyzerTabChange}
+            />
+          </>
         )}
       </main>
     );
