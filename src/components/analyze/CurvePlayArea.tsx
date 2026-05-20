@@ -1,6 +1,7 @@
 // src/components/analyze/CurvePlayArea.tsx
 import { useMemo, useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, ArrowUpDown, BarChart3 } from 'lucide-react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './CurvePlayArea.buckets';
 import { getCardImageUrl, getCardPrice, isBasicLand, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
@@ -448,6 +449,11 @@ interface CurveCellProps {
 }
 
 function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCellProps) {
+  // FLIP-based reorder animation when sort changes. ~280ms feels right for
+  // a card "settling" gesture — long enough to track, short enough not to
+  // feel sluggish on a multi-column update.
+  const [fanRef] = useAutoAnimate({ duration: 280, easing: 'ease-in-out' });
+
   if (cards.length === 0) {
     if (!onEmptyClick) {
       return <div className="w-full aspect-[5/7] min-h-[120px]" />;
@@ -467,7 +473,7 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
   // sliver visible (half the previous 20%). Hovered cards do NOT lift in
   // the stack (the floating preview to the right is the hover signal).
   return (
-    <div className="relative flex flex-col w-full">
+    <div ref={fanRef} className="relative flex flex-col w-full">
       {cards.map((card, idx) => {
         const role = card.deckRole;
         const badgeClass = role ? (ROLE_BADGE[role] ?? '') : '';
