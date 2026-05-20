@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.2",
+    "notes": [
+      "Deck grid view: new Stacks layout option — cards overlap in vertical columns, Moxfield-style.",
+      "Deck grid view: new Group selector — group cards by Type, Mana Value, Color, Color Identity, Rarity, Role, or No Grouping."
+    ]
+  },
+  {
     "version": "1.3.1",
     "notes": [
       "New curve play area on the Analyze page — see your deck laid out by CMC and type with role-colored stripes.",
