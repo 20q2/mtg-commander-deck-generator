@@ -4,7 +4,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { DeckDisplay } from '@/components/deck/DeckDisplay';
-import { DeckOptimizer } from '@/components/deck/optimizer';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { PartnerSelector } from '@/components/commander/PartnerSelector';
@@ -18,7 +17,7 @@ import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, MoreHorizontal } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, MoreHorizontal, Microscope } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -43,15 +42,6 @@ export function BuilderPage() {
   const saveInputRef = useRef<HTMLInputElement>(null);
   const { createList } = useUserLists();
   const exportTriggerRef = useRef<(() => void) | null>(null);
-  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ enabled: boolean }>).detail;
-      setEaEnabled(!!detail?.enabled);
-    };
-    window.addEventListener('ea-features-changed', handler);
-    return () => window.removeEventListener('ea-features-changed', handler);
-  }, []);
   const [headerCollectionNames, setHeaderCollectionNames] = useState<Set<string> | null>(null);
 
   const {
@@ -1047,6 +1037,17 @@ export function BuilderPage() {
               exportTriggerRef.current = onExport;
               return (
                 <div className="flex items-center gap-2 xl:hidden">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      trackEvent('analyze_cta_clicked', { from: 'builder' });
+                      navigate('/analyze');
+                    }}
+                  >
+                    <Microscope className="w-4 h-4 mr-1.5" />
+                    Analyze
+                  </Button>
                   <Button onClick={onExport} className="btn-shimmer">
                     <Copy className="w-4 h-4 mr-2" />
                     Export
@@ -1157,6 +1158,18 @@ export function BuilderPage() {
                     </form>
                   </PopoverContent>
                 </Popover>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    trackEvent('analyze_cta_clicked', { from: 'builder' });
+                    navigate('/analyze');
+                  }}
+                  title="Open in the Analyze page"
+                >
+                  <Microscope className="w-4 h-4 mr-1.5" />
+                  Analyze
+                </Button>
                 <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
                   <Copy className="w-4 h-4 mr-2" />
                   Export
@@ -1168,20 +1181,6 @@ export function BuilderPage() {
               <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />
             )}
           </DeckDisplay>
-          {eaEnabled && commander && generatedDeck && (
-            <DeckOptimizer
-              commanderName={commander.name}
-              partnerCommanderName={partnerCommander?.name}
-              currentCards={Object.values(generatedDeck.categories).flat()}
-              deckSize={customization.deckFormat === 99 ? (100 - (partnerCommander ? 2 : 1)) : (customization.deckFormat - (partnerCommander ? 2 : 1))}
-              roleCounts={generatedDeck.roleCounts || {}}
-              roleTargets={generatedDeck.roleTargets || {}}
-              categories={generatedDeck.categories}
-              cardInclusionMap={generatedDeck.cardInclusionMap}
-              onAddCards={(names, _dest) => handleAddCards(names)}
-              onRemoveCards={handleRemoveCards}
-            />
-          )}
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (
             <GapAnalysisDisplay cards={generatedDeck.gapAnalysis} />
           )}
