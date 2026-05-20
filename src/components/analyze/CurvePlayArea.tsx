@@ -110,6 +110,8 @@ interface CurveCellProps {
 }
 
 function CurveCell({ cards, onHover }: CurveCellProps) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   if (cards.length === 0) {
     return <div className="min-h-[100px]" />;
   }
@@ -119,13 +121,14 @@ function CurveCell({ cards, onHover }: CurveCellProps) {
       {cards.map((card, idx) => {
         const stripeClass = card.deckRole ? (ROLE_STRIPE[card.deckRole] ?? '') : '';
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
+        const isHovered = hoveredIdx === idx;
         return (
           <div
             key={card.name + idx}
-            className="absolute left-0 right-0 transition-transform duration-150 hover:z-50 hover:scale-110"
-            style={{ top: `${idx * OVERLAP}px`, zIndex: idx }}
-            onMouseEnter={(e) => onHover(card, e)}
-            onMouseLeave={() => onHover(null)}
+            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-110"
+            style={{ top: `${idx * OVERLAP}px`, zIndex: isHovered ? 50 : idx }}
+            onMouseEnter={(e) => { setHoveredIdx(idx); onHover(card, e); }}
+            onMouseLeave={() => { setHoveredIdx(null); onHover(null); }}
           >
             {stripeClass && <div className={`absolute top-0 left-0 right-0 h-[3px] z-10 ${stripeClass} rounded-t`} />}
             <img
