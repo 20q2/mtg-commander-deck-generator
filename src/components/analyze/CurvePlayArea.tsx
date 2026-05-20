@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './CurvePlayArea.buckets';
 import { getCardImageUrl } from '@/services/scryfall/client';
+import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 
 interface CurvePlayAreaProps {
   currentCards: ScryfallCard[];
@@ -29,6 +30,7 @@ export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps
     [currentCards, excludeNames],
   );
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
 
   const handleHover = (card: ScryfallCard | null, e?: React.MouseEvent) => {
     if (card && e) {
@@ -59,8 +61,8 @@ export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps
         ))}
       </div>
 
-      <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} />
-      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} />
+      <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} onSelect={setPreviewCard} />
+      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} />
 
       <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 border-t border-border/20 items-center">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Lands</div>
@@ -83,6 +85,8 @@ export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps
           />
         </div>
       )}
+
+      <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
     </div>
   );
 }
@@ -91,14 +95,15 @@ interface CurveRowProps {
   label: string;
   rowCards: ScryfallCard[][];
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
+  onSelect: (card: ScryfallCard) => void;
 }
 
-function CurveRow({ label, rowCards, onHover }: CurveRowProps) {
+function CurveRow({ label, rowCards, onHover, onSelect }: CurveRowProps) {
   return (
     <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-2 items-end min-h-[140px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
-        <CurveCell key={i} cards={col} onHover={onHover} />
+        <CurveCell key={i} cards={col} onHover={onHover} onSelect={onSelect} />
       ))}
     </div>
   );
@@ -107,9 +112,10 @@ function CurveRow({ label, rowCards, onHover }: CurveRowProps) {
 interface CurveCellProps {
   cards: ScryfallCard[];
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
+  onSelect: (card: ScryfallCard) => void;
 }
 
-function CurveCell({ cards, onHover }: CurveCellProps) {
+function CurveCell({ cards, onHover, onSelect }: CurveCellProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (cards.length === 0) {
@@ -123,10 +129,12 @@ function CurveCell({ cards, onHover }: CurveCellProps) {
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
         const isHovered = hoveredIdx === idx;
         return (
-          <div
+          <button
             key={card.name + idx}
-            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-110"
+            type="button"
+            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-110 text-left w-full"
             style={{ top: `${idx * OVERLAP}px`, zIndex: isHovered ? 50 : idx }}
+            onClick={() => onSelect(card)}
             onMouseEnter={(e) => { setHoveredIdx(idx); onHover(card, e); }}
             onMouseLeave={() => { setHoveredIdx(null); onHover(null); }}
           >
@@ -139,7 +147,7 @@ function CurveCell({ cards, onHover }: CurveCellProps) {
               draggable={false}
               title={`${card.name}${card.deckRole ? ` · ${card.deckRole}` : ''}`}
             />
-          </div>
+          </button>
         );
       })}
     </div>
