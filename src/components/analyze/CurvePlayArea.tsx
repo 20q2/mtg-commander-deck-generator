@@ -60,7 +60,7 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
             key={i}
             type="button"
             onClick={() => onCmcSelect?.(i)}
-            className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors"
+            className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={`Filter analyzer to CMC ${label}`}
           >
             {label} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
@@ -111,7 +111,7 @@ function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowP
     <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-2 items-end min-h-[140px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
-        <CurveCell key={i} cards={col} onHover={onHover} onSelect={onSelect} onEmptyClick={() => onCmcSelect?.(i)} />
+        <CurveCell key={i} cards={col} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={() => onCmcSelect?.(i)} />
       ))}
     </div>
   );
@@ -119,12 +119,13 @@ function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowP
 
 interface CurveCellProps {
   cards: ScryfallCard[];
+  cmcIndex: number;
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onSelect: (card: ScryfallCard) => void;
   onEmptyClick?: () => void;
 }
 
-function CurveCell({ cards, onHover, onSelect, onEmptyClick }: CurveCellProps) {
+function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCellProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (cards.length === 0) {
@@ -132,8 +133,8 @@ function CurveCell({ cards, onHover, onSelect, onEmptyClick }: CurveCellProps) {
       <button
         type="button"
         onClick={onEmptyClick}
-        className="min-h-[100px] w-full rounded hover:bg-primary/5 transition-colors"
-        aria-label="Empty CMC column — click to filter"
+        className="min-h-[100px] w-full rounded hover:bg-primary/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        aria-label={`Filter analyzer to CMC ${cmcIndex === 7 ? '7+' : cmcIndex} (empty column)`}
       />
     );
   }
