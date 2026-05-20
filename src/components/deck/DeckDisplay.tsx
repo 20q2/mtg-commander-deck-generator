@@ -40,6 +40,8 @@ import {
   Swords,
   Flame,
   BookOpen,
+  Rows3,
+  LayoutGrid,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -54,6 +56,8 @@ import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getCollectionNameSet } from '@/services/collection/db';
+import { Select } from '@/components/ui/select';
+import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/grouping';
 
 // Role badge display properties for each subtype
 function getRoleBadgeProps(card: ScryfallCard): { color: string; bgColor: string; title: string; label: string } | null {
@@ -2126,7 +2130,22 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
   const [editDrawerTab, setEditDrawerTab] = useState<'actions' | 'move' | 'add'>('actions');
-  const [collapsedGridCategories, setCollapsedGridCategories] = useState<Set<CardType>>(new Set());
+  const [gridLayout, _setGridLayout] = useState<'grid' | 'stacks'>(
+    () => (localStorage.getItem('mtg-deck-grid-layout') as 'grid' | 'stacks') || 'grid'
+  );
+  const setGridLayout = useCallback((v: 'grid' | 'stacks') => {
+    localStorage.setItem('mtg-deck-grid-layout', v);
+    _setGridLayout(v);
+  }, []);
+  const [groupBy, _setGroupBy] = useState<GroupKey>(
+    () => (localStorage.getItem('mtg-deck-group-by') as GroupKey) || 'type'
+  );
+  const [collapsedGridCategories, setCollapsedGridCategories] = useState<Set<string>>(new Set());
+  const setGroupBy = useCallback((v: GroupKey) => {
+    localStorage.setItem('mtg-deck-group-by', v);
+    _setGroupBy(v);
+    setCollapsedGridCategories(new Set());
+  }, []);
   const [addToTab, setAddToTabRaw] = useState<'lists' | 'deck'>(lastAddToTab);
   const setAddToTab = useCallback((tab: 'lists' | 'deck') => { lastAddToTab = tab; setAddToTabRaw(tab); }, []);
   const [listSearchQuery, setListSearchQuery] = useState('');
