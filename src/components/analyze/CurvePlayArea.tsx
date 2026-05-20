@@ -3,7 +3,8 @@ import { useMemo, useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, ArrowUpDown, BarChart3 } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './CurvePlayArea.buckets';
-import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
+import { getCardImageUrl, getCardPrice, isBasicLand, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
+import { isUtilityLand, isTapland, loadTaggerData } from '@/services/tagger/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 
 interface CurvePlayAreaProps {
@@ -55,6 +56,26 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'role',  label: 'Role'  },
   { key: 'price', label: 'Price' },
 ];
+
+type LandCategory = 'basic' | 'mdfc' | 'channel' | 'tapland' | 'utility' | 'other';
+
+const LAND_CATEGORIES: { key: LandCategory; label: string }[] = [
+  { key: 'basic',   label: 'Basic'   },
+  { key: 'mdfc',    label: 'MDFC'    },
+  { key: 'channel', label: 'Channel' },
+  { key: 'tapland', label: 'Tap'     },
+  { key: 'utility', label: 'Utility' },
+  { key: 'other',   label: 'Other'   },
+];
+
+function categorizeLand(card: ScryfallCard): LandCategory {
+  if (isBasicLand(card)) return 'basic';
+  if (isMdfcLand(card)) return 'mdfc';
+  if (isChannelLand(card)) return 'channel';
+  if (isUtilityLand(card.name)) return 'utility';
+  if (isTapland(card.name)) return 'tapland';
+  return 'other';
+}
 
 function colorRank(card: ScryfallCard): number {
   const ci = card.color_identity || [];
@@ -147,6 +168,31 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
     [buckets],
   );
   const gridTemplate = `64px repeat(${activeCmcs.length}, minmax(0, 200px))`;
+
+  // Ensure tagger data is loaded so utility/tapland categorization works.
+  // Cheap no-op if it's already cached.
+  const [taggerReady, setTaggerReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadTaggerData().then(() => { if (!cancelled) setTaggerReady(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Split the flat lands array into named categories (Basic / MDFC /
+  // Channel / Tapland / Utility / Other) and apply the user's sort within
+  // each. Only categories with cards survive into the rendered row.
+  const landCategoryGroups = useMemo(() => {
+    void taggerReady; // re-categorize once tagger data loads
+    const flat = buckets.lands.flat();
+    const groups: Record<LandCategory, ScryfallCard[]> = {
+      basic: [], mdfc: [], channel: [], tapland: [], utility: [], other: [],
+    };
+    for (const card of flat) groups[categorizeLand(card)].push(card);
+    return LAND_CATEGORIES
+      .map(({ key, label }) => ({ key, label, cards: sortBy(groups[key], sortKey) }))
+      .filter(g => g.cards.length > 0);
+  }, [buckets, sortKey, taggerReady]);
+  const landGridTemplate = `64px repeat(${Math.max(landCategoryGroups.length, 1)}, minmax(0, 200px))`;
 
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -303,7 +349,36 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
               </div>
             </button>
             {landsExpanded && (
-              <CurveRow label="" rowCards={sortedBuckets.lands} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} />
+              <>
+                {/* Land category headers — Basic / MDFC / Channel / Tap / Utility / Other */}
+                <div
+                  className="grid justify-center gap-2 text-[10px] text-muted-foreground/70"
+                  style={{ gridTemplateColumns: landGridTemplate }}
+                >
+                  <div></div>
+                  {landCategoryGroups.map(g => (
+                    <div key={g.key} className="text-center font-medium tabular-nums py-1">
+                      {g.label} <span className="text-muted-foreground/40">({g.cards.length})</span>
+                    </div>
+                  ))}
+                </div>
+                {/* Land cards fanned by category */}
+                <div
+                  className="grid justify-center gap-2 py-2 items-end"
+                  style={{ gridTemplateColumns: landGridTemplate }}
+                >
+                  <div />
+                  {landCategoryGroups.map(g => (
+                    <CurveCell
+                      key={g.key}
+                      cards={g.cards}
+                      cmcIndex={-1}
+                      onHover={handleHover}
+                      onSelect={setPreviewCard}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
