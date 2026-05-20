@@ -2486,6 +2486,16 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return count;
   }, [groupedCards, generatedDeck]);
 
+  const groupedForDisplay = useMemo(() => {
+    const entries: { entry: { card: ScryfallCard; quantity: number }; type: string }[] = [];
+    for (const type of TYPE_ORDER) {
+      for (const entry of groupedCards[type] || []) {
+        entries.push({ entry, type });
+      }
+    }
+    return groupCardsBy(entries, groupBy);
+  }, [groupedCards, groupBy]);
+
   // Flat ordered list of non-commander card IDs for shift-select
   flatCardOrderRef.current = useMemo(() => {
     const ids: string[] = [];
@@ -3792,30 +3802,31 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               </div>
             ) : (
               <div className="p-4 space-y-1">
-                {TYPE_ORDER.map((type) => {
-                  const cards = groupedCards[type] || [];
+                {groupedForDisplay.map(({ label, cards }) => {
                   const visibleCards = combinedMatchingIds
                     ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
                     : cards;
                   if (visibleCards.length === 0) return null;
+                  const isCommanderGroup = label === 'Commander';
+                  const isTypeGroup = groupBy === 'type';
                   return (
-                    <div key={type}>
+                    <div key={label}>
                       <button
                         onClick={() => setCollapsedGridCategories(prev => {
                           const next = new Set(prev);
-                          next.has(type) ? next.delete(type) : next.add(type);
+                          next.has(label) ? next.delete(label) : next.add(label);
                           return next;
                         })}
                         className="flex items-center gap-1.5 pt-2 pb-1 w-full text-left group"
                       >
-                        <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsedGridCategories.has(type) ? '-rotate-90' : ''}`} />
-                        <CardTypeIcon type={type} size="sm" className="opacity-60" />
-                        <span className="text-xs font-medium text-muted-foreground">{type}</span>
+                        <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsedGridCategories.has(label) ? '-rotate-90' : ''}`} />
+                        {(isTypeGroup || isCommanderGroup) && <CardTypeIcon type={label as CardType} size="sm" className="opacity-60" />}
+                        <span className="text-xs font-medium text-muted-foreground">{label}</span>
                         <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
                       </button>
-                      {!collapsedGridCategories.has(type) && (
+                      {!collapsedGridCategories.has(label) && (
                       <div ref={gridAnimateRef} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                        {visibleCards.map(({ card, quantity }) => renderCardTile(card, quantity, type === 'Commander'))}
+                        {visibleCards.map(({ card, quantity }) => renderCardTile(card, quantity, isCommanderGroup))}
                       </div>
                       )}
                     </div>
