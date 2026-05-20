@@ -112,9 +112,14 @@ export function AnalyzePage() {
 
   // Detect bridge-from-Generate: if a deck is already in the store on mount
   // and no listId param and no source set yet, treat as 'generated'.
+  // Bridge-from-Generate: only hydrate from the Zustand store when the URL
+  // signals the analyzer view explicitly (e.g. /analyze/overview). Bare
+  // /analyze is always the selection hub, even if a deck happens to be in
+  // memory from a previous session — that lets the user pick something new
+  // without having to click "Analyze a different deck" first.
   useEffect(() => {
     if (source !== null) return;
-    if (generatedDeck && !listIdParam) {
+    if (generatedDeck && !listIdParam && param1IsTab) {
       setSource({ kind: 'generated' });
       trackEvent('analyze_deck_loaded', {
         source: 'generated',
@@ -122,7 +127,7 @@ export function AnalyzePage() {
         hasCommander: !!generatedDeck.commander,
       });
     }
-  }, [generatedDeck, listIdParam, source]);
+  }, [generatedDeck, listIdParam, source, param1IsTab]);
 
   // Apply commander theme when a deck is loaded.
   useEffect(() => {

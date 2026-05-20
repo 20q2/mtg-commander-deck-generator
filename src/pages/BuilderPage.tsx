@@ -1040,7 +1040,7 @@ export function BuilderPage() {
                   <Button
                     onClick={() => {
                       trackEvent('analyze_cta_clicked', { from: 'builder' });
-                      navigate('/analyze');
+                      navigate('/analyze/overview');
                     }}
                     className="btn-shimmer"
                   >
@@ -1160,7 +1160,7 @@ export function BuilderPage() {
                 <Button
                   onClick={() => {
                     trackEvent('analyze_cta_clicked', { from: 'builder' });
-                    navigate('/analyze');
+                    navigate('/analyze/overview');
                   }}
                   className="btn-shimmer"
                   title="Open in the Analyze page"
