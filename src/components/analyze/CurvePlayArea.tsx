@@ -8,6 +8,7 @@ import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 interface CurvePlayAreaProps {
   currentCards: ScryfallCard[];
   excludeNames?: Set<string>;
+  onCmcSelect?: (cmc: number) => void;
 }
 
 const COLUMN_LABELS = ['0', '1', '2', '3', '4', '5', '6', '7+'];
@@ -24,7 +25,7 @@ interface HoverState {
   anchor: { right: number; top: number; height: number };
 }
 
-export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps) {
+export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: CurvePlayAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -55,14 +56,20 @@ export function CurvePlayArea({ currentCards, excludeNames }: CurvePlayAreaProps
       <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 pt-2 text-[10px] text-muted-foreground/70">
         <div></div>
         {COLUMN_LABELS.map((label, i) => (
-          <div key={i} className="text-center font-medium tabular-nums">
+          <button
+            key={i}
+            type="button"
+            onClick={() => onCmcSelect?.(i)}
+            className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors"
+            aria-label={`Filter analyzer to CMC ${label}`}
+          >
             {label} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
-          </div>
+          </button>
         ))}
       </div>
 
-      <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} onSelect={setPreviewCard} />
-      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} />
+      <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
 
       <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 border-t border-border/20 items-center">
         <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Lands</div>
@@ -96,14 +103,15 @@ interface CurveRowProps {
   rowCards: ScryfallCard[][];
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onSelect: (card: ScryfallCard) => void;
+  onCmcSelect?: (cmc: number) => void;
 }
 
-function CurveRow({ label, rowCards, onHover, onSelect }: CurveRowProps) {
+function CurveRow({ label, rowCards, onHover, onSelect, onCmcSelect }: CurveRowProps) {
   return (
     <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-2 items-end min-h-[140px]">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 self-center">{label}</div>
       {rowCards.map((col, i) => (
-        <CurveCell key={i} cards={col} onHover={onHover} onSelect={onSelect} />
+        <CurveCell key={i} cards={col} onHover={onHover} onSelect={onSelect} onEmptyClick={() => onCmcSelect?.(i)} />
       ))}
     </div>
   );
@@ -113,13 +121,21 @@ interface CurveCellProps {
   cards: ScryfallCard[];
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onSelect: (card: ScryfallCard) => void;
+  onEmptyClick?: () => void;
 }
 
-function CurveCell({ cards, onHover, onSelect }: CurveCellProps) {
+function CurveCell({ cards, onHover, onSelect, onEmptyClick }: CurveCellProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (cards.length === 0) {
-    return <div className="min-h-[100px]" />;
+    return (
+      <button
+        type="button"
+        onClick={onEmptyClick}
+        className="min-h-[100px] w-full rounded hover:bg-primary/5 transition-colors"
+        aria-label="Empty CMC column — click to filter"
+      />
+    );
   }
   const OVERLAP = 18;
   return (

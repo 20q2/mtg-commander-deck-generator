@@ -35,6 +35,7 @@ export function AnalyzePage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingListId, setLoadingListId] = useState<string | null>(null);
   const [source, setSource] = useState<AnalyzeSource | null>(null);
+  const [analyzerInitialCmc, setAnalyzerInitialCmc] = useState<number | null>(null);
 
   const generatedDeck = useStore(s => s.generatedDeck);
   const colorIdentityStore = useStore(s => s.colorIdentity);
@@ -256,6 +257,14 @@ export function AnalyzePage() {
                 if (generatedDeck.partnerCommander) s.add(generatedDeck.partnerCommander.name);
                 return s;
               })()}
+              onCmcSelect={(cmc) => {
+                // Reset to null first, then set the target CMC on the next frame.
+                // This guarantees the prop reference changes even when the user clicks
+                // the same CMC twice (the analyzer toggles selectedCmc off internally).
+                setAnalyzerInitialCmc(null);
+                requestAnimationFrame(() => setAnalyzerInitialCmc(cmc));
+                handleAnalyzerTabChange('curve');
+              }}
             />
             <DeckOptimizer
               commanderName={generatedDeck.commander.name}
@@ -268,6 +277,7 @@ export function AnalyzePage() {
               cardInclusionMap={generatedDeck.cardInclusionMap}
               activeTab={activeAnalyzerTab}
               onTabChange={handleAnalyzerTabChange}
+              initialSelectedCmc={analyzerInitialCmc}
             />
           </>
         )}
