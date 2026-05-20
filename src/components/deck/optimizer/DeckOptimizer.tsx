@@ -68,6 +68,16 @@ export function DeckOptimizer({
     return () => document.removeEventListener('deck-optimizer-open', handler);
   }, []);
 
+  // Listen for re-analyze requests from external triggers
+  // (e.g. the Re-analyze button rendered by CommanderStrip on /analyze).
+  // handleOptimize already runs a full fresh analysis — same hook the
+  // old in-component Re-analyze button used.
+  useEffect(() => {
+    const handler = () => { handleOptimizeRef.current?.(); };
+    document.addEventListener('deck-optimizer-reanalyze', handler);
+    return () => document.removeEventListener('deck-optimizer-reanalyze', handler);
+  }, []);
+
   // Card key of the last completed analysis. Compared against currentCards
   // each render to surface a "dirty" indicator on the Re-analyze button
   // when the deck has changed since the last analysis snapshot.
@@ -832,6 +842,14 @@ export function DeckOptimizer({
   const currentCardKey = useMemo(() => currentCards.map(c => c.name).join('\0'), [currentCards]);
   const isAnalysisDirty = analysis != null && analyzedCardKey !== '' && analyzedCardKey !== currentCardKey;
 
+  // Broadcast analyzer state so an external Re-analyze button (rendered
+  // by CommanderStrip on /analyze) can reflect dirty/loading visuals.
+  useEffect(() => {
+    document.dispatchEvent(new CustomEvent('deck-optimizer-state', {
+      detail: { dirty: isAnalysisDirty, loading, hasAnalysis: !!analysis },
+    }));
+  }, [isAnalysisDirty, loading, analysis]);
+
   // Per-tab rollup grades shown in the tab bar — same letters as the
   // overview summary card so the user sees consistent grading at a glance.
   // Bracket has no rollup grade (uses level 1-5 instead) so it's omitted.
@@ -998,29 +1016,7 @@ export function DeckOptimizer({
   // Dashboard Render
   // ═════════════════════════════════════════════════════════════════════
   return (
-    <div id="deck-optimizer" className="mt-6 rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 bg-gradient-to-r from-primary/5 to-transparent">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-primary/10">
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
-          </div>
-          <h3 className="text-sm font-bold">Deck Analysis (Early Access)</h3>
-        </div>
-        <button
-          onClick={handleOptimize}
-          title={isAnalysisDirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
-          className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-lg border transition-colors ${
-            isAnalysisDirty
-              ? 'border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
-              : 'border-border/50 hover:bg-accent text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          <RefreshCw className="w-3 h-3" />
-          Re-analyze
-        </button>
-      </div>
-
+    <div id="deck-optimizer" className="mt-2 rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm overflow-hidden">
       {/* Tab Bar — hidden in optimize view */}
       {!optimizeView && (
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/20 bg-card/30 overflow-x-auto">

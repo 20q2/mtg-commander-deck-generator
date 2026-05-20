@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
-import { ArrowLeft, Bookmark, Check, X, ExternalLink } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { ArrowLeft, Bookmark, Check, X, ExternalLink, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -35,6 +35,23 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
   const [savedListId, setSavedListId] = useState<string | null>(null);
   const [savedDisplayName, setSavedDisplayName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Analyzer state mirrored from DeckOptimizer via custom event.
+  const [analyzerState, setAnalyzerState] = useState<{ dirty: boolean; loading: boolean; hasAnalysis: boolean }>({
+    dirty: false, loading: false, hasAnalysis: false,
+  });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ dirty: boolean; loading: boolean; hasAnalysis: boolean }>).detail;
+      if (detail) setAnalyzerState(detail);
+    };
+    document.addEventListener('deck-optimizer-state', handler);
+    return () => document.removeEventListener('deck-optimizer-state', handler);
+  }, []);
+
+  const handleReanalyze = useCallback(() => {
+    document.dispatchEvent(new CustomEvent('deck-optimizer-reanalyze'));
+  }, []);
 
   const cardCount = (() => {
     let n = deck.commander ? 1 : 0;
@@ -87,7 +104,7 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
   const artUrl = getCommanderArtUrl(deck);
 
   return (
-    <div className="container mx-auto px-4 mb-4">
+    <div className="mb-2">
       <div className="rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm flex items-center gap-3 p-2.5">
         <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-muted/30">
           {artUrl && <img src={artUrl} alt={deck.commander?.name ?? ''} className="w-full h-full object-cover" />}
@@ -112,6 +129,23 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
           </button>
         </div>
         <div className="flex items-center gap-2">
+          {analyzerState.hasAnalysis && (
+            <button
+              onClick={handleReanalyze}
+              disabled={analyzerState.loading}
+              title={analyzerState.dirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+                analyzerState.dirty
+                  ? 'border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
+                  : 'border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground'
+              } disabled:opacity-60 disabled:pointer-events-none`}
+            >
+              {analyzerState.loading
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : <RefreshCw className="w-3 h-3" />}
+              Re-analyze
+            </button>
+          )}
           {source.kind === 'list' && !savedListId && (
             <a
               href={`#/lists/${source.listId}/deck-view`}

@@ -198,27 +198,25 @@ export function AnalyzePage() {
     const analyzerDeckSize = Math.max(totalCards - 1 - partnerOffset, 0);
 
     return (
-      <main className="flex-1 py-6">
+      <main className="flex-1 py-4 px-2 sm:px-3 lg:px-4">
         <CommanderStrip
           deck={generatedDeck}
           colorIdentity={colorIdentityStore}
           source={source}
           onChangeDeck={handleChangeDeck}
         />
-        <div className="px-4 sm:px-8 lg:px-12">
-          {generatedDeck.commander && (
-            <DeckOptimizer
-              commanderName={generatedDeck.commander.name}
-              partnerCommanderName={generatedDeck.partnerCommander?.name}
-              currentCards={Object.values(generatedDeck.categories).flat()}
-              deckSize={analyzerDeckSize}
-              roleCounts={generatedDeck.roleCounts || {}}
-              roleTargets={generatedDeck.roleTargets || {}}
-              categories={generatedDeck.categories}
-              cardInclusionMap={generatedDeck.cardInclusionMap}
-            />
-          )}
-        </div>
+        {generatedDeck.commander && (
+          <DeckOptimizer
+            commanderName={generatedDeck.commander.name}
+            partnerCommanderName={generatedDeck.partnerCommander?.name}
+            currentCards={Object.values(generatedDeck.categories).flat()}
+            deckSize={analyzerDeckSize}
+            roleCounts={generatedDeck.roleCounts || {}}
+            roleTargets={generatedDeck.roleTargets || {}}
+            categories={generatedDeck.categories}
+            cardInclusionMap={generatedDeck.cardInclusionMap}
+          />
+        )}
       </main>
     );
   }
