@@ -3689,32 +3689,38 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 Exit Modify
               </button>
             )}
-            {viewMode === 'grid' && (
-              <>
-                <Select
-                  className="h-8 w-[150px] text-xs"
-                  value={groupBy}
-                  onChange={(e) => setGroupBy(e.target.value as GroupKey)}
-                  options={GROUP_OPTIONS.map(o => ({ value: o.value, label: `Group: ${o.label}` }))}
-                />
-                <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-                  <button
-                    onClick={() => setGridLayout('grid')}
-                    className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    title="Packed grid layout"
-                  >
-                    <LayoutGrid className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setGridLayout('stacks')}
-                    className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    title="Visual stacks layout"
-                  >
-                    <Rows3 className="w-4 h-4" />
-                  </button>
-                </div>
-              </>
-            )}
+            <div
+              className={`flex items-center gap-2 overflow-hidden transition-all duration-300 ease-out ${
+                viewMode === 'grid' ? 'max-w-[320px] opacity-100' : 'max-w-0 opacity-0'
+              }`}
+              aria-hidden={viewMode !== 'grid'}
+            >
+              <Select
+                className="h-8 w-[150px] text-xs"
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupKey)}
+                options={GROUP_OPTIONS.map(o => ({ value: o.value, label: `Group: ${o.label}` }))}
+                tabIndex={viewMode === 'grid' ? 0 : -1}
+              />
+              <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+                <button
+                  onClick={() => setGridLayout('grid')}
+                  className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  title="Packed grid layout"
+                  tabIndex={viewMode === 'grid' ? 0 : -1}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setGridLayout('stacks')}
+                  className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  title="Visual stacks layout"
+                  tabIndex={viewMode === 'grid' ? 0 : -1}
+                >
+                  <Rows3 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
             <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
               <button
                 onClick={() => setShowTextEditor(v => !v)}
@@ -3808,7 +3814,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 ))}
               </div>
             ) : (
-              <div className={`p-4 ${gridLayout === 'stacks' ? 'columns-2 sm:columns-3 md:columns-4 lg:columns-6 gap-4 [&>div]:break-inside-avoid [&>div]:mb-4' : 'space-y-1'}`}>
+              <div className={`p-4 ${gridLayout === 'stacks' ? 'grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-4 items-start' : 'space-y-1'}`}>
                 {groupedForDisplay.map(({ label, cards }) => {
                   const visibleCards = combinedMatchingIds
                     ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
