@@ -3119,8 +3119,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const isMLive = mustIncludeNames.has(card.name);
     const isBLive = bannedNames.has(card.name);
     return (
-      <button
+      <div
         key={card.id}
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           if (canSelect) {
             handleToggleCardSelection(card, e.shiftKey);
@@ -3128,7 +3130,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             setPreviewCard(card);
           }
         }}
-        className={`relative group ${canSelect ? 'cursor-pointer' : ''} ${isSelected ? 'ring-2 ring-primary rounded' : ''} ${canSelect && isCommanderType ? 'opacity-60' : ''}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (canSelect) {
+              handleToggleCardSelection(card, e.shiftKey);
+            } else {
+              setPreviewCard(card);
+            }
+          }
+        }}
+        className={`relative group cursor-pointer ${isSelected ? 'ring-2 ring-primary rounded' : ''} ${canSelect && isCommanderType ? 'opacity-60' : ''}`}
       >
         <img
           src={getCardImageUrl(card, 'small')}
@@ -3285,7 +3297,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </span>
           );
         })()}
-      </button>
+      </div>
     );
   };
 
