@@ -132,7 +132,7 @@ function CurveCell({ cards, onHover, onSelect }: CurveCellProps) {
           <button
             key={card.name + idx}
             type="button"
-            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-110 text-left w-full"
+            className="absolute left-0 right-0 transition-transform duration-150 hover:scale-110 text-left w-full p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
             style={{ top: `${idx * OVERLAP}px`, zIndex: isHovered ? 50 : idx }}
             onClick={() => onSelect(card)}
             onMouseEnter={(e) => { setHoveredIdx(idx); onHover(card, e); }}
