@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { LaneTabs, type LaneKey } from '@/components/analyze/LaneTabs';
 import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
+import { PasteLane, type PasteLaneResult } from '@/components/analyze/PasteLane';
+import { hydrateDeckForAnalysis } from '@/components/analyze/analyzeHydration';
+import { useStore } from '@/store';
 
 const LANE_STORAGE_KEY = 'analyze-active-lane';
 
@@ -10,10 +13,35 @@ export function AnalyzePage() {
     if (stored === 'paste' || stored === 'lists' || stored === 'generate') return stored;
     return 'paste';
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(LANE_STORAGE_KEY, activeLane);
   }, [activeLane]);
+
+  const handlePasteAnalyze = useCallback(async (result: PasteLaneResult) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { deck, colorIdentity } = await hydrateDeckForAnalysis({
+        cardNames: result.cardNames,
+        commanderName: result.commanderName,
+        partnerCommanderName: result.partnerCommanderName,
+      });
+      useStore.setState({
+        commander: deck.commander,
+        partnerCommander: deck.partnerCommander,
+        colorIdentity,
+        generatedDeck: deck,
+      });
+    } catch (e) {
+      console.error('[AnalyzePage] paste hydration failed', e);
+      setError('Could not analyze this deck. Check the card names and try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   return (
     <main className="flex-1 px-4 sm:px-8 lg:px-12 py-8">
@@ -29,17 +57,31 @@ export function AnalyzePage() {
 
       <LaneTabs active={activeLane} onChange={setActiveLane} />
 
+      {error && (
+        <div className="max-w-3xl mx-auto mb-3 px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
       <div
         id={`lane-panel-${activeLane}`}
         role="tabpanel"
         aria-labelledby={`lane-tab-${activeLane}`}
         className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-6 min-h-[280px]"
       >
-        <p className="text-sm text-muted-foreground text-center py-10">
-          {activeLane === 'paste' && 'Paste lane (coming in Task 3)'}
-          {activeLane === 'lists' && 'My Lists lane (coming in Task 4)'}
-          {activeLane === 'generate' && 'Generate lane (coming in Task 5)'}
-        </p>
+        {activeLane === 'paste' && (
+          <PasteLane onAnalyze={handlePasteAnalyze} loading={loading} />
+        )}
+        {activeLane === 'lists' && (
+          <p className="text-sm text-muted-foreground text-center py-10">
+            My Lists lane (coming in Task 5)
+          </p>
+        )}
+        {activeLane === 'generate' && (
+          <p className="text-sm text-muted-foreground text-center py-10">
+            Generate lane (coming in Task 6)
+          </p>
+        )}
       </div>
 
       <WhatYoullSeeStrip />
