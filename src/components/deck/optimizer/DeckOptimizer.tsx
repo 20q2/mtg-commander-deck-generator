@@ -46,6 +46,7 @@ export function DeckOptimizer({
   maybeboardNames,
   activeTab: controlledActiveTab,
   onTabChange,
+  initialSelectedCmc,
 }: DeckOptimizerProps) {
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
@@ -65,6 +66,13 @@ export function DeckOptimizer({
   const [activeCurvePhases, setActiveCurvePhases] = useState<Set<CurvePhase>>(new Set());
   const [activeRoleGroups, setActiveRoleGroups] = useState<Set<RoleGroupKey>>(new Set([ROLE_GROUP_ORDER[0]]));
   const [selectedCmc, setSelectedCmc] = useState<number | null>(null);
+  // Apply `initialSelectedCmc` whenever the prop changes (e.g. when the user
+  // clicks a CMC column in the play area). null clears the focus.
+  useEffect(() => {
+    if (initialSelectedCmc !== undefined) {
+      setSelectedCmc(initialSelectedCmc);
+    }
+  }, [initialSelectedCmc]);
   const [optimizeView, setOptimizeView] = useState(false);
 
   // Listen for "See more" from deck grade badge
@@ -879,9 +887,9 @@ export function DeckOptimizer({
   // by CommanderStrip on /analyze) can reflect dirty/loading visuals.
   useEffect(() => {
     document.dispatchEvent(new CustomEvent('deck-optimizer-state', {
-      detail: { dirty: isAnalysisDirty, loading, hasAnalysis: !!analysis },
+      detail: { dirty: isAnalysisDirty, loading, hasAnalysis: !!analysis, optimizeView },
     }));
-  }, [isAnalysisDirty, loading, analysis]);
+  }, [isAnalysisDirty, loading, analysis, optimizeView]);
 
   // Per-tab rollup grades shown in the tab bar — same letters as the
   // overview summary card so the user sees consistent grading at a glance.

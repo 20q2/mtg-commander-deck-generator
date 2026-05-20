@@ -33,6 +33,8 @@ export interface DeckOptimizerProps {
   activeTab?: TabKey;
   /** Fired when the user clicks a tab. Required if `activeTab` is provided. */
   onTabChange?: (tab: TabKey) => void;
+  /** Optional initial value for the Curve tab's CMC focus. */
+  initialSelectedCmc?: number | null;
 }
 
 export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'bracket';
