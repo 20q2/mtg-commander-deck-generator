@@ -4,14 +4,13 @@ import { ChevronDown, ChevronRight, ArrowUpDown, BarChart3, Sprout, Swords, Flam
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './DeckBuildingArea.buckets';
-import { getCardImageUrl, getCardPrice, isBasicLand, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
+import { getCardImageUrl, getCardPrice, isBasicLand, isMdfcLand, isChannelLand, isFetchLand } from '@/services/scryfall/client';
 import { isUtilityLand, isTapland, loadTaggerData } from '@/services/tagger/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
   excludeNames?: Set<string>;
-  onCmcSelect?: (cmc: number) => void;
 }
 
 const COLUMN_LABELS = ['0', '1', '2', '3', '4', '5', '6', '7+'];
@@ -39,6 +38,13 @@ const ROLE_LABEL: Record<string, string> = {
   cardDraw:  'Draw',
 };
 
+const ROLE_ICON: Record<string, typeof Sprout> = {
+  ramp:      Sprout,
+  removal:   Swords,
+  boardwipe: Flame,
+  cardDraw:  BookOpen,
+};
+
 // Role-priority sort uses the same cascade as the rest of the analyzer.
 const ROLE_PRIORITY: Record<string, number> = {
   boardwipe: 0,
@@ -58,10 +64,11 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'price', label: 'Price' },
 ];
 
-type LandCategory = 'basic' | 'mdfc' | 'channel' | 'tapland' | 'utility' | 'other';
+type LandCategory = 'basic' | 'fetch' | 'mdfc' | 'channel' | 'tapland' | 'utility' | 'other';
 
 const LAND_CATEGORIES: { key: LandCategory; label: string }[] = [
   { key: 'basic',   label: 'Basic'   },
+  { key: 'fetch',   label: 'Fetch'   },
   { key: 'mdfc',    label: 'MDFC'    },
   { key: 'channel', label: 'Channel' },
   { key: 'tapland', label: 'Tap'     },
@@ -71,6 +78,7 @@ const LAND_CATEGORIES: { key: LandCategory; label: string }[] = [
 
 function categorizeLand(card: ScryfallCard): LandCategory {
   if (isBasicLand(card)) return 'basic';
+  if (isFetchLand(card)) return 'fetch';
   if (isMdfcLand(card)) return 'mdfc';
   if (isChannelLand(card)) return 'channel';
   if (isUtilityLand(card.name)) return 'utility';
@@ -119,7 +127,7 @@ const COLLAPSED_KEY = 'analyze-play-area-collapsed';
 const LANDS_KEY = 'analyze-play-area-lands-expanded';
 const SORT_STORAGE_KEY = 'analyze-play-area-sort';
 
-export function DeckBuildingArea({ currentCards, excludeNames, onCmcSelect }: DeckBuildingAreaProps) {
+export function DeckBuildingArea({ currentCards, excludeNames }: DeckBuildingAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -186,14 +194,19 @@ export function DeckBuildingArea({ currentCards, excludeNames, onCmcSelect }: De
     void taggerReady; // re-categorize once tagger data loads
     const flat = buckets.lands.flat();
     const groups: Record<LandCategory, ScryfallCard[]> = {
-      basic: [], mdfc: [], channel: [], tapland: [], utility: [], other: [],
+      basic: [], fetch: [], mdfc: [], channel: [], tapland: [], utility: [], other: [],
     };
     for (const card of flat) groups[categorizeLand(card)].push(card);
     return LAND_CATEGORIES
       .map(({ key, label }) => ({ key, label, cards: sortBy(groups[key], sortKey) }))
       .filter(g => g.cards.length > 0);
   }, [buckets, sortKey, taggerReady]);
-  const landGridTemplate = `64px repeat(${Math.max(landCategoryGroups.length, 1)}, minmax(0, 200px))`;
+  // Match the upper grid's column width so land cards render at the same
+  // size as the creatures/non-creatures above. If there are more land
+  // categories than active CMC columns (unlikely), expand to fit them.
+  const landColCount = Math.max(landCategoryGroups.length, activeCmcs.length, 1);
+  const landGridTemplate = `64px repeat(${landColCount}, minmax(0, 200px))`;
+  const landPadCount = Math.max(0, landColCount - landCategoryGroups.length);
 
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -305,27 +318,24 @@ export function DeckBuildingArea({ currentCards, excludeNames, onCmcSelect }: De
             backgroundPosition: '11px 11px',
           }}
         >
-          {/* CMC column headers */}
+          {/* CMC column headers — labels only, not clickable */}
           <div
             className="grid justify-center gap-2 pt-2 text-[10px] text-muted-foreground/70"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             <div></div>
             {activeCmcs.map(i => (
-              <button
+              <div
                 key={i}
-                type="button"
-                onClick={() => onCmcSelect?.(i)}
-                className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                aria-label={`Filter analyzer to CMC ${COLUMN_LABELS[i]}`}
+                className="text-center font-medium tabular-nums py-1"
               >
                 {COLUMN_LABELS[i]} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
-              </button>
+              </div>
             ))}
           </div>
 
-          <CurveRow label="Creatures" rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
-          <CurveRow label="Non-creatures" rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+          <CurveRow label="Creatures" rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} />
+          <CurveRow label="Non-creatures" rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} />
 
           <div className="border-t border-border/30">
             <button
@@ -362,6 +372,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, onCmcSelect }: De
                       {g.label} <span className="text-muted-foreground/40">({g.cards.length})</span>
                     </div>
                   ))}
+                  {Array.from({ length: landPadCount }).map((_, i) => <div key={`hpad-${i}`} />)}
                 </div>
                 {/* Land cards fanned by category */}
                 <div
@@ -373,11 +384,11 @@ export function DeckBuildingArea({ currentCards, excludeNames, onCmcSelect }: De
                     <CurveCell
                       key={g.key}
                       cards={g.cards}
-                      cmcIndex={-1}
                       onHover={handleHover}
                       onSelect={setPreviewCard}
                     />
                   ))}
+                  {Array.from({ length: landPadCount }).map((_, i) => <div key={`cpad-${i}`} />)}
                 </div>
               </>
             )}
@@ -414,10 +425,9 @@ interface CurveRowProps {
   gridTemplate: string;
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onSelect: (card: ScryfallCard) => void;
-  onCmcSelect?: (cmc: number) => void;
 }
 
-function CurveRow({ label, rowCards, activeCmcs, gridTemplate, onHover, onSelect, onCmcSelect }: CurveRowProps) {
+function CurveRow({ label, rowCards, activeCmcs, gridTemplate, onHover, onSelect }: CurveRowProps) {
   return (
     <div
       className="grid justify-center gap-2 py-2 items-end"
@@ -434,7 +444,7 @@ function CurveRow({ label, rowCards, activeCmcs, gridTemplate, onHover, onSelect
         )
         : <div />}
       {activeCmcs.map(i => (
-        <CurveCell key={i} cards={rowCards[i]} cmcIndex={i} onHover={onHover} onSelect={onSelect} onEmptyClick={onCmcSelect ? () => onCmcSelect(i) : undefined} />
+        <CurveCell key={i} cards={rowCards[i]} onHover={onHover} onSelect={onSelect} />
       ))}
     </div>
   );
@@ -442,30 +452,18 @@ function CurveRow({ label, rowCards, activeCmcs, gridTemplate, onHover, onSelect
 
 interface CurveCellProps {
   cards: ScryfallCard[];
-  cmcIndex: number;
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onSelect: (card: ScryfallCard) => void;
-  onEmptyClick?: () => void;
 }
 
-function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCellProps) {
+function CurveCell({ cards, onHover, onSelect }: CurveCellProps) {
   // FLIP-based reorder animation when sort changes. ~280ms feels right for
   // a card "settling" gesture — long enough to track, short enough not to
   // feel sluggish on a multi-column update.
   const [fanRef] = useAutoAnimate({ duration: 280, easing: 'ease-in-out' });
 
   if (cards.length === 0) {
-    if (!onEmptyClick) {
-      return <div className="w-full aspect-[5/7] min-h-[120px]" />;
-    }
-    return (
-      <button
-        type="button"
-        onClick={onEmptyClick}
-        className="w-full aspect-[5/7] min-h-[120px] p-0 border-0 bg-transparent cursor-pointer rounded-[8px] hover:bg-primary/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        aria-label={`Filter analyzer to CMC ${cmcIndex === 7 ? '7+' : cmcIndex} (empty column)`}
-      />
-    );
+    return <div className="w-full aspect-[5/7] min-h-[120px]" />;
   }
   // Arena-style fan, fully responsive. Cards fill the column width via
   // `w-full aspect-[5/7]`, and each non-first card sits via a negative
@@ -484,6 +482,7 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
         const role = card.deckRole;
         const badgeClass = role ? (ROLE_BADGE[role] ?? '') : '';
         const badgeLabel = role ? (ROLE_LABEL[role] ?? '') : '';
+        const BadgeIcon = role ? ROLE_ICON[role] : null;
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
         const occurrence = nameCounts.get(card.name) ?? 0;
         nameCounts.set(card.name, occurrence + 1);
@@ -510,8 +509,9 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
                 of an edge ribbon. Only renders if a role is stamped. */}
             {badgeLabel && (
               <span
-                className={`absolute top-1 right-1 z-10 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider rounded shadow-sm ${badgeClass}`}
+                className={`absolute top-1 right-1 z-10 inline-flex items-center gap-0.5 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider rounded shadow-sm ${badgeClass}`}
               >
+                {BadgeIcon && <BadgeIcon className="w-2.5 h-2.5" strokeWidth={2.5} />}
                 {badgeLabel}
               </span>
             )}
