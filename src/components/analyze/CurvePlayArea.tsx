@@ -24,10 +24,10 @@ const ROLE_SWATCH: Record<string, string> = {
 
 // Per-card corner badge (text on a translucent backdrop).
 const ROLE_BADGE: Record<string, string> = {
-  ramp:      'bg-emerald-500/90 text-emerald-50',
-  removal:   'bg-rose-500/90 text-rose-50',
-  boardwipe: 'bg-orange-500/90 text-orange-50',
-  cardDraw:  'bg-sky-500/90 text-sky-50',
+  ramp:      'bg-emerald-500/90 text-emerald-50 border border-emerald-300/70',
+  removal:   'bg-rose-500/90 text-rose-50 border border-rose-300/70',
+  boardwipe: 'bg-orange-500/90 text-orange-50 border border-orange-300/70',
+  cardDraw:  'bg-sky-500/90 text-sky-50 border border-sky-300/70',
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -388,9 +388,9 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
   }
   // Arena-style fan, fully responsive. Cards fill the column width via
   // `w-full aspect-[5/7]`, and each non-first card sits via a negative
-  // margin-top equal to 112% of the column width — leaving a ~20% top
-  // sliver visible. Hovered cards do NOT lift in the stack (the floating
-  // preview to the right is the hover signal).
+  // margin-top equal to 126% of the column width — leaving a ~10% top
+  // sliver visible (half the previous 20%). Hovered cards do NOT lift in
+  // the stack (the floating preview to the right is the hover signal).
   return (
     <div className="relative flex flex-col w-full">
       {cards.map((card, idx) => {
@@ -402,7 +402,7 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
           <button
             key={card.name + idx}
             type="button"
-            className={`relative w-full aspect-[5/7] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded ${idx > 0 ? '-mt-[112%]' : ''}`}
+            className={`relative w-full aspect-[5/7] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded ${idx > 0 ? '-mt-[126%]' : ''}`}
             style={{ zIndex: idx }}
             onClick={() => onSelect(card)}
             onMouseEnter={(e) => onHover(card, e)}
