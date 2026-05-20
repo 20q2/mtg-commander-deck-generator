@@ -492,7 +492,7 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
           <button
             key={stableKey}
             type="button"
-            className={`relative w-full aspect-[5/7] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded ${idx > 0 ? '-mt-[126%]' : ''}`}
+            className={`relative w-full aspect-[5/7] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background overflow-hidden rounded-[4px] ${idx > 0 ? '-mt-[126%]' : ''}`}
             style={{ zIndex: idx }}
             onClick={() => onSelect(card)}
             onMouseEnter={(e) => onHover(card, e)}
@@ -501,7 +501,7 @@ function CurveCell({ cards, cmcIndex, onHover, onSelect, onEmptyClick }: CurveCe
             <img
               src={imgUrl}
               alt={card.name}
-              className="absolute inset-0 w-full h-full rounded shadow-md border border-border/40 object-cover"
+              className="absolute inset-0 w-full h-full rounded-[4px] shadow-md border border-border/40 object-cover"
               loading="lazy"
               draggable={false}
               title={`${card.name}${badgeLabel ? ` · ${badgeLabel}` : ''}`}
