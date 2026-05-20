@@ -1,5 +1,6 @@
 // src/components/analyze/CurvePlayArea.tsx
 import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './CurvePlayArea.buckets';
 import { getCardImageUrl } from '@/services/scryfall/client';
@@ -30,6 +31,18 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
   );
+  const COLLAPSED_KEY = 'analyze-play-area-collapsed';
+
+  const [collapsed, setCollapsed] = useState<boolean>(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
+
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem(COLLAPSED_KEY, String(next));
+      return next;
+    });
+  };
+
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
 
@@ -47,34 +60,66 @@ export function CurvePlayArea({ currentCards, excludeNames, onCmcSelect }: Curve
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/30">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Curve</span>
-        <span className="text-[11px] text-muted-foreground/60">
-          {buckets.countsByCmc.reduce((n, c) => n + c, 0)} non-land · {buckets.landCount} lands
-        </span>
-      </div>
-
-      {/* CMC column headers */}
-      <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 pt-2 text-[10px] text-muted-foreground/70">
-        <div></div>
-        {COLUMN_LABELS.map((label, i) => (
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-muted-foreground/60">
+            {buckets.countsByCmc.reduce((n, c) => n + c, 0)} non-land · {buckets.landCount} lands
+          </span>
           <button
-            key={i}
             type="button"
-            onClick={() => onCmcSelect?.(i)}
-            className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            aria-label={`Filter analyzer to CMC ${label}`}
+            onClick={toggleCollapsed}
+            className="p-0.5 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label={collapsed ? 'Expand play area' : 'Collapse play area'}
+            aria-expanded={!collapsed}
           >
-            {label} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
+            {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
-        ))}
+        </div>
       </div>
 
-      <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
-      <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+      {collapsed ? (
+        <div className="px-3 py-2 grid grid-cols-8 gap-1 items-end h-12">
+          {buckets.countsByCmc.map((count, i) => {
+            const max = Math.max(...buckets.countsByCmc, 1);
+            const heightPct = Math.max(8, Math.round((count / max) * 100));
+            return (
+              <div key={i} className="flex flex-col items-center gap-0.5">
+                <div
+                  className="w-full bg-primary/40 rounded-sm"
+                  style={{ height: `${heightPct}%` }}
+                  title={`CMC ${COLUMN_LABELS[i]}: ${count}`}
+                />
+                <span className="text-[9px] text-muted-foreground/60 tabular-nums">{count}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          {/* CMC column headers */}
+          <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 pt-2 text-[10px] text-muted-foreground/70">
+            <div></div>
+            {COLUMN_LABELS.map((label, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onCmcSelect?.(i)}
+                className="text-center font-medium tabular-nums py-1 rounded hover:bg-primary/10 hover:text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                aria-label={`Filter analyzer to CMC ${label}`}
+              >
+                {label} <span className="text-muted-foreground/40">({buckets.countsByCmc[i]})</span>
+              </button>
+            ))}
+          </div>
 
-      <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 border-t border-border/20 items-center">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Lands</div>
-        <div className="col-span-8 text-[11px] text-muted-foreground/60">{buckets.landCount} lands</div>
-      </div>
+          <CurveRow label="Creatures" rowCards={buckets.creatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+          <CurveRow label="Non-creatures" rowCards={buckets.noncreatures} onHover={handleHover} onSelect={setPreviewCard} onCmcSelect={onCmcSelect} />
+
+          <div className="grid grid-cols-[80px_repeat(8,1fr)] gap-1 px-2 py-1.5 border-t border-border/20 items-center">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">Lands</div>
+            <div className="col-span-8 text-[11px] text-muted-foreground/60">{buckets.landCount} lands</div>
+          </div>
+        </>
+      )}
 
       {/* Floating hover preview — hidden on small viewports */}
       {hover && (
