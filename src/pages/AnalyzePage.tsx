@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
 import { LaneTabs, type LaneKey } from '@/components/analyze/LaneTabs';
 import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
@@ -10,8 +11,12 @@ import { CommanderStrip, type AnalyzeSource } from '@/components/analyze/Command
 import { hydrateDeckForAnalysis } from '@/components/analyze/analyzeHydration';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
+import { AnalyzeSplit } from '@/components/analyze/AnalyzeSplit';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { getCachedCard } from '@/services/scryfall/client';
+import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
+import { stampRoleSubtypes } from '@/services/deckBuilder/deckGenerator';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, GeneratedDeck } from '@/types';
@@ -35,11 +40,13 @@ export function AnalyzePage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingListId, setLoadingListId] = useState<string | null>(null);
   const [source, setSource] = useState<AnalyzeSource | null>(null);
-  const [optimizeViewActive, setOptimizeViewActive] = useState(false);
+  const [activeOptimizerRole, setActiveOptimizerRole] = useState<string | null>(null);
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ optimizeView?: boolean }>).detail;
-      if (detail) setOptimizeViewActive(!!detail.optimizeView);
+      const detail = (e as CustomEvent<{ optimizeView?: boolean; activeRole?: string | null }>).detail;
+      if (detail) {
+        if ('activeRole' in detail) setActiveOptimizerRole(detail.activeRole ?? null);
+      }
     };
     document.addEventListener('deck-optimizer-state', handler);
     return () => document.removeEventListener('deck-optimizer-state', handler);
@@ -47,7 +54,7 @@ export function AnalyzePage() {
 
   const generatedDeck = useStore(s => s.generatedDeck);
   const colorIdentityStore = useStore(s => s.colorIdentity);
-  const { lists } = useUserLists();
+  const { lists, updateList } = useUserLists();
   const { param1, param2 } = useParams<{ param1?: string; param2?: string }>();
   const navigate = useNavigate();
 
@@ -235,7 +242,130 @@ export function AnalyzePage() {
     navigate('/analyze');
   }, [source, navigate]);
 
+  const handleAddCardsToAnalyzerDeck = useCallback((names: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => {
+    if (destination !== 'deck') return;
+    const deck = useStore.getState().generatedDeck;
+    if (!deck) return;
+
+    const existing = new Set<string>();
+    for (const arr of Object.values(deck.categories)) {
+      for (const c of arr) existing.add(c.name);
+    }
+    if (deck.commander) existing.add(deck.commander.name);
+    if (deck.partnerCommander) existing.add(deck.partnerCommander.name);
+
+    const newCategories = { ...deck.categories };
+    const addedNames: string[] = [];
+    for (const name of names) {
+      if (existing.has(name)) continue;
+      const card = getCachedCard(name);
+      if (!card) continue;
+      stampRoleSubtypes(card);
+      const cat = getCategoryForCard(card);
+      newCategories[cat] = [...newCategories[cat], card];
+      existing.add(name);
+      addedNames.push(name);
+    }
+    if (addedNames.length === 0) return;
+
+    const newInclusionMap = { ...(deck.cardInclusionMap || {}) };
+    let scoreDelta = 0;
+    for (const name of addedNames) {
+      if (newInclusionMap[name] == null) newInclusionMap[name] = 0;
+      scoreDelta += newInclusionMap[name];
+    }
+
+    useStore.setState({
+      generatedDeck: {
+        ...deck,
+        categories: newCategories,
+        cardInclusionMap: newInclusionMap,
+        deckScore: (deck.deckScore ?? 0) + scoreDelta,
+      },
+    });
+
+    if (source?.kind === 'list') {
+      const list = lists.find(l => l.id === source.listId);
+      if (list) {
+        const listExisting = new Set(list.cards);
+        const toAppend = addedNames.filter(n => !listExisting.has(n));
+        if (toAppend.length > 0) {
+          updateList(source.listId, {
+            cards: [...list.cards, ...toAppend],
+            generationSummary: undefined,
+          });
+        }
+      }
+    }
+  }, [source, lists, updateList]);
+
+  const handleRemoveCardsFromAnalyzerDeck = useCallback((names: string[]) => {
+    const deck = useStore.getState().generatedDeck;
+    if (!deck) return;
+    const removeSet = new Set(names);
+
+    const newCategories = { ...deck.categories };
+    let actuallyRemoved = false;
+    for (const cat of Object.keys(newCategories) as Array<keyof typeof newCategories>) {
+      const filtered = newCategories[cat].filter(c => !removeSet.has(c.name));
+      if (filtered.length !== newCategories[cat].length) {
+        newCategories[cat] = filtered;
+        actuallyRemoved = true;
+      }
+    }
+    if (!actuallyRemoved) return;
+
+    const newInclusionMap = { ...(deck.cardInclusionMap || {}) };
+    let scoreDelta = 0;
+    for (const name of names) {
+      if (newInclusionMap[name] != null) {
+        scoreDelta += newInclusionMap[name];
+      }
+    }
+
+    useStore.setState({
+      generatedDeck: {
+        ...deck,
+        categories: newCategories,
+        cardInclusionMap: newInclusionMap,
+        deckScore: Math.max(0, (deck.deckScore ?? 0) - scoreDelta),
+      },
+    });
+
+    if (source?.kind === 'list') {
+      const list = lists.find(l => l.id === source.listId);
+      if (list) {
+        updateList(source.listId, {
+          cards: list.cards.filter(c => !removeSet.has(c)),
+          generationSummary: undefined,
+        });
+      }
+    }
+  }, [source, lists, updateList]);
+
   const deckLoaded = generatedDeck && source;
+
+  // Show a dedicated loading screen when arriving fresh via /analyze/<listId>
+  // — the hub (paste/lists/generate) would be misleading while hydration runs.
+  const pendingListLoad = !!listIdParam && !deckLoaded && !error;
+  if (pendingListLoad) {
+    const list = lists.find(l => l.id === listIdParam);
+    return (
+      <main className="flex-1 flex items-center justify-center px-4 py-16">
+        <div className="flex flex-col items-center gap-4 text-center animate-fade-in">
+          <Loader2 className="h-10 w-10 text-violet-300/80 animate-spin" />
+          <div>
+            <div className="text-base font-medium">
+              Loading {list?.name ? `"${list.name}"` : 'deck'}…
+            </div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              Fetching cards and analyzing roles.
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (deckLoaded) {
     const partnerOffset = generatedDeck.partnerCommander ? 1 : 0;
@@ -256,8 +386,24 @@ export function AnalyzePage() {
         />
         </div>
         {generatedDeck.commander && (
-          <>
-            {!optimizeViewActive && (
+          <AnalyzeSplit
+            analyzer={
+              <DeckOptimizer
+                commanderName={generatedDeck.commander.name}
+                partnerCommanderName={generatedDeck.partnerCommander?.name}
+                currentCards={Object.values(generatedDeck.categories).flat()}
+                deckSize={analyzerDeckSize}
+                roleCounts={generatedDeck.roleCounts || {}}
+                roleTargets={generatedDeck.roleTargets || {}}
+                categories={generatedDeck.categories}
+                cardInclusionMap={generatedDeck.cardInclusionMap}
+                activeTab={activeAnalyzerTab}
+                onTabChange={handleAnalyzerTabChange}
+                onAddCards={handleAddCardsToAnalyzerDeck}
+                onRemoveCards={handleRemoveCardsFromAnalyzerDeck}
+              />
+            }
+            deck={
               <DeckBuildingArea
                 currentCards={Object.values(generatedDeck.categories).flat()}
                 excludeNames={(() => {
@@ -266,21 +412,11 @@ export function AnalyzePage() {
                   if (generatedDeck.partnerCommander) s.add(generatedDeck.partnerCommander.name);
                   return s;
                 })()}
+                highlightRoles={activeAnalyzerTab === 'roles'}
+                activeRole={activeAnalyzerTab === 'roles' ? activeOptimizerRole : null}
               />
-            )}
-            <DeckOptimizer
-              commanderName={generatedDeck.commander.name}
-              partnerCommanderName={generatedDeck.partnerCommander?.name}
-              currentCards={Object.values(generatedDeck.categories).flat()}
-              deckSize={analyzerDeckSize}
-              roleCounts={generatedDeck.roleCounts || {}}
-              roleTargets={generatedDeck.roleTargets || {}}
-              categories={generatedDeck.categories}
-              cardInclusionMap={generatedDeck.cardInclusionMap}
-              activeTab={activeAnalyzerTab}
-              onTabChange={handleAnalyzerTabChange}
-            />
-          </>
+            }
+          />
         )}
       </main>
     );
