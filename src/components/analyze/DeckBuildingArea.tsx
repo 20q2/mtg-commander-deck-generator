@@ -73,12 +73,13 @@ const ROLE_PRIORITY: Record<string, number> = {
 
 const COLOR_PRIORITY: Record<string, number> = { W: 0, U: 1, B: 2, R: 3, G: 4 };
 
-type SortKey = 'name' | 'color' | 'role' | 'price';
+type SortKey = 'name' | 'color' | 'role' | 'theme' | 'price';
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'name',  label: 'Name'  },
   { key: 'color', label: 'Color' },
   { key: 'role',  label: 'Role'  },
+  { key: 'theme', label: 'Theme' },
   { key: 'price', label: 'Price' },
 ];
 
@@ -111,7 +112,12 @@ function colorRank(card: ScryfallCard): number {
 
 type SortDir = 'asc' | 'desc';
 
-function sortBy(cards: ScryfallCard[], key: SortKey, dir: SortDir = 'asc'): ScryfallCard[] {
+function sortBy(
+  cards: ScryfallCard[],
+  key: SortKey,
+  dir: SortDir = 'asc',
+  themeMembership: ThemeMembership | null = null,
+): ScryfallCard[] {
   const out = [...cards];
   const sign = dir === 'asc' ? 1 : -1;
   if (key === 'name') {
@@ -127,6 +133,21 @@ function sortBy(cards: ScryfallCard[], key: SortKey, dir: SortDir = 'asc'): Scry
       const br = b.deckRole ? (ROLE_PRIORITY[b.deckRole] ?? 99) : 99;
       return ar !== br ? sign * (ar - br) : a.name.localeCompare(b.name);
     });
+  } else if (key === 'theme') {
+    const rank = (c: ScryfallCard): number => {
+      const idxs = themeMembership?.byCard.get(c.name.toLowerCase());
+      if (!idxs || idxs.length === 0) return 3;
+      const hasPrimary = idxs.includes(0);
+      const hasSecondary = idxs.includes(1);
+      if (hasPrimary && hasSecondary) return 0;
+      if (hasPrimary) return 1;
+      if (hasSecondary) return 2;
+      return 3;
+    };
+    out.sort((a, b) => {
+      const d = sign * (rank(a) - rank(b));
+      return d !== 0 ? d : a.name.localeCompare(b.name);
+    });
   } else if (key === 'price') {
     out.sort((a, b) => {
       const ap = parseFloat(getCardPrice(a) ?? '0');
@@ -140,7 +161,7 @@ function sortBy(cards: ScryfallCard[], key: SortKey, dir: SortDir = 'asc'): Scry
 // Per-sort default direction. Names/colors/roles read left-to-right ascending;
 // price feels more useful starting from the expensive end.
 const DEFAULT_DIR: Record<SortKey, SortDir> = {
-  name: 'asc', color: 'asc', role: 'asc', price: 'desc',
+  name: 'asc', color: 'asc', role: 'asc', theme: 'asc', price: 'desc',
 };
 
 interface HoverState {
@@ -173,7 +194,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
 
   const [sortKey, setSortKey] = useState<SortKey>(() => {
     const stored = localStorage.getItem(SORT_STORAGE_KEY);
-    return (stored === 'name' || stored === 'color' || stored === 'role' || stored === 'price') ? stored : 'name';
+    return (stored === 'name' || stored === 'color' || stored === 'role' || stored === 'theme' || stored === 'price') ? stored : 'name';
   });
   const [sortDir, setSortDir] = useState<SortDir>(() => {
     const stored = localStorage.getItem(SORT_DIR_STORAGE_KEY);
@@ -184,6 +205,13 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
 
   useEffect(() => { localStorage.setItem(SORT_STORAGE_KEY, sortKey); }, [sortKey]);
   useEffect(() => { localStorage.setItem(SORT_DIR_STORAGE_KEY, sortDir); }, [sortDir]);
+  // Fall back to name sort if the Theme option vanishes (no themes selected).
+  useEffect(() => {
+    if (sortKey === 'theme' && (!themeMembership || themeMembership.themes.length === 0)) {
+      setSortKey('name');
+      setSortDir(DEFAULT_DIR.name);
+    }
+  }, [sortKey, themeMembership]);
   // When the user picks a different sort, fall back to that sort's natural
   // default direction (price wants desc; name wants asc).
   const handleSortKeyChange = useCallback((next: SortKey) => {
@@ -231,11 +259,11 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
       ? col.filter(matchesActiveFilter)
       : col;
     return {
-      creatures: buckets.creatures.map(col => sortBy(applyFilter(col), sortKey, sortDir)),
-      noncreatures: buckets.noncreatures.map(col => sortBy(applyFilter(col), sortKey, sortDir)),
-      lands: buckets.lands.map(col => sortBy(col, sortKey, sortDir)),
+      creatures: buckets.creatures.map(col => sortBy(applyFilter(col), sortKey, sortDir, themeMembership)),
+      noncreatures: buckets.noncreatures.map(col => sortBy(applyFilter(col), sortKey, sortDir, themeMembership)),
+      lands: buckets.lands.map(col => sortBy(col, sortKey, sortDir, themeMembership)),
     };
-  }, [buckets, sortKey, sortDir, hideEnabled, highlightRoles, matchesActiveFilter]);
+  }, [buckets, sortKey, sortDir, hideEnabled, highlightRoles, matchesActiveFilter, themeMembership]);
 
   // Only render CMC columns that actually have non-land cards. Lands have
   // their own category-based drawer beside the curve, so counting them here
@@ -269,9 +297,9 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     };
     for (const card of flat) groups[categorizeLand(card)].push(card);
     return LAND_CATEGORIES
-      .map(({ key, label }) => ({ key, label, cards: sortBy(groups[key], sortKey, sortDir) }))
+      .map(({ key, label }) => ({ key, label, cards: sortBy(groups[key], sortKey, sortDir, themeMembership) }))
       .filter(g => g.cards.length > 0);
-  }, [buckets, sortKey, sortDir, taggerReady]);
+  }, [buckets, sortKey, sortDir, taggerReady, themeMembership]);
   const landsGridTemplate = `repeat(${Math.max(landCategoryGroups.length, 1)}, minmax(0, 130px))`;
 
   const [hover, setHover] = useState<HoverState | null>(null);
@@ -450,7 +478,9 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
           <div className="flex items-center gap-1">
             <ArrowUpDown className="w-3 h-3 text-muted-foreground/50" />
             <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
-              {SORT_OPTIONS.map((opt, i) => {
+              {SORT_OPTIONS
+                .filter(o => o.key !== 'theme' || (themeMembership && themeMembership.themes.length > 0))
+                .map((opt, i) => {
                 const active = sortKey === opt.key;
                 const ArrowIcon = sortDir === 'asc' ? ArrowUp : ArrowDown;
                 return (
