@@ -2072,9 +2072,19 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     msMessage = `${msTotal} ramp with ${msProducers} producers — solid acceleration.`;
   } else if (msTotal >= threshC) {
     msGrade = 'C';
-    msMessage = msEarly < threshB.early
-      ? `${msTotal} ramp but only ${msEarly} early pieces — slow to accelerate.`
-      : `${msTotal} ramp is decent. A couple more would smooth things out.`;
+    // Name the actual limiter. With high total ramp, the issue is almost always
+    // composition (too few producers) or speed (too few early pieces), not count.
+    const producersShort = msProducers < threshB.producers;
+    const earlyShort = msEarly < threshB.early;
+    if (producersShort && msTotal >= threshB.ramp) {
+      msMessage = `${msTotal} ramp, but only ${msProducers} ${msProducers === 1 ? 'is a mana producer' : 'are mana producers'} (dork/rock). Land-ramp and rituals are slower — consider Signets, Talismans, or dorks.`;
+    } else if (earlyShort) {
+      msMessage = `${msTotal} ramp but only ${msEarly} early pieces (CMC ≤ 2) — slow to accelerate.`;
+    } else if (producersShort) {
+      msMessage = `${msTotal} ramp, but only ${msProducers} ${msProducers === 1 ? 'is a permanent producer' : 'are permanent producers'}. More dorks or rocks would compound better than one-shot ramp.`;
+    } else {
+      msMessage = `${msTotal} ramp is decent. A couple more would smooth things out.`;
+    }
   } else if (msTotal >= threshD) {
     msGrade = 'D';
     msMessage = `Only ${msTotal} ramp cards — this deck will fall behind.`;

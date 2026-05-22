@@ -145,15 +145,15 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
           }}
           disabled={!canAnalyze}
           className="btn-shimmer"
-          title={!commanderCard ? 'Pick a commander to analyze this list' : 'Analyze this deck'}
+          title={!commanderCard ? 'Pick a commander to check this list' : 'Check this deck'}
         >
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Analyzing…
+              Checking…
             </>
           ) : (
-            <>Analyze →</>
+            <>Check →</>
           )}
         </Button>
       </div>

@@ -1045,7 +1045,7 @@ export function BuilderPage() {
                     className="btn-shimmer"
                   >
                     <Microscope className="w-4 h-4 mr-2" />
-                    Analyze
+                    Check
                   </Button>
                   <Button onClick={onExport} className="btn-shimmer">
                     <Copy className="w-4 h-4 mr-2" />
@@ -1163,10 +1163,10 @@ export function BuilderPage() {
                     navigate('/analyze/overview');
                   }}
                   className="btn-shimmer"
-                  title="Open in the Analyze page"
+                  title="Open in Deck Check"
                 >
                   <Microscope className="w-4 h-4 mr-2" />
-                  Analyze
+                  Check
                 </Button>
                 <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
                   <Copy className="w-4 h-4 mr-2" />

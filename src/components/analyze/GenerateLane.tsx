@@ -84,7 +84,7 @@ export function GenerateLane() {
           className="btn-shimmer"
         >
           <Sparkles className="w-4 h-4 mr-2" />
-          Generate & Analyze
+          Generate & Check
         </Button>
       </div>
     </div>

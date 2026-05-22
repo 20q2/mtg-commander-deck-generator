@@ -18,7 +18,6 @@ import {
 } from './constants';
 import { AnalyzedCardRow, AnimatedCollapse, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
-import { ManaTrajectorySparkline } from './CurveTab';
 import { selectLandCuts, type LandCut } from '@/services/deckBuilder/landCutSelection';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -232,7 +231,6 @@ export function GradeInfoPopover({ children }: { children: React.ReactNode }) {
 }
 
 export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
-  const [expanded, setExpanded] = useState(true);
   const mb = analysis.manaBase;
   const vs = VERDICT_STYLES[mb.verdict] || VERDICT_STYLES['ok'];
   const grade = getManaBaseGrade(mb);
@@ -247,13 +245,7 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
 
   return (
     <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3 border-b border-border/30">
-      <div
-        role="button"
-        tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
-        onClick={() => setExpanded(prev => !prev)}
-      >
-        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
+      <div className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1">
         <Mountain className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -266,43 +258,41 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
           <p><span className="font-semibold text-red-400">F</span> — Critically low (below 33% of deck size)</p>
         </GradeInfoPopover>
       </div>
-      <AnimatedCollapse open={expanded}>
-        <div className={`border rounded-lg p-2.5 ${vs.border} ${vs.bg}`}>
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${grade.bgColor} shrink-0`}>
-              <span className={`text-2xl font-black leading-none ${grade.color}`}>{grade.letter}</span>
-            </div>
-            <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground leading-snug text-center">{mb.verdictMessage}</p>
-            </div>
+      <div className={`border rounded-lg p-2.5 ${vs.border} ${vs.bg}`}>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${grade.bgColor} shrink-0`}>
+            <span className={`text-2xl font-black leading-none ${grade.color}`}>{grade.letter}</span>
+          </div>
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground leading-snug text-center">{mb.verdictMessage}</p>
           </div>
         </div>
+      </div>
 
-        <div>
-          <div className="flex items-baseline justify-between mb-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Hand</p>
-            <p className="text-[11px] text-muted-foreground/70">avg <span className="font-semibold text-foreground/70">{avgLands.toFixed(1)}</span> lands</p>
-          </div>
-          <div className="flex gap-1.5">
-            {segments.map(seg => {
-              const pctNum = Math.round(seg.pct * 100);
-              return (
-                <div key={seg.label} className="flex flex-col items-center gap-1" style={{ flex: `${Math.max(pctNum, 8)} 0 0` }}>
-                  <div className={`w-full h-2.5 rounded-full ${seg.color}`} />
-                  <span className={`text-[10px] font-semibold tabular-nums leading-none ${seg.text}`}>{pctNum}%</span>
-                  <span className="text-[9px] text-muted-foreground/50 leading-none">{seg.label} lands</span>
-                </div>
-              );
-            })}
-          </div>
+      <div>
+        <div className="flex items-baseline justify-between mb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Hand</p>
+          <p className="text-[11px] text-muted-foreground/70">avg <span className="font-semibold text-foreground/70">{avgLands.toFixed(1)}</span> lands</p>
         </div>
-      </AnimatedCollapse>
+        <div className="flex gap-1.5">
+          {segments.map(seg => {
+            const pctNum = Math.round(seg.pct * 100);
+            return (
+              <div key={seg.label} className="flex flex-col items-center gap-1" style={{ flex: `${Math.max(pctNum, 8)} 0 0` }}>
+                <div className={`w-full h-2.5 rounded-full ${seg.color}`} />
+                <span className={`text-[10px] font-semibold tabular-nums leading-none ${seg.text}`}>{pctNum}%</span>
+                <span className="text-[9px] text-muted-foreground/50 leading-none">{seg.label} lands</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
 export function LandCountDetail({
-  analysis, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap,
+  analysis, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap, aurora,
 }: {
   analysis: DeckAnalysis;
   onPreview: (name: string) => void;
@@ -315,6 +305,7 @@ export function LandCountDetail({
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
   cardInclusionMap?: Record<string, number>;
+  aurora?: string;
 }) {
   const mb = analysis.manaBase;
   const hasSuggestions = analysis.landRecommendations.length > 0;
@@ -462,7 +453,10 @@ export function LandCountDetail({
   });
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
+    <div
+      className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px] transition-[background-image] duration-500"
+      style={aurora ? { backgroundImage: aurora } : undefined}
+    >
       <div className={`${hasRightColumn ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: rating summary + lands list */}
         <div className={`${hasRightColumn ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
@@ -630,53 +624,45 @@ export function LandCountDetail({
 
 // ─── Mana Production Detail Panel ───────────────────────────────────
 export function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; deckSize: number }) {
-  const [expanded, setExpanded] = useState(true);
   const gs = FIXING_GRADE_STYLES[ms.grade] || FIXING_GRADE_STYLES.C;
 
   return (
     <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3">
-      <div
-        role="button"
-        tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
-        onClick={() => setExpanded(prev => !prev)}
-      >
-        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
+      <div className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1">
         <Sprout className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
           <p className="font-semibold text-foreground/80">Mana Production Grading</p>
-          <p>Evaluates ramp count, early-game availability (CMC ≤ 2), and how many are mana producers (dorks/rocks).{deckSize !== 100 ? ` Scaled for ${deckSize}-card deck.` : ''}</p>
+          <p>Grades three things together: total ramp, early ramp (CMC ≤ 2), and how many of those are <span className="font-semibold text-foreground/80">producers</span> — mana dorks and rocks that sit on the battlefield and tap for mana every turn.</p>
+          <p className="text-muted-foreground/80">Producers are weighted because land-ramp sorceries (Cultivate, Sakura-Tribe Elder), ramp lands (Cabal Coffers), and one-shot rituals are slower and don't compound. A deck heavy in those can have lots of "ramp" but still accelerate poorly — that's why the Roles tab can show ramp as met while this tab grades lower.{deckSize !== 100 ? ` Scaled for ${deckSize}-card deck.` : ''}</p>
           <p><span className="font-semibold text-emerald-400">A</span> — {Math.round(10 * deckSize / 100)}+ ramp, {Math.round(5 * deckSize / 100)}+ early, {Math.round(6 * deckSize / 100)}+ producers</p>
           <p><span className="font-semibold text-sky-400">B</span> — {Math.round(8 * deckSize / 100)}+ ramp, {Math.round(3 * deckSize / 100)}+ early, {Math.round(4 * deckSize / 100)}+ producers</p>
-          <p><span className="font-semibold text-amber-400">C</span> — {Math.round(6 * deckSize / 100)}+ ramp total</p>
+          <p><span className="font-semibold text-amber-400">C</span> — {Math.round(6 * deckSize / 100)}+ ramp but missing the early/producer mix for B</p>
           <p><span className="font-semibold text-orange-400">D</span> — {Math.round(4 * deckSize / 100)}+ ramp total</p>
           <p><span className="font-semibold text-red-400">F</span> — Fewer than {Math.round(4 * deckSize / 100)} ramp cards</p>
         </GradeInfoPopover>
       </div>
-      <AnimatedCollapse open={expanded}>
-        <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
-              <span className={`text-2xl font-black leading-none ${gs.color}`}>{ms.grade}</span>
-            </div>
-            <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground leading-snug text-center">{ms.message}</p>
-            </div>
+      <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
+            <span className={`text-2xl font-black leading-none ${gs.color}`}>{ms.grade}</span>
+          </div>
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground leading-snug text-center">{ms.message}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5">
-          <span>{ms.earlyRamp} early <span className="text-muted-foreground/40">(CMC ≤ 2)</span></span>
-          <span className="text-border">·</span>
-          <span>avg ramp cost <span className="font-semibold text-foreground/80">{ms.avgRampCmc.toFixed(1)}</span></span>
-        </div>
-      </AnimatedCollapse>
+      </div>
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5">
+        <span>{ms.earlyRamp} early <span className="text-muted-foreground/40">(CMC ≤ 2)</span></span>
+        <span className="text-border">·</span>
+        <span>avg ramp cost <span className="font-semibold text-foreground/80">{ms.avgRampCmc.toFixed(1)}</span></span>
+      </div>
     </div>
   );
 }
 
 export function ManaSourcesDetail({
-  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps,
+  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, aurora,
 }: {
   analysis: DeckAnalysis;
   onPreview: (name: string) => void;
@@ -684,6 +670,7 @@ export function ManaSourcesDetail({
   addedCards: Set<string>;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
+  aurora?: string;
 }) {
   // Group ramp cards by subtype
   const groups: { key: string; label: string; cards: AnalyzedCard[] }[] = [];
@@ -709,16 +696,14 @@ export function ManaSourcesDetail({
   const hasSuggestions = rampSuggestions.length > 0;
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
+    <div
+      className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px] transition-[background-image] duration-500"
+      style={aurora ? { backgroundImage: aurora } : undefined}
+    >
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: summary + ramp cards grouped */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
           <ManaSourcesSummary ms={analysis.manaSources} deckSize={analysis.manaBase.deckSize} />
-          {analysis.manaTrajectory.length > 0 && (
-            <div className="-mx-3 sm:-mx-4 px-3 sm:px-4 pb-3 border-b border-border/30">
-              <ManaTrajectorySparkline trajectory={analysis.manaTrajectory} />
-            </div>
-          )}
           {groups.length > 0 ? (<>
             <div className="flex items-center gap-1 mb-1.5 px-0.5">
               <Check className="w-3 h-3 text-emerald-400/60" />
@@ -807,20 +792,13 @@ export function ManaSourcesDetail({
 
 // ─── Fixing Summary Box (accordion) ─────────────────────────────
 export function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
-  const [expanded, setExpanded] = useState(true);
   const cf = analysis.colorFixing;
   const grade = cf.fixingGrade || 'C';
   const gs = FIXING_GRADE_STYLES[grade] || FIXING_GRADE_STYLES.C;
 
   return (
     <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3">
-      <div
-        role="button"
-        tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
-        onClick={() => setExpanded(prev => !prev)}
-      >
-        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
+      <div className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1">
         <Palette className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -832,25 +810,23 @@ export function FixingSummaryBox({ analysis }: { analysis: DeckAnalysis }) {
           <p><span className="font-semibold text-emerald-400">A</span> ≥ 85 · <span className="font-semibold text-sky-400">B</span> ≥ 70 · <span className="font-semibold text-amber-400">C</span> ≥ 50 · <span className="font-semibold text-orange-400">D</span> ≥ 30 · <span className="font-semibold text-red-400">F</span> &lt; 30</p>
         </GradeInfoPopover>
       </div>
-      <AnimatedCollapse open={expanded}>
-        <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
-              <span className={`text-2xl font-black leading-none ${gs.color}`}>{grade}</span>
-            </div>
-            <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground leading-snug text-center">{cf.fixingGradeMessage || ''}</p>
-            </div>
+      <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
+            <span className={`text-2xl font-black leading-none ${gs.color}`}>{grade}</span>
+          </div>
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground leading-snug text-center">{cf.fixingGradeMessage || ''}</p>
           </div>
         </div>
-      </AnimatedCollapse>
+      </div>
     </div>
   );
 }
 
 // ─── Color Fixing Detail Panel ───────────────────────────────────
 export function FixingDetail({
-  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand,
+  analysis, onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, aurora,
 }: {
   analysis: DeckAnalysis;
   onPreview: (name: string) => void;
@@ -861,6 +837,7 @@ export function FixingDetail({
   colorIdentity: string[];
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
+  aurora?: string;
 }) {
   const cf = analysis.colorFixing;
   const fixerRecs = cf.fixingRecommendations || [];
@@ -956,7 +933,10 @@ export function FixingDetail({
   }, [basicGroups, selectedColors]);
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
+    <div
+      className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px] transition-[background-image] duration-500"
+      style={aurora ? { backgroundImage: aurora } : undefined}
+    >
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: fixing summary + mana fixers + multi-color + recently added */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
@@ -1288,8 +1268,7 @@ export function FixingDetail({
 }
 
 // ─── Flex Lands Summary Box ──────────────────────────────────────
-export function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable, loading }: { mdfcCount: number; channelLandCount: number; totalAvailable: number; loading: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+export function FlexLandSummaryBox({ mdfcCount, channelLandCount }: { mdfcCount: number; channelLandCount: number; totalAvailable?: number; loading?: boolean }) {
   const flexCount = mdfcCount + channelLandCount;
   const status = getMdfcStatus(flexCount);
   const grade = getMdfcGrade(flexCount);
@@ -1297,13 +1276,7 @@ export function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable
 
   return (
     <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3 border-b border-border/30">
-      <div
-        role="button"
-        tabIndex={0}
-        className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1 hover:text-foreground/80 transition-colors cursor-pointer select-none"
-        onClick={() => setExpanded(prev => !prev)}
-      >
-        <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
+      <div className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1">
         <FlipHorizontal2 className="w-3 h-3" />
         Summary
         <GradeInfoPopover>
@@ -1315,32 +1288,23 @@ export function FlexLandSummaryBox({ mdfcCount, channelLandCount, totalAvailable
           <p><span className="font-semibold text-red-400">F</span> — No flex lands</p>
         </GradeInfoPopover>
       </div>
-      <AnimatedCollapse open={expanded}>
-        <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
-              <span className={`text-2xl font-black leading-none ${gs.color}`}>{grade.letter}</span>
-            </div>
-            <div className="flex-1 min-w-0 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground leading-snug text-center">{status.message}</p>
-            </div>
+      <div className={`border rounded-lg p-2.5 ${gs.border} ${gs.bg}`}>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-12 h-12 rounded-lg ${gs.bgColor} shrink-0`}>
+            <span className={`text-2xl font-black leading-none ${gs.color}`}>{grade.letter}</span>
+          </div>
+          <div className="flex-1 min-w-0 flex items-center justify-center">
+            <p className="text-sm text-muted-foreground leading-snug text-center">{status.message}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70 px-0.5 flex-wrap">
-          <span>Target: <span className="font-semibold text-foreground/80">3–6</span></span>
-          {channelLandCount > 0 && mdfcCount > 0 && (
-            <><span className="text-border">·</span><span>{mdfcCount} MDFC + {channelLandCount} channel</span></>
-          )}
-          {!loading && <><span className="text-border">·</span><span>{totalAvailable} MDFCs in colors</span></>}
-        </div>
-      </AnimatedCollapse>
+      </div>
     </div>
   );
 }
 
 // ─── MDFC Lands Detail Panel ─────────────────────────────────────
 export function MdfcDetail({
-  analysis, mdfcSuggestions, totalMdfcAvailable, mdfcLoading, channelLandCards = [], currentCardNames = new Set<string>(), onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand,
+  analysis, mdfcSuggestions, totalMdfcAvailable, mdfcLoading, channelLandCards = [], currentCardNames = new Set<string>(), onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, aurora,
 }: {
   analysis: DeckAnalysis;
   mdfcSuggestions: RecommendedCard[];
@@ -1356,6 +1320,7 @@ export function MdfcDetail({
   colorIdentity: string[];
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
+  aurora?: string;
 }) {
   const channelLands = analysis.channelLandsInDeck || [];
   // Single-pass partition over landCards (with the channel-set excluded)
@@ -1437,7 +1402,10 @@ export function MdfcDetail({
   });
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px]">
+    <div
+      className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 min-h-[750px] transition-[background-image] duration-500"
+      style={aurora ? { backgroundImage: aurora } : undefined}
+    >
       <div className="flex flex-col md:flex-row md:items-stretch gap-4">
         {/* Left: summary + all lands in deck */}
         <div className="md:w-[30%] shrink-0 space-y-3">
@@ -1640,6 +1608,21 @@ export function LandsTabContent({
   );
   const totalMdfcAvailable = allMdfcCards.length;
 
+  // Per-section grade for aurora tint
+  const sectionGrade: string | undefined = (() => {
+    if (activeSection === 'landCount') return getManaBaseGrade(analysis.manaBase).letter;
+    if (activeSection === 'manaSources') return analysis.manaSources.grade;
+    if (activeSection === 'fixing') {
+      const cf = analysis.colorFixing;
+      return cf.colorsNeeded.length > 0 ? (cf.fixingGrade || 'C') : undefined;
+    }
+    if (activeSection === 'mdfc') {
+      return getMdfcGrade(analysis.mdfcsInDeck.length + (analysis.channelLandsInDeck || []).length).letter;
+    }
+    return undefined;
+  })();
+  const aurora = sectionGrade ? auroraForGrade(sectionGrade) : undefined;
+
   return (
     <div>
       <LandSummaryStrip
@@ -1650,17 +1633,31 @@ export function LandsTabContent({
         channelLandCount={(analysis.channelLandsInDeck || []).length}
       />
       {activeSection === 'landCount' && (
-        <LandCountDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
+        <LandCountDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
       )}
       {activeSection === 'manaSources' && (
-        <ManaSourcesDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
+        <ManaSourcesDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
       )}
       {activeSection === 'fixing' && (
-        <FixingDetail analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
+        <FixingDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
       )}
       {activeSection === 'mdfc' && (
-        <MdfcDetail analysis={analysis} mdfcSuggestions={mdfcSuggestions} totalMdfcAvailable={totalMdfcAvailable} mdfcLoading={mdfcLoading} channelLandCards={channelLandCards} currentCardNames={currentCardNames} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
+        <MdfcDetail aurora={aurora} analysis={analysis} mdfcSuggestions={mdfcSuggestions} totalMdfcAvailable={totalMdfcAvailable} mdfcLoading={mdfcLoading} channelLandCards={channelLandCards} currentCardNames={currentCardNames} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
       )}
     </div>
   );
+}
+
+// Aurora gradient by letter grade — green (A) → red (F)
+function auroraForGrade(letter: string): string | undefined {
+  const map: Record<string, string> = {
+    A: '16,185,129',   // emerald
+    B: '132,204,22',   // lime
+    C: '245,158,11',   // amber
+    D: '249,115,22',   // orange
+    F: '244,63,94',    // rose
+  };
+  const rgb = map[letter.toUpperCase()];
+  if (!rgb) return undefined;
+  return `radial-gradient(ellipse 80% 60% at 15% 0%, rgba(${rgb},0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(${rgb},0.035), transparent 60%)`;
 }

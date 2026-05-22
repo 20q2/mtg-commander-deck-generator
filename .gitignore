@@ -1,6 +1,7 @@
 # Claude
 .claude/
 .superpowers/
+docs/superpowers/
 
 # Dependencies
 node_modules

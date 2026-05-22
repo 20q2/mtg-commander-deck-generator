@@ -359,9 +359,6 @@ export function ManaCurveLineChart({
             </button>
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground/80 leading-snug">
-          Card count at each mana cost vs. the expected distribution for your commander{pacing && pacing !== 'balanced' ? ` (${PACING_LABELS[pacing]} tempo)` : ''}{onCmcClick ? ' · Click a mana value to see cards' : ''}
-        </span>
       </div>
       <ResponsiveContainer width="100%" height={chartHeight} debounce={1} className="flex-1 min-h-[120px] [&_*:focus-visible]:outline-none [&_*:focus]:outline-none">
         <ComposedChart
@@ -742,62 +739,96 @@ const PHASE_ROLE_CONTEXT: Record<CurvePhase, Record<RoleGroupKey, string>> = {
   },
 };
 
-export function ManaTrajectorySparkline({
-  trajectory, commanderCmc, commanderName, partnerCmc, partnerName, chartHeight = 140,
+type CommanderCastChip = { key: string; label: string; turn: number; savedTurns: number; color: string; bgColor: string; tooltip: string };
+
+function buildCommanderCastChips(
+  trajectory: ManaTrajectoryPoint[],
+  commanderCmc?: number,
+  commanderName?: string,
+  partnerCmc?: number,
+  partnerName?: string,
+): CommanderCastChip[] {
+  if (!commanderCmc || !commanderName) return [];
+  const fmt = (t: number) => Math.min(t, 12);
+  const chips: CommanderCastChip[] = [];
+
+  const castWith = findCastTurnExtended(trajectory, commanderCmc, true);
+  const castWithout = findCastTurnExtended(trajectory, commanderCmc, false);
+  const saved = castWithout - castWith;
+  const color = turnColor(castWith);
+  const bgColor = color.includes('emerald') ? 'bg-emerald-500/10' : color.includes('sky') ? 'bg-sky-500/10' : color.includes('amber') ? 'bg-amber-500/10' : 'bg-red-500/10';
+  chips.push({
+    key: 'cmdr',
+    label: commanderName.split(',')[0],
+    turn: fmt(castWith),
+    savedTurns: saved,
+    color, bgColor,
+    tooltip: saved > 0
+      ? `${commanderName} ready by turn ${fmt(castWith)}. Ramp saves ${saved} turn${saved > 1 ? 's' : ''} vs lands alone.`
+      : `${commanderName} castable on turn ${fmt(castWith)} on curve.`,
+  });
+
+  if (partnerCmc != null && partnerName) {
+    const pCast = findCastTurnExtended(trajectory, partnerCmc, true);
+    const pSaved = findCastTurnExtended(trajectory, partnerCmc, false) - pCast;
+    const pColor = turnColor(pCast);
+    const pBgColor = pColor.includes('emerald') ? 'bg-emerald-500/10' : pColor.includes('sky') ? 'bg-sky-500/10' : pColor.includes('amber') ? 'bg-amber-500/10' : 'bg-red-500/10';
+    chips.push({
+      key: 'partner',
+      label: partnerName.split(',')[0],
+      turn: fmt(pCast),
+      savedTurns: pSaved,
+      color: pColor, bgColor: pBgColor,
+      tooltip: pSaved > 0
+        ? `${partnerName} ready by turn ${fmt(pCast)}. Ramp saves ${pSaved} turn${pSaved > 1 ? 's' : ''} vs lands alone.`
+        : `${partnerName} castable on turn ${fmt(pCast)} on curve.`,
+    });
+  }
+
+  return chips;
+}
+
+export function CommanderCastChips({
+  trajectory, commanderCmc, commanderName, partnerCmc, partnerName,
 }: {
   trajectory: ManaTrajectoryPoint[];
   commanderCmc?: number;
   commanderName?: string;
   partnerCmc?: number;
   partnerName?: string;
+}) {
+  const chips = useMemo(
+    () => buildCommanderCastChips(trajectory, commanderCmc, commanderName, partnerCmc, partnerName),
+    [trajectory, commanderCmc, commanderName, partnerCmc, partnerName],
+  );
+  if (chips.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {chips.map(chip => (
+        <InfoTooltip key={chip.key} text={chip.tooltip}>
+          <span
+            className={`flex items-center gap-1 text-[10px] font-semibold ${chip.color} ${chip.bgColor} rounded-full px-2 py-0.5 cursor-default leading-none`}
+          >
+            <Target className="w-2.5 h-2.5 shrink-0" />
+            <span className="truncate max-w-[160px]">{chip.label}</span>
+            <span>T{chip.turn}</span>
+            {chip.savedTurns > 0 && <span className="opacity-60">−{chip.savedTurns}</span>}
+          </span>
+        </InfoTooltip>
+      ))}
+    </div>
+  );
+}
+
+export function ManaTrajectorySparkline({
+  trajectory, chartHeight = 140,
+}: {
+  trajectory: ManaTrajectoryPoint[];
   chartHeight?: number;
 }) {
   if (trajectory.length === 0) return null;
 
-  const hasTapPenalty = trajectory.some(t => t.tapPenalty > 0);
   const hasCastData = trajectory.some(t => t.castableCards > 0);
-
-  // Commander cast-turn chips
-  const commanderChips = useMemo(() => {
-    if (!commanderCmc || !commanderName) return [];
-    const fmt = (t: number) => Math.min(t, 12);
-    const chips: Array<{ key: string; label: string; turn: number; savedTurns: number; color: string; bgColor: string; tooltip: string }> = [];
-
-    const castWith = findCastTurnExtended(trajectory, commanderCmc, true);
-    const castWithout = findCastTurnExtended(trajectory, commanderCmc, false);
-    const saved = castWithout - castWith;
-    const color = turnColor(castWith);
-    const bgColor = color.includes('emerald') ? 'bg-emerald-500/10' : color.includes('sky') ? 'bg-sky-500/10' : color.includes('amber') ? 'bg-amber-500/10' : 'bg-red-500/10';
-    chips.push({
-      key: 'cmdr',
-      label: commanderName.split(',')[0],
-      turn: fmt(castWith),
-      savedTurns: saved,
-      color, bgColor,
-      tooltip: saved > 0
-        ? `${commanderName} ready by turn ${fmt(castWith)}. Ramp saves ${saved} turn${saved > 1 ? 's' : ''} vs lands alone.`
-        : `${commanderName} castable on turn ${fmt(castWith)} on curve.`,
-    });
-
-    if (partnerCmc != null && partnerName) {
-      const pCast = findCastTurnExtended(trajectory, partnerCmc, true);
-      const pSaved = findCastTurnExtended(trajectory, partnerCmc, false) - pCast;
-      const pColor = turnColor(pCast);
-      const pBgColor = pColor.includes('emerald') ? 'bg-emerald-500/10' : pColor.includes('sky') ? 'bg-sky-500/10' : pColor.includes('amber') ? 'bg-amber-500/10' : 'bg-red-500/10';
-      chips.push({
-        key: 'partner',
-        label: partnerName.split(',')[0],
-        turn: fmt(pCast),
-        savedTurns: pSaved,
-        color: pColor, bgColor: pBgColor,
-        tooltip: pSaved > 0
-          ? `${partnerName} ready by turn ${fmt(pCast)}. Ramp saves ${pSaved} turn${pSaved > 1 ? 's' : ''} vs lands alone.`
-          : `${partnerName} castable on turn ${fmt(pCast)} on curve.`,
-      });
-    }
-
-    return chips;
-  }, [trajectory, commanderCmc, commanderName, partnerCmc, partnerName]);
 
   const chartData = trajectory.map(t => ({
     turnLabel: `T${t.turn}`,
@@ -817,6 +848,11 @@ export function ManaTrajectorySparkline({
     t.expectedRampMana > trajectory[best].expectedRampMana ? i : best, 0);
   const maxRampTurn = trajectory[maxRampIdx];
 
+  // Takeaway stats — show observed values, not threshold inferences.
+  const finalTurn = trajectory[trajectory.length - 1];
+  const t4 = trajectory.find(t => t.turn === 4) ?? trajectory[Math.min(3, trajectory.length - 1)];
+  const finalLandDropPct = Math.round(finalTurn.landDropProbability * 100);
+
   return (
     <div className="bg-card/60 border border-border/30 rounded-lg p-3 flex flex-col">
       <div className="flex flex-col gap-0.5 mb-1.5">
@@ -824,36 +860,10 @@ export function ManaTrajectorySparkline({
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Trajectory</span>
           <InfoTooltip text={`Expected mana per turn from lands + ramp.\n` +
             `\n` +
-            `Green — lands only\n` +
-            `Blue — total with ramp\n` +
-            (hasTapPenalty ? `Amber — before tapland penalty\n` : '') +
-            (hasCastData ? `Purple — % of spells castable\n` : '') +
-            `\n` +
-            `Steeper blue = faster acceleration.\n` +
-            `Green-to-blue gap = ramp impact.`} />
-          {commanderChips.length > 0 && (
-            <div className="flex items-center gap-1.5 ml-1">
-              {commanderChips.map(chip => (
-                <InfoTooltip key={chip.key} text={chip.tooltip}>
-                  <span
-                    className={`flex items-center gap-1 text-[10px] font-semibold ${chip.color} ${chip.bgColor} rounded px-1.5 py-0.5 cursor-default leading-none`}
-                  >
-                    <Target className="w-2.5 h-2.5 shrink-0" />
-                    <span className="hidden sm:inline truncate max-w-[80px]">{chip.label}</span>
-                    <span>T{chip.turn}</span>
-                    {chip.savedTurns > 0 && <span className="opacity-60">−{chip.savedTurns}</span>}
-                  </span>
-                </InfoTooltip>
-              ))}
-            </div>
-          )}
+            `Blue — total mana (lands + ramp)\n` +
+            `Green dashed — lands only\n` +
+            `Gap between them = ramp impact.`} />
           <span className="text-[10px] text-muted-foreground/80 ml-auto flex items-center gap-3 flex-wrap justify-end">
-            {hasTapPenalty && (
-              <span className="flex items-center gap-1.5">
-                <span className="w-4 h-0 inline-block border-t border-dotted border-amber-500/40" />
-                pre-tap
-              </span>
-            )}
             <span className="flex items-center gap-1.5">
               <span className="w-4 h-0 inline-block border-t border-dashed border-emerald-500/50" />
               lands
@@ -862,28 +872,47 @@ export function ManaTrajectorySparkline({
               <span className="w-4 h-0.5 rounded bg-sky-500 inline-block" />
               + ramp
             </span>
-            {hasCastData && (
-              <span className="flex items-center gap-1.5">
-                <span className="w-4 h-0.5 rounded bg-purple-500/40 inline-block" />
-                castable %
-              </span>
-            )}
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground/80 leading-snug">
-          Expected mana per turn · hover for land drop odds, castable spells{hasTapPenalty ? ', tapland penalty' : ''}
-        </span>
+        <div className="flex items-center gap-3 flex-wrap text-[10px] leading-snug">
+          <span className="text-foreground/85">
+            <span className="text-sky-300 font-semibold tabular-nums">{finalTurn.totalExpectedMana.toFixed(1)}</span>
+            <span className="text-muted-foreground/70"> mana by T{finalTurn.turn}</span>
+          </span>
+          {hasCastData && (
+            <>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="text-foreground/85">
+                <span className="text-purple-300 font-semibold tabular-nums">{Math.round(t4.castablePct * 100)}%</span>
+                <span className="text-muted-foreground/70"> spells castable by T{t4.turn}</span>
+              </span>
+            </>
+          )}
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-foreground/85">
+            <span className="text-emerald-300 font-semibold tabular-nums">{finalLandDropPct}%</span>
+            <span className="text-muted-foreground/70"> chance of all land drops</span>
+          </span>
+        </div>
       </div>
       <ResponsiveContainer width="100%" height={chartHeight} debounce={1} className="flex-1 min-h-[120px]">
         <RechartsAreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <XAxis
             dataKey="turnLabel"
-            tick={{ fontSize: 10, fill: 'hsl(220,13%,55%)', fillOpacity: 0.6 }}
+            tick={{ fontSize: 10, fill: 'hsl(220,13%,55%)', fillOpacity: 0.7 }}
             axisLine={false}
             tickLine={false}
             padding={{ left: 8 }}
           />
-          <YAxis hide domain={[0, 'auto']} />
+          <YAxis
+            width={24}
+            tick={{ fontSize: 9, fill: 'hsl(220,13%,55%)', fillOpacity: 0.6 }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(v: number) => v.toFixed(0)}
+            domain={[(dataMin: number) => Math.max(0, Math.floor(dataMin)), (dataMax: number) => Math.ceil(dataMax + 0.5)]}
+            allowDecimals={false}
+          />
           <Tooltip content={<TrajectoryTooltip />} cursor={false} />
 
           {/* Area fill under total mana */}
@@ -893,26 +922,12 @@ export function ManaTrajectorySparkline({
             stroke="#0ea5e9"
             strokeWidth={2}
             fill="#0ea5e9"
-            fillOpacity={0.1}
+            fillOpacity={0.22}
             dot={{ r: 3, fill: '#38bdf8', strokeWidth: 0 }}
             activeDot={{ r: 4, fill: '#38bdf8', stroke: '#0ea5e9', strokeWidth: 2 }}
             isAnimationActive
             animationDuration={500}
           />
-
-          {/* Pre-tap-penalty lands line (only when taplands exist) */}
-          {hasTapPenalty && (
-            <Line
-              type="monotone"
-              dataKey="expectedLandsRaw"
-              stroke="rgba(245,158,11,0.35)"
-              strokeWidth={1}
-              strokeDasharray="2 3"
-              dot={false}
-              isAnimationActive
-              animationDuration={500}
-            />
-          )}
 
           {/* Effective lands dashed line */}
           <Line
@@ -925,22 +940,6 @@ export function ManaTrajectorySparkline({
             isAnimationActive
             animationDuration={500}
           />
-
-          {/* Castable % as subtle area on secondary axis (normalized to fit chart) */}
-          {hasCastData && (
-            <Area
-              type="monotone"
-              dataKey="castablePct"
-              stroke="rgba(168,85,247,0.3)"
-              strokeWidth={1}
-              fill="rgba(168,85,247,0.06)"
-              dot={false}
-              yAxisId="right"
-              isAnimationActive
-              animationDuration={500}
-            />
-          )}
-          {hasCastData && <YAxis yAxisId="right" hide domain={[0, 1]} />}
 
           {/* Ramp annotation at peak turn */}
           {maxRampTurn.expectedRampMana > 0 && (
@@ -957,6 +956,36 @@ export function ManaTrajectorySparkline({
           )}
         </RechartsAreaChart>
       </ResponsiveContainer>
+
+      {/* Spell readiness strip — % of spells castable each turn. Decoupled
+          from the mana chart since percentages and mana units don't share
+          a Y axis sensibly. */}
+      {hasCastData && (
+        <div className="mt-3 pt-2 border-t border-border/30">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Spell Readiness</span>
+            <InfoTooltip text="Percent of non-land spells in your deck that are castable with the expected mana on each turn." />
+          </div>
+          <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${trajectory.length}, minmax(0, 1fr))` }}>
+            {trajectory.map(t => {
+              const pct = Math.round(t.castablePct * 100);
+              const hue = Math.min(120, (pct / 100) * 120);
+              return (
+                <div key={t.turn} className="flex flex-col items-center gap-1 min-w-0">
+                  <div className="w-full h-8 rounded bg-zinc-900/60 border border-border/30 overflow-hidden flex flex-col justify-end">
+                    <div
+                      className="w-full"
+                      style={{ height: `${pct}%`, backgroundColor: `hsl(${hue}, 60%, 50%)`, opacity: 0.55 }}
+                    />
+                  </div>
+                  <div className="text-[9px] text-muted-foreground/70 tabular-nums">T{t.turn}</div>
+                  <div className="text-[10px] font-semibold tabular-nums" style={{ color: `hsl(${hue}, 70%, 65%)` }}>{pct}%</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

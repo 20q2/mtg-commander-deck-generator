@@ -295,7 +295,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                       isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
-                    Analyze
+                    Deck Check
                   </button>
                   <button
                     onClick={() => navigate('/lists')}
@@ -449,10 +449,10 @@ function Layout({ children }: { children: React.ReactNode }) {
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
               isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
-            aria-label="Analyze"
+            aria-label="Deck Check"
           >
             <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
-            <span className="text-[10px] font-medium">Analyze</span>
+            <span className="text-[10px] font-medium">Deck Check</span>
           </button>
           <button
             onClick={() => { navigate('/lists'); window.scrollTo(0, 0); }}

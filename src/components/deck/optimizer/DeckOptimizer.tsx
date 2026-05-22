@@ -4,6 +4,7 @@ import {
   Scissors, RotateCcw, Zap, Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
@@ -22,9 +23,10 @@ import { DeckHealthStrip, AdjustPopoverContent } from './OverviewTab';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, ManaTrajectorySparkline, CmcCardList, CurveDetailPanel, CurveFlagStrip, computeCurveFlags, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
+import { CurveSummaryStrip, ManaCurveLineChart, CurveDetailPanel, CurveFlagStrip, CommanderCastChips, computeCurveFlags, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
 import { BracketTabContent } from './BracketTab';
 import { OptimizeView } from './OptimizeTab';
+import { CostTab } from './CostTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -886,10 +888,28 @@ export function DeckOptimizer({
   // Broadcast analyzer state so an external Re-analyze button (rendered
   // by CommanderStrip on /analyze) can reflect dirty/loading visuals.
   useEffect(() => {
+    // For the Tempo (curve) tab, surface the selected phase + role group so
+    // the play area on the right can desaturate non-matching cards the same
+    // way the Roles tab does.
+    const curvePhase = activeTab === 'curve' && activeCurvePhases.size === 1
+      ? [...activeCurvePhases][0] : null;
+    // A clicked CMC column overrides the phase range — narrow filter wins
+    // so the play area zooms to just that column.
+    const curvePhaseRange: [number, number] | null = activeTab === 'curve' && selectedCmc != null
+      ? [selectedCmc, selectedCmc]
+      : (activeTab === 'curve' && curvePhase != null
+          ? analysis?.curvePhases.find(p => p.phase === curvePhase)?.cmcRange ?? null
+          : null);
+    const curveRoleGroup = activeTab === 'curve' && activeRoleGroups.size === 1
+      ? [...activeRoleGroups][0] : null;
     document.dispatchEvent(new CustomEvent('deck-optimizer-state', {
-      detail: { dirty: isAnalysisDirty, loading, hasAnalysis: !!analysis, optimizeView },
+      detail: {
+        dirty: isAnalysisDirty, loading, hasAnalysis: !!analysis, optimizeView, activeTab, activeRole,
+        activeCmcRange: curvePhaseRange,
+        activeRoleGroup: curveRoleGroup,
+      },
     }));
-  }, [isAnalysisDirty, loading, analysis, optimizeView]);
+  }, [isAnalysisDirty, loading, analysis, optimizeView, activeTab, activeRole, activeCurvePhases, activeRoleGroups, selectedCmc]);
 
   // Per-tab rollup grades shown in the tab bar — same letters as the
   // overview summary card so the user sees consistent grading at a glance.
@@ -903,6 +923,21 @@ export function DeckOptimizer({
       curve: analysis.curveGrade.letter,
     };
   }, [analysis, deckExcess]);
+
+  // Total deck price for the Cost tab sidebar badge. Cheap sum across cards.
+  const deckTotalPrice = useMemo(() => {
+    let total = 0;
+    for (const card of currentCards) {
+      const raw = getCardPrice(card);
+      const n = raw != null ? Number(raw) : NaN;
+      if (Number.isFinite(n)) total += n;
+    }
+    return total;
+  }, [currentCards]);
+  const costBadgeLabel = useMemo(() => {
+    if (deckTotalPrice >= 1000) return `$${(deckTotalPrice / 1000).toFixed(1)}k`;
+    return `$${Math.round(deckTotalPrice)}`;
+  }, [deckTotalPrice]);
   const [removedCutCards, setRemovedCutCards] = useState<Set<string>>(new Set());
   const [skippedCutCards, setSkippedCutCards] = useState<Set<string>>(new Set());
   const [excludeLandsFromCuts, setExcludeLandsFromCuts] = useState(false);
@@ -1020,14 +1055,14 @@ export function DeckOptimizer({
   // --- Loading ---
   if (loading) {
     return (
-      <div id="deck-optimizer" className="mt-8 p-6 rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm">
-        <div className="flex flex-col items-center gap-4 py-8">
+      <div id="deck-optimizer" className="flex-1 min-h-[60vh] flex items-center justify-center p-8">
+        <div className="flex flex-col items-center gap-4 p-8 rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm">
           <div className="relative">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <Sparkles className="absolute -top-1 -right-1 w-3 h-3 text-primary/50 animate-pulse" />
           </div>
           <div className="text-center">
-            <p className="text-sm font-medium">Analyzing your deck...</p>
+            <p className="text-sm font-medium">Checking your deck...</p>
             <p className="text-xs text-muted-foreground mt-1">Fetching EDHREC data for {commanderName}</p>
           </div>
         </div>
@@ -1056,87 +1091,15 @@ export function DeckOptimizer({
   // ═════════════════════════════════════════════════════════════════════
   // Dashboard Render
   // ═════════════════════════════════════════════════════════════════════
-  return (
-    <div id="deck-optimizer" className="mt-2">
-      {/* Tab Bar — hidden in optimize view */}
-      {!optimizeView && (
-      <div className="flex items-center gap-1 px-2 sm:px-4 border-y border-border/40 overflow-x-auto">
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.key;
-          const tabGrade = tabGrades[tab.key];
-          const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
-          const bracketBadge = tab.key === 'bracket' && bracketLevel ? BRACKET_COLORS[bracketLevel] : null;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all duration-200 whitespace-nowrap relative ${
-                isActive
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <tab.icon className={`w-4 h-4 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
-              {tab.label}
-              {gradeStyle && (
-                <span className={`ml-0.5 text-[11px] font-bold leading-none px-1.5 py-0.5 rounded tabular-nums ${gradeStyle.color} ${gradeStyle.badgeBg}`}>
-                  {tabGrade}
-                </span>
-              )}
-              {bracketBadge && (
-                <span className={`ml-0.5 text-[11px] font-bold leading-none px-1.5 py-0.5 rounded tabular-nums ${bracketBadge.text} ${bracketBadge.bg}`}>
-                  {bracketLevel}
-                </span>
-              )}
-              {isActive && (
-                <span className="absolute left-2 right-2 bottom-0 h-0.5 rounded-t-sm bg-primary" />
-              )}
-            </button>
-          );
-        })}
-        {themeDetection && analysis ? (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                title="Click to adjust themes & tempo"
-                className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap px-2 py-1 rounded-md hover:bg-accent/40 hover:text-foreground transition-colors cursor-pointer"
-              >
-                {effectivePacing && (
-                  <span className="flex items-center gap-1">
-                    <Zap className="w-3 h-3" />
-                    {PACING_LABELS[effectivePacing] || 'Balanced'}
-                  </span>
-                )}
-                {effectivePacing && displayThemeNames && displayThemeNames.length > 0 && (
-                  <span className="text-border">|</span>
-                )}
-                {displayThemeNames && displayThemeNames.length > 0
-                  ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
-                  : 'No themes selected'}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-80 p-0">
-              <AdjustPopoverContent
-                analysis={analysis}
-                detection={themeDetection}
-                allThemes={cachedEdhrecDataRef.current?.themes || []}
-                primaryThemeSlug={primaryThemeSlug}
-                secondaryThemeSlug={secondaryThemeSlug}
-                onThemeSelect={handleThemeSelect}
-                userLandTarget={userLandTarget}
-                onLandTargetChange={handleLandTargetChange}
-                deckSize={deckSize}
-                userDeckSize={userDeckSize}
-                onDeckSizeChange={handleDeckSizeChange}
-                detectedPacing={detectedPacingRef.current ?? undefined}
-                userPacing={userPacing}
-                onPacingChange={handlePacingChange}
-              />
-            </PopoverContent>
-          </Popover>
-        ) : (
-          <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+  const themePacingStrip = !optimizeView && (
+    themeDetection && analysis ? (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            title="Click to adjust themes & tempo"
+            className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap px-2 py-1 rounded-md hover:bg-accent/40 hover:text-foreground transition-colors cursor-pointer"
+          >
             {effectivePacing && (
               <span className="flex items-center gap-1">
                 <Zap className="w-3 h-3" />
@@ -1149,13 +1112,138 @@ export function DeckOptimizer({
             {displayThemeNames && displayThemeNames.length > 0
               ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
               : 'No themes selected'}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="end" className="w-80 p-0">
+          <AdjustPopoverContent
+            analysis={analysis}
+            detection={themeDetection}
+            allThemes={cachedEdhrecDataRef.current?.themes || []}
+            primaryThemeSlug={primaryThemeSlug}
+            secondaryThemeSlug={secondaryThemeSlug}
+            onThemeSelect={handleThemeSelect}
+            userLandTarget={userLandTarget}
+            onLandTargetChange={handleLandTargetChange}
+            deckSize={deckSize}
+            userDeckSize={userDeckSize}
+            onDeckSizeChange={handleDeckSizeChange}
+            detectedPacing={detectedPacingRef.current ?? undefined}
+            userPacing={userPacing}
+            onPacingChange={handlePacingChange}
+          />
+        </PopoverContent>
+      </Popover>
+    ) : (
+      <span className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+        {effectivePacing && (
+          <span className="flex items-center gap-1">
+            <Zap className="w-3 h-3" />
+            {PACING_LABELS[effectivePacing] || 'Balanced'}
           </span>
         )}
-      </div>
+        {effectivePacing && displayThemeNames && displayThemeNames.length > 0 && (
+          <span className="text-border">|</span>
+        )}
+        {displayThemeNames && displayThemeNames.length > 0
+          ? `Theme${displayThemeNames.length > 1 ? 's' : ''}: ${displayThemeNames.join(', ')}`
+          : 'No themes selected'}
+      </span>
+    )
+  );
+
+  return (
+    <div id="deck-optimizer" className="flex border-y border-border/40 flex-1 min-h-0">
+      {/* Vertical sidebar — hidden in optimize view */}
+      {!optimizeView && (
+        <aside className="w-12 shrink-0 flex flex-col items-stretch border-r border-border/40">
+          <TooltipProvider delayDuration={200}>
+          {TABS.map(tab => {
+            const isActive = activeTab === tab.key;
+            const tabGrade = tabGrades[tab.key];
+            const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
+            const bracketBadge = tab.key === 'bracket' && bracketLevel ? BRACKET_COLORS[bracketLevel] : null;
+            return (
+              <Tooltip key={tab.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setActiveTab(tab.key)}
+                    aria-label={tab.label}
+                    aria-pressed={isActive}
+                    className={`relative flex flex-col items-center justify-center gap-1 py-3 transition-all duration-200 ${
+                      isActive
+                        ? 'text-primary bg-accent/30'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-sm bg-primary" />
+                    )}
+                    <tab.icon className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
+                    {gradeStyle && (
+                      <span className={`text-[9px] font-bold leading-none px-1 py-0.5 rounded tabular-nums ${gradeStyle.color} ${gradeStyle.badgeBg}`}>
+                        {tabGrade}
+                      </span>
+                    )}
+                    {bracketBadge && (
+                      <span className={`text-[9px] font-bold leading-none px-1 py-0.5 rounded tabular-nums ${bracketBadge.text} ${bracketBadge.bg}`}>
+                        {bracketLevel}
+                      </span>
+                    )}
+                    {tab.key === 'cost' && deckTotalPrice > 0 && (
+                      <span className="text-[9px] font-bold leading-none px-1 py-0.5 rounded tabular-nums text-violet-300 bg-violet-500/20">
+                        {costBadgeLabel}
+                      </span>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{tab.label}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+          </TooltipProvider>
+        </aside>
       )}
 
-      {/* Tab Content */}
-      <div className="p-3 sm:p-4">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        {/* Themes / Pacing strip above tab content */}
+        {themePacingStrip && (
+          <div className="flex items-center justify-between gap-2 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/40">
+            <div className="flex items-center gap-2 min-w-0">
+              {(() => {
+                const activeTabInfo = TABS.find(t => t.key === activeTab);
+                if (!activeTabInfo) return null;
+                const Icon = activeTabInfo.icon;
+                return (
+                  <>
+                    <Icon className="w-4 h-4 text-primary/70 shrink-0" />
+                    <span className="text-sm font-bold uppercase tracking-wider">{activeTabInfo.label}</span>
+                  </>
+                );
+              })()}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+            {themePacingStrip}
+            {analysis && (
+              <button
+                onClick={handleOptimize}
+                disabled={loading}
+                title={isAnalysisDirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+                  isAnalysisDirty
+                    ? 'border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
+                    : 'border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground'
+                } disabled:opacity-60 disabled:pointer-events-none`}
+              >
+                {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Re-analyze
+              </button>
+            )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content */}
+        <div className={`p-3 sm:p-4 flex-1 min-h-0 overflow-y-auto ${activeTab === 'roles' ? 'flex flex-col' : ''} ${activeTab === 'cost' ? 'pt-0 sm:pt-0' : ''}`}>
 
         {/* ── OPTIMIZE VIEW (replaces tabs) ── */}
         {optimizeView ? (
@@ -1428,24 +1516,24 @@ export function DeckOptimizer({
           });
           return (
             <div className="space-y-3">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <ManaCurveLineChart
-                  curveAnalysis={analysis.curveAnalysis}
-                  curveBreakdowns={analysis.curveBreakdowns}
-                  pacing={effectivePacing}
-                  activePhases={allPhasesActive ? undefined : activeCurvePhases}
-                  selectedCmc={selectedCmc}
-                  onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
-                />
-                <ManaTrajectorySparkline
+              <ManaCurveLineChart
+                curveAnalysis={analysis.curveAnalysis}
+                curveBreakdowns={analysis.curveBreakdowns}
+                pacing={effectivePacing}
+                activePhases={allPhasesActive ? undefined : activeCurvePhases}
+                selectedCmc={selectedCmc}
+                onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <CommanderCastChips
                   trajectory={analysis.manaTrajectory}
                   commanderCmc={cmdr?.cmc ?? 0}
                   commanderName={commanderName}
                   partnerCmc={partner?.cmc}
                   partnerName={partnerCommanderName}
                 />
+                <CurveFlagStrip flags={curveFlags} />
               </div>
-              <CurveFlagStrip flags={curveFlags} />
               <CurveSummaryStrip
                 phases={analysis.curvePhases}
                 activePhases={activeCurvePhases}
@@ -1461,16 +1549,6 @@ export function DeckOptimizer({
                   requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
                 }}
               />
-              {selectedCmc !== null && (
-                <CmcCardList
-                  curveBreakdowns={analysis.curveBreakdowns}
-                  selectedCmc={selectedCmc}
-                  onPreview={handlePreview}
-                  onClose={() => setSelectedCmc(null)}
-                  onCardAction={handleCardAction}
-                  menuProps={menuProps}
-                />
-              )}
               {selectedPhases.length > 0 ? (
                 <CurveDetailPanel
                   phases={selectedPhases}
@@ -1500,7 +1578,32 @@ export function DeckOptimizer({
           <BracketTabContent onPreview={handlePreview} />
         )}
 
+        {activeTab === 'cost' && (
+          <CostTab
+            commanderName={commanderName}
+            partnerCommanderName={partnerCommanderName}
+            currentCards={currentCards}
+            analysis={analysis}
+            sideboardNames={sideboardNames ?? []}
+            maybeboardNames={maybeboardNames ?? []}
+            onPreviewCard={handlePreview}
+            onApplyPlan={async (removeNames, addNames) => {
+              // Suggestions may come from EDHREC recommendations that have never
+              // been hydrated into the Scryfall cache. Some consumers of
+              // onAddCards (notably AnalyzePage) look the card up via
+              // getCachedCard and silently skip names that miss — so prefetch
+              // first to make the add actually happen.
+              await getCardsByNames(addNames);
+              onRemoveCards?.(removeNames);
+              for (const n of removeNames) pushDeckHistory({ action: 'remove', cardName: n });
+              onAddCards?.(addNames, 'deck');
+              for (const n of addNames) pushDeckHistory({ action: 'add', cardName: n });
+            }}
+          />
+        )}
+
         </>)}
+        </div>
       </div>
 
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />

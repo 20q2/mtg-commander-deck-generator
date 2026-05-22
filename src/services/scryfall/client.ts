@@ -770,7 +770,16 @@ export async function searchMdfcLands(colorIdentity: string[]): Promise<Scryfall
     page++;
   }
 
-  return allCards.filter(card => isMdfcLand(card));
+  const mdfcs = allCards.filter(card => isMdfcLand(card));
+  // Populate the card cache so add-card flows can resolve these by name.
+  // MDFC names are double-faced ("Front // Back"); also cache by the front-face name
+  // since callers sometimes split the name.
+  for (const card of mdfcs) {
+    cardCache.set(card.name, card);
+    const frontName = card.card_faces?.[0]?.name;
+    if (frontName && frontName !== card.name) cardCache.set(frontName, card);
+  }
+  return mdfcs;
 }
 
 // Get back face image URL for a double-faced card

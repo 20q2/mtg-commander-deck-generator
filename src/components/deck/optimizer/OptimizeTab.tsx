@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Wand2, ArrowLeft, Check, Sparkles, Zap,
   ArrowRightLeft, TrendingUp, TrendingDown,
@@ -292,6 +292,22 @@ export function OptimizeView({
   }, [checkedRemovals, checkedAdditions]);
 
   const noSwaps = removals.length === 0 && additions.length === 0;
+
+  // Broadcast which cards are checked-for-removal so the side-by-side deck
+  // pane can spotlight them. Emit [] on unmount so the highlight clears
+  // when the user leaves the optimize view.
+  useEffect(() => {
+    document.dispatchEvent(new CustomEvent('deck-optimizer-removals', {
+      detail: { names: checkedRemovals.map(c => c.name) },
+    }));
+  }, [checkedRemovals]);
+  useEffect(() => {
+    return () => {
+      document.dispatchEvent(new CustomEvent('deck-optimizer-removals', {
+        detail: { names: [] },
+      }));
+    };
+  }, []);
 
   return (
     <div className="space-y-3">

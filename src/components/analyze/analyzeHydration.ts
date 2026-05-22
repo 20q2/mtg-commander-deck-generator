@@ -54,11 +54,14 @@ function detectCombosInDeck(
   return detected.length > 0 ? detected : undefined;
 }
 
+export type HydrateStage = 'fetching-cards' | 'detecting-combos' | 'analyzing-roles' | 'done';
+
 export interface HydrateDeckInput {
   cardNames: string[];
   commanderName?: string;
   partnerCommanderName?: string;
   deckSize?: number;
+  onProgress?: (stage: HydrateStage) => void;
 }
 
 export interface HydrateDeckResult {
@@ -115,7 +118,8 @@ function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
 }
 
 export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<HydrateDeckResult> {
-  const { cardNames, commanderName, partnerCommanderName } = input;
+  const { cardNames, commanderName, partnerCommanderName, onProgress } = input;
+  onProgress?.('fetching-cards');
   const cardMap = await getCardsByNames(cardNames);
   const cards: ScryfallCard[] = [];
   for (const name of cardNames) {
@@ -152,6 +156,7 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
 
   let detectedCombos: DetectedCombo[] | undefined;
   if (commanderCard) {
+    onProgress?.('detecting-combos');
     try {
       const combos = await fetchCommanderCombos(commanderCard.name);
       detectedCombos = detectCombosInDeck(combos, allDeckNames, commanderCard, partnerCard);
@@ -160,6 +165,7 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     }
   }
 
+  onProgress?.('analyzing-roles');
   const enrichResult = await enrichDeckCards(
     deckCards,
     input.deckSize ?? cardNames.length,
@@ -193,5 +199,6 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
   }
   const colorIdentity = ['W', 'U', 'B', 'R', 'G'].filter(c => allColors.has(c));
 
+  onProgress?.('done');
   return { deck, colorIdentity };
 }

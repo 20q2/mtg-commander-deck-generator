@@ -1,10 +1,8 @@
 import { useMemo } from 'react';
-import { Shield, Check, Info } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { RoleBreakdown, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getRoleVerdict } from '@/services/deckBuilder/deckAnalyzer';
-import { useStore } from '@/store';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { roleBarColor, ROLE_META, VERDICT_STYLES, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
@@ -18,10 +16,6 @@ export function RoleSummaryStrip({
   activeRole: string | null;
   onRoleClick: (role: string) => void;
 }) {
-  const detectedArchetype = useStore(s => s.generatedDeck?.detectedArchetype);
-  const detectedPacing = useStore(s => s.generatedDeck?.detectedPacing);
-  const roleTargetBreakdown = useStore(s => s.generatedDeck?.roleTargetBreakdown);
-
   return (
     <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4">
     <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-border/30">
@@ -32,10 +26,13 @@ export function RoleSummaryStrip({
         const met = rb.current >= rb.target;
         const isActive = activeRole === rb.role;
         return (
-          <button
+          <div
             key={rb.role}
+            role="button"
+            tabIndex={0}
             onClick={() => onRoleClick(rb.role)}
-            className={`p-2.5 text-left transition-all hover:bg-card/80 ${
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRoleClick(rb.role); } }}
+            className={`p-2.5 text-left cursor-pointer transition-all hover:bg-card/80 ${
               i % 2 !== 0 ? 'border-l border-l-border/30' : ''
             } ${i < 2 ? 'border-b border-b-border/30 sm:border-b-0' : ''} ${
               i > 0 ? 'sm:border-l sm:border-l-border/30' : ''
@@ -48,7 +45,6 @@ export function RoleSummaryStrip({
               <span className={`text-xs font-semibold uppercase tracking-wider truncate transition-colors duration-200 ${isActive ? 'text-foreground' : 'text-muted-foreground'}`}>
                 {rb.label}
               </span>
-              {met && <Check className="w-3.5 h-3.5 text-emerald-400/50 ml-auto shrink-0" />}
               {rb.deficit > 0 && (
                 <span className="text-[10px] font-bold px-1 py-px rounded-full bg-red-500/15 text-red-400 ml-auto shrink-0">
                   -{rb.deficit}
@@ -59,43 +55,12 @@ export function RoleSummaryStrip({
               <span className="text-xl font-bold tabular-nums leading-none" style={{ color: roleBarColor(rb.current, rb.target) }}>
                 {rb.current}
               </span>
-              <span className="flex items-center gap-1">
-                <span className="text-[11px] text-muted-foreground text-right">at least {rb.target}</span>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-0.5 rounded hover:bg-accent/60 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                    >
-                      <Info className="w-3 h-3" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent side="bottom" align="center" className="w-64 p-3 text-xs text-muted-foreground leading-relaxed space-y-2" onClick={(e) => e.stopPropagation()}>
-                    {(() => {
-                      const bd = roleTargetBreakdown?.[rb.role];
-                      if (!bd) return <p>Target: {rb.target}</p>;
-                      return (
-                        <>
-                          <p className="font-semibold text-foreground/80">Target Breakdown</p>
-                          {bd.edhrecCount !== null && (
-                            <p><span className="font-semibold text-sky-400 tabular-nums">{bd.edhrecCount}</span> — EDHREC-typical {rb.label.toLowerCase()} cards above 25% inclusion</p>
-                          )}
-                          <p><span className="font-semibold text-amber-400 tabular-nums">{bd.archetypeTarget}</span> — Archetype baseline{detectedArchetype ? ` (${detectedArchetype})` : ''}</p>
-                          <p><span className="font-semibold text-purple-400 tabular-nums">x{bd.pacingMultiplier.toFixed(2)}</span> — Pacing multiplier{detectedPacing ? ` (${detectedPacing})` : ''}</p>
-                          <p className="border-t border-border/30 pt-2 text-muted-foreground/60">
-                            Final target blends EDHREC data (60%) with the archetype model (40%), then applies pacing.
-                          </p>
-                        </>
-                      );
-                    })()}
-                  </PopoverContent>
-                </Popover>
-              </span>
+              <span className="text-[11px] text-muted-foreground text-right">at least {rb.target}</span>
             </div>
             <div className="h-1 rounded-full bg-accent/40 overflow-hidden">
               <div className="h-full rounded-full animate-bar-grow" style={{ width: `${pct}%`, backgroundColor: roleBarColor(rb.current, rb.target) }} />
             </div>
-          </button>
+          </div>
         );
       })}
     </div>
@@ -152,6 +117,22 @@ export function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps
 }
 
 // ─── Roles Tab: Summary Verdict ──────────────────────────────────────
+// Bolds numbers and key result words to give the verdict message tactical
+// emphasis. Pure formatting — no semantic changes.
+function emphasizeMessage(message: string): React.ReactNode[] {
+  // \d+ catches "10 ramp", "6 above", "4 target", etc.
+  // Verdict words like "short", "above", "below", "solid", "close" get the
+  // same treatment so the eye lands on the takeaway.
+  const splitPattern = /(\b\d+\b|\bshort\b|\babove\b|\bbelow\b|\bsolid\b|\bClose\b)/g;
+  const testPattern = /^(\d+|short|above|below|solid|Close)$/;
+  const parts = message.split(splitPattern);
+  return parts.map((part, i) =>
+    testPattern.test(part)
+      ? <strong key={i} className="font-semibold text-foreground">{part}</strong>
+      : <span key={i}>{part}</span>
+  );
+}
+
 function RoleSummary({ rb }: { rb: RoleBreakdown }) {
   const { verdict, message } = getRoleVerdict(rb);
   const vs = VERDICT_STYLES[verdict] || VERDICT_STYLES['ok'];
@@ -160,13 +141,12 @@ function RoleSummary({ rb }: { rb: RoleBreakdown }) {
 
   return (
     <div className="mb-3 -mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 border-b border-border/30">
-      <div className={`border rounded-lg p-2.5 ${vs.border} ${vs.bg}`}>
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center justify-center w-10 h-10 rounded-lg ${vs.bg} shrink-0`}>
-            <Icon className={`w-5 h-5 ${meta?.color || 'text-muted-foreground'}`} />
-          </div>
-          <p className="text-sm text-muted-foreground leading-snug">{message}</p>
-        </div>
+      <div className={`relative overflow-hidden border rounded-lg p-2.5 ${vs.border} ${vs.bg}`}>
+        <Icon
+          aria-hidden
+          className={`pointer-events-none absolute -right-3 -bottom-3 w-20 h-20 opacity-10 ${meta?.color || 'text-muted-foreground'}`}
+        />
+        <p className="relative text-sm text-foreground/85 leading-snug">{emphasizeMessage(message)}</p>
       </div>
     </div>
   );
@@ -185,9 +165,21 @@ export function RoleDetailPanel({
 }) {
   const hasSuggestions = rb.suggestedReplacements.length > 0;
 
+  // Soft aurora tint by role — green/red/orange/blue
+  const auroraByRole: Record<string, string> = {
+    ramp:      'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(16,185,129,0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(16,185,129,0.035), transparent 60%)',
+    removal:   'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(244,63,94,0.05),  transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(244,63,94,0.035),  transparent 60%)',
+    boardwipe: 'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(249,115,22,0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(249,115,22,0.035), transparent 60%)',
+    cardDraw:  'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(14,165,233,0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(14,165,233,0.035), transparent 60%)',
+  };
+  const aurora = auroraByRole[rb.role];
+
   return (
-    <div className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3">
-      <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
+    <div
+      className="-mx-3 sm:-mx-4 -mb-3 sm:-mb-4 bg-black/15 px-3 sm:px-4 py-3 flex-1 min-h-0 overflow-y-auto transition-[background-image] duration-500"
+      style={aurora ? { backgroundImage: aurora } : undefined}
+    >
+      <div className={`h-full ${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left column: summary + current cards grouped by subtype */}
         <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}`}>
           <RoleSummary rb={rb} />
@@ -240,7 +232,7 @@ export function RolesTabContent({
   const activeRb = roleBreakdowns.find(rb => rb.role === activeRole);
 
   return (
-    <div>
+    <div className="flex-1 flex flex-col">
       <RoleSummaryStrip roleBreakdowns={roleBreakdowns} activeRole={activeRole} onRoleClick={onRoleChange} />
       {activeRb && (
         <RoleDetailPanel key={activeRb.role} rb={activeRb} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />

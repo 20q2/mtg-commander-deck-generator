@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Check } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
 import { LaneTabs, type LaneKey } from '@/components/analyze/LaneTabs';
 import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
@@ -8,18 +8,19 @@ import { PasteLane, type PasteLaneResult } from '@/components/analyze/PasteLane'
 import { ListsLane } from '@/components/analyze/ListsLane';
 import { GenerateLane } from '@/components/analyze/GenerateLane';
 import { CommanderStrip, type AnalyzeSource } from '@/components/analyze/CommanderStrip';
-import { hydrateDeckForAnalysis } from '@/components/analyze/analyzeHydration';
+import { hydrateDeckForAnalysis, type HydrateStage } from '@/components/analyze/analyzeHydration';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
 import { AnalyzeSplit } from '@/components/analyze/AnalyzeSplit';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
-import { getCachedCard } from '@/services/scryfall/client';
+import { getCachedCard, getCardByName, isBasicLand } from '@/services/scryfall/client';
 import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { stampRoleSubtypes } from '@/services/deckBuilder/deckGenerator';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { trackEvent } from '@/services/analytics';
-import type { UserCardList, GeneratedDeck } from '@/types';
+import type { UserCardList, GeneratedDeck, ScryfallCard } from '@/types';
+import type { CardAction } from '@/components/deck/DeckDisplay';
 
 const LANE_STORAGE_KEY = 'analyze-active-lane';
 
@@ -37,24 +38,45 @@ export function AnalyzePage() {
     return 'paste';
   });
   const [loading, setLoading] = useState(false);
+  const [loadStage, setLoadStage] = useState<HydrateStage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingListId, setLoadingListId] = useState<string | null>(null);
   const [source, setSource] = useState<AnalyzeSource | null>(null);
   const [activeOptimizerRole, setActiveOptimizerRole] = useState<string | null>(null);
+  const [activeOptimizerCmcRange, setActiveOptimizerCmcRange] = useState<[number, number] | null>(null);
+  const [activeOptimizerRoleGroup, setActiveOptimizerRoleGroup] = useState<string | null>(null);
+  const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ optimizeView?: boolean; activeRole?: string | null }>).detail;
+      const detail = (e as CustomEvent<{
+        optimizeView?: boolean;
+        activeRole?: string | null;
+        activeCmcRange?: [number, number] | null;
+        activeRoleGroup?: string | null;
+      }>).detail;
       if (detail) {
         if ('activeRole' in detail) setActiveOptimizerRole(detail.activeRole ?? null);
+        if ('activeCmcRange' in detail) setActiveOptimizerCmcRange(detail.activeCmcRange ?? null);
+        if ('activeRoleGroup' in detail) setActiveOptimizerRoleGroup(detail.activeRoleGroup ?? null);
       }
     };
     document.addEventListener('deck-optimizer-state', handler);
     return () => document.removeEventListener('deck-optimizer-state', handler);
   }, []);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ names?: string[] }>).detail;
+      setPendingRemovals(new Set(detail?.names ?? []));
+    };
+    document.addEventListener('deck-optimizer-removals', handler);
+    return () => document.removeEventListener('deck-optimizer-removals', handler);
+  }, []);
 
   const generatedDeck = useStore(s => s.generatedDeck);
   const colorIdentityStore = useStore(s => s.colorIdentity);
-  const { lists, updateList } = useUserLists();
+  const { lists, updateList, createList } = useUserLists();
+  const customization = useStore(s => s.customization);
+  const updateCustomization = useStore(s => s.updateCustomization);
   const { param1, param2 } = useParams<{ param1?: string; param2?: string }>();
   const navigate = useNavigate();
 
@@ -99,12 +121,14 @@ export function AnalyzePage() {
     if (!list || !list.commanderName) return;
     hydratedListIdRef.current = listIdParam;
     setLoading(true);
+    setLoadStage('fetching-cards');
     setError(null);
     hydrateDeckForAnalysis({
       cardNames: list.cards,
       commanderName: list.commanderName,
       partnerCommanderName: list.partnerCommanderName,
       deckSize: list.deckSize ?? list.cards.length,
+      onProgress: setLoadStage,
     })
       .then(({ deck, colorIdentity }) => {
         useStore.setState({
@@ -124,7 +148,7 @@ export function AnalyzePage() {
         console.error('[AnalyzePage] listId hydration failed', e);
         setError('Could not load this list. Please try again.');
       })
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); setLoadStage(null); });
   }, [listIdParam, lists]);
 
   // Detect bridge-from-Generate: if a deck is already in the store on mount
@@ -169,12 +193,14 @@ export function AnalyzePage() {
 
   const handlePasteAnalyze = useCallback(async (result: PasteLaneResult) => {
     setLoading(true);
+    setLoadStage('fetching-cards');
     setError(null);
     try {
       const { deck, colorIdentity } = await hydrateDeckForAnalysis({
         cardNames: result.cardNames,
         commanderName: result.commanderName,
         partnerCommanderName: result.partnerCommanderName,
+        onProgress: setLoadStage,
       });
       useStore.setState({
         commander: deck.commander,
@@ -194,11 +220,13 @@ export function AnalyzePage() {
       setError('Could not analyze this deck. Check the card names and try again.');
     } finally {
       setLoading(false);
+      setLoadStage(null);
     }
   }, [navigate]);
 
   const handleListPick = useCallback(async (list: UserCardList) => {
     setLoading(true);
+    setLoadStage('fetching-cards');
     setLoadingListId(list.id);
     setError(null);
     try {
@@ -207,6 +235,7 @@ export function AnalyzePage() {
         commanderName: list.commanderName,
         partnerCommanderName: list.partnerCommanderName,
         deckSize: list.deckSize ?? list.cards.length,
+        onProgress: setLoadStage,
       });
       useStore.setState({
         commander: deck.commander,
@@ -226,6 +255,7 @@ export function AnalyzePage() {
       setError('Could not analyze this list. Please try again.');
     } finally {
       setLoading(false);
+      setLoadStage(null);
       setLoadingListId(null);
     }
   }, [navigate]);
@@ -242,8 +272,16 @@ export function AnalyzePage() {
     navigate('/analyze');
   }, [source, navigate]);
 
-  const handleAddCardsToAnalyzerDeck = useCallback((names: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => {
+  const handleAddCardsToAnalyzerDeck = useCallback(async (names: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => {
     if (destination !== 'deck') return;
+    // Resolve any uncached names from Scryfall before we read fresh deck state.
+    // Without this, adding a basic land that isn't already in the deck silently
+    // no-ops because getCachedCard returns nothing.
+    const uncached = names.filter(n => !getCachedCard(n));
+    if (uncached.length > 0) {
+      await Promise.all(uncached.map(n => getCardByName(n).catch(() => null)));
+    }
+
     const deck = useStore.getState().generatedDeck;
     if (!deck) return;
 
@@ -257,9 +295,10 @@ export function AnalyzePage() {
     const newCategories = { ...deck.categories };
     const addedNames: string[] = [];
     for (const name of names) {
-      if (existing.has(name)) continue;
       const card = getCachedCard(name);
       if (!card) continue;
+      // Basic lands may have multiple copies; everything else is singleton.
+      if (!isBasicLand(card) && existing.has(name)) continue;
       stampRoleSubtypes(card);
       const cat = getCategoryForCard(card);
       newCategories[cat] = [...newCategories[cat], card];
@@ -287,8 +326,13 @@ export function AnalyzePage() {
     if (source?.kind === 'list') {
       const list = lists.find(l => l.id === source.listId);
       if (list) {
+        // Allow duplicate basic-land entries; everything else stays singleton.
         const listExisting = new Set(list.cards);
-        const toAppend = addedNames.filter(n => !listExisting.has(n));
+        const toAppend = addedNames.filter(n => {
+          const c = getCachedCard(n);
+          if (c && isBasicLand(c)) return true;
+          return !listExisting.has(n);
+        });
         if (toAppend.length > 0) {
           updateList(source.listId, {
             cards: [...list.cards, ...toAppend],
@@ -302,22 +346,33 @@ export function AnalyzePage() {
   const handleRemoveCardsFromAnalyzerDeck = useCallback((names: string[]) => {
     const deck = useStore.getState().generatedDeck;
     if (!deck) return;
-    const removeSet = new Set(names);
+
+    // Build a per-name removal budget: 1 copy per occurrence in `names`.
+    // This means callers can pass ["Forest"] to drop one Forest even when
+    // the deck contains many basic forests.
+    const budget = new Map<string, number>();
+    for (const n of names) budget.set(n, (budget.get(n) ?? 0) + 1);
 
     const newCategories = { ...deck.categories };
-    let actuallyRemoved = false;
+    const actuallyRemoved: string[] = [];
     for (const cat of Object.keys(newCategories) as Array<keyof typeof newCategories>) {
-      const filtered = newCategories[cat].filter(c => !removeSet.has(c.name));
-      if (filtered.length !== newCategories[cat].length) {
-        newCategories[cat] = filtered;
-        actuallyRemoved = true;
+      const next: typeof newCategories[typeof cat] = [];
+      for (const c of newCategories[cat]) {
+        const left = budget.get(c.name) ?? 0;
+        if (left > 0) {
+          budget.set(c.name, left - 1);
+          actuallyRemoved.push(c.name);
+          continue;
+        }
+        next.push(c);
       }
+      if (next.length !== newCategories[cat].length) newCategories[cat] = next;
     }
-    if (!actuallyRemoved) return;
+    if (actuallyRemoved.length === 0) return;
 
     const newInclusionMap = { ...(deck.cardInclusionMap || {}) };
     let scoreDelta = 0;
-    for (const name of names) {
+    for (const name of actuallyRemoved) {
       if (newInclusionMap[name] != null) {
         scoreDelta += newInclusionMap[name];
       }
@@ -335,13 +390,64 @@ export function AnalyzePage() {
     if (source?.kind === 'list') {
       const list = lists.find(l => l.id === source.listId);
       if (list) {
+        // Remove one list entry per removed copy (basics may appear multiple times).
+        const removeBudget = new Map<string, number>();
+        for (const n of actuallyRemoved) removeBudget.set(n, (removeBudget.get(n) ?? 0) + 1);
+        const nextCards: string[] = [];
+        for (const cardName of list.cards) {
+          const left = removeBudget.get(cardName) ?? 0;
+          if (left > 0) { removeBudget.set(cardName, left - 1); continue; }
+          nextCards.push(cardName);
+        }
         updateList(source.listId, {
-          cards: list.cards.filter(c => !removeSet.has(c)),
+          cards: nextCards,
           generationSummary: undefined,
         });
       }
     }
   }, [source, lists, updateList]);
+
+  const handleAnalyzerCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    const name = card.name;
+    switch (action.type) {
+      case 'remove':
+        handleRemoveCardsFromAnalyzerDeck([name]);
+        break;
+      case 'addToDeck':
+        handleAddCardsToAnalyzerDeck([name], 'deck');
+        break;
+      case 'mustInclude': {
+        const current = customization.mustIncludeCards;
+        const has = current.includes(name);
+        updateCustomization({ mustIncludeCards: has ? current.filter(n => n !== name) : [...current, name] });
+        break;
+      }
+      case 'exclude': {
+        const currentBanned = customization.bannedCards;
+        const hasBan = currentBanned.includes(name);
+        updateCustomization({ bannedCards: hasBan ? currentBanned.filter(n => n !== name) : [...currentBanned, name] });
+        break;
+      }
+      case 'addToList': {
+        const list = lists.find(l => l.id === action.listId);
+        if (list && !list.cards.includes(name)) {
+          updateList(action.listId, { cards: [...list.cards, name] });
+        }
+        break;
+      }
+      case 'createListAndAdd':
+        createList(action.listName, [name]);
+        break;
+    }
+  }, [handleRemoveCardsFromAnalyzerDeck, handleAddCardsToAnalyzerDeck, customization, updateCustomization, lists, updateList, createList]);
+
+  const analyzerMenuProps = useMemo(() => ({
+    userLists: lists,
+    mustIncludeNames: new Set(customization.mustIncludeCards),
+    bannedNames: new Set(customization.bannedCards),
+    sideboardNames: new Set<string>(),
+    maybeboardNames: new Set<string>(),
+  }), [lists, customization.mustIncludeCards, customization.bannedCards]);
 
   const deckLoaded = generatedDeck && source;
 
@@ -350,18 +456,53 @@ export function AnalyzePage() {
   const pendingListLoad = !!listIdParam && !deckLoaded && !error;
   if (pendingListLoad) {
     const list = lists.find(l => l.id === listIdParam);
+    const steps: { id: HydrateStage; label: string }[] = [
+      { id: 'fetching-cards',   label: 'Fetching card data from Scryfall' },
+      { id: 'detecting-combos', label: 'Detecting commander combos' },
+      { id: 'analyzing-roles',  label: 'Analyzing roles, curve & mana' },
+    ];
+    const order: HydrateStage[] = ['fetching-cards', 'detecting-combos', 'analyzing-roles', 'done'];
+    const currentIdx = loadStage ? order.indexOf(loadStage) : 0;
+
     return (
       <main className="flex-1 flex items-center justify-center px-4 py-16">
-        <div className="flex flex-col items-center gap-4 text-center animate-fade-in">
+        <div className="flex flex-col items-center gap-5 text-center animate-fade-in">
           <Loader2 className="h-10 w-10 text-violet-300/80 animate-spin" />
           <div>
             <div className="text-base font-medium">
               Loading {list?.name ? `"${list.name}"` : 'deck'}…
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
-              Fetching cards and analyzing roles.
+              This takes a few seconds on first load.
             </div>
           </div>
+
+          <ol className="flex flex-col gap-2 text-sm text-left mt-1 min-w-[260px]">
+            {steps.map((step, i) => {
+              const done = i < currentIdx;
+              const active = i === currentIdx;
+              return (
+                <li key={step.id} className="flex items-center gap-2.5">
+                  <span className="h-5 w-5 flex items-center justify-center flex-shrink-0">
+                    {done ? (
+                      <Check className="h-4 w-4 text-emerald-400" />
+                    ) : active ? (
+                      <Loader2 className="h-4 w-4 text-violet-300 animate-spin" />
+                    ) : (
+                      <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
+                    )}
+                  </span>
+                  <span className={
+                    done ? 'text-zinc-400 line-through decoration-emerald-500/40'
+                    : active ? 'text-zinc-100'
+                    : 'text-zinc-500'
+                  }>
+                    {step.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       </main>
     );
@@ -376,7 +517,7 @@ export function AnalyzePage() {
     const analyzerDeckSize = Math.max(totalCards - 1 - partnerOffset, 0);
 
     return (
-      <main className="flex-1 py-3">
+      <main className="flex-1 pt-3">
         <div className="px-2 sm:px-3 lg:px-4">
         <CommanderStrip
           deck={generatedDeck}
@@ -412,8 +553,14 @@ export function AnalyzePage() {
                   if (generatedDeck.partnerCommander) s.add(generatedDeck.partnerCommander.name);
                   return s;
                 })()}
-                highlightRoles={activeAnalyzerTab === 'roles'}
+                highlightRoles={activeAnalyzerTab === 'roles' || activeAnalyzerTab === 'curve'}
                 activeRole={activeAnalyzerTab === 'roles' ? activeOptimizerRole : null}
+                activeCmcRange={activeAnalyzerTab === 'curve' ? activeOptimizerCmcRange : null}
+                activeRoleGroup={activeAnalyzerTab === 'curve' ? activeOptimizerRoleGroup : null}
+                removalNames={pendingRemovals}
+                focusLands={activeAnalyzerTab === 'lands'}
+                onCardAction={handleAnalyzerCardAction}
+                menuProps={analyzerMenuProps}
               />
             }
           />
@@ -426,11 +573,11 @@ export function AnalyzePage() {
     <main className="flex-1 px-4 sm:px-8 lg:px-12 py-8">
       <div className="text-center py-6 max-w-2xl mx-auto animate-fade-in">
         <h2 className="text-4xl font-bold mb-3">
-          Analyze any{' '}
+          Check any{' '}
           <span className="gradient-text">Commander deck</span>
         </h2>
         <p className="text-base text-muted-foreground">
-          See what's strong, what's missing, and why.
+          Spot what's missing before you sleeve up.
         </p>
       </div>
 

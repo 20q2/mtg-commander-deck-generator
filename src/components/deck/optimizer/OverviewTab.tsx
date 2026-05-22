@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Sparkles, Plus, Minus, Check,
-  Shield, Ban, LayoutDashboard,
+  Shield, Ban,
   Lightbulb, Tag, ArrowUpDown, Pencil, Gauge,
   RotateCcw, Loader2, Info, Zap, Mountain, BarChart3,
   AlertTriangle, Layers,
@@ -57,12 +57,22 @@ export function SuggestionCardGrid({
 }) {
   const [sortMode, setSortMode] = useSuggestionSort();
   const sorted = useMemo(() => {
-    if (hideSort) return cards;
-    if (sortMode === 'popularity') {
-      return [...cards].sort((a, b) => b.inclusion - a.inclusion);
-    }
-    return cards; // already sorted by score from analyzeDeck
-  }, [cards, sortMode, hideSort]);
+    const bannedSet = menuProps?.bannedNames;
+    const isBanned = (name: string) => bannedSet?.has(name) ?? false;
+    // Stable-sort banned/excluded cards to the bottom so the strike-out tiles
+    // don't clutter the top of the list. Sort within each group by the
+    // user's active sort mode.
+    const order = (() => {
+      if (hideSort) return cards;
+      if (sortMode === 'popularity') return [...cards].sort((a, b) => b.inclusion - a.inclusion);
+      return cards;
+    })();
+    if (!bannedSet || bannedSet.size === 0) return order;
+    const allowed: RecommendedCard[] = [];
+    const blocked: RecommendedCard[] = [];
+    for (const rec of order) (isBanned(rec.name) ? blocked : allowed).push(rec);
+    return [...allowed, ...blocked];
+  }, [cards, sortMode, hideSort, menuProps]);
 
   return (
     <div>
@@ -96,7 +106,10 @@ export function SuggestionCardGrid({
           )}
         </div>
       )}
-      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-2">
+      <div
+        className="grid gap-2"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))' }}
+      >
         {sorted.map((rec, i) => (
           <SuggestionCardItem
             key={rec.name}
@@ -263,10 +276,11 @@ export function SuggestionCardItem({
             const badgeColor = SUBTYPE_BADGE_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];
             if (!badgeColor || !RIcon) return null;
+            const shortLabel = label === 'Card Advantage' ? 'Card Adv.' : label;
             return (
-              <span key={label} className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-medium ${badgeColor}`}>
+              <span key={label} className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-medium ${badgeColor}`} title={label}>
                 <RIcon className="w-2.5 h-2.5 shrink-0" />
-                {label}
+                {shortLabel}
               </span>
             );
           })}
@@ -293,7 +307,10 @@ export function CutCardGrid({
   getBadges?: (ac: AnalyzedCard) => { countLabel?: string; warning?: string } | undefined;
 }) {
   return (
-    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-2">
+    <div
+      className="grid gap-2"
+      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(105px, 1fr))' }}
+    >
       {cards.map((ac, i) => {
         const badges = getBadges?.(ac);
         return (
@@ -831,7 +848,6 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
         {/* Header row: grade badge + "Summary" + Adjust button */}
         <div className="flex items-center gap-1.5">
           <span className={`text-2xl font-black leading-none px-3 py-2.5 rounded ${gradeStyle.color} ${gradeStyle.badgeBg}`}>{summary.gradeLetter}</span>
-          <LayoutDashboard className={`w-4 h-4 ${gradeStyle.color} opacity-70`} />
           <span className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Summary</span>
           {themeLoading && !detection && (
             <Loader2 className="w-3 h-3 animate-spin text-primary/40 ml-auto shrink-0" />

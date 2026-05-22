@@ -1114,11 +1114,11 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 trackEvent('analyze_cta_clicked', { from: 'list-deck' });
                 navigate(`/analyze/${list.id}`);
               }}
-              title="Analyze this deck"
+              title="Check this deck"
               className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
             >
               <Microscope className="w-4 h-4" />
-              <span className="hidden sm:inline">Analyze</span>
+              <span className="hidden sm:inline">Check</span>
             </button>
             <button
               onClick={() => navigate(`/playtest/list/${list.id}`)}

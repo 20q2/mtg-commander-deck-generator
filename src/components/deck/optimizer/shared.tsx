@@ -98,7 +98,7 @@ function _AnalyzedCardRow({
                 SUBTYPE_BADGE_COLORS[ac.subtypeLabel] || 'bg-muted text-muted-foreground'
               }`}>
                 {RIcon && <RIcon className="w-2.5 h-2.5" />}
-                {ac.subtypeLabel}
+                {ac.subtypeLabel === 'Card Advantage' ? 'Card Adv.' : ac.subtypeLabel}
               </span>
             );
           })()}
@@ -287,7 +287,7 @@ function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction,
             return (
               <span key={label} className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 ${bc}`}>
                 {RIcon && <RIcon className="w-2.5 h-2.5" />}
-                {label}
+                {label === 'Card Advantage' ? 'Card Adv.' : label}
               </span>
             );
           })}
@@ -407,7 +407,7 @@ function _CutRow({ ac, index = 0, onRemove, onSkip, onPreview, onCardAction, men
             return (
               <span key={label} className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 ${bc}`}>
                 {RIcon && <RIcon className="w-2.5 h-2.5" />}
-                {label}
+                {label === 'Card Advantage' ? 'Card Adv.' : label}
               </span>
             );
           })}

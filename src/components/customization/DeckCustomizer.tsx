@@ -225,7 +225,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
     <div className="space-y-6">
       {/* Deck Size */}
       <div>
-        <label className="text-sm font-medium mb-3 block">Deck Size</label>
+        <label className="text-sm font-medium mb-3 block"></label>
         <div className="grid grid-cols-3 gap-2">
           {/* Custom size option */}
           {editingCustomFormat ? (

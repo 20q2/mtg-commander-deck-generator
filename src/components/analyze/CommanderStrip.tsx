@@ -1,11 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { ArrowLeft, Bookmark, Check, X, ExternalLink, RefreshCw, Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { ArrowLeft, Bookmark, Check, X, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { useUserLists } from '@/hooks/useUserLists';
 import { trackEvent } from '@/services/analytics';
 import { getCardImageUrl } from '@/services/scryfall/client';
-import type { GeneratedDeck, UserCardList } from '@/types';
+import type { GeneratedDeck, ScryfallCard, UserCardList } from '@/types';
 
 export type AnalyzeSource =
   | { kind: 'paste' }
@@ -35,23 +35,14 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
   const [savedListId, setSavedListId] = useState<string | null>(null);
   const [savedDisplayName, setSavedDisplayName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
 
-  // Analyzer state mirrored from DeckOptimizer via custom event.
-  const [analyzerState, setAnalyzerState] = useState<{ dirty: boolean; loading: boolean; hasAnalysis: boolean }>({
-    dirty: false, loading: false, hasAnalysis: false,
-  });
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ dirty: boolean; loading: boolean; hasAnalysis: boolean }>).detail;
-      if (detail) setAnalyzerState(detail);
-    };
-    document.addEventListener('deck-optimizer-state', handler);
-    return () => document.removeEventListener('deck-optimizer-state', handler);
+  const handleArtEnter = useCallback((card: ScryfallCard | null | undefined, e: React.MouseEvent) => {
+    if (!card) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setHover({ card, rect });
   }, []);
-
-  const handleReanalyze = useCallback(() => {
-    document.dispatchEvent(new CustomEvent('deck-optimizer-reanalyze'));
-  }, []);
+  const handleArtLeave = useCallback(() => setHover(null), []);
 
   const cardCount = (() => {
     let n = deck.commander ? 1 : 0;
@@ -64,7 +55,7 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
     if (savedListId) return;
     const today = new Date().toISOString().slice(0, 10);
     const defaultName = source.kind === 'generated'
-      ? `${deck.commander?.name ?? 'Untitled'} — Analyzed ${today}`
+      ? `${deck.commander?.name ?? 'Untitled'} — Checked ${today}`
       : '';
     setSaveName(defaultName);
     setShowSaveInput(true);
@@ -106,7 +97,11 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
   return (
     <div className="mb-2">
       <div className="rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm flex items-center gap-3 p-2.5">
-        <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-muted/30">
+        <div
+          className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-muted/30"
+          onMouseEnter={(e) => handleArtEnter(deck.commander, e)}
+          onMouseLeave={handleArtLeave}
+        >
           {artUrl && <img src={artUrl} alt={deck.commander?.name ?? ''} className="w-full h-full object-cover" />}
         </div>
         <div className="flex-1 min-w-0">
@@ -125,27 +120,10 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
             className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 mt-1"
           >
             <ArrowLeft className="w-3 h-3" />
-            Analyze a different deck
+            Check a different deck
           </button>
         </div>
         <div className="flex items-center gap-2">
-          {analyzerState.hasAnalysis && (
-            <button
-              onClick={handleReanalyze}
-              disabled={analyzerState.loading}
-              title={analyzerState.dirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors ${
-                analyzerState.dirty
-                  ? 'border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
-                  : 'border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground'
-              } disabled:opacity-60 disabled:pointer-events-none`}
-            >
-              {analyzerState.loading
-                ? <Loader2 className="w-3 h-3 animate-spin" />
-                : <RefreshCw className="w-3 h-3" />}
-              Re-analyze
-            </button>
-          )}
           {source.kind === 'list' && !savedListId && (
             <a
               href={`#/lists/${source.listId}/deck-view`}
@@ -201,6 +179,31 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
           )}
         </div>
       </div>
+
+      {hover && (() => {
+        const PREVIEW_WIDTH = 256;
+        const GAP = 12;
+        const PAD = 8;
+        const vw = window.innerWidth;
+        const rightLeft = hover.rect.right + GAP;
+        const leftLeft = hover.rect.left - GAP - PREVIEW_WIDTH;
+        let left = rightLeft;
+        if (rightLeft + PREVIEW_WIDTH + PAD > vw && leftLeft >= PAD) left = leftLeft;
+        else if (rightLeft + PREVIEW_WIDTH + PAD > vw) left = Math.max(PAD, vw - PREVIEW_WIDTH - PAD);
+        const top = Math.min(
+          Math.max(8, hover.rect.top + hover.rect.height / 2 - 180),
+          window.innerHeight - 400,
+        );
+        return (
+          <div className="fixed z-[100] pointer-events-none hidden lg:block" style={{ left, top }}>
+            <img
+              src={getCardImageUrl(hover.card, 'normal') ?? ''}
+              alt={hover.card.name}
+              className="w-64 rounded-lg shadow-2xl border border-border/50"
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
