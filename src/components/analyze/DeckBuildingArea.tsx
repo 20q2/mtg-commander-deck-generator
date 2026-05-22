@@ -390,9 +390,9 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   }, [view, activeCmcs, sortedBuckets, landCategoryGroups, playmatHeight, containerWidth]);
 
   return (
-    <div ref={rootRef} className="border-y border-border/40 flex-1 min-h-0 flex flex-col overflow-hidden">
+    <div ref={rootRef} className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Header — bigger, with sort selector */}
-      <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30">
+      <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
         <div className="flex items-center gap-2 min-w-0">
           <BarChart3 className="w-4 h-4 text-primary/70 shrink-0" />
           <span className="text-sm font-bold uppercase tracking-wider">Deck</span>
@@ -539,8 +539,8 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
                 ))}
               </div>
 
-              <CurveRow rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={themeMembership} />
-              <CurveRow rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={themeMembership} />
+              <CurveRow rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={sortKey === 'theme' ? themeMembership : null} />
+              <CurveRow rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={sortKey === 'theme' ? themeMembership : null} />
             </div>
           ) : (
             <div className="w-full min-w-0 pr-2 sm:pr-4">
@@ -568,7 +568,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
                     showPrice={sortKey === 'price'}
                     onCardAction={onCardAction}
                     menuProps={menuProps}
-                    themeMembership={themeMembership}
+                    themeMembership={sortKey === 'theme' ? themeMembership : null}
                   />
                 ))}
               </div>
@@ -827,16 +827,16 @@ function CurveCard({
         ) : null}
         {themeIndices.length > 0 && (
           <span
-            className="absolute left-1 z-10 flex items-center gap-0.5"
+            className="absolute left-1 right-1 z-10 flex flex-wrap items-center gap-0.5"
             style={{ top: showPrice ? '1.4rem' : '0.25rem' }}
           >
             {themeIndices.map(i => (
               <span
                 key={i}
                 title={themeNames[i] ?? ''}
-                className={`inline-flex items-center justify-center w-3.5 h-3.5 text-[8px] font-bold rounded-full shadow-sm tabular-nums ${THEME_CHIP_CLASS[i] ?? THEME_CHIP_CLASS[0]}`}
+                className={`inline-flex items-center max-w-full px-1 py-px text-[7px] font-bold uppercase tracking-wider rounded shadow-sm truncate ${THEME_CHIP_CLASS[i] ?? THEME_CHIP_CLASS[0]}`}
               >
-                {i + 1}
+                {themeNames[i] ?? ''}
               </span>
             ))}
           </span>
