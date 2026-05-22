@@ -9,6 +9,7 @@ import { isUtilityLand, isTapland, loadTaggerData } from '@/services/tagger/clie
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import type { CardRowMenuProps } from '@/components/deck/optimizer/shared';
+import type { ThemeMembership } from './themeMembership';
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
@@ -21,6 +22,7 @@ interface DeckBuildingAreaProps {
   focusLands?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
+  themeMembership?: ThemeMembership | null;
 }
 
 const COLUMN_LABELS = ['0', '1', '2', '3', '4', '5', '6', '7+'];
@@ -32,6 +34,12 @@ const ROLE_SWATCH: Record<string, string> = {
   boardwipe: 'bg-orange-500',
   cardDraw:  'bg-sky-500',
 };
+
+// Per-theme chip color, matching the THEMES popover (violet = #1, amber = #2).
+const THEME_CHIP_CLASS: string[] = [
+  'bg-violet-500/90 text-violet-50 border border-violet-300/70',
+  'bg-amber-500/90 text-amber-50 border border-amber-300/70',
+];
 
 // Per-card corner badge (text on a translucent backdrop).
 const ROLE_BADGE: Record<string, string> = {
@@ -146,7 +154,7 @@ const SORT_STORAGE_KEY = 'analyze-play-area-sort';
 const SORT_DIR_STORAGE_KEY = 'analyze-play-area-sort-dir';
 const DIM_ROLES_KEY = 'analyze-play-area-dim-roles';
 
-export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, focusLands = false, onCardAction, menuProps }: DeckBuildingAreaProps) {
+export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, focusLands = false, onCardAction, menuProps, themeMembership = null }: DeckBuildingAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -354,7 +362,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   }, [view, activeCmcs, sortedBuckets, landCategoryGroups, playmatHeight, containerWidth]);
 
   return (
-    <div ref={rootRef} className="border-y border-border/40 flex-1 flex flex-col">
+    <div ref={rootRef} className="border-y border-border/40 flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Header — bigger, with sort selector */}
       <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30">
         <div className="flex items-center gap-2 min-w-0">
@@ -501,8 +509,8 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
                 ))}
               </div>
 
-              <CurveRow rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} />
-              <CurveRow rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} />
+              <CurveRow rowCards={sortedBuckets.creatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={themeMembership} />
+              <CurveRow rowCards={sortedBuckets.noncreatures} activeCmcs={activeCmcs} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={themeMembership} />
             </div>
           ) : (
             <div className="w-full min-w-0 pr-2 sm:pr-4">
@@ -530,6 +538,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
                     showPrice={sortKey === 'price'}
                     onCardAction={onCardAction}
                     menuProps={menuProps}
+                    themeMembership={themeMembership}
                   />
                 ))}
               </div>
@@ -587,16 +596,17 @@ interface CurveRowProps {
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   marginTopPercent?: number;
+  themeMembership?: ThemeMembership | null;
 }
 
-function CurveRow({ rowCards, activeCmcs, gridTemplate, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, showPrice, onCardAction, menuProps, marginTopPercent }: CurveRowProps) {
+function CurveRow({ rowCards, activeCmcs, gridTemplate, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, showPrice, onCardAction, menuProps, marginTopPercent, themeMembership }: CurveRowProps) {
   return (
     <div
       className="grid justify-start gap-2 py-2 items-end"
       style={{ gridTemplateColumns: gridTemplate }}
     >
       {activeCmcs.map((i, col) => (
-        <CurveCell key={i} cards={rowCards[i]} cascadeIndex={col} onHover={onHover} onSelect={onSelect} dimNonRoles={dimNonRoles} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={showPrice} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} />
+        <CurveCell key={i} cards={rowCards[i]} cascadeIndex={col} onHover={onHover} onSelect={onSelect} dimNonRoles={dimNonRoles} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={showPrice} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={themeMembership} />
       ))}
     </div>
   );
@@ -616,9 +626,10 @@ interface CurveCellProps {
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   marginTopPercent?: number;
+  themeMembership?: ThemeMembership | null;
 }
 
-function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, cascadeIndex = 0, showPrice = false, onCardAction, menuProps, marginTopPercent }: CurveCellProps) {
+function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, cascadeIndex = 0, showPrice = false, onCardAction, menuProps, marginTopPercent, themeMembership }: CurveCellProps) {
   // FLIP-based reorder animation when sort changes. ~280ms feels right for
   // a card "settling" gesture — long enough to track, short enough not to
   // feel sluggish on a multi-column update.
@@ -648,6 +659,8 @@ function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCm
         const badgeClass = role ? (ROLE_BADGE[role] ?? '') : '';
         const badgeLabel = role ? (ROLE_LABEL[role] ?? '') : '';
         const BadgeIcon = role ? ROLE_ICON[role] : null;
+        const themeIndices = themeMembership?.byCard.get(card.name.toLowerCase()) ?? [];
+        const themeNames = themeMembership?.themes.map(t => t.name) ?? [];
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
         const occurrence = nameCounts.get(card.name) ?? 0;
         nameCounts.set(card.name, occurrence + 1);
@@ -691,6 +704,8 @@ function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCm
             onCardAction={onCardAction}
             menuProps={menuProps}
             marginTopPercent={marginTopPercent}
+            themeIndices={themeIndices}
+            themeNames={themeNames}
           />
         );
       })}
@@ -718,13 +733,15 @@ interface CurveCardProps {
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   marginTopPercent?: number;
+  themeIndices: number[];
+  themeNames: string[];
 }
 
 function CurveCard({
   card, idx, cascadeIndex, imgUrl, badgeClass, badgeLabel, BadgeIcon,
   flaggedForRemoval, dimForRemoval, dimForRole, dimForCurve, dimNonRoles,
   hasRemovals, showPrice, onSelect, onHover, onCardAction, menuProps,
-  marginTopPercent,
+  marginTopPercent, themeIndices, themeNames,
 }: CurveCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const canMenu = !!(onCardAction && menuProps);
@@ -778,6 +795,22 @@ function CurveCard({
             Other
           </span>
         ) : null}
+        {themeIndices.length > 0 && (
+          <span
+            className="absolute left-1 z-10 flex items-center gap-0.5"
+            style={{ top: showPrice ? '1.4rem' : '0.25rem' }}
+          >
+            {themeIndices.map(i => (
+              <span
+                key={i}
+                title={themeNames[i] ?? ''}
+                className={`inline-flex items-center justify-center w-3.5 h-3.5 text-[8px] font-bold rounded-full shadow-sm tabular-nums ${THEME_CHIP_CLASS[i] ?? THEME_CHIP_CLASS[0]}`}
+              >
+                {i + 1}
+              </span>
+            ))}
+          </span>
+        )}
       </button>
       {canMenu && (
         <span

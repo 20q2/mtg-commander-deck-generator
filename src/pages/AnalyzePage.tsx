@@ -7,7 +7,7 @@ import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
 import { PasteLane, type PasteLaneResult } from '@/components/analyze/PasteLane';
 import { ListsLane } from '@/components/analyze/ListsLane';
 import { GenerateLane } from '@/components/analyze/GenerateLane';
-import { CommanderStrip, type AnalyzeSource } from '@/components/analyze/CommanderStrip';
+import { type AnalyzeSource } from '@/components/analyze/CommanderStrip';
 import { hydrateDeckForAnalysis, type HydrateStage } from '@/components/analyze/analyzeHydration';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
@@ -21,6 +21,7 @@ import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, GeneratedDeck, ScryfallCard } from '@/types';
 import type { CardAction } from '@/components/deck/DeckDisplay';
+import type { ThemeMembership } from '@/components/analyze/themeMembership';
 
 const LANE_STORAGE_KEY = 'analyze-active-lane';
 
@@ -91,6 +92,7 @@ export function AnalyzePage() {
   const tabSlug: string | undefined = param1IsTab ? param1 : param2;
 
   const activeAnalyzerTab: TabKey = (tabSlug && TAB_KEY_BY_SLUG[tabSlug]) || 'overview';
+  const [themeMembership, setThemeMembership] = useState<ThemeMembership | null>(null);
   const handleAnalyzerTabChange = useCallback((next: TabKey) => {
     const slug = TAB_SLUG_BY_KEY[next];
     navigate(listIdParam ? `/analyze/${listIdParam}/${slug}` : `/analyze/${slug}`);
@@ -516,16 +518,14 @@ export function AnalyzePage() {
       + Object.values(generatedDeck.categories).reduce((n, arr) => n + arr.length, 0);
     const analyzerDeckSize = Math.max(totalCards - 1 - partnerOffset, 0);
 
+    const sourceLabel = source.kind === 'paste'
+      ? 'Pasted'
+      : source.kind === 'generated'
+      ? 'Generated'
+      : `From "${source.listName}"`;
+
     return (
-      <main className="flex-1 pt-3">
-        <div className="px-2 sm:px-3 lg:px-4">
-        <CommanderStrip
-          deck={generatedDeck}
-          colorIdentity={colorIdentityStore}
-          source={source}
-          onChangeDeck={handleChangeDeck}
-        />
-        </div>
+      <main className="flex-1 pt-0">
         {generatedDeck.commander && (
           <AnalyzeSplit
             analyzer={
@@ -542,6 +542,12 @@ export function AnalyzePage() {
                 onTabChange={handleAnalyzerTabChange}
                 onAddCards={handleAddCardsToAnalyzerDeck}
                 onRemoveCards={handleRemoveCardsFromAnalyzerDeck}
+                commander={generatedDeck.commander}
+                partnerCommander={generatedDeck.partnerCommander ?? undefined}
+                colorIdentity={colorIdentityStore}
+                sourceLabel={sourceLabel}
+                onChangeDeck={handleChangeDeck}
+                onThemeMembershipChange={setThemeMembership}
               />
             }
             deck={
@@ -561,6 +567,7 @@ export function AnalyzePage() {
                 focusLands={activeAnalyzerTab === 'lands'}
                 onCardAction={handleAnalyzerCardAction}
                 menuProps={analyzerMenuProps}
+                themeMembership={themeMembership}
               />
             }
           />
