@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.4",
+    "notes": [
+      "Analyze visual stacks now have a Group selector — split your deck by CMC, Theme, Role, Type, or None.",
+      "Theme grouping replaces the old Theme sort; cards cluster into your selected themes plus Both and Off-theme."
+    ]
+  },
+  {
     "version": "1.3.3",
     "notes": [
       "Analyze page: cards now show small numbered chips for each of your selected themes — hover to see the theme name.",
