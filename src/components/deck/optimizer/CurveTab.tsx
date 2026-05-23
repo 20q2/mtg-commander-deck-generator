@@ -6,7 +6,7 @@ import {
   Tooltip, ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
-import { ChevronDown, ChevronRight, X, Target, Crown, Sparkles, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Layers, ArrowUpDown } from 'lucide-react';
+import { ChevronDown, ChevronRight, X, Target, Crown, BookOpen, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Layers, ArrowUpDown, Scissors, Sparkles } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis, RoleBreakdown } from '@/services/deckBuilder/deckAnalyzer';
 import { PACING_MULTIPLIERS } from '@/services/deckBuilder/deckAnalyzer';
@@ -14,7 +14,7 @@ import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getCachedCard } from '@/services/scryfall/client';
 import { PACING_LABELS, PHASE_META, tileGradeStyles, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
-import { SuggestionCardGrid } from './OverviewTab';
+import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -126,12 +126,12 @@ export function CurveSummaryStrip({
                 ri < 3 ? 'border-r border-border/30' : ''
               } ${isRoleActive ? `${gradeGs.bg} hover:bg-accent/40` : 'bg-black/20 hover:bg-black/30'}`}
             >
-              <div className="flex items-center gap-1 mb-1">
+              <div className="flex items-center gap-1 mb-1 min-w-0">
                 <roleMeta.icon className={`w-3 h-3 shrink-0 transition-colors duration-200 ${isRoleActive ? roleMeta.color : 'text-muted-foreground'}`} />
-                <span className={`text-[9px] font-semibold uppercase tracking-wide leading-none transition-colors duration-200 ${isRoleActive ? 'text-white' : 'text-muted-foreground'}`}>
+                <span className={`text-[9px] font-semibold uppercase tracking-wide leading-none truncate transition-colors duration-200 ${isRoleActive ? 'text-white' : 'text-muted-foreground'}`}>
                   {activePhase ? `${activePhase.label.split(' ')[0]} ` : ''}{ROLE_SHORT_LABEL[roleKey]}
                 </span>
-                <span className={`text-[10px] font-black ml-auto px-1 py-px rounded transition-colors duration-200 ${gradeGs.color} ${isRoleActive ? gradeGs.bgColor : 'bg-muted/30'}`}>
+                <span className={`text-[10px] font-black ml-auto shrink-0 px-1 py-px rounded leading-none transition-colors duration-200 ${gradeGs.color} ${isRoleActive ? gradeGs.bgColor : 'bg-muted/30'}`}>
                   {grade}
                 </span>
               </div>
@@ -327,8 +327,8 @@ export function ManaCurveLineChart({
   }));
 
   return (
-    <div className="bg-card/60 border border-border/30 rounded-lg p-3 flex flex-col">
-      <div className="flex flex-col gap-0.5 mb-1">
+    <div className="bg-background/70 pt-2 pb-0 flex flex-col -m-4">
+      <div className="flex flex-col gap-0.5 mb-1 px-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Curve</span>
           <span className="text-[10px] ml-auto flex items-center gap-2 flex-wrap justify-end">
@@ -363,7 +363,7 @@ export function ManaCurveLineChart({
       <ResponsiveContainer width="100%" height={chartHeight} debounce={1} className="flex-1 min-h-[120px] [&_*:focus-visible]:outline-none [&_*:focus]:outline-none">
         <ComposedChart
           data={chartData}
-          margin={{ top: 6, right: 8, bottom: 0, left: -12 }}
+          margin={{ top: 6, right: 0, bottom: 0, left: -20 }}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onClick={onCmcClick ? (e: any) => {
             const idx = e?.activeTooltipIndex;
@@ -714,7 +714,7 @@ export type RoleGroupKey = (typeof ROLE_GROUP_ORDER)[number];
 export const ROLE_GROUP_META: Record<RoleGroupKey, { icon: typeof Sprout; label: string; color: string }> = {
   ramp:        { icon: Sprout,    label: 'Ramp',        color: 'text-emerald-400/80' },
   interaction: { icon: Swords,    label: 'Interaction',  color: 'text-red-400/80' },
-  cardDraw:    { icon: Sparkles,  label: 'Card Draw',    color: 'text-sky-400/80' },
+  cardDraw:    { icon: BookOpen,  label: 'Card Draw',    color: 'text-sky-400/80' },
   other:       { icon: Layers,    label: 'Other',        color: 'text-muted-foreground' },
 };
 
@@ -1070,7 +1070,7 @@ function PhaseRoleCardList({
           content: (
             <div className="space-y-0.5">
               {cards.map(ac => (
-                <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
+                <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails hideChips hidePrice onCardAction={onCardAction} menuProps={menuProps} />
               ))}
             </div>
           ),
@@ -1091,7 +1091,7 @@ function PhaseRoleCardList({
             content: (
               <div className="space-y-0.5">
                 {stCards.map(ac => (
-                  <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails onCardAction={onCardAction} menuProps={menuProps} />
+                  <AnalyzedCardRow key={ac.card.name} ac={ac} onPreview={onPreview} showDetails hideChips hidePrice onCardAction={onCardAction} menuProps={menuProps} />
                 ))}
               </div>
             ),
@@ -1123,6 +1123,8 @@ function buildCurveSuggestions({
   activeRoleGroups: Set<RoleGroupKey>;
   allRecommendations?: RecommendedCard[];
 }): RecommendedCard[] {
+  const TARGET_COUNT = 18;
+
   const roleKeyMap: Record<RoleGroupKey, string[]> = {
     ramp:        ['ramp'],
     interaction: ['removal', 'boardwipe'],
@@ -1131,7 +1133,7 @@ function buildCurveSuggestions({
   };
   const knownRoles = new Set(['ramp', 'removal', 'boardwipe', 'cardDraw']);
 
-  // Collect phase deficit per role group
+  // Per-role-group deficit, summed across the active phases.
   const phaseDeficits: Record<RoleGroupKey, number> = { ramp: 0, interaction: 0, cardDraw: 0, other: 0 };
   for (const phase of phases) {
     for (const prb of phase.phaseRoleBreakdowns) {
@@ -1139,26 +1141,105 @@ function buildCurveSuggestions({
     }
   }
 
-  // CMC ranges of selected phases (for filtering suggestions by CMC)
+  // CMC filter: skip entirely when no phase is active (phases array empty).
+  // When a phase is active, restrict suggestions to its CMC band, as before.
   const cmcRanges = phases.map(p => p.cmcRange);
+  const cmcFilterActive = cmcRanges.length > 0;
   const getCmc = (rec: RecommendedCard): number | undefined => {
     if (rec.cmc != null) return rec.cmc;
-    // Fallback: look up from Scryfall cache (populated during enrichment)
     const cached = getCachedCard(rec.name);
     if (cached?.cmc != null) {
-      rec.cmc = cached.cmc; // memoize for future calls
+      rec.cmc = cached.cmc;
       return cached.cmc;
     }
     return undefined;
   };
-  const inRange = (rec: RecommendedCard) => {
+  const inRange = (rec: RecommendedCard): boolean => {
+    if (!cmcFilterActive) return true;
     const cmc = getCmc(rec);
     if (cmc == null) return false;
     const c = Math.min(Math.floor(cmc), 7);
     return cmcRanges.some(([lo, hi]) => c >= lo && c <= hi);
   };
 
-  // Gather suggestions, ordered by biggest deficit first
+  // Pool builder per role group.
+  const poolFor = (group: RoleGroupKey): RecommendedCard[] => {
+    if (group === 'other') {
+      return (allRecommendations ?? []).filter(r => !r.role || !knownRoles.has(r.role));
+    }
+    return roleBreakdowns
+      .filter(rb => roleKeyMap[group].includes(rb.role))
+      .flatMap(rb => rb.suggestedReplacements);
+  };
+
+  const autoMode = activeRoleGroups.size === 0;
+
+  if (autoMode) {
+    // Auto mode: deficit-weighted mix across all gap groups.
+    const ALL_GROUPS: RoleGroupKey[] = ['ramp', 'interaction', 'cardDraw', 'other'];
+    const gapGroups = ALL_GROUPS.filter(g => phaseDeficits[g] > 0);
+    const totalDeficit = gapGroups.reduce((s, g) => s + phaseDeficits[g], 0);
+
+    if (totalDeficit === 0) return [];
+
+    // Initial proportional slot allocation, min 1 per gap group.
+    const slots: Record<RoleGroupKey, number> = { ramp: 0, interaction: 0, cardDraw: 0, other: 0 };
+    for (const g of gapGroups) {
+      slots[g] = Math.max(1, Math.round((TARGET_COUNT * phaseDeficits[g]) / totalDeficit));
+    }
+
+    // Rebalance to exactly TARGET_COUNT.
+    const sumSlots = () => gapGroups.reduce((s, g) => s + slots[g], 0);
+    while (sumSlots() > TARGET_COUNT) {
+      // Trim the group with the most slots (ties broken by smallest deficit).
+      let best: RoleGroupKey | null = null;
+      for (const g of gapGroups) {
+        if (slots[g] <= 1) continue;
+        if (!best
+            || slots[g] > slots[best]
+            || (slots[g] === slots[best] && phaseDeficits[g] < phaseDeficits[best])) {
+          best = g;
+        }
+      }
+      if (!best) break;
+      slots[best]--;
+    }
+    while (sumSlots() < TARGET_COUNT) {
+      // Grow the group with the largest deficit.
+      let best: RoleGroupKey | null = null;
+      for (const g of gapGroups) {
+        if (!best || phaseDeficits[g] > phaseDeficits[best]) best = g;
+      }
+      if (!best) break;
+      slots[best]++;
+    }
+
+    // Fill each group's quota from its pool, deduping across all groups.
+    const seen = new Set<string>();
+    const perGroupPicks: Record<RoleGroupKey, RecommendedCard[]> = {
+      ramp: [], interaction: [], cardDraw: [], other: [],
+    };
+    // Process in deficit-descending order so larger deficits win dedupe conflicts.
+    const orderedGaps = [...gapGroups].sort((a, b) => phaseDeficits[b] - phaseDeficits[a]);
+    for (const g of orderedGaps) {
+      const pool = poolFor(g)
+        .filter(inRange)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      for (const rec of pool) {
+        if (perGroupPicks[g].length >= slots[g]) break;
+        if (seen.has(rec.name)) continue;
+        seen.add(rec.name);
+        perGroupPicks[g].push(rec);
+      }
+    }
+
+    // Concatenate worst-deficit group first.
+    const result: RecommendedCard[] = [];
+    for (const g of orderedGaps) result.push(...perGroupPicks[g]);
+    return result;
+  }
+
+  // Filtered mode (existing behavior): user picked at least one role group.
   const activeGroups = ROLE_GROUP_ORDER
     .filter(k => activeRoleGroups.has(k) && k !== 'other' && roleKeyMap[k].length > 0)
     .sort((a, b) => phaseDeficits[b] - phaseDeficits[a]);
@@ -1166,12 +1247,8 @@ function buildCurveSuggestions({
   const seen = new Map<string, RecommendedCard>();
 
   for (const group of activeGroups) {
-    const pool = roleBreakdowns
-      .filter(rb => roleKeyMap[group].includes(rb.role))
-      .flatMap(rb => rb.suggestedReplacements);
-
-    const filtered = pool.filter(r => inRange(r));
-
+    const pool = poolFor(group);
+    const filtered = pool.filter(inRange);
     for (const rec of filtered) {
       const existing = seen.get(rec.name);
       if (!existing || (rec.score ?? 0) > (existing.score ?? 0)) {
@@ -1180,31 +1257,151 @@ function buildCurveSuggestions({
     }
   }
 
-  // "Other" group: cards without ramp/removal/boardwipe/cardDraw roles
   if (activeRoleGroups.has('other') && allRecommendations) {
-    const otherPool = allRecommendations.filter(r => !r.role || !knownRoles.has(r.role));
-    const filtered = otherPool.filter(r => inRange(r));
+    const filtered = poolFor('other').filter(inRange);
     for (const rec of filtered) {
       if (!seen.has(rec.name)) seen.set(rec.name, rec);
     }
   }
 
-  // If nothing found with deficits, pull all (still respecting CMC range)
   if (seen.size === 0) {
     for (const group of activeGroups) {
-      const pool = roleBreakdowns
-        .filter(rb => roleKeyMap[group].includes(rb.role))
-        .flatMap(rb => rb.suggestedReplacements);
+      const pool = poolFor(group);
       for (const rec of pool) {
         if (!seen.has(rec.name) && inRange(rec)) seen.set(rec.name, rec);
       }
     }
   }
 
-  // Sort by relevance score (SuggestionCardGrid handles user-facing sort toggle)
   const result = Array.from(seen.values());
   result.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  return result.slice(0, 18);
+  return result.slice(0, TARGET_COUNT);
+}
+
+// Map a deck card's deckRole to the phase role group it counts toward.
+function curveRoleGroupOf(role: string | undefined): RoleGroupKey {
+  if (role === 'ramp') return 'ramp';
+  if (role === 'removal' || role === 'boardwipe') return 'interaction';
+  if (role === 'cardDraw') return 'cardDraw';
+  return 'other';
+}
+
+function buildCurveCuts({
+  phases, activeRoleGroups,
+}: {
+  phases: CurvePhaseAnalysis[];
+  activeRoleGroups: Set<RoleGroupKey>;
+}): AnalyzedCard[] {
+  const ALL_GROUPS: RoleGroupKey[] = ['ramp', 'interaction', 'cardDraw', 'other'];
+
+  // Excess per role group, summed across active phases.
+  const phaseExcesses: Record<RoleGroupKey, number> = {
+    ramp: 0, interaction: 0, cardDraw: 0, other: 0,
+  };
+  for (const phase of phases) {
+    for (const prb of phase.phaseRoleBreakdowns) {
+      phaseExcesses[prb.roleGroup] += Math.max(0, prb.current - prb.target);
+    }
+  }
+
+  const autoMode = activeRoleGroups.size === 0;
+  const candidateGroups = ALL_GROUPS.filter(g => {
+    if (phaseExcesses[g] <= 0) return false;
+    if (!autoMode && !activeRoleGroups.has(g)) return false;
+    return true;
+  });
+
+  const totalExcess = candidateGroups.reduce((s, g) => s + phaseExcesses[g], 0);
+  if (totalExcess === 0) return [];
+
+  // Cap total cuts at min(18, totalExcess) — never suggest more cuts than there is actual surplus.
+  const TARGET = Math.min(18, totalExcess);
+
+  // Proportional slot allocation, min 1 per group, rebalanced to exactly TARGET.
+  const slots: Record<RoleGroupKey, number> = {
+    ramp: 0, interaction: 0, cardDraw: 0, other: 0,
+  };
+  for (const g of candidateGroups) {
+    slots[g] = Math.max(1, Math.round((TARGET * phaseExcesses[g]) / totalExcess));
+  }
+  const sumSlots = () => candidateGroups.reduce((s, g) => s + slots[g], 0);
+  while (sumSlots() > TARGET) {
+    let best: RoleGroupKey | null = null;
+    for (const g of candidateGroups) {
+      if (slots[g] <= 1) continue;
+      if (!best
+          || slots[g] > slots[best]
+          || (slots[g] === slots[best] && phaseExcesses[g] < phaseExcesses[best])) {
+        best = g;
+      }
+    }
+    if (!best) break;
+    slots[best]--;
+  }
+  while (sumSlots() < TARGET) {
+    let best: RoleGroupKey | null = null;
+    for (const g of candidateGroups) {
+      if (!best || phaseExcesses[g] > phaseExcesses[best]) best = g;
+    }
+    if (!best) break;
+    slots[best]++;
+  }
+
+  // Build the candidate pool per group: all deck cards across active phases
+  // whose role group matches, sorted by score ASC (lowest = best cut).
+  const cutScore = (ac: AnalyzedCard): number => ac.score ?? ac.inclusion ?? 0;
+
+  const poolFor = (group: RoleGroupKey): AnalyzedCard[] => {
+    const pool: AnalyzedCard[] = [];
+    const seen = new Set<string>();
+    for (const phase of phases) {
+      for (const ac of phase.cards) {
+        if (curveRoleGroupOf(ac.card.deckRole) !== group) continue;
+        if (seen.has(ac.card.name)) continue;
+        seen.add(ac.card.name);
+        pool.push(ac);
+      }
+    }
+    pool.sort((a, b) => cutScore(a) - cutScore(b));
+    return pool;
+  };
+
+  // Fill each group's quota, deduping across groups (lowest-score wins).
+  const taken = new Set<string>();
+  const perGroup: Record<RoleGroupKey, AnalyzedCard[]> = {
+    ramp: [], interaction: [], cardDraw: [], other: [],
+  };
+  const orderedExcess = [...candidateGroups].sort(
+    (a, b) => phaseExcesses[b] - phaseExcesses[a]
+  );
+  for (const g of orderedExcess) {
+    const pool = poolFor(g);
+    for (const ac of pool) {
+      if (perGroup[g].length >= slots[g]) break;
+      if (taken.has(ac.card.name)) continue;
+      taken.add(ac.card.name);
+      perGroup[g].push(ac);
+    }
+  }
+
+  const result: AnalyzedCard[] = [];
+  for (const g of orderedExcess) result.push(...perGroup[g]);
+  return result;
+}
+
+function sumCurveExcess(
+  phases: CurvePhaseAnalysis[],
+  activeRoleGroups: Set<RoleGroupKey>,
+): number {
+  let total = 0;
+  for (const phase of phases) {
+    for (const prb of phase.phaseRoleBreakdowns) {
+      if (activeRoleGroups.size === 0 || activeRoleGroups.has(prb.roleGroup)) {
+        total += Math.max(0, prb.current - prb.target);
+      }
+    }
+  }
+  return total;
 }
 
 /** Right column: suggestion card grid — matches Roles/Lands tab format. */
@@ -1226,43 +1423,144 @@ function CurveSuggestionPanel({
     [phases, roleBreakdowns, activeRoleGroups, allRecommendations]
   );
 
+  const cuts = useMemo(() =>
+    buildCurveCuts({ phases, activeRoleGroups }),
+    [phases, activeRoleGroups]
+  );
+
   const totalDeficit = useMemo(() => {
     let d = 0;
     for (const phase of phases) {
       for (const prb of phase.phaseRoleBreakdowns) {
-        if (activeRoleGroups.has(prb.roleGroup)) d += Math.max(0, prb.deficit);
+        if (activeRoleGroups.size === 0 || activeRoleGroups.has(prb.roleGroup)) {
+          d += Math.max(0, prb.deficit);
+        }
       }
     }
     return d;
   }, [phases, activeRoleGroups]);
 
-  const title = phases.length === 1
-    ? <>{phases[0].label} Suggestions ({suggestions.length})</>
-    : <>Suggestions ({suggestions.length})</>;
+  const totalExcess = useMemo(() =>
+    sumCurveExcess(phases, activeRoleGroups),
+    [phases, activeRoleGroups]
+  );
 
-  if (suggestions.length === 0) {
+  // Initial tab: pick whichever side has more impact on the grade.
+  // Sticky for the session — flipping it stays flipped.
+  const [showCuts, setShowCuts] = useState(
+    () => cuts.length > 0 && totalExcess > totalDeficit
+  );
+
+  const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
+
+  const isAuto = activeRoleGroups.size === 0;
+  const cutsPrefix = isAuto ? 'Top ' : '';
+  const sugPrefix = cutsPrefix;
+  const phaseLabel = phases.length === 1 ? `${phases[0].label} ` : '';
+
+  const suggestionsTitle = <>{phaseLabel}{sugPrefix}Suggestions ({suggestions.length})</>;
+  const cutsTitle = <>{phaseLabel}{cutsPrefix}Cuts ({cuts.length})</>;
+
+  const handleCutAll = useCallback(() => {
+    for (const ac of cuts) {
+      if (removedCards.has(ac.card.name)) continue;
+      onCardAction?.(ac.card, { type: 'remove' });
+    }
+    setRemovedCards(prev => {
+      const next = new Set(prev);
+      for (const ac of cuts) next.add(ac.card.name);
+      return next;
+    });
+  }, [cuts, removedCards, onCardAction]);
+
+  const bothAvailable = cuts.length > 0 && suggestions.length > 0;
+
+  // Empty case — nothing to suggest or cut.
+  if (cuts.length === 0 && suggestions.length === 0) {
     return (
       <div className="flex items-center justify-center h-32 rounded-lg border border-border/20 bg-card/40">
         <p className="text-xs text-muted-foreground/60 text-center px-4">
-          {totalDeficit === 0
+          {totalDeficit === 0 && totalExcess === 0
             ? 'Role coverage looks solid for the selected filters.'
-            : 'No suggestions available for the active filters.'}
+            : 'No suggestions or cuts available for the active filters.'}
         </p>
       </div>
     );
   }
 
+  // Effective view — if only one side has data, force that side regardless of toggle.
+  const effectiveShowCuts = bothAvailable ? showCuts : cuts.length > 0;
+
   return (
-    <SuggestionCardGrid
-      title={title}
-      cards={suggestions}
-      onAdd={onAdd}
-      onPreview={onPreview}
-      addedCards={addedCards}
-      deficit={totalDeficit}
-      onCardAction={onCardAction}
-      menuProps={menuProps}
-    />
+    <div>
+      {bothAvailable && (
+        <div className="mb-2 px-0.5">
+          <div className="flex items-center gap-2">
+            {effectiveShowCuts && (
+              <span className="text-xs text-red-400/60">{totalExcess} over target</span>
+            )}
+            <div className="flex items-center border border-border/50 rounded-md overflow-hidden ml-auto">
+              <button
+                onClick={() => setShowCuts(true)}
+                className={`flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors ${effectiveShowCuts ? 'bg-red-500/15 text-red-400 font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+              >
+                <Scissors className="w-2.5 h-2.5" />
+                Cuts ({cuts.length})
+              </button>
+              <div className="w-px h-3 bg-border/50" />
+              <button
+                onClick={() => setShowCuts(false)}
+                className={`flex items-center gap-1 text-[10px] px-2 py-0.5 transition-colors ${!effectiveShowCuts ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50'}`}
+              >
+                <Sparkles className="w-2.5 h-2.5" />
+                Suggestions ({suggestions.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {effectiveShowCuts ? (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-2 mb-3">
+          <div className="flex items-center justify-between mb-1.5 px-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400/80">
+              {cutsTitle}
+            </p>
+            <button
+              onClick={handleCutAll}
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded border border-red-500/30 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <Scissors className="w-2.5 h-2.5" />
+              Cut all
+            </button>
+          </div>
+          <CutCardGrid
+            cards={cuts}
+            onRemove={(card) => {
+              onCardAction?.(card, { type: 'remove' });
+              setRemovedCards(prev => new Set([...prev, card.name]));
+            }}
+            onPreview={onPreview}
+            removedCards={removedCards}
+            excess={cuts.length}
+            onCardAction={onCardAction}
+            menuProps={menuProps}
+            sortMode="score"
+          />
+        </div>
+      ) : (
+        <SuggestionCardGrid
+          title={suggestionsTitle}
+          cards={suggestions}
+          onAdd={onAdd}
+          onPreview={onPreview}
+          addedCards={addedCards}
+          deficit={totalDeficit}
+          onCardAction={onCardAction}
+          menuProps={menuProps}
+        />
+      )}
+    </div>
   );
 }
 
@@ -1281,11 +1579,14 @@ export function CurveDetailPanel({
   menuProps?: CardRowMenuProps;
   allRecommendations?: RecommendedCard[];
 }) {
-  const showSuggestions = activeRoleGroups.size > 0;
+  const showSuggestions = true;
   return (
     <div className={`${showSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
       {/* Left column: grouped card list */}
-      <div className={showSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}>
+      <div
+        className={`${showSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} -my-3 sm:-my-4 ${showSuggestions ? '-ml-3 sm:-ml-4' : '-mx-3 sm:-mx-4'} bg-black/15 px-3 sm:px-4 py-3 transition-[background-image] duration-500`}
+        style={{ backgroundImage: 'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(16,185,129,0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(16,185,129,0.035), transparent 60%)' }}
+      >
         <PhaseRoleCardList
           phases={phases}
           activeRoleGroups={activeRoleGroups}

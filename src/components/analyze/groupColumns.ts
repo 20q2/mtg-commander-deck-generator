@@ -2,7 +2,7 @@ import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ThemeMembership } from './themeMembership';
 
-export type GroupKey = 'cmc' | 'theme' | 'role' | 'type' | 'none';
+export type GroupKey = 'cmc' | 'theme' | 'role' | 'type';
 
 export interface GroupOption {
   key: GroupKey;
@@ -14,7 +14,6 @@ export const GROUP_OPTIONS: GroupOption[] = [
   { key: 'theme', label: 'Theme' },
   { key: 'role',  label: 'Role'  },
   { key: 'type',  label: 'Type'  },
-  { key: 'none',  label: 'None'  },
 ];
 
 export interface Column {
@@ -109,7 +108,6 @@ export function getColumns(groupKey: GroupKey, ctx: ColumnContext): Column[] {
     case 'theme': return themeColumns(ctx);
     case 'role':  return roleColumns();
     case 'type':  return typeColumns();
-    case 'none':  return [{ key: 'all', label: 'All', matches: () => true }];
   }
 }
 

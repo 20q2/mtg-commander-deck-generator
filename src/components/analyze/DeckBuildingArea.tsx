@@ -11,6 +11,7 @@ import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay'
 import type { CardRowMenuProps } from '@/components/deck/optimizer/shared';
 import type { ThemeMembership } from './themeMembership';
 import { getColumns, type Column, type GroupKey, GROUP_OPTIONS, shouldCollapseRows } from './groupColumns';
+import { computeSpillover } from './columnSpillover';
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
@@ -26,18 +27,10 @@ interface DeckBuildingAreaProps {
   themeMembership?: ThemeMembership | null;
 }
 
-// Role swatch color — used in the header legend.
-const ROLE_SWATCH: Record<string, string> = {
-  ramp:      'bg-emerald-500',
-  removal:   'bg-rose-500',
-  boardwipe: 'bg-orange-500',
-  cardDraw:  'bg-sky-500',
-};
-
 // Per-theme chip color, matching the THEMES popover (violet = #1, amber = #2).
 const THEME_CHIP_CLASS: string[] = [
-  'bg-violet-500/90 text-violet-50 border border-violet-300/70',
-  'bg-amber-500/90 text-amber-50 border border-amber-300/70',
+  'bg-violet-700 text-violet-50 border border-violet-400',
+  'bg-amber-700 text-amber-50 border border-amber-400',
 ];
 
 // Per-card corner badge (text on a translucent backdrop).
@@ -62,22 +55,22 @@ const ROLE_ICON: Record<string, typeof Sprout> = {
   cardDraw:  BookOpen,
 };
 
-// Role-priority sort uses the same cascade as the rest of the analyzer.
-const ROLE_PRIORITY: Record<string, number> = {
-  boardwipe: 0,
-  removal:   1,
-  ramp:      2,
-  cardDraw:  3,
+// Icons for the role-grouping column headers, keyed by Column.key from groupColumns.ts.
+const ROLE_HEADER_ICON: Record<string, typeof Sprout> = {
+  'role:ramp':    Sprout,
+  'role:removal': Swords,
+  'role:wipe':    Flame,
+  'role:draw':    BookOpen,
 };
 
 const COLOR_PRIORITY: Record<string, number> = { W: 0, U: 1, B: 2, R: 3, G: 4 };
 
-type SortKey = 'name' | 'color' | 'role' | 'price';
+type SortKey = 'name' | 'color' | 'cmc' | 'price';
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'name',  label: 'Name'  },
   { key: 'color', label: 'Color' },
-  { key: 'role',  label: 'Role'  },
+  { key: 'cmc',   label: 'CMC'   },
   { key: 'price', label: 'Price' },
 ];
 
@@ -124,11 +117,10 @@ function sortBy(
       const d = sign * (colorRank(a) - colorRank(b));
       return d !== 0 ? d : a.name.localeCompare(b.name);
     });
-  } else if (key === 'role') {
+  } else if (key === 'cmc') {
     out.sort((a, b) => {
-      const ar = a.deckRole ? (ROLE_PRIORITY[a.deckRole] ?? 99) : 99;
-      const br = b.deckRole ? (ROLE_PRIORITY[b.deckRole] ?? 99) : 99;
-      return ar !== br ? sign * (ar - br) : a.name.localeCompare(b.name);
+      const d = sign * ((a.cmc ?? 0) - (b.cmc ?? 0));
+      return d !== 0 ? d : a.name.localeCompare(b.name);
     });
   } else if (key === 'price') {
     out.sort((a, b) => {
@@ -143,7 +135,7 @@ function sortBy(
 // Per-sort default direction. Names/colors/roles read left-to-right ascending;
 // price feels more useful starting from the expensive end.
 const DEFAULT_DIR: Record<SortKey, SortDir> = {
-  name: 'asc', color: 'asc', role: 'asc', price: 'desc',
+  name: 'asc', color: 'asc', cmc: 'asc', price: 'desc',
 };
 
 interface HoverState {
@@ -177,16 +169,26 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
 
   const [groupKey, setGroupKey] = useState<GroupKey>(() => {
     const stored = localStorage.getItem(GROUP_STORAGE_KEY);
-    if (stored === 'cmc' || stored === 'theme' || stored === 'role' || stored === 'type' || stored === 'none') {
+    if (stored === 'cmc' || stored === 'theme' || stored === 'role' || stored === 'type') {
       return stored;
     }
     return 'cmc';
   });
   useEffect(() => { localStorage.setItem(GROUP_STORAGE_KEY, groupKey); }, [groupKey]);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ groupKey?: GroupKey }>).detail;
+      if (detail?.groupKey === 'cmc' || detail?.groupKey === 'theme' || detail?.groupKey === 'role' || detail?.groupKey === 'type') {
+        setGroupKey(detail.groupKey);
+      }
+    };
+    document.addEventListener('analyze-set-group', handler);
+    return () => document.removeEventListener('analyze-set-group', handler);
+  }, []);
 
   const [sortKey, setSortKey] = useState<SortKey>(() => {
     const stored = localStorage.getItem(SORT_STORAGE_KEY);
-    return (stored === 'name' || stored === 'color' || stored === 'role' || stored === 'price') ? stored : 'name';
+    return (stored === 'name' || stored === 'color' || stored === 'cmc' || stored === 'price') ? stored : 'name';
   });
   const [sortDir, setSortDir] = useState<SortDir>(() => {
     const stored = localStorage.getItem(SORT_DIR_STORAGE_KEY);
@@ -197,6 +199,18 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
 
   useEffect(() => { localStorage.setItem(SORT_STORAGE_KEY, sortKey); }, [sortKey]);
   useEffect(() => { localStorage.setItem(SORT_DIR_STORAGE_KEY, sortDir); }, [sortDir]);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ sortKey?: SortKey }>).detail;
+      const next = detail?.sortKey;
+      if (next === 'name' || next === 'color' || next === 'cmc' || next === 'price') {
+        setSortKey(next);
+        setSortDir(DEFAULT_DIR[next] ?? 'asc');
+      }
+    };
+    document.addEventListener('analyze-set-sort', handler);
+    return () => document.removeEventListener('analyze-set-sort', handler);
+  }, []);
   // When the user picks a different sort, fall back to that sort's natural
   // default direction (price wants desc; name wants asc).
   const handleSortKeyChange = useCallback((next: SortKey) => {
@@ -269,7 +283,6 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     [sortedColumns],
   );
 
-  const gridTemplate = `repeat(${activeColumns.length}, minmax(0, 130px))`;
 
   // Ensure tagger data is loaded so utility/tapland categorization works.
   // Cheap no-op if it's already cached.
@@ -287,14 +300,13 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     void taggerReady; // re-categorize once tagger data loads
     const flat = buckets.lands.flat();
     const groups: Record<LandCategory, ScryfallCard[]> = {
-      basic: [], fetch: [], mdfc: [], channel: [], tapland: [], utility: [], other: [],
+      basic: [], mdfc: [], channel: [], tapland: [], utility: [], other: [],
     };
     for (const card of flat) groups[categorizeLand(card)].push(card);
     return LAND_CATEGORIES
       .map(({ key, label }) => ({ key, label, cards: sortBy(groups[key], sortKey, sortDir) }))
       .filter(g => g.cards.length > 0);
   }, [buckets, sortKey, sortDir, taggerReady]);
-  const landsGridTemplate = `repeat(${Math.max(landCategoryGroups.length, 1)}, minmax(0, 130px))`;
 
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -321,7 +333,6 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const showRoleLegend = containerWidth >= 900;
 
   // Measure the playmat (the dot-grid area below the header) so the stack
   // overlap can tighten when the column would otherwise overflow off the
@@ -338,59 +349,49 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     return () => ro.disconnect();
   }, []);
 
-  // Dynamic stack overlap. Cards have aspect 5:7 so card height = 1.4 × W
-  // (column width). Default sliver is 20% of W (the -120% margin). When the
-  // tallest column would overflow the playmat we compress the sliver, down
-  // to a floor of 5% (just enough for the name strip). Two rows compete for
-  // vertical space in spells view; lands view uses a single row.
-  const marginTopPercent = useMemo(() => {
-    const DEFAULT = -120;
-    const MIN_SLIVER_PCT = 5;     // floor: don't go below 5% of W
-    const MAX_SLIVER_PCT = 20;    // default: 20% of W (matches original look)
-    const COL_GAP_PX = 8;         // gap-2 between columns
-    const ROW_LABELS_PX = 28;     // ~py-1 + text line ≈ 28px
-    const ROW_PADDING_PX = 32;    // CurveRow py-2 × 2 rows = ~32px
-    const PLAYMAT_BOTTOM_PAD = 16;
-    if (!playmatHeight || !isFinite(containerWidth)) return DEFAULT;
+  // Spillover layout: tall groups break into multiple side-by-side sub-columns
+  // when the playmat would otherwise scroll vertically. Short groups stay 1 col.
+  const spillover = useMemo(() => computeSpillover(
+    activeColumns.map(c => ({
+      key: c.column.key,
+      label: c.column.label,
+      creatures: c.creatures,
+      noncreatures: c.noncreatures,
+    })),
+    playmatHeight,
+    containerWidth === Infinity ? 0 : containerWidth,
+    'spells',
+  ), [activeColumns, playmatHeight, containerWidth]);
+  const gridTemplate = spillover.gridTemplate;
+  const subColumns = spillover.subColumns;
 
-    if (view === 'spells') {
-      const n = activeColumns.length;
-      if (n === 0) return DEFAULT;
-      const maxCreatures = Math.max(0, ...activeColumns.map(c => c.creatures.length));
-      const maxNoncreatures = Math.max(0, ...activeColumns.map(c => c.noncreatures.length));
-      const totalStackCards = maxCreatures + maxNoncreatures;
-      if (totalStackCards <= 2) return DEFAULT;
-      const availableWidth = containerWidth - (n - 1) * COL_GAP_PX - 32;
-      const W = Math.min(130, availableWidth / n);
-      const availableH = playmatHeight - ROW_LABELS_PX - ROW_PADDING_PX - PLAYMAT_BOTTOM_PAD;
-      // (1.4W + (Mc-1)·sliver·W) + (1.4W + (Mn-1)·sliver·W) ≤ availableH
-      // → sliver ≤ (availableH/W − 2.8) / (Mc + Mn − 2)
-      const sliverFraction = (availableH / W - 2.8) / Math.max(1, totalStackCards - 2);
-      const sliverPct = Math.max(MIN_SLIVER_PCT, Math.min(MAX_SLIVER_PCT, sliverFraction * 100));
-      return -(140 - sliverPct);
-    } else {
-      const groups = landCategoryGroups;
-      const n = groups.length;
-      if (n === 0) return DEFAULT;
-      const maxLandStack = Math.max(0, ...groups.map(g => g.cards.length));
-      if (maxLandStack <= 1) return DEFAULT;
-      const availableWidth = containerWidth - (n - 1) * COL_GAP_PX - 32;
-      const W = Math.min(130, availableWidth / n);
-      const availableH = playmatHeight - ROW_LABELS_PX - ROW_PADDING_PX / 2 - PLAYMAT_BOTTOM_PAD;
-      const sliverFraction = (availableH / W - 1.4) / Math.max(1, maxLandStack - 1);
-      const sliverPct = Math.max(MIN_SLIVER_PCT, Math.min(MAX_SLIVER_PCT, sliverFraction * 100));
-      return -(140 - sliverPct);
-    }
-  }, [view, activeColumns, landCategoryGroups, playmatHeight, containerWidth]);
+  // Same idea for the lands view — single row, one card pool per category.
+  const landsSpillover = useMemo(() => computeSpillover(
+    landCategoryGroups.map(g => ({
+      key: g.key,
+      label: g.label,
+      creatures: [],
+      noncreatures: g.cards,
+    })),
+    playmatHeight,
+    containerWidth === Infinity ? 0 : containerWidth,
+    'lands',
+  ), [landCategoryGroups, playmatHeight, containerWidth]);
+  const landsGridTemplate = landsSpillover.gridTemplate;
+  const landSubColumns = landsSpillover.subColumns;
+
 
   return (
     <div ref={rootRef} className="flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* Header — bigger, with sort selector */}
       <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-bold uppercase tracking-wider">Deck ({totalNonLand + buckets.landCount})</span>
+          <span className="text-sm font-bold uppercase tracking-wider">Deck ({totalNonLand + buckets.landCount - buckets.mdfcCount})</span>
           {/* View toggle — Non-lands / Lands. Replaces the side drawer. */}
-          <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+          <div
+            className="flex items-center border border-border/50 rounded-md overflow-hidden"
+            title={buckets.mdfcCount > 0 ? "MDFCs count in both — they're spells that can fall back to a land." : undefined}
+          >
             <button
               type="button"
               onClick={() => setView('spells')}
@@ -422,20 +423,6 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
           {/* Role legend — only on Roles tab. Color swatches hide when narrow; All/Dim/Hide always shows. */}
           {highlightRoles && (
           <div className="flex items-center gap-2 ml-3 text-[10px] text-muted-foreground/70">
-            {showRoleLegend && Object.entries(ROLE_LABEL).map(([key, label]) => {
-              const dimmed = highlightRoles && dimEnabled && activeRole != null && activeRole !== key;
-              return (
-                <span
-                  key={key}
-                  className={`inline-flex items-center gap-1 transition-opacity ${dimmed ? 'opacity-40' : ''}`}
-                >
-                  <span
-                    className={`inline-block w-2 h-2 rounded-sm transition-colors ${dimmed ? 'bg-muted-foreground/30' : ROLE_SWATCH[key]}`}
-                  />
-                  {label}
-                </span>
-              );
-            })}
             {highlightRoles && (
               <div className="ml-1 flex items-center border border-border/50 rounded-md overflow-hidden">
                 {(['off', 'dim', 'hide'] as FilterMode[]).map((mode, i) => (
@@ -544,54 +531,63 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
           }}
         >
           {view === 'spells' ? (
-            <div className="w-full min-w-0 pr-2 sm:pr-4">
+            <div className="w-full min-w-0 pr-2 sm:pr-4 overflow-y-auto h-[calc(100vh-129px)]">
               {/* CMC column headers — labels only, not clickable */}
               <div
                 className="grid justify-start gap-2 pt-2 text-xs text-foreground/85"
                 style={{ gridTemplateColumns: gridTemplate }}
               >
-                {activeColumns.map(({ column, creatures, noncreatures }) => (
+                {subColumns.filter(s => s.isFirstOfGroup).map(s => {
+                  const HeaderIcon = ROLE_HEADER_ICON[s.groupKey];
+                  return (
                   <div
-                    key={column.key}
-                    className="text-center font-semibold tabular-nums py-1"
+                    key={s.groupKey}
+                    className="text-center font-semibold tabular-nums py-1 inline-flex items-center justify-center gap-1"
+                    style={{ gridColumn: `span ${s.span}` }}
                   >
-                    {column.label}{' '}
+                    {HeaderIcon && <HeaderIcon className="w-3.5 h-3.5 text-muted-foreground/80" />}
+                    {s.groupLabel}{' '}
                     <span className="text-muted-foreground/80 font-normal">
-                      ({creatures.length + noncreatures.length})
+                      ({s.groupTotalCount})
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {shouldCollapseRows(groupKey) ? (
                 <CurveRow
-                  rowCards={activeColumns.map(c => [...c.creatures, ...c.noncreatures])}
-                  columnKeys={activeColumns.map(c => c.column.key)}
+                  rowCards={subColumns.map(s => [...s.creatures, ...s.noncreatures])}
+                  columnKeys={subColumns.map(s => s.key)}
                   gridTemplate={gridTemplate}
                   onHover={handleHover} onSelect={setPreviewCard}
                   dimNonRoles={highlightRoles && dimEnabled}
                   activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup}
                   removalNames={removalNames} showPrice={sortKey === 'price'}
                   onCardAction={onCardAction} menuProps={menuProps}
-                  marginTopPercent={marginTopPercent}
                   themeMembership={groupKey === 'theme' ? themeMembership : null}
+                  showRoleChip={groupKey === 'role'}
                 />
               ) : (
                 <>
-                  <CurveRow rowCards={activeColumns.map(c => c.creatures)} columnKeys={activeColumns.map(c => c.column.key)} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={groupKey === 'theme' ? themeMembership : null} />
-                  <CurveRow rowCards={activeColumns.map(c => c.noncreatures)} columnKeys={activeColumns.map(c => c.column.key)} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={groupKey === 'theme' ? themeMembership : null} />
+                  <CurveRow rowCards={subColumns.map(s => s.creatures)} columnKeys={subColumns.map(s => s.key)} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} themeMembership={groupKey === 'theme' ? themeMembership : null} showRoleChip={groupKey === 'role'} />
+                  <CurveRow rowCards={subColumns.map(s => s.noncreatures)} columnKeys={subColumns.map(s => s.key)} gridTemplate={gridTemplate} onHover={handleHover} onSelect={setPreviewCard} dimNonRoles={highlightRoles && dimEnabled} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={sortKey === 'price'} onCardAction={onCardAction} menuProps={menuProps} themeMembership={groupKey === 'theme' ? themeMembership : null} showRoleChip={groupKey === 'role'} />
                 </>
               )}
             </div>
           ) : (
-            <div className="w-full min-w-0 pr-2 sm:pr-4">
+            <div className="w-full min-w-0 pr-2 sm:pr-4 overflow-y-auto h-[calc(100vh-198px)]">
               <div
                 className="grid justify-start gap-2 pt-2 text-xs text-foreground/85"
                 style={{ gridTemplateColumns: landsGridTemplate }}
               >
-                {landCategoryGroups.map(g => (
-                  <div key={g.key} className="text-center font-semibold tabular-nums py-1">
-                    {g.label} <span className="text-muted-foreground/80 font-normal">({g.cards.length})</span>
+                {landSubColumns.filter(s => s.isFirstOfGroup).map(s => (
+                  <div
+                    key={s.groupKey}
+                    className="text-center font-semibold tabular-nums py-1"
+                    style={{ gridColumn: `span ${s.span}` }}
+                  >
+                    {s.groupLabel} <span className="text-muted-foreground/80 font-normal">({s.groupTotalCount})</span>
                   </div>
                 ))}
               </div>
@@ -599,10 +595,10 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
                 className="grid justify-start gap-2 py-2 items-start"
                 style={{ gridTemplateColumns: landsGridTemplate }}
               >
-                {landCategoryGroups.map((g, col) => (
+                {landSubColumns.map((s, col) => (
                   <CurveCell
-                    key={g.key}
-                    cards={g.cards}
+                    key={s.key}
+                    cards={s.noncreatures}
                     cascadeIndex={col}
                     onHover={handleHover}
                     onSelect={setPreviewCard}
@@ -666,18 +662,18 @@ interface CurveRowProps {
   showPrice?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
-  marginTopPercent?: number;
   themeMembership?: ThemeMembership | null;
+  showRoleChip?: boolean;
 }
 
-function CurveRow({ rowCards, columnKeys, gridTemplate, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, showPrice, onCardAction, menuProps, marginTopPercent, themeMembership }: CurveRowProps) {
+function CurveRow({ rowCards, columnKeys, gridTemplate, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, showPrice, onCardAction, menuProps, themeMembership, showRoleChip }: CurveRowProps) {
   return (
     <div
       className="grid justify-start gap-2 py-2 items-end"
       style={{ gridTemplateColumns: gridTemplate }}
     >
       {columnKeys.map((key, col) => (
-        <CurveCell key={key} cards={rowCards[col]} cascadeIndex={col} onHover={onHover} onSelect={onSelect} dimNonRoles={dimNonRoles} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={showPrice} onCardAction={onCardAction} menuProps={menuProps} marginTopPercent={marginTopPercent} themeMembership={themeMembership} />
+        <CurveCell key={key} cards={rowCards[col]} cascadeIndex={col} onHover={onHover} onSelect={onSelect} dimNonRoles={dimNonRoles} activeRole={activeRole} activeCmcRange={activeCmcRange} activeRoleGroup={activeRoleGroup} removalNames={removalNames} showPrice={showPrice} onCardAction={onCardAction} menuProps={menuProps} themeMembership={themeMembership} showRoleChip={showRoleChip} />
       ))}
     </div>
   );
@@ -696,11 +692,11 @@ interface CurveCellProps {
   showPrice?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
-  marginTopPercent?: number;
   themeMembership?: ThemeMembership | null;
+  showRoleChip?: boolean;
 }
 
-function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, cascadeIndex = 0, showPrice = false, onCardAction, menuProps, marginTopPercent, themeMembership }: CurveCellProps) {
+function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCmcRange, activeRoleGroup, removalNames, cascadeIndex = 0, showPrice = false, onCardAction, menuProps, themeMembership, showRoleChip = false }: CurveCellProps) {
   // FLIP-based reorder animation when sort changes. ~280ms feels right for
   // a card "settling" gesture — long enough to track, short enough not to
   // feel sluggish on a multi-column update.
@@ -727,9 +723,9 @@ function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCm
     >
       {cards.map((card, idx) => {
         const role = card.deckRole;
-        const badgeClass = role ? (ROLE_BADGE[role] ?? '') : '';
-        const badgeLabel = role ? (ROLE_LABEL[role] ?? '') : '';
-        const BadgeIcon = role ? ROLE_ICON[role] : null;
+        const badgeClass = showRoleChip && role ? (ROLE_BADGE[role] ?? '') : '';
+        const badgeLabel = showRoleChip && role ? (ROLE_LABEL[role] ?? '') : '';
+        const BadgeIcon = showRoleChip && role ? ROLE_ICON[role] : null;
         const themeIndices = themeMembership?.byCard.get(card.name.toLowerCase()) ?? [];
         const themeNames = themeMembership?.themes.map(t => t.name) ?? [];
         const imgUrl = getCardImageUrl(card, 'small') ?? '';
@@ -774,7 +770,6 @@ function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCm
             onHover={onHover}
             onCardAction={onCardAction}
             menuProps={menuProps}
-            marginTopPercent={marginTopPercent}
             themeIndices={themeIndices}
             themeNames={themeNames}
           />
@@ -803,7 +798,6 @@ interface CurveCardProps {
   onHover: (card: ScryfallCard | null, e?: React.MouseEvent) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
-  marginTopPercent?: number;
   themeIndices: number[];
   themeNames: string[];
 }
@@ -812,12 +806,12 @@ function CurveCard({
   card, idx, cascadeIndex, imgUrl, badgeClass, badgeLabel, BadgeIcon,
   flaggedForRemoval, dimForRemoval, dimForRole, dimForCurve, dimNonRoles,
   hasRemovals, showPrice, onSelect, onHover, onCardAction, menuProps,
-  marginTopPercent, themeIndices, themeNames,
+  themeIndices, themeNames,
 }: CurveCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const canMenu = !!(onCardAction && menuProps);
   return (
-    <div className="relative w-full" style={{ marginTop: idx > 0 ? `${marginTopPercent ?? -120}%` : undefined, zIndex: idx }}>
+    <div className="relative w-full" style={{ marginTop: idx > 0 ? '-120%' : undefined, zIndex: idx }}>
       <button
         type="button"
         className={`relative w-full aspect-[5/7] text-left p-0 bg-transparent border-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background overflow-hidden rounded-[8px] transition-[filter] duration-300 animate-deal-in ${flaggedForRemoval ? 'ring-2 ring-rose-500 ring-offset-1 ring-offset-background scale-[1.02]' : ''} ${dimForRemoval ? 'saturate-0 opacity-50 hover:saturate-100 hover:opacity-100' : ''} ${!hasRemovals && (dimForRole || dimForCurve) ? 'saturate-0 hover:saturate-100' : ''}`}

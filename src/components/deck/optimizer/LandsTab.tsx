@@ -627,7 +627,7 @@ export function ManaSourcesSummary({ ms, deckSize }: { ms: ManaSourcesAnalysis; 
   const gs = FIXING_GRADE_STYLES[ms.grade] || FIXING_GRADE_STYLES.C;
 
   return (
-    <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3">
+    <div className="-mx-3 sm:-mx-4 -mt-3 px-3 sm:px-4 pt-3 pb-3 space-y-3 border-b border-border/30">
       <div className="w-full text-[11px] font-semibold uppercase tracking-wider text-foreground/80 px-0.5 flex items-center gap-1">
         <Sprout className="w-3 h-3" />
         Summary

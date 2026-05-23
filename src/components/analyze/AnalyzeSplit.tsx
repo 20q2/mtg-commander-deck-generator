@@ -15,7 +15,7 @@ export function AnalyzeSplit({ analyzer, deck }: AnalyzeSplitProps) {
         {analyzer}
       </div>
 
-      <div className="hidden lg:block h-[calc(100vh-180px)] sm:px-0 lg:px-0">
+      <div className="hidden lg:block h-[calc(100vh-77px)] sm:px-0 lg:px-0">
         <PanelGroup
           direction="horizontal"
           autoSaveId="analyze-split"

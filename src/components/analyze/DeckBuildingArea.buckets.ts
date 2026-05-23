@@ -1,4 +1,4 @@
-import { isAnyLand, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { isAnyLand, isMdfcLand, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 
 export interface CurveBuckets {
@@ -10,6 +10,9 @@ export interface CurveBuckets {
   /** length 8 — sum of creatures[i].length + noncreatures[i].length per column. */
   countsByCmc: number[];
   landCount: number;
+  /** Count of MDFCs included in BOTH lands and (creatures|noncreatures). The
+   *  DECK header total must subtract this to avoid double-counting. */
+  mdfcCount: number;
 }
 
 export interface BuildCurveBucketsOptions {
@@ -29,12 +32,19 @@ export function buildCurveBuckets(
   const noncreatures: ScryfallCard[][] = Array.from({ length: COLUMN_COUNT }, () => []);
   const lands: ScryfallCard[][] = Array.from({ length: COLUMN_COUNT }, () => []);
 
+  let mdfcCount = 0;
+
   for (const card of cards) {
     if (exclude.has(card.name)) continue;
 
+    const mdfc = isMdfcLand(card);
+
     if (isAnyLand(card)) {
       lands[0].push(card);
-      continue;
+      // Plain lands stop here. MDFCs continue so they ALSO get bucketed by
+      // their front face — they're spells that fall back to a land.
+      if (!mdfc) continue;
+      mdfcCount++;
     }
 
     const cmc = Math.min(Math.floor(card.cmc ?? 0), COLUMN_COUNT - 1);
@@ -54,5 +64,5 @@ export function buildCurveBuckets(
   const countsByCmc = creatures.map((col, i) => col.length + noncreatures[i].length);
   const landCount = lands.reduce((n, col) => n + col.length, 0);
 
-  return { creatures, noncreatures, lands, countsByCmc, landCount };
+  return { creatures, noncreatures, lands, countsByCmc, landCount, mdfcCount };
 }

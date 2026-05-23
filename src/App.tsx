@@ -370,7 +370,8 @@ function Layout({ children }: { children: React.ReactNode }) {
 
         {children}
 
-        {/* Footer */}
+        {/* Footer — hidden on /analyze to give the optimizer more vertical room */}
+        {!isAnalyzePage && (
         <footer className="border-t border-border/50 bg-card/50 backdrop-blur-sm">
           <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
             <p>
@@ -425,6 +426,7 @@ function Layout({ children }: { children: React.ReactNode }) {
             </p>
           </div>
         </footer>
+        )}
       </div>
 
       {/* Mobile bottom tab bar — portaled to body so it's never trapped in a containing block */}

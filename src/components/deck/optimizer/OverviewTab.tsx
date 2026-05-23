@@ -892,6 +892,12 @@ export function DeckHealthStrip({ analysis, onNavigate, onNavigateRole, deckExce
             <div className="flex items-center gap-2">
               <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <p className="text-xs text-muted-foreground leading-relaxed"
+                onClick={(e) => {
+                  const target = (e.target as HTMLElement).closest('[data-theme-action="group"]');
+                  if (target) {
+                    document.dispatchEvent(new CustomEvent('analyze-set-group', { detail: { groupKey: 'theme' } }));
+                  }
+                }}
                 dangerouslySetInnerHTML={{ __html: detection.detectionMessage }}
               />
             </div>

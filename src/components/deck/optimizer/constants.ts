@@ -48,6 +48,10 @@ export interface DeckOptimizerProps {
   onChangeDeck?: () => void;
   /** Fired when theme membership for the currently selected themes is (re)computed. */
   onThemeMembershipChange?: (membership: ThemeMembership | null) => void;
+  /** Save the current deck as a new list. Shown as a CTA in the Overview header when the deck is not yet saved. */
+  onSaveAsDeck?: () => void;
+  /** Open the saved deck in the deck view. Shown as a CTA in the Overview header when the deck originates from a saved list. */
+  onOpenInDeckView?: () => void;
 }
 
 export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'bracket' | 'cost';

@@ -35,6 +35,7 @@ export function AnimatedCollapse({ open, children }: { open: boolean; children: 
 // ─── Shared: Analyzed Card Row (compact, for curve/lands/types) ──────
 function _AnalyzedCardRow({
   ac, onPreview, warning, showDetails, showProducedMana, justAdded, onCardAction, menuProps,
+  hideChips, hidePrice,
 }: {
   ac: AnalyzedCard;
   onPreview: (name: string) => void;
@@ -44,10 +45,12 @@ function _AnalyzedCardRow({
   justAdded?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
+  hideChips?: boolean;
+  hidePrice?: boolean;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const isBanned = menuProps?.bannedNames.has(ac.card.name);
-  const price = showDetails ? getCardPrice(ac.card) : null;
+  const price = showDetails && !hidePrice ? getCardPrice(ac.card) : null;
   const typeLine = getFrontFaceTypeLine(ac.card).toLowerCase();
   const cardType = typeLine.includes('creature') ? 'creature'
     : typeLine.includes('planeswalker') ? 'planeswalker'
@@ -91,7 +94,7 @@ function _AnalyzedCardRow({
               <Ban className="w-3 h-3 text-red-400/70" />
             </span>
           )}
-          {ac.subtypeLabel && (() => {
+          {!hideChips && ac.subtypeLabel && (() => {
             const RIcon = ROLE_LABEL_ICONS[ac.subtypeLabel];
             return (
               <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 ${
@@ -102,12 +105,12 @@ function _AnalyzedCardRow({
               </span>
             );
           })()}
-          {ac.card.isUtilityLand && (
+          {!hideChips && ac.card.isUtilityLand && (
             <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 bg-violet-500/15 text-violet-400/80">
               Utility
             </span>
           )}
-          {ac.card.isTapland && (
+          {!hideChips && ac.card.isTapland && (
             <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 bg-amber-500/15 text-amber-400/80">
               Tapland
             </span>

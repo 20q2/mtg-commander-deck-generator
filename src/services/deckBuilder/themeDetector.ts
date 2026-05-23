@@ -303,6 +303,7 @@ export function buildDetectionMessage(
     : commanderName;
 
   const b = (text: string) => `<strong class="text-foreground/90">${text}</strong>`;
+  const t = (text: string) => `<button type="button" data-theme-action="group" class="text-foreground/90 font-semibold hover:text-primary transition-colors cursor-pointer">${text}</button>`;
   const prefix = hasUserOverride ? "You've declared that this is" : "We've detected that this is";
 
   if (!isConfident || matchedThemes.length === 0) {
@@ -311,10 +312,10 @@ export function buildDetectionMessage(
 
   if (hasSecondaryTheme && matchedThemes.length >= 2) {
     const secondLabel = generateStrategyLabel(matchedThemes[1].theme.name);
-    return `${prefix} a ${b(shortName)} deck that focuses on ${b(pacingLabel)} and ${b(strategyLabel)}, with elements of ${b(secondLabel)}.`;
+    return `${prefix} a ${b(shortName)} deck that focuses on ${b(pacingLabel)} and ${t(strategyLabel)}, with elements of ${t(secondLabel)}.`;
   }
 
-  return `${prefix} a ${b(shortName)} deck built around ${b(strategyLabel)} with ${b(pacingLabel)}.`;
+  return `${prefix} a ${b(shortName)} deck built around ${t(strategyLabel)} with ${b(pacingLabel)}.`;
 }
 
 // ─── Main Orchestrator ───────────────────────────────────────────────

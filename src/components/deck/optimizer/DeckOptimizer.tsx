@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Loader2, Sparkles, ShoppingCart, RefreshCw,
-  Scissors, RotateCcw, Zap, Wand2, ArrowLeft,
+  Scissors, RotateCcw, Zap, Wand2, ArrowLeft, Bookmark, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -25,7 +25,7 @@ import { DeckHealthStrip, AdjustPopoverContent } from './OverviewTab';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
-import { CurveSummaryStrip, ManaCurveLineChart, CurveDetailPanel, CurveFlagStrip, CommanderCastChips, computeCurveFlags, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
+import { CurveSummaryStrip, ManaCurveLineChart, CurveDetailPanel, type RoleGroupKey, ROLE_GROUP_ORDER } from './CurveTab';
 import { BracketTabContent } from './BracketTab';
 import { OptimizeView } from './OptimizeTab';
 import { CostTab } from './CostTab';
@@ -57,12 +57,15 @@ export function DeckOptimizer({
   sourceLabel,
   onChangeDeck,
   onThemeMembershipChange,
+  onSaveAsDeck,
+  onOpenInDeckView,
 }: DeckOptimizerProps) {
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
+  const [commanderHover, setCommanderHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
   const [internalActiveTab, setInternalActiveTab] = useState<TabKey>('overview');
@@ -70,6 +73,9 @@ export function DeckOptimizer({
   const setActiveTab = useCallback((tab: TabKey) => {
     if (onTabChange) onTabChange(tab);
     if (controlledActiveTab === undefined) setInternalActiveTab(tab);
+    if (tab === 'cost') {
+      document.dispatchEvent(new CustomEvent('analyze-set-sort', { detail: { sortKey: 'price' } }));
+    }
   }, [onTabChange, controlledActiveTab]);
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
@@ -152,8 +158,6 @@ export function DeckOptimizer({
   // Store subscriptions used inside the analysis handlers below — declared
   // here so handlers can reference them in their dep arrays.
   const colorIdentity = useStore(s => s.colorIdentity);
-  const storeCommander = useStore(s => s.commander);
-  const storePartner = useStore(s => s.partnerCommander);
   const pushDeckHistory = useStore(s => s.pushDeckHistory);
 
   // The effective pacing: user override > theme-detected > base analysis
@@ -1179,10 +1183,10 @@ export function DeckOptimizer({
   );
 
   return (
-    <div id="deck-optimizer" className="flex border-y border-border/40 flex-1 min-h-0">
+    <div id="deck-optimizer" className="flex flex-1 min-h-0 border-t-4 border-border/60 lg:border-t-0">
       {/* Vertical sidebar — hidden in optimize view */}
       {!optimizeView && (
-        <aside className="w-12 shrink-0 flex flex-col items-stretch border-r border-border/40">
+        <aside className="w-12 shrink-0 flex flex-col items-stretch border-r border-border/40 bg-background/60">
           <TooltipProvider delayDuration={200}>
           {onChangeDeck && (
             <Tooltip>
@@ -1190,7 +1194,7 @@ export function DeckOptimizer({
                 <button
                   onClick={onChangeDeck}
                   aria-label="Check a different deck"
-                  className="flex items-center justify-center py-3 text-muted-foreground hover:text-foreground hover:bg-accent/20 border-b border-border/40 transition-colors"
+                  className="flex items-center justify-center min-h-[52px] text-muted-foreground hover:text-foreground hover:bg-accent/20 border-b border-border/40 transition-colors"
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </button>
@@ -1198,7 +1202,7 @@ export function DeckOptimizer({
               <TooltipContent side="right">Check a different deck</TooltipContent>
             </Tooltip>
           )}
-          {TABS.map(tab => {
+          {TABS.filter(t => t.key !== 'cost').map(tab => {
             const isActive = activeTab === tab.key;
             const tabGrade = tabGrades[tab.key];
             const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
@@ -1230,17 +1234,45 @@ export function DeckOptimizer({
                         {bracketLevel}
                       </span>
                     )}
-                    {tab.key === 'cost' && deckTotalPrice > 0 && (
-                      <span className="text-[9px] font-bold leading-none px-1 py-0.5 rounded tabular-nums text-violet-300 bg-violet-500/20">
-                        {costBadgeLabel}
-                      </span>
-                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">{tab.label}</TooltipContent>
               </Tooltip>
             );
           })}
+          <div className="flex-1" />
+          {(() => {
+            const costTab = TABS.find(t => t.key === 'cost');
+            if (!costTab) return null;
+            const isActive = activeTab === 'cost';
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setActiveTab('cost')}
+                    aria-label={costTab.label}
+                    aria-pressed={isActive}
+                    className={`relative flex flex-col items-center justify-center gap-1 py-3 transition-all duration-200 ${
+                      isActive
+                        ? 'text-primary bg-accent/30'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
+                    }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-sm bg-primary" />
+                    )}
+                    <costTab.icon className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
+                    {deckTotalPrice > 0 && (
+                      <span className="text-[9px] font-bold leading-none px-1 py-0.5 rounded tabular-nums text-violet-300 bg-violet-500/20">
+                        {costBadgeLabel}
+                      </span>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">{costTab.label}</TooltipContent>
+              </Tooltip>
+            );
+          })()}
           </TooltipProvider>
         </aside>
       )}
@@ -1248,7 +1280,7 @@ export function DeckOptimizer({
       <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         {/* Themes / Pacing strip above tab content */}
         {themePacingStrip && (
-          <div className="flex items-center justify-between gap-2 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/40">
+          <div className="flex items-center justify-between gap-2 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/40 bg-background/40">
             <div className="flex items-center gap-2 min-w-0">
               {(() => {
                 const activeTabInfo = TABS.find(t => t.key === activeTab);
@@ -1311,7 +1343,11 @@ export function DeckOptimizer({
           <div className="space-y-3">
             {commander && (
               <div className="rounded-xl border border-border/40 bg-card/40 backdrop-blur-sm flex items-center gap-3 p-2.5">
-                <div className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-muted/30">
+                <div
+                  className="w-16 h-16 shrink-0 rounded-lg overflow-hidden bg-muted/30 cursor-pointer"
+                  onMouseEnter={(e) => setCommanderHover({ card: commander, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
+                  onMouseLeave={() => setCommanderHover(null)}
+                >
                   {(() => {
                     const art = commander.image_uris?.art_crop
                       ?? commander.card_faces?.[0]?.image_uris?.art_crop
@@ -1339,6 +1375,17 @@ export function DeckOptimizer({
                     </div>
                   )}
                 </div>
+                {onOpenInDeckView ? (
+                  <Button size="sm" variant="outline" onClick={onOpenInDeckView} className="shrink-0">
+                    <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                    Open in deck view
+                  </Button>
+                ) : onSaveAsDeck ? (
+                  <Button size="sm" variant="outline" onClick={onSaveAsDeck} className="shrink-0">
+                    <Bookmark className="w-3.5 h-3.5 mr-1.5" />
+                    Save as deck
+                  </Button>
+                ) : null}
               </div>
             )}
             <DeckHealthStrip
@@ -1442,7 +1489,7 @@ export function DeckOptimizer({
                         Cut all
                       </button>
                     </div>
-                    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
+                    <div className="grid sm:grid-cols-2 gap-x-2 gap-y-0.5">
                       {cutCandidates.slice(0, deckExcess).map((ac, i) => (
                         <CutRow
                           key={ac.card.name}
@@ -1466,7 +1513,7 @@ export function DeckOptimizer({
                         <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Other candidates</span>
                         <div className="flex-1 h-px bg-border/30" />
                       </div>
-                      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
+                      <div className="grid sm:grid-cols-2 gap-x-2 gap-y-0.5">
                         {cutCandidates.slice(deckExcess).map((ac, i) => (
                           <CutRow
                             key={ac.card.name}
@@ -1518,7 +1565,7 @@ export function DeckOptimizer({
                       )}
                     </span>
                   </div>
-                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-x-2 gap-y-0.5">
+                  <div className="grid sm:grid-cols-2 gap-x-2 gap-y-0.5">
                     {analysis.recommendations.map((rec, i) => (
                       <RecommendationRow
                         key={rec.name}
@@ -1572,21 +1619,8 @@ export function DeckOptimizer({
 
         {/* ── CURVE TAB ── */}
         {activeTab === 'curve' && (() => {
-          const cmdr = storeCommander;
-          const partner = storePartner;
-          const totalNonLand = analysis.curveAnalysis.reduce((s, sl) => s + sl.current, 0);
-          const drawCount = roleCounts.cardDraw ?? 0;
           const allPhasesActive = activeCurvePhases.size === analysis.curvePhases.length;
           const selectedPhases = analysis.curvePhases.filter(p => activeCurvePhases.has(p.phase));
-          const curveFlags = computeCurveFlags({
-            curveAnalysis: analysis.curveAnalysis,
-            curvePhases: analysis.curvePhases,
-            manaSources: analysis.manaSources,
-            totalNonLand,
-            drawCount,
-            taplandCount: analysis.manaBase.taplandCount,
-            landCount: analysis.manaBase.currentLands,
-          });
           return (
             <div className="space-y-3">
               <ManaCurveLineChart
@@ -1597,16 +1631,6 @@ export function DeckOptimizer({
                 selectedCmc={selectedCmc}
                 onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
               />
-              <div className="flex flex-wrap items-center gap-2">
-                <CommanderCastChips
-                  trajectory={analysis.manaTrajectory}
-                  commanderCmc={cmdr?.cmc ?? 0}
-                  commanderName={commanderName}
-                  partnerCmc={partner?.cmc}
-                  partnerName={partnerCommanderName}
-                />
-                <CurveFlagStrip flags={curveFlags} />
-              </div>
               <CurveSummaryStrip
                 phases={analysis.curvePhases}
                 activePhases={activeCurvePhases}
@@ -1680,6 +1704,34 @@ export function DeckOptimizer({
       </div>
 
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
+
+      {commanderHover && (() => {
+        const PREVIEW_WIDTH = 256;
+        const GAP = 12;
+        const PAD = 8;
+        const vw = window.innerWidth;
+        const rightLeft = commanderHover.rect.right + GAP;
+        const leftLeft = commanderHover.rect.left - GAP - PREVIEW_WIDTH;
+        let left = rightLeft;
+        if (rightLeft + PREVIEW_WIDTH + PAD > vw && leftLeft >= PAD) left = leftLeft;
+        else if (rightLeft + PREVIEW_WIDTH + PAD > vw) left = Math.max(PAD, vw - PREVIEW_WIDTH - PAD);
+        const top = Math.min(
+          Math.max(8, commanderHover.rect.top + commanderHover.rect.height / 2 - 180),
+          window.innerHeight - 400,
+        );
+        const imgUrl = getCardImageUrl(commanderHover.card, 'normal');
+        return (
+          <div className="fixed z-[100] pointer-events-none hidden lg:block" style={{ left, top }}>
+            {imgUrl && (
+              <img
+                src={imgUrl}
+                alt={commanderHover.card.name}
+                className="w-64 rounded-lg shadow-2xl border border-border/50"
+              />
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -50,6 +50,7 @@ import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { HEALTH_GRADE_STYLES } from '@/components/deck/optimizer/constants';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
@@ -3423,15 +3424,20 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </div>
 
             {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
+            <TooltipProvider delayDuration={200}>
             <div className="ml-auto flex items-center gap-1.5">
               {!readOnly && !isEditMode && (
-                <button
-                  onClick={() => setIsEditMode(true)}
-                  className="flex items-center bg-card/50 rounded-lg p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
-                  title="Modify Deck"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setIsEditMode(true)}
+                      className="flex items-center bg-card/50 rounded-lg p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Modify Deck</TooltipContent>
+                </Tooltip>
               )}
               {!readOnly && isEditMode && (
                 <button onClick={handleExitEditMode} className="flex items-center bg-card/50 rounded-lg px-2.5 py-1.5 border border-border/50 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
@@ -3452,49 +3458,70 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   tabIndex={viewMode === 'grid' ? 0 : -1}
                 />
                 <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-                  <button
-                    onClick={() => setGridLayout('grid')}
-                    className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    title="Packed grid layout"
-                    tabIndex={viewMode === 'grid' ? 0 : -1}
-                  >
-                    <LayoutGrid className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setGridLayout('stacks')}
-                    className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    title="Visual stacks layout"
-                    tabIndex={viewMode === 'grid' ? 0 : -1}
-                  >
-                    <Rows3 className="w-4 h-4" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setGridLayout('grid')}
+                        className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                        tabIndex={viewMode === 'grid' ? 0 : -1}
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Packed grid layout</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setGridLayout('stacks')}
+                        className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                        tabIndex={viewMode === 'grid' ? 0 : -1}
+                      >
+                        <Rows3 className="w-4 h-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Visual stacks layout</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
               <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-                <button
-                  onClick={() => setShowTextEditor(v => !v)}
-                  className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                  title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
-                >
-                  <FileText className="w-4 h-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setShowTextEditor(v => !v)}
+                      className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{showTextEditor ? 'Hide text editor' : 'Show text editor'}</TooltipContent>
+                </Tooltip>
                 <div className="w-px h-4 bg-border/60 mx-1" />
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                  title="Grid view"
-                >
-                  <Grid3X3 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                  title="List view"
-                >
-                  <List className="w-4 h-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <Grid3X3 className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Grid view</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>List view</TooltipContent>
+                </Tooltip>
               </div>
             </div>
+            </TooltipProvider>
           </div>
 
           {deckSummary}
@@ -3687,15 +3714,20 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
 
           {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
+          <TooltipProvider delayDuration={200}>
           <div className="ml-auto flex items-center gap-1.5">
             {!readOnly && !isEditMode && (
-              <button
-                onClick={() => setIsEditMode(true)}
-                className="flex items-center bg-card/50 rounded-md p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
-                title="Modify Deck"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsEditMode(true)}
+                    className="flex items-center bg-card/50 rounded-md p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Modify Deck</TooltipContent>
+              </Tooltip>
             )}
             {!readOnly && isEditMode && (
               <button onClick={handleExitEditMode} className="flex items-center bg-card/50 rounded-lg px-2.5 py-1.5 border border-border/50 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
@@ -3716,49 +3748,70 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 tabIndex={viewMode === 'grid' ? 0 : -1}
               />
               <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-                <button
-                  onClick={() => setGridLayout('grid')}
-                  className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                  title="Packed grid layout"
-                  tabIndex={viewMode === 'grid' ? 0 : -1}
-                >
-                  <LayoutGrid className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setGridLayout('stacks')}
-                  className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                  title="Visual stacks layout"
-                  tabIndex={viewMode === 'grid' ? 0 : -1}
-                >
-                  <Rows3 className="w-4 h-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setGridLayout('grid')}
+                      className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                      tabIndex={viewMode === 'grid' ? 0 : -1}
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Packed grid layout</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => setGridLayout('stacks')}
+                      className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                      tabIndex={viewMode === 'grid' ? 0 : -1}
+                    >
+                      <Rows3 className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Visual stacks layout</TooltipContent>
+                </Tooltip>
               </div>
             </div>
             <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-              <button
-                onClick={() => setShowTextEditor(v => !v)}
-                className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title={showTextEditor ? 'Hide text editor' : 'Show text editor'}
-              >
-                <FileText className="w-4 h-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowTextEditor(v => !v)}
+                    className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    <FileText className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{showTextEditor ? 'Hide text editor' : 'Show text editor'}</TooltipContent>
+              </Tooltip>
               <div className="w-px h-4 bg-border/60 mx-1" />
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="Grid view"
-              >
-                <Grid3X3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                title="List view"
-              >
-                <List className="w-4 h-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    <Grid3X3 className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Grid view</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    <List className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>List view</TooltipContent>
+              </Tooltip>
             </div>
           </div>
+          </TooltipProvider>
         </div>
 
           <div className={`flex flex-col lg:flex-row ${showTextEditor ? 'gap-4' : 'gap-0'}`}>

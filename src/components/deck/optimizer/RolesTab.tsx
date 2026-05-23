@@ -104,6 +104,8 @@ export function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps
             ac={ac}
             onPreview={onPreview}
             showDetails
+            hideChips
+            hidePrice
             justAdded={addedCards?.has(ac.card.name)}
             onCardAction={onCardAction}
             menuProps={menuProps}

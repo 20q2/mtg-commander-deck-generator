@@ -524,6 +524,28 @@ export function AnalyzePage() {
       ? 'Generated'
       : `From "${source.listName}"`;
 
+    const handleSaveAsDeck = () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const name = `${generatedDeck.commander?.name ?? 'Untitled'} — Checked ${today}`;
+      const cardNames: string[] = [];
+      if (generatedDeck.commander) cardNames.push(generatedDeck.commander.name);
+      if (generatedDeck.partnerCommander) cardNames.push(generatedDeck.partnerCommander.name);
+      for (const cards of Object.values(generatedDeck.categories)) {
+        for (const c of cards) cardNames.push(c.name);
+      }
+      const newList = createList(name, cardNames, '', {
+        type: 'deck',
+        commanderName: generatedDeck.commander?.name,
+        partnerCommanderName: generatedDeck.partnerCommander?.name,
+        deckSize: cardNames.length,
+      });
+      setSource({ kind: 'list', listId: newList.id, listName: name });
+      trackEvent('analyze_deck_saved', { listName: name, cardCount: cardNames.length, source: source.kind });
+    };
+    const handleOpenInDeckView = source.kind === 'list'
+      ? () => navigate(`/lists/${source.listId}/deck-view`)
+      : undefined;
+
     return (
       <main className="flex-1 pt-0">
         {generatedDeck.commander && (
@@ -548,6 +570,8 @@ export function AnalyzePage() {
                 sourceLabel={sourceLabel}
                 onChangeDeck={handleChangeDeck}
                 onThemeMembershipChange={setThemeMembership}
+                onSaveAsDeck={source.kind === 'list' ? undefined : handleSaveAsDeck}
+                onOpenInDeckView={handleOpenInDeckView}
               />
             }
             deck={

@@ -253,16 +253,24 @@ export function CostTab({
               </Tooltip>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {plan.protected.map(p => (
-                <Tooltip key={p.name}>
-                  <TooltipTrigger asChild>
-                    <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 cursor-default">
-                      {p.name}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="capitalize">{p.reason.replace('-', ' ')}</TooltipContent>
-                </Tooltip>
-              ))}
+              {(() => {
+                const grouped = new Map<string, { reason: typeof plan.protected[number]['reason']; count: number }>();
+                for (const p of plan.protected) {
+                  const existing = grouped.get(p.name);
+                  if (existing) existing.count += 1;
+                  else grouped.set(p.name, { reason: p.reason, count: 1 });
+                }
+                return Array.from(grouped, ([name, { reason, count }]) => (
+                  <Tooltip key={name}>
+                    <TooltipTrigger asChild>
+                      <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 cursor-default">
+                        {name}{count > 1 ? ` ×${count}` : ''}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="capitalize">{reason.replace('-', ' ')}</TooltipContent>
+                  </Tooltip>
+                ));
+              })()}
             </div>
           </section>
         )}
