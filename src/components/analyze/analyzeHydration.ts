@@ -192,6 +192,7 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     cardSynergyMap: enrichResult.cardSynergyMap,
     cardRelevancyMap: enrichResult.cardRelevancyMap,
     deckScore: enrichResult.deckScore,
+    gapAnalysis: enrichResult.gapAnalysis,
   };
 
   const allColors = new Set<string>();

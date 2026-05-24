@@ -1,9 +1,10 @@
-import type { ScryfallCard, DeckCategory, DetectedCombo, EDHRECCommanderData, EDHRECCard } from '@/types';
+import type { ScryfallCard, DeckCategory, DetectedCombo, EDHRECCommanderData, EDHRECCard, GapAnalysisCard } from '@/types';
 import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, getGameChangerNames, isChannelLand, isMdfcLand } from '@/services/scryfall/client';
 import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './deckGenerator';
 import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
 import { getBaseRoleTargets as getRoleTargets } from './roleTargets';
+import { buildGapAnalysis } from './gapAnalysisBuilder';
 import { estimateBracket, type BracketEstimation } from './bracketEstimator';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 
@@ -28,6 +29,7 @@ export interface EnrichResult {
   cardSynergyMap?: Record<string, number>;
   cardRelevancyMap?: Record<string, number>;
   deckScore?: number;
+  gapAnalysis?: GapAnalysisCard[];
 }
 
 /**
@@ -144,6 +146,7 @@ export async function enrichDeckCards(
   let cardSynergyMap: Record<string, number> | undefined;
   let cardRelevancyMap: Record<string, number> | undefined;
   let deckScore: number | undefined;
+  let gapAnalysis: GapAnalysisCard[] | undefined;
   if (commanderName) {
     try {
       const edhrecData: EDHRECCommanderData = partnerCommanderName
@@ -269,6 +272,26 @@ export async function enrichDeckCards(
       }
       cardRelevancyMap = relMap;
 
+      // Gap analysis: top EDHREC cards not in the deck.
+      // No collection filter here — collection mode is a builder-time concern.
+      const deckCardNamesForGap = new Set<string>();
+      for (const cards of Object.values(categories)) {
+        for (const c of cards) {
+          deckCardNamesForGap.add(c.name);
+          if (c.name.includes(' // ')) deckCardNamesForGap.add(c.name.split(' // ')[0]);
+        }
+      }
+      if (commanderName) deckCardNamesForGap.add(commanderName);
+      if (partnerCommanderName) deckCardNamesForGap.add(partnerCommanderName);
+      try {
+        gapAnalysis = await buildGapAnalysis({
+          edhrecData,
+          deckCardNames: deckCardNamesForGap,
+        });
+      } catch (e) {
+        console.warn('[Enricher] Gap analysis build failed:', e);
+      }
+
       console.log(`[Enricher] Built inclusion map (${Object.keys(inclMap).length} cards, score ${deckScore}) + relevancy map (${Object.keys(relMap).length} cards) from EDHREC`);
     } catch (err) {
       console.warn('[Enricher] Failed to fetch EDHREC data — skipping inclusion/relevancy maps', err);
@@ -289,5 +312,6 @@ export async function enrichDeckCards(
     cardSynergyMap,
     cardRelevancyMap,
     deckScore,
+    gapAnalysis,
   };
 }
