@@ -9,6 +9,8 @@ import { isAnyLand } from '../scryfall/client';
 
 const STRATEGY_DENSITY_TARGET = 0.30; // 30% of non-land cards reinforcing the plan = full marks
 const STRATEGY_COVERAGE_TARGET_TOP_N = 60; // overlap-with-top-60 of theme bucket = full marks
+const STRATEGY_COVERAGE_FULL_MARKS_HIT_RATE = 0.33; // 33% of top-N overlap = 100
+const STRATEGY_COVERAGE_MIN_DENOMINATOR = 20;       // floor so small theme buckets aren't trivial
 
 export interface StrategyInputs {
   /** All cards in the deck (excluding commander). */
@@ -53,7 +55,8 @@ export function computeStrategySubscore(inputs: StrategyInputs): SubScore {
     for (const tc of topN) {
       if (deckNames.has(tc.name.toLowerCase())) hits++;
     }
-    coverageScore = Math.min(1, hits / Math.max(20, topN.length * 0.33));
+    const denom = Math.max(STRATEGY_COVERAGE_MIN_DENOMINATOR, topN.length * STRATEGY_COVERAGE_FULL_MARKS_HIT_RATE);
+    coverageScore = Math.min(1, hits / denom);
   }
 
   // Composite: 60% density (deck-side commitment), 40% coverage (community alignment).
@@ -61,7 +64,8 @@ export function computeStrategySubscore(inputs: StrategyInputs): SubScore {
   const value = Math.round(composite * 100);
 
   const plan = planName ?? 'your plan';
-  const surface = `${inTheme} of ${nonLandCount} non-land cards reinforce ${plan}`;
+  const verb = inTheme === 1 ? 'reinforces' : 'reinforce';
+  const surface = `${inTheme} of ${nonLandCount} non-land cards ${verb} ${plan}`;
   const bandLabel = bandFor(value);
 
   return { value, surface, bandLabel };
