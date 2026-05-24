@@ -25,6 +25,7 @@ export interface EnrichResult {
   bracketEstimation?: BracketEstimation;
   gameChangerNames?: string[];
   cardInclusionMap?: Record<string, number>;
+  cardSynergyMap?: Record<string, number>;
   cardRelevancyMap?: Record<string, number>;
   deckScore?: number;
 }
@@ -140,6 +141,7 @@ export async function enrichDeckCards(
   // Used by list-based decks so the optimizer shows real commander-specific
   // inclusion % instead of the Scryfall edhrec_rank fallback (which clamps at 1%).
   let cardInclusionMap: Record<string, number> | undefined;
+  let cardSynergyMap: Record<string, number> | undefined;
   let cardRelevancyMap: Record<string, number> | undefined;
   let deckScore: number | undefined;
   if (commanderName) {
@@ -150,12 +152,20 @@ export async function enrichDeckCards(
 
       // Build inclusion index keyed by card name (front-face fallback for DFCs)
       const inclusionIndex = new Map<string, number>();
-      for (const c of edhrecData.cardlists.allNonLand) inclusionIndex.set(c.name, c.inclusion);
+      const synergyIndex = new Map<string, number>();
+      for (const c of edhrecData.cardlists.allNonLand) {
+        inclusionIndex.set(c.name, c.inclusion);
+        synergyIndex.set(c.name, c.synergy ?? 0);
+      }
       for (const c of edhrecData.cardlists.lands) {
-        if (!BASIC_LAND_NAMES.has(c.name)) inclusionIndex.set(c.name, c.inclusion);
+        if (!BASIC_LAND_NAMES.has(c.name)) {
+          inclusionIndex.set(c.name, c.inclusion);
+          synergyIndex.set(c.name, c.synergy ?? 0);
+        }
       }
 
       const inclMap: Record<string, number> = {};
+      const synMap: Record<string, number> = {};
       let score = 0;
       for (const cards of Object.values(categories)) {
         for (const card of cards) {
@@ -167,9 +177,15 @@ export async function enrichDeckCards(
           const val = incl ?? 0;
           inclMap[card.name] = val;
           score += val;
+          let syn = synergyIndex.get(card.name);
+          if (syn === undefined && card.name.includes(' // ')) {
+            syn = synergyIndex.get(card.name.split(' // ')[0]);
+          }
+          synMap[card.name] = syn ?? 0;
         }
       }
       cardInclusionMap = inclMap;
+      cardSynergyMap = synMap;
       deckScore = Math.round(score);
 
       // Build relevancy map — uses scoreRecommendation with a scoring context
@@ -270,6 +286,7 @@ export async function enrichDeckCards(
     bracketEstimation,
     gameChangerNames: gcNames,
     cardInclusionMap,
+    cardSynergyMap,
     cardRelevancyMap,
     deckScore,
   };

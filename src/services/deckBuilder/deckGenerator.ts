@@ -4034,19 +4034,24 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Build deck score from EDHREC inclusion percentages
   let deckScore: number | undefined;
   let cardInclusionMap: Record<string, number> | undefined;
+  let cardSynergyMap: Record<string, number> | undefined;
   if (edhrecData) {
     // Index all EDHREC cards by name for O(1) lookup
     const inclusionIndex = new Map<string, number>();
+    const synergyIndex = new Map<string, number>();
     for (const c of edhrecData.cardlists.allNonLand) {
       inclusionIndex.set(c.name, c.inclusion);
+      synergyIndex.set(c.name, c.synergy ?? 0);
     }
     for (const c of edhrecData.cardlists.lands) {
       if (!BASIC_LAND_NAMES.has(c.name)) {
         inclusionIndex.set(c.name, c.inclusion);
+        synergyIndex.set(c.name, c.synergy ?? 0);
       }
     }
 
     const inclMap: Record<string, number> = {};
+    const synMap: Record<string, number> = {};
     let score = 0;
     for (const cards of Object.values(categories)) {
       for (const card of cards) {
@@ -4063,6 +4068,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           inclMap[card.name] = incl;
           score += incl;
         }
+        // Mirror synergy — stamp if we have commander-specific data
+        let syn = synergyIndex.get(card.name);
+        if (syn === undefined && card.name.includes(' // ')) {
+          syn = synergyIndex.get(card.name.split(' // ')[0]);
+        }
+        if (syn !== undefined) synMap[card.name] = syn;
       }
     }
     // Also index swap candidates so the UI can show their inclusion %
@@ -4075,6 +4086,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             incl = inclusionIndex.get(card.name.split(' // ')[0]);
           }
           if (incl !== undefined) inclMap[card.name] = incl;
+          // Synergy for swap candidates
+          if (synMap[card.name] !== undefined) continue;
+          let syn = synergyIndex.get(card.name);
+          if (syn === undefined && card.name.includes(' // ')) {
+            syn = synergyIndex.get(card.name.split(' // ')[0]);
+          }
+          if (syn !== undefined) synMap[card.name] = syn;
         }
       }
     }
@@ -4082,10 +4100,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (gapAnalysis) {
       for (const g of gapAnalysis) {
         if (inclMap[g.name] === undefined) inclMap[g.name] = g.inclusion;
+        if (synMap[g.name] === undefined) synMap[g.name] = g.synergy ?? 0;
       }
     }
     deckScore = Math.round(score);
     cardInclusionMap = inclMap;
+    cardSynergyMap = Object.keys(synMap).length > 0 ? synMap : undefined;
     const nonBasicCount = Object.keys(inclMap).length - (swapCandidates ? Object.values(swapCandidates).flat().length : 0) - (gapAnalysis?.length ?? 0);
     const avg = nonBasicCount > 0 ? score / nonBasicCount : 0;
     console.log(`[DeckGen] Deck score: ${deckScore} (avg ${avg.toFixed(1)}% across ${nonBasicCount} deck cards)`);
@@ -4253,6 +4273,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     swapCandidates,
     deckScore,
     cardInclusionMap,
+    cardSynergyMap,
     cardRelevancyMap,
     detectedArchetype,
     detectedPacing,

@@ -356,6 +356,8 @@ export interface GeneratedDeck {
   removedFromDeck?: string[]; // Cards from original deck that were cut during build-from-deck optimization
   deckScore?: number; // Sum of EDHREC inclusion % for all non-land cards
   cardInclusionMap?: Record<string, number>; // cardName → EDHREC inclusion %
+  /** Per-card EDHREC synergy for cards in the deck (analogous to cardInclusionMap). */
+  cardSynergyMap?: Record<string, number>;
   cardRelevancyMap?: Record<string, number>; // cardName → composite relevancy score (raw, 0-200+)
   detectedArchetype?: Archetype; // Archetype inferred from themes for dynamic role targeting
   detectedPacing?: Pacing; // Pacing estimated from EDHREC stats at generation time

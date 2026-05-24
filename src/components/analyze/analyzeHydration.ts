@@ -189,6 +189,7 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     bracketEstimation: enrichResult.bracketEstimation,
     gameChangerNames: enrichResult.gameChangerNames,
     cardInclusionMap: enrichResult.cardInclusionMap,
+    cardSynergyMap: enrichResult.cardSynergyMap,
     cardRelevancyMap: enrichResult.cardRelevancyMap,
     deckScore: enrichResult.deckScore,
   };
