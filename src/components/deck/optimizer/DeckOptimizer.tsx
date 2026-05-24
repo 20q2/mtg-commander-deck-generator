@@ -445,6 +445,7 @@ export function DeckOptimizer({
 
       const effectiveInclusionMap = buildInclusionMap(edhrecData);
 
+      const storedDeck = useStore.getState().generatedDeck;
       const baseResult = analyzeDeck({
         edhrecData,
         currentCards,
@@ -454,6 +455,8 @@ export function DeckOptimizer({
         cardInclusionMap: effectiveInclusionMap,
         colorIdentity,
         overrideLandTarget: userLandTarget ?? undefined,
+        cardSynergyMap: storedDeck?.cardSynergyMap,
+        gapCandidates: storedDeck?.gapAnalysis,
       });
 
       // Enrich recommendations with Scryfall prices/colors
@@ -549,6 +552,17 @@ export function DeckOptimizer({
         if (bestThemeData) {
           themeEnhancedDataRef.current = bestThemeData;
 
+          // Build theme membership for plan score computation
+          const secondarySlugForMembership = detection.hasSecondaryTheme && detection.matchedThemes.length >= 2
+            ? detection.matchedThemes[1].theme.slug
+            : null;
+          const primaryThemeInfo = { slug: bestSlug, name: detection.matchedThemes[0].theme.name };
+          const secondaryThemeInfo = secondarySlugForMembership
+            ? { slug: secondarySlugForMembership, name: detection.matchedThemes[1].theme.name }
+            : null;
+          const themeMembershipForScore = buildThemeMembership(primaryThemeInfo, secondaryThemeInfo, themeDataCacheRef.current);
+          const storedDeckForTheme = useStore.getState().generatedDeck;
+
           const themeInclusionMap = buildInclusionMap(bestThemeData);
           const themeResult = analyzeDeck({
             edhrecData: bestThemeData,
@@ -559,6 +573,11 @@ export function DeckOptimizer({
             cardInclusionMap: themeInclusionMap,
             colorIdentity,
             overrideLandTarget: userLandTarget ?? undefined,
+            themeMembership: themeMembershipForScore,
+            primaryThemeData: bestThemeData,
+            planName: detection.strategyLabel || null,
+            cardSynergyMap: storedDeckForTheme?.cardSynergyMap,
+            gapCandidates: storedDeckForTheme?.gapAnalysis,
           });
 
           // Theme drives; base staples (50%+ inclusion) backfill
@@ -598,6 +617,8 @@ export function DeckOptimizer({
             recommendations: finalRecs,
             roleBreakdowns: finalRoleBreakdowns,
             landRecommendations: finalLandRecs,
+            planScore: themeResult.planScore,
+            misfits: themeResult.misfits,
           } : prev);
         }
       }
