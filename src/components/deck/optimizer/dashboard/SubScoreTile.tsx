@@ -2,6 +2,7 @@
 import type { SubScore } from '@/types';
 import { ArrowRight, Info } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 
 export interface SubScoreTileProps {
   label: string;
@@ -21,10 +22,12 @@ function colorForScore(value: number): string {
 export function SubScoreTile({ label, subscore, onClick, explainer }: SubScoreTileProps) {
   const color = colorForScore(subscore.value);
   return (
-    <button
-      type="button"
+    <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
-      className="group relative bg-card/40 border border-border/30 rounded-lg p-3 text-left hover:bg-accent/30 hover:border-border/60 transition-all w-full"
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      className="group relative bg-card/40 border border-border/30 rounded-lg p-3 text-left hover:bg-accent/30 hover:border-border/60 transition-all w-full cursor-pointer"
     >
       <div className="flex items-baseline gap-2 mb-1">
         <span className={`text-2xl font-black tabular-nums leading-none ${color}`}>
@@ -36,15 +39,15 @@ export function SubScoreTile({ label, subscore, onClick, explainer }: SubScoreTi
         {explainer && (
           <Popover>
             <PopoverTrigger asChild>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={e => e.stopPropagation()}
-                className="ml-auto text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => e.stopPropagation()}
                 aria-label={`How ${label} is computed`}
+                className="ml-auto h-5 w-5 text-muted-foreground/60 hover:text-muted-foreground"
               >
                 <Info className="w-3 h-3" />
-              </span>
+              </Button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-72 p-3 text-[11px] space-y-1.5">
               <div className="font-semibold text-foreground">{label}</div>
@@ -55,9 +58,9 @@ export function SubScoreTile({ label, subscore, onClick, explainer }: SubScoreTi
         )}
       </div>
       <p className="text-xs text-foreground/90 leading-snug">{subscore.surface}</p>
-      <div className="mt-2 flex items-center justify-end text-[10px] text-muted-foreground/50 group-hover:text-muted-foreground/80 transition-colors">
+      <div className="mt-2 flex items-center justify-end text-[10px] text-muted-foreground/60 group-hover:text-muted-foreground/80 transition-colors">
         Drill in <ArrowRight className="w-2.5 h-2.5 ml-0.5" />
       </div>
-    </button>
+    </div>
   );
 }
