@@ -15,6 +15,27 @@ const INCLUSION_LOW = 5;       // %
 const SYNERGY_LOW = 0;          // EDHREC synergy ≤ 0
 const MISFIT_REASON_THRESHOLD = 2; // need ≥ 2 reasons to flag as misfit
 
+// Misfit score weights
+const MISFIT_REASON_WEIGHT = 10;     // per reason flagged
+const MISFIT_SYNERGY_WEIGHT = 5;     // multiplier on negative synergy
+// (inclusion deficit is already in percentage units; weight 1, no constant needed)
+
+// Card Fit sub-score penalties
+const MISFIT_PENALTY_PER = 8;        // points subtracted per misfit
+const MISFIT_PENALTY_CAP = 40;       // max penalty from misfits
+const GAP_PENALTY_PER = 1.5;         // points subtracted per gap card
+const GAP_PENALTY_CAP = 20;          // max penalty from gaps
+
+const SUPERTYPES = new Set(['Legendary', 'Basic', 'Snow', 'Tribal', 'World', 'Token', 'Ongoing']);
+
+function primaryType(typeLine: string): string {
+  const beforeDash = typeLine.split('—')[0].trim();
+  const tokens = beforeDash.split(/\s+/).filter(Boolean);
+  // Drop leading supertypes.
+  while (tokens.length > 0 && SUPERTYPES.has(tokens[0])) tokens.shift();
+  return tokens[0] ?? '';
+}
+
 export interface MisfitInputs {
   /** Cards currently in the deck (excluding commander). */
   cards: ScryfallCard[];
@@ -75,9 +96,9 @@ export function computeMisfits(inputs: MisfitInputs): Misfit[] {
 
     if (reasons.length >= MISFIT_REASON_THRESHOLD) {
       const misfitScore =
-        (reasons.length * 10) +
+        (reasons.length * MISFIT_REASON_WEIGHT) +
         (incl != null ? Math.max(0, INCLUSION_LOW - incl) : 0) +
-        (syn != null ? Math.max(0, -syn * 5) : 0);
+        (syn != null ? Math.max(0, -syn * MISFIT_SYNERGY_WEIGHT) : 0);
       const suggestedReplacement = pickReplacement(card, role, gapCandidates);
       misfits.push({ card, misfitScore, reasons, suggestedReplacement });
     }
@@ -100,15 +121,21 @@ function pickReplacement(
     if (sameRole) return sameRole;
   }
   // Match same primary type as a softer fallback (e.g. Creature → Creature).
-  const cardType = (card.type_line ?? '').split('—')[0].trim();
-  const sameType = gapCandidates.find(g => g.typeLine.startsWith(cardType.split(' ')[0]));
-  return sameType ?? gapCandidates[0];
+  // Uses primaryType() to strip supertypes like "Legendary" before comparing.
+  const cardPrimary = primaryType(card.type_line ?? '');
+  if (cardPrimary) {
+    const sameType = gapCandidates.find(
+      g => primaryType(g.typeLine).toLowerCase() === cardPrimary.toLowerCase(),
+    );
+    if (sameType) return sameType;
+  }
+  return undefined; // no suitable match; UI will omit the "replace with" line
 }
 
 export function computeCardFitSubscore(misfits: Misfit[], gapCount: number) {
   // Inverse: more misfits + fewer gaps filled = worse score.
-  const misfitPenalty = Math.min(40, misfits.length * 8);
-  const gapPenalty = Math.min(20, gapCount * 1.5);
+  const misfitPenalty = Math.min(MISFIT_PENALTY_CAP, misfits.length * MISFIT_PENALTY_PER);
+  const gapPenalty = Math.min(GAP_PENALTY_CAP, gapCount * GAP_PENALTY_PER);
   const value = Math.max(0, 100 - misfitPenalty - gapPenalty);
   const surface = misfits.length === 0 && gapCount === 0
     ? 'Every card pulls its weight.'
