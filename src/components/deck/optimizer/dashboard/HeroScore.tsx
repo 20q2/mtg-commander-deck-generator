@@ -12,7 +12,14 @@ export function HeroScore({ planScore }: HeroScoreProps) {
   };
 
   return (
-    <div className="flex flex-col sm:flex-row items-center gap-5 py-5">
+    <div className="relative flex flex-col sm:flex-row items-center gap-5 py-5">
+      <div
+        className="absolute inset-0 -z-10 rounded-xl pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle at top left, rgba(167,139,250,0.12), transparent 60%)',
+        }}
+        aria-hidden="true"
+      />
       <div
         className="w-32 h-32 sm:w-40 sm:h-40 rounded-full flex items-center justify-center shrink-0"
         style={ringStyle}
