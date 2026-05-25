@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.2",
+    "notes": [
+      "Card Fit now shows a strip of swap candidates for each misfit — click any one to make it the focus.",
+      "The selected replacement updates the stats in place, with deltas showing how much you'd gain in inclusion.",
+      "A new goal line tells you how the swap moves you toward your role-balance targets (e.g. '+1 toward your 8 removal pieces')."
+    ]
+  },
+  {
     "version": "1.3.1",
     "notes": [
       "Card Fit got a cinematic overhaul — your deck's worst offenders now get their own hero card with art, evidence, and a clearer swap suggestion.",
