@@ -1,6 +1,6 @@
 // src/components/deck/optimizer/dashboard/NextBestMove.tsx
 import { useState } from 'react';
-import { Lightbulb, ArrowRight, AlertTriangle, Sparkles, X } from 'lucide-react';
+import { Lightbulb, ArrowRight, X } from 'lucide-react';
 import type { ScryfallCard, PlanScore, Misfit, GapAnalysisCard, DetectedCombo } from '@/types';
 import type { RoleBreakdown, CurvePhaseAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import type { TabKey } from '../constants';
@@ -279,16 +279,11 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
 
 const MAX_SHOWN = 3;
 
-const TIER_ICONS = {
-  1: AlertTriangle,
-  2: Lightbulb,
-  3: Sparkles,
-} as const;
-
-const TIER_ICON_COLORS = {
-  1: 'text-amber-400',
-  2: 'text-violet-300',
-  3: 'text-sky-400',
+/** Numbered badge color per tier — communicates severity at the left. */
+const TIER_BADGE_STYLES = {
+  1: 'bg-amber-500/20 text-amber-300',
+  2: 'bg-violet-500/20 text-violet-300',
+  3: 'bg-sky-500/20 text-sky-300',
 } as const;
 
 export function NextBestMove(props: NextBestMoveProps) {
@@ -313,44 +308,39 @@ export function NextBestMove(props: NextBestMoveProps) {
           Suggested next steps
         </span>
       </div>
-      <div className="space-y-1.5">
-        {visible.map((s, i) => {
-          const Icon = TIER_ICONS[s.tier];
-          const iconColor = TIER_ICON_COLORS[s.tier];
-          return (
-            <div
-              key={s.id}
-              className="group flex items-start gap-3 p-2 -mx-2 rounded-md hover:bg-violet-500/10 transition-colors"
+      <div className="flex flex-col gap-1">
+        {visible.map((s, i) => (
+          <div
+            key={s.id}
+            className="group relative flex items-stretch gap-1 rounded-md hover:bg-violet-500/5 transition-colors"
+          >
+            <button
+              type="button"
+              onClick={() => props.onNavigate(s.navigateTo)}
+              className="flex-1 min-w-0 flex items-start gap-3 text-left px-2 py-2"
+              aria-label={`Open ${s.navLabel}`}
             >
-              <button
-                type="button"
-                onClick={() => props.onNavigate(s.navigateTo)}
-                className="flex-1 min-w-0 flex items-start gap-3 text-left"
-                aria-label={`Open ${s.navLabel}`}
-              >
-                <div className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-bold flex items-center justify-center">
-                  {i + 1}
-                </div>
-                <div className="flex-1 min-w-0 text-sm text-foreground/95 leading-relaxed">
-                  {s.message}
-                </div>
-                <div className="shrink-0 self-center flex items-center gap-1 text-[11px] text-violet-300/80 group-hover:text-violet-200 transition-colors">
-                  <Icon className={`w-3 h-3 ${iconColor}`} />
-                  {s.navLabel} <ArrowRight className="w-3 h-3 ml-0.5" />
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); dismiss(s.id); }}
-                aria-label="Dismiss suggestion"
-                title="Dismiss"
-                className="shrink-0 self-center p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-violet-500/20 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        })}
+              <div className={`shrink-0 mt-0.5 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${TIER_BADGE_STYLES[s.tier]}`}>
+                {i + 1}
+              </div>
+              <div className="flex-1 min-w-0 text-sm text-foreground/95 leading-relaxed">
+                {s.message}
+              </div>
+              <div className="shrink-0 self-center flex items-center text-[11px] text-violet-300/80 group-hover:text-violet-200 transition-colors whitespace-nowrap">
+                {s.navLabel} <ArrowRight className="w-3 h-3 ml-0.5" />
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); dismiss(s.id); }}
+              aria-label="Dismiss suggestion"
+              title="Dismiss"
+              className="shrink-0 self-center p-1.5 rounded text-muted-foreground/60 hover:text-foreground hover:bg-violet-500/20 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
