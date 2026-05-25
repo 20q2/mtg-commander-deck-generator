@@ -102,9 +102,9 @@ export function OptimizeColumn({
         <button
           type="button"
           onClick={() => (allUnchecked ? onSelectAll() : onDeselectAll())}
-          className="ml-auto text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          className={`ml-auto text-[10px] font-medium px-2 py-1 rounded border transition-colors ${headerMeta.tintText} border-border/30 hover:border-border/60 hover:bg-accent/30`}
         >
-          {allUnchecked ? 'select all' : 'deselect all'}
+          {allUnchecked ? 'Select all' : 'Deselect all'}
         </button>
       </div>
 
@@ -117,7 +117,7 @@ export function OptimizeColumn({
             <span className="text-[10px] text-muted-foreground/60">{group.cards.length}</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(70px,1fr))] gap-2">
             {group.cards.map(card => (
               <OptimizeTile
                 key={card.name}

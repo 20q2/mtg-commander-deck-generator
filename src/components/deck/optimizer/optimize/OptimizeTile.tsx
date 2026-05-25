@@ -46,11 +46,11 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
       title={card.name}
     >
       <div
-        className={`relative rounded-lg overflow-hidden border ${sideCls.border} ${sideCls.hover} transition-all duration-200 ${
-          checked ? 'group-hover/tile:scale-[1.03]' : ''
+        className={`relative rounded-lg overflow-hidden border transition-all duration-200 ${
+          checked ? `${sideCls.border} ${sideCls.hover} group-hover/tile:scale-[1.03]` : 'border-muted-foreground/20 opacity-60'
         }`}
         style={{
-          filter: checked ? undefined : 'grayscale(0.6) brightness(0.7)',
+          filter: checked ? undefined : 'grayscale(0.95) brightness(0.55)',
         }}
       >
         <img
@@ -66,7 +66,7 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
             aria-hidden
             className="absolute inset-0 pointer-events-none"
             style={{
-              background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.10) 0 4px, transparent 4px 12px)',
+              background: 'repeating-linear-gradient(45deg, rgba(0,0,0,0.35) 0 6px, transparent 6px 14px)',
             }}
           />
         )}
