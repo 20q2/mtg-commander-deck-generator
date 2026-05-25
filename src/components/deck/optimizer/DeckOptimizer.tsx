@@ -1452,9 +1452,7 @@ export function DeckOptimizer({
         {activeTab === 'cardFit' && analysis && (
           <CardFitTab
             misfits={analysis.misfits ?? []}
-            gapAnalysis={
-              useStore.getState().generatedDeck?.gapAnalysis ?? []
-            }
+            gapAnalysis={analysis.gapAnalysis ?? []}
             onPreview={name => handlePreview(name)}
             onAddCard={onAddCards ? (name: string) => onAddCards([name], 'deck') : undefined}
             onRemoveCard={onRemoveCards ? (card: ScryfallCard) => onRemoveCards([card.name]) : undefined}

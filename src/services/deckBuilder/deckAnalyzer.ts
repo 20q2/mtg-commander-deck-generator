@@ -216,6 +216,8 @@ export interface DeckAnalysis {
   planScore?: PlanScore;
   /** In-deck cards that don't fit the detected plan. */
   misfits?: Misfit[];
+  /** Live-filtered gap candidates (stale entries already in the deck removed). */
+  gapAnalysis?: GapAnalysisCard[];
 }
 
 /**
@@ -2491,15 +2493,24 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
   const rolesSub = computeRolesSubscore(roleBreakdowns);
   const tempoSub = computeTempoSubscore(curvePhases);
 
+  // Live-filter gap candidates against current deck (the stored gapAnalysis snapshot
+  // may be stale if cards were added/removed since hydration).
+  const liveDeckNames = new Set<string>();
+  for (const c of opts.currentCards) {
+    liveDeckNames.add(c.name);
+    if (c.name.includes(' // ')) liveDeckNames.add(c.name.split(' // ')[0]);
+  }
+  const liveGapCandidates = (opts.gapCandidates ?? []).filter(g => !liveDeckNames.has(g.name));
+
   const misfits = computeMisfits({
     cards: opts.currentCards,
     cardInclusionMap: opts.cardInclusionMap ?? {},
     cardSynergyMap: opts.cardSynergyMap,
     themeMembership,
-    gapCandidates: opts.gapCandidates,
+    gapCandidates: liveGapCandidates,
     commanderData: opts.edhrecData ?? null,
   });
-  const gapCount = opts.gapCandidates?.length ?? 0;
+  const gapCount = liveGapCandidates.length;
   const cardFitSub = computeCardFitSubscore(misfits, gapCount);
 
   const planScore = composePlanScore({
@@ -2536,5 +2547,6 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     pacingLabel,
     planScore,
     misfits,
+    gapAnalysis: liveGapCandidates,
   };
 }
