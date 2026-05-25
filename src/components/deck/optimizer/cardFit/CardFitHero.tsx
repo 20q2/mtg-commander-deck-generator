@@ -1,8 +1,10 @@
-import { TrendingDown, Unplug, Flag, Sparkles, ArrowRight, X, SkipForward, BarChart3, Trophy } from 'lucide-react';
+import { TrendingDown, Unplug, Flag, X, SkipForward, BarChart3, Trophy, ArrowUp, ArrowRight, Target } from 'lucide-react';
 import type { Misfit, ScryfallCard, MisfitReasonKind } from '@/types';
+import type { RoleKey } from '@/services/tagger/client';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { scryfallImg } from '../constants';
 import { manaColorsFor } from './manaColor';
+import { CardFitReplacementStrip } from './CardFitReplacementStrip';
 
 interface CardFitHeroProps {
   misfit: Misfit;
@@ -18,6 +20,11 @@ interface CardFitHeroProps {
   headerActions?: React.ReactNode;
   /** Optional content rendered inside the aurora container, below the action row (e.g. filmstrip). */
   children?: React.ReactNode;
+  candidates: ScryfallCard[];
+  activeReplacement: ScryfallCard | null;
+  onSelectReplacement: (name: string) => void;
+  cardInclusionMap: Record<string, number>;
+  roleProgress: { role: RoleKey; current: number; target: number; sameRole: boolean } | null;
 }
 
 const REASON_ICON: Record<MisfitReasonKind, React.ComponentType<{ className?: string }>> = {
@@ -29,16 +36,28 @@ const REASON_ICON: Record<MisfitReasonKind, React.ComponentType<{ className?: st
   'theme-off': Flag,
 };
 
+const ROLE_LABEL: Record<RoleKey, string> = {
+  ramp: 'ramp',
+  removal: 'removal',
+  boardwipe: 'boardwipe',
+  cardDraw: 'card-draw',
+};
+
 export function CardFitHero({
   misfit, index, total, sampleSize, fitImpact,
   onPreview, onRemove, onSwap, onSkip, headerActions, children,
+  candidates, activeReplacement, onSelectReplacement, cardInclusionMap, roleProgress,
 }: CardFitHeroProps) {
   const colors = manaColorsFor(misfit.card);
   const imgUrl = getCardImageUrl(misfit.card, 'normal') ?? scryfallImg(misfit.card.name, 'normal');
   const artUrl = misfit.card.image_uris?.art_crop ?? imgUrl;
-  const replacement = misfit.suggestedReplacement;
   const inclusionReason = misfit.reasons.find(r => r.kind === 'inclusion-low' || r.kind === 'inclusion-absent');
   const synergyReason = misfit.reasons.find(r => r.kind === 'synergy-low' || r.kind === 'synergy-absent');
+  const activeInclusion = activeReplacement ? cardInclusionMap[activeReplacement.name] : undefined;
+  const misfitInclusion = cardInclusionMap[misfit.card.name];
+  const inclusionDelta = (activeInclusion != null && misfitInclusion != null)
+    ? activeInclusion - misfitInclusion
+    : null;
 
   return (
     <div
@@ -119,7 +138,7 @@ export function CardFitHero({
 
           {/* Right column */}
           <div className="pt-0.5 min-w-0">
-            <div className="inline-flex items-center gap-1.5 text-[11px] text-emerald-300 uppercase tracking-[0.22em] font-bold">
+            <div className="inline-flex items-center gap-1.5 text-[11px] text-rose-300 uppercase tracking-[0.22em] font-bold">
               <Trophy className="w-3 h-3" />
               Worst offender
             </div>
@@ -145,6 +164,11 @@ export function CardFitHero({
                 value={renderInclusionValue(inclusionReason)}
                 valueClass="text-rose-300"
                 detail={renderInclusionDetail(inclusionReason, sampleSize)}
+                delta={activeReplacement && activeInclusion != null ? (
+                  inclusionDelta != null && inclusionDelta > 0
+                    ? <><ArrowUp className="w-3 h-3" /> +{inclusionDelta.toFixed(0)}%</>
+                    : <>↑ to {activeInclusion.toFixed(0)}%</>
+                ) : undefined}
               />
               <StatCell
                 icon={<Unplug className="w-3 h-3" />}
@@ -158,7 +182,7 @@ export function CardFitHero({
                 label="Fit impact"
                 value={<>+{fitImpact}</>}
                 valueClass="text-emerald-300"
-                detail={replacement ? 'After the swap below' : 'After removing this card'}
+                detail={activeReplacement ? 'After the swap below' : 'After removing this card'}
               />
             </div>
 
@@ -214,85 +238,85 @@ export function CardFitHero({
           background: 'linear-gradient(180deg, rgba(15,10,24,0) 0%, rgba(15,10,24,0.95) 25%)',
           backdropFilter: 'blur(8px)',
           padding: '16px 28px 18px',
-          borderTop: '1px solid rgba(168,85,247,0.15)',
           zIndex: 5,
         }}
       >
-        {replacement && (
-          <div
-            className="relative p-3 rounded-xl flex items-center gap-3 overflow-hidden mb-3"
-            style={{
-              background: 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(168,85,247,0.20))',
-              border: '1px solid rgba(16,185,129,0.55)',
-              boxShadow: '0 8px 24px rgba(16,185,129,0.18)',
-            }}
-          >
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{ background: 'radial-gradient(circle at 10% 50%, rgba(16,185,129,0.3), transparent 55%)' }}
-              aria-hidden
-            />
-            <button
-              type="button"
-              onClick={() => onPreview(replacement.name)}
-              className="relative shrink-0"
-            >
-              <img
-                src={replacement.imageUrl || scryfallImg(replacement.name, 'small')}
-                alt={replacement.name}
-                className="w-12 aspect-[5/7] object-cover rounded-md"
-                style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}
-                loading="lazy"
-              />
-            </button>
-            <div className="relative flex-1 min-w-0">
-              <div className="inline-flex items-center gap-1.5 text-[10px] text-emerald-100 uppercase tracking-[0.18em] font-bold">
-                <Sparkles className="w-3 h-3" />
-                Try instead
-              </div>
-              <div className="text-base text-white font-bold mt-0.5 truncate">{replacement.name}</div>
-              <div className="text-[11px] text-emerald-200 mt-0.5 font-semibold">
-                {replacement.inclusion.toFixed(0)}% inclusion{fitImpact > 0 ? ` · +${fitImpact} Card Fit` : ''}
-              </div>
+        {roleProgress && activeReplacement && (() => {
+          const { role, current: cur, target, sameRole } = roleProgress;
+          const roleLabel = ROLE_LABEL[role];
+          const atOrAbove = cur >= target;
+          let copy: string;
+          if (sameRole) {
+            copy = inclusionDelta != null && inclusionDelta > 0
+              ? `Same ${roleLabel} slot — but played in ${inclusionDelta.toFixed(0)}% more decklists.`
+              : `Same ${roleLabel} slot.`;
+          } else if (atOrAbove) {
+            copy = `Already at ${cur}/${target} ${roleLabel} — this is a depth pick, not a gap fill.`;
+          } else {
+            copy = `+1 toward your ${target} ${roleLabel} pieces — currently at ${cur}/${target}.`;
+          }
+          return (
+            <div className="flex items-center gap-2 mb-3 text-[12px] text-violet-200/85">
+              <Target className="w-3.5 h-3.5 text-emerald-300" />
+              <span>{copy}</span>
             </div>
-            {onSwap && (
-              <button
-                type="button"
-                onClick={() => onSwap(misfit.card.name, replacement.name)}
-                className="relative inline-flex items-center gap-1.5 text-white text-sm font-bold px-5 py-2.5 rounded-md"
-                style={{
-                  background: 'linear-gradient(135deg,#10b981,#059669)',
-                  boxShadow: '0 6px 18px rgba(16,185,129,0.55)',
-                }}
-              >
-                Swap <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            )}
+          );
+        })()}
+
+        {!roleProgress && activeReplacement && !activeReplacement.deckRole && (
+          <div className="flex items-center gap-2 mb-3 text-[12px] text-violet-200/85">
+            <Target className="w-3.5 h-3.5 text-violet-300/70" />
+            <span>No tagged role — swap improves synergy/inclusion, not role balance.</span>
           </div>
         )}
 
-        <div className="flex items-center gap-3">
+        {activeReplacement && onSwap && (
+          <button
+            type="button"
+            onClick={() => onSwap(misfit.card.name, activeReplacement.name)}
+            className="w-full inline-flex items-center justify-center gap-2 text-white text-sm font-bold px-5 py-2.5 rounded-md mb-3"
+            style={{
+              background: 'linear-gradient(135deg,#10b981,#059669)',
+              boxShadow: '0 6px 18px rgba(16,185,129,0.55)',
+            }}
+          >
+            Swap in {activeReplacement.name} <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        <CardFitReplacementStrip
+          candidates={candidates}
+          activeName={activeReplacement?.name ?? null}
+          inclusionMap={cardInclusionMap}
+          onSelect={onSelectReplacement}
+          onPreview={onPreview}
+        />
+
+        <div className="flex items-center justify-end gap-3 mt-4">
+          <button
+            type="button"
+            onClick={onSkip}
+            className="inline-flex items-center gap-1.5 text-violet-200 hover:text-violet-100 text-[12px] font-semibold px-3.5 py-2 rounded-md"
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(167,139,250,0.45)',
+            }}
+          >
+            <SkipForward className="w-3.5 h-3.5" /> Keep this card
+          </button>
           {onRemove && (
             <button
               type="button"
               onClick={() => onRemove(misfit.card)}
-              className="inline-flex items-center gap-1.5 text-rose-300 text-[12px] font-bold px-3.5 py-2 rounded-md"
+              className="inline-flex items-center gap-1.5 text-white text-[12px] font-bold px-3.5 py-2 rounded-md"
               style={{
-                background: 'rgba(244,63,94,0.1)',
-                border: '1px solid rgba(244,63,94,0.45)',
+                background: 'rgb(225,29,72)',
+                border: '1px solid rgb(225,29,72)',
               }}
             >
               <X className="w-3.5 h-3.5" /> Remove from deck
             </button>
           )}
-          <span className="flex-1" />
-          <button
-            type="button"
-            onClick={onSkip}
-            className="inline-flex items-center gap-1.5 text-violet-200/80 hover:text-violet-100 text-[12px] font-semibold"
-          >
-            <SkipForward className="w-3.5 h-3.5" /> Keep this card
-          </button>
         </div>
         {children && <div className="relative pb-6">{children}</div>}
       </div>
@@ -301,13 +325,14 @@ export function CardFitHero({
 }
 
 function StatCell({
-  icon, label, value, valueClass, detail,
+  icon, label, value, valueClass, detail, delta,
 }: {
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
   valueClass?: string;
   detail: string;
+  delta?: React.ReactNode;
 }) {
   return (
     <div
@@ -321,6 +346,9 @@ function StatCell({
         {value}
       </div>
       <div className="text-[11px] text-violet-200/60 mt-1 leading-snug">{detail}</div>
+      {delta && (
+        <div className="text-[10px] text-emerald-300/90 font-semibold mt-0.5 inline-flex items-center gap-0.5">{delta}</div>
+      )}
     </div>
   );
 }

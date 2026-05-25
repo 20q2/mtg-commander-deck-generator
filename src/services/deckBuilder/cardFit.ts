@@ -206,7 +206,7 @@ export function simulateSwapImpact(
   misfits: Misfit[],
   misfit: Misfit,
   gapCount: number,
-  replacement: GapAnalysisCard | undefined,
+  replacement: { name: string } | undefined,
 ): number {
   const before = computeCardFitSubscore(misfits, gapCount).value;
   const afterMisfits = misfits.filter(m => m.card.name !== misfit.card.name);

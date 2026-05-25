@@ -4,6 +4,7 @@ import { Sparkles, ScrollText } from 'lucide-react';
 import type { Misfit, GapAnalysisCard, ScryfallCard, GeneratedDeck } from '@/types';
 import type { RoleKey } from '@/services/tagger/client';
 import { featuredMisfits, simulateSwapImpact } from '@/services/deckBuilder/cardFit';
+import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { CardFitHero } from './cardFit/CardFitHero';
 import { CardFitFilmstrip } from './cardFit/CardFitFilmstrip';
 import { CardFitFullList } from './cardFit/CardFitFullList';
@@ -32,10 +33,10 @@ export function CardFitTab({
   misfits, gapAnalysis, onPreview, onAddCard, onRemoveCard, sampleSize, onFocusedMisfitChange,
   deck, cardInclusionMap, roleCounts, roleTargets,
 }: CardFitTabProps) {
-  void deck; void cardInclusionMap; void roleCounts; void roleTargets;
   const [view, setView] = useState<'misfits' | 'gaps'>('misfits');
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [fullListOpen, setFullListOpen] = useState(false);
+  const [activeReplacementName, setActiveReplacementName] = useState<string | null>(null);
 
   const featured = useMemo(() => featuredMisfits(misfits), [misfits]);
 
@@ -50,9 +51,40 @@ export function CardFitTab({
     if (!onFocusedMisfitChange) return;
     onFocusedMisfitChange(view === 'misfits' && current ? current.card.name : null);
   }, [current, view, onFocusedMisfitChange]);
+
+  const candidates = useMemo(
+    () => current ? getSwapCandidatesForCard(deck, current.card).slice(0, 6) : [],
+    [deck, current],
+  );
+
+  // Reset selection whenever the focused misfit changes.
+  useEffect(() => {
+    setActiveReplacementName(null);
+  }, [current?.card.name]);
+
+  const activeReplacement: ScryfallCard | null = useMemo(() => {
+    if (candidates.length === 0) return null;
+    if (activeReplacementName) {
+      const match = candidates.find(c => c.name === activeReplacementName);
+      if (match) return match;
+    }
+    return candidates[0];
+  }, [candidates, activeReplacementName]);
+
+  const roleProgress = useMemo(() => {
+    if (!activeReplacement?.deckRole) return null;
+    const role = activeReplacement.deckRole as RoleKey;
+    const target = roleTargets[role];
+    const currentCount = roleCounts[role];
+    if (target == null || currentCount == null) return null;
+    const misfitRole = current?.card.deckRole as RoleKey | undefined;
+    const sameRole = misfitRole === role;
+    return { role, current: currentCount, target, sameRole };
+  }, [activeReplacement, roleCounts, roleTargets, current]);
+
   const fitImpact = useMemo(
-    () => current ? simulateSwapImpact(misfits, current, gapAnalysis.length, current.suggestedReplacement) : 0,
-    [misfits, current, gapAnalysis.length],
+    () => current ? simulateSwapImpact(misfits, current, gapAnalysis.length, activeReplacement ?? undefined) : 0,
+    [misfits, current, gapAnalysis.length, activeReplacement],
   );
 
   const next = useCallback(() => {
@@ -145,6 +177,11 @@ export function CardFitTab({
           onSwap={(onAddCard && onRemoveCard) ? handleSwap : undefined}
           onSkip={next}
           headerActions={viewToggle}
+          candidates={candidates}
+          activeReplacement={activeReplacement}
+          onSelectReplacement={setActiveReplacementName}
+          cardInclusionMap={cardInclusionMap}
+          roleProgress={roleProgress}
         >
           <CardFitFilmstrip
             featured={featured}
