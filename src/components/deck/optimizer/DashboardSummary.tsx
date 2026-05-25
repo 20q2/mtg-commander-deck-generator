@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { HeroScore } from './dashboard/HeroScore';
 import { SubScoreTile } from './dashboard/SubScoreTile';
-import { ConditionalWarnings } from './dashboard/ConditionalWarnings';
 import { StrategyDrillIn } from './dashboard/StrategyDrillIn';
 import { NextBestMove } from './dashboard/NextBestMove';
 import type {
@@ -55,7 +54,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
   const {
     commander, partnerCommander, colorIdentity, sourceLabel,
     analysis, cards, themeMembership, primaryThemeData, planName,
-    sampleSize, warnings, adjustContent, onNavigate,
+    sampleSize, adjustContent, onNavigate,
     onSaveAsDeck, onOpenInDeckView,
     cardSynergyMap,
     detectedCombos, deckTarget,
@@ -152,9 +151,12 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         deckExcess={deckExcess}
         commander={commander}
         onNavigate={onNavigate}
+        manaVerdict={analysis.manaBase?.verdict}
+        currentLands={analysis.manaBase?.currentLands}
+        suggestedLands={analysis.manaBase?.adjustedSuggestion}
+        limitedData={planScore.limitedData}
       />
-      <ConditionalWarnings warnings={warnings} onNavigate={onNavigate} />
-      <div className="mt-auto grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map(key => {
           const meta = SUBSCORE_META[key];
           return (
