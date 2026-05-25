@@ -78,15 +78,6 @@ export function CardFitHero({
       <div className="relative p-7 pb-0">
         {/* Header rail — title + sample size on one line */}
         <div className="flex items-center gap-2.5 mb-5 flex-wrap">
-          <span
-            className="w-6 h-6 rounded-full flex items-center justify-center text-white"
-            style={{
-              background: 'linear-gradient(135deg,#a78bfa,#ec4899)',
-              boxShadow: '0 0 18px rgba(168,85,247,0.5)',
-            }}
-          >
-            <Sparkles className="w-3 h-3" />
-          </span>
           <span className="text-[11px] text-violet-200 uppercase tracking-[0.2em] font-bold">
             Card Fit · Misfits
           </span>
