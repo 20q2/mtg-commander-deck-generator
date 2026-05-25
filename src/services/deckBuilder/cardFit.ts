@@ -115,16 +115,19 @@ function pickReplacement(
   gapCandidates?: GapAnalysisCard[],
 ): GapAnalysisCard | undefined {
   if (!gapCandidates || gapCandidates.length === 0) return undefined;
+  // Never suggest the card being replaced as its own replacement.
+  const candidates = gapCandidates.filter(g => g.name !== card.name);
+  if (candidates.length === 0) return undefined;
   // Prefer a same-role gap candidate first; otherwise the strongest overall.
   if (role) {
-    const sameRole = gapCandidates.find(g => g.role === role);
+    const sameRole = candidates.find(g => g.role === role);
     if (sameRole) return sameRole;
   }
   // Match same primary type as a softer fallback (e.g. Creature → Creature).
   // Uses primaryType() to strip supertypes like "Legendary" before comparing.
   const cardPrimary = primaryType(card.type_line ?? '');
   if (cardPrimary) {
-    const sameType = gapCandidates.find(
+    const sameType = candidates.find(
       g => primaryType(g.typeLine).toLowerCase() === cardPrimary.toLowerCase(),
     );
     if (sameType) return sameType;
