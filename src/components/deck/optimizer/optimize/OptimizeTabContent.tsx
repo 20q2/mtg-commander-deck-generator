@@ -20,10 +20,6 @@ export interface OptimizeTabContentProps {
   detectedCombos?: DetectedCombo[];
   onApply: (removals: string[], additions: string[]) => void | Promise<void>;
   onPreviewCard: (name: string) => void;
-  /** Land target popover — pass-through. */
-  userLandTarget: number | null;
-  onLandTargetChange: (target: number | null) => void;
-  deckSize: number;
   /** Fired when the user opens the drill-down for a cut card. Enables deck-view highlight. */
   onFocusedMisfitChange?: (name: string | null) => void;
 }
@@ -32,7 +28,6 @@ export function OptimizeTabContent({
   analysis, currentCards, commanderName, partnerCommanderName,
   cardInclusionMap, mustIncludeNames, bannedNames, detectedCombos,
   onApply, onPreviewCard,
-  userLandTarget, onLandTargetChange, deckSize,
   onFocusedMisfitChange,
 }: OptimizeTabContentProps) {
   const plan = useOptimizePlan({
@@ -92,7 +87,7 @@ export function OptimizeTabContent({
   const hasUnchecked = plan.uncheckedRemovals.size > 0 || plan.uncheckedAdditions.size > 0;
 
   return (
-    <div className="space-y-3 sm:space-y-4 p-3 sm:p-4">
+    <div className="space-y-3 sm:space-y-4 px-3 sm:px-4 pb-3 sm:pb-4 pt-0">
       <OptimizePlanHeader
         totals={plan.totals}
         applying={plan.applying}
@@ -100,12 +95,6 @@ export function OptimizeTabContent({
         hasUnchecked={hasUnchecked}
         onApply={plan.apply}
         onReset={plan.resetSelections}
-        landSettings={{
-          deckSize,
-          autoSuggestion: analysis.manaBase.adjustedSuggestion,
-          userLandTarget,
-          onLandTargetChange,
-        }}
       />
 
       {hasSwaps && (

@@ -1537,9 +1537,6 @@ export function DeckOptimizer({
             detectedCombos={useStore.getState().generatedDeck?.detectedCombos ?? []}
             onApply={handleApplyOptimize}
             onPreviewCard={handlePreview}
-            userLandTarget={userLandTarget}
-            onLandTargetChange={handleLandTargetChange}
-            deckSize={deckSize}
             onFocusedMisfitChange={onFocusedMisfitChange}
           />
         )}

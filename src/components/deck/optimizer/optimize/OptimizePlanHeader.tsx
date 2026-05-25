@@ -1,6 +1,5 @@
-import { Sparkles, Check, Settings2, Minus, Plus, Mountain } from 'lucide-react';
+import { Sparkles, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { OptimizePlanTotals } from './useOptimizePlan';
 
 export interface OptimizePlanHeaderProps {
@@ -10,17 +9,10 @@ export interface OptimizePlanHeaderProps {
   hasUnchecked: boolean;
   onApply: () => void;
   onReset: () => void;
-  /** Land target popover wiring (pass-through from existing handlers). */
-  landSettings?: {
-    deckSize: number;
-    autoSuggestion: number;
-    userLandTarget: number | null;
-    onLandTargetChange: (target: number | null) => void;
-  };
 }
 
 export function OptimizePlanHeader({
-  totals, applying, hasSwaps, hasUnchecked, onApply, onReset, landSettings,
+  totals, applying, hasSwaps, hasUnchecked, onApply, onReset,
 }: OptimizePlanHeaderProps) {
   const { totalChanges, removeCount, addCount, priceDelta, scoreDelta, projectedSize, targetSize, overBy } = totals;
 
@@ -30,7 +22,6 @@ export function OptimizePlanHeader({
         <div className="flex items-center gap-2 text-sm text-emerald-400/80">
           <Check className="w-4 h-4" />
           <span className="font-medium">Looking good — no swaps recommended.</span>
-          {landSettings && <LandSettingsPopover {...landSettings} className="ml-auto" />}
         </div>
       </div>
     );
@@ -81,8 +72,6 @@ export function OptimizePlanHeader({
               </span>
             )}
           </div>
-
-          {landSettings && <LandSettingsPopover {...landSettings} />}
         </div>
       </div>
 
@@ -103,71 +92,5 @@ export function OptimizePlanHeader({
         )}
       </div>
     </div>
-  );
-}
-
-function LandSettingsPopover({
-  deckSize, autoSuggestion, userLandTarget, onLandTargetChange, className,
-}: {
-  deckSize: number;
-  autoSuggestion: number;
-  userLandTarget: number | null;
-  onLandTargetChange: (target: number | null) => void;
-  className?: string;
-}) {
-  const current = userLandTarget ?? autoSuggestion;
-  const min = Math.floor(deckSize * 0.25);
-  const max = Math.floor(deckSize * 0.50);
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" className={className} aria-label="Plan settings">
-          <Settings2 className="w-4 h-4" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-64">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Mountain className="w-3.5 h-3.5 text-muted-foreground/70" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Land target</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => { if (current > min) onLandTargetChange(current - 1); }}
-            >
-              <Minus className="w-3 h-3" />
-            </Button>
-            <span className={`text-base font-bold tabular-nums w-8 text-center ${userLandTarget != null ? 'text-sky-400' : 'text-foreground'}`}>
-              {current}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => { if (current < max) onLandTargetChange(current + 1); }}
-            >
-              <Plus className="w-3 h-3" />
-            </Button>
-            {userLandTarget != null && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onLandTargetChange(null)}
-                className="text-[10px] text-muted-foreground/60"
-              >
-                Reset
-              </Button>
-            )}
-          </div>
-          <p className="text-[10px] text-muted-foreground/60">
-            Auto-detected: {autoSuggestion}
-          </p>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
