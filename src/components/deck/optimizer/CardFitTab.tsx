@@ -87,7 +87,7 @@ export function CardFitTab({
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 h-full">
 
       {view === 'misfits' && misfits.length === 0 && (
         <div className="p-4">

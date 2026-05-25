@@ -17,7 +17,7 @@ export function CardFitFilmstrip({
   const longTail = Math.max(0, totalMisfits - featured.length);
 
   return (
-    <div className="mt-6">
+    <div className="mt-6 pt-4 border-t border-violet-500/15">
       <div className="text-[10px] text-muted-foreground/70 uppercase tracking-[0.18em] font-semibold mb-2.5">
         Up next · <span className="text-amber-300 font-bold">{featured.length}</span> in the lineup
       </div>
