@@ -1,18 +1,16 @@
 // src/components/deck/optimizer/dashboard/SubScoreTile.tsx
 import type { SubScore } from '@/types';
 import type { LucideIcon } from 'lucide-react';
-import { ArrowRight, Info } from 'lucide-react';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
+import { ArrowRight } from 'lucide-react';
 
 export interface SubScoreTileProps {
   label: string;
   subscore: SubScore;
   onClick?: () => void;
-  /** Optional explanation of how this number is computed (for the info popover). */
-  explainer?: { sources: string; method: string };
   /** Lucide icon component for the tile's category. */
   Icon?: LucideIcon;
+  /** Optional one-line micro-detail shown below the surface text. */
+  hint?: string;
 }
 
 function colorForScore(value: number): string {
@@ -22,7 +20,7 @@ function colorForScore(value: number): string {
   return 'text-rose-400';
 }
 
-export function SubScoreTile({ label, subscore, onClick, explainer, Icon }: SubScoreTileProps) {
+export function SubScoreTile({ label, subscore, onClick, Icon, hint }: SubScoreTileProps) {
   const color = colorForScore(subscore.value);
   return (
     <div
@@ -32,36 +30,19 @@ export function SubScoreTile({ label, subscore, onClick, explainer, Icon }: SubS
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
       className="group relative bg-card/40 border border-border/30 rounded-lg p-3 pb-6 text-left hover:bg-accent/30 hover:border-border/60 transition-all w-full cursor-pointer"
     >
-      <div className="flex items-baseline gap-2 mb-1">
-        {Icon && <Icon className={`w-3.5 h-3.5 self-center ${color} opacity-80`} />}
-        <span className={`text-2xl font-black tabular-nums leading-none ${color}`}>
-          {subscore.value}
-        </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className={`absolute top-3 right-3 text-2xl font-black tabular-nums leading-none ${color}`}>
+        {subscore.value}
+      </span>
+      <div className="flex items-center gap-2 mb-1.5 pr-12">
+        {Icon && <Icon className={`w-4 h-4 ${color} opacity-80`} />}
+        <span className="text-sm font-semibold uppercase tracking-wider text-foreground/90">
           {label}
         </span>
-        {explainer && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => e.stopPropagation()}
-                aria-label={`How ${label} is computed`}
-                className="ml-auto h-5 w-5 text-muted-foreground/60 hover:text-muted-foreground"
-              >
-                <Info className="w-3 h-3" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-72 p-3 text-[11px] space-y-1.5">
-              <div className="font-semibold text-foreground">{label}</div>
-              <div className="text-muted-foreground"><span className="font-medium">Sources:</span> {explainer.sources}</div>
-              <div className="text-muted-foreground"><span className="font-medium">Method:</span> {explainer.method}</div>
-            </PopoverContent>
-          </Popover>
-        )}
       </div>
       <p className="text-xs text-foreground/90 leading-snug">{subscore.surface}</p>
+      {hint && (
+        <p className="mt-1 text-[10px] italic text-muted-foreground/70 leading-snug">{hint}</p>
+      )}
       <div className="absolute bottom-2 right-3 flex items-center text-[10px] text-muted-foreground/60 group-hover:text-muted-foreground/80 transition-colors">
         See more <ArrowRight className="w-2.5 h-2.5 ml-0.5" />
       </div>
