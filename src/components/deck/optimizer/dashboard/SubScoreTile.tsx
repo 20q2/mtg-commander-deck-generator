@@ -30,7 +30,7 @@ export function SubScoreTile({ label, subscore, onClick, explainer, Icon }: SubS
       tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
-      className="group relative bg-card/40 border border-border/30 rounded-lg p-3 text-left hover:bg-accent/30 hover:border-border/60 transition-all w-full cursor-pointer"
+      className="group relative bg-card/40 border border-border/30 rounded-lg p-3 pb-6 text-left hover:bg-accent/30 hover:border-border/60 transition-all w-full cursor-pointer"
     >
       <div className="flex items-baseline gap-2 mb-1">
         {Icon && <Icon className={`w-3.5 h-3.5 self-center ${color} opacity-80`} />}
@@ -62,8 +62,8 @@ export function SubScoreTile({ label, subscore, onClick, explainer, Icon }: SubS
         )}
       </div>
       <p className="text-xs text-foreground/90 leading-snug">{subscore.surface}</p>
-      <div className="mt-2 flex items-center justify-end text-[10px] text-muted-foreground/60 group-hover:text-muted-foreground/80 transition-colors">
-        Drill in <ArrowRight className="w-2.5 h-2.5 ml-0.5" />
+      <div className="absolute bottom-2 right-3 flex items-center text-[10px] text-muted-foreground/60 group-hover:text-muted-foreground/80 transition-colors">
+        See more <ArrowRight className="w-2.5 h-2.5 ml-0.5" />
       </div>
     </div>
   );
