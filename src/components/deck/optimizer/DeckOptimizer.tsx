@@ -1552,17 +1552,25 @@ export function DeckOptimizer({
         })()}
 
         {/* ── CARD FIT TAB ── */}
-        {activeTab === 'cardFit' && analysis && (
-          <CardFitTab
-            misfits={analysis.misfits ?? []}
-            gapAnalysis={analysis.gapAnalysis ?? []}
-            onPreview={name => handlePreview(name)}
-            onAddCard={onAddCards ? (name: string) => onAddCards([name], 'deck') : undefined}
-            onRemoveCard={onRemoveCards ? (card: ScryfallCard) => onRemoveCards([card.name]) : undefined}
-            sampleSize={cachedEdhrecDataRef.current?.stats?.numDecks ?? null}
-            onFocusedMisfitChange={onFocusedMisfitChange}
-          />
-        )}
+        {activeTab === 'cardFit' && analysis && (() => {
+          const deck = useStore.getState().generatedDeck;
+          if (!deck) return null;
+          return (
+            <CardFitTab
+              misfits={analysis.misfits ?? []}
+              gapAnalysis={analysis.gapAnalysis ?? []}
+              onPreview={name => handlePreview(name)}
+              onAddCard={onAddCards ? (name: string) => onAddCards([name], 'deck') : undefined}
+              onRemoveCard={onRemoveCards ? (card: ScryfallCard) => onRemoveCards([card.name]) : undefined}
+              sampleSize={cachedEdhrecDataRef.current?.stats?.numDecks ?? null}
+              onFocusedMisfitChange={onFocusedMisfitChange}
+              deck={deck}
+              cardInclusionMap={cardInclusionMap ?? {}}
+              roleCounts={roleCounts}
+              roleTargets={roleTargets}
+            />
+          );
+        })()}
 
         {/* ── BRACKET TAB ── */}
         {activeTab === 'bracket' && (

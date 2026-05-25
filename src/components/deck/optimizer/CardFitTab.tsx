@@ -1,7 +1,8 @@
 // src/components/deck/optimizer/CardFitTab.tsx
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Sparkles, ScrollText } from 'lucide-react';
-import type { Misfit, GapAnalysisCard, ScryfallCard } from '@/types';
+import type { Misfit, GapAnalysisCard, ScryfallCard, GeneratedDeck } from '@/types';
+import type { RoleKey } from '@/services/tagger/client';
 import { featuredMisfits, simulateSwapImpact } from '@/services/deckBuilder/cardFit';
 import { CardFitHero } from './cardFit/CardFitHero';
 import { CardFitFilmstrip } from './cardFit/CardFitFilmstrip';
@@ -17,11 +18,21 @@ export interface CardFitTabProps {
   sampleSize?: number | null;
   /** Fired with the name of the misfit currently in the hero (or null). */
   onFocusedMisfitChange?: (name: string | null) => void;
+  /** Generated deck — used to source replacement candidates via getSwapCandidatesForCard. */
+  deck: GeneratedDeck;
+  /** Per-card EDHREC inclusion % for both in-deck cards and swap candidates. */
+  cardInclusionMap: Record<string, number>;
+  /** Current count of each role in the deck. */
+  roleCounts: Record<RoleKey, number>;
+  /** Target count of each role for this deck size/pacing. */
+  roleTargets: Record<RoleKey, number>;
 }
 
 export function CardFitTab({
   misfits, gapAnalysis, onPreview, onAddCard, onRemoveCard, sampleSize, onFocusedMisfitChange,
+  deck, cardInclusionMap, roleCounts, roleTargets,
 }: CardFitTabProps) {
+  void deck; void cardInclusionMap; void roleCounts; void roleTargets;
   const [view, setView] = useState<'misfits' | 'gaps'>('misfits');
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const [fullListOpen, setFullListOpen] = useState(false);
