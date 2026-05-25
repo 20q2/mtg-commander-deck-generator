@@ -6,6 +6,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { Pencil, Bookmark, ExternalLink } from 'lucide-react';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { getCardImageUrl } from '@/services/scryfall/client';
+import { formatCommanderNameForUrl } from '@/services/edhrec/client';
 import type { PlanScore, ScryfallCard } from '@/types';
 import type { ReactNode } from 'react';
 
@@ -15,8 +16,10 @@ export interface HeroScoreProps {
   partnerCommander?: ScryfallCard;
   colorIdentity?: string[];
   sourceLabel: string;
-  /** Display text for the detected plan, e.g. "+1/+1 Counters". null when none detected. */
+  /** Display text for the primary detected plan, e.g. "+1/+1 Counters". null when none detected. */
   planName?: string | null;
+  /** Display text for the secondary plan, if one is selected. */
+  secondaryPlanName?: string | null;
   /** Adjust popover content. */
   adjustContent?: ReactNode;
   onSaveAsDeck?: () => void;
@@ -30,6 +33,7 @@ export function HeroScore({
   colorIdentity,
   sourceLabel,
   planName,
+  secondaryPlanName,
   adjustContent,
   onSaveAsDeck,
   onOpenInDeckView,
@@ -77,9 +81,9 @@ export function HeroScore({
       <div className="relative flex flex-col gap-5" style={{ zIndex: 1 }}>
 
         {/* TOP ROW: commander art + info + action buttons */}
-        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 -mx-2 sm:-mx-3 -mt-2 sm:-mt-3">
           {/* Commander card thumbnail(s) — hover to preview */}
-          <div className="flex items-start gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {(commander.image_uris?.small ?? commander.card_faces?.[0]?.image_uris?.small) && (
               <img
                 src={commander.image_uris?.small ?? commander.card_faces?.[0]?.image_uris?.small ?? ''}
@@ -107,17 +111,37 @@ export function HeroScore({
               {partnerCommander && (
                 <span className="text-muted-foreground font-normal"> + {partnerCommander.name}</span>
               )}
+              <a
+                href={`https://edhrec.com/commanders/${
+                  partnerCommander
+                    ? `${formatCommanderNameForUrl(commander.name)}-${formatCommanderNameForUrl(partnerCommander.name)}`
+                    : formatCommanderNameForUrl(commander.name)
+                }`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="View on EDHREC"
+                aria-label="View commander on EDHREC"
+                className="inline-flex items-center align-middle ml-1.5 -translate-y-0.5 text-muted-foreground/70 hover:text-violet-300 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
             </div>
             <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/70">
               <span className="truncate">{sourceLabel}</span>
               {planName && (
                 <>
                   <span>·</span>
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1 flex-wrap">
                     Detected plan:
                     <span className="px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 font-semibold text-[10px]">
                       {planName}
                     </span>
+                    {secondaryPlanName && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-semibold text-[10px]">
+                        {secondaryPlanName}
+                      </span>
+                    )}
                   </span>
                 </>
               )}

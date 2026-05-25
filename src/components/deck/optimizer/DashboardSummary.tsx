@@ -137,6 +137,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         colorIdentity={colorIdentity}
         sourceLabel={sourceLabel}
         planName={planName}
+        secondaryPlanName={themeMembership?.themes?.[1]?.name ?? null}
         adjustContent={adjustContent}
         onSaveAsDeck={onSaveAsDeck}
         onOpenInDeckView={onOpenInDeckView}
