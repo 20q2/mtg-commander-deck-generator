@@ -203,10 +203,10 @@ export function HeroScore({
           <div
             className="w-32 h-32 sm:w-40 sm:h-40 rounded-full flex items-center justify-center shrink-0"
             style={ringStyle}
-            aria-label={`Plan score ${pct} out of 100`}
+            aria-label={`Plan score ${target} out of 100`}
           >
             <div className="w-[78%] h-[78%] rounded-full bg-card flex flex-col items-center justify-center">
-              <div className="text-4xl sm:text-5xl font-black tabular-nums leading-none">{pct}</div>
+              <div className="text-4xl sm:text-5xl font-black tabular-nums leading-none">{displayed}</div>
               <div className="mt-1.5 text-[10px] uppercase tracking-wider font-semibold text-violet-300/80">
                 {planScore.bandLabel}
               </div>
