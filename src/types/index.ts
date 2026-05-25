@@ -306,7 +306,7 @@ export interface DashboardWarning {
   /** Short user-facing copy with data citation. */
   message: string;
   /** Optional tab to navigate to when clicked. */
-  navigateTo?: 'roles' | 'lands' | 'curve' | 'cardFit' | 'bracket' | 'cost';
+  navigateTo?: 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost';
 }
 
 export type MisfitReasonKind =

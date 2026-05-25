@@ -47,7 +47,7 @@ const SUBSCORE_META: Record<SubScoreKey, {
   strategy: { label: 'Strategy', navigateTo: null, Icon: Target },
   roles: { label: 'Roles', navigateTo: 'roles', Icon: Shield },
   tempo: { label: 'Tempo', navigateTo: 'curve', Icon: BarChart3 },
-  cardFit: { label: 'Card Fit', navigateTo: 'cardFit', Icon: Wand2 },
+  cardFit: { label: 'Card Fit', navigateTo: 'optimize', Icon: Wand2 },
 };
 
 export function DashboardSummary(props: DashboardSummaryProps) {
@@ -128,7 +128,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
   const deckExcess = deckTarget != null ? cards.length - deckTarget : 0;
 
   return (
-    <div className="flex flex-col gap-4 h-full">
+    <div className="flex flex-col gap-5 sm:gap-4 h-full">
       <HeroScore
         planScore={planScore}
         commander={commander}

@@ -20,14 +20,14 @@ export function buildDashboardWarnings(inputs: WarningInputs): DashboardWarning[
       id: 'count-over',
       severity: 'warn',
       message: `${total - deckTarget} cards over target — trim from Card Fit.`,
-      navigateTo: 'cardFit',
+      navigateTo: 'optimize',
     });
   } else if (total < deckTarget) {
     out.push({
       id: 'count-under',
       severity: 'warn',
       message: `${deckTarget - total} cards under target — add from Card Fit gaps.`,
-      navigateTo: 'cardFit',
+      navigateTo: 'optimize',
     });
   }
 

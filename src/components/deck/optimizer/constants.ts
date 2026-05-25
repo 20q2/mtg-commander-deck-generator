@@ -60,14 +60,14 @@ export interface DeckOptimizerProps {
   onOpenInDeckView?: () => void;
 }
 
-export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'cardFit' | 'bracket' | 'cost';
+export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost';
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'roles',    label: 'Roles',    icon: Shield as typeof LayoutDashboard },
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
   { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
-  { key: 'cardFit',  label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
+  { key: 'optimize', label: 'Optimize', icon: Wand2 as typeof LayoutDashboard },
   { key: 'bracket',  label: 'Bracket',  icon: Gauge as typeof LayoutDashboard },
   { key: 'cost',     label: 'Cost',     icon: DollarSign as typeof LayoutDashboard },
 ];
@@ -79,19 +79,20 @@ export const TAB_SLUG_BY_KEY: Record<TabKey, string> = {
   roles:    'roles',
   lands:    'mana',
   curve:    'tempo',
-  cardFit:  'card-fit',
+  optimize: 'optimize',
   bracket:  'bracket',
   cost:     'cost',
 };
 
 export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
-  overview:  'overview',
-  roles:     'roles',
-  mana:      'lands',
-  tempo:     'curve',
-  'card-fit': 'cardFit',
-  bracket:   'bracket',
-  cost:      'cost',
+  overview:   'overview',
+  roles:      'roles',
+  mana:       'lands',
+  tempo:      'curve',
+  optimize:   'optimize',
+  'card-fit': 'optimize',  // legacy URL redirect
+  bracket:    'bracket',
+  cost:       'cost',
 };
 
 // ─── Utility Functions ───────────────────────────────────────────────

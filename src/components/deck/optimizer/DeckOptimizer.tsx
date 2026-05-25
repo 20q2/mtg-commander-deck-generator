@@ -645,7 +645,7 @@ export function DeckOptimizer({
             overrideLandTarget: userLandTarget ?? undefined,
             themeMembership: themeMembershipForScore,
             primaryThemeData: bestThemeData,
-            planName: detection.strategyLabel || null,
+            planName: primaryThemeInfo.name,
             cardSynergyMap: storedDeckForTheme?.cardSynergyMap,
             gapCandidates: storedDeckForTheme?.gapAnalysis,
             commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
@@ -1246,7 +1246,7 @@ export function DeckOptimizer({
   );
 
   return (
-    <div id="deck-optimizer" className="flex flex-1 min-h-0 border-t-4 border-border/60 lg:border-t-0">
+    <div id="deck-optimizer" className="flex flex-1 min-h-0 border-b-4 border-border/60 lg:border-b-0">
       {/* Vertical sidebar — hidden in optimize view */}
       {!optimizeView && (
         <aside className="w-12 shrink-0 flex flex-col items-stretch border-r border-border/40 bg-background/60">
@@ -1270,7 +1270,7 @@ export function DeckOptimizer({
             const tabGrade = tabGrades[tab.key];
             const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
             const bracketBadge = tab.key === 'bracket' && bracketLevel ? BRACKET_COLORS[bracketLevel] : null;
-            const misfitCount = tab.key === 'cardFit' ? (analysis?.misfits?.length ?? 0) : 0;
+            const misfitCount = tab.key === 'optimize' ? (analysis?.misfits?.length ?? 0) : 0;
             const tabHref = getTabHref?.(tab.key);
             return (
               <Tooltip key={tab.key}>
@@ -1395,7 +1395,7 @@ export function DeckOptimizer({
         )}
 
         {/* Tab Content */}
-        <div className={`flex-1 min-h-0 overflow-y-auto ${activeTab === 'cardFit' ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''} ${activeTab === 'cost' ? 'pt-0 sm:pt-0' : ''}`}>
+        <div className={`flex-1 min-h-0 overflow-y-auto ${activeTab === 'optimize' ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''} ${activeTab === 'cost' ? 'pt-0 sm:pt-0' : ''}`}>
 
         {/* ── OPTIMIZE VIEW (replaces tabs) ── */}
         {optimizeView ? (
@@ -1428,7 +1428,7 @@ export function DeckOptimizer({
             cards={currentCards}
             themeMembership={dashboardThemeMembership}
             primaryThemeData={dashboardPrimaryThemeData}
-            planName={themeDetection?.strategyLabel ?? null}
+            planName={dashboardThemeMembership?.themes?.[0]?.name ?? null}
             sampleSize={cachedEdhrecDataRef.current?.stats?.numDecks ?? null}
             warnings={buildDashboardWarnings({
               analysis,
@@ -1552,7 +1552,7 @@ export function DeckOptimizer({
         })()}
 
         {/* ── CARD FIT TAB ── */}
-        {activeTab === 'cardFit' && analysis && (() => {
+        {activeTab === 'optimize' && analysis && (() => {
           const deck = useStore.getState().generatedDeck;
           if (!deck) return null;
           return (

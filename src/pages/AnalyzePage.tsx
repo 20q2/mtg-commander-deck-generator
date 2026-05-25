@@ -615,8 +615,8 @@ export function AnalyzePage() {
                 activeCmcRange={activeAnalyzerTab === 'curve' ? activeOptimizerCmcRange : null}
                 activeRoleGroup={activeAnalyzerTab === 'curve' ? activeOptimizerRoleGroup : null}
                 removalNames={pendingRemovals}
-                misfitNames={activeAnalyzerTab === 'cardFit' ? misfitNames : undefined}
-                focusedMisfitName={activeAnalyzerTab === 'cardFit' ? focusedMisfitName : null}
+                misfitNames={activeAnalyzerTab === 'optimize' ? misfitNames : undefined}
+                focusedMisfitName={activeAnalyzerTab === 'optimize' ? focusedMisfitName : null}
                 focusLands={activeAnalyzerTab === 'lands'}
                 onCardAction={handleAnalyzerCardAction}
                 menuProps={analyzerMenuProps}

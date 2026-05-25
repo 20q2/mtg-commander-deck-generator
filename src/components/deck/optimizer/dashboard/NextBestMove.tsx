@@ -71,7 +71,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
           {!replacement && <>.{' '}</>}
         </>
       ),
-      navigateTo: 'cardFit',
+      navigateTo: 'optimize',
       navLabel: 'Card Fit',
     });
   }
@@ -91,7 +91,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
           {Math.round(topGap.inclusion)}% of decks.
         </>
       ),
-      navigateTo: 'cardFit',
+      navigateTo: 'optimize',
       navLabel: 'Card Fit',
     });
   }
@@ -149,7 +149,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
   for (const { key: weakest } of weakSubs) {
     if (weakest === 'cardFit') {
       // Only generate if not already covered by tier-1 trim/fill suggestions
-      const alreadyCovered = candidates.some(c => c.navigateTo === 'cardFit' && c.tier === 1);
+      const alreadyCovered = candidates.some(c => c.navigateTo === 'optimize' && c.tier === 1);
       if (!alreadyCovered) {
         if (misfits && misfits.length > 0) {
           const worst = misfits[0];
@@ -168,7 +168,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
                   .
                 </>
               ),
-              navigateTo: 'cardFit',
+              navigateTo: 'optimize',
               navLabel: 'Card Fit',
             });
             suggestedCards.add(worst.card.name);
@@ -185,7 +185,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
                   Card Fit is weak — try adding <strong className="text-violet-300">{top.name}</strong>, played in {Math.round(top.inclusion)}% of decks like this.
                 </>
               ),
-              navigateTo: 'cardFit',
+              navigateTo: 'optimize',
               navLabel: 'Card Fit',
             });
             suggestedCards.add(top.name);
@@ -282,7 +282,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
               Strategy is thin — <strong className="text-violet-300">{themeGap.name}</strong> would help (synergy +{themeGap.synergy.toFixed(2)}, played in {Math.round(themeGap.inclusion)}% of builds).
             </>
           ),
-          navigateTo: 'cardFit',
+          navigateTo: 'optimize',
           navLabel: 'Card Fit',
         });
         suggestedCards.add(themeGap.name);
@@ -307,7 +307,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
               Complete the <strong className="text-foreground">{result}</strong> combo — you're 1 card away (<strong className="text-violet-300">{missing}</strong>).
             </>
           ),
-          navigateTo: 'cardFit',
+          navigateTo: 'optimize',
           navLabel: 'Card Fit',
         });
         suggestedCards.add(missing);
@@ -394,19 +394,21 @@ export function NextBestMove(props: NextBestMoveProps) {
                 <div className={`shrink-0 mt-0.5 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${BADGE_STYLE}`}>
                   {i + 1}
                 </div>
-                <div className="flex-1 min-w-0 text-sm text-foreground leading-relaxed">
-                  {s.message}
+                <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3">
+                  <div className="flex-1 min-w-0 text-sm text-foreground leading-relaxed">
+                    {s.message}
+                  </div>
+                  {(() => {
+                    const TabIcon = TAB_ICONS[s.navigateTo!];
+                    return (
+                      <div className="shrink-0 self-start sm:self-center inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-violet-500/40 bg-violet-500/10 text-xs text-violet-200 group-hover:bg-violet-500/20 group-hover:text-violet-100 group-hover:border-violet-500/60 transition-colors whitespace-nowrap">
+                        {TabIcon && <TabIcon className="w-3 h-3" />}
+                        <span>{s.navLabel}</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </div>
+                    );
+                  })()}
                 </div>
-                {(() => {
-                  const TabIcon = TAB_ICONS[s.navigateTo!];
-                  return (
-                    <div className="shrink-0 self-center flex items-center gap-1.5 px-2 py-1 rounded-md border border-violet-500/40 bg-violet-500/10 text-xs text-violet-200 group-hover:bg-violet-500/20 group-hover:text-violet-100 group-hover:border-violet-500/60 transition-colors whitespace-nowrap">
-                      {TabIcon && <TabIcon className="w-3 h-3" />}
-                      <span>{s.navLabel}</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </div>
-                  );
-                })()}
               </button>
             ) : (
               <div className="flex-1 min-w-0 flex items-start gap-3 px-2 py-2">
