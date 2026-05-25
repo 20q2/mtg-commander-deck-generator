@@ -1,5 +1,6 @@
 // src/components/deck/optimizer/dashboard/NextBestMove.tsx
-import { Lightbulb, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Lightbulb, ArrowRight, AlertTriangle, Sparkles, X } from 'lucide-react';
 import type { ScryfallCard, PlanScore, Misfit, GapAnalysisCard, DetectedCombo } from '@/types';
 import type { RoleBreakdown, CurvePhaseAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import type { TabKey } from '../constants';
@@ -273,8 +274,10 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
     return true;
   });
   deduped.sort((a, b) => a.tier - b.tier);
-  return deduped.slice(0, 3);
+  return deduped;
 }
+
+const MAX_SHOWN = 3;
 
 const TIER_ICONS = {
   1: AlertTriangle,
@@ -289,8 +292,18 @@ const TIER_ICON_COLORS = {
 } as const;
 
 export function NextBestMove(props: NextBestMoveProps) {
-  const suggestions = buildSuggestions(props);
-  if (suggestions.length === 0) return null;
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const allSuggestions = buildSuggestions(props);
+  const visible = allSuggestions.filter(s => !dismissed.has(s.id)).slice(0, MAX_SHOWN);
+  if (visible.length === 0) return null;
+
+  const dismiss = (id: string) => {
+    setDismissed(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
 
   return (
     <div className="rounded-xl border border-violet-500/40 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent p-4">
@@ -301,27 +314,41 @@ export function NextBestMove(props: NextBestMoveProps) {
         </span>
       </div>
       <div className="space-y-1.5">
-        {suggestions.map((s, i) => {
+        {visible.map((s, i) => {
           const Icon = TIER_ICONS[s.tier];
           const iconColor = TIER_ICON_COLORS[s.tier];
           return (
-            <button
+            <div
               key={s.id}
-              type="button"
-              onClick={() => props.onNavigate(s.navigateTo)}
-              className="group w-full flex items-start gap-3 text-left p-2 -mx-2 rounded-md hover:bg-violet-500/10 transition-colors"
+              className="group flex items-start gap-3 p-2 -mx-2 rounded-md hover:bg-violet-500/10 transition-colors"
             >
-              <div className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-bold flex items-center justify-center">
-                {i + 1}
-              </div>
-              <div className="flex-1 min-w-0 text-sm text-foreground/95 leading-relaxed">
-                {s.message}
-              </div>
-              <div className={`shrink-0 self-center flex items-center gap-1 text-[11px] text-violet-300/80 group-hover:text-violet-200 transition-colors`}>
-                <Icon className={`w-3 h-3 ${iconColor}`} />
-                {s.navLabel} <ArrowRight className="w-3 h-3 ml-0.5" />
-              </div>
-            </button>
+              <button
+                type="button"
+                onClick={() => props.onNavigate(s.navigateTo)}
+                className="flex-1 min-w-0 flex items-start gap-3 text-left"
+                aria-label={`Open ${s.navLabel}`}
+              >
+                <div className="shrink-0 mt-0.5 w-5 h-5 rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-bold flex items-center justify-center">
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0 text-sm text-foreground/95 leading-relaxed">
+                  {s.message}
+                </div>
+                <div className="shrink-0 self-center flex items-center gap-1 text-[11px] text-violet-300/80 group-hover:text-violet-200 transition-colors">
+                  <Icon className={`w-3 h-3 ${iconColor}`} />
+                  {s.navLabel} <ArrowRight className="w-3 h-3 ml-0.5" />
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); dismiss(s.id); }}
+                aria-label="Dismiss suggestion"
+                title="Dismiss"
+                className="shrink-0 self-center p-1 rounded text-muted-foreground/60 hover:text-foreground hover:bg-violet-500/20 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           );
         })}
       </div>
