@@ -157,20 +157,21 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         limitedData={planScore.limitedData}
       />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map(key => {
+        {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map((key, i) => {
           const meta = SUBSCORE_META[key];
           return (
-            <SubScoreTile
-              key={key}
-              label={meta.label}
-              subscore={planScore.subscores[key]}
-              Icon={meta.Icon}
-              hint={hints[key]}
-              onClick={() => {
-                if (meta.navigateTo) onNavigate(meta.navigateTo);
-                else setStrategyOpen(v => !v);
-              }}
-            />
+            <div key={key} className="cascade-in" style={{ '--cascade-i': i } as React.CSSProperties}>
+              <SubScoreTile
+                label={meta.label}
+                subscore={planScore.subscores[key]}
+                Icon={meta.Icon}
+                hint={hints[key]}
+                onClick={() => {
+                  if (meta.navigateTo) onNavigate(meta.navigateTo);
+                  else setStrategyOpen(v => !v);
+                }}
+              />
+            </div>
           );
         })}
       </div>

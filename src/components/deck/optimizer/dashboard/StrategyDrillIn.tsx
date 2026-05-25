@@ -34,7 +34,7 @@ export function StrategyDrillIn({
   }
 
   return (
-    <div className="mt-3 p-4 bg-card/40 border border-border/30 rounded-lg space-y-2.5 text-xs">
+    <div className="mt-3 p-4 bg-card/40 border border-border/30 rounded-lg space-y-2.5 text-xs animate-fade-in">
       <div className="font-semibold text-foreground/90 text-sm">
         Strategy detail{planName ? ` — ${planName}` : ''}
       </div>

@@ -1,5 +1,5 @@
 // src/components/deck/optimizer/dashboard/HeroScore.tsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -39,9 +39,25 @@ export function HeroScore({
   onOpenInDeckView,
 }: HeroScoreProps) {
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
-  const pct = Math.max(0, Math.min(100, planScore.overall));
+  const target = Math.max(0, Math.min(100, planScore.overall));
+  const [displayed, setDisplayed] = useState(0);
+
+  useEffect(() => {
+    let raf: number;
+    const start = performance.now();
+    const duration = 700;
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      setDisplayed(Math.round(ease(t) * target));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target]);
+
   const ringStyle = {
-    background: `conic-gradient(hsl(var(--primary)) 0% ${pct}%, rgba(255,255,255,0.14) ${pct}% 100%)`,
+    background: `conic-gradient(hsl(var(--primary)) 0% ${displayed}%, rgba(255,255,255,0.14) ${displayed}% 100%)`,
   };
 
   // Resolve art_crop URL: try primary commander first, then partner
@@ -53,7 +69,7 @@ export function HeroScore({
     null;
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border/30 bg-card/40 min-h-[10rem] p-6 sm:p-8">
+    <div className="relative overflow-hidden rounded-xl border border-border/30 bg-card/40 min-h-[10rem] p-6 sm:p-8 animate-fade-in">
       {/* Layer 1: commander art backdrop (-z-20) */}
       {artUrl && (
         <div

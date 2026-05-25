@@ -368,7 +368,7 @@ export function NextBestMove(props: NextBestMoveProps) {
   };
 
   return (
-    <div className="rounded-xl border border-violet-500/40 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent p-4">
+    <div className="rounded-xl border border-violet-500/40 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent p-4 animate-fade-in">
       <div className="flex items-center gap-1.5 mb-3">
         <Lightbulb className="w-3.5 h-3.5 text-violet-300" />
         <span className="text-[11px] uppercase tracking-wider font-semibold text-violet-300/80">
@@ -379,7 +379,8 @@ export function NextBestMove(props: NextBestMoveProps) {
         {visible.map((s, i) => (
           <div
             key={s.id}
-            className="group relative flex items-stretch gap-1 rounded-md hover:bg-violet-500/5 transition-colors"
+            className="group relative flex items-stretch gap-1 rounded-md hover:bg-violet-500/5 transition-colors cascade-in"
+            style={{ '--cascade-i': i } as React.CSSProperties}
           >
             {s.navigateTo ? (
               <button
