@@ -142,7 +142,19 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         onSaveAsDeck={onSaveAsDeck}
         onOpenInDeckView={onOpenInDeckView}
       />
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      <NextBestMove
+        planScore={planScore}
+        misfits={misfits}
+        gapAnalysis={gapAnalysis}
+        roleBreakdowns={roleBreakdowns}
+        curvePhases={curvePhases}
+        detectedCombos={detectedCombos}
+        deckExcess={deckExcess}
+        commander={commander}
+        onNavigate={onNavigate}
+      />
+      <ConditionalWarnings warnings={warnings} onNavigate={onNavigate} />
+      <div className="mt-auto grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map(key => {
           const meta = SUBSCORE_META[key];
           return (
@@ -169,20 +181,6 @@ export function DashboardSummary(props: DashboardSummaryProps) {
           sampleSize={sampleSize}
         />
       )}
-      <ConditionalWarnings warnings={warnings} onNavigate={onNavigate} />
-      <div className="mt-auto">
-        <NextBestMove
-          planScore={planScore}
-          misfits={misfits}
-          gapAnalysis={gapAnalysis}
-          roleBreakdowns={roleBreakdowns}
-          curvePhases={curvePhases}
-          detectedCombos={detectedCombos}
-          deckExcess={deckExcess}
-          commander={commander}
-          onNavigate={onNavigate}
-        />
-      </div>
     </div>
   );
 }
