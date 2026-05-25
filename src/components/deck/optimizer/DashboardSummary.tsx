@@ -129,7 +129,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
   const deckExcess = deckTarget != null ? cards.length - deckTarget : 0;
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4 h-full">
       <HeroScore
         planScore={planScore}
         commander={commander}
@@ -169,17 +169,19 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         />
       )}
       <ConditionalWarnings warnings={warnings} onNavigate={onNavigate} />
-      <NextBestMove
-        planScore={planScore}
-        misfits={misfits}
-        gapAnalysis={gapAnalysis}
-        roleBreakdowns={roleBreakdowns}
-        curvePhases={curvePhases}
-        detectedCombos={detectedCombos}
-        deckExcess={deckExcess}
-        commander={commander}
-        onNavigate={onNavigate}
-      />
+      <div className="mt-auto">
+        <NextBestMove
+          planScore={planScore}
+          misfits={misfits}
+          gapAnalysis={gapAnalysis}
+          roleBreakdowns={roleBreakdowns}
+          curvePhases={curvePhases}
+          detectedCombos={detectedCombos}
+          deckExcess={deckExcess}
+          commander={commander}
+          onNavigate={onNavigate}
+        />
+      </div>
     </div>
   );
 }
