@@ -1423,6 +1423,25 @@ export function DeckOptimizer({
             onNavigate={setActiveTab}
             onSaveAsDeck={onSaveAsDeck}
             onOpenInDeckView={onOpenInDeckView}
+            cardSynergyMap={useStore.getState().generatedDeck?.cardSynergyMap}
+            roleCounts={Object.fromEntries(
+              analysis.roleBreakdowns.map(rb => [rb.role, rb.current])
+            )}
+            roleTargets={Object.fromEntries(
+              analysis.roleBreakdowns.map(rb => [rb.role, rb.target])
+            )}
+            edhrecAvgCmc={(() => {
+              const curve = cachedEdhrecDataRef.current?.stats?.manaCurve;
+              if (!curve) return null;
+              const total = Object.values(curve).reduce((s, n) => s + n, 0);
+              if (total === 0) return null;
+              return Object.entries(curve).reduce(
+                (s, [cmc, n]) => s + Number(cmc) * n, 0
+              ) / total;
+            })()}
+            detectedCombos={useStore.getState().generatedDeck?.detectedCombos ?? []}
+            deckTarget={deckSize}
+            onPreview={handlePreview}
           />
         )}
 

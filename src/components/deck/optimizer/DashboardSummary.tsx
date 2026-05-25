@@ -5,8 +5,11 @@ import { HeroScore } from './dashboard/HeroScore';
 import { SubScoreTile } from './dashboard/SubScoreTile';
 import { ConditionalWarnings } from './dashboard/ConditionalWarnings';
 import { StrategyDrillIn } from './dashboard/StrategyDrillIn';
+import { StandoutCards } from './dashboard/StandoutCards';
+import { DeckShape } from './dashboard/DeckShape';
+import { CombosPanel } from './dashboard/CombosPanel';
 import type {
-  ScryfallCard, EDHRECCommanderData, DashboardWarning, SubScoreKey,
+  ScryfallCard, EDHRECCommanderData, DashboardWarning, SubScoreKey, DetectedCombo,
 } from '@/types';
 import type { DeckAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
@@ -29,6 +32,14 @@ export interface DashboardSummaryProps {
   onNavigate: (tab: TabKey) => void;
   onSaveAsDeck?: () => void;
   onOpenInDeckView?: () => void;
+  // New panel props
+  cardSynergyMap?: Record<string, number>;
+  roleCounts?: Record<string, number>;
+  roleTargets?: Record<string, number>;
+  edhrecAvgCmc?: number | null;
+  detectedCombos?: DetectedCombo[];
+  deckTarget?: number;
+  onPreview?: (cardName: string) => void;
 }
 
 const SUBSCORE_META: Record<SubScoreKey, {
@@ -76,6 +87,8 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     analysis, cards, themeMembership, primaryThemeData, planName,
     sampleSize, warnings, adjustContent, onNavigate,
     onSaveAsDeck, onOpenInDeckView,
+    cardSynergyMap, roleCounts, roleTargets, edhrecAvgCmc,
+    detectedCombos, deckTarget, onPreview,
   } = props;
   const [strategyOpen, setStrategyOpen] = useState(false);
 
@@ -126,6 +139,29 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         />
       )}
       <ConditionalWarnings warnings={warnings} onNavigate={onNavigate} />
+      {onPreview && (
+        <StandoutCards
+          cards={cards}
+          cardSynergyMap={cardSynergyMap}
+          commanderName={commander.name}
+          sampleSize={sampleSize}
+          onPreview={onPreview}
+        />
+      )}
+      {roleCounts && roleTargets && deckTarget != null && (
+        <DeckShape
+          cards={cards}
+          deckTarget={deckTarget}
+          roleCounts={roleCounts}
+          roleTargets={roleTargets}
+          edhrecAvgCmc={edhrecAvgCmc}
+          commanderName={commander.name}
+          sampleSize={sampleSize}
+        />
+      )}
+      {detectedCombos && detectedCombos.length > 0 && (
+        <CombosPanel detectedCombos={detectedCombos} />
+      )}
     </div>
   );
 }
