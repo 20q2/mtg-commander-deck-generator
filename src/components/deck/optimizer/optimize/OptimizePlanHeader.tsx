@@ -35,12 +35,12 @@ export function OptimizePlanHeader({
             <Sparkles className="w-4 h-4 text-violet-300" />
             Tune your deck
           </h3>
-          <p className="text-[11px] sm:text-xs text-muted-foreground/70 mt-0.5">
+          <p className="text-[11px] sm:text-xs text-foreground/70 mt-0.5">
             We found {totalChanges > 0 ? `${totalChanges} swap${totalChanges !== 1 ? 's' : ''}` : 'a set of suggestions'} that look like upgrades.
           </p>
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-col items-end gap-1.5">
           <Button
             type="button"
             onClick={onApply}
@@ -60,14 +60,24 @@ export function OptimizePlanHeader({
             )}
           </Button>
 
-          <div className="hidden sm:flex items-center gap-2 text-[11px] tabular-nums">
+          <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-semibold tabular-nums">
             {priceDelta != null && (
-              <span className={priceDelta > 0 ? 'text-red-400/80' : priceDelta < 0 ? 'text-emerald-400/80' : 'text-muted-foreground/60'}>
+              <span className={`px-1.5 py-0.5 rounded-md ${
+                priceDelta < 0
+                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                  : priceDelta > 0
+                  ? 'bg-red-500/15 text-red-300 border border-red-500/25'
+                  : 'bg-muted/30 text-foreground/70 border border-border/30'
+              }`}>
                 {priceDelta > 0 ? '+' : priceDelta < 0 ? '−' : ''}${Math.abs(priceDelta).toFixed(2)}
               </span>
             )}
             {scoreDelta !== 0 && (
-              <span className={scoreDelta > 0 ? 'text-emerald-400/80' : 'text-red-400/80'}>
+              <span className={`px-1.5 py-0.5 rounded-md ${
+                scoreDelta > 0
+                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                  : 'bg-red-500/15 text-red-300 border border-red-500/25'
+              }`}>
                 {scoreDelta > 0 ? '+' : ''}{scoreDelta} score
               </span>
             )}
@@ -75,20 +85,20 @@ export function OptimizePlanHeader({
         </div>
       </div>
 
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-muted-foreground/60">
+      <div className="mt-2 flex items-center gap-3 text-[10px] text-foreground/60">
         <span>{removeCount} cut · {addCount} add</span>
         <span>→ {projectedSize}/{targetSize} cards{overBy > 0 ? ` (over by ${overBy})` : ''}</span>
         {hasUnchecked && (
           <button
             type="button"
             onClick={onReset}
-            className="ml-auto text-muted-foreground/60 hover:text-foreground transition-colors"
+            className="ml-auto text-foreground/70 hover:text-foreground transition-colors"
           >
             Reset selections
           </button>
         )}
         {totalChanges === 0 && (
-          <span className="ml-auto text-muted-foreground/60">Select cards to enable changes</span>
+          <span className="ml-auto text-foreground/70">Select cards to enable changes</span>
         )}
       </div>
     </div>
