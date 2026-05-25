@@ -16,6 +16,8 @@ interface CardFitHeroProps {
   onSkip: () => void;
   /** Optional control rendered in the hero's header rail (e.g. Misfits/Gaps toggle). */
   headerActions?: React.ReactNode;
+  /** Optional content rendered inside the aurora container, below the action row (e.g. filmstrip). */
+  children?: React.ReactNode;
 }
 
 const REASON_ICON: Record<MisfitReasonKind, React.ComponentType<{ className?: string }>> = {
@@ -29,7 +31,7 @@ const REASON_ICON: Record<MisfitReasonKind, React.ComponentType<{ className?: st
 
 export function CardFitHero({
   misfit, index, total, sampleSize, fitImpact,
-  onPreview, onRemove, onSwap, onSkip, headerActions,
+  onPreview, onRemove, onSwap, onSkip, headerActions, children,
 }: CardFitHeroProps) {
   const colors = manaColorsFor(misfit.card);
   const imgUrl = getCardImageUrl(misfit.card, 'normal') ?? scryfallImg(misfit.card.name, 'normal');
@@ -160,33 +162,45 @@ export function CardFitHero({
               />
             </div>
 
-            {/* Evidence rows — tighter */}
-            <div className="flex flex-col gap-1.5">
-              {misfit.reasons.map((r, i) => {
-                const Icon = REASON_ICON[r.kind];
-                return (
-                  <div
-                    key={i}
-                    className="grid grid-cols-[32px_1fr] gap-3 items-center px-3.5 py-2 rounded-lg"
-                    style={{
-                      background: 'rgba(15,10,24,0.6)',
-                      border: '1px solid rgba(168,85,247,0.18)',
-                    }}
-                  >
-                    <span
-                      className="w-7 h-7 rounded-md inline-flex items-center justify-center text-violet-200"
-                      style={{ background: 'rgba(168,85,247,0.18)' }}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </span>
-                    <div className="text-[12px] leading-snug">
-                      <b className="block text-white text-[13px] font-bold">{r.label}</b>
-                      <span className="text-violet-200/70">{r.detail}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {/* Extra reasons — inclusion + synergy are already covered by the stat strip,
+                so we only render reasons the strip doesn't speak to (role, theme, etc.). */}
+            {(() => {
+              const extraReasons = misfit.reasons.filter(r =>
+                r.kind !== 'inclusion-low' &&
+                r.kind !== 'inclusion-absent' &&
+                r.kind !== 'synergy-low' &&
+                r.kind !== 'synergy-absent'
+              );
+              if (extraReasons.length === 0) return null;
+              return (
+                <div className="flex flex-col gap-1.5">
+                  {extraReasons.map((r, i) => {
+                    const Icon = REASON_ICON[r.kind];
+                    return (
+                      <div
+                        key={i}
+                        className="grid grid-cols-[32px_1fr] gap-3 items-center px-3.5 py-2 rounded-lg"
+                        style={{
+                          background: 'rgba(15,10,24,0.6)',
+                          border: '1px solid rgba(168,85,247,0.18)',
+                        }}
+                      >
+                        <span
+                          className="w-7 h-7 rounded-md inline-flex items-center justify-center text-violet-200"
+                          style={{ background: 'rgba(168,85,247,0.18)' }}
+                        >
+                          <Icon className="w-4 h-4" />
+                        </span>
+                        <div className="text-[12px] leading-snug">
+                          <b className="block text-white text-[13px] font-bold">{r.label}</b>
+                          <span className="text-violet-200/70">{r.detail}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -280,6 +294,7 @@ export function CardFitHero({
             <SkipForward className="w-3.5 h-3.5" /> Keep this card
           </button>
         </div>
+        {children && <div className="relative pb-6">{children}</div>}
       </div>
     </div>
   );

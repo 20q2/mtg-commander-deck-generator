@@ -123,48 +123,34 @@ export function CardFitTab({
       )}
 
       {view === 'misfits' && current && (
-        <>
-          <CardFitHero
-            misfit={current}
-            index={featuredIndex}
-            total={featured.length}
-            sampleSize={sampleSize ?? null}
-            fitImpact={fitImpact}
+        <CardFitHero
+          misfit={current}
+          index={featuredIndex}
+          total={featured.length}
+          sampleSize={sampleSize ?? null}
+          fitImpact={fitImpact}
+          onPreview={onPreview}
+          onRemove={onRemoveCard}
+          onSwap={(onAddCard && onRemoveCard) ? handleSwap : undefined}
+          onSkip={next}
+          headerActions={viewToggle}
+        >
+          <CardFitFilmstrip
+            featured={featured}
+            currentIndex={featuredIndex}
+            totalMisfits={misfits.length}
+            onJump={setFeaturedIndex}
+            onSeeAll={() => setFullListOpen(true)}
+          />
+          <CardFitFullList
+            open={fullListOpen}
+            onClose={() => setFullListOpen(false)}
+            misfits={misfits}
             onPreview={onPreview}
             onRemove={onRemoveCard}
-            onSwap={(onAddCard && onRemoveCard) ? handleSwap : undefined}
-            onSkip={next}
-            headerActions={viewToggle}
+            onAddReplacement={onAddCard}
           />
-          <div className="px-4">
-            <CardFitFilmstrip
-              featured={featured}
-              currentIndex={featuredIndex}
-              totalMisfits={misfits.length}
-              onJump={setFeaturedIndex}
-              onSeeAll={() => setFullListOpen(true)}
-            />
-            <div className="flex justify-between items-center pt-3.5 mt-3.5 border-t border-violet-500/15">
-              <span className="text-xs text-muted-foreground">
-                <b className="text-white text-sm font-extrabold">{featuredIndex + 1}</b> / {featured.length} featured
-              </span>
-              <button
-                onClick={() => setFullListOpen(v => !v)}
-                className="text-xs text-violet-300 hover:text-violet-200 font-semibold"
-              >
-                {fullListOpen ? 'Hide full list' : `See all ${misfits.length} misfits →`}
-              </button>
-            </div>
-            <CardFitFullList
-              open={fullListOpen}
-              onClose={() => setFullListOpen(false)}
-              misfits={misfits}
-              onPreview={onPreview}
-              onRemove={onRemoveCard}
-              onAddReplacement={onAddCard}
-            />
-          </div>
-        </>
+        </CardFitHero>
       )}
 
       {view === 'gaps' && (
@@ -182,14 +168,6 @@ export function CardFitTab({
         </section>
       )}
 
-      <CardFitFullList
-        open={fullListOpen}
-        onClose={() => setFullListOpen(false)}
-        misfits={misfits}
-        onPreview={onPreview}
-        onRemove={onRemoveCard}
-        onAddReplacement={onAddCard}
-      />
     </div>
   );
 }
