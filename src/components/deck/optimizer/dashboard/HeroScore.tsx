@@ -33,7 +33,7 @@ export function HeroScore({
 }: HeroScoreProps) {
   const pct = Math.max(0, Math.min(100, planScore.overall));
   const ringStyle = {
-    background: `conic-gradient(hsl(var(--primary)) 0% ${pct}%, hsl(var(--muted)) ${pct}% 100%)`,
+    background: `conic-gradient(hsl(var(--primary)) 0% ${pct}%, rgba(255,255,255,0.14) ${pct}% 100%)`,
   };
 
   // Resolve art_crop URL: try primary commander first, then partner
