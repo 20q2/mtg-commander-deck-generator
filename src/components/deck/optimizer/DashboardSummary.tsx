@@ -1,6 +1,5 @@
 // src/components/deck/optimizer/DashboardSummary.tsx
 import { useState } from 'react';
-import { SourceRow } from './dashboard/SourceRow';
 import { HeroScore } from './dashboard/HeroScore';
 import { SubScoreTile } from './dashboard/SubScoreTile';
 import { ConditionalWarnings } from './dashboard/ConditionalWarnings';
@@ -101,7 +100,8 @@ export function DashboardSummary(props: DashboardSummaryProps) {
 
   return (
     <div className="space-y-4">
-      <SourceRow
+      <HeroScore
+        planScore={planScore}
         commander={commander}
         partnerCommander={partnerCommander}
         colorIdentity={colorIdentity}
@@ -111,7 +111,6 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         onSaveAsDeck={onSaveAsDeck}
         onOpenInDeckView={onOpenInDeckView}
       />
-      <HeroScore planScore={planScore} />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map(key => {
           const meta = SUBSCORE_META[key];
