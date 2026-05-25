@@ -12,7 +12,7 @@ export function HeroScore({ planScore }: HeroScoreProps) {
   };
 
   return (
-    <div className="relative flex flex-col sm:flex-row items-center gap-5 py-5">
+    <div className="relative flex flex-col sm:flex-row items-center gap-6 p-6 sm:p-8 rounded-xl border border-border/30 bg-card/40">
       <div
         className="absolute inset-0 -z-10 rounded-xl pointer-events-none"
         style={{
