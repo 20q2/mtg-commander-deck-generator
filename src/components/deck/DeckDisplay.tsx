@@ -4124,9 +4124,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           <div className="hidden sm:block max-w-4xl mx-auto px-4 pb-4">
             {/* Selection count tab — sticks up off the toolbar */}
             <div className="flex justify-start pl-4">
-              <div className="pointer-events-auto inline-flex items-center px-3 py-1 rounded-t-md bg-card/95 backdrop-blur-md border border-b-0 border-border text-xs font-medium">
+              <div className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-t-md bg-card/95 backdrop-blur-md border border-b-0 border-border text-xs font-medium">
                 {selectedCards.size > 0 ? (
-                  <>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''} selected</>
+                  <>
+                    <span>{selectedCards.size} card{selectedCards.size !== 1 ? 's' : ''} selected</span>
+                    <button
+                      onClick={() => { setSelectedCards(new Set()); lastSelectedIdRef.current = null; }}
+                      className="-mr-1 ml-0.5 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      title="Clear selection"
+                      aria-label="Clear selection"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </>
                 ) : (
                   <span className="text-muted-foreground">Select cards</span>
                 )}
