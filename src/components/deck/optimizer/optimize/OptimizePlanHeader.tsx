@@ -18,7 +18,7 @@ export function OptimizePlanHeader({
 
   if (!hasSwaps) {
     return (
-      <div className="sticky top-0 z-10 -mx-3 sm:-mx-4 px-3 sm:px-4 py-4 mb-3 border-b border-border/30 bg-gradient-to-b from-violet-950/60 via-background to-background backdrop-blur-lg">
+      <div className="sticky top-0 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 py-4 mb-6 sm:mb-8 border-b-2 border-border/60 shadow-lg shadow-black/40 bg-gradient-to-b from-violet-950/60 via-background to-background backdrop-blur-lg">
         <div className="flex items-center gap-2 text-sm text-emerald-400/80">
           <Check className="w-4 h-4" />
           <span className="font-medium">Looking good — no swaps recommended.</span>
@@ -28,7 +28,7 @@ export function OptimizePlanHeader({
   }
 
   return (
-    <div className="sticky top-0 z-10 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 sm:py-4 mb-3 border-b border-border/30 bg-gradient-to-b from-violet-950/60 via-background to-background backdrop-blur-lg">
+    <div className="sticky top-0 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 py-3 sm:py-4 mb-6 sm:mb-8 border-b-2 border-border/60 shadow-lg shadow-black/40 bg-gradient-to-b from-violet-950/60 via-background to-background backdrop-blur-lg">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="min-w-0">
           <h3 className="text-base sm:text-lg font-semibold flex items-center gap-2">

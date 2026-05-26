@@ -70,7 +70,7 @@ export function OptimizeDrilldown({
     <div
       ref={panelRef}
       // scroll-mt leaves clearance for the sticky plan header above the panel
-      className={`relative rounded-xl border ${style.panelBorder} bg-card/95 backdrop-blur-lg shadow-lg p-3 sm:p-4 scroll-mt-40 animate-fade-in`}
+      className={`relative rounded-xl border ${style.panelBorder} bg-card/95 backdrop-blur-lg shadow-xl shadow-black/50 p-3 sm:p-4 scroll-mt-40 animate-fade-in`}
     >
       <button
         type="button"
