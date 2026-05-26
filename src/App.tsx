@@ -80,7 +80,7 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
             filter: isModifyMode
               ? 'saturate(0.25) hue-rotate(180deg) brightness(0.7) contrast(1.05)'
               : undefined,
-            transition: 'filter 1200ms ease',
+            transition: 'filter 2800ms ease',
           }}
           onLoad={() => setImageLoaded(true)}
         />
@@ -101,13 +101,14 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
 
       {/* Blueprint overlay — subtle blue wash + grid, fades in/out with modify mode */}
       <div
-        className="absolute inset-0 transition-opacity duration-1000 ease-out"
+        className="absolute inset-0 ease-out"
         style={{
           opacity: isModifyMode ? 1 : 0,
+          transition: 'opacity 2200ms ease',
           background:
             'linear-gradient(rgba(56, 109, 183, 0.18), rgba(20, 40, 80, 0.28)),' +
-            'repeating-linear-gradient(0deg, transparent 0 39px, rgba(140, 180, 255, 0.08) 39px 40px),' +
-            'repeating-linear-gradient(90deg, transparent 0 39px, rgba(140, 180, 255, 0.08) 39px 40px)',
+            'repeating-linear-gradient(0deg, transparent 0 17px, rgba(140, 180, 255, 0.08) 17px 18px),' +
+            'repeating-linear-gradient(90deg, transparent 0 17px, rgba(140, 180, 255, 0.08) 17px 18px)',
         }}
       />
     </div>
