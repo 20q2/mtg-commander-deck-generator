@@ -48,7 +48,7 @@ export function OptimizeTabContent({
   const [activeRemoveName, setActiveRemoveName] = useState<string | null>(null);
   const [activeAddName, setActiveAddName] = useState<string | null>(null);
   const [highlightedComboId, setHighlightedComboId] = useState<string | null>(null);
-  const [view, setView] = useState<OptimizeView>('remove');
+  const [view, setView] = useState<OptimizeView>('swaps');
   const highlightTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,54 +111,56 @@ export function OptimizeTabContent({
         comboCount={detectedCombos.length}
       />
 
-      {hasSwaps && view === 'remove' && (
-        <OptimizeColumn
-          side="remove"
-          cards={plan.removals}
-          uncheckedNames={plan.uncheckedRemovals}
-          activeName={activeRemoveName}
-          totalCount={plan.removals.length}
-          onTileClick={handleToggleRemove}
-          onSelectAll={plan.selectAllRemovals}
-          onDeselectAll={plan.deselectAllRemovals}
-          renderDrilldown={(card) => (
-            <OptimizeDrilldown
-              card={card}
-              side="remove"
-              checked={!plan.uncheckedRemovals.has(card.name)}
-              synergy={deck?.cardSynergyMap?.[card.name]}
-              candidates={candidatesForActiveRemove}
-              onToggle={plan.toggleRemoval}
-              onClose={() => setActiveRemoveName(null)}
-              onPreviewCard={onPreviewCard}
-            />
-          )}
-        />
-      )}
+      {hasSwaps && view === 'swaps' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          <OptimizeColumn
+            side="remove"
+            cards={plan.removals}
+            uncheckedNames={plan.uncheckedRemovals}
+            activeName={activeRemoveName}
+            totalCount={plan.removals.length}
+            onTileClick={handleToggleRemove}
+            onToggleChecked={plan.toggleRemoval}
+            onSelectAll={plan.selectAllRemovals}
+            onDeselectAll={plan.deselectAllRemovals}
+            renderDrilldown={(card) => (
+              <OptimizeDrilldown
+                card={card}
+                side="remove"
+                checked={!plan.uncheckedRemovals.has(card.name)}
+                synergy={deck?.cardSynergyMap?.[card.name]}
+                candidates={candidatesForActiveRemove}
+                onToggle={plan.toggleRemoval}
+                onClose={() => setActiveRemoveName(null)}
+                onPreviewCard={onPreviewCard}
+              />
+            )}
+          />
 
-      {hasSwaps && view === 'add' && (
-        <OptimizeColumn
-          side="add"
-          cards={plan.additions}
-          uncheckedNames={plan.uncheckedAdditions}
-          activeName={activeAddName}
-          totalCount={plan.additions.length}
-          onTileClick={handleToggleAdd}
-          onSelectAll={plan.selectAllAdditions}
-          onDeselectAll={plan.deselectAllAdditions}
-          renderDrilldown={(card) => (
-            <OptimizeDrilldown
-              card={card}
-              side="add"
-              checked={!plan.uncheckedAdditions.has(card.name)}
-              synergy={deck?.cardSynergyMap?.[card.name]}
-              combo={comboForActiveAdd}
-              onToggle={plan.toggleAddition}
-              onClose={() => setActiveAddName(null)}
-              onViewCombo={flashCombo}
-            />
-          )}
-        />
+          <OptimizeColumn
+            side="add"
+            cards={plan.additions}
+            uncheckedNames={plan.uncheckedAdditions}
+            activeName={activeAddName}
+            totalCount={plan.additions.length}
+            onTileClick={handleToggleAdd}
+            onToggleChecked={plan.toggleAddition}
+            onSelectAll={plan.selectAllAdditions}
+            onDeselectAll={plan.deselectAllAdditions}
+            renderDrilldown={(card) => (
+              <OptimizeDrilldown
+                card={card}
+                side="add"
+                checked={!plan.uncheckedAdditions.has(card.name)}
+                synergy={deck?.cardSynergyMap?.[card.name]}
+                combo={comboForActiveAdd}
+                onToggle={plan.toggleAddition}
+                onClose={() => setActiveAddName(null)}
+                onViewCombo={flashCombo}
+              />
+            )}
+          />
+        </div>
       )}
 
       {view === 'combos' && (

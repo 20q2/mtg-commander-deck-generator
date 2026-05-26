@@ -1,6 +1,8 @@
-import { Sparkles, Check } from 'lucide-react';
+import { Sparkles, Check, ArrowRightLeft, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { OptimizePlanTotals } from './useOptimizePlan';
+
+export type OptimizeView = 'swaps' | 'combos';
 
 export interface OptimizePlanHeaderProps {
   totals: OptimizePlanTotals;
@@ -9,12 +11,29 @@ export interface OptimizePlanHeaderProps {
   hasUnchecked: boolean;
   onApply: () => void;
   onReset: () => void;
+  view: OptimizeView;
+  onViewChange: (next: OptimizeView) => void;
+  comboCount: number;
+}
+
+interface ToggleOption {
+  key: OptimizeView;
+  label: string;
+  count: number;
+  Icon: typeof ArrowRightLeft;
+  activeClass: string;
 }
 
 export function OptimizePlanHeader({
   totals, applying, hasSwaps, hasUnchecked, onApply, onReset,
+  view, onViewChange, comboCount,
 }: OptimizePlanHeaderProps) {
   const { totalChanges, removeCount, addCount, priceDelta, scoreDelta, projectedSize, targetSize, overBy } = totals;
+
+  const toggleOptions: ToggleOption[] = [
+    { key: 'swaps',  label: 'Swaps',  count: totalChanges, Icon: ArrowRightLeft, activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
+    { key: 'combos', label: 'Combos', count: comboCount,   Icon: Zap,            activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
+  ];
 
   if (!hasSwaps) {
     return (
@@ -40,65 +59,104 @@ export function OptimizePlanHeader({
           </p>
         </div>
 
-        <div className="ml-auto flex flex-col items-end gap-1.5">
-          <Button
-            type="button"
-            onClick={onApply}
-            disabled={totalChanges === 0 || applying}
-            className="btn-shimmer px-4 py-2 text-sm font-semibold gap-2"
-          >
-            {applying ? (
-              <>
-                <Check className="w-4 h-4" />
-                Applied!
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                Apply {totalChanges} Change{totalChanges !== 1 ? 's' : ''}
-              </>
-            )}
-          </Button>
-
-          <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-semibold tabular-nums">
-            {priceDelta != null && (
-              <span className={`px-1.5 py-0.5 rounded-md ${
-                priceDelta < 0
-                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
-                  : priceDelta > 0
-                  ? 'bg-red-500/15 text-red-300 border border-red-500/25'
-                  : 'bg-muted/30 text-foreground/70 border border-border/30'
-              }`}>
-                {priceDelta > 0 ? '+' : priceDelta < 0 ? '−' : ''}${Math.abs(priceDelta).toFixed(2)}
-              </span>
-            )}
-            {scoreDelta !== 0 && (
-              <span className={`px-1.5 py-0.5 rounded-md ${
-                scoreDelta > 0
-                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
-                  : 'bg-red-500/15 text-red-300 border border-red-500/25'
-              }`}>
-                {scoreDelta > 0 ? '+' : ''}{scoreDelta} score
-              </span>
-            )}
-          </div>
+        <div
+          role="tablist"
+          aria-label="Tune view"
+          className="ml-auto sm:ml-0 sm:mx-auto flex items-center gap-1 p-1 rounded-lg bg-background/40 border border-border/40"
+        >
+          {toggleOptions.map(opt => {
+            const isActive = view === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => onViewChange(opt.key)}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md border transition-colors ${
+                  isActive
+                    ? opt.activeClass
+                    : 'bg-transparent text-foreground/70 border-transparent hover:bg-white/5 hover:text-foreground'
+                }`}
+              >
+                <opt.Icon className="w-3.5 h-3.5" />
+                <span>{opt.label}</span>
+                <span className={`tabular-nums text-[10px] font-bold ${isActive ? '' : 'text-foreground/60'}`}>
+                  {opt.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
+
+        <Button
+          type="button"
+          onClick={onApply}
+          disabled={totalChanges === 0 || applying}
+          className="btn-shimmer px-4 py-2 text-sm font-semibold gap-2 self-center"
+        >
+          {applying ? (
+            <>
+              <Check className="w-4 h-4" />
+              Applied!
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              Apply {totalChanges} Change{totalChanges !== 1 ? 's' : ''}
+            </>
+          )}
+        </Button>
       </div>
 
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-foreground/60">
-        <span>{removeCount} cut · {addCount} add</span>
-        <span>→ {projectedSize}/{targetSize} cards{overBy > 0 ? ` (over by ${overBy})` : ''}</span>
+      <div className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold tabular-nums">
+        <span className="px-1.5 py-0.5 rounded-md bg-muted/30 text-foreground/80 border border-border/40">
+          {removeCount} cut · {addCount} add
+        </span>
+        <span
+          className={`px-1.5 py-0.5 rounded-md ${
+            overBy > 0
+              ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
+              : 'bg-muted/30 text-foreground/80 border border-border/40'
+          }`}
+        >
+          → {projectedSize}/{targetSize} cards{overBy > 0 ? ` (over by ${overBy})` : ''}
+        </span>
+
+        <div className="hidden sm:flex items-center gap-1.5">
+          {priceDelta != null && (
+            <span className={`px-1.5 py-0.5 rounded-md ${
+              priceDelta < 0
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                : priceDelta > 0
+                ? 'bg-red-500/15 text-red-300 border border-red-500/25'
+                : 'bg-muted/30 text-foreground/70 border border-border/30'
+            }`}>
+              {priceDelta > 0 ? '+' : priceDelta < 0 ? '−' : ''}${Math.abs(priceDelta).toFixed(2)}
+            </span>
+          )}
+          {scoreDelta !== 0 && (
+            <span className={`px-1.5 py-0.5 rounded-md ${
+              scoreDelta > 0
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                : 'bg-red-500/15 text-red-300 border border-red-500/25'
+            }`}>
+              {scoreDelta > 0 ? '+' : ''}{scoreDelta} score
+            </span>
+          )}
+        </div>
+
         {hasUnchecked && (
           <button
             type="button"
             onClick={onReset}
-            className="ml-auto text-foreground/70 hover:text-foreground transition-colors"
+            className="ml-auto text-[10px] font-normal text-foreground/70 hover:text-foreground transition-colors"
           >
             Reset selections
           </button>
         )}
         {totalChanges === 0 && (
-          <span className="ml-auto text-foreground/70">Select cards to enable changes</span>
+          <span className="ml-auto text-[10px] font-normal text-foreground/70">Select cards to enable changes</span>
         )}
       </div>
     </div>
