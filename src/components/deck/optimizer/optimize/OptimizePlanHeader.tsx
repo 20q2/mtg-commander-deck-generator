@@ -59,59 +59,27 @@ export function OptimizePlanHeader({
           </p>
         </div>
 
-        <div className="flex flex-col items-stretch sm:items-end gap-2">
-          <Button
-            type="button"
-            onClick={onApply}
-            disabled={totalChanges === 0 || applying}
-            className="btn-shimmer px-4 py-2 text-sm font-semibold gap-2"
-          >
-            {applying ? (
-              <>
-                <Check className="w-4 h-4" />
-                Applied!
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                Apply {totalChanges} Change{totalChanges !== 1 ? 's' : ''}
-              </>
-            )}
-          </Button>
-
-          <div
-            role="tablist"
-            aria-label="Tune view"
-            className="flex items-center gap-1 p-1 rounded-lg bg-background/40 border border-border/40"
-          >
-            {toggleOptions.map(opt => {
-              const isActive = view === opt.key;
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => onViewChange(opt.key)}
-                  className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md border transition-colors ${
-                    isActive
-                      ? opt.activeClass
-                      : 'bg-transparent text-foreground/70 border-transparent hover:bg-white/5 hover:text-foreground'
-                  }`}
-                >
-                  <opt.Icon className="w-3.5 h-3.5" />
-                  <span>{opt.label}</span>
-                  <span className={`tabular-nums text-[10px] font-bold ${isActive ? '' : 'text-foreground/60'}`}>
-                    {opt.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <Button
+          type="button"
+          onClick={onApply}
+          disabled={totalChanges === 0 || applying}
+          className="btn-shimmer px-4 py-2 text-sm font-semibold gap-2 self-start sm:self-auto"
+        >
+          {applying ? (
+            <>
+              <Check className="w-4 h-4" />
+              Applied!
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              Apply {totalChanges} Change{totalChanges !== 1 ? 's' : ''}
+            </>
+          )}
+        </Button>
       </div>
 
-      <div className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold tabular-nums">
+      <div className="mt-2 flex items-center flex-wrap gap-1.5 text-[10px] font-semibold tabular-nums">
         <span className="px-1.5 py-0.5 rounded-md bg-muted/30 text-foreground/80 border border-border/40">
           {removeCount} cut · {addCount} add
         </span>
@@ -152,14 +120,44 @@ export function OptimizePlanHeader({
           <button
             type="button"
             onClick={onReset}
-            className="ml-auto text-[10px] font-normal text-foreground/70 hover:text-foreground transition-colors"
+            className="text-[10px] font-normal text-foreground/70 hover:text-foreground transition-colors"
           >
             Reset selections
           </button>
         )}
         {totalChanges === 0 && (
-          <span className="ml-auto text-[10px] font-normal text-foreground/70">Select cards to enable changes</span>
+          <span className="text-[10px] font-normal text-foreground/70">Select cards to enable changes</span>
         )}
+
+        <div
+          role="tablist"
+          aria-label="Tune view"
+          className="ml-auto flex items-center gap-1 p-0.5 rounded-lg bg-background/40 border border-border/40"
+        >
+          {toggleOptions.map(opt => {
+            const isActive = view === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => onViewChange(opt.key)}
+                className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-colors ${
+                  isActive
+                    ? opt.activeClass
+                    : 'bg-transparent text-foreground/70 border-transparent hover:bg-white/5 hover:text-foreground'
+                }`}
+              >
+                <opt.Icon className="w-3 h-3" />
+                <span>{opt.label}</span>
+                <span className={`tabular-nums text-[10px] font-bold ${isActive ? '' : 'text-foreground/60'}`}>
+                  {opt.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
