@@ -44,20 +44,29 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
     if (active) buttonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [active]);
 
+  // Inclusion-based "consensus" color/width for the bottom bar:
+  // ≤10% red → 30% amber → 60%+ emerald. Gives an ambient sense of how
+  // mainstream a pick is without putting a number on the tile.
+  const inclusion = card.inclusion ?? 0;
+  const inclusionHue = Math.min(120, Math.max(0, inclusion * 1.4));
+  const inclusionWidth = Math.min(100, Math.max(4, inclusion));
+
   return (
     <button
       ref={buttonRef}
       type="button"
       onClick={onClick}
       // scroll-mt clears the sticky plan header above so the tile lands below it.
-      className={`group/tile relative block w-full text-left transition-all duration-200 rounded-lg overflow-visible scroll-mt-40 ${
+      className={`group/tile relative block w-full text-left transition-all duration-300 ease-out rounded-lg overflow-visible scroll-mt-40 ${
         active ? `ring-2 ${sideCls.ring}` : ''
-      }`}
+      } ${checked ? 'hover:-translate-y-0.5' : ''}`}
       title={card.name}
     >
       <div
-        className={`relative rounded-lg overflow-hidden border transition-all duration-200 ${
-          checked ? `${sideCls.border} ${sideCls.hover} group-hover/tile:scale-[1.03]` : 'border-muted-foreground/20 opacity-60'
+        className={`relative rounded-lg overflow-hidden border transition-all duration-300 ease-out ${
+          checked
+            ? `${sideCls.border} ${sideCls.hover} shadow-sm shadow-black/40 group-hover/tile:shadow-lg group-hover/tile:shadow-black/60`
+            : 'border-muted-foreground/20 opacity-60'
         }`}
         style={{
           filter: checked ? undefined : 'grayscale(0.95) brightness(0.55)',
@@ -92,7 +101,7 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
 
         {side === 'add' && isComboEnabler && (
           <span
-            className="absolute top-1 right-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-violet-500/80 text-white"
+            className="absolute top-1 right-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-violet-500/80 text-white shadow-md shadow-violet-900/50"
             title="Completes a combo"
           >
             <Zap className="w-3 h-3" />
@@ -106,9 +115,27 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
             </span>
           </div>
         )}
+
+        {/* Consensus / inclusion bar — width = inclusion %, color = how mainstream.
+            Glanceable signal without adding a number to the tile. */}
+        {checked && card.inclusion != null && (
+          <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-black/40">
+            <div
+              className="h-full transition-[width,background-color] duration-500 ease-out"
+              style={{
+                width: `${inclusionWidth}%`,
+                backgroundColor: `hsl(${inclusionHue}, 75%, 52%)`,
+                boxShadow: `0 0 6px hsl(${inclusionHue}, 80%, 50%, 0.5)`,
+              }}
+              title={`${Math.round(inclusion)}% EDHREC inclusion`}
+            />
+          </div>
+        )}
       </div>
 
-      <div className="mt-1 text-[10px] text-center truncate text-foreground/80">
+      <div className={`mt-1 text-[10px] text-center truncate transition-colors ${
+        checked ? 'text-foreground/85 group-hover/tile:text-foreground' : 'text-foreground/50'
+      }`}>
         {card.name}
       </div>
     </button>

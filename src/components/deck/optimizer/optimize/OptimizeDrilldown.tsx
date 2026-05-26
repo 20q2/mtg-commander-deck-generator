@@ -2,6 +2,7 @@ import { X, Zap, ArrowRight } from 'lucide-react';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { Button } from '@/components/ui/button';
+import { ManaText } from '@/components/ui/mtg-icons';
 import { getCachedCard, getCardImageUrl } from '@/services/scryfall/client';
 import { scryfallImg } from '../constants';
 import type { TileSide } from './OptimizeTile';
@@ -47,12 +48,19 @@ function resolveBigImage(card: OptimizeCard): string {
   return scryfallImg(card.name, 'normal');
 }
 
+function resolveManaCost(card: OptimizeCard): string {
+  const cached = getCachedCard(card.name);
+  if (!cached) return '';
+  return cached.mana_cost ?? cached.card_faces?.[0]?.mana_cost ?? '';
+}
+
 export function OptimizeDrilldown({
   card, side, checked, candidates, combo, onToggle, onClose, onPreviewCard, onViewCombo,
 }: OptimizeDrilldownProps) {
   const style = SIDE_STYLE[side];
   const imgUrl = resolveBigImage(card);
   const typeLine = resolveTypeLine(card);
+  const manaCost = resolveManaCost(card);
   const inclusionPct = card.inclusion != null ? Math.round(card.inclusion) : null;
   const scoreVal = card.score != null ? Math.round(card.score) : null;
   const toggleLabel = side === 'remove'
@@ -85,20 +93,25 @@ export function OptimizeDrilldown({
 
         <div className="flex-1 min-w-0 flex flex-col gap-3">
           <div>
-            <h4 className="text-sm font-semibold flex items-center gap-2">
-              {card.name}
-              {card.isGameChanger && (
-                <span className="text-[10px] font-bold text-amber-400/80" title="Game Changer (EDHREC)">GC</span>
+            <div className="flex items-start gap-2">
+              <h4 className="text-sm font-semibold flex items-center gap-2 flex-1 min-w-0">
+                <span className="truncate">{card.name}</span>
+                {card.isGameChanger && (
+                  <span className="text-[10px] font-bold text-amber-400/80 shrink-0" title="Game Changer (EDHREC)">GC</span>
+                )}
+                {card.isThemeSynergy && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-400/80 shrink-0" title="High synergy with commander themes">
+                    <Zap className="w-2.5 h-2.5" />
+                    High Synergy
+                  </span>
+                )}
+              </h4>
+              {manaCost && (
+                <ManaText text={manaCost} className="shrink-0 text-sm leading-none" />
               )}
-              {card.isThemeSynergy && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-400/80" title="High synergy with commander themes">
-                  <Zap className="w-2.5 h-2.5" />
-                  High Synergy
-                </span>
-              )}
-            </h4>
+            </div>
             {typeLine && (
-              <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+              <p className="text-[11px] text-foreground/70 mt-1">
                 {typeLine}{card.cmc != null && card.cmc > 0 ? ` · CMC ${card.cmc}` : ''}
               </p>
             )}
@@ -108,19 +121,40 @@ export function OptimizeDrilldown({
             {card.reason}
           </p>
 
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground/80">
-            {inclusionPct != null && (
-              <span title="EDHREC inclusion %">
-                <span className="font-semibold text-foreground/80">{inclusionPct}%</span> inclusion
-              </span>
-            )}
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold">
+            {inclusionPct != null && (() => {
+              const hue = Math.min(120, Math.max(0, inclusionPct * 1.4));
+              return (
+                <span
+                  className="inline-flex items-baseline gap-1 px-2 py-1 rounded-md border tabular-nums"
+                  style={{
+                    color: `hsl(${hue}, 75%, 65%)`,
+                    backgroundColor: `hsla(${hue}, 70%, 30%, 0.15)`,
+                    borderColor: `hsla(${hue}, 70%, 45%, 0.35)`,
+                  }}
+                  title="EDHREC inclusion — % of decks running this card"
+                >
+                  <span className="text-xs">{inclusionPct}%</span>
+                  <span className="text-[9px] opacity-80 uppercase tracking-wider">inclusion</span>
+                </span>
+              );
+            })()}
             {scoreVal != null && (
-              <span title="Relevancy score">
-                Score <span className="font-semibold text-violet-300/80">{scoreVal}</span>
+              <span
+                className="inline-flex items-baseline gap-1 px-2 py-1 rounded-md border border-violet-500/30 bg-violet-500/15 text-violet-300 tabular-nums"
+                title="Relevancy score (composite of inclusion + synergy + role fit)"
+              >
+                <span className="text-xs">{scoreVal}</span>
+                <span className="text-[9px] opacity-80 uppercase tracking-wider">score</span>
               </span>
             )}
             {card.price && (
-              <span className="tabular-nums">${card.price}</span>
+              <span
+                className="inline-flex items-baseline gap-1 px-2 py-1 rounded-md border border-border/40 bg-muted/30 text-foreground/80 tabular-nums"
+                title="Current market price"
+              >
+                <span className="text-xs">${card.price}</span>
+              </span>
             )}
           </div>
 
