@@ -2,8 +2,19 @@ import { ReactNode, useMemo } from 'react';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { OptimizeTile, type TileSide } from './OptimizeTile';
+
+type TriState = boolean | 'indeterminate';
+
+function triStateFor(names: string[], uncheckedNames: Set<string>): TriState {
+  if (names.length === 0) return false;
+  const uncheckedHere = names.filter(n => uncheckedNames.has(n)).length;
+  if (uncheckedHere === 0) return true;
+  if (uncheckedHere === names.length) return false;
+  return 'indeterminate';
+}
 
 const REMOVAL_CATEGORY_LABELS: Record<string, string> = {
   'low-synergy': 'Low Synergy',
@@ -113,7 +124,10 @@ export function OptimizeColumn({
   const labelFn = side === 'remove' ? getRemovalCategoryLabel : getAdditionCategoryLabel;
   const groups = useMemo(() => groupByCategory(cards, labelFn), [cards, labelFn]);
   const headerMeta = SIDE_HEADER[side];
-  const allUnchecked = cards.length > 0 && cards.every(c => uncheckedNames.has(c.name));
+  const columnState = triStateFor(cards.map(c => c.name), uncheckedNames);
+  const columnAriaLabel = side === 'remove'
+    ? (columnState === true ? 'Deselect all removals' : 'Select all removals')
+    : (columnState === true ? 'Deselect all additions' : 'Select all additions');
 
   return (
     // No outer column backdrop or border — each section card stands on its own.
@@ -126,37 +140,40 @@ export function OptimizeColumn({
         <span className={`text-xs font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
           {headerMeta.label} ({totalCount})
         </span>
-        <button
-          type="button"
-          onClick={() => (allUnchecked ? onSelectAll() : onDeselectAll())}
-          className={`ml-auto text-[10px] font-medium px-2 py-1 rounded transition-colors ${headerMeta.tintText} hover:bg-white/10`}
-        >
-          {allUnchecked ? 'Select all' : 'Deselect all'}
-        </button>
+        <Checkbox
+          checked={columnState}
+          onCheckedChange={() => (columnState === true ? onDeselectAll() : onSelectAll())}
+          aria-label={columnAriaLabel}
+          title={columnAriaLabel}
+          className="ml-auto"
+        />
       </div>
 
       {/* Each group is its own glassy card — no border. */}
       {groups.map(group => {
         const groupNames = group.cards.map(c => c.name);
-        const groupAllUnchecked = groupNames.every(n => uncheckedNames.has(n));
+        const groupState = triStateFor(groupNames, uncheckedNames);
+        const groupAriaLabel = groupState === true
+          ? `Deselect all in ${group.label}`
+          : `Select all in ${group.label}`;
         return (
         <section
           key={group.category}
           className={`${headerMeta.cardBg} rounded-xl px-3 pt-0 pb-3`}
         >
           {/* Group label — sticky just below the plan header so the most recent menu title is always visible. */}
-          <div className={`sticky top-[6.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-md ${headerMeta.stickyBg} backdrop-blur-md flex items-center gap-2`}>
+          <div className={`sticky top-[6.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-t-md ${headerMeta.stickyBg} backdrop-blur-md flex items-center gap-2`}>
             <span className={`text-[11px] font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
               {group.label}
             </span>
             <span className="text-[10px] text-foreground/60">{group.cards.length}</span>
-            <button
-              type="button"
-              onClick={() => (groupAllUnchecked ? onSelectGroup(groupNames) : onDeselectGroup(groupNames))}
-              className={`ml-auto text-[10px] font-medium px-2 py-0.5 rounded transition-colors ${headerMeta.tintText} hover:bg-white/10`}
-            >
-              {groupAllUnchecked ? 'Select all' : 'Deselect all'}
-            </button>
+            <Checkbox
+              checked={groupState}
+              onCheckedChange={() => (groupState === true ? onDeselectGroup(groupNames) : onSelectGroup(groupNames))}
+              aria-label={groupAriaLabel}
+              title={groupAriaLabel}
+              className="ml-auto"
+            />
           </div>
 
           {/* Each tile is the trigger for its own Popover — the drill-down
