@@ -166,9 +166,9 @@ export function OptimizeColumn({
                     />
                   </PopoverTrigger>
                   <PopoverContent
-                    side="bottom"
+                    side="right"
                     align="center"
-                    sideOffset={8}
+                    sideOffset={12}
                     collisionPadding={16}
                     className="w-[440px] max-w-[calc(100vw-2rem)] p-0 border-none bg-transparent shadow-none"
                   >
