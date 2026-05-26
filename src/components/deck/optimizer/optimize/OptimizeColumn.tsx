@@ -1,7 +1,8 @@
-import { Fragment, ReactNode, useMemo } from 'react';
+import { ReactNode, useMemo } from 'react';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { OptimizeTile, type TileSide } from './OptimizeTile';
 
 const REMOVAL_CATEGORY_LABELS: Record<string, string> = {
@@ -113,9 +114,9 @@ export function OptimizeColumn({
   return (
     // No outer column backdrop or border — each section card stands on its own.
     <div className="space-y-3">
-      {/* Column header — its own glassy card, sticky just below the hero bar. */}
+      {/* Column header — non-sticky; only group labels stick as the user scrolls. */}
       <div
-        className={`sticky top-[6.5rem] z-10 px-3 py-2 rounded-xl ${headerMeta.stickyBg} backdrop-blur-md flex items-center gap-2 shadow-md shadow-black/30`}
+        className={`px-3 py-2 rounded-xl ${headerMeta.stickyBg} flex items-center gap-2 shadow-md shadow-black/30`}
       >
         <headerMeta.Icon className={`w-3.5 h-3.5 ${headerMeta.tintText}`} />
         <span className={`text-xs font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
@@ -134,33 +135,48 @@ export function OptimizeColumn({
       {groups.map(group => (
         <section
           key={group.category}
-          className={`${headerMeta.cardBg} rounded-xl p-3`}
+          className={`${headerMeta.cardBg} rounded-xl px-3 pt-0 pb-3`}
         >
-          {/* Group label — sticky inside its section card, just below the column header. */}
-          <div className={`sticky top-[9.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-md ${headerMeta.stickyBg} backdrop-blur-md flex items-baseline gap-2`}>
+          {/* Group label — sticky just below the plan header so the most recent menu title is always visible. */}
+          <div className={`sticky top-[6.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-md ${headerMeta.stickyBg} backdrop-blur-md flex items-baseline gap-2`}>
             <span className={`text-[11px] font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
               {group.label}
             </span>
             <span className="text-[10px] text-foreground/60">{group.cards.length}</span>
           </div>
 
-          {/* grid-flow-dense lets following tiles back-fill gaps left when
-              the drill-down row-break splits the grid mid-row. */}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(70px,1fr))] grid-flow-dense gap-2">
-            {group.cards.map(card => (
-              <Fragment key={card.name}>
-                <OptimizeTile
-                  card={card}
-                  side={side}
-                  checked={!uncheckedNames.has(card.name)}
-                  active={card.name === activeName}
-                  onClick={() => onTileClick(card.name)}
-                />
-                {card.name === activeName && (
-                  <div className="col-span-full my-2">{renderDrilldown(card)}</div>
-                )}
-              </Fragment>
-            ))}
+          {/* Each tile is the trigger for its own Popover — the drill-down
+              floats anchored to the tile instead of breaking the grid layout. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(70px,1fr))] gap-2">
+            {group.cards.map(card => {
+              const isActive = card.name === activeName;
+              return (
+                <Popover
+                  key={card.name}
+                  open={isActive}
+                  onOpenChange={(open) => { if (!open && isActive) onTileClick(card.name); }}
+                >
+                  <PopoverTrigger asChild>
+                    <OptimizeTile
+                      card={card}
+                      side={side}
+                      checked={!uncheckedNames.has(card.name)}
+                      active={isActive}
+                      onClick={() => onTileClick(card.name)}
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="bottom"
+                    align="center"
+                    sideOffset={8}
+                    collisionPadding={16}
+                    className="w-[440px] max-w-[calc(100vw-2rem)] p-0 border-none bg-transparent shadow-none"
+                  >
+                    {renderDrilldown(card)}
+                  </PopoverContent>
+                </Popover>
+              );
+            })}
           </div>
         </section>
       ))}

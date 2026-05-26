@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef } from 'react';
 import { Zap } from 'lucide-react';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { scryfallImg, ROLE_BADGE_COLORS, ROLE_LABEL_ICONS } from '../constants';
@@ -9,7 +9,7 @@ interface OptimizeTileProps {
   card: OptimizeCard;
   side: TileSide;
   checked: boolean;
-  active: boolean;  // is this tile's drill-down currently open
+  active: boolean;  // is this tile's drill-down popover currently open
   onClick: () => void;
 }
 
@@ -30,19 +30,15 @@ const SIDE_CLASSES: Record<TileSide, {
   },
 };
 
-export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeTileProps) {
+export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(function OptimizeTile(
+  { card, side, checked, active, onClick },
+  ref,
+) {
   const sideCls = SIDE_CLASSES[side];
   const imgUrl = card.imageUrl || scryfallImg(card.name, 'small');
   const RoleIcon = card.roleLabel ? ROLE_LABEL_ICONS[card.roleLabel] : null;
   const roleBadgeColor = card.roleLabel ? ROLE_BADGE_COLORS[card.roleLabel] : null;
   const isComboEnabler = card.reasonCategory === 'combo-enabler';
-
-  // Scroll the tile into view when it becomes active so the user sees both
-  // the clicked tile and the drill-down panel that opens directly below it.
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (active) buttonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [active]);
 
   // Inclusion-based "consensus" color/width for the bottom bar:
   // ≤10% red → 30% amber → 60%+ emerald. Gives an ambient sense of how
@@ -53,11 +49,10 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
 
   return (
     <button
-      ref={buttonRef}
+      ref={ref}
       type="button"
       onClick={onClick}
-      // scroll-mt clears the sticky plan header above so the tile lands below it.
-      className={`group/tile relative block w-full text-left transition-all duration-300 ease-out rounded-lg overflow-visible scroll-mt-40 ${
+      className={`group/tile relative block w-full text-left transition-all duration-300 ease-out rounded-lg overflow-visible ${
         active ? `ring-2 ${sideCls.ring}` : ''
       } ${checked ? 'hover:-translate-y-0.5' : ''}`}
       title={card.name}
@@ -140,4 +135,4 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
       </div>
     </button>
   );
-}
+});
