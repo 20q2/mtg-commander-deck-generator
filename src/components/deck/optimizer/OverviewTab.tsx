@@ -4,7 +4,7 @@ import {
   Ban,
   Tag, ArrowUpDown,
   RotateCcw, Info, Zap, Mountain,
-  AlertTriangle, Layers,
+  AlertTriangle, Layers, Package,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, UserCardList, EDHRECTheme } from '@/types';
@@ -48,7 +48,7 @@ export function SuggestionCardGrid({
   addedCards: Set<string>;
   deficit?: number;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string>; collectionNames?: Set<string> };
   title?: React.ReactNode;
   hideSort?: boolean;
 }) {
@@ -138,7 +138,7 @@ export function SuggestionCardItem({
   onAdd: (name: string) => void;
   onPreview: (name: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
-  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string> };
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string>; collectionNames?: Set<string> };
   sortMode?: SuggestionSortMode;
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -156,6 +156,7 @@ export function SuggestionCardItem({
   const pseudoCard = useMemo(() => ({ name: rec.name, id: rec.name } as ScryfallCard), [rec.name]);
 
   const isBanned = menuProps?.bannedNames.has(rec.name);
+  const isOwned = menuProps?.collectionNames?.has(rec.name) ?? false;
   const frontUrl = rec.imageUrl || scryfallImg(rec.name, 'normal');
   const backUrl = rec.backImageUrl;
   const displayUrl = flipped && backUrl ? backUrl : frontUrl;
@@ -267,8 +268,17 @@ export function SuggestionCardItem({
         )}
       </div>
       {/* Row 2: role + land tags */}
-      {allBadges.length > 0 && (
+      {(allBadges.length > 0 || isOwned) && (
         <div className="flex items-center gap-1 px-1 min-w-0 justify-center flex-wrap">
+          {isOwned && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-md text-[9px] font-medium bg-zinc-700/70 text-zinc-200"
+              title="This card exists in your collection"
+            >
+              <Package className="w-2.5 h-2.5 shrink-0" />
+              Owned
+            </span>
+          )}
           {allBadges.map(label => {
             const badgeColor = SUBTYPE_BADGE_COLORS[label];
             const RIcon = ROLE_LABEL_ICONS[label];
@@ -728,16 +738,16 @@ export function AdjustPopoverContent({
                 <Info className="w-3.5 h-3.5" />
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="start" className="w-80 p-0">
+            <PopoverContent side="bottom" align="start" className="w-[34rem] max-w-[calc(100vw-2rem)] p-0">
               <div className="p-3 border-b border-border/30">
                 <p className="text-xs font-semibold">Tempo Guide</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">Controls how the mana curve is shaped during deck building</p>
               </div>
-              <div className="divide-y divide-border/20">
+              <div className="grid grid-cols-2 gap-px bg-border/20">
                 {TEMPO_OPTIONS.map(opt => {
                   const isActive = activePacing === opt.value;
                   return (
-                    <div key={opt.value} className={`px-3 py-2 ${isActive ? 'bg-sky-500/5' : ''}`}>
+                    <div key={opt.value} className={`px-3 py-2 bg-popover ${isActive ? 'bg-sky-500/5' : ''}`}>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-semibold ${isActive ? 'text-sky-400' : 'text-foreground'}`}>{opt.label}</span>
                         {isActive && <span className="text-[9px] text-sky-400/70 font-medium uppercase">Active</span>}

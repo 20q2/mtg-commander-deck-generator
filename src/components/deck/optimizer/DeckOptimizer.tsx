@@ -16,6 +16,8 @@ import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
@@ -1013,13 +1015,16 @@ export function DeckOptimizer({
     }
   }, [customization, updateCustomization, userLists, updateList, createList, onAddCards, onRemoveCards, onRemoveFromBoard, sideboardNames, maybeboardNames, pushDeckHistory]);
 
+  const collectionNames = useLiveQuery(() => getCollectionNameSet(), []);
+
   const menuProps = useMemo(() => ({
     userLists,
     mustIncludeNames: new Set(customization.mustIncludeCards),
     bannedNames: new Set(customization.bannedCards),
     sideboardNames: new Set(sideboardNames || []),
     maybeboardNames: new Set(maybeboardNames || []),
-  }), [userLists, customization.mustIncludeCards, customization.bannedCards, sideboardNames, maybeboardNames]);
+    collectionNames,
+  }), [userLists, customization.mustIncludeCards, customization.bannedCards, sideboardNames, maybeboardNames, collectionNames]);
 
   const deckExcess = currentCards.length - deckSize;
 
@@ -1537,6 +1542,8 @@ export function DeckOptimizer({
             onApply={handleApplyOptimize}
             onPreviewCard={handlePreview}
             onFocusedMisfitChange={onFocusedMisfitChange}
+            onAddCards={onAddCards}
+            onRemoveCards={onRemoveCards}
           />
         )}
 

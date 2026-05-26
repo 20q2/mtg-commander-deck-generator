@@ -10,13 +10,12 @@ import {
   Hand as HandIcon,
   Link2Off,
   Plus,
-  Repeat,
   RotateCcw,
   Sparkles,
   Trash2,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { isDoubleFacedCard, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import type { ZoneKey } from '@/components/playtest/types';
 
@@ -48,7 +47,6 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const moveCard = usePlaytestStore(s => s.moveCard);
   const toggleTap = usePlaytestStore(s => s.toggleTap);
   const toggleFaceDown = usePlaytestStore(s => s.toggleFaceDown);
-  const toggleFlipped = usePlaytestStore(s => s.toggleFlipped);
   const adjustCounter = usePlaytestStore(s => s.adjustCounter);
   const copyCard = usePlaytestStore(s => s.copyCard);
   const unattach = usePlaytestStore(s => s.unattach);
@@ -100,7 +98,6 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const onBattlefield = target.kind === 'battlefield';
   const bfCard = onBattlefield && target.instanceId ? battlefield.find(b => b.instanceId === target.instanceId) : null;
   const isAttached = !!bfCard?.attachedTo;
-  const isDFC = onBattlefield && bfCard ? isDoubleFacedCard(bfCard.card) : false;
   const typeLine = getFrontFaceTypeLine(target.card);
 
   // If the right-clicked card is part of a multi-selection, every action
@@ -130,15 +127,6 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
     targetIds.forEach((id) => {
       const c = battlefield.find((b) => b.instanceId === id);
       if (c && c.faceDown !== wantFaceDown) toggleFaceDown(id);
-    });
-    onClose();
-  };
-  const applyFlip = () => {
-    if (!bfCard) return;
-    const wantFlipped = !bfCard.flipped;
-    targetIds.forEach((id) => {
-      const c = battlefield.find((b) => b.instanceId === id);
-      if (c && c.flipped !== wantFlipped) toggleFlipped(id);
     });
     onClose();
   };
@@ -205,14 +193,6 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
           >
             {bfCard.tapped ? 'Untap' : 'Tap'}{bulkSuffix}
           </Item>
-          {isDFC && (
-            <Item
-              icon={<Repeat className="w-3.5 h-3.5" />}
-              onClick={applyFlip}
-            >
-              {bfCard.flipped ? 'Show front face' : 'Transform'}{bulkSuffix}
-            </Item>
-          )}
           <Item
             icon={bfCard.faceDown ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             onClick={applyFaceDown}

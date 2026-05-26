@@ -25,6 +25,24 @@ import type { ThemeMembership } from '@/components/analyze/themeMembership';
 
 const LANE_STORAGE_KEY = 'analyze-active-lane';
 
+// Recompute isComplete/missingCards on the stored detected combos by checking
+// each combo's card list against the deck's current names. The raw combos list
+// is dropped after hydration, so we work from the previously-detected combos
+// (which retain their full `cards` array) and just refresh the missing set.
+function recomputeDetectedCombos(deck: GeneratedDeck): GeneratedDeck['detectedCombos'] {
+  if (!deck.detectedCombos || deck.detectedCombos.length === 0) return deck.detectedCombos;
+  const allNames = new Set<string>();
+  for (const arr of Object.values(deck.categories)) {
+    for (const c of arr) allNames.add(c.name);
+  }
+  if (deck.commander) allNames.add(deck.commander.name);
+  if (deck.partnerCommander) allNames.add(deck.partnerCommander.name);
+  return deck.detectedCombos.map(dc => {
+    const missingCards = dc.cards.filter(n => !allNames.has(n));
+    return { ...dc, missingCards, isComplete: missingCards.length === 0 };
+  });
+}
+
 function countCards(deck: GeneratedDeck): number {
   const partner = deck.partnerCommander ? 1 : 0;
   const commander = deck.commander ? 1 : 0;
@@ -333,12 +351,16 @@ export function AnalyzePage() {
       scoreDelta += newInclusionMap[name];
     }
 
+    const nextDeck: GeneratedDeck = {
+      ...deck,
+      categories: newCategories,
+      cardInclusionMap: newInclusionMap,
+      deckScore: (deck.deckScore ?? 0) + scoreDelta,
+    };
     useStore.setState({
       generatedDeck: {
-        ...deck,
-        categories: newCategories,
-        cardInclusionMap: newInclusionMap,
-        deckScore: (deck.deckScore ?? 0) + scoreDelta,
+        ...nextDeck,
+        detectedCombos: recomputeDetectedCombos(nextDeck),
       },
     });
 
@@ -401,12 +423,16 @@ export function AnalyzePage() {
       }
     }
 
+    const nextDeck: GeneratedDeck = {
+      ...deck,
+      categories: newCategories,
+      cardInclusionMap: newInclusionMap,
+      deckScore: Math.max(0, (deck.deckScore ?? 0) - scoreDelta),
+    };
     useStore.setState({
       generatedDeck: {
-        ...deck,
-        categories: newCategories,
-        cardInclusionMap: newInclusionMap,
-        deckScore: Math.max(0, (deck.deckScore ?? 0) - scoreDelta),
+        ...nextDeck,
+        detectedCombos: recomputeDetectedCombos(nextDeck),
       },
     });
 

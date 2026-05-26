@@ -294,7 +294,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                         isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                       }`}
                     >
-                      Inspector
+                      Inspector (EA)
                     </Link>
                   )}
                   <Link
@@ -461,7 +461,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               aria-label="Inspector"
             >
               <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
-              <span className="text-[10px] font-medium">Inspector</span>
+              <span className="text-[10px] font-medium">Inspector (EA)</span>
             </Link>
           )}
           <Link

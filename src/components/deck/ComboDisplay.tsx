@@ -23,12 +23,14 @@ interface ComboDisplayProps {
   onRemoveFromDeck?: (cardNames: string[]) => void;
   onMoveToSideboard?: (cardNames: string[]) => void;
   onMoveToMaybeboard?: (cardNames: string[]) => void;
+  /** When true, the panel starts expanded and cannot be collapsed (Inspector usage). */
+  forceExpanded?: boolean;
 }
 
 // Cache fetched card data across renders
 const cardDataCache = new Map<string, ScryfallCard>();
 
-export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded }: ComboDisplayProps) {
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
@@ -36,7 +38,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const updateCustomization = useStore(s => s.updateCustomization);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [previewCardName, setPreviewCardName] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expandedState, setExpanded] = useState(false);
+  const expanded = forceExpanded || expandedState;
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
@@ -124,6 +127,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
 
   const handleAddMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    // Inspector / list-deck context: add directly to the deck rather than
+    // touching must-include + triggering a regen (regen doesn't run there).
+    if (onAddToDeck) {
+      onAddToDeck([name]);
+      setToastMessage(`Added "${name}" to deck`);
+      return;
+    }
     if (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) return;
     // Remove from temp banned if it was previously removed via edit mode
     const newTempBanned = tempBannedCards.filter(n => n !== name);
@@ -134,7 +144,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     trackEvent('must_include_added', { commanderName: commander?.name ?? 'unknown', cardName: name, source: 'combo' });
     setToastMessage(`Adding "${name}" to deck...`);
     onRegenerate?.();
-  }, [mustIncludeCards, tempMustIncludeCards, tempBannedCards, updateCustomization, commander, onRegenerate]);
+  }, [onAddToDeck, mustIncludeCards, tempMustIncludeCards, tempBannedCards, updateCustomization, commander, onRegenerate]);
 
   const handleRemoveMustInclude = useCallback((name: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -517,8 +527,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   return (
     <div className="mt-6 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
       <div
-        role="button"
-        onClick={() => {
+        role={forceExpanded ? undefined : 'button'}
+        onClick={forceExpanded ? undefined : () => {
           const willExpand = !expanded;
           setExpanded(willExpand);
           if (willExpand && !hasTrackedView) {
@@ -529,7 +539,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             });
           }
         }}
-        className="flex items-center gap-2 w-full text-left p-4 cursor-pointer"
+        className={`flex items-center gap-2 w-full text-left p-4 ${forceExpanded ? '' : 'cursor-pointer'}`}
       >
         <Sparkles className="w-4 h-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold truncate">Combos in Your Deck</h3>
@@ -549,7 +559,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             ))}
           </span>
         )}
-        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        {!forceExpanded && (
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        )}
       </div>
 
       <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[8000px] opacity-100' : 'max-h-0 opacity-0'}`}>

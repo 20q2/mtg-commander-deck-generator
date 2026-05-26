@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban } from 'lucide-react';
+import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban, Package } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getFrontFaceTypeLine, getCachedCard, getProducedColors } from '@/services/scryfall/client';
@@ -20,6 +20,8 @@ export interface CardRowMenuProps {
   bannedNames: Set<string>;
   sideboardNames: Set<string>;
   maybeboardNames: Set<string>;
+  /** Names from the user's IndexedDB collection. Used to mark suggested cards as owned. */
+  collectionNames?: Set<string>;
 }
 
 // ─── Shared: Animated Collapse wrapper ───────────────────────────────
@@ -228,6 +230,7 @@ function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction,
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const isBanned = menuProps?.bannedNames.has(card.name);
+  const isOwned = menuProps?.collectionNames?.has(card.name) ?? false;
   const rankStyle = rank < 3 ? RANK_STYLES[rank] : null;
   const roleBadges = card.allRoleLabels && card.allRoleLabels.length > 1
     ? card.allRoleLabels
@@ -265,7 +268,7 @@ function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction,
         <img
           src={card.imageUrl || scryfallImg(card.name)}
           alt={card.name}
-          className="w-7 h-auto rounded shadow-md"
+          className={`w-7 h-auto rounded shadow-md ${isOwned ? 'ring-1 ring-emerald-400/70' : ''}`}
           loading="lazy"
           onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name); }}
         />
@@ -281,6 +284,15 @@ function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction,
           {isBanned && (
             <span title="Excluded" className="shrink-0 animate-pop-in">
               <Ban className="w-3 h-3 text-red-400/70" />
+            </span>
+          )}
+          {isOwned && (
+            <span
+              title="In your collection"
+              className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 bg-emerald-500/15 text-emerald-300"
+            >
+              <Package className="w-2.5 h-2.5" />
+              Owned
             </span>
           )}
           {roleBadges.map(label => {

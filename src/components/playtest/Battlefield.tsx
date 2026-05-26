@@ -45,7 +45,7 @@ export function Battlefield() {
     return () => ro.disconnect();
   }, [setRect]);
 
-  const { setNodeRef, isOver } = useDroppable({ id: 'battlefield', data: { kind: 'battlefield' } });
+  const { setNodeRef } = useDroppable({ id: 'battlefield', data: { kind: 'battlefield' } });
   const composedRef = (node: HTMLDivElement | null) => {
     (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
     setNodeRef(node);
@@ -143,7 +143,7 @@ export function Battlefield() {
       data-battlefield
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
-      className={`flex-1 relative border-b border-border/50 overflow-hidden ${isOver ? 'ring-2 ring-primary/40 ring-inset' : ''}`}
+      className="flex-1 relative border-b border-border/50 overflow-hidden"
       style={{ background: BG_STYLES[bg].background }}
     >
       {dotGrid && (

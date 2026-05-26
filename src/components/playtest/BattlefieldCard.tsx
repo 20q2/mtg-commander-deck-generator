@@ -180,7 +180,9 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
         <img
           src={
             displayFaceDown
-              ? `${import.meta.env.BASE_URL}card-back.png`
+              ? (isDoubleFacedCard(card.card)
+                  ? (getCardBackFaceUrl(card.card, 'normal') ?? `${import.meta.env.BASE_URL}card-back.png`)
+                  : `${import.meta.env.BASE_URL}card-back.png`)
               : (card.flipped && isDoubleFacedCard(card.card)
                   ? (getCardBackFaceUrl(card.card, 'normal') ?? getCardImageUrl(card.card, 'normal'))
                   : getCardImageUrl(card.card, 'normal'))

@@ -25,6 +25,9 @@ export interface OptimizeTabContentProps {
   onPreviewCard: (name: string) => void;
   /** Fired when the user opens the drill-down for a cut card. Enables deck-view highlight. */
   onFocusedMisfitChange?: (name: string | null) => void;
+  /** Direct deck mutators for the combos panel (Inspector context — no regen). */
+  onAddCards?: (names: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => void;
+  onRemoveCards?: (names: string[]) => void;
 }
 
 export function OptimizeTabContent({
@@ -32,23 +35,25 @@ export function OptimizeTabContent({
   cardInclusionMap, mustIncludeNames, bannedNames,
   onApply, onPreviewCard,
   onFocusedMisfitChange,
+  onAddCards, onRemoveCards,
 }: OptimizeTabContentProps) {
   // Subscribe to store directly so we get a stable reference for the combos
   // array (Zustand returns the same slice instance until it actually changes).
   const deck = useStore(s => s.generatedDeck);
   const detectedCombos = deck?.detectedCombos ?? EMPTY_COMBOS;
 
+  const [activeRemoveName, setActiveRemoveName] = useState<string | null>(null);
+  const [activeAddName, setActiveAddName] = useState<string | null>(null);
+  const [highlightedComboId, setHighlightedComboId] = useState<string | null>(null);
+  const [view, setView] = useState<OptimizeView>('swaps');
+
   const plan = useOptimizePlan({
     analysis, currentCards, cardInclusionMap,
     commanderName, partnerCommanderName,
     mustIncludeNames, bannedNames, detectedCombos,
     onApply,
+    highlightRemovals: view === 'swaps',
   });
-
-  const [activeRemoveName, setActiveRemoveName] = useState<string | null>(null);
-  const [activeAddName, setActiveAddName] = useState<string | null>(null);
-  const [highlightedComboId, setHighlightedComboId] = useState<string | null>(null);
-  const [view, setView] = useState<OptimizeView>('swaps');
   const highlightTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
 
@@ -168,7 +173,12 @@ export function OptimizeTabContent({
 
       {view === 'combos' && (
         <div ref={footerRef}>
-          <ComboDisplay combos={detectedCombos} />
+          <ComboDisplay
+            combos={detectedCombos}
+            onAddToDeck={onAddCards ? (names) => onAddCards(names, 'deck') : undefined}
+            onRemoveFromDeck={onRemoveCards}
+            forceExpanded
+          />
         </div>
       )}
     </div>

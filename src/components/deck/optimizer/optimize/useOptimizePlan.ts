@@ -17,6 +17,10 @@ export interface UseOptimizePlanOptions {
   bannedNames: Set<string>;
   detectedCombos?: DetectedCombo[];
   onApply: (removals: string[], additions: string[]) => void | Promise<void>;
+  /** When false, the removal-highlight event broadcasts an empty list so the
+   *  play area on the right doesn't show red rings while the user is on a
+   *  non-swap view (e.g. the combos panel). */
+  highlightRemovals?: boolean;
 }
 
 export interface OptimizePlanTotals {
@@ -42,7 +46,7 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
     analysis, currentCards, cardInclusionMap,
     commanderName, partnerCommanderName,
     mustIncludeNames, bannedNames, detectedCombos,
-    onApply,
+    onApply, highlightRemovals = true,
   } = opts;
 
   const [extraAdditions, setExtraAdditions] = useState<OptimizeCard[]>([]);
@@ -198,14 +202,14 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
   // happens when listeners setState on every reference change.
   const lastDispatchedKeyRef = useRef<string>('');
   useEffect(() => {
-    const names = checkedRemovals.map(c => c.name);
+    const names = highlightRemovals ? checkedRemovals.map(c => c.name) : [];
     const key = names.join('\0');
     if (key === lastDispatchedKeyRef.current) return;
     lastDispatchedKeyRef.current = key;
     document.dispatchEvent(new CustomEvent('deck-optimizer-removals', {
       detail: { names },
     }));
-  }, [checkedRemovals]);
+  }, [checkedRemovals, highlightRemovals]);
 
   useEffect(() => {
     return () => {
