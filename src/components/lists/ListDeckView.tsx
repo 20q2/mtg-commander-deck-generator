@@ -436,6 +436,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const overflowRef = useRef<HTMLDivElement>(null);
 
   // EA Features toggle (controlled from the patch notes popover in the header)
+  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
+  useEffect(() => {
+    const handler = (e: Event) => setEaEnabled((e as CustomEvent<{ enabled: boolean }>).detail.enabled);
+    window.addEventListener('ea-features-changed', handler);
+    return () => window.removeEventListener('ea-features-changed', handler);
+  }, []);
 
   // Total deck price
   const totalDeckPrice = useMemo(() => {
@@ -1109,17 +1115,19 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             {totalDeckPrice !== null && totalDeckPrice > 0 && (
               <span className="text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
             )}
-            <button
-              onClick={() => {
-                trackEvent('analyze_cta_clicked', { from: 'list-deck' });
-                navigate(`/analyze/${list.id}`);
-              }}
-              title="Inspect this deck"
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
-            >
-              <Microscope className="w-4 h-4" />
-              <span className="hidden sm:inline">Inspect</span>
-            </button>
+            {eaEnabled && (
+              <button
+                onClick={() => {
+                  trackEvent('analyze_cta_clicked', { from: 'list-deck' });
+                  navigate(`/analyze/${list.id}`);
+                }}
+                title="Inspect this deck"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
+              >
+                <Microscope className="w-4 h-4" />
+                <span className="hidden sm:inline">Inspect</span>
+              </button>
+            )}
             <button
               onClick={() => navigate(`/playtest/list/${list.id}`)}
               title="Playtest this deck"

@@ -1,42 +1,11 @@
 [
   {
-    "version": "1.4.0",
-    "notes": [
-      "The Card Fit tab is now the Optimize tab — see the whole tuning plan at a glance and apply it with one click.",
-      "Two-column view of cards worth cutting and cards worth adding, with card art front and center.",
-      "Click any card for a detailed reason, metrics, and swap candidates.",
-      "Combo analysis is built in: see complete and one-card-away combos, with quick links to add the missing piece."
-    ]
-  },
-  {
-    "version": "1.3.2",
-    "notes": [
-      "Card Fit now shows a strip of swap candidates for each misfit — click any one to make it the focus.",
-      "The selected replacement updates the stats in place, with deltas showing how much you'd gain in inclusion.",
-      "A new goal line tells you how the swap moves you toward your role-balance targets (e.g. '+1 toward your 8 removal pieces')."
-    ]
-  },
-  {
-    "version": "1.3.1",
-    "notes": [
-      "Card Fit got a cinematic overhaul — your deck's worst offenders now get their own hero card with art, evidence, and a clearer swap suggestion.",
-      "Now distinguishes cards EDHREC has no data for from cards with truly low play rates — no more dead-data being called 'low synergy'.",
-      "Added a 'See all misfits' drawer for reviewing the long tail at your own pace."
-    ]
-  },
-  {
-    "version": "1.3.0",
-    "notes": [
-      "New analyze dashboard: a single Plan Execution Score for your deck, broken down into Strategy, Roles, Tempo, and Card Fit.",
-      "New Card Fit tab: find cards in your deck that don't fit your plan, paired with the high-value cards you're missing.",
-      "Every score now cites its data source — see the info icon on each tile for the data behind the number."
-    ]
-  },
-  {
     "version": "1.2.28",
     "notes": [
-      "A new deck check page (previously deck analyzer) is being brought out of EA. Quickly check your deck for role coverage, mana curve strength, and new card suggestions with ease.",
-      "The visual grid deck view now supports stacked cards, as well as all of the show options"
+      "An experimental Inspector page has been released to EA. Quickly check your deck for role coverage, mana curve strength, and new card suggestions with ease.",
+      "The visual grid deck view now supports stacked cards, as well as all of the show options",
+      "Fixed a bug where you couldn't create lists as lists (they kept wanting to be decks)",
+      "Added clarity to the build page when using a commander with no listed themes on EDHRec"
     ]
   },
   {
