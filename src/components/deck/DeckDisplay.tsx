@@ -1577,6 +1577,7 @@ interface DeckStatsProps {
 }
 
 function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade }: DeckStatsProps) {
+  const navigate = useNavigate();
   const { generatedDeck, colorIdentity } = useStore();
   if (!generatedDeck) return null;
 
