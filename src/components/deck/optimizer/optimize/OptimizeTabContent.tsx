@@ -3,7 +3,7 @@ import type { ScryfallCard, DetectedCombo } from '@/types';
 import type { DeckAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { useStore } from '@/store';
-import { OptimizePlanHeader } from './OptimizePlanHeader';
+import { OptimizePlanHeader, type OptimizeView } from './OptimizePlanHeader';
 import { OptimizeColumn } from './OptimizeColumn';
 import { OptimizeDrilldown } from './OptimizeDrilldown';
 import { OptimizeComboFooter } from './OptimizeComboFooter';
@@ -48,6 +48,7 @@ export function OptimizeTabContent({
   const [activeRemoveName, setActiveRemoveName] = useState<string | null>(null);
   const [activeAddName, setActiveAddName] = useState<string | null>(null);
   const [highlightedComboId, setHighlightedComboId] = useState<string | null>(null);
+  const [view, setView] = useState<OptimizeView>('remove');
   const highlightTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
 
@@ -78,11 +79,15 @@ export function OptimizeTabContent({
   const addColumnNames = useMemo(() => new Set(plan.additions.map(c => c.name)), [plan.additions]);
 
   const flashCombo = useCallback((comboId: string) => {
+    setView('combos');
     setHighlightedComboId(comboId);
     if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = window.setTimeout(() => setHighlightedComboId(null), 1500);
-    const el = footerRef.current?.querySelector<HTMLElement>(`[data-combo-id="${comboId}"]`);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Defer scroll to the next frame so the combos panel has rendered.
+    requestAnimationFrame(() => {
+      const el = footerRef.current?.querySelector<HTMLElement>(`[data-combo-id="${comboId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   }, []);
 
   useEffect(() => () => {
@@ -101,67 +106,74 @@ export function OptimizeTabContent({
         hasUnchecked={hasUnchecked}
         onApply={plan.apply}
         onReset={plan.resetSelections}
+        view={view}
+        onViewChange={setView}
+        comboCount={detectedCombos.length}
       />
 
-      {hasSwaps && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
-          <OptimizeColumn
-            side="remove"
-            cards={plan.removals}
-            uncheckedNames={plan.uncheckedRemovals}
-            activeName={activeRemoveName}
-            totalCount={plan.removals.length}
-            onTileClick={handleToggleRemove}
-            onSelectAll={plan.selectAllRemovals}
-            onDeselectAll={plan.deselectAllRemovals}
-            renderDrilldown={(card) => (
-              <OptimizeDrilldown
-                card={card}
-                side="remove"
-                checked={!plan.uncheckedRemovals.has(card.name)}
-                candidates={candidatesForActiveRemove}
-                onToggle={plan.toggleRemoval}
-                onClose={() => setActiveRemoveName(null)}
-                onPreviewCard={onPreviewCard}
-              />
-            )}
-          />
+      {hasSwaps && view === 'remove' && (
+        <OptimizeColumn
+          side="remove"
+          cards={plan.removals}
+          uncheckedNames={plan.uncheckedRemovals}
+          activeName={activeRemoveName}
+          totalCount={plan.removals.length}
+          onTileClick={handleToggleRemove}
+          onSelectAll={plan.selectAllRemovals}
+          onDeselectAll={plan.deselectAllRemovals}
+          renderDrilldown={(card) => (
+            <OptimizeDrilldown
+              card={card}
+              side="remove"
+              checked={!plan.uncheckedRemovals.has(card.name)}
+              synergy={deck?.cardSynergyMap?.[card.name]}
+              candidates={candidatesForActiveRemove}
+              onToggle={plan.toggleRemoval}
+              onClose={() => setActiveRemoveName(null)}
+              onPreviewCard={onPreviewCard}
+            />
+          )}
+        />
+      )}
 
-          <OptimizeColumn
-            side="add"
-            cards={plan.additions}
-            uncheckedNames={plan.uncheckedAdditions}
-            activeName={activeAddName}
-            totalCount={plan.additions.length}
-            onTileClick={handleToggleAdd}
-            onSelectAll={plan.selectAllAdditions}
-            onDeselectAll={plan.deselectAllAdditions}
-            renderDrilldown={(card) => (
-              <OptimizeDrilldown
-                card={card}
-                side="add"
-                checked={!plan.uncheckedAdditions.has(card.name)}
-                combo={comboForActiveAdd}
-                onToggle={plan.toggleAddition}
-                onClose={() => setActiveAddName(null)}
-                onViewCombo={flashCombo}
-              />
-            )}
+      {hasSwaps && view === 'add' && (
+        <OptimizeColumn
+          side="add"
+          cards={plan.additions}
+          uncheckedNames={plan.uncheckedAdditions}
+          activeName={activeAddName}
+          totalCount={plan.additions.length}
+          onTileClick={handleToggleAdd}
+          onSelectAll={plan.selectAllAdditions}
+          onDeselectAll={plan.deselectAllAdditions}
+          renderDrilldown={(card) => (
+            <OptimizeDrilldown
+              card={card}
+              side="add"
+              checked={!plan.uncheckedAdditions.has(card.name)}
+              synergy={deck?.cardSynergyMap?.[card.name]}
+              combo={comboForActiveAdd}
+              onToggle={plan.toggleAddition}
+              onClose={() => setActiveAddName(null)}
+              onViewCombo={flashCombo}
+            />
+          )}
+        />
+      )}
+
+      {view === 'combos' && (
+        <div ref={footerRef}>
+          <OptimizeComboFooter
+            combos={detectedCombos}
+            bannedNames={bannedNames}
+            addColumnNames={addColumnNames}
+            uncheckedAdditions={plan.uncheckedAdditions}
+            onToggleAdd={plan.toggleAddition}
+            onAddExtraCandidate={plan.addExtraCandidate}
+            highlightedComboId={highlightedComboId}
           />
         </div>
       )}
-
-      <div ref={footerRef}>
-        <OptimizeComboFooter
-          combos={detectedCombos}
-          bannedNames={bannedNames}
-          addColumnNames={addColumnNames}
-          uncheckedAdditions={plan.uncheckedAdditions}
-          onToggleAdd={plan.toggleAddition}
-          onAddExtraCandidate={plan.addExtraCandidate}
-          highlightedComboId={highlightedComboId}
-        />
-      </div>
     </div>
   );
 }

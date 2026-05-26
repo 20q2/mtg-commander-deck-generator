@@ -11,6 +11,8 @@ export interface OptimizeDrilldownProps {
   card: OptimizeCard;
   side: TileSide;
   checked: boolean;
+  /** EDHREC synergy score for this card under the current commander (−1..+1). */
+  synergy?: number;
   /** For cuts only: candidate replacement cards from the swap-candidates index. */
   candidates?: ScryfallCard[];
   /** For adds tagged combo-enabler only: the combo this card completes. */
@@ -55,7 +57,7 @@ function resolveManaCost(card: OptimizeCard): string {
 }
 
 export function OptimizeDrilldown({
-  card, side, checked, candidates, combo, onToggle, onClose, onPreviewCard, onViewCombo,
+  card, side, checked, synergy, candidates, combo, onToggle, onClose, onPreviewCard, onViewCombo,
 }: OptimizeDrilldownProps) {
   const style = SIDE_STYLE[side];
   const imgUrl = resolveBigImage(card);
@@ -140,6 +142,24 @@ export function OptimizeDrilldown({
                 >
                   <span className="text-xs">{inclusionPct}%</span>
                   <span className="text-[9px] opacity-80 uppercase tracking-wider">inclusion</span>
+                </span>
+              );
+            })()}
+            {synergy != null && (() => {
+              const pct = synergy * 100;
+              const positive = synergy >= 0;
+              const sign = positive ? '+' : '−';
+              return (
+                <span
+                  className={`inline-flex items-baseline gap-1 px-2 py-1 rounded-md border tabular-nums ${
+                    positive
+                      ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                      : 'border-red-500/30 bg-red-500/15 text-red-300'
+                  }`}
+                  title="EDHREC synergy — how much more often this card appears with this commander vs. baseline"
+                >
+                  <span className="text-xs">{sign}{Math.abs(pct).toFixed(0)}%</span>
+                  <span className="text-[9px] opacity-80 uppercase tracking-wider">synergy</span>
                 </span>
               );
             })()}
