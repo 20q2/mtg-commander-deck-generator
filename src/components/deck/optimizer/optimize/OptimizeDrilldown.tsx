@@ -69,7 +69,7 @@ export function OptimizeDrilldown({
 
   return (
     <div
-      className={`relative rounded-xl border ${style.panelBorder} bg-card/95 backdrop-blur-lg shadow-xl shadow-black/50 p-3 sm:p-4 animate-fade-in`}
+      className={`relative rounded-xl border ${style.panelBorder} bg-card/80 backdrop-blur-md shadow-xl shadow-black/50 p-3 sm:p-4 animate-fade-in`}
     >
       <button
         type="button"
