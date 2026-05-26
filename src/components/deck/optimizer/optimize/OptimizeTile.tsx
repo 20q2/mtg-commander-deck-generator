@@ -1,7 +1,8 @@
 import { forwardRef } from 'react';
 import { Zap } from 'lucide-react';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
-import { scryfallImg, ROLE_BADGE_COLORS, ROLE_LABEL_ICONS } from '../constants';
+import { Checkbox } from '@/components/ui/checkbox';
+import { scryfallImg } from '../constants';
 
 export type TileSide = 'remove' | 'add';
 
@@ -11,6 +12,7 @@ interface OptimizeTileProps {
   checked: boolean;
   active: boolean;  // is this tile's drill-down popover currently open
   onClick: () => void;
+  onToggleChecked: () => void;
 }
 
 const SIDE_CLASSES: Record<TileSide, {
@@ -31,14 +33,15 @@ const SIDE_CLASSES: Record<TileSide, {
 };
 
 export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(function OptimizeTile(
-  { card, side, checked, active, onClick },
+  { card, side, checked, active, onClick, onToggleChecked },
   ref,
 ) {
   const sideCls = SIDE_CLASSES[side];
   const imgUrl = card.imageUrl || scryfallImg(card.name, 'small');
-  const RoleIcon = card.roleLabel ? ROLE_LABEL_ICONS[card.roleLabel] : null;
-  const roleBadgeColor = card.roleLabel ? ROLE_BADGE_COLORS[card.roleLabel] : null;
   const isComboEnabler = card.reasonCategory === 'combo-enabler';
+  const checkboxAria = checked
+    ? side === 'remove' ? 'Keep this card (cancel removal)' : 'Skip this card (cancel addition)'
+    : side === 'remove' ? 'Mark this card for removal' : 'Mark this card for addition';
 
   // Inclusion-based "consensus" color/width for the bottom bar:
   // ≤10% red → 30% amber → 60%+ emerald. Gives an ambient sense of how
@@ -52,9 +55,7 @@ export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(fun
       ref={ref}
       type="button"
       onClick={onClick}
-      className={`group/tile relative block w-full text-left transition-all duration-300 ease-out rounded-lg overflow-visible ${
-        active ? `ring-2 ${sideCls.ring}` : ''
-      } ${checked ? 'hover:-translate-y-0.5' : ''}`}
+      className="group/tile relative block w-full text-left rounded-lg overflow-visible"
       title={card.name}
     >
       <div
@@ -62,7 +63,7 @@ export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(fun
           checked
             ? `${sideCls.border} ${sideCls.hover} shadow-sm shadow-black/40 group-hover/tile:shadow-lg group-hover/tile:shadow-black/60`
             : 'border-muted-foreground/20 opacity-60'
-        }`}
+        } ${active ? `ring-2 ${sideCls.ring}` : ''}`}
         style={{
           filter: checked ? undefined : 'grayscale(0.95) brightness(0.55)',
         }}
@@ -85,14 +86,16 @@ export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(fun
           />
         )}
 
-        {RoleIcon && roleBadgeColor && (
-          <span
-            className={`absolute top-1 left-1 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-px rounded-full ${roleBadgeColor}`}
-            title={card.roleLabel}
-          >
-            <RoleIcon className="w-2.5 h-2.5" />
-          </span>
-        )}
+        {/* Checkbox — toggles selection without opening the drill-down. */}
+        <Checkbox
+          checked={checked}
+          onCheckedChange={() => onToggleChecked()}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label={checkboxAria}
+          title={checkboxAria}
+          className="absolute top-1 left-1 bg-black/55 backdrop-blur-[2px]"
+        />
 
         {side === 'add' && isComboEnabler && (
           <span

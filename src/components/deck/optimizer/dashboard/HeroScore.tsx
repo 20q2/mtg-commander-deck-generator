@@ -96,8 +96,8 @@ export function HeroScore({
       {/* All content sits above backdrop layers */}
       <div className="relative flex flex-col gap-5" style={{ zIndex: 1 }}>
 
-        {/* TOP ROW: commander art + info + action buttons */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 -mx-2 sm:-mx-3 -mt-2 sm:-mt-3">
+        {/* TOP ROW: commander art + info (+ action buttons on desktop) */}
+        <div className="flex flex-row items-start sm:items-center gap-3 sm:-mx-3 sm:-mt-3">
           {/* Commander card thumbnail(s) — hover to preview */}
           <div className="flex items-center gap-1.5 shrink-0">
             {(commander.image_uris?.small ?? commander.card_faces?.[0]?.image_uris?.small) && (
@@ -169,14 +169,14 @@ export function HeroScore({
             )}
           </div>
 
-          {/* Action buttons — right-aligned, stack below on mobile */}
-          <div className="flex items-center gap-2 shrink-0 self-start">
+          {/* Action buttons — desktop only (top-right of header row) */}
+          <div className="hidden sm:flex items-center gap-2 shrink-0 self-start">
             {adjustContent && (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-1.5">
                     <Pencil className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Adjust plan</span>
+                    <span>Adjust plan</span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="bottom" align="end" className="w-80 p-0">
@@ -187,36 +187,66 @@ export function HeroScore({
             {onOpenInDeckView ? (
               <Button size="sm" variant="outline" onClick={onOpenInDeckView}>
                 <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                <span className="hidden sm:inline">Deck view</span>
+                <span>Deck view</span>
               </Button>
             ) : onSaveAsDeck ? (
               <Button size="sm" variant="outline" onClick={onSaveAsDeck}>
                 <Bookmark className="w-3.5 h-3.5 mr-1.5" />
-                <span className="hidden sm:inline">Save as deck</span>
+                <span>Save as deck</span>
               </Button>
             ) : null}
           </div>
         </div>
 
+        {/* MOBILE-ONLY ACTION ROW: full-width row beneath art + info */}
+        {(adjustContent || onOpenInDeckView || onSaveAsDeck) && (
+          <div className="flex sm:hidden items-center gap-2">
+            {adjustContent && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5 flex-1">
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Adjust plan</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="bottom" align="start" className="w-80 p-0">
+                  {adjustContent}
+                </PopoverContent>
+              </Popover>
+            )}
+            {onOpenInDeckView ? (
+              <Button size="sm" variant="outline" onClick={onOpenInDeckView} className="flex-1">
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                <span>Deck view</span>
+              </Button>
+            ) : onSaveAsDeck ? (
+              <Button size="sm" variant="outline" onClick={onSaveAsDeck} className="flex-1">
+                <Bookmark className="w-3.5 h-3.5 mr-1.5" />
+                <span>Save as deck</span>
+              </Button>
+            ) : null}
+          </div>
+        )}
+
         {/* BOTTOM ROW: score ring + headline + byline */}
-        <div className="flex flex-col sm:flex-row items-center gap-6">
+        <div className="flex flex-row items-center gap-4 sm:gap-6">
           <div
-            className="w-32 h-32 sm:w-40 sm:h-40 rounded-full flex items-center justify-center shrink-0"
+            className="w-24 h-24 sm:w-40 sm:h-40 rounded-full flex items-center justify-center shrink-0"
             style={ringStyle}
             aria-label={`Plan score ${target} out of 100`}
           >
             <div className="w-[78%] h-[78%] rounded-full bg-card flex flex-col items-center justify-center">
-              <div className="text-4xl sm:text-5xl font-black tabular-nums leading-none">{displayed}</div>
-              <div className="mt-1.5 text-[10px] uppercase tracking-wider font-semibold text-violet-300/80">
+              <div className="text-3xl sm:text-5xl font-black tabular-nums leading-none">{displayed}</div>
+              <div className="mt-1 sm:mt-1.5 text-[9px] sm:text-[10px] uppercase tracking-wider font-semibold text-violet-300/80">
                 {planScore.bandLabel}
               </div>
             </div>
           </div>
-          <div className="flex-1 min-w-0 text-center sm:text-left">
-            <h2 className="text-lg sm:text-xl font-semibold leading-snug text-foreground">
+          <div className="flex-1 min-w-0 text-left">
+            <h2 className="text-base sm:text-xl font-semibold leading-snug text-foreground">
               {planScore.headline}
             </h2>
-            <p className="mt-2 text-xs text-muted-foreground/70">{planScore.byline}</p>
+            <p className="mt-1.5 sm:mt-2 text-xs text-muted-foreground/70">{planScore.byline}</p>
             {planScore.limitedData && (
               <p className="mt-1 text-[11px] text-amber-400/70">
                 Limited data — some sub-scores excluded.

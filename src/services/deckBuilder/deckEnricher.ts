@@ -3,7 +3,7 @@ import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemov
 import { getFrontFaceTypeLine, getGameChangerNames, isChannelLand, isMdfcLand } from '@/services/scryfall/client';
 import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './deckGenerator';
 import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
-import { getBaseRoleTargets as getRoleTargets } from './roleTargets';
+import { getBaseRoleTargets, getDynamicRoleTargets } from './roleTargets';
 import { buildGapAnalysis } from './gapAnalysisBuilder';
 import { estimateBracket, type BracketEstimation } from './bracketEstimator';
 import { scoreRecommendation, type ScoringContext } from './deckAnalyzer';
@@ -122,7 +122,9 @@ export async function enrichDeckCards(
     }
   }
 
-  const roleTargets = getRoleTargets(deckSize);
+  // Start with the rule-of-10 baseline; if EDHREC data is available below,
+  // we override with commander-stat-driven dynamic targets.
+  let roleTargets: Record<string, number> = getBaseRoleTargets(deckSize);
 
   // Bracket estimation (reuses gcSet from above)
   let bracketEstimation: BracketEstimation | undefined;
@@ -152,6 +154,13 @@ export async function enrichDeckCards(
       const edhrecData: EDHRECCommanderData = partnerCommanderName
         ? await fetchPartnerCommanderData(commanderName, partnerCommanderName)
         : await fetchCommanderData(commanderName);
+
+      // Replace the rule-of-10 baseline with commander-stat-driven targets.
+      // Themes aren't known at enrichment time (analyze flow detects them later),
+      // so we pass undefined → archetype defaults to GOODSTUFF (1.0 multipliers).
+      // EDHREC data still drives the per-role counts via the blend.
+      const dynamic = getDynamicRoleTargets(deckSize, undefined, edhrecData.stats, edhrecData);
+      roleTargets = dynamic.targets;
 
       // Build inclusion index keyed by card name (front-face fallback for DFCs)
       const inclusionIndex = new Map<string, number>();

@@ -3,10 +3,10 @@ import type { ScryfallCard, DetectedCombo } from '@/types';
 import type { DeckAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { useStore } from '@/store';
+import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { OptimizePlanHeader, type OptimizeView } from './OptimizePlanHeader';
 import { OptimizeColumn } from './OptimizeColumn';
 import { OptimizeDrilldown } from './OptimizeDrilldown';
-import { OptimizeComboFooter } from './OptimizeComboFooter';
 import { useOptimizePlan } from './useOptimizePlan';
 
 // Module-level constant so optional-prop fallbacks don't allocate fresh arrays
@@ -75,8 +75,6 @@ export function OptimizeTabContent({
     if (!activeAddName || !detectedCombos) return undefined;
     return detectedCombos.find(c => c.missingCards.length === 1 && c.missingCards[0] === activeAddName);
   }, [activeAddName, detectedCombos]);
-
-  const addColumnNames = useMemo(() => new Set(plan.additions.map(c => c.name)), [plan.additions]);
 
   const flashCombo = useCallback((comboId: string) => {
     setView('combos');
@@ -160,6 +158,7 @@ export function OptimizeTabContent({
                 combo={comboForActiveAdd}
                 onToggle={plan.toggleAddition}
                 onClose={() => setActiveAddName(null)}
+                onPreviewCard={onPreviewCard}
                 onViewCombo={flashCombo}
               />
             )}
@@ -169,15 +168,7 @@ export function OptimizeTabContent({
 
       {view === 'combos' && (
         <div ref={footerRef}>
-          <OptimizeComboFooter
-            combos={detectedCombos}
-            bannedNames={bannedNames}
-            addColumnNames={addColumnNames}
-            uncheckedAdditions={plan.uncheckedAdditions}
-            onToggleAdd={plan.toggleAddition}
-            onAddExtraCandidate={plan.addExtraCandidate}
-            highlightedComboId={highlightedComboId}
-          />
+          <ComboDisplay combos={detectedCombos} />
         </div>
       )}
     </div>

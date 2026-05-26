@@ -739,6 +739,81 @@ const PHASE_ROLE_CONTEXT: Record<CurvePhase, Record<RoleGroupKey, string>> = {
   },
 };
 
+/** One-line natural-language rollup for a phase based on its grade and role gaps. */
+function buildPhaseRollup(phase: CurvePhaseAnalysis): string {
+  const letter = phase.grade.letter;
+  const phaseName =
+    phase.phase === 'early' ? 'early game' :
+    phase.phase === 'mid'   ? 'mid game'   : 'late game';
+
+  const roleLabel = (rg: RoleGroupKey) =>
+    rg === 'ramp'        ? 'ramp' :
+    rg === 'interaction' ? 'interaction' :
+    rg === 'cardDraw'    ? 'card draw' : 'threats and setup';
+
+  const consequence = (rg: RoleGroupKey): string => {
+    if (rg === 'ramp') {
+      return phase.phase === 'early'
+        ? 'so you may stumble onto your mana curve'
+        : 'limiting your ability to power out big plays';
+    }
+    if (rg === 'interaction') return 'so opposing threats can slip through unchecked';
+    if (rg === 'cardDraw') {
+      return phase.phase === 'late'
+        ? 'so you may run out of gas in long games'
+        : 'so you may struggle to find your key pieces';
+    }
+    return 'leaving few proactive plays at this stage';
+  };
+
+  // Rank role gaps (positive = under target).
+  const tracked = phase.phaseRoleBreakdowns
+    .filter(b => b.target > 0)
+    .map(b => ({ rg: b.roleGroup as RoleGroupKey, gap: b.target - b.current, current: b.current, target: b.target }));
+
+  const deficits = tracked.filter(b => b.gap > 0).sort((a, b) => b.gap - a.gap);
+  const onCurve = tracked.filter(b => b.gap <= 0);
+
+  const joinLabels = (items: RoleGroupKey[]): string => {
+    const labels = items.map(roleLabel);
+    if (labels.length === 0) return 'this phase';
+    if (labels.length === 1) return labels[0];
+    if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+    return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
+  };
+
+  if (letter === 'A') {
+    const strong = onCurve.slice(0, 2).map(b => b.rg);
+    return strong.length
+      ? `Strong ${phaseName} — well-covered on ${joinLabels(strong)}.`
+      : `Strong ${phaseName} — consistently on curve.`;
+  }
+  if (letter === 'B') {
+    const strong = onCurve.slice(0, 2).map(b => b.rg);
+    if (deficits[0]) {
+      return `Solid ${phaseName}, though a bit light on ${roleLabel(deficits[0].rg)}.`;
+    }
+    return strong.length
+      ? `Solid ${phaseName}, with reliable ${joinLabels(strong)}.`
+      : `Solid ${phaseName}.`;
+  }
+  if (letter === 'C') {
+    if (deficits[0]) {
+      return `Workable ${phaseName}, but light on ${roleLabel(deficits[0].rg)} — ${consequence(deficits[0].rg)}.`;
+    }
+    return `Workable ${phaseName}, though nothing here stands out.`;
+  }
+  // D / F
+  if (deficits.length >= 2) {
+    const worst = deficits.slice(0, 2).map(d => d.rg);
+    return `Weak ${phaseName} — short on ${joinLabels(worst)}, ${consequence(deficits[0].rg)}.`;
+  }
+  if (deficits[0]) {
+    return `Weak ${phaseName} — short on ${roleLabel(deficits[0].rg)}, ${consequence(deficits[0].rg)}.`;
+  }
+  return `Weak ${phaseName} — under-built across the board.`;
+}
+
 type CommanderCastChip = { key: string; label: string; turn: number; savedTurns: number; color: string; bgColor: string; tooltip: string };
 
 function buildCommanderCastChips(
@@ -1606,17 +1681,9 @@ function CurvePhaseHelperCard({
                 </p>
               );
             })() : (
-              <ul className="space-y-1">
-                {ROLE_GROUP_ORDER.map(rk => {
-                  const meta = ROLE_GROUP_META[rk];
-                  return (
-                    <li key={rk} className="text-[11px] leading-snug">
-                      <span className={`font-semibold ${meta.color}`}>{meta.label}:</span>
-                      <span className="text-muted-foreground/70"> {PHASE_ROLE_CONTEXT[phase.phase][rk]}</span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <p className="text-xs text-foreground/85 leading-snug">
+                {buildPhaseRollup(phase)}
+              </p>
             )}
           </div>
         </div>

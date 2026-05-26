@@ -14,14 +14,22 @@ export const ROLE_LABELS: Record<string, string> = {
 };
 
 // ─── EDHREC Blend Tuning ────────────────────────────────────────────
-// Threshold for "cards in the typical deck for this commander" — a card above
-// this inclusion % is played in roughly 1 of every 4 tracked decks.
-export const EDHREC_INCLUSION_THRESHOLD = 25; // percent
+// Threshold for "cards in the typical deck for this commander". A card at
+// 18% is played in roughly 1 of every 5–6 tracked decks — low enough to
+// surface the long tail of role cards a commander actually uses, high enough
+// to exclude noise.
+export const EDHREC_INCLUSION_THRESHOLD = 18; // percent
 
 // Weight for the EDHREC-derived role counts in the final blended target.
-// Default 0.6 means 60% EDHREC / 40% archetype model. Overridable per-deck
-// via customization.advancedTargets.edhrecBlendWeight.
-export const EDHREC_BLEND_WEIGHT = 0.6;
+// 0.75 means 75% commander stats / 25% rule-of-10 archetype baseline — the
+// commander drives the shape, the baseline nudges it toward known-good ratios.
+// Overridable per-deck via customization.advancedTargets.edhrecBlendWeight.
+export const EDHREC_BLEND_WEIGHT = 0.75;
+
+// Soft floor as a fraction of the rule-of-10 baseline. Even when a commander's
+// EDHREC page is sparse, we never let targets sink below 70% of the baseline —
+// every deck still wants meaningful ramp/removal/draw counts.
+const BASELINE_SOFT_FLOOR = 0.7;
 
 // ─── EDHREC-Derived Role Counts ─────────────────────────────────────
 // For the current commander, count cards per role whose EDHREC inclusion
@@ -313,8 +321,8 @@ export function getDynamicRoleTargets(
       : archetypeTarget;
     const afterPacing = blendedPrePacing * pacingMults[role];
 
-    const floor = role === 'boardwipe' ? 0 : 1;
-    const finalCount = Math.max(floor, Math.round(afterPacing));
+    const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
+    const finalCount = Math.max(softFloor, Math.round(afterPacing));
     result[role] = finalCount;
     total += finalCount;
 
@@ -333,15 +341,15 @@ export function getDynamicRoleTargets(
   if (total > maxTotal) {
     const scale = maxTotal / total;
     for (const role of ROLE_KEYS) {
-      const floor = role === 'boardwipe' ? 0 : 1;
-      result[role] = Math.max(floor, Math.round(result[role] * scale));
+      const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
+      result[role] = Math.max(softFloor, Math.round(result[role] * scale));
       breakdown[role].blended = result[role];
     }
   } else if (total < minTotal) {
     const scale = minTotal / total;
     for (const role of ROLE_KEYS) {
-      const floor = role === 'boardwipe' ? 0 : 1;
-      result[role] = Math.max(floor, Math.round(result[role] * scale));
+      const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
+      result[role] = Math.max(softFloor, Math.round(result[role] * scale));
       breakdown[role].blended = result[role];
     }
   }

@@ -82,6 +82,14 @@ export function bandFor(score: number): string {
   return 'Thin';
 }
 
+export function headlineFor(score: number): string {
+  if (score >= 90) return 'Your deck is performing optimally.';
+  if (score >= 75) return 'Your deck is performing well, with a little room to grow.';
+  if (score >= 60) return 'Your deck is solid, with clear room for improvement.';
+  if (score >= 40) return 'Your deck has the foundation, but needs some tuning.';
+  return 'Your deck is missing key pieces of its plan.';
+}
+
 // Roles: how close are we to per-role targets, weighted by role criticality.
 // Reusing the existing rolesGrade letter as a coarse score is tempting, but we
 // want a 0-100 that matches the rest of the dashboard.
@@ -194,10 +202,7 @@ export function composePlanScore(inputs: ComposePlanScoreInputs): PlanScore {
   }
   const overall = Math.round(weightTotal > 0 ? weighted / weightTotal : 0);
   const bandLabel = bandFor(overall);
-  const plan = inputs.planName ?? 'general-purpose';
-  const headline = inputs.planName
-    ? `Your ${plan} deck executes its plan at ${overall}%.`
-    : `Your deck scores ${overall}% on a general-purpose build.`;
+  const headline = headlineFor(overall);
   const byline = inputs.sampleSize && inputs.sampleSize > 0
     ? `Based on ${inputs.sampleSize.toLocaleString()} decklists.`
     : 'Based on aggregated EDHREC data.';

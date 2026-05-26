@@ -489,6 +489,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
 
   return createPortal(
     <div
+      data-card-preview-modal
       className="fixed inset-0 z-50 flex bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto"
       onClick={onClose}
       onTouchStart={onNavigate ? handleTouchStart : undefined}

@@ -11,8 +11,8 @@ export function AnalyzeSplit({ analyzer, deck }: AnalyzeSplitProps) {
   return (
     <>
       <div className="lg:hidden">
-        {deck}
         {analyzer}
+        {deck}
       </div>
 
       <div className="hidden lg:block h-[calc(100vh-77px)] sm:px-0 lg:px-0">

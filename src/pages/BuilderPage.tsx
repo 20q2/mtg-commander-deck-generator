@@ -43,6 +43,12 @@ export function BuilderPage() {
   const { createList } = useUserLists();
   const exportTriggerRef = useRef<(() => void) | null>(null);
   const [headerCollectionNames, setHeaderCollectionNames] = useState<Set<string> | null>(null);
+  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
+  useEffect(() => {
+    const handler = (e: Event) => setEaEnabled((e as CustomEvent<{ enabled: boolean }>).detail.enabled);
+    window.addEventListener('ea-features-changed', handler);
+    return () => window.removeEventListener('ea-features-changed', handler);
+  }, []);
 
   const {
     commander,
@@ -1157,17 +1163,19 @@ export function BuilderPage() {
                     </form>
                   </PopoverContent>
                 </Popover>
-                <Button
-                  onClick={() => {
-                    trackEvent('analyze_cta_clicked', { from: 'builder' });
-                    navigate('/analyze/overview');
-                  }}
-                  className="btn-shimmer"
-                  title="Open in Inspector"
-                >
-                  <Microscope className="w-4 h-4 mr-2" />
-                  Inspect
-                </Button>
+                {eaEnabled && (
+                  <Button
+                    onClick={() => {
+                      trackEvent('analyze_cta_clicked', { from: 'builder' });
+                      navigate('/analyze/overview');
+                    }}
+                    className="btn-shimmer"
+                    title="Open in Inspector"
+                  >
+                    <Microscope className="w-4 h-4 mr-2" />
+                    Inspect
+                  </Button>
+                )}
                 <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
                   <Copy className="w-4 h-4 mr-2" />
                   Export

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, Link } from 'react-router-dom';
 import { Settings, Sparkles, Wand2, ListChecks, Library, BarChart3, Microscope } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
@@ -180,7 +180,6 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { commander, generatedDeck, reset } = useStore();
   const { count: collectionCount } = useCollection();
   const userListCount = loadUserLists().length;
-  const navigate = useNavigate();
   const location = useLocation();
   const isCollectionPage = location.pathname === '/collection' || location.pathname.startsWith('/lists');
   const isAnalyzePage = location.pathname.startsWith('/analyze');
@@ -239,11 +238,6 @@ function Layout({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const handleLogoClick = () => {
-    reset();
-    navigate('/');
-  };
-
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
       {/* Commander Art Background (hidden on collection page) */}
@@ -255,8 +249,9 @@ function Layout({ children }: { children: React.ReactNode }) {
         <header className="border-b border-border/50 bg-card/80 backdrop-blur-md sm:sticky sm:top-0 z-40">
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
-              <button
-                onClick={handleLogoClick}
+              <Link
+                to="/"
+                onClick={() => reset()}
                 className="flex items-center gap-3 hover:opacity-80 transition-opacity text-left"
               >
                 <img
@@ -270,35 +265,41 @@ function Layout({ children }: { children: React.ReactNode }) {
                     Generate, analyze, and optimize Commander decks instantly
                   </p>
                 </div>
-              </button>
+              </Link>
               <div className="flex items-center gap-3">
-                <div className="hidden sm:flex items-center gap-3">
+                <nav className="hidden sm:flex items-center gap-3">
                   {import.meta.env.DEV && (
-                    <button
-                      onClick={() => navigate('/metrics')}
+                    <Link
+                      to="/metrics"
                       className="text-xs text-amber-500/80 hover:text-amber-400 transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
                     >
                       Metrics
-                    </button>
+                    </Link>
                   )}
-                  <button
-                    onClick={handleLogoClick}
+                  <Link
+                    to="/"
+                    onClick={() => reset()}
+                    aria-current={isCreatePage ? 'page' : undefined}
                     className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       isCreatePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
                     Generate
-                  </button>
-                  <button
-                    onClick={() => navigate('/analyze')}
-                    className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
-                      isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                    }`}
-                  >
-                    Inspector
-                  </button>
-                  <button
-                    onClick={() => navigate('/lists')}
+                  </Link>
+                  {eaEnabled && (
+                    <Link
+                      to="/analyze"
+                      aria-current={isAnalyzePage ? 'page' : undefined}
+                      className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                        isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                      }`}
+                    >
+                      Inspector
+                    </Link>
+                  )}
+                  <Link
+                    to="/lists"
+                    aria-current={location.pathname.startsWith('/lists') ? 'page' : undefined}
                     className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
@@ -309,9 +310,10 @@ function Layout({ children }: { children: React.ReactNode }) {
                         {userListCount}
                       </span>
                     )}
-                  </button>
-                  <button
-                    onClick={() => navigate('/collection')}
+                  </Link>
+                  <Link
+                    to="/collection"
+                    aria-current={location.pathname === '/collection' ? 'page' : undefined}
                     className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       location.pathname === '/collection' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
@@ -322,8 +324,8 @@ function Layout({ children }: { children: React.ReactNode }) {
                         {collectionCount.toLocaleString()}
                       </span>
                     )}
-                  </button>
-                </div>
+                  </Link>
+                </nav>
                 <Popover>
                   <PopoverTrigger asChild>
                     <button className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer">
@@ -332,13 +334,13 @@ function Layout({ children }: { children: React.ReactNode }) {
                   </PopoverTrigger>
                   <PopoverContent side="bottom" align="end" className="w-72 max-h-80 overflow-y-auto p-3 text-xs">
                     {import.meta.env.DEV && (
-                      <button
-                        onClick={() => navigate('/metrics')}
+                      <Link
+                        to="/metrics"
                         className="sm:hidden w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-1 text-amber-500/90"
                       >
                         <BarChart3 className="w-3.5 h-3.5" />
                         <span className="text-sm">Metrics</span>
-                      </button>
+                      </Link>
                     )}
                     <button
                       onClick={toggleEaFeatures}
@@ -436,8 +438,10 @@ function Layout({ children }: { children: React.ReactNode }) {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="flex items-stretch justify-around h-16">
-          <button
-            onClick={() => { handleLogoClick(); window.scrollTo(0, 0); }}
+          <Link
+            to="/"
+            onClick={() => { reset(); window.scrollTo(0, 0); }}
+            aria-current={isCreatePage ? 'page' : undefined}
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
               isCreatePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -445,19 +449,25 @@ function Layout({ children }: { children: React.ReactNode }) {
           >
             <Wand2 className={`w-5 h-5 ${isCreatePage ? 'text-primary' : ''}`} />
             <span className="text-[10px] font-medium">Generate</span>
-          </button>
-          <button
-            onClick={() => { navigate('/analyze'); window.scrollTo(0, 0); }}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
-              isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            aria-label="Inspector"
-          >
-            <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
-            <span className="text-[10px] font-medium">Inspector</span>
-          </button>
-          <button
-            onClick={() => { navigate('/lists'); window.scrollTo(0, 0); }}
+          </Link>
+          {eaEnabled && (
+            <Link
+              to="/analyze"
+              onClick={() => window.scrollTo(0, 0)}
+              aria-current={isAnalyzePage ? 'page' : undefined}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+                isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+              aria-label="Inspector"
+            >
+              <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
+              <span className="text-[10px] font-medium">Inspector</span>
+            </Link>
+          )}
+          <Link
+            to="/lists"
+            onClick={() => window.scrollTo(0, 0)}
+            aria-current={location.pathname.startsWith('/lists') ? 'page' : undefined}
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative ${
               location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -472,9 +482,11 @@ function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
             <span className="text-[10px] font-medium">Lists</span>
-          </button>
-          <button
-            onClick={() => { navigate('/collection'); window.scrollTo(0, 0); }}
+          </Link>
+          <Link
+            to="/collection"
+            onClick={() => window.scrollTo(0, 0)}
+            aria-current={location.pathname === '/collection' ? 'page' : undefined}
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
               location.pathname === '/collection' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -489,7 +501,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
             <span className="text-[10px] font-medium">Collection</span>
-          </button>
+          </Link>
         </div>
       </nav>,
       document.body
