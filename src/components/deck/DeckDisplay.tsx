@@ -2095,6 +2095,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   useEffect(() => () => { setModifyMode(false); }, [setModifyMode]);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
+  const [replacePopoverOpen, setReplacePopoverOpen] = useState(false);
   const [editDrawerTab, setEditDrawerTab] = useState<'actions' | 'move' | 'add'>('actions');
   const [gridLayout, _setGridLayout] = useState<'grid' | 'stacks'>(
     () => (localStorage.getItem('mtg-deck-grid-layout') as 'grid' | 'stacks') || 'grid'
@@ -2542,6 +2543,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   }, [previewCardIndex, flatCardList]);
 
   const handleReplaceWithMode = useCallback((mode: ReplaceMode) => {
+    setReplacePopoverOpen(false);
     if (!generatedDeck) return;
 
     const allCards = Object.values(groupedCards).flat();
@@ -2692,6 +2694,30 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const handleReplaceSelected = useCallback(() => {
     handleReplaceWithMode('similar');
   }, [handleReplaceWithMode]);
+
+  const singleSelectedCard = useMemo<ScryfallCard | null>(() => {
+    if (selectedCards.size !== 1) return null;
+    const allCards = Object.values(groupedCards).flat();
+    for (const { card } of allCards) {
+      if (selectedCards.has(card.id)) return card;
+    }
+    return null;
+  }, [selectedCards, groupedCards]);
+
+  const singleSelectedRoles = useMemo(() => {
+    if (!singleSelectedCard) return [] as Array<{ key: RoleKey; label: string }>;
+    const labels: Record<RoleKey, string> = { ramp: 'Ramp', removal: 'Removal', boardwipe: 'Boardwipe', cardDraw: 'Draw' };
+    if (singleSelectedCard.multiRole) {
+      return (['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[])
+        .filter(r => cardMatchesRole(singleSelectedCard.name, r))
+        .map(key => ({ key, label: labels[key] }));
+    }
+    if (singleSelectedCard.deckRole) {
+      const key = singleSelectedCard.deckRole as RoleKey;
+      if (labels[key]) return [{ key, label: labels[key] }];
+    }
+    return [];
+  }, [singleSelectedCard]);
 
   const handleBanSelected = useCallback(() => {
     const allCards = Object.values(groupedCards).flat();
@@ -4257,7 +4283,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               </div>
               <div className="ml-auto flex items-center gap-2">
                 {onRegenerate && (
-                  <Popover>
+                  <Popover open={replacePopoverOpen} onOpenChange={setReplacePopoverOpen}>
                     <PopoverTrigger asChild>
                       <button
                         disabled={selectedCards.size === 0}
@@ -4278,6 +4304,29 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                         <span>Quick replace</span>
                       </button>
                       <div className="border-t border-border my-1.5" />
+                      {singleSelectedCard && (
+                        <>
+                          <div className="px-1 pb-1.5 text-[11px] text-muted-foreground/80 flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate max-w-[8rem]" title={singleSelectedCard.name}>{singleSelectedCard.name}</span>
+                            <span>—</span>
+                            {singleSelectedRoles.length > 0 ? (
+                              singleSelectedRoles.map(({ key, label }) => {
+                                const meta = { ramp: { Icon: Sprout, color: 'text-emerald-400' }, removal: { Icon: Swords, color: 'text-rose-400' }, boardwipe: { Icon: Flame, color: 'text-orange-400' }, cardDraw: { Icon: BookOpen, color: 'text-sky-400' } }[key];
+                                const Icon = meta.Icon;
+                                return (
+                                  <span key={key} className={`inline-flex items-center gap-1 ${meta.color}`}>
+                                    <Icon className="w-3 h-3" />
+                                    {label}
+                                  </span>
+                                );
+                              })
+                            ) : (
+                              <span className="italic">no role</span>
+                            )}
+                          </div>
+                          <div className="border-t border-border mb-1.5" />
+                        </>
+                      )}
                       <div className="text-xs text-muted-foreground px-1 pb-1.5">Advanced — choose role</div>
                       <div className="flex flex-wrap gap-1.5">
                         {([
@@ -4486,6 +4535,29 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           </button>
                           {selectedCards.size > 0 && (
                             <div className="px-3 pt-1 pb-2">
+                              {singleSelectedCard && (
+                                <>
+                                  <div className="pb-1.5 text-[11px] text-muted-foreground/80 flex items-center gap-1.5 flex-wrap">
+                                    <span className="truncate max-w-[10rem]" title={singleSelectedCard.name}>{singleSelectedCard.name}</span>
+                                    <span>—</span>
+                                    {singleSelectedRoles.length > 0 ? (
+                                      singleSelectedRoles.map(({ key, label }) => {
+                                        const meta = { ramp: { Icon: Sprout, color: 'text-emerald-400' }, removal: { Icon: Swords, color: 'text-rose-400' }, boardwipe: { Icon: Flame, color: 'text-orange-400' }, cardDraw: { Icon: BookOpen, color: 'text-sky-400' } }[key];
+                                        const Icon = meta.Icon;
+                                        return (
+                                          <span key={key} className={`inline-flex items-center gap-1 ${meta.color}`}>
+                                            <Icon className="w-3 h-3" />
+                                            {label}
+                                          </span>
+                                        );
+                                      })
+                                    ) : (
+                                      <span className="italic">no role</span>
+                                    )}
+                                  </div>
+                                  <div className="border-t border-border mb-1.5" />
+                                </>
+                              )}
                               <div className="text-[11px] text-muted-foreground/70 pb-1.5">Advanced — choose role</div>
                               <div className="flex flex-wrap gap-1.5">
                                 {([
