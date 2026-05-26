@@ -387,10 +387,16 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   nextTurn: () => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const nextTurn = state.turn + 1;
+    const anyTapped = state.battlefield.some(b => b.tapped);
     return {
       history,
       turn: nextTurn,
-      log: [...state.log, makeLogEntry(`Turn ${nextTurn}`, 'turn')],
+      battlefield: anyTapped ? state.battlefield.map(b => ({ ...b, tapped: false })) : state.battlefield,
+      log: [
+        ...state.log,
+        makeLogEntry(`Turn ${nextTurn}`, 'turn'),
+        ...(anyTapped ? [makeLogEntry('Untapped all', 'tap')] : []),
+      ],
     };
   }),
 

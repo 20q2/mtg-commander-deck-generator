@@ -497,7 +497,7 @@ export function CommanderSearch() {
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer"
                         >
                           <span>{commander.name}</span>
-                          <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full">
+                          <span className="text-[10px] bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full">
                             {commander.count}
                           </span>
                         </button>

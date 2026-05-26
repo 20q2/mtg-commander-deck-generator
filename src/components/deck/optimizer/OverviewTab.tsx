@@ -260,15 +260,12 @@ export function SuggestionCardItem({
           </span>
         )}
         <span className="text-[11px] truncate flex-1 min-w-0 text-muted-foreground text-center">{rec.name}</span>
-        {rec.isGameChanger && (
-          <span className="text-[10px] font-bold text-amber-500/70 shrink-0" title="Game Changer (EDHREC)">GC</span>
-        )}
         {rec.price && (
           <span className="text-[10px] text-muted-foreground shrink-0">${rec.price}</span>
         )}
       </div>
       {/* Row 2: role + land tags */}
-      {(allBadges.length > 0 || isOwned) && (
+      {(allBadges.length > 0 || isOwned || rec.isGameChanger) && (
         <div className="flex items-center gap-1 px-1 min-w-0 justify-center flex-wrap">
           {isOwned && (
             <span
@@ -277,6 +274,15 @@ export function SuggestionCardItem({
             >
               <Package className="w-2.5 h-2.5 shrink-0" />
               Owned
+            </span>
+          )}
+          {rec.isGameChanger && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30"
+              title="Game Changer (EDHREC) — high-power card flagged by bracket rules"
+            >
+              <Sparkles className="w-2.5 h-2.5 shrink-0" />
+              Game Changer
             </span>
           )}
           {allBadges.map(label => {
@@ -561,7 +567,7 @@ export function AdjustPopoverContent({
                   inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
                   transition-all duration-200 cursor-pointer
                   ${isPrimary
-                    ? 'bg-primary/20 border-primary/40 text-primary font-semibold'
+                    ? 'bg-primary/20 border-primary/50 text-violet-200 font-semibold'
                     : isSecondary
                       ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
                       : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'

@@ -1,20 +1,12 @@
 [
   {
-    "version": "1.2.30",
-    "notes": [
-      "Replace is now a single button — pick Quick replace or choose a specific role (Ramp, Removal, Boardwipe, Draw, Synergy)",
-      "Replace toast shows card type symbols next to each pair so you can see at a glance what swapped for what",
-      "Entering modify mode now slowly fades the commander art into a subtle blueprint backdrop",
-      "Selection tab has an X to clear your selection without leaving modify mode",
-      "Modify toolbar no longer blocks clicks on the deck to its sides"
-    ]
-  },
-  {
     "version": "1.2.29",
     "notes": [
-      "Replace cards in place — no more full deck regenerate when swapping one card",
-      "New 'Replace with…' option lets you pick a category: Ramp, Removal, Boardwipe, Draw, or Synergy",
-      "Toast now names the swapped pair so you can see exactly what changed"
+      "Some fancy effects for when you click the button to modify a deck",
+      "Improved experience when using the Replace feature while modifying a deck",      
+      "Minor improvements to the combo preview section, click a card name to filter on that card",
+      "Contrast improvements for some purple-on-purple chips across the app",
+      "You can now (finally) use the back/forward buttons to nagivate around a generated deck view"
     ]
   },
   {

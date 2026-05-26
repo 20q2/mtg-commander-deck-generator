@@ -28,7 +28,7 @@ export function LaneTabs({ active, onChange }: LaneTabsProps) {
             onClick={() => onChange(tab.key)}
             className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 border ${
               isActive
-                ? 'bg-primary/15 text-primary border-primary/40'
+                ? 'bg-primary/20 text-violet-200 border-primary/50'
                 : 'bg-card/40 border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40'
             }`}
           >

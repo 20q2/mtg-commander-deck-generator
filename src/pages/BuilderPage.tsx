@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { DeckDisplay } from '@/components/deck/DeckDisplay';
@@ -17,7 +17,7 @@ import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, MoreHorizontal, Microscope } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Microscope, Swords } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -26,6 +26,8 @@ import { useUserLists } from '@/hooks/useUserLists';
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const genParam = searchParams.get('g');
   const [progress, setProgress] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [isLoadingCommander, setIsLoadingCommander] = useState(false);
@@ -75,6 +77,10 @@ export function BuilderPage() {
     setError,
     reset,
   } = useStore();
+
+  // URL drives view visibility so back/forward both work: the deck stays in the store across
+  // a back-to-settings, and forward re-shows it without regenerating.
+  const showDeck = !!(generatedDeck && genParam);
 
   // Scroll to top on mount
   useEffect(() => {
@@ -572,6 +578,14 @@ export function BuilderPage() {
       }
       setGeneratedDeck(deck);
       useStore.getState().clearDeckHistory();
+      // Push a new URL with ?g=<timestamp> so browser back returns to settings view.
+      // Only on fresh generation — regeneration stays on the same entry.
+      if (!isRegeneration) {
+        const basePath = partner
+          ? `/build/${encodeURIComponent(cmd.name)}/${encodeURIComponent(partner.name)}`
+          : `/build/${encodeURIComponent(cmd.name)}`;
+        navigate(`${basePath}?g=${Date.now()}`);
+      }
       // Scroll to top after view swaps from settings to deck display
       requestAnimationFrame(() => window.scrollTo({ top: 0 }));
       setSavedToList(false);
@@ -621,9 +635,10 @@ export function BuilderPage() {
   };
 
   const handleBack = () => {
-    // If viewing generated deck, go back to customization (steps 2/3)
-    if (generatedDeck) {
-      setGeneratedDeck(null);
+    // If viewing the generated deck, pop the ?g=<timestamp> entry. The deck stays in the store
+    // so a browser-forward returns the user to the same deck view without regenerating.
+    if (showDeck) {
+      navigate(-1);
       return;
     }
     // Otherwise, go back to home page (step 1)
@@ -648,7 +663,7 @@ export function BuilderPage() {
 
   return (
     <main className="flex-1 container mx-auto px-4 py-8">
-      {/* Back Button + Overflow Menu Row */}
+      {/* Back Button + Playtest Row */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <Button
           variant="ghost"
@@ -656,34 +671,35 @@ export function BuilderPage() {
           className="-ml-2"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
-          {generatedDeck ? 'Back to Settings' : 'Back to Search'}
+          {showDeck ? 'Back to Settings' : 'Back to Search'}
         </Button>
-        {generatedDeck && (
-          <Popover>
-            <PopoverTrigger asChild>
+        {showDeck && (
+          <div className="flex items-center gap-2">
+            {eaEnabled && (
               <button
-                title="More actions"
-                className="flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => {
+                  trackEvent('analyze_cta_clicked', { from: 'builder' });
+                  navigate('/analyze/overview');
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-card/50 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <MoreHorizontal className="w-4 h-4" />
+                <Microscope className="w-3.5 h-3.5" />
+                Inspect
               </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-44 p-1">
-              <button
-                onClick={() => navigate('/playtest/generated')}
-                disabled={!generatedDeck}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-accent rounded-md flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              >
-                <Swords className="w-3.5 h-3.5" />
-                Playtest
-              </button>
-            </PopoverContent>
-          </Popover>
+            )}
+            <button
+              onClick={() => navigate('/playtest/generated')}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-card/50 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <Swords className="w-3.5 h-3.5" />
+              Playtest
+            </button>
+          </div>
         )}
       </div>
 
       {/* Commander Card Display - only show during customization */}
-      {!generatedDeck && (
+      {!showDeck && (
         <section className="mb-8">
           <div className={`w-full mx-auto ${partnerCommander ? 'max-w-3xl' : 'max-w-lg'}`}>
             <div className={`grid gap-4 ${partnerCommander ? 'md:grid-cols-2' : 'grid-cols-1'}`}>
@@ -825,7 +841,7 @@ export function BuilderPage() {
       )}
 
       {/* Step 2/3: Customization */}
-      {!generatedDeck && (
+      {!showDeck && (
         <section className="mb-8 animate-slide-up">
           <div className="grid md:grid-cols-2 gap-6">
             {/* Archetype */}
@@ -975,7 +991,7 @@ export function BuilderPage() {
       )}
 
       {/* Deck Display */}
-      {generatedDeck && (
+      {showDeck && generatedDeck && (
         <section>
           <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <div className="flex items-center gap-3">
@@ -1043,16 +1059,6 @@ export function BuilderPage() {
               exportTriggerRef.current = onExport;
               return (
                 <div className="flex items-center gap-2 xl:hidden">
-                  <Button
-                    onClick={() => {
-                      trackEvent('analyze_cta_clicked', { from: 'builder' });
-                      navigate('/analyze/overview');
-                    }}
-                    className="btn-shimmer"
-                  >
-                    <Microscope className="w-4 h-4 mr-2" />
-                    Inspect
-                  </Button>
                   <Button onClick={onExport} className="btn-shimmer">
                     <Copy className="w-4 h-4 mr-2" />
                     Export
@@ -1078,7 +1084,7 @@ export function BuilderPage() {
                           ? 'border-green-500/50 bg-green-500/10 text-green-500'
                           : 'bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent'
                       } disabled:cursor-default`}
-                      title={savedToList ? 'Saved!' : 'Save as list'}
+                      title={savedToList ? 'Saved!' : 'Save deck'}
                     >
                       {savedToList ? <Check className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
                     </button>
@@ -1163,19 +1169,6 @@ export function BuilderPage() {
                     </form>
                   </PopoverContent>
                 </Popover>
-                {eaEnabled && (
-                  <Button
-                    onClick={() => {
-                      trackEvent('analyze_cta_clicked', { from: 'builder' });
-                      navigate('/analyze/overview');
-                    }}
-                    className="btn-shimmer"
-                    title="Open in Inspector"
-                  >
-                    <Microscope className="w-4 h-4 mr-2" />
-                    Inspect
-                  </Button>
-                )}
                 <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
                   <Copy className="w-4 h-4 mr-2" />
                   Export

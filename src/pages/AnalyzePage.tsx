@@ -295,7 +295,11 @@ export function AnalyzePage() {
       const ok = window.confirm("Discard this analysis? You haven't saved it.");
       if (!ok) return;
     }
-    useStore.setState({ generatedDeck: null, commander: null, partnerCommander: null, colorIdentity: [] });
+    // For 'generated', the deck belongs to the user's /build session — leave the store intact
+    // so navigating back to /build/X?g=… renders the deck view, not settings.
+    if (source?.kind !== 'generated') {
+      useStore.setState({ generatedDeck: null, commander: null, partnerCommander: null, colorIdentity: [] });
+    }
     setSource(null);
     setError(null);
     hydratedListIdRef.current = null;

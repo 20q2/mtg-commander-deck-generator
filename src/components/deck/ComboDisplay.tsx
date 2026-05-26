@@ -47,6 +47,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('relevance');
+  const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
@@ -240,9 +241,17 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     return [...list].sort((a, b) => b.deckCount - a.deckCount);
   };
 
-  const completeCombos = sortCombos(combos.filter(c => c.isComplete && !hasExcludedCard(c)));
-  const nearMisses = sortCombos(combos.filter(c => !c.isComplete && !hasExcludedCard(c)));
-  const excludedCombos = combos.filter(c => hasExcludedCard(c));
+  const matchesCardFilter = (combo: DetectedCombo) =>
+    !cardFilter || combo.cards.some(n => (n.includes(' // ') ? n.split(' // ')[0] : n) === cardFilter);
+
+  const completeCombos = sortCombos(combos.filter(c => c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
+  const nearMisses = sortCombos(combos.filter(c => !c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
+  const excludedCombos = combos.filter(c => hasExcludedCard(c) && matchesCardFilter(c));
+
+  const toggleCardFilter = (name: string) => {
+    const front = name.includes(' // ') ? name.split(' // ')[0] : name;
+    setCardFilter(prev => (prev === front ? null : front));
+  };
 
   const renderComboCard = (combo: DetectedCombo, isExcluded = false) => {
     const isComboExpanded = expandedCombo === combo.comboId;
@@ -259,22 +268,40 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       >
         {/* Title + metadata */}
         <div className="mb-2 min-w-0">
-          {isExcluded ? (
-            <span className="flex items-center gap-1 text-xs font-medium text-red-400 min-w-0">
-              <Ban className="w-3 h-3 shrink-0" />
-              <span className="truncate">{combo.cards.join(' + ')}</span>
-            </span>
-          ) : combo.isComplete ? (
-            <span className="flex items-center gap-1 text-xs font-medium text-green-500 min-w-0">
-              <Check className="w-3 h-3 shrink-0" />
-              <span className="truncate">{combo.cards.join(' + ')}</span>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-xs font-medium text-amber-500 min-w-0">
-              <AlertTriangle className="w-3 h-3 shrink-0" />
-              <span className="truncate">{combo.cards.join(' + ')}</span>
-            </span>
-          )}
+          {(() => {
+            const tone = isExcluded ? 'text-red-400' : combo.isComplete ? 'text-green-500' : 'text-amber-500';
+            const Icon = isExcluded ? Ban : combo.isComplete ? Check : AlertTriangle;
+            return (
+              <span className={`flex items-center gap-1 text-xs font-medium min-w-0 ${tone}`}>
+                <Icon className="w-3 h-3 shrink-0" />
+                <span className="truncate">
+                  {combo.cards.map((n, i) => {
+                    const front = n.includes(' // ') ? n.split(' // ')[0] : n;
+                    const isActive = cardFilter === front;
+                    const comboCount = cardComboMap.get(front)?.length ?? 0;
+                    const filterable = comboCount > 1;
+                    return (
+                      <Fragment key={n}>
+                        {i > 0 && <span className="text-muted-foreground/70 mx-0.5">+</span>}
+                        {filterable ? (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleCardFilter(n); }}
+                            className={`underline-offset-2 hover:underline hover:text-foreground transition-colors ${isActive ? 'underline text-foreground' : ''}`}
+                            title={isActive ? `Clear filter (${front})` : `Filter combos by ${front} (${comboCount} combos)`}
+                          >
+                            {front}
+                          </button>
+                        ) : (
+                          <span title={`${front} appears in only this combo`}>{front}</span>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </span>
+              </span>
+            );
+          })()}
           <span className="text-[10px] text-muted-foreground mt-0.5 block">
             {combo.deckCount.toLocaleString()} decks · Bracket {combo.bracket}
           </span>
@@ -286,6 +313,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             const isMissing = combo.missingCards.includes(name);
             const isBanned = bannedSet.has(name.toLowerCase());
             const imgUrl = cardImages.get(name);
+            const frontName = name.includes(' // ') ? name.split(' // ')[0] : name;
+            const cardComboCount = cardComboMap.get(frontName)?.length ?? 0;
             return (
               <Fragment key={name}>
                 {i > 0 && (
@@ -331,83 +360,91 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                       <span className="text-[9px] text-muted-foreground text-center px-1 leading-tight">{name}</span>
                     </div>
                   )}
-                  {isBanned ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md">
-                      <span className="text-[9px] font-bold text-red-400">EXCLUDED</span>
-                    </div>
-                  ) : isMissing && collectionNames?.has(name) ? (
-                    !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md group/added">
-                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/added:hidden">
-                          <Pin className="w-2.5 h-2.5" />
-                          Added
-                        </span>
-                        <button
-                          onClick={(e) => handleRemoveMustInclude(name, e)}
-                          className="hidden group-hover/added:flex items-center gap-0.5 px-1.5 py-1 rounded bg-red-600/90 hover:bg-red-500 text-white text-[8px] font-semibold transition-colors"
-                          title="Remove from Must Include list"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className={`absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md ${hideMustInclude ? '' : 'group/owned'}`}>
-                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/owned:hidden">
-                          <Package className="w-2.5 h-2.5" />
-                          OWNED
-                        </span>
-                        {!hideMustInclude && (
-                          <button
-                            onClick={(e) => handleAddMustInclude(name, e)}
-                            className="hidden group-hover/owned:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
-                            title="Add to deck"
-                          >
-                            <Plus className="w-2.5 h-2.5" />
-                            Add to Deck
-                          </button>
-                        )}
-                      </div>
-                    )
-                  ) : isMissing ? (
-                    !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md group/added">
-                        <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/added:hidden">
-                          <Pin className="w-2.5 h-2.5" />
-                          Added
-                        </span>
-                        <button
-                          onClick={(e) => handleRemoveMustInclude(name, e)}
-                          className="hidden group-hover/added:flex items-center gap-0.5 px-1.5 py-1 rounded bg-red-600/90 hover:bg-red-500 text-white text-[8px] font-semibold transition-colors"
-                          title="Remove from Must Include list"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <div className={`absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-md ${hideMustInclude ? '' : 'group/missing'}`}>
-                        <span className="flex items-center justify-center text-[9px] font-bold text-amber-400 group-hover/missing:hidden">MISSING</span>
-                        {!hideMustInclude && (
-                          <button
-                            onClick={(e) => handleAddMustInclude(name, e)}
-                            className="hidden group-hover/missing:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors"
-                            title="Add to deck"
-                          >
-                            <Plus className="w-2.5 h-2.5" />
-                            Add to Deck
-                          </button>
-                        )}
-                      </div>
-                    )
-                  ) : !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
-                    <div className="absolute bottom-1 left-1">
-                      <span className="bg-emerald-500/80 text-white rounded-full w-4 h-4 flex items-center justify-center" title="Must Include">
-                        <Pin className="w-2.5 h-2.5" />
-                      </span>
-                    </div>
-                  ) : null}
                 </div>
+                {isBanned ? (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
+                    <span className="text-[9px] font-bold text-red-400">EXCLUDED</span>
+                  </div>
+                ) : isMissing && collectionNames?.has(name) ? (
+                  !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
+                      <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/combo:hidden">
+                        <Pin className="w-2.5 h-2.5" />
+                        Added
+                      </span>
+                      <button
+                        onClick={(e) => handleRemoveMustInclude(name, e)}
+                        className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-red-600/90 hover:bg-red-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
+                        title="Remove from Must Include list"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
+                      <span className={`flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 ${hideMustInclude ? '' : 'group-hover/combo:hidden'}`}>
+                        <Package className="w-2.5 h-2.5" />
+                        OWNED
+                      </span>
+                      {!hideMustInclude && (
+                        <button
+                          onClick={(e) => handleAddMustInclude(name, e)}
+                          className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
+                          title="Add to deck"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                          Add to Deck
+                        </button>
+                      )}
+                    </div>
+                  )
+                ) : isMissing ? (
+                  !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
+                      <span className="flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 group-hover/combo:hidden">
+                        <Pin className="w-2.5 h-2.5" />
+                        Added
+                      </span>
+                      <button
+                        onClick={(e) => handleRemoveMustInclude(name, e)}
+                        className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-red-600/90 hover:bg-red-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
+                        title="Remove from Must Include list"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
+                      <span className={`flex items-center justify-center text-[9px] font-bold text-amber-400 ${hideMustInclude ? '' : 'group-hover/combo:hidden'}`}>MISSING</span>
+                      {!hideMustInclude && (
+                        <button
+                          onClick={(e) => handleAddMustInclude(name, e)}
+                          className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
+                          title="Add to deck"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                          Add to Deck
+                        </button>
+                      )}
+                    </div>
+                  )
+                ) : !hideMustInclude && (mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)) ? (
+                  <div className="absolute bottom-1 left-1 z-10 pointer-events-none">
+                    <span className="bg-emerald-500/80 text-white rounded-full w-4 h-4 flex items-center justify-center" title="Must Include">
+                      <Pin className="w-2.5 h-2.5" />
+                    </span>
+                  </div>
+                ) : null}
+                  {cardComboCount > 1 && (
+                    <span
+                      className="absolute top-0.5 left-0.5 z-10 px-1 py-0.5 rounded bg-violet-500/90 text-white text-[9px] font-bold leading-none opacity-0 group-hover/combo:opacity-100 transition-opacity pointer-events-none"
+                      title={`Part of ${cardComboCount} combos in this list`}
+                    >
+                      {cardComboCount}× combos
+                    </span>
+                  )}
                   {cardDataCache.has(name) && (
                     <span data-combo-menu-trigger className={`absolute top-0.5 right-0.5 z-10 transition-opacity ${contextMenuCard === name ? 'opacity-100' : 'opacity-0 group-hover/combo:opacity-100'}`}>
                       <CardContextMenu
@@ -546,6 +583,16 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         <span className="text-xs text-muted-foreground ml-auto shrink-0 whitespace-nowrap">
           {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}
         </span>
+        {expanded && cardFilter && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setCardFilter(null); }}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 transition-colors shrink-0"
+            title="Clear card filter"
+          >
+            <span className="truncate max-w-[140px]">Filter: {cardFilter}</span>
+            <X className="w-3 h-3 shrink-0" />
+          </button>
+        )}
         {expanded && (
           <span className="flex items-center rounded-md border border-border overflow-hidden shrink-0" onClick={(e) => e.stopPropagation()}>
             {(['relevance', 'popularity'] as const).map((mode) => (

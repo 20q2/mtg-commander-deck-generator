@@ -478,7 +478,7 @@ export function CollectionManager() {
           onClick={() => { setCommandersOnly(v => !v); setPage(1); }}
           className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
             commandersOnly
-              ? 'border-primary bg-primary/10 text-primary'
+              ? 'border-primary bg-primary/10 text-violet-200'
               : 'border-border text-muted-foreground hover:border-primary/50'
           }`}
         >

@@ -107,7 +107,7 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold truncate">{deck.commander?.name ?? 'No commander'}</p>
-            <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+            <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/20 text-violet-200">
               {sourceLabel}
             </span>
           </div>

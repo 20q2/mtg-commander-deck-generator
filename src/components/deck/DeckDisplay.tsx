@@ -1917,7 +1917,10 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               const target = generatedDeck.typeTargets?.[type.toLowerCase()];
               return (
                 <div key={type} className="flex justify-between text-xs">
-                  <span>{type}</span>
+                  <span className="flex items-center gap-1.5">
+                    <CardTypeIcon type={type} size="sm" className="opacity-60 w-3.5 text-center" />
+                    {type}
+                  </span>
                   <span className="text-muted-foreground">
                     {count}
                     {import.meta.env.DEV && target != null && (

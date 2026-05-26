@@ -94,7 +94,7 @@ export function UserListChips({ mode }: UserListChipsProps) {
   // --- Active count ---
 
   const enabledColor = mode === 'exclude'
-    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+    ? 'bg-red-500/10 text-red-300 border-red-500/30'
     : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
 
   // Collect only active items

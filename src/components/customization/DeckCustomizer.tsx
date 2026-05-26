@@ -8,6 +8,7 @@ import { MustIncludeCards } from './MustIncludeCards';
 import { AdvancedCustomization } from './AdvancedCustomization';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useCollection } from '@/hooks/useCollection';
+import { useUserLists } from '@/hooks/useUserLists';
 import { useNavigate } from 'react-router-dom';
 import { isEuropean } from '@/lib/region';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
@@ -26,6 +27,7 @@ const PACING_LABELS: { value: Pacing; label: string }[] = [
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
   const { count: collectionCount, cards: collectionCards } = useCollection();
+  const { lists: allUserLists } = useUserLists();
   const navigate = useNavigate();
   const [editingLands, setEditingLands] = useState(false);
   const [landInputValue, setLandInputValue] = useState('');
@@ -251,7 +253,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
               onClick={startEditingCustomFormat}
               className={`p-3 rounded-lg border text-center transition-colors ${
                 isCustomFormat
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? 'border-primary bg-primary/10 text-violet-200'
                   : 'border-border hover:border-primary/50'
               }`}
             >
@@ -266,11 +268,11 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
             onClick={() => handleFormatChange(60)}
             className={`p-3 rounded-lg border text-center transition-colors ${
               customization.deckFormat === 60
-                ? 'border-primary bg-primary/10 text-primary'
+                ? 'border-primary bg-primary/10 text-violet-200'
                 : 'border-border hover:border-primary/50'
             }`}
           >
-            <div className="font-medium text-sm">Brawl</div>
+            <div className="font-medium text-sm">60 Cards</div>
             <div className="text-xs text-muted-foreground">{getFormatDescription(60)}</div>
           </button>
           {/* Commander 99 */}
@@ -278,11 +280,11 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
             onClick={() => handleFormatChange(99)}
             className={`p-3 rounded-lg border text-center transition-colors ${
               customization.deckFormat === 99
-                ? 'border-primary bg-primary/10 text-primary'
+                ? 'border-primary bg-primary/10 text-violet-200'
                 : 'border-border hover:border-primary/50'
             }`}
           >
-            <div className="font-medium text-sm">Commander</div>
+            <div className="font-medium text-sm">100 Cards</div>
             <div className="text-xs text-muted-foreground">{getFormatDescription(99)}</div>
           </button>
         </div>
@@ -399,7 +401,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
             onClick={() => updateCustomization({ tempoAutoDetect: !customization.tempoAutoDetect })}
             className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
               customization.tempoAutoDetect
-                ? 'bg-primary/15 border-primary/30 text-primary'
+                ? 'bg-primary/20 border-primary/50 text-violet-200 font-medium'
                 : 'bg-muted border-border text-muted-foreground hover:text-foreground'
             }`}
           >
@@ -437,7 +439,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
             </svg>
             Budget Options
             {!budgetOpen && (customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null || customization.currency === 'EUR') && (
-              <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+              <span className="text-[10px] font-normal text-violet-200 bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.budgetOption !== 'any' ? customization.budgetOption : null,
                   customization.maxCardPrice !== null ? `${customization.currency === 'EUR' ? '€' : '$'}${customization.maxCardPrice}/card` : null,
@@ -486,7 +488,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                         isSelected
                           ? budget === null
                             ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
-                            : 'bg-primary/10 border border-primary text-primary'
+                            : 'bg-primary/10 border border-primary text-violet-200'
                           : 'border border-border hover:border-primary/50'
                       }`}
                     >
@@ -513,7 +515,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                     onClick={startEditingBudget}
                     className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
                       customization.deckBudget !== null && ![25, 50, 100, 200].includes(customization.deckBudget)
-                        ? 'bg-primary/10 border border-primary text-primary'
+                        ? 'bg-primary/10 border border-primary text-violet-200'
                         : 'border border-border hover:border-primary/50'
                     }`}
                   >
@@ -547,7 +549,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                         isSelected
                           ? price === null
                             ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
-                            : 'bg-primary/10 border border-primary text-primary'
+                            : 'bg-primary/10 border border-primary text-violet-200'
                           : 'border border-border hover:border-primary/50'
                       }`}
                     >
@@ -574,7 +576,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                     onClick={startEditingPrice}
                     className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
                       customization.maxCardPrice !== null && ![1, 5, 10, 25].includes(customization.maxCardPrice)
-                        ? 'bg-primary/10 border border-primary text-primary'
+                        ? 'bg-primary/10 border border-primary text-violet-200'
                         : 'border border-border hover:border-primary/50'
                     }`}
                   >
@@ -600,7 +602,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                     onClick={() => updateCustomization({ budgetOption: option.value })}
                     className={`p-2 rounded-lg border text-center transition-colors ${
                       customization.budgetOption === option.value
-                        ? 'border-primary bg-primary/10 text-primary'
+                        ? 'border-primary bg-primary/10 text-violet-200'
                         : 'border-border hover:border-primary/50'
                     }`}
                   >
@@ -659,7 +661,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
             </svg>
             Power Level
             {!powerLevelOpen && (customization.gameChangerLimit !== 'unlimited' || customization.bracketLevel !== 'all' || customization.comboCount > 1) && (
-              <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+              <span className="text-[10px] font-normal text-violet-200 bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.bracketLevel !== 'all' ? `Bracket ${customization.bracketLevel}` : null,
                   customization.gameChangerLimit === 'none' ? 'No GCs' : typeof customization.gameChangerLimit === 'number' ? `${customization.gameChangerLimit} GCs` : null,
@@ -712,7 +714,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                       customization.bracketLevel === option.value
                         ? option.value === 'all'
                           ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
-                          : 'bg-primary/10 border border-primary text-primary'
+                          : 'bg-primary/10 border border-primary text-violet-200'
                         : 'border border-border hover:border-primary/50'
                     }`}
                   >
@@ -733,7 +735,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                   onClick={() => { setEditingGcLimit(false); updateCustomization({ gameChangerLimit: 'none' }); }}
                   className={`p-2 rounded-lg border text-center transition-colors ${
                     customization.gameChangerLimit === 'none'
-                      ? 'border-primary bg-primary/10 text-primary'
+                      ? 'border-primary bg-primary/10 text-violet-200'
                       : 'border-border hover:border-primary/50'
                   }`}
                 >
@@ -762,7 +764,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                     onClick={startEditingGcLimit}
                     className={`p-2 rounded-lg border text-center transition-colors ${
                       typeof customization.gameChangerLimit === 'number'
-                        ? 'border-primary bg-primary/10 text-primary'
+                        ? 'border-primary bg-primary/10 text-violet-200'
                         : 'border-border hover:border-primary/50'
                     }`}
                   >
@@ -776,7 +778,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                   onClick={() => { setEditingGcLimit(false); updateCustomization({ gameChangerLimit: 'unlimited' }); }}
                   className={`p-2 rounded-lg border text-center transition-colors ${
                     customization.gameChangerLimit === 'unlimited'
-                      ? 'border-primary bg-primary/10 text-primary'
+                      ? 'border-primary bg-primary/10 text-violet-200'
                       : 'border-border hover:border-primary/50'
                   }`}
                 >
@@ -831,14 +833,34 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
               <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
             Card Lists
-            {!cardListsOpen && (customization.mustIncludeCards.length > 0 || customization.bannedCards.length > 0) && (
-              <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
-                {[
-                  customization.mustIncludeCards.length > 0 ? `${customization.mustIncludeCards.length} included` : null,
-                  customization.bannedCards.length > 0 ? `${customization.bannedCards.length} excluded` : null,
-                ].filter(Boolean).join(' · ')}
-              </span>
-            )}
+            {!cardListsOpen && (() => {
+              const included = new Set(customization.mustIncludeCards);
+              for (const ref of customization.appliedIncludeLists || []) {
+                if (ref.enabled) {
+                  const list = allUserLists.find(l => l.id === ref.listId);
+                  if (list) list.cards.forEach(c => included.add(c));
+                }
+              }
+              const excluded = new Set(customization.bannedCards);
+              for (const list of customization.banLists || []) {
+                if (list.enabled) list.cards.forEach(c => excluded.add(c));
+              }
+              for (const ref of customization.appliedExcludeLists || []) {
+                if (ref.enabled) {
+                  const list = allUserLists.find(l => l.id === ref.listId);
+                  if (list) list.cards.forEach(c => excluded.add(c));
+                }
+              }
+              if (included.size === 0 && excluded.size === 0) return null;
+              return (
+                <span className="text-[10px] font-normal text-violet-200 bg-primary/20 px-1.5 py-0.5 rounded-full">
+                  {[
+                    included.size > 0 ? `${included.size} included` : null,
+                    excluded.size > 0 ? `${excluded.size} excluded` : null,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              );
+            })()}
           </span>
           <svg
             className={`w-4 h-4 transition-transform ${cardListsOpen ? 'rotate-180' : ''}`}
@@ -879,7 +901,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
               </svg>
               Collection
               {!collectionOpen && customization.collectionMode && (
-                <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] font-normal text-violet-200 bg-primary/20 px-1.5 py-0.5 rounded-full">
                   {customization.collectionStrategy === 'partial' ? `Prioritize (${customization.collectionOwnedPercent}%)` : 'Only'}
                 </span>
               )}
@@ -925,7 +947,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                         onClick={() => updateCustomization({ collectionStrategy: option.value })}
                         className={`p-2 rounded-lg border text-center transition-colors ${
                           customization.collectionStrategy === option.value
-                            ? 'border-primary bg-primary/10 text-primary'
+                            ? 'border-primary bg-primary/10 text-violet-200'
                             : 'border-border hover:border-primary/50'
                         }`}
                       >
@@ -1037,7 +1059,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
             </svg>
             Other
             {!otherOpen && (customization.maxRarity !== null || customization.tinyLeaders || customization.arenaOnly || customization.scryfallQuery) && (
-              <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+              <span className="text-[10px] font-normal text-violet-200 bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.arenaOnly ? 'Arena' : null,
                   customization.maxRarity !== null ? `${customization.maxRarity} max` : null,
@@ -1080,7 +1102,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
                       customization.maxRarity === option.value
                         ? option.value === null
                           ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
-                          : 'border-primary bg-primary/10 text-primary border'
+                          : 'border-primary bg-primary/10 text-violet-200 border'
                         : 'border border-border hover:border-primary/50'
                     }`}
                   >

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 
 export const MAX_STACK_OFFSET = 36;
-export const MIN_STACK_OFFSET = 14;
+export const MIN_STACK_OFFSET = 28;
 /** Approximate height of a single card at the default 170px column width. */
 export const CARD_HEIGHT = 238;
 /** Chrome above the masonry (header, toolbar, padding) — used to estimate the height a stack should fit in. */
