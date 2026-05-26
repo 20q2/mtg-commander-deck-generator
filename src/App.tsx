@@ -66,22 +66,18 @@ function CommanderBackground({ commander, deckGenerated }: { commander: Scryfall
 
   return (
     <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-      {/* Art image with blur */}
+      {/* Art image with blur — fades out while modify mode is on */}
       <div
-        className={`absolute inset-0 transition-all duration-1000 ${
-          imageLoaded ? 'opacity-100' : 'opacity-0'
-        }`}
+        className="absolute inset-0"
+        style={{
+          opacity: imageLoaded ? (isModifyMode ? 0 : 1) : 0,
+          transition: 'opacity 2200ms ease',
+        }}
       >
         <img
           src={artUrl}
           alt=""
-          className={`w-full h-[70vh] object-cover object-top ${blurClass} scale-110 transition-all duration-700`}
-          style={{
-            filter: isModifyMode
-              ? 'saturate(0.25) hue-rotate(180deg) brightness(0.7) contrast(1.05)'
-              : undefined,
-            transition: 'filter 2800ms ease',
-          }}
+          className={`w-full h-[70vh] object-cover object-top ${blurClass} scale-110`}
           onLoad={() => setImageLoaded(true)}
         />
       </div>
