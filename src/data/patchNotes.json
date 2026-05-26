@@ -2,7 +2,7 @@
   {
     "version": "1.2.28",
     "notes": [
-      "An experimental Inspector page has been released to EA. Quickly check your deck for role coverage, mana curve strength, and new card suggestions with ease.",
+      "An experimental Inspector page has been released to EA (previously the analyzer). Quickly check your deck for role coverage, mana curve strength, and new card suggestions with ease.",
       "The visual grid deck view now supports stacked cards, as well as all of the show options",
       "Fixed a bug where you couldn't create lists as lists (they kept wanting to be decks)",
       "Added clarity to the build page when using a commander with no listed themes on EDHRec"

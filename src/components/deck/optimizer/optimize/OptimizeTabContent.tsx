@@ -44,7 +44,7 @@ export function OptimizeTabContent({
 
   const [activeRemoveName, setActiveRemoveName] = useState<string | null>(null);
   const [activeAddName, setActiveAddName] = useState<string | null>(null);
-  const [highlightedComboId, setHighlightedComboId] = useState<string | null>(null);
+  const [, setHighlightedComboId] = useState<string | null>(null);
   const [view, setView] = useState<OptimizeView>('swaps');
 
   const plan = useOptimizePlan({
