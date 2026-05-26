@@ -287,3 +287,69 @@ export function getSwapCandidatesForCard(
 
   return [];
 }
+
+/** Mode for picking a replacement candidate. */
+export type ReplaceMode = 'similar' | RoleKey | 'synergy';
+
+/** Filter inputs the caller provides so candidates respect user lists and the working deck state. */
+export interface ReplaceEligibility {
+  banned: Set<string>;
+  mustInclude: Set<string>;
+  inDeck: Set<string>;
+}
+
+function normName(name: string): string {
+  return name.includes(' // ') ? name.split(' // ')[0] : name;
+}
+
+function getSynergyPool(deck: GeneratedDeck): ScryfallCard[] {
+  if (!deck.swapCandidates) return [];
+  const typeKeys = [
+    'type:creature',
+    'type:artifact',
+    'type:enchantment',
+    'type:sorcery',
+    'type:instant',
+    'type:planeswalker',
+  ];
+  const seen = new Set<string>();
+  const out: ScryfallCard[] = [];
+  for (const key of typeKeys) {
+    for (const c of deck.swapCandidates[key] ?? []) {
+      if (c.deckRole) continue;
+      if (seen.has(c.name)) continue;
+      seen.add(c.name);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+export function pickReplacementCandidate(
+  deck: GeneratedDeck,
+  oldCard: ScryfallCard,
+  mode: ReplaceMode,
+  eligibility: ReplaceEligibility,
+): ScryfallCard | null {
+  if (!deck.swapCandidates) return null;
+
+  let pool: ScryfallCard[];
+  if (mode === 'similar') {
+    pool = getSwapCandidatesForCard(deck, oldCard);
+  } else if (mode === 'synergy') {
+    pool = getSynergyPool(deck);
+  } else {
+    pool = deck.swapCandidates[mode] ?? [];
+  }
+
+  const oldNorm = normName(oldCard.name);
+  for (const c of pool) {
+    const n = normName(c.name);
+    if (n === oldNorm) continue;
+    if (eligibility.banned.has(n)) continue;
+    if (eligibility.mustInclude.has(n)) continue;
+    if (eligibility.inDeck.has(n)) continue;
+    return c;
+  }
+  return null;
+}
