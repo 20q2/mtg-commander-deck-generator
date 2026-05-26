@@ -2057,7 +2057,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [toastMessage, setToastMessage] = useState<{ text: string; onUndo?: () => void } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: React.ReactNode; onUndo?: () => void } | null>(null);
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [savedListId, setSavedListId] = useState<string | null>(null);
   const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
@@ -2563,8 +2563,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     ]);
 
     let workingDeck = generatedDeck;
-    const pairs: Array<{ oldName: string; newName: string }> = [];
-    const unreplaced: string[] = [];
+    const pairs: Array<{ old: ScryfallCard; new: ScryfallCard }> = [];
+    const unreplaced: ScryfallCard[] = [];
 
     for (const oldCard of selected) {
       const inDeck = new Set<string>();
@@ -2581,18 +2581,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       });
 
       if (!candidate) {
-        unreplaced.push(oldCard.name);
+        unreplaced.push(oldCard);
         continue;
       }
 
       const result = swapCard(workingDeck, oldCard, candidate);
       if (!result.success) {
-        unreplaced.push(oldCard.name);
+        unreplaced.push(oldCard);
         continue;
       }
 
       workingDeck = result.deck;
-      pairs.push({ oldName: oldCard.name, newName: candidate.name });
+      pairs.push({ old: oldCard, new: candidate });
     }
 
     if (pairs.length === 0) {
@@ -2603,8 +2603,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     setGeneratedDeck(workingDeck);
 
     for (const p of pairs) {
-      pushDeckHistory({ action: 'remove', cardName: p.oldName });
-      pushDeckHistory({ action: 'add', cardName: p.newName });
+      pushDeckHistory({ action: 'remove', cardName: p.old.name });
+      pushDeckHistory({ action: 'add', cardName: p.new.name });
     }
 
     trackEvent('cards_removed', {
@@ -2614,18 +2614,67 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
     setSelectedCards(new Set());
 
-    const formatPair = (p: { oldName: string; newName: string }) => `${p.oldName} → ${p.newName}`;
-    let text: string;
+    const PRIMARY_TYPES = ['creature', 'planeswalker', 'instant', 'sorcery', 'artifact', 'enchantment', 'land'] as const;
+    const TYPE_ICON_CLASS: Record<string, string> = {
+      creature: 'ms-creature', planeswalker: 'ms-planeswalker', instant: 'ms-instant',
+      sorcery: 'ms-sorcery', artifact: 'ms-artifact', enchantment: 'ms-enchantment', land: 'ms-land',
+    };
+    const getPrimaryType = (card: ScryfallCard): string | null => {
+      const tl = getFrontFaceTypeLine(card).toLowerCase();
+      for (const t of PRIMARY_TYPES) if (tl.includes(t)) return t;
+      return null;
+    };
+    const TypeIcon = ({ card }: { card: ScryfallCard }) => {
+      const t = getPrimaryType(card);
+      if (!t) return null;
+      return <i className={`ms ${TYPE_ICON_CLASS[t]} text-white/90 mr-1`} aria-hidden />;
+    };
+    const PairLine = ({ p }: { p: { old: ScryfallCard; new: ScryfallCard } }) => (
+      <span className="inline-flex items-center flex-wrap">
+        <TypeIcon card={p.old} />
+        <span>{p.old.name}</span>
+        <span className="mx-1.5">→</span>
+        <TypeIcon card={p.new} />
+        <span>{p.new.name}</span>
+      </span>
+    );
+
+    let body: React.ReactNode;
     if (pairs.length === 1) {
-      text = `${formatPair(pairs[0])}. Deck updated.`;
+      body = (
+        <span className="inline-flex items-center flex-wrap gap-x-1">
+          <PairLine p={pairs[0]} />
+          <span>. Deck updated.</span>
+        </span>
+      );
     } else if (pairs.length <= 3) {
-      text = `Replaced ${pairs.length} cards: ${pairs.map(formatPair).join(', ')}`;
+      body = (
+        <span className="inline-flex items-center flex-wrap gap-x-1">
+          <span>Replaced {pairs.length} cards:</span>
+          {pairs.map((p, i) => (
+            <span key={i} className="inline-flex items-center">
+              <PairLine p={p} />
+              {i < pairs.length - 1 && <span>,</span>}
+            </span>
+          ))}
+        </span>
+      );
     } else {
-      text = `${formatPair(pairs[0])}, +${pairs.length - 1} more replaced. Deck updated.`;
+      body = (
+        <span className="inline-flex items-center flex-wrap gap-x-1">
+          <PairLine p={pairs[0]} />
+          <span>, +{pairs.length - 1} more replaced. Deck updated.</span>
+        </span>
+      );
     }
-    if (unreplaced.length > 0) {
-      text += ` No replacement found for ${unreplaced.join(', ')}.`;
-    }
+
+    const text: React.ReactNode = unreplaced.length > 0 ? (
+      <span className="inline-flex flex-col gap-0.5">
+        {body}
+        <span className="text-xs text-white/80">No replacement found for {unreplaced.map(c => c.name).join(', ')}.</span>
+      </span>
+    ) : body;
+
     setToastMessage({ text });
   }, [
     generatedDeck,
@@ -3228,24 +3277,33 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             #{card.edhrec_rank.toLocaleString()}
           </span>
         )}
-        {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && sortBy !== 'relevancy' && sortBy !== 'edhrank' && !isEditMode && showRelevancy && generatedDeck?.cardRelevancyMap && (() => {
-          const rel = generatedDeck.cardRelevancyMap![card.name] ?? generatedDeck.cardRelevancyMap![normalizedName];
-          if (rel == null) return null;
+        {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && sortBy !== 'relevancy' && sortBy !== 'edhrank' && !isEditMode && (() => {
+          const inclMap = generatedDeck?.cardInclusionMap;
+          const relMap = generatedDeck?.cardRelevancyMap;
+          const incl = showInclusion && inclMap ? (inclMap[card.name] ?? inclMap[normalizedName]) : null;
+          const rel = showRelevancy && relMap ? (relMap[card.name] ?? relMap[normalizedName]) : null;
+          const rank = showEdhRank && card.edhrec_rank != null ? card.edhrec_rank : null;
+          if (incl == null && rel == null && rank == null) return null;
+          const pct = incl != null ? Math.round(incl) : null;
+          const hue = pct != null ? (pct / 100) * 120 : 0;
           return (
-            <span className="absolute top-1 right-8 bg-violet-500/90 text-white text-[10px] px-1 rounded font-medium" title={`Relevancy: ${rel}`}>
-              {rel}
-            </span>
-          );
-        })()}
-        {sortBy !== 'cmc' && sortBy !== 'price' && sortBy !== 'score' && sortBy !== 'relevancy' && sortBy !== 'edhrank' && !isEditMode && showInclusion && generatedDeck?.cardInclusionMap && (() => {
-          const incl = generatedDeck.cardInclusionMap![card.name] ?? generatedDeck.cardInclusionMap![normalizedName];
-          if (incl == null) return null;
-          const pct = Math.round(incl);
-          const hue = (pct / 100) * 120;
-          return (
-            <span className="absolute top-1 left-1 bg-black/80 text-[10px] px-1 rounded font-medium" style={{ color: `hsl(${hue}, 70%, 55%)` }} title={`${pct}% EDHREC inclusion`}>
-              {pct}%
-            </span>
+            <div className="absolute top-1 left-1 flex flex-col items-start gap-0.5">
+              {pct != null && (
+                <span className="bg-black/80 text-[10px] px-1 rounded font-medium" style={{ color: `hsl(${hue}, 70%, 55%)` }} title={`${pct}% EDHREC inclusion`}>
+                  {pct}%
+                </span>
+              )}
+              {rel != null && (
+                <span className="bg-violet-500/90 text-white text-[10px] px-1 rounded font-medium" title={`Relevancy: ${rel}`}>
+                  {rel}
+                </span>
+              )}
+              {rank != null && (
+                <span className="bg-sky-500/90 text-white text-[10px] px-1 rounded font-medium" title={`EDHREC global rank: #${rank.toLocaleString()}`}>
+                  #{rank.toLocaleString()}
+                </span>
+              )}
+            </div>
           );
         })()}
         {(() => {
@@ -4223,17 +4281,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       <div className="text-xs text-muted-foreground px-1 pb-1.5">Advanced — choose role</div>
                       <div className="flex flex-wrap gap-1.5">
                         {([
-                          { mode: 'ramp', label: 'Ramp' },
-                          { mode: 'removal', label: 'Removal' },
-                          { mode: 'boardwipe', label: 'Boardwipe' },
-                          { mode: 'cardDraw', label: 'Draw' },
-                          { mode: 'synergy', label: 'Synergy' },
-                        ] as Array<{ mode: ReplaceMode; label: string }>).map(({ mode, label }) => (
+                          { mode: 'ramp', label: 'Ramp', Icon: Sprout, color: 'text-emerald-400' },
+                          { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
+                          { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
+                          { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
+                          { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
+                        ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
                           <button
                             key={mode}
                             onClick={() => handleReplaceWithMode(mode)}
-                            className="px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                           >
+                            <Icon className={`w-3.5 h-3.5 ${color}`} />
                             {label}
                           </button>
                         ))}
@@ -4430,17 +4489,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                               <div className="text-[11px] text-muted-foreground/70 pb-1.5">Advanced — choose role</div>
                               <div className="flex flex-wrap gap-1.5">
                                 {([
-                                  { mode: 'ramp', label: 'Ramp' },
-                                  { mode: 'removal', label: 'Removal' },
-                                  { mode: 'boardwipe', label: 'Boardwipe' },
-                                  { mode: 'cardDraw', label: 'Draw' },
-                                  { mode: 'synergy', label: 'Synergy' },
-                                ] as Array<{ mode: ReplaceMode; label: string }>).map(({ mode, label }) => (
+                                  { mode: 'ramp', label: 'Ramp', Icon: Sprout, color: 'text-emerald-400' },
+                                  { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
+                                  { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
+                                  { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
+                                  { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
+                                ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
                                   <button
                                     key={mode}
                                     onClick={() => handleReplaceWithMode(mode)}
-                                    className="px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                                   >
+                                    <Icon className={`w-3.5 h-3.5 ${color}`} />
                                     {label}
                                   </button>
                                 ))}
