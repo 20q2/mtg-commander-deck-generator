@@ -94,22 +94,26 @@ export function OptimizeDrilldown({
         <div className="flex-1 min-w-0 flex flex-col gap-3">
           <div>
             <div className="flex items-start gap-2 pr-8">
-              <h4 className="text-sm font-semibold flex items-center gap-2 flex-1 min-w-0">
-                <span className="truncate">{card.name}</span>
-                {card.isGameChanger && (
-                  <span className="text-[10px] font-bold text-amber-400/80 shrink-0" title="Game Changer (EDHREC)">GC</span>
-                )}
-                {card.isThemeSynergy && (
-                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-400/80 shrink-0" title="High synergy with commander themes">
-                    <Zap className="w-2.5 h-2.5" />
-                    High Synergy
-                  </span>
-                )}
+              <h4 className="text-sm font-semibold flex-1 min-w-0 truncate">
+                {card.name}
               </h4>
               {manaCost && (
                 <ManaText text={manaCost} className="shrink-0 text-sm leading-none" />
               )}
             </div>
+            {(card.isGameChanger || card.isThemeSynergy) && (
+              <div className="flex items-center gap-1.5 mt-1">
+                {card.isThemeSynergy && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-400/90" title="High synergy with commander themes">
+                    <Zap className="w-2.5 h-2.5" />
+                    High Synergy
+                  </span>
+                )}
+                {card.isGameChanger && (
+                  <span className="text-[10px] font-bold text-amber-400/90" title="Game Changer (EDHREC)">GC</span>
+                )}
+              </div>
+            )}
             {typeLine && (
               <p className="text-[11px] text-foreground/70 mt-1">
                 {typeLine}{card.cmc != null && card.cmc > 0 ? ` · CMC ${card.cmc}` : ''}
