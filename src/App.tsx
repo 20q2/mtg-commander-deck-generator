@@ -321,7 +321,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   >
                     My Lists
                     {userListCount > 0 && (
-                      <span className="text-[10px] font-medium bg-primary/20 text-primary px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                      <span className="text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                         {userListCount}
                       </span>
                     )}
@@ -335,7 +335,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   >
                     My Collection
                     {collectionCount > 0 && (
-                      <span className="text-[10px] font-medium bg-primary/20 text-primary px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                      <span className="text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                         {collectionCount.toLocaleString()}
                       </span>
                     )}
