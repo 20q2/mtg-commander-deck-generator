@@ -202,7 +202,15 @@ export function OptimizeColumn({
                     align="center"
                     sideOffset={12}
                     collisionPadding={16}
-                    className="w-[440px] max-w-[calc(100vw-2rem)] p-0 border-none bg-transparent shadow-none"
+                    className="w-[440px] max-w-[calc(100vw-2rem)] p-0 border-none bg-transparent shadow-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-left-4 data-[state=open]:duration-200 data-[state=open]:ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-left-2 data-[state=closed]:duration-150"
+                    onInteractOutside={(e) => {
+                      const target = e.target as Element | null;
+                      if (target?.closest('[data-card-preview-modal]')) e.preventDefault();
+                    }}
+                    onFocusOutside={(e) => {
+                      const target = e.target as Element | null;
+                      if (target?.closest('[data-card-preview-modal]')) e.preventDefault();
+                    }}
                   >
                     {renderDrilldown(card)}
                   </PopoverContent>

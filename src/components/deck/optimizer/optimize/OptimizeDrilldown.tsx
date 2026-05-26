@@ -1,8 +1,12 @@
-import { X, Zap, ArrowRight } from 'lucide-react';
+import { X, Zap, ArrowRight, ExternalLink, ZoomIn } from 'lucide-react';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
-import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ManaText } from '@/components/ui/mtg-icons';
+
+function edhrecSlug(name: string): string {
+  return name.split(' // ')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
 import { getCachedCard, getCardImageUrl } from '@/services/scryfall/client';
 import { scryfallImg } from '../constants';
 import type { TileSide } from './OptimizeTile';
@@ -25,9 +29,9 @@ export interface OptimizeDrilldownProps {
   onViewCombo?: (comboId: string) => void;
 }
 
-const SIDE_STYLE: Record<TileSide, { panelBorder: string; reasonAccent: string; toggleVariant: 'destructive' | 'default' }> = {
-  remove: { panelBorder: 'border-red-500/30',     reasonAccent: 'text-red-300/80',     toggleVariant: 'destructive' },
-  add:    { panelBorder: 'border-emerald-500/30', reasonAccent: 'text-emerald-300/80', toggleVariant: 'default' },
+const SIDE_STYLE: Record<TileSide, { panelBorder: string; reasonAccent: string }> = {
+  remove: { panelBorder: 'border-red-500/30',     reasonAccent: 'text-red-300/80' },
+  add:    { panelBorder: 'border-emerald-500/30', reasonAccent: 'text-emerald-300/80' },
 };
 
 function resolveTypeLine(card: OptimizeCard): string {
@@ -65,13 +69,12 @@ export function OptimizeDrilldown({
   const manaCost = resolveManaCost(card);
   const inclusionPct = card.inclusion != null ? Math.round(card.inclusion) : null;
   const scoreVal = card.score != null ? Math.round(card.score) : null;
-  const toggleLabel = side === 'remove'
-    ? (checked ? 'Keep in deck' : 'Swap out')
-    : (checked ? 'Skip this card' : 'Add to deck');
+  const scryfallUrl = `https://scryfall.com/search?q=!%22${encodeURIComponent(card.name)}%22`;
+  const edhrecUrl = `https://edhrec.com/cards/${edhrecSlug(card.name)}`;
 
   return (
     <div
-      className={`relative rounded-xl border ${style.panelBorder} bg-card/80 backdrop-blur-md shadow-xl shadow-black/50 p-3 sm:p-4 animate-fade-in`}
+      className={`relative rounded-xl border ${style.panelBorder} bg-card/80 backdrop-blur-md shadow-xl shadow-black/50 p-3 sm:p-4`}
     >
       <button
         type="button"
@@ -84,18 +87,46 @@ export function OptimizeDrilldown({
 
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <div className="shrink-0 w-32 sm:w-40">
-          <img
-            src={imgUrl}
-            alt={card.name}
-            className="w-full aspect-[5/7] rounded-lg shadow-lg"
-            loading="lazy"
-            onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name, 'normal'); }}
-          />
+          <button
+            type="button"
+            onClick={() => onPreviewCard?.(card.name)}
+            disabled={!onPreviewCard}
+            className="group/preview relative block w-full rounded-lg overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+            title={onPreviewCard ? 'Click to preview card' : card.name}
+            aria-label={onPreviewCard ? `Preview ${card.name}` : card.name}
+          >
+            <img
+              src={imgUrl}
+              alt={card.name}
+              className="w-full aspect-[5/7] rounded-lg shadow-lg transition-transform duration-200 group-hover/preview:scale-[1.02]"
+              loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name, 'normal'); }}
+            />
+            {onPreviewCard && (
+              <span
+                aria-hidden
+                className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 group-hover/preview:opacity-100 transition-opacity rounded-lg"
+              >
+                <ZoomIn className="w-7 h-7 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" strokeWidth={2.5} />
+              </span>
+            )}
+          </button>
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col gap-3">
           <div>
             <div className="flex items-start gap-2 pr-8">
+              <Checkbox
+                checked={checked}
+                onCheckedChange={() => onToggle(card.name)}
+                aria-label={side === 'remove'
+                  ? (checked ? 'Keep this card in the deck' : 'Mark this card for removal')
+                  : (checked ? 'Skip this addition' : 'Add this card to the deck')}
+                title={side === 'remove'
+                  ? (checked ? 'Will be removed — uncheck to keep' : 'Will be kept — check to remove')
+                  : (checked ? 'Will be added — uncheck to skip' : 'Will be skipped — check to add')}
+                className="mt-0.5"
+              />
               <h4 className="text-sm font-semibold flex-1 min-w-0 truncate">
                 {card.name}
               </h4>
@@ -208,13 +239,14 @@ export function OptimizeDrilldown({
 
           {side === 'add' && combo && (
             <div className="space-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-300/90">
                 Completes combo
               </p>
               <button
                 type="button"
                 onClick={() => onViewCombo?.(combo.comboId)}
-                className="inline-flex items-center gap-1 text-[11px] text-violet-300/80 hover:text-violet-200 transition-colors"
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-violet-400/40 bg-violet-500/10 text-[11px] font-medium text-violet-200 hover:text-violet-100 hover:bg-violet-500/20 hover:border-violet-400/60 transition-colors"
+                title="View this combo in the footer"
               >
                 {combo.cards.join(' + ')}
                 <ArrowRight className="w-3 h-3" />
@@ -222,16 +254,25 @@ export function OptimizeDrilldown({
             </div>
           )}
 
-          <div className="mt-auto pt-2">
-            <Button
-              type="button"
-              variant={checked ? style.toggleVariant : 'outline'}
-              size="sm"
-              onClick={() => onToggle(card.name)}
-              className="w-full"
+          <div className="mt-auto pt-2 flex items-center gap-2">
+            <a
+              href={scryfallUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-border/40 bg-muted/30 text-xs font-medium text-foreground/80 hover:text-foreground hover:border-border/70 hover:bg-muted/50 transition-colors"
             >
-              {toggleLabel}
-            </Button>
+              <ExternalLink className="w-3 h-3" />
+              Scryfall
+            </a>
+            <a
+              href={edhrecUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-border/40 bg-muted/30 text-xs font-medium text-foreground/80 hover:text-foreground hover:border-border/70 hover:bg-muted/50 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              EDHREC
+            </a>
           </div>
         </div>
       </div>
