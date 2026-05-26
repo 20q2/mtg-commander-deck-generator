@@ -4177,11 +4177,44 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       onClick={handleReplaceSelected}
                       disabled={selectedCards.size === 0}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                      title="Replace"
+                      title="Replace with a similar card"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>Replace</span>
                     </button>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          disabled={selectedCards.size === 0}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                          title="Replace with a different category"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Replace with…</span>
+                          <ChevronDown className="w-3 h-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent side="top" align="end" className="w-auto p-2">
+                        <div className="text-xs text-muted-foreground px-1 pb-1.5">Replace with…</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {([
+                            { mode: 'ramp', label: 'Ramp' },
+                            { mode: 'removal', label: 'Removal' },
+                            { mode: 'boardwipe', label: 'Boardwipe' },
+                            { mode: 'cardDraw', label: 'Draw' },
+                            { mode: 'synergy', label: 'Synergy' },
+                          ] as Array<{ mode: ReplaceMode; label: string }>).map(({ mode, label }) => (
+                            <button
+                              key={mode}
+                              onClick={() => handleReplaceWithMode(mode)}
+                              className="px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </>
                 )}
                 <div className="relative" ref={addToDropdownRef}>
