@@ -1,4 +1,4 @@
-import { ReactNode, useMemo } from 'react';
+import { Fragment, ReactNode, useMemo } from 'react';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
@@ -117,23 +117,24 @@ export function OptimizeColumn({
             <span className="text-[10px] text-muted-foreground/60">{group.cards.length}</span>
           </div>
 
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(70px,1fr))] gap-2">
+          {/* grid-flow-dense lets following tiles back-fill gaps left when
+              the drill-down row-break splits the grid mid-row. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(70px,1fr))] grid-flow-dense gap-2">
             {group.cards.map(card => (
-              <OptimizeTile
-                key={card.name}
-                card={card}
-                side={side}
-                checked={!uncheckedNames.has(card.name)}
-                active={card.name === activeName}
-                onClick={() => onTileClick(card.name)}
-              />
+              <Fragment key={card.name}>
+                <OptimizeTile
+                  card={card}
+                  side={side}
+                  checked={!uncheckedNames.has(card.name)}
+                  active={card.name === activeName}
+                  onClick={() => onTileClick(card.name)}
+                />
+                {card.name === activeName && (
+                  <div className="col-span-full my-2">{renderDrilldown(card)}</div>
+                )}
+              </Fragment>
             ))}
           </div>
-
-          {(() => {
-            const activeCard = group.cards.find(c => c.name === activeName);
-            return activeCard ? <div className="mt-3">{renderDrilldown(activeCard)}</div> : null;
-          })()}
         </section>
       ))}
 

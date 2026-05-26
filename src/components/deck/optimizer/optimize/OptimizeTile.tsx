@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Zap } from 'lucide-react';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { scryfallImg, ROLE_BADGE_COLORS, ROLE_LABEL_ICONS } from '../constants';
@@ -36,11 +37,20 @@ export function OptimizeTile({ card, side, checked, active, onClick }: OptimizeT
   const roleBadgeColor = card.roleLabel ? ROLE_BADGE_COLORS[card.roleLabel] : null;
   const isComboEnabler = card.reasonCategory === 'combo-enabler';
 
+  // Scroll the tile into view when it becomes active so the user sees both
+  // the clicked tile and the drill-down panel that opens directly below it.
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (active) buttonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [active]);
+
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
-      className={`group/tile relative block w-full text-left transition-all duration-200 rounded-lg overflow-visible ${
+      // scroll-mt clears the sticky plan header above so the tile lands below it.
+      className={`group/tile relative block w-full text-left transition-all duration-200 rounded-lg overflow-visible scroll-mt-40 ${
         active ? `ring-2 ${sideCls.ring}` : ''
       }`}
       title={card.name}
