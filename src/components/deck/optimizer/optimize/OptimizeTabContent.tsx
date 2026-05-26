@@ -123,6 +123,8 @@ export function OptimizeTabContent({
             onToggleChecked={plan.toggleRemoval}
             onSelectAll={plan.selectAllRemovals}
             onDeselectAll={plan.deselectAllRemovals}
+            onSelectGroup={plan.selectRemovalGroup}
+            onDeselectGroup={plan.deselectRemovalGroup}
             renderDrilldown={(card) => (
               <OptimizeDrilldown
                 card={card}
@@ -147,6 +149,8 @@ export function OptimizeTabContent({
             onToggleChecked={plan.toggleAddition}
             onSelectAll={plan.selectAllAdditions}
             onDeselectAll={plan.deselectAllAdditions}
+            onSelectGroup={plan.selectAdditionGroup}
+            onDeselectGroup={plan.deselectAdditionGroup}
             renderDrilldown={(card) => (
               <OptimizeDrilldown
                 card={card}

@@ -73,8 +73,11 @@ export interface OptimizeColumnProps {
   activeName: string | null;
   totalCount: number;
   onTileClick: (name: string) => void;
+  onToggleChecked: (name: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  onSelectGroup: (names: string[]) => void;
+  onDeselectGroup: (names: string[]) => void;
   /** Optional renderer for the inline drill-down panel inserted below the active tile's group. */
   renderDrilldown: (card: OptimizeCard) => ReactNode;
 }
@@ -104,7 +107,8 @@ const SIDE_HEADER: Record<TileSide, {
 
 export function OptimizeColumn({
   side, cards, uncheckedNames, activeName, totalCount,
-  onTileClick, onSelectAll, onDeselectAll, renderDrilldown,
+  onTileClick, onToggleChecked, onSelectAll, onDeselectAll,
+  onSelectGroup, onDeselectGroup, renderDrilldown,
 }: OptimizeColumnProps) {
   const labelFn = side === 'remove' ? getRemovalCategoryLabel : getAdditionCategoryLabel;
   const groups = useMemo(() => groupByCategory(cards, labelFn), [cards, labelFn]);
@@ -132,17 +136,27 @@ export function OptimizeColumn({
       </div>
 
       {/* Each group is its own glassy card — no border. */}
-      {groups.map(group => (
+      {groups.map(group => {
+        const groupNames = group.cards.map(c => c.name);
+        const groupAllUnchecked = groupNames.every(n => uncheckedNames.has(n));
+        return (
         <section
           key={group.category}
           className={`${headerMeta.cardBg} rounded-xl px-3 pt-0 pb-3`}
         >
           {/* Group label — sticky just below the plan header so the most recent menu title is always visible. */}
-          <div className={`sticky top-[6.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-md ${headerMeta.stickyBg} backdrop-blur-md flex items-baseline gap-2`}>
+          <div className={`sticky top-[6.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-md ${headerMeta.stickyBg} backdrop-blur-md flex items-center gap-2`}>
             <span className={`text-[11px] font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
               {group.label}
             </span>
             <span className="text-[10px] text-foreground/60">{group.cards.length}</span>
+            <button
+              type="button"
+              onClick={() => (groupAllUnchecked ? onSelectGroup(groupNames) : onDeselectGroup(groupNames))}
+              className={`ml-auto text-[10px] font-medium px-2 py-0.5 rounded transition-colors ${headerMeta.tintText} hover:bg-white/10`}
+            >
+              {groupAllUnchecked ? 'Select all' : 'Deselect all'}
+            </button>
           </div>
 
           {/* Each tile is the trigger for its own Popover — the drill-down
@@ -163,6 +177,7 @@ export function OptimizeColumn({
                       checked={!uncheckedNames.has(card.name)}
                       active={isActive}
                       onClick={() => onTileClick(card.name)}
+                      onToggleChecked={() => onToggleChecked(card.name)}
                     />
                   </PopoverTrigger>
                   <PopoverContent
@@ -179,7 +194,8 @@ export function OptimizeColumn({
             })}
           </div>
         </section>
-      ))}
+        );
+      })}
 
       {groups.length === 0 && (
         <p className="text-xs text-foreground/60 italic py-6 text-center">

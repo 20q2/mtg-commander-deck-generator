@@ -131,6 +131,37 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
     setUncheckedAdditions(new Set(additions.map(c => c.name)));
   }, [additions]);
 
+  // Bulk select/deselect of a specific subset of names — used by per-group
+  // select/deselect buttons.
+  const selectRemovalGroup = useCallback((names: string[]) => {
+    setUncheckedRemovals(prev => {
+      const next = new Set(prev);
+      for (const n of names) next.delete(n);
+      return next;
+    });
+  }, []);
+  const deselectRemovalGroup = useCallback((names: string[]) => {
+    setUncheckedRemovals(prev => {
+      const next = new Set(prev);
+      for (const n of names) next.add(n);
+      return next;
+    });
+  }, []);
+  const selectAdditionGroup = useCallback((names: string[]) => {
+    setUncheckedAdditions(prev => {
+      const next = new Set(prev);
+      for (const n of names) next.delete(n);
+      return next;
+    });
+  }, []);
+  const deselectAdditionGroup = useCallback((names: string[]) => {
+    setUncheckedAdditions(prev => {
+      const next = new Set(prev);
+      for (const n of names) next.add(n);
+      return next;
+    });
+  }, []);
+
   const resetSelections = useCallback(() => {
     setUncheckedRemovals(new Set());
     setUncheckedAdditions(new Set());
@@ -199,6 +230,10 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
     deselectAllRemovals,
     selectAllAdditions,
     deselectAllAdditions,
+    selectRemovalGroup,
+    deselectRemovalGroup,
+    selectAdditionGroup,
+    deselectAdditionGroup,
     resetSelections,
     addExtraCandidate,
     apply,
