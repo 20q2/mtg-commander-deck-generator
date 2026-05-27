@@ -855,6 +855,16 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                         </span>
                       )}
                     </div>
+                    {similarLoading && filteredSimilarCards.length === 0 && (
+                      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <div key={i} className="text-center">
+                            <div className="w-full aspect-[5/7] rounded-lg border-2 border-white/10 bg-white/5 animate-pulse" />
+                            <div className="h-2.5 mt-1 rounded bg-white/5 animate-pulse" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {filteredSimilarCards.length > 0 && (
                       <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
                         {filteredSimilarCards.map((candidate) => {
