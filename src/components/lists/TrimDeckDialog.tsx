@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Scissors } from 'lucide-react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   }), [cards, commanderName, partnerCommanderName, targetSize, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [listRef] = useAutoAnimate<HTMLUListElement>({ duration: 280, easing: 'ease-in-out' });
 
   const defaultsKey = useMemo(() => plan.cuts.map(c => c.card.name).join('|'), [plan.cuts]);
   useEffect(() => {
@@ -146,7 +148,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
 
         {/* Card list */}
         <div className="px-5 py-3 max-h-[50vh] overflow-y-auto">
-          <ul className="space-y-1">
+          <ul ref={listRef} className="space-y-1">
             {plan.allCandidates.map((cand) => {
               const isChecked = checked.has(cand.card.name);
               const toggle = () => {
@@ -174,9 +176,25 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                 <li
                   key={cand.card.name}
                   data-state={isChecked ? 'active' : 'kept'}
-                  className="flex items-center gap-3 px-2 py-1.5 rounded transition-all duration-300 hover:bg-accent/40 data-[state=kept]:opacity-40 data-[state=kept]:translate-x-6"
+                  className={[
+                    'flex items-center gap-3 px-2 rounded transition-all duration-300 ease-out',
+                    'hover:bg-accent/40',
+                    isChecked
+                      ? 'py-1.5 opacity-100 translate-x-0'
+                      : 'py-1 opacity-40 translate-x-6 bg-emerald-500/5',
+                  ].join(' ')}
                 >
-                  <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
+                  {isChecked ? (
+                    <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
+                  ) : (
+                    <button
+                      onClick={toggle}
+                      className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
+                      aria-label={`Restore ${cand.card.name} to the cut list`}
+                    >
+                      Kept
+                    </button>
+                  )}
                   <div className="shrink-0 w-16 text-xs">
                     {cand.card.mana_cost && <ManaCost cost={cand.card.mana_cost} />}
                   </div>
