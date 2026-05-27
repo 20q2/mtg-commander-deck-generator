@@ -9,7 +9,6 @@ import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, LayoutGrid, Grid3x3, AlignLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ListCardGrid, type ListViewMode } from './ListCardGrid';
 
 const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'] as const;
@@ -698,28 +697,32 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
         <div className="space-y-3 bg-accent/20 rounded-xl p-4 border border-border/20">
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium">Cards ({cards.length})</label>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={toggleListView} className="h-7 w-7">
-                    {listViewMode === 'medium' ? (
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                    ) : listViewMode === 'small' ? (
-                      <Grid3x3 className="w-3.5 h-3.5" />
-                    ) : (
-                      <AlignLeft className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {listViewMode === 'medium'
-                    ? 'Switch to small view'
-                    : listViewMode === 'small'
-                    ? 'Switch to list view'
-                    : 'Switch to medium view'}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleListView}
+              className="h-7 px-2 gap-1.5 text-muted-foreground hover:text-foreground"
+            >
+              {listViewMode === 'medium' ? (
+                <LayoutGrid className="w-3.5 h-3.5" />
+              ) : listViewMode === 'small' ? (
+                <Grid3x3 className="w-3.5 h-3.5" />
+              ) : (
+                <AlignLeft className="w-3.5 h-3.5" />
+              )}
+              <span className="text-xs">
+                {listViewMode === 'medium' ? 'Medium' : listViewMode === 'small' ? 'Small' : 'List'}
+              </span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClearAll}
+              className="h-7 px-2 gap-1.5 text-red-400/70 hover:text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="text-xs">Clear</span>
+            </Button>
             {Object.keys(typeBreakdown).length > 0 && (
               <div className="flex items-end gap-1.5 ml-auto">
                 {Object.entries(typeBreakdown)
@@ -736,15 +739,6 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                   ))}
               </div>
             )}
-            <button
-              onClick={handleClearAll}
-              className={`p-1 rounded-md text-red-400/70 hover:text-destructive hover:bg-destructive/10 transition-colors ${
-                Object.keys(typeBreakdown).length > 0 ? '' : 'ml-auto'
-              }`}
-              title="Clear all cards"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
           </div>
 
           {/* Search input */}
