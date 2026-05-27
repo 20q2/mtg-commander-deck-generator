@@ -138,6 +138,12 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           </div>
         )}
 
+        {checked.size < overage && (
+          <div className="mx-5 mt-3 px-3 py-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs">
+            Will trim {checked.size} of {overage} cards — uncheck fewer cards, or raise the land target to make up the difference.
+          </div>
+        )}
+
         {/* Card list */}
         <div className="px-5 py-3 max-h-[50vh] overflow-y-auto">
           <ul className="space-y-1">
@@ -146,8 +152,21 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
               const toggle = () => {
                 setChecked((prev) => {
                   const next = new Set(prev);
-                  if (next.has(cand.card.name)) next.delete(cand.card.name);
-                  else next.add(cand.card.name);
+                  const partition = cand.partition;
+                  if (next.has(cand.card.name)) {
+                    next.delete(cand.card.name);
+                    const desiredCount = overage;
+                    if (next.size < desiredCount) {
+                      const replacement = plan.allCandidates.find(c =>
+                        c.partition === partition &&
+                        !next.has(c.card.name) &&
+                        c.card.name !== cand.card.name
+                      );
+                      if (replacement) next.add(replacement.card.name);
+                    }
+                  } else {
+                    next.add(cand.card.name);
+                  }
                   return next;
                 });
               };
