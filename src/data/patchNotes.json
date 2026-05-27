@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.2.30",
+    "notes": [
+      "Lists now show your cards as a visual grid of thumbnails instead of a wall of name chips - much easier to scan",
+      "Toggle to a compact view for dense lists, or stick with the larger thumbnails for easier recognition",
+      "Click any card in the grid to open the full preview"
+    ]
+  },
+  {
     "version": "1.2.29",
     "notes": [
       "Some fancy effects for when you click the button to modify a deck",
