@@ -7,7 +7,10 @@ import { CollectionImporter, ImportResultDisplay, type ImportResult } from '@/co
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
-import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus } from 'lucide-react';
+import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, LayoutGrid, Grid3x3 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ListCardGrid } from './ListCardGrid';
 
 const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'] as const;
 
@@ -58,6 +61,19 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   // Card metadata tracking for live breakdown badges and grid thumbnails
   const cardDataRef = useRef<Map<string, CardMeta>>(new Map());
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>(() => existingList?.cachedTypeBreakdown ?? {});
+  const [, forceTick] = useState(0);
+
+  // Grid view mode (normal | compact), persisted in localStorage
+  const [listViewMode, setListViewMode] = useState<'normal' | 'compact'>(() => {
+    return localStorage.getItem('list-view-mode') === 'compact' ? 'compact' : 'normal';
+  });
+  const toggleListView = () => {
+    setListViewMode(prev => {
+      const next = prev === 'normal' ? 'compact' : 'normal';
+      localStorage.setItem('list-view-mode', next);
+      return next;
+    });
+  };
 
   // Commander state
   const [commanderName, setCommanderName] = useState(existingList?.commanderName ?? '');
@@ -168,6 +184,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
       }
     } catch { /* ignore */ }
     recomputeBreakdown(currentCards);
+    forceTick(t => t + 1);
   }, [recomputeBreakdown]);
 
   // On initial mount, populate type map for existing cards
@@ -278,6 +295,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
       const newCards = [...cards, card.name];
       setCards(newCards);
       recomputeBreakdown(newCards);
+      forceTick(t => t + 1);
     }
     setQuery('');
     setResults([]);
@@ -682,6 +700,18 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={toggleListView} className="h-7 w-7">
+                    {listViewMode === 'normal' ? <LayoutGrid className="w-3.5 h-3.5" /> : <Grid3x3 className="w-3.5 h-3.5" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {listViewMode === 'normal' ? 'Switch to compact view' : 'Switch to normal view'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {Object.keys(typeBreakdown).length > 0 && (
               <div className="flex items-end gap-1.5 ml-auto">
                 {Object.entries(typeBreakdown)
@@ -761,31 +791,15 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             )}
           </div>
 
-          {/* Current cards as chips */}
-          <div className="flex flex-wrap gap-1.5 max-h-60 lg:max-h-80 overflow-auto p-2 bg-background rounded-lg border border-border/30">
-            {cards.map((name, idx) => {
-              const isCommander = name === commanderName || name === partnerCommanderName;
-              return (
-                <span
-                  key={`${name}-${idx}`}
-                  className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border ${
-                    isCommander
-                      ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
-                      : 'bg-accent/50 text-foreground border-border/30'
-                  }`}
-                >
-                  {isCommander && <CommanderIcon size={10} className="text-amber-400 shrink-0" />}
-                  <span className="truncate max-w-[180px]">{name}</span>
-                  <button
-                    onClick={() => handleRemoveCard(name)}
-                    className="hover:bg-destructive/20 rounded p-0.5 transition-colors text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              );
-            })}
-          </div>
+          {/* Card grid */}
+          <ListCardGrid
+            cards={cards}
+            cardData={cardDataRef.current}
+            commanderName={commanderName}
+            partnerCommanderName={partnerCommanderName}
+            viewMode={listViewMode}
+            onRemove={handleRemoveCard}
+          />
         </div>
       )}
 
