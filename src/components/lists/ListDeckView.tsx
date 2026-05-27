@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope, Scissors } from 'lucide-react';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -14,6 +14,7 @@ import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
+import { TrimDeckDialog } from './TrimDeckDialog';
 
 interface ListDeckViewProps {
   list: UserCardList;
@@ -413,6 +414,17 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
 export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
   const navigate = useNavigate();
   const generatedDeck = useStore(s => s.generatedDeck);
+  const trimReady = !!(
+    generatedDeck?.cardRelevancyMap &&
+    generatedDeck?.cardInclusionMap &&
+    generatedDeck?.roleTargets &&
+    generatedDeck?.edhrecCurve &&
+    generatedDeck?.edhrecTypes
+  );
+  const allDeckCards = useMemo<ScryfallCard[]>(
+    () => generatedDeck ? Object.values(generatedDeck.categories).flat() : [],
+    [generatedDeck],
+  );
   const colorIdentity = useStore(s => s.colorIdentity) || [];
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
@@ -458,6 +470,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   // Action toast with undo (for add/remove cards)
   const [actionToast, setActionToast] = useState<{ message: string; onUndo: () => void } | null>(null);
   const [deckSizeNoticeDismissedAt, setDeckSizeNoticeDismissedAt] = useState<number | null>(null);
+  const [trimDialogOpen, setTrimDialogOpen] = useState(false);
   const actionToastTimer = useRef<ReturnType<typeof setTimeout>>();
   const onRemoveCardsRef = useRef(onRemoveCards);
   onRemoveCardsRef.current = onRemoveCards;
@@ -1200,10 +1213,21 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 ? ` — ${list.deckSize - list.cards.length} short`
                 : ` — ${list.cards.length - list.deckSize} over`}
             </span>
+            {list.deckSize && list.cards.length > list.deckSize && (
+              <button
+                onClick={() => setTrimDialogOpen(true)}
+                disabled={!trimReady}
+                title={trimReady ? `Trim deck to ${list.deckSize} cards` : 'Trim needs commander data — try again once cards load.'}
+                className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-violet-500/20 hover:bg-violet-500/30 text-violet-200 border border-violet-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-violet-500/20 whitespace-nowrap"
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                Trim to {list.deckSize}
+              </button>
+            )}
             {onUpdateDeckSize && (
               <button
                 onClick={() => onUpdateDeckSize(list.cards.length)}
-                className="ml-auto text-xs text-amber-400 hover:text-amber-200 underline underline-offset-2 transition-colors whitespace-nowrap"
+                className={`${list.deckSize && list.cards.length > list.deckSize ? '' : 'ml-auto'} text-xs text-amber-400 hover:text-amber-200 underline underline-offset-2 transition-colors whitespace-nowrap`}
               >
                 Set expected to {list.cards.length}
               </button>
@@ -1460,6 +1484,30 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           </button>
         </div>,
         document.body,
+      )}
+
+      {/* Trim deck dialog */}
+      {trimDialogOpen && generatedDeck && list.deckSize && list.commanderName && (
+        <TrimDeckDialog
+          open={trimDialogOpen}
+          onClose={() => setTrimDialogOpen(false)}
+          onConfirm={(names) => {
+            // Wired in Task 9
+            console.log('TODO: trim confirm', names);
+            setTrimDialogOpen(false);
+          }}
+          cards={allDeckCards}
+          commanderName={list.commanderName}
+          partnerCommanderName={list.partnerCommanderName}
+          targetSize={list.deckSize}
+          relevancyMap={generatedDeck.cardRelevancyMap || {}}
+          inclusionMap={generatedDeck.cardInclusionMap || {}}
+          synergyMap={generatedDeck.cardSynergyMap || {}}
+          roleCounts={generatedDeck.roleCounts || {}}
+          roleTargets={generatedDeck.roleTargets || {}}
+          edhrecCurve={generatedDeck.edhrecCurve || {}}
+          edhrecTypes={generatedDeck.edhrecTypes || {}}
+        />
       )}
     </>
   );
