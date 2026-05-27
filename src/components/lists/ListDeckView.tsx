@@ -668,6 +668,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           cardInclusionMap: enrichResult.cardInclusionMap,
           cardRelevancyMap: enrichResult.cardRelevancyMap,
           deckScore: enrichResult.deckScore,
+          swapCandidates: enrichResult.swapCandidates,
+          gapAnalysis: enrichResult.gapAnalysis,
         };
 
         const allColors = new Set<string>();
@@ -812,6 +814,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           cardInclusionMap: enrichResult.cardInclusionMap,
           cardRelevancyMap: enrichResult.cardRelevancyMap,
           deckScore: enrichResult.deckScore,
+          swapCandidates: enrichResult.swapCandidates,
+          gapAnalysis: enrichResult.gapAnalysis,
         },
       });
     };

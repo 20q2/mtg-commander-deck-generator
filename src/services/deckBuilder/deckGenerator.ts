@@ -760,7 +760,7 @@ function getPrimaryTypeKey(card: ScryfallCard): string | null {
 }
 
 // Collect swap candidates from pools — eligible cards that weren't selected, grouped by role or card type
-function collectSwapCandidates(
+export function collectSwapCandidates(
   pools: EDHRECCard[][],
   cardMap: Map<string, ScryfallCard>,
   usedNames: Set<string>,

@@ -1,7 +1,7 @@
 import type { ScryfallCard, DeckCategory, DetectedCombo, EDHRECCommanderData, EDHRECCard, GapAnalysisCard } from '@/types';
 import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
-import { getFrontFaceTypeLine, getGameChangerNames, isChannelLand, isMdfcLand } from '@/services/scryfall/client';
-import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './deckGenerator';
+import { getFrontFaceTypeLine, getGameChangerNames, isChannelLand, isMdfcLand, getCardsByNames } from '@/services/scryfall/client';
+import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST, collectSwapCandidates } from './deckGenerator';
 import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
 import { getBaseRoleTargets, getDynamicRoleTargets } from './roleTargets';
 import { buildGapAnalysis } from './gapAnalysisBuilder';
@@ -30,6 +30,7 @@ export interface EnrichResult {
   cardRelevancyMap?: Record<string, number>;
   deckScore?: number;
   gapAnalysis?: GapAnalysisCard[];
+  swapCandidates?: Record<string, ScryfallCard[]>;
 }
 
 /**
@@ -149,6 +150,7 @@ export async function enrichDeckCards(
   let cardRelevancyMap: Record<string, number> | undefined;
   let deckScore: number | undefined;
   let gapAnalysis: GapAnalysisCard[] | undefined;
+  let swapCandidates: Record<string, ScryfallCard[]> | undefined;
   if (commanderName) {
     try {
       const edhrecData: EDHRECCommanderData = partnerCommanderName
@@ -302,6 +304,50 @@ export async function enrichDeckCards(
       }
 
       console.log(`[Enricher] Built inclusion map (${Object.keys(inclMap).length} cards, score ${deckScore}) + relevancy map (${Object.keys(relMap).length} cards) from EDHREC`);
+
+      // Build swap candidate buckets so list-decks can offer role/type-based
+      // replacements in the card preview (same UI as generated decks).
+      try {
+        const deckNames = new Set<string>();
+        for (const cards of Object.values(categories)) {
+          for (const c of cards) deckNames.add(c.name);
+        }
+        if (commanderName) deckNames.add(commanderName);
+        if (partnerCommanderName) deckNames.add(partnerCommanderName);
+
+        const candidateNames: string[] = [];
+        const seen = new Set<string>();
+        for (const c of edhrecData.cardlists.allNonLand) {
+          if (deckNames.has(c.name) || seen.has(c.name)) continue;
+          seen.add(c.name);
+          candidateNames.push(c.name);
+        }
+
+        if (candidateNames.length > 0) {
+          const candidateCardMap = await getCardsByNames(candidateNames);
+          // Color identity = union of every card already in the deck (matches commander's identity).
+          const colorIdentity = [...new Set(cards.flatMap(c => c.color_identity ?? []))];
+          swapCandidates = collectSwapCandidates(
+            [edhrecData.cardlists.allNonLand],
+            candidateCardMap,
+            deckNames,
+            colorIdentity,
+            new Set(), // no bans here — list customization is a builder-time concern
+            null,      // no price cap
+            'mythic',  // no rarity cap
+            null,      // no cmc cap
+            undefined, // no collection filter
+            'USD',
+            false,
+            'full',
+            15,
+            false,
+          );
+          console.log(`[Enricher] Built swap candidates: ${Object.entries(swapCandidates).filter(([, v]) => v.length > 0).map(([k, v]) => `${k}=${v.length}`).join(', ')}`);
+        }
+      } catch (e) {
+        console.warn('[Enricher] Swap candidate build failed:', e);
+      }
     } catch (err) {
       console.warn('[Enricher] Failed to fetch EDHREC data — skipping inclusion/relevancy maps', err);
     }
@@ -322,5 +368,6 @@ export async function enrichDeckCards(
     cardRelevancyMap,
     deckScore,
     gapAnalysis,
+    swapCandidates,
   };
 }
