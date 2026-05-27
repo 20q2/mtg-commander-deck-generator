@@ -492,6 +492,11 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     // Get the original card's subtype for its role
     const originalSubtype = card.rampSubtype ?? card.removalSubtype ?? card.boardwipeSubtype ?? card.cardDrawSubtype ?? null;
     const getSubtype = (c: ScryfallCard) => c.rampSubtype ?? c.removalSubtype ?? c.boardwipeSubtype ?? c.cardDrawSubtype ?? null;
+    const getRel = (c: ScryfallCard) => {
+      if (!cardRelevancyMap) return 0;
+      const norm = c.name.includes(' // ') ? c.name.split(' // ')[0] : c.name;
+      return cardRelevancyMap[c.name] ?? cardRelevancyMap[norm] ?? 0;
+    };
     return [...swapCandidates].sort((a, b) => {
       const aType = getFrontFaceTypeLine(a).toLowerCase();
       const bType = getFrontFaceTypeLine(b).toLowerCase();
@@ -501,9 +506,12 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       // Within same type-match tier, sort by subtype match
       const aSubMatch = originalSubtype && getSubtype(a) === originalSubtype ? 0 : 1;
       const bSubMatch = originalSubtype && getSubtype(b) === originalSubtype ? 0 : 1;
-      return aSubMatch - bSubMatch;
+      if (aSubMatch !== bSubMatch) return aSubMatch - bSubMatch;
+      // Within same type+subtype tier, rank by relevancy descending so the
+      // top of each section is the most useful candidate for this deck.
+      return getRel(b) - getRel(a);
     });
-  }, [swapCandidates, card]);
+  }, [swapCandidates, card, cardRelevancyMap]);
 
   // Filter and rerank EDHREC similar cards.
   // Filters: drop self, drop already-in-deck, drop out-of-color-identity.
@@ -535,18 +543,22 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       return true;
     });
 
-    const withIncl: Array<{ card: ScryfallCard; incl: number; idx: number }> = [];
-    const withoutIncl: Array<{ card: ScryfallCard; idx: number }> = [];
+    const scored: Array<{ card: ScryfallCard; key: number; idx: number; hasKey: boolean }> = [];
+    const unscored: Array<{ card: ScryfallCard; idx: number }> = [];
     filtered.forEach((c, idx) => {
-      const v = cardInclusionMap?.[c.name];
-      if (typeof v === 'number') withIncl.push({ card: c, incl: v, idx });
-      else withoutIncl.push({ card: c, idx });
+      const norm = c.name.includes(' // ') ? c.name.split(' // ')[0] : c.name;
+      // Prefer relevancy when available; fall back to inclusion %.
+      const rel = cardRelevancyMap?.[c.name] ?? cardRelevancyMap?.[norm];
+      const incl = cardInclusionMap?.[c.name] ?? cardInclusionMap?.[norm];
+      const key = typeof rel === 'number' ? rel : typeof incl === 'number' ? incl : null;
+      if (key != null) scored.push({ card: c, key, idx, hasKey: true });
+      else unscored.push({ card: c, idx });
     });
-    withIncl.sort((a, b) => b.incl - a.incl);
-    withoutIncl.sort((a, b) => a.idx - b.idx);
+    scored.sort((a, b) => b.key - a.key);
+    unscored.sort((a, b) => a.idx - b.idx);
 
-    return [...withIncl.map((x) => x.card), ...withoutIncl.map((x) => x.card)].slice(0, 15);
-  }, [similarHydrated, card, generatedDeck, commander, cardInclusionMap, inDeckNames, commanderColorIdentity]);
+    return [...scored.map((x) => x.card), ...unscored.map((x) => x.card)].slice(0, 15);
+  }, [similarHydrated, card, generatedDeck, commander, cardInclusionMap, cardRelevancyMap, inDeckNames, commanderColorIdentity]);
 
   if (!card) return null;
 
