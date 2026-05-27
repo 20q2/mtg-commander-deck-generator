@@ -6,7 +6,7 @@ import { CommanderIcon } from '@/components/ui/mtg-icons';
 import type { ScryfallCard } from '@/types';
 import type { CardMeta } from './ListCreateEditForm';
 
-export type ListViewMode = 'normal' | 'compact' | 'text';
+export type ListViewMode = 'medium' | 'small' | 'list';
 
 interface ListCardGridProps {
   cards: string[];
@@ -26,9 +26,9 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
     if (card) setPreviewCard(card);
   };
 
-  // Commanders always sort to the front. Text view sorts the rest A→Z; grid views preserve insertion order.
+  // Commanders always sort to the front. List view sorts the rest A→Z; grid views preserve insertion order.
   const rest = cards.filter(n => n !== commanderName && n !== partnerCommanderName);
-  const orderedRest = viewMode === 'text'
+  const orderedRest = viewMode === 'list'
     ? [...rest].sort((a, b) => a.localeCompare(b))
     : rest;
   const orderedCards = [
@@ -37,7 +37,7 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
     ...orderedRest,
   ];
 
-  if (viewMode === 'text') {
+  if (viewMode === 'list') {
     return (
       <>
         <div className="max-h-60 lg:max-h-80 overflow-auto p-3 bg-background rounded-lg border border-border/30 columns-2 lg:columns-3 gap-x-6">
@@ -59,7 +59,7 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
     );
   }
 
-  const minWidth = viewMode === 'compact' ? 50 : 80;
+  const minWidth = viewMode === 'small' ? 40 : 60;
 
   return (
     <>

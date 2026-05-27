@@ -63,14 +63,18 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>(() => existingList?.cachedTypeBreakdown ?? {});
   const [, forceTick] = useState(0);
 
-  // Grid view mode (normal | compact | text), persisted in localStorage
+  // Grid view mode (medium | small | list), persisted in localStorage
   const [listViewMode, setListViewMode] = useState<ListViewMode>(() => {
     const stored = localStorage.getItem('list-view-mode');
-    return stored === 'compact' || stored === 'text' ? stored : 'normal';
+    // Migrate legacy values from the older 'normal' | 'compact' | 'text' scheme
+    if (stored === 'small' || stored === 'list' || stored === 'medium') return stored;
+    if (stored === 'compact') return 'small';
+    if (stored === 'text') return 'list';
+    return 'medium';
   });
   const toggleListView = () => {
     setListViewMode(prev => {
-      const next: ListViewMode = prev === 'normal' ? 'compact' : prev === 'compact' ? 'text' : 'normal';
+      const next: ListViewMode = prev === 'medium' ? 'small' : prev === 'small' ? 'list' : 'medium';
       localStorage.setItem('list-view-mode', next);
       return next;
     });
@@ -705,9 +709,9 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={toggleListView} className="h-7 w-7">
-                    {listViewMode === 'normal' ? (
+                    {listViewMode === 'medium' ? (
                       <LayoutGrid className="w-3.5 h-3.5" />
-                    ) : listViewMode === 'compact' ? (
+                    ) : listViewMode === 'small' ? (
                       <Grid3x3 className="w-3.5 h-3.5" />
                     ) : (
                       <AlignLeft className="w-3.5 h-3.5" />
@@ -715,11 +719,11 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {listViewMode === 'normal'
-                    ? 'Switch to compact view'
-                    : listViewMode === 'compact'
-                    ? 'Switch to text view'
-                    : 'Switch to normal view'}
+                  {listViewMode === 'medium'
+                    ? 'Switch to small view'
+                    : listViewMode === 'small'
+                    ? 'Switch to list view'
+                    : 'Switch to medium view'}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
