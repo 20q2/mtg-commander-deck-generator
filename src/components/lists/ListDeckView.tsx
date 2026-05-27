@@ -700,6 +700,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           commander: commanderCard,
           colorIdentity: colorArray,
           generatedDeck: syntheticDeck,
+          deckHistory: [],
         });
 
         if (colorArray.length > 0) {
@@ -721,7 +722,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
     return () => {
       cancelled = true;
-      useStore.setState({ generatedDeck: null });
+      useStore.setState({ generatedDeck: null, deckHistory: [] });
       resetTheme();
     };
   }, [list.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1505,7 +1506,10 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           cards={allDeckCards}
           commanderName={list.commanderName}
           partnerCommanderName={list.partnerCommanderName}
-          targetSize={list.deckSize}
+          // list.deckSize counts commanders; allDeckCards excludes them. Subtract
+          // the commander(s) so the trimmer's overage math lines up with the
+          // count the user sees in the over-count notice.
+          targetSize={list.deckSize - (list.commanderName ? 1 : 0) - (list.partnerCommanderName ? 1 : 0)}
           relevancyMap={generatedDeck.cardRelevancyMap || {}}
           inclusionMap={generatedDeck.cardInclusionMap || {}}
           synergyMap={generatedDeck.cardSynergyMap || {}}
