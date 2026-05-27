@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { X, Scissors } from 'lucide-react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Drawer } from '@/components/ui/drawer';
 import { ManaCost } from '@/components/ui/mtg-icons';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, getCardImageUrl } from '@/services/scryfall/client';
 
 export interface TrimDeckDialogProps {
   open: boolean;
@@ -64,26 +64,19 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
     if (open) setLandTarget(Math.max(30, currentLandCount));
   }, [open, currentLandCount]);
 
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [open]);
-
-  if (!open) return null;
-
   const overage = cards.length - targetSize;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto p-4"
-      onClick={onClose}
-    >
-      <div
-        className="relative w-full max-w-2xl my-auto bg-card border border-border rounded-2xl shadow-2xl animate-scale-in"
-        onClick={(e) => e.stopPropagation()}
-      >
+  // Auto-close if there's no overage to trim (e.g., parent already trimmed,
+  // or expected size was raised while open).
+  useEffect(() => {
+    if (open && overage <= 0) onClose();
+  }, [open, overage, onClose]);
+
+  if (overage <= 0) return null;
+
+  return (
+    <Drawer open={open} onClose={onClose} position="right" onPositionChange={() => {}}>
+      <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border">
           <div>
@@ -98,7 +91,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           <button
             onClick={onClose}
             className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            aria-label="Close trim dialog"
+            aria-label="Close trim drawer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -128,7 +121,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
             </span>
           </label>
           <div className="text-xs text-muted-foreground">
-            Cutting <span className="font-semibold text-foreground">{overage}</span> cards —
+            Cutting <span className="font-semibold text-foreground">{overage}</span> —
             <span className="font-semibold text-foreground"> {plan.cutLands}</span> lands,
             <span className="font-semibold text-foreground"> {plan.cutSpells}</span> spells
           </div>
@@ -147,8 +140,8 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
         )}
 
         {/* Card list */}
-        <div className="px-5 py-3 max-h-[50vh] overflow-y-auto">
-          <ul ref={listRef} className="space-y-1">
+        <div className="flex-1 px-3 py-3 overflow-y-auto">
+          <ul ref={listRef} className="space-y-2">
             {plan.allCandidates.map((cand) => {
               const isChecked = checked.has(cand.card.name);
               const toggle = () => {
@@ -157,8 +150,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                   const partition = cand.partition;
                   if (next.has(cand.card.name)) {
                     next.delete(cand.card.name);
-                    const desiredCount = overage;
-                    if (next.size < desiredCount) {
+                    if (next.size < overage) {
                       const replacement = plan.allCandidates.find(c =>
                         c.partition === partition &&
                         !next.has(c.card.name) &&
@@ -172,43 +164,64 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                   return next;
                 });
               };
+              const imageUrl = getCardImageUrl(cand.card, 'small');
               return (
                 <li
                   key={cand.card.name}
                   data-state={isChecked ? 'active' : 'kept'}
                   className={[
-                    'flex items-center gap-3 px-2 rounded transition-all duration-300 ease-out',
+                    'flex items-center gap-3 px-2 py-2 rounded-lg border transition-all duration-300 ease-out cursor-pointer',
                     'hover:bg-accent/40',
                     isChecked
-                      ? 'py-1.5 opacity-100 translate-x-0'
-                      : 'py-1 opacity-40 translate-x-6 bg-emerald-500/5',
+                      ? 'opacity-100 translate-x-0 border-violet-500/20 bg-card'
+                      : 'opacity-50 translate-x-3 border-emerald-500/30 bg-emerald-500/5',
                   ].join(' ')}
+                  onClick={toggle}
                 >
-                  {isChecked ? (
-                    <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
-                  ) : (
-                    <button
-                      onClick={toggle}
-                      className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
-                      aria-label={`Restore ${cand.card.name} to the cut list`}
-                    >
-                      Kept
-                    </button>
-                  )}
-                  <div className="shrink-0 w-16 text-xs">
-                    {cand.card.mana_cost && <ManaCost cost={cand.card.mana_cost} />}
+                  {/* Image thumbnail */}
+                  <div className="shrink-0 w-12 h-16 rounded overflow-hidden bg-muted/30 border border-border/40">
+                    {imageUrl && (
+                      <img
+                        src={imageUrl}
+                        alt={cand.card.name}
+                        loading="lazy"
+                        className="w-full h-full object-cover object-top"
+                      />
+                    )}
                   </div>
+
+                  {/* Checkbox / Kept pill */}
+                  <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                    {isChecked ? (
+                      <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
+                    ) : (
+                      <button
+                        onClick={toggle}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
+                        aria-label={`Restore ${cand.card.name} to the cut list`}
+                      >
+                        Kept
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Main column */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium truncate">{cand.card.name}</span>
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-300/80 bg-violet-500/10 border border-violet-500/30 rounded px-1.5 py-0.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-300/80 bg-violet-500/10 border border-violet-500/30 rounded px-1.5 py-0.5 whitespace-nowrap">
                         {cand.reasonLabel}
                       </span>
+                      {cand.card.mana_cost && (
+                        <span className="text-xs"><ManaCost cost={cand.card.mana_cost} /></span>
+                      )}
                     </div>
-                    <div className="text-xs text-muted-foreground truncate" title={cand.reasonText}>
-                      {getFrontFaceTypeLine(cand.card)} · {cand.reasonText}
+                    <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2" title={cand.reasonText}>
+                      {cand.reasonText}
                     </div>
                   </div>
+
+                  {/* Stats column */}
                   <div className="shrink-0 text-right text-xs">
                     <div className="text-violet-300/80">rel {cand.relevancy}</div>
                     <div className="text-muted-foreground">{cand.inclusion.toFixed(0)}%</div>
@@ -224,7 +237,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           <div className="text-xs text-muted-foreground">
             {checked.size === overage
               ? `Cutting ${plan.cutLands} land${plan.cutLands === 1 ? '' : 's'}, ${checked.size - plan.cutLands} spell${(checked.size - plan.cutLands) === 1 ? '' : 's'}`
-              : `Will trim ${checked.size} of ${overage} — deck will be ${cards.length - checked.size}/${targetSize}`}
+              : `Trim ${checked.size} of ${overage} — leaves ${cards.length - checked.size}/${targetSize}`}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -234,7 +247,6 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           </div>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Drawer>
   );
 }

@@ -48,8 +48,19 @@ export interface TrimResult {
 const TYPE_KEYS = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker'] as const;
 type TypeKey = (typeof TYPE_KEYS)[number];
 
+const BASIC_LAND_NAMES = new Set([
+  'Plains', 'Island', 'Swamp', 'Mountain', 'Forest',
+  'Snow-Covered Plains', 'Snow-Covered Island', 'Snow-Covered Swamp',
+  'Snow-Covered Mountain', 'Snow-Covered Forest',
+  'Wastes',
+]);
+
 function isLand(card: ScryfallCard): boolean {
   return getFrontFaceTypeLine(card).toLowerCase().includes('land');
+}
+
+function isBasicLand(card: ScryfallCard): boolean {
+  return BASIC_LAND_NAMES.has(card.name);
 }
 
 function classifyType(card: ScryfallCard): TypeKey | null {
@@ -154,16 +165,21 @@ export function planTrim(input: TrimInput): TrimResult {
   protectedNames.add(commanderName);
   if (partnerCommanderName) protectedNames.add(partnerCommanderName);
 
-  const trimmable = cards.filter(c => !protectedNames.has(c.name));
+  // Protected from any cut: commanders + basic lands. Basic lands are mana-base
+  // furniture; cutting one is essentially never the right answer in a trim flow.
+  const trimmable = cards.filter(c => !protectedNames.has(c.name) && !isBasicLand(c));
   const lands = trimmable.filter(isLand);
   const spells = trimmable.filter(c => !isLand(c));
 
-  const currentSize = trimmable.length;
+  // User-facing land count includes basics (the user thinks "I have 36 lands").
+  // Cuts can only come from the trimmable land pool (non-basics).
+  const totalLandsIncludingBasics = cards.filter(c => !protectedNames.has(c.name) && isLand(c)).length;
+  const currentSize = cards.filter(c => !protectedNames.has(c.name)).length;
   const overage = Math.max(0, currentSize - targetSize);
-  const currentLands = lands.length;
 
-  const effectiveLandTarget = clamp(targetLandCount, 30, currentLands);
-  const cutLands = Math.max(0, currentLands - effectiveLandTarget);
+  const effectiveLandTarget = clamp(targetLandCount, 30, totalLandsIncludingBasics);
+  // Cap at the non-basic land pool size — we can't cut more lands than exist as non-basics.
+  const cutLands = Math.min(lands.length, Math.max(0, totalLandsIncludingBasics - effectiveLandTarget));
   const cutSpells = Math.max(0, overage - cutLands);
 
   const cmcBuckets: Record<number, number> = {};
@@ -251,7 +267,11 @@ export function planTrim(input: TrimInput): TrimResult {
   const cuts = [...landCuts, ...spellCuts];
 
   const poolMin = Math.max(25, Math.ceil(overage * 1.5));
-  const landPoolWant = Math.max(landCuts.length, Math.ceil(poolMin * (currentLands / Math.max(1, currentSize))));
+  // Only surface land candidates when we're actually cutting lands. Otherwise
+  // the user shouldn't be seeing land options in the dialog at all.
+  const landPoolWant = cutLands > 0
+    ? Math.max(landCuts.length, Math.min(lands.length, Math.ceil(cutLands * 2)))
+    : 0;
   const spellPoolWant = Math.max(spellCuts.length, poolMin - landPoolWant);
 
   const seenNames = new Set(cuts.map(c => c.card.name));
