@@ -358,6 +358,22 @@ export async function enrichDeckCards(
             false,
           );
           console.log(`[Enricher] Built swap candidates: ${Object.entries(swapCandidates).filter(([, v]) => v.length > 0).map(([k, v]) => `${k}=${v.length}`).join(', ')}`);
+
+          // Score every candidate so the preview shows their relevancy alongside inclusion %.
+          for (const cards of Object.values(swapCandidates)) {
+            for (const candidate of cards) {
+              if (candidate.name in relMap) continue;
+              const ec = edhrecCardIndex.get(candidate.name)
+                ?? (candidate.name.includes(' // ') ? edhrecCardIndex.get(candidate.name.split(' // ')[0]) : undefined);
+              if (!ec) continue;
+              const role = (candidate.deckRole as RoleKey) || null;
+              const sub = candidate.rampSubtype || candidate.removalSubtype || candidate.boardwipeSubtype || candidate.cardDrawSubtype || null;
+              let score = scoreRecommendation(ec, role, sub, scoringCtx);
+              if (isChannelLand(candidate)) score += CHANNEL_LAND_BOOST;
+              else if (isMdfcLand(candidate)) score += MDFC_LAND_BOOST;
+              relMap[candidate.name] = Math.round(score);
+            }
+          }
         }
       } catch (e) {
         console.warn('[Enricher] Swap candidate build failed:', e);
