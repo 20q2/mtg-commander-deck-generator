@@ -828,11 +828,12 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                     <button
                       type="button"
                       onClick={() => setSwapPreview(null)}
-                      aria-label="Back to original card"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white text-xs font-medium transition-colors animate-fade-in"
+                      aria-label={`Back to ${card.name}`}
+                      title={`Back to ${card.name}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white text-xs font-medium transition-colors animate-fade-in max-w-[200px]"
                     >
-                      <ArrowLeft className="w-3 h-3" />
-                      Back
+                      <ArrowLeft className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}</span>
                     </button>
                     <button
                       type="button"
