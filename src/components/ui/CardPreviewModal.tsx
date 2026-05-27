@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Star, Pin, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
+import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
 import type { ScryfallCard, DetectedCombo } from '@/types';
@@ -645,6 +645,16 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
         >
           <X className="w-5 h-5" />
         </button>
+        {swapPreview && (
+          <button
+            onClick={() => setSwapPreview(null)}
+            aria-label="Back to original card"
+            title="Back to original card"
+            className="absolute top-2 left-2 bg-black/60 rounded-full p-1.5 text-white/70 hover:text-white transition-colors z-10"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Main layout: card column + optional combo panel side-by-side on desktop */}
         <div className={`${hasSidePanel ? 'md:flex md:items-start md:gap-5' : ''}`}>
