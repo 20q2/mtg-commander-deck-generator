@@ -1120,6 +1120,39 @@ export async function fetchAverageDeckMultiCopies(
   }
 }
 
+// --- Similar cards (per-card EDHREC page) ---
+
+const similarCardsCache = new Map<string, { data: string[]; timestamp: number }>();
+
+interface RawCardPageResponse {
+  similar?: string[];
+}
+
+/**
+ * Fetch EDHREC's "similar cards" list for a single card.
+ * Returns an array of card names in EDHREC's native similarity order.
+ * Lazy, per-card, cached for CACHE_TTL. Returns [] on any failure.
+ */
+export async function fetchSimilarCards(cardName: string): Promise<string[]> {
+  const slug = formatCommanderNameForUrl(cardName);
+
+  const cached = similarCardsCache.get(slug);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const response = await edhrecFetch<RawCardPageResponse>(`/pages/cards/${slug}.json`);
+    const data = Array.isArray(response.similar) ? response.similar : [];
+    similarCardsCache.set(slug, { data, timestamp: Date.now() });
+    return data;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch similar cards for "${cardName}":`, error);
+    similarCardsCache.set(slug, { data: [], timestamp: Date.now() });
+    return [];
+  }
+}
+
 // --- Combo data ---
 
 const comboCache = new Map<string, { data: EDHRECCombo[]; timestamp: number }>();
