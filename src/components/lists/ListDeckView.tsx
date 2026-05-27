@@ -1487,14 +1487,20 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       )}
 
       {/* Trim deck dialog */}
-      {trimDialogOpen && generatedDeck && list.deckSize && list.commanderName && (
+      {trimDialogOpen && generatedDeck && list.deckSize && list.commanderName && onMoveToMaybeboard && (
         <TrimDeckDialog
           open={trimDialogOpen}
           onClose={() => setTrimDialogOpen(false)}
           onConfirm={(names) => {
-            // Wired in Task 9
-            console.log('TODO: trim confirm', names);
             setTrimDialogOpen(false);
+            if (names.length === 0) return;
+            onMoveToMaybeboard(names);
+            const label = names.length === 1
+              ? `Moved ${names[0]} to maybeboard`
+              : `Moved ${names.length} cards to maybeboard`;
+            showActionToast(label, () => {
+              onMoveToDeck?.(names, 'maybeboard');
+            });
           }}
           cards={allDeckCards}
           commanderName={list.commanderName}
