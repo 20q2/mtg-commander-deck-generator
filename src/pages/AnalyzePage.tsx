@@ -683,7 +683,7 @@ export function AnalyzePage() {
         id={`lane-panel-${activeLane}`}
         role="tabpanel"
         aria-labelledby={`lane-tab-${activeLane}`}
-        className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-6 min-h-[280px]"
+        className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[280px] overflow-hidden"
       >
         {activeLane === 'paste' && (
           <PasteLane onAnalyze={handlePasteAnalyze} loading={loading} />

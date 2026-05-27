@@ -39,11 +39,21 @@ export function ListsLane({ onPick, loading, loadingListId }: ListsLaneProps) {
             key={list.id}
             onClick={() => onPick(list)}
             disabled={loading}
-            className={`flex items-center gap-3 text-left rounded-lg border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-colors p-2.5 ${
+            className={`relative overflow-hidden flex items-center gap-3 min-w-0 text-left rounded-lg border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-colors p-2.5 ${
               loading && !isLoading ? 'opacity-50' : ''
             }`}
           >
-            <div className="w-12 h-12 shrink-0 rounded-md overflow-hidden bg-muted/30">
+            {list.cachedCommanderArtUrl && (
+              <div className="absolute inset-0 pointer-events-none">
+                <img
+                  src={list.cachedCommanderArtUrl}
+                  alt=""
+                  className="w-full h-full object-cover opacity-[0.18]"
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-card/80 via-card/60 to-card/80" />
+              </div>
+            )}
+            <div className="relative w-12 h-12 shrink-0 rounded-md overflow-hidden bg-muted/30">
               {list.cachedCommanderArtUrl ? (
                 <img
                   src={list.cachedCommanderArtUrl}
@@ -52,7 +62,7 @@ export function ListsLane({ onPick, loading, loadingListId }: ListsLaneProps) {
                 />
               ) : null}
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="relative flex-1 min-w-0">
               <p className="text-sm font-semibold truncate">{list.name}</p>
               <p className="text-xs text-muted-foreground truncate">{list.commanderName}</p>
               {list.cachedColorIdentity && list.cachedColorIdentity.length > 0 && (
@@ -61,7 +71,7 @@ export function ListsLane({ onPick, loading, loadingListId }: ListsLaneProps) {
                 </div>
               )}
             </div>
-            {isLoading && <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />}
+            {isLoading && <Loader2 className="relative w-4 h-4 animate-spin text-primary shrink-0" />}
           </button>
         );
       })}

@@ -5,7 +5,6 @@ import type { UserCardList, ScryfallCard } from '@/types';
 import { getCardsByNames, getCardImageUrl, getCardByName } from '@/services/scryfall/client';
 import { ManaCost, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
-import { ChooseCommanderModal } from '@/components/lists/ChooseCommanderModal';
 import {
   ArrowLeft, Search, X, Grid3X3, List, Copy, CopyPlus, Pencil, Trash2,
   ChevronDown, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
@@ -133,7 +132,7 @@ interface ListDetailViewProps {
   onRemoveCard?: (cardName: string) => void;
   readOnly?: boolean;
   onViewAsDeck?: () => void;
-  onConvertToDeck?: (commanderName: string, partnerName?: string) => void;
+  onConvertToDeck?: () => void;
   onConvertToList?: () => void;
 }
 
@@ -149,9 +148,6 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
 
   // Preview
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
-
-  // Commander picker modal
-  const [showCommanderPicker, setShowCommanderPicker] = useState(false);
 
   // Delete confirmation
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -365,12 +361,11 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
             )}
             {list.type !== 'deck' && onConvertToDeck && list.cards.length > 0 && (
               <button
-                onClick={() => setShowCommanderPicker(true)}
-                disabled={loading}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                onClick={onConvertToDeck}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
               >
                 <CommanderIcon size={14} />
-                Set Commander
+                Convert to Deck
               </button>
             )}
             {list.type === 'deck' && onConvertToList && (
@@ -706,17 +701,6 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
       )}
 
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} onBuildDeck={handleBuildDeck} />
-
-      <ChooseCommanderModal
-        open={showCommanderPicker}
-        onClose={() => setShowCommanderPicker(false)}
-        onSelect={(commanderName, partnerName) => {
-          setShowCommanderPicker(false);
-          onConvertToDeck?.(commanderName, partnerName);
-        }}
-        scryfallMap={scryfallMap}
-        cardNames={list.cards}
-      />
     </div>
   );
 }

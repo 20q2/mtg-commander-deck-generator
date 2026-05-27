@@ -6,12 +6,14 @@ import { CommanderIcon } from '@/components/ui/mtg-icons';
 import type { ScryfallCard } from '@/types';
 import type { CardMeta } from './ListCreateEditForm';
 
+export type ListViewMode = 'normal' | 'compact' | 'text';
+
 interface ListCardGridProps {
   cards: string[];
   cardData: Map<string, CardMeta>;
   commanderName?: string;
   partnerCommanderName?: string;
-  viewMode: 'normal' | 'compact';
+  viewMode: ListViewMode;
   onRemove: (name: string) => void;
 }
 
@@ -24,12 +26,38 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
     if (card) setPreviewCard(card);
   };
 
-  // Sort commanders to the front, preserving relative order for the rest.
+  // Commanders always sort to the front. Text view sorts the rest A→Z; grid views preserve insertion order.
+  const rest = cards.filter(n => n !== commanderName && n !== partnerCommanderName);
+  const orderedRest = viewMode === 'text'
+    ? [...rest].sort((a, b) => a.localeCompare(b))
+    : rest;
   const orderedCards = [
     ...cards.filter(n => n === commanderName),
     ...cards.filter(n => n === partnerCommanderName && n !== commanderName),
-    ...cards.filter(n => n !== commanderName && n !== partnerCommanderName),
+    ...orderedRest,
   ];
+
+  if (viewMode === 'text') {
+    return (
+      <>
+        <div className="max-h-60 lg:max-h-80 overflow-auto p-3 bg-background rounded-lg border border-border/30 columns-2 lg:columns-3 gap-x-6">
+          {orderedCards.map((name) => {
+            const isCommander = name === commanderName || name === partnerCommanderName;
+            return (
+              <ListTextRow
+                key={name}
+                name={name}
+                isCommander={isCommander}
+                onRemove={() => onRemove(name)}
+                onPreview={() => handlePreview(name)}
+              />
+            );
+          })}
+        </div>
+        <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} hideMustInclude />
+      </>
+    );
+  }
 
   const minWidth = viewMode === 'compact' ? 50 : 80;
 
@@ -59,6 +87,37 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
       </div>
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} hideMustInclude />
     </>
+  );
+}
+
+interface ListTextRowProps {
+  name: string;
+  isCommander: boolean;
+  onRemove: () => void;
+  onPreview: () => void;
+}
+
+function ListTextRow({ name, isCommander, onRemove, onPreview }: ListTextRowProps) {
+  return (
+    <div className="group flex items-center gap-1 py-0.5 break-inside-avoid">
+      {isCommander && <CommanderIcon size={10} className="text-amber-400 shrink-0" />}
+      <button
+        type="button"
+        onClick={onPreview}
+        className={`flex-1 min-w-0 text-left text-xs truncate hover:text-primary transition-colors ${
+          isCommander ? 'text-amber-200 font-medium' : 'text-foreground/90'
+        }`}
+      >
+        {name}
+      </button>
+      <button
+        onClick={onRemove}
+        aria-label={`Remove ${name}`}
+        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive p-0.5"
+      >
+        <X className="w-3 h-3" />
+      </button>
+    </div>
   );
 }
 

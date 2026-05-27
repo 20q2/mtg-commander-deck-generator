@@ -182,9 +182,8 @@ export function ListsPage() {
           onDelete={() => handleDelete(list.id)}
           onRemoveCard={(name) => handleRemoveCard(list.id, name)}
           onViewAsDeck={() => navigate(`/lists/${list.id}/deck-view`)}
-          onConvertToDeck={(commanderName, partnerName) => {
-            updateList(list.id, { type: 'deck', commanderName, partnerCommanderName: partnerName });
-            navigate(`/lists/${list.id}/deck-view`);
+          onConvertToDeck={() => {
+            navigate(`/lists/${list.id}/edit?mode=deck`);
           }}
           onConvertToList={() => {
             convertToList(list.id);
@@ -408,12 +407,16 @@ export function ListsPage() {
   if (currentView.view === 'edit') {
     const list = lists.find(l => l.id === currentView.listId);
     if (!list) return null; // useEffect will redirect
+    const editMode = searchParams.get('mode') === 'deck' ? 'deck' : undefined;
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl lg:max-w-5xl">
         <div className="aurora-bg" />
         <ListCreateEditForm
           existingList={list}
+          mode={editMode}
           onSave={(name, cards, description, commanderOptions) => {
+            const convertingToDeck = editMode === 'deck';
+            const nextType = convertingToDeck || commanderOptions?.commanderName ? 'deck' : list.type;
             updateList(list.id, {
               name,
               cards,
@@ -422,9 +425,9 @@ export function ListsPage() {
               partnerCommanderName: commanderOptions?.partnerCommanderName,
               deckSize: commanderOptions?.deckSize,
               primer: commanderOptions?.primer,
-              type: commanderOptions?.commanderName ? 'deck' : list.type,
+              type: nextType,
             });
-            const isDeck = list.type === 'deck' || !!commanderOptions?.commanderName;
+            const isDeck = nextType === 'deck';
             navigate(`/lists/${list.id}${isDeck ? '/deck-view' : ''}`, { replace: true });
           }}
           onCancel={() => navigate(`/lists/${list.id}${list.type === 'deck' ? '/deck-view' : ''}`)}

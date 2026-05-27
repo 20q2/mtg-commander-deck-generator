@@ -7,10 +7,10 @@ import { CollectionImporter, ImportResultDisplay, type ImportResult } from '@/co
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
-import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, LayoutGrid, Grid3x3 } from 'lucide-react';
+import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, LayoutGrid, Grid3x3, AlignLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ListCardGrid } from './ListCardGrid';
+import { ListCardGrid, type ListViewMode } from './ListCardGrid';
 
 const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'] as const;
 
@@ -63,13 +63,14 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   const [typeBreakdown, setTypeBreakdown] = useState<Record<string, number>>(() => existingList?.cachedTypeBreakdown ?? {});
   const [, forceTick] = useState(0);
 
-  // Grid view mode (normal | compact), persisted in localStorage
-  const [listViewMode, setListViewMode] = useState<'normal' | 'compact'>(() => {
-    return localStorage.getItem('list-view-mode') === 'compact' ? 'compact' : 'normal';
+  // Grid view mode (normal | compact | text), persisted in localStorage
+  const [listViewMode, setListViewMode] = useState<ListViewMode>(() => {
+    const stored = localStorage.getItem('list-view-mode');
+    return stored === 'compact' || stored === 'text' ? stored : 'normal';
   });
   const toggleListView = () => {
     setListViewMode(prev => {
-      const next = prev === 'normal' ? 'compact' : 'normal';
+      const next: ListViewMode = prev === 'normal' ? 'compact' : prev === 'compact' ? 'text' : 'normal';
       localStorage.setItem('list-view-mode', next);
       return next;
     });
@@ -704,11 +705,21 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={toggleListView} className="h-7 w-7">
-                    {listViewMode === 'normal' ? <LayoutGrid className="w-3.5 h-3.5" /> : <Grid3x3 className="w-3.5 h-3.5" />}
+                    {listViewMode === 'normal' ? (
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                    ) : listViewMode === 'compact' ? (
+                      <Grid3x3 className="w-3.5 h-3.5" />
+                    ) : (
+                      <AlignLeft className="w-3.5 h-3.5" />
+                    )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {listViewMode === 'normal' ? 'Switch to compact view' : 'Switch to normal view'}
+                  {listViewMode === 'normal'
+                    ? 'Switch to compact view'
+                    : listViewMode === 'compact'
+                    ? 'Switch to text view'
+                    : 'Switch to normal view'}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
