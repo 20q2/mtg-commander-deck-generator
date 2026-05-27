@@ -847,12 +847,8 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                       <span className="text-[11px] font-bold text-violet-200 tracking-wide uppercase">
                         Similar Cards
                       </span>
-                      {similarLoading ? (
+                      {similarLoading && (
                         <Loader2 className="w-3 h-3 text-white/40 animate-spin ml-1" />
-                      ) : (
-                        <span className="ml-auto text-[10px] font-medium text-violet-300/70 bg-violet-500/10 px-1.5 py-0.5 rounded-full">
-                          {filteredSimilarCards.length}
-                        </span>
                       )}
                     </div>
                     {similarLoading && filteredSimilarCards.length === 0 && (
