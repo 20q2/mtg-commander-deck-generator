@@ -470,7 +470,20 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   // Action toast with undo (for add/remove cards)
   const [actionToast, setActionToast] = useState<{ message: string; onUndo: () => void } | null>(null);
   const [deckSizeNoticeDismissedAt, setDeckSizeNoticeDismissedAt] = useState<number | null>(null);
+  // Split open / mounted so the drawer can play its CSS slide-out before unmounting.
   const [trimDialogOpen, setTrimDialogOpen] = useState(false);
+  const [trimDialogMounted, setTrimDialogMounted] = useState(false);
+  const openTrimDialog = useCallback(() => {
+    setTrimDialogMounted(true);
+    // Defer flipping the open flag so the drawer starts at translate-x-full
+    // for one frame, then transitions to translate-x-0 — that's the slide-in.
+    requestAnimationFrame(() => setTrimDialogOpen(true));
+  }, []);
+  const closeTrimDialog = useCallback(() => {
+    setTrimDialogOpen(false);
+    // Match the Drawer's duration-300 transition before unmounting.
+    setTimeout(() => setTrimDialogMounted(false), 320);
+  }, []);
   const actionToastTimer = useRef<ReturnType<typeof setTimeout>>();
   const onRemoveCardsRef = useRef(onRemoveCards);
   onRemoveCardsRef.current = onRemoveCards;
@@ -1219,7 +1232,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             </span>
             {list.deckSize && list.cards.length > list.deckSize && (
               <button
-                onClick={() => setTrimDialogOpen(true)}
+                onClick={openTrimDialog}
                 disabled={!trimReady}
                 title={trimReady ? `Trim deck to ${list.deckSize} cards` : 'Trim needs commander data — try again once cards load.'}
                 className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-violet-500/20 hover:bg-violet-500/30 text-violet-200 border border-violet-500/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-violet-500/20 whitespace-nowrap"
@@ -1491,12 +1504,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       )}
 
       {/* Trim deck dialog */}
-      {trimDialogOpen && generatedDeck && list.deckSize && list.commanderName && onMoveToMaybeboard && (
+      {trimDialogMounted && generatedDeck && list.deckSize && list.commanderName && onMoveToMaybeboard && (
         <TrimDeckDialog
           open={trimDialogOpen}
-          onClose={() => setTrimDialogOpen(false)}
+          onClose={closeTrimDialog}
           onConfirm={(names) => {
-            setTrimDialogOpen(false);
+            closeTrimDialog();
             if (names.length === 0) return;
             onMoveToMaybeboard(names);
             const label = names.length === 1

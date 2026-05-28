@@ -9,30 +9,34 @@ interface DrawerProps {
   children: ReactNode;
   position: DrawerPosition;
   onPositionChange: (p: DrawerPosition) => void;
+  /** Optional override for the default size (vh for bottom, vw for sides). */
+  defaultSizePercent?: number;
 }
 
 const MIN_SIZE = 120;
 const DEFAULT_BOTTOM_VH = 55;
 const DEFAULT_SIDE_VW = 38;
 
-export function Drawer({ open, onClose, children, position }: DrawerProps) {
-  const [size, setSize] = useState(() =>
-    position === 'bottom'
-      ? Math.round(window.innerHeight * DEFAULT_BOTTOM_VH / 100)
-      : Math.round(window.innerWidth * DEFAULT_SIDE_VW / 100)
-  );
+export function Drawer({ open, onClose, children, position, defaultSizePercent }: DrawerProps) {
+  const [size, setSize] = useState(() => {
+    const pct = defaultSizePercent ?? (position === 'bottom' ? DEFAULT_BOTTOM_VH : DEFAULT_SIDE_VW);
+    return position === 'bottom'
+      ? Math.round(window.innerHeight * pct / 100)
+      : Math.round(window.innerWidth * pct / 100);
+  });
   const dragging = useRef(false);
   const startPos = useRef(0);
   const startSize = useRef(0);
 
   // Reset size when position changes
   useEffect(() => {
+    const pct = defaultSizePercent ?? (position === 'bottom' ? DEFAULT_BOTTOM_VH : DEFAULT_SIDE_VW);
     setSize(
       position === 'bottom'
-        ? Math.round(window.innerHeight * DEFAULT_BOTTOM_VH / 100)
-        : Math.round(window.innerWidth * DEFAULT_SIDE_VW / 100)
+        ? Math.round(window.innerHeight * pct / 100)
+        : Math.round(window.innerWidth * pct / 100)
     );
-  }, [position]);
+  }, [position, defaultSizePercent]);
 
   // Close on Escape
   const handleKeyDown = useCallback((e: KeyboardEvent) => {

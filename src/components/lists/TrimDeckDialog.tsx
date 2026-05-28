@@ -91,7 +91,13 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   if (overage <= 0) return null;
 
   return (
-    <Drawer open={open} onClose={onClose} position="right" onPositionChange={() => {}}>
+    <Drawer
+      open={open}
+      onClose={onClose}
+      position="right"
+      onPositionChange={() => {}}
+      defaultSizePercent={29}
+    >
       <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border">
