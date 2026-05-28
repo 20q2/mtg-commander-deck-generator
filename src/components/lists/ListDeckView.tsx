@@ -495,7 +495,10 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     return (names: string[]) => {
       onRemoveCards(names);
       const label = names.length === 1 ? `Removed ${names[0]}` : `Removed ${names.length} cards`;
-      showActionToast(label, () => onAddCardsRef.current?.(names, 'deck'));
+      showActionToast(label, () => {
+        onAddCardsRef.current?.(names, 'deck');
+        useStore.getState().popLatestHistoryEntries('remove', names);
+      });
     };
   }, [onRemoveCards, showActionToast]);
 
@@ -1228,7 +1231,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             {onUpdateDeckSize && (
               <button
                 onClick={() => onUpdateDeckSize(list.cards.length)}
-                className={`${list.deckSize && list.cards.length > list.deckSize ? '' : 'ml-auto'} text-xs text-amber-400 hover:text-amber-200 underline underline-offset-2 transition-colors whitespace-nowrap`}
+                className={`${list.deckSize && list.cards.length > list.deckSize ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 transition-colors whitespace-nowrap`}
               >
                 Set expected to {list.cards.length}
               </button>
