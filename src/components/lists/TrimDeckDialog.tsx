@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Scissors } from 'lucide-react';
+import { X, Scissors, Mountain, Minus, Plus } from 'lucide-react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
@@ -98,33 +98,35 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
         </div>
 
         {/* Controls strip */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-border bg-muted/30">
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Keep</span>
-            <input
-              type="number"
-              min={30}
-              max={currentLandCount}
-              value={landTarget}
-              onChange={(e) => setLandTarget(parseInt(e.target.value, 10) || 0)}
-              onBlur={(e) => {
-                const v = parseInt(e.target.value, 10) || 0;
-                const clamped = Math.max(30, Math.min(currentLandCount, v));
-                if (clamped !== v) setLandTarget(clamped);
-              }}
-              className="w-16 px-2 py-1 rounded border border-border bg-background text-center"
-              aria-label="Land count to keep"
-            />
-            <span className="text-muted-foreground">lands</span>
-            <span className="text-xs text-violet-300/80">
-              → cut {plan.cutLands} land{plan.cutLands === 1 ? '' : 's'}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-muted/30 text-sm">
+          <Mountain className="w-4 h-4 text-muted-foreground shrink-0" />
+          <span className="text-muted-foreground">Lands to keep</span>
+          <div className="inline-flex items-center rounded-md border border-border bg-background overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setLandTarget(v => Math.max(30, v - 1))}
+              disabled={landTarget <= 30}
+              className="px-2 py-1 hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Decrease land target"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span className="px-3 py-1 min-w-[2rem] text-center font-semibold tabular-nums">
+              {landTarget}
             </span>
-          </label>
-          <div className="text-xs text-muted-foreground">
-            Cutting <span className="font-semibold text-foreground">{overage}</span> —
-            <span className="font-semibold text-foreground"> {plan.cutLands}</span> lands,
-            <span className="font-semibold text-foreground"> {plan.cutSpells}</span> spells
+            <button
+              type="button"
+              onClick={() => setLandTarget(v => Math.min(currentLandCount, v + 1))}
+              disabled={landTarget >= currentLandCount}
+              className="px-2 py-1 hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Increase land target"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
           </div>
+          <span className="text-xs text-violet-300/80">
+            → cut {plan.cutLands}
+          </span>
         </div>
 
         {plan.relaxedGuardrail && (
@@ -224,7 +226,18 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                   {/* Stats column */}
                   <div className="shrink-0 text-right text-xs">
                     <div className="text-violet-300/80">rel {cand.relevancy}</div>
-                    <div className="text-muted-foreground">{cand.inclusion.toFixed(0)}%</div>
+                    {(() => {
+                      const pct = Math.round(cand.inclusion);
+                      const hue = (pct / 100) * 120; // 0%=red, 50%=yellow, 100%=green
+                      return (
+                        <div
+                          style={{ color: `hsl(${hue}, 70%, 55%)` }}
+                          title={`${pct}% of EDHREC decks include this card`}
+                        >
+                          {pct}%
+                        </div>
+                      );
+                    })()}
                   </div>
                 </li>
               );
