@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry } from '@/types';
+import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry, DeckHistoryAction } from '@/types';
 import { isEuropean } from '@/lib/region';
-import { swapCard } from '@/services/deckBuilder/cardSwap';
+import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 
 const BANNED_CARDS_KEY = 'mtg-deck-builder-banned-cards';
 const MUST_INCLUDE_CARDS_KEY = 'mtg-deck-builder-must-include-cards';
@@ -359,6 +359,17 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  addDeckCard: (newCard: ScryfallCard) => {
+    const { generatedDeck } = get();
+    if (!generatedDeck) return;
+    const result = addCard(generatedDeck, newCard);
+    if (result.success) {
+      set({ generatedDeck: result.deck });
+    } else {
+      console.warn('[Store] Card add failed:', result.error);
+    }
+  },
+
   pushDeckHistory: (entry) => set((state) => {
     const newEntry: DeckHistoryEntry = {
       ...entry,
@@ -366,6 +377,23 @@ export const useStore = create<AppState>((set, get) => ({
       timestamp: Date.now(),
     };
     return { deckHistory: [newEntry, ...state.deckHistory].slice(0, 50) };
+  }),
+
+  popLatestHistoryEntries: (action: DeckHistoryAction, cardNames: string[]) => set((state) => {
+    const remaining = new Map<string, number>();
+    for (const name of cardNames) {
+      remaining.set(name, (remaining.get(name) ?? 0) + 1);
+    }
+    const filtered: DeckHistoryEntry[] = [];
+    for (const entry of state.deckHistory) {
+      const need = remaining.get(entry.cardName) ?? 0;
+      if (entry.action === action && need > 0) {
+        remaining.set(entry.cardName, need - 1);
+        continue;
+      }
+      filtered.push(entry);
+    }
+    return { deckHistory: filtered };
   }),
 
   clearDeckHistory: () => set({ deckHistory: [] }),

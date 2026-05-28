@@ -228,6 +228,280 @@ export function swapCard(
   };
 }
 
+/**
+ * Add a card to the generated deck in-place (no removal).
+ * Returns a NEW GeneratedDeck object (immutable update).
+ */
+export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult {
+  const newCategory = getCategoryForCard(newCard);
+  const newCategories = { ...deck.categories };
+  newCard.isReplacement = true;
+
+  const newRole = getCardRole(newCard.name);
+  if (newRole) {
+    newCard.deckRole = newRole;
+    if (newRole === 'ramp') newCard.rampSubtype = getRampSubtype(newCard.name) ?? undefined;
+    else if (newRole === 'removal') newCard.removalSubtype = getRemovalSubtype(newCard.name) ?? undefined;
+    else if (newRole === 'boardwipe') newCard.boardwipeSubtype = getBoardwipeSubtype(newCard.name) ?? undefined;
+    else if (newRole === 'cardDraw') newCard.cardDrawSubtype = getCardDrawSubtype(newCard.name) ?? undefined;
+  }
+
+  newCategories[newCategory] = [...newCategories[newCategory], newCard];
+
+  const newStats = calculateStats(newCategories);
+
+  // Drop the new card from any swap candidate pool so it won't be re-suggested
+  let newSwapCandidates = deck.swapCandidates;
+  if (deck.swapCandidates) {
+    newSwapCandidates = { ...deck.swapCandidates };
+    for (const key of Object.keys(newSwapCandidates)) {
+      const pool = newSwapCandidates[key];
+      if (pool.some(c => c.name === newCard.name)) {
+        newSwapCandidates[key] = pool.filter(c => c.name !== newCard.name);
+      }
+    }
+  }
+
+  // Recalculate role and subtype counts
+  let newRoleCounts = deck.roleCounts;
+  let newRampSubtypeCounts = deck.rampSubtypeCounts;
+  let newRemovalSubtypeCounts = deck.removalSubtypeCounts;
+  let newBoardwipeSubtypeCounts = deck.boardwipeSubtypeCounts;
+  let newCardDrawSubtypeCounts = deck.cardDrawSubtypeCounts;
+  if (deck.roleCounts && deck.roleTargets) {
+    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+    newRampSubtypeCounts = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
+    newRemovalSubtypeCounts = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+    newBoardwipeSubtypeCounts = { 'bounce-wipe': 0, boardwipe: 0 };
+    newCardDrawSubtypeCounts = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+    for (const cards of Object.values(newCategories)) {
+      for (const card of cards) {
+        if (card.deckRole && card.deckRole in newRoleCounts) {
+          newRoleCounts[card.deckRole] = (newRoleCounts[card.deckRole] || 0) + 1;
+        }
+        if (card.rampSubtype) newRampSubtypeCounts[card.rampSubtype] = (newRampSubtypeCounts[card.rampSubtype] || 0) + 1;
+        if (card.removalSubtype) newRemovalSubtypeCounts[card.removalSubtype] = (newRemovalSubtypeCounts[card.removalSubtype] || 0) + 1;
+        if (card.boardwipeSubtype) newBoardwipeSubtypeCounts[card.boardwipeSubtype] = (newBoardwipeSubtypeCounts[card.boardwipeSubtype] || 0) + 1;
+        if (card.cardDrawSubtype) newCardDrawSubtypeCounts[card.cardDrawSubtype] = (newCardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
+      }
+    }
+  }
+
+  // Recalculate combo completeness with the added card
+  let newDetectedCombos = deck.detectedCombos;
+  if (deck.detectedCombos && deck.detectedCombos.length > 0) {
+    const allDeckNames = new Set<string>();
+    if (deck.commander) {
+      allDeckNames.add(deck.commander.name);
+      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
+    }
+    if (deck.partnerCommander) {
+      allDeckNames.add(deck.partnerCommander.name);
+      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
+    }
+    for (const c of Object.values(newCategories).flat()) {
+      allDeckNames.add(c.name);
+      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
+    }
+
+    newDetectedCombos = deck.detectedCombos
+      .map(combo => {
+        const missingCards = combo.cards.filter(name => !allDeckNames.has(name));
+        return { ...combo, isComplete: missingCards.length === 0, missingCards };
+      })
+      .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
+      .sort((a, b) => {
+        if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+        return a.missingCards.length - b.missingCards.length;
+      });
+
+    if (newDetectedCombos.length === 0) newDetectedCombos = undefined;
+  }
+
+  // Update inclusion map and deck score
+  let newCardInclusionMap = deck.cardInclusionMap;
+  let newDeckScore = deck.deckScore;
+  if (deck.cardInclusionMap) {
+    newCardInclusionMap = { ...deck.cardInclusionMap };
+    const newName = newCard.name;
+    const newNorm = newName.includes(' // ') ? newName.split(' // ')[0] : newName;
+    const gapEntry = deck.gapAnalysis?.find(g => g.name === newName || g.name === newNorm);
+    const newIncl = gapEntry ? gapEntry.inclusion : 0;
+    newCardInclusionMap[newName] = newIncl;
+    if (newDeckScore !== undefined) {
+      newDeckScore = Math.round(newDeckScore + newIncl);
+    }
+  }
+
+  // Re-estimate bracket
+  let newBracketEstimation = deck.bracketEstimation;
+  if (deck.gameChangerNames) {
+    const gcSet = new Set(deck.gameChangerNames);
+    const allNames = Object.values(newCategories).flat().map(c => c.name);
+    if (deck.commander) allNames.push(deck.commander.name);
+    if (deck.partnerCommander) allNames.push(deck.partnerCommander.name);
+    newBracketEstimation = estimateBracket(
+      allNames,
+      newDetectedCombos ?? undefined,
+      newStats.averageCmc,
+      newDeckScore,
+      newRoleCounts ?? undefined,
+      gcSet,
+    );
+  }
+
+  return {
+    deck: {
+      ...deck,
+      categories: newCategories,
+      stats: newStats,
+      swapCandidates: newSwapCandidates,
+      roleCounts: newRoleCounts,
+      rampSubtypeCounts: newRampSubtypeCounts,
+      removalSubtypeCounts: newRemovalSubtypeCounts,
+      boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
+      cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      detectedCombos: newDetectedCombos,
+      cardInclusionMap: newCardInclusionMap,
+      deckScore: newDeckScore,
+      bracketEstimation: newBracketEstimation,
+    },
+    success: true,
+  };
+}
+
+/**
+ * Remove one or more cards (by name) from the generated deck in-place.
+ * Recomputes stats, role/subtype counts, combo completeness, inclusion map,
+ * deck score, and bracket estimate so derived UI (sidebar count, score, etc.) stays accurate.
+ */
+export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
+  const removeSet = new Set(names);
+
+  // Build new categories with the named cards filtered out.
+  const newCategories = { ...deck.categories };
+  let removed = false;
+  for (const cat of Object.keys(newCategories) as Array<keyof typeof newCategories>) {
+    const filtered = newCategories[cat].filter(c => !removeSet.has(c.name));
+    if (filtered.length !== newCategories[cat].length) {
+      newCategories[cat] = filtered;
+      removed = true;
+    }
+  }
+  if (!removed) {
+    return { deck, success: false, error: `No matching cards to remove` };
+  }
+
+  const newStats = calculateStats(newCategories);
+
+  // Recalculate role and subtype counts
+  let newRoleCounts = deck.roleCounts;
+  let newRampSubtypeCounts = deck.rampSubtypeCounts;
+  let newRemovalSubtypeCounts = deck.removalSubtypeCounts;
+  let newBoardwipeSubtypeCounts = deck.boardwipeSubtypeCounts;
+  let newCardDrawSubtypeCounts = deck.cardDrawSubtypeCounts;
+  if (deck.roleCounts && deck.roleTargets) {
+    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+    newRampSubtypeCounts = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
+    newRemovalSubtypeCounts = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+    newBoardwipeSubtypeCounts = { 'bounce-wipe': 0, boardwipe: 0 };
+    newCardDrawSubtypeCounts = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+    for (const cards of Object.values(newCategories)) {
+      for (const card of cards) {
+        if (card.deckRole && card.deckRole in newRoleCounts) {
+          newRoleCounts[card.deckRole] = (newRoleCounts[card.deckRole] || 0) + 1;
+        }
+        if (card.rampSubtype) newRampSubtypeCounts[card.rampSubtype] = (newRampSubtypeCounts[card.rampSubtype] || 0) + 1;
+        if (card.removalSubtype) newRemovalSubtypeCounts[card.removalSubtype] = (newRemovalSubtypeCounts[card.removalSubtype] || 0) + 1;
+        if (card.boardwipeSubtype) newBoardwipeSubtypeCounts[card.boardwipeSubtype] = (newBoardwipeSubtypeCounts[card.boardwipeSubtype] || 0) + 1;
+        if (card.cardDrawSubtype) newCardDrawSubtypeCounts[card.cardDrawSubtype] = (newCardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
+      }
+    }
+  }
+
+  // Recalculate combo completeness now that the named cards are gone
+  let newDetectedCombos = deck.detectedCombos;
+  if (deck.detectedCombos && deck.detectedCombos.length > 0) {
+    const allDeckNames = new Set<string>();
+    if (deck.commander) {
+      allDeckNames.add(deck.commander.name);
+      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
+    }
+    if (deck.partnerCommander) {
+      allDeckNames.add(deck.partnerCommander.name);
+      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
+    }
+    for (const c of Object.values(newCategories).flat()) {
+      allDeckNames.add(c.name);
+      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
+    }
+
+    newDetectedCombos = deck.detectedCombos
+      .map(combo => {
+        const missingCards = combo.cards.filter(name => !allDeckNames.has(name));
+        return { ...combo, isComplete: missingCards.length === 0, missingCards };
+      })
+      .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
+      .sort((a, b) => {
+        if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+        return a.missingCards.length - b.missingCards.length;
+      });
+
+    if (newDetectedCombos.length === 0) newDetectedCombos = undefined;
+  }
+
+  // Update inclusion map and deck score
+  let newCardInclusionMap = deck.cardInclusionMap;
+  let newDeckScore = deck.deckScore;
+  if (deck.cardInclusionMap) {
+    newCardInclusionMap = { ...deck.cardInclusionMap };
+    for (const name of names) {
+      const norm = name.includes(' // ') ? name.split(' // ')[0] : name;
+      const incl = newCardInclusionMap[name] ?? newCardInclusionMap[norm] ?? 0;
+      delete newCardInclusionMap[name];
+      delete newCardInclusionMap[norm];
+      if (newDeckScore !== undefined) {
+        newDeckScore = Math.round(newDeckScore - incl);
+      }
+    }
+  }
+
+  // Re-estimate bracket
+  let newBracketEstimation = deck.bracketEstimation;
+  if (deck.gameChangerNames) {
+    const gcSet = new Set(deck.gameChangerNames);
+    const allNames = Object.values(newCategories).flat().map(c => c.name);
+    if (deck.commander) allNames.push(deck.commander.name);
+    if (deck.partnerCommander) allNames.push(deck.partnerCommander.name);
+    newBracketEstimation = estimateBracket(
+      allNames,
+      newDetectedCombos ?? undefined,
+      newStats.averageCmc,
+      newDeckScore,
+      newRoleCounts ?? undefined,
+      gcSet,
+    );
+  }
+
+  return {
+    deck: {
+      ...deck,
+      categories: newCategories,
+      stats: newStats,
+      roleCounts: newRoleCounts,
+      rampSubtypeCounts: newRampSubtypeCounts,
+      removalSubtypeCounts: newRemovalSubtypeCounts,
+      boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
+      cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      detectedCombos: newDetectedCombos,
+      cardInclusionMap: newCardInclusionMap,
+      deckScore: newDeckScore,
+      bracketEstimation: newBracketEstimation,
+    },
+    success: true,
+  };
+}
+
 /** Map a card to its type-based swap bucket key. */
 function getPrimaryTypeKey(card: ScryfallCard): string | null {
   const t = getFrontFaceTypeLine(card).toLowerCase();

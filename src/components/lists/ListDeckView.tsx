@@ -11,6 +11,7 @@ import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -270,14 +271,105 @@ function BoardCardRow({
   );
 }
 
+// --- Board Add Popover (search + add a card directly to a board) ---
+
+function BoardAddPopover({ boardType, colorIdentity, existingNames, onAdd }: {
+  boardType: 'sideboard' | 'maybeboard';
+  colorIdentity: string[];
+  existingNames: Set<string>;
+  onAdd: (cardName: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<ScryfallCard[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      setResults([]);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await searchCards(query, colorIdentity, { order: 'edhrec' });
+        setResults(r.data.filter(c => !existingNames.has(c.name)).slice(0, 8));
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, colorIdentity, existingNames]);
+
+  const headerColor = boardType === 'sideboard' ? 'text-amber-400' : 'text-purple-400';
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className={`p-0.5 rounded ${headerColor} hover:bg-accent/50 transition-colors`}
+          title={`Add card to ${boardType}`}
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-2">
+        <div className="relative">
+          <input
+            autoFocus
+            type="text"
+            placeholder={`Add to ${boardType}...`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="bg-card/50 border border-border/50 rounded-md px-2 py-1.5 text-xs w-full focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+          />
+          {searching && (
+            <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-primary" />
+          )}
+        </div>
+        {results.length > 0 && (
+          <div className="mt-2 max-h-[280px] overflow-auto">
+            {results.map(card => (
+              <button
+                key={card.id}
+                onClick={() => { onAdd(card.name); setOpen(false); }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-accent/50 text-left transition-colors rounded"
+              >
+                <img src={getCardImageUrl(card, 'small')} alt={card.name} className="w-7 h-auto rounded shrink-0" loading="lazy" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{card.name}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{card.type_line}</p>
+                </div>
+                <Plus className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // --- Board Section (Sideboard / Maybeboard) ---
 
-function BoardSection({ title, cards, boardType, onCardAction, menuProps }: {
+function BoardSection({ title, cards, boardType, onCardAction, menuProps, onAdd, colorIdentity, existingNames }: {
   title: string;
   cards: ScryfallCard[];
   boardType: 'sideboard' | 'maybeboard';
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
+  onAdd?: (cardName: string) => void;
+  colorIdentity?: string[];
+  existingNames?: Set<string>;
 }) {
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
 
@@ -310,7 +402,17 @@ function BoardSection({ title, cards, boardType, onCardAction, menuProps }: {
         <span className="text-xs font-bold uppercase tracking-wider">
           {title} ({cards.length})
         </span>
-        <span className="text-xs text-muted-foreground">${totalPrice.toFixed(2)}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">${totalPrice.toFixed(2)}</span>
+          {onAdd && colorIdentity && existingNames && (
+            <BoardAddPopover
+              boardType={boardType}
+              colorIdentity={colorIdentity}
+              existingNames={existingNames}
+              onAdd={onAdd}
+            />
+          )}
+        </div>
       </div>
       <div>
         {cards.length === 0 && (
@@ -351,11 +453,15 @@ function BoardSection({ title, cards, boardType, onCardAction, menuProps }: {
 
 // --- Collapsible Boards Wrapper ---
 
-function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction, menuProps }: {
+function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction, menuProps, onAddToBoard, colorIdentity, existingNames, viewShiftControls }: {
   sideboardCards: ScryfallCard[];
   maybeboardCards: ScryfallCard[];
   onBoardCardAction?: (card: ScryfallCard, action: CardAction, boardType: 'sideboard' | 'maybeboard') => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
+  onAddToBoard?: (cardName: string, boardType: 'sideboard' | 'maybeboard') => void;
+  colorIdentity?: string[];
+  existingNames?: Set<string>;
+  viewShiftControls?: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('mtg-deck-builder-boards-collapsed') === 'true');
 
@@ -377,16 +483,21 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
 
   return (
     <div className="border-t border-border/30">
-      <button
-        onClick={toggle}
-        className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-accent/30 transition-colors"
-      >
-        {collapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-        <span className="text-xs font-semibold text-foreground">
-          Sideboard & Maybeboard
-        </span>
-        <span className="text-[10px] text-muted-foreground">({totalCount})</span>
-      </button>
+      <div className="flex items-center px-4 py-2.5 gap-2">
+        <button
+          onClick={toggle}
+          className="flex items-center gap-2 text-left rounded hover:bg-accent/30 -mx-1 px-1 py-0.5 transition-colors"
+        >
+          {collapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          <span className="text-xs font-semibold text-foreground">
+            Sideboard & Maybeboard
+          </span>
+          <span className="text-[10px] text-muted-foreground">({totalCount})</span>
+        </button>
+        {viewShiftControls && (
+          <div className="ml-auto">{viewShiftControls}</div>
+        )}
+      </div>
       {!collapsed && (
         <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <BoardSection
@@ -395,6 +506,9 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
             boardType="sideboard"
             onCardAction={handleSBAction}
             menuProps={menuProps}
+            onAdd={onAddToBoard ? (name) => onAddToBoard(name, 'sideboard') : undefined}
+            colorIdentity={colorIdentity}
+            existingNames={existingNames}
           />
           <BoardSection
             title="Maybeboard"
@@ -402,6 +516,9 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
             boardType="maybeboard"
             onCardAction={handleMBAction}
             menuProps={menuProps}
+            onAdd={onAddToBoard ? (name) => onAddToBoard(name, 'maybeboard') : undefined}
+            colorIdentity={colorIdentity}
+            existingNames={existingNames}
           />
         </div>
       )}
@@ -1396,14 +1513,24 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             </div>
           ) : undefined}
           onEditModeChange={setDeckEditMode}
-          deckFooter={
+          deckFooter={() => (
             <BoardsCollapsible
               sideboardCards={sideboardCards}
               maybeboardCards={maybeboardCards}
               onBoardCardAction={handleBoardCardAction}
               menuProps={boardMenuProps}
+              colorIdentity={colorIdentity}
+              existingNames={new Set([...list.cards, ...(list.sideboard || []), ...(list.maybeboard || [])])}
+              onAddToBoard={onAddCards ? (name, boardType) => {
+                onAddCards([name], boardType);
+                pushDeckHistory({ action: boardType, cardName: name });
+                showActionToast(`Added ${name} to ${boardType}`, () => {
+                  if (boardType === 'sideboard') onRemoveFromBoard?.(name, 'sideboard');
+                  else onRemoveFromBoard?.(name, 'maybeboard');
+                });
+              } : undefined}
             />
-          }
+          )}
         >
           {/* Primer */}
           {(list.primer || onUpdatePrimer) && (
@@ -1532,6 +1659,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           roleTargets={generatedDeck.roleTargets || {}}
           edhrecCurve={generatedDeck.edhrecCurve || {}}
           edhrecTypes={generatedDeck.edhrecTypes || {}}
+          detectedCombos={generatedDeck.detectedCombos}
+          mustIncludeNames={new Set(customization.mustIncludeCards)}
         />
       )}
     </>

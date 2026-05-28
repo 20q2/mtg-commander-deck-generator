@@ -62,6 +62,12 @@ export function SuggestionCardGrid({
     const order = (() => {
       if (hideSort) return cards;
       if (sortMode === 'popularity') return [...cards].sort((a, b) => b.inclusion - a.inclusion);
+      if (sortMode === 'cmc') return [...cards].sort((a, b) => {
+        const ac = a.cmc ?? -1;
+        const bc = b.cmc ?? -1;
+        if (ac !== bc) return bc - ac;
+        return (b.score ?? 0) - (a.score ?? 0);
+      });
       return cards;
     })();
     if (!bannedSet || bannedSet.size === 0) return order;
@@ -97,6 +103,13 @@ export function SuggestionCardGrid({
                   className={`text-[10px] px-2 py-0.5 transition-colors ${sortMode === 'popularity' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/80 bg-card/40 hover:text-foreground hover:bg-accent/70'}`}
                 >
                   Popularity
+                </button>
+                <div className="w-px h-3 bg-border/50" />
+                <button
+                  onClick={() => setSortMode('cmc')}
+                  className={`text-[10px] px-2 py-0.5 transition-colors ${sortMode === 'cmc' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/80 bg-card/40 hover:text-foreground hover:bg-accent/70'}`}
+                >
+                  CMC
                 </button>
               </div>
             </div>
@@ -251,7 +264,7 @@ export function SuggestionCardItem({
               {pct}%
             </span>
           )
-        ) : (
+        ) : sortMode === 'cmc' ? null : (
           <span
             className="text-[10px] font-bold tabular-nums shrink-0 text-violet-400"
             title={`Relevance score: ${Math.round(rec.score ?? 0)} (inclusion: ${pct}%)`}

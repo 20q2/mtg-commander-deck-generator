@@ -1,16 +1,10 @@
 [
   {
-    "version": "1.2.32",
-    "notes": [
-      "Decks with too many cards now have a Trim button that opens a dialog showing which cards to cut and why — pick which ones to keep, and the rest move to maybeboard",
-      "Added an Add to Deck button in the card preview so you can quickly re-add any card that isn't currently in the deck",
-      "Removing a card from the deck now correctly updates the deck size, score, and combo state in the sidebar"
-    ]
-  },
-  {
     "version": "1.2.31",
     "notes": [
-      "When picking a replacement card, you can now Add it to the deck instead of swapping it"
+      "New trimmer feature, for when your uploaded deck is over the intended amount and you dont know what to cut",    
+      "Added a quick + button next to the Sideboard and Maybeboard headers to add cards directly to either board",
+      "Add cards to your deck directly from the suggestions"
     ]
   },
   {

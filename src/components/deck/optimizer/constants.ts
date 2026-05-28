@@ -210,7 +210,7 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
 
 // ─── Suggestion Sort ─────────────────────────────────────────────────
 
-export type SuggestionSortMode = 'relevance' | 'popularity' | 'none';
+export type SuggestionSortMode = 'relevance' | 'popularity' | 'cmc' | 'none';
 export const SORT_KEY = 'suggestion-sort';
 export const sortListeners = new Set<(mode: SuggestionSortMode) => void>();
 

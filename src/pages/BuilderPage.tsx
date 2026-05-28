@@ -13,7 +13,7 @@ import { ManaCost, ColorIdentity } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
 import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/services/scryfall/client';
-import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
+import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, ThemeResult } from '@/types';
@@ -510,28 +510,20 @@ export function BuilderPage() {
   const handleRemoveCards = useCallback((names: string[]) => {
     const deck = useStore.getState().generatedDeck;
     if (!deck) return;
-    const removeSet = new Set(names);
-    const newCategories = { ...deck.categories };
-    for (const cat of Object.keys(newCategories) as Array<keyof typeof newCategories>) {
-      const filtered = newCategories[cat].filter(c => !removeSet.has(c.name));
-      if (filtered.length !== newCategories[cat].length) {
-        newCategories[cat] = filtered;
-      }
-    }
-    setGeneratedDeck({ ...deck, categories: newCategories });
+    const result = removeCards(deck, names);
+    if (result.success) setGeneratedDeck(result.deck);
   }, [setGeneratedDeck]);
 
   const handleAddCards = useCallback((names: string[]) => {
-    const deck = useStore.getState().generatedDeck;
+    let deck = useStore.getState().generatedDeck;
     if (!deck) return;
-    const newCategories = { ...deck.categories };
     for (const name of names) {
       const card = getCachedCard(name);
       if (!card) continue;
-      const cat = getCategoryForCard(card);
-      newCategories[cat] = [...newCategories[cat], card];
+      const result = addCard(deck, card);
+      if (result.success) deck = result.deck;
     }
-    setGeneratedDeck({ ...deck, categories: newCategories });
+    setGeneratedDeck(deck);
   }, [setGeneratedDeck]);
 
   const handleGenerate = async () => {

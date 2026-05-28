@@ -568,6 +568,7 @@ export interface AppState {
   swapDeckCard: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
   addDeckCard: (newCard: ScryfallCard) => void;
   pushDeckHistory: (entry: Omit<DeckHistoryEntry, 'id' | 'timestamp'>) => void;
+  popLatestHistoryEntries: (action: DeckHistoryAction, cardNames: string[]) => void;
   clearDeckHistory: () => void;
   setLoading: (loading: boolean, message?: string) => void;
   setError: (error: string | null) => void;

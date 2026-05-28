@@ -1624,7 +1624,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
             {activeFilter && (
               <button
                 onClick={() => onFilterChange(activeFilter)}
-                className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 rounded-full px-2.5 py-0.5 hover:bg-primary/20 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-violet-200 bg-primary/20 rounded-full px-2.5 py-0.5 hover:bg-primary/30 transition-colors"
               >
                 <X className="w-3 h-3" />
                 <span>
@@ -1696,7 +1696,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
         <div className="flex justify-end">
           <button
             onClick={() => onFilterChange(activeFilter)}
-            className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 rounded-full px-2.5 py-0.5 hover:bg-primary/20 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-violet-200 bg-primary/20 rounded-full px-2.5 py-0.5 hover:bg-primary/30 transition-colors"
           >
             <X className="w-3 h-3" />
             <span>
@@ -2023,7 +2023,7 @@ interface DeckDisplayProps {
   /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
   boardCounts?: { sideboard: number; maybeboard: number };
   /** Content rendered inside the deck card (e.g. boards) */
-  deckFooter?: React.ReactNode;
+  deckFooter?: React.ReactNode | ((args: { viewShiftControls: React.ReactNode }) => React.ReactNode);
   /** Render prop for header-level actions (e.g. export, save). Receives onExport trigger. When provided, the Export button is removed from the summary row. */
   renderHeaderActions?: (actions: { onExport: () => void }) => React.ReactNode;
   /** Callback to change the quantity of a card (for list deck views) */
@@ -2044,7 +2044,7 @@ interface DeckDisplayProps {
 
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, children }: DeckDisplayProps) {
   const navigate = useNavigate();
-  const { generatedDeck, commander, customization, swapDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
+  const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -2082,6 +2082,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [showMenu, setShowMenu] = useState(false);
   const showMenuRef = useRef<HTMLDivElement>(null);
   const showMenuMobileRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarOffscreen, setToolbarOffscreen] = useState(false);
   const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [isEditMode, _setIsEditMode] = useState(false);
@@ -2138,6 +2140,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     };
     window.addEventListener('prefs-changed', handler);
     return () => window.removeEventListener('prefs-changed', handler);
+  }, []);
+
+  // Track when main toolbar scrolls offscreen so we can show a floating side drawer
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setToolbarOffscreen(!entry.isIntersecting),
+      { rootMargin: '-60px 0px 0px 0px', threshold: 0 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
 
   // Close show menu on outside click
@@ -3424,6 +3438,107 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     );
   };
 
+  const viewShiftControls = (
+    <TooltipProvider delayDuration={200}>
+      <div className="flex items-center gap-1.5">
+        {!readOnly && !isEditMode && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setIsEditMode(true)}
+                className="flex items-center bg-card/50 rounded-lg p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Modify Deck</TooltipContent>
+          </Tooltip>
+        )}
+        {!readOnly && isEditMode && (
+          <button onClick={handleExitEditMode} className="flex items-center bg-card/50 rounded-lg px-2.5 py-1.5 border border-border/50 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
+            Exit Modify
+          </button>
+        )}
+        <div
+          className={`flex items-center gap-2 overflow-hidden transition-all duration-300 ease-out ${
+            viewMode === 'grid' ? 'max-w-[320px] opacity-100' : 'max-w-0 opacity-0'
+          }`}
+          aria-hidden={viewMode !== 'grid'}
+        >
+          <Select
+            className="h-8 w-[150px] text-xs"
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupKey)}
+            options={GROUP_OPTIONS.map(o => ({ value: o.value, label: `Group: ${o.label}` }))}
+            tabIndex={viewMode === 'grid' ? 0 : -1}
+          />
+          <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setGridLayout('grid')}
+                  className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  tabIndex={viewMode === 'grid' ? 0 : -1}
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Packed grid layout</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setGridLayout('stacks')}
+                  className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  tabIndex={viewMode === 'grid' ? 0 : -1}
+                >
+                  <Rows3 className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Visual stacks layout</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+        <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowTextEditor(v => !v)}
+                className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <FileText className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{showTextEditor ? 'Hide text editor' : 'Show text editor'}</TooltipContent>
+          </Tooltip>
+          <div className="w-px h-4 bg-border/60 mx-1" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Grid3X3 className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Grid view</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>List view</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    </TooltipProvider>
+  );
+
   return (
     <>
       <div className="animate-slide-up">
@@ -3547,104 +3662,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </div>
 
             {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
-            <TooltipProvider delayDuration={200}>
-            <div className="ml-auto flex items-center gap-1.5">
-              {!readOnly && !isEditMode && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setIsEditMode(true)}
-                      className="flex items-center bg-card/50 rounded-lg p-1.5 border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Modify Deck</TooltipContent>
-                </Tooltip>
-              )}
-              {!readOnly && isEditMode && (
-                <button onClick={handleExitEditMode} className="flex items-center bg-card/50 rounded-lg px-2.5 py-1.5 border border-border/50 text-xs text-red-400/70 hover:text-red-400 transition-colors whitespace-nowrap">
-                  Exit Modify
-                </button>
-              )}
-              <div
-                className={`flex items-center gap-2 overflow-hidden transition-all duration-300 ease-out ${
-                  viewMode === 'grid' ? 'max-w-[320px] opacity-100' : 'max-w-0 opacity-0'
-                }`}
-                aria-hidden={viewMode !== 'grid'}
-              >
-                <Select
-                  className="h-8 w-[150px] text-xs"
-                  value={groupBy}
-                  onChange={(e) => setGroupBy(e.target.value as GroupKey)}
-                  options={GROUP_OPTIONS.map(o => ({ value: o.value, label: `Group: ${o.label}` }))}
-                  tabIndex={viewMode === 'grid' ? 0 : -1}
-                />
-                <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => setGridLayout('grid')}
-                        className={`px-1.5 py-1 rounded ${gridLayout === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                        tabIndex={viewMode === 'grid' ? 0 : -1}
-                      >
-                        <LayoutGrid className="w-4 h-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Packed grid layout</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => setGridLayout('stacks')}
-                        className={`px-1.5 py-1 rounded ${gridLayout === 'stacks' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                        tabIndex={viewMode === 'grid' ? 0 : -1}
-                      >
-                        <Rows3 className="w-4 h-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Visual stacks layout</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-              <div className="flex bg-card/50 rounded-lg px-1.5 py-1 border border-border/50 items-center">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setShowTextEditor(v => !v)}
-                      className={`px-1.5 py-1 rounded ${showTextEditor ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                      <FileText className="w-4 h-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>{showTextEditor ? 'Hide text editor' : 'Show text editor'}</TooltipContent>
-                </Tooltip>
-                <div className="w-px h-4 bg-border/60 mx-1" />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setViewMode('grid')}
-                      className={`px-1.5 py-1 rounded ${viewMode === 'grid' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                      <Grid3X3 className="w-4 h-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Grid view</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setViewMode('list')}
-                      className={`px-1.5 py-1 rounded ${viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                    >
-                      <List className="w-4 h-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>List view</TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-            </TooltipProvider>
+            <div className="ml-auto">{viewShiftControls}</div>
           </div>
 
           {deckSummary}
@@ -3722,7 +3740,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           <div className="flex-1 min-w-0">
 
         {/* Toolbar - Mobile/Tablet (below stats, above deck) */}
-        <div className="flex items-center gap-2 flex-wrap mb-4">
+        <div ref={toolbarRef} className="flex items-center gap-2 flex-wrap mb-4">
           {/* Sort */}
           <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
             <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
@@ -4086,7 +4104,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 </div>
               )
             )}
-          {deckFooter}
+          {typeof deckFooter === 'function' ? deckFooter({ viewShiftControls }) : deckFooter}
           </div>{/* end Deck View */}
           </div>{/* end flex wrapper (text + deck) */}
 
@@ -4126,7 +4144,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         hideMustInclude={readOnly}
         swapCandidates={readOnly ? undefined : previewSwapCandidates}
         onSwapCard={readOnly ? undefined : (oldCard, newCard) => {
-          swapDeckCard(oldCard, newCard);
+          // Route through persistent add/remove when available (list context). Otherwise
+          // fall back to the in-memory swap (builder context — deck isn't persisted anyway).
+          if (onAddCards && onRemoveCards) {
+            onRemoveCards([oldCard.name]);
+            onAddCards([newCard.name], 'deck');
+          } else {
+            swapDeckCard(oldCard, newCard);
+          }
           pushDeckHistory({ action: 'swap', cardName: oldCard.name, targetCardName: newCard.name });
           // Clear the swapped-out card from removedCards so it doesn't show struck-through
           setRemovedCards(prev => {
@@ -4136,6 +4161,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             return next;
           });
           setPreviewCard(null);
+        }}
+        onAddCard={readOnly ? undefined : (newCard) => {
+          // Prefer the parent-provided onAddCards path when available — it updates the
+          // persistent list (lists context) so the add survives refresh. Without it
+          // the deck only exists in memory (builder context), so an in-memory add is fine.
+          if (onAddCards) {
+            onAddCards([newCard.name], 'deck');
+          } else {
+            addDeckCard(newCard);
+          }
+          pushDeckHistory({ action: 'add', cardName: newCard.name });
         }}
         onRegenerate={readOnly ? undefined : handleRegenerate}
         onNavigate={handlePreviewNavigate}
@@ -4224,6 +4260,197 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           >
             View Deck
           </button>
+        </div>,
+        document.body
+      )}
+      {/* Floating side tool drawer — appears when the main toolbar scrolls offscreen */}
+      {createPortal(
+        <div
+          className={`hidden xl:flex flex-col gap-1.5 fixed left-3 top-1/2 -translate-y-1/2 z-30 bg-card/95 backdrop-blur-md border border-border/60 rounded-xl shadow-xl p-1.5 transition-all duration-200 ease-out ${
+            toolbarOffscreen ? 'opacity-100 translate-x-0 pointer-events-auto' : 'opacity-0 -translate-x-3 pointer-events-none'
+          }`}
+        >
+          <TooltipProvider delayDuration={200}>
+            {/* Sort */}
+            <Popover>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                      <ArrowUpDown className="w-4 h-4" />
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">Sort</TooltipContent>
+              </Tooltip>
+              <PopoverContent side="right" align="start" className="w-44 p-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-2 pt-1 pb-1.5">Sort by</div>
+                {([
+                  { value: 'name', label: 'Name' },
+                  { value: 'cmc', label: 'CMC' },
+                  { value: 'color', label: 'Color' },
+                  { value: 'price', label: 'Price' },
+                  ...(showInclusion && generatedDeck?.cardInclusionMap ? [{ value: 'score', label: 'Inclusion %' }] : []),
+                  ...(showRelevancy && generatedDeck?.cardRelevancyMap ? [{ value: 'relevancy', label: 'Relevancy' }] : []),
+                  ...(showEdhRank ? [{ value: 'edhrank', label: 'EDH Rank' }] : []),
+                ] as Array<{ value: typeof sortBy; label: string }>).map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setSortBy(opt.value)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${sortBy === opt.value ? 'bg-accent/60 text-foreground' : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+
+            {/* Show toggles */}
+            <Popover>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">Show</TooltipContent>
+              </Tooltip>
+              <PopoverContent side="right" align="start" className="w-44 p-1.5">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-2 pt-1 pb-1.5">Show</div>
+                {[
+                  { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
+                  { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap },
+                  { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap },
+                  { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }) },
+                  { key: 'roles', label: 'Roles', value: showRoles, toggle: () => setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }), hide: !generatedDeck?.roleTargets },
+                ].filter(o => !o.hide).map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={opt.toggle}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${opt.value ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+                  >
+                    <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${opt.value ? 'bg-primary border-primary' : 'border-border'}`}>
+                      {opt.value && <Check className="w-2 h-2 text-primary-foreground" />}
+                    </span>
+                    {opt.label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+
+            {/* Search */}
+            <Popover>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <button className={`relative p-2 rounded-lg transition-colors ${searchQuery ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}>
+                      <Search className="w-4 h-4" />
+                      {searchQuery && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-primary" />
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">Search</TooltipContent>
+              </Tooltip>
+              <PopoverContent side="right" align="start" className="w-60 p-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search cards..."
+                    autoFocus
+                    className="w-full bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                {searchMatchingIds && (
+                  <div className="text-[11px] text-muted-foreground mt-1.5 px-1">
+                    {searchMatchingIds.size} match{searchMatchingIds.size !== 1 ? 'es' : ''}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            {/* Divider */}
+            <div className="h-px bg-border/60 mx-1.5 my-0.5" />
+
+            {/* Modify / Exit */}
+            {!readOnly && !isEditMode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsEditMode(true)}
+                    className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Modify Deck</TooltipContent>
+              </Tooltip>
+            )}
+            {!readOnly && isEditMode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleExitEditMode}
+                    className="p-2 rounded-lg text-red-400/80 hover:text-red-400 hover:bg-accent transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Exit Modify</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Text editor */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setShowTextEditor(v => !v)}
+                  className={`p-2 rounded-lg transition-colors ${showTextEditor ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                >
+                  <FileText className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{showTextEditor ? 'Hide text editor' : 'Show text editor'}</TooltipContent>
+            </Tooltip>
+
+            {/* View mode toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                >
+                  <Grid3X3 className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Grid view</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">List view</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>,
         document.body
       )}

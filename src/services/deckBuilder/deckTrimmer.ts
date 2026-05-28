@@ -1,4 +1,4 @@
-import type { ScryfallCard } from '@/types';
+import type { ScryfallCard, DetectedCombo } from '@/types';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
 
 export type TrimReasonKey =
@@ -8,7 +8,8 @@ export type TrimReasonKey =
   | 'type-overflow'
   | 'anti-synergy'
   | 'lowest-relevancy'
-  | 'forced';
+  | 'forced'
+  | 'combo-near-miss';
 
 export interface TrimCandidate {
   card: ScryfallCard;
@@ -34,6 +35,11 @@ export interface TrimInput {
   roleTargets: Record<string, number>;
   edhrecCurve: Record<number, number>;
   edhrecTypes: Record<string, number>;
+  /** Combos detected in the deck — pieces of complete combos are hard-protected;
+   *  pieces of one-away near-misses are soft-protected (last-resort cuts only). */
+  detectedCombos?: DetectedCombo[];
+  /** User-pinned cards — hard-protected, never offered as cuts. */
+  mustIncludeNames?: Set<string>;
 }
 
 export interface TrimResult {
@@ -93,6 +99,7 @@ const LABELS: Record<TrimReasonKey, string> = {
   'anti-synergy': 'Anti-synergy',
   'lowest-relevancy': 'Lowest',
   'forced': 'Forced cut',
+  'combo-near-miss': 'Combo piece',
 };
 
 interface ReasonContext {
@@ -161,14 +168,38 @@ export function planTrim(input: TrimInput): TrimResult {
     relevancyMap, inclusionMap, synergyMap,
     roleCounts, roleTargets,
     edhrecCurve, edhrecTypes,
+    detectedCombos, mustIncludeNames,
   } = input;
 
   const protectedNames = new Set<string>();
   protectedNames.add(commanderName);
   if (partnerCommanderName) protectedNames.add(partnerCommanderName);
 
-  // Protected from any cut: commanders + basic lands. Basic lands are mana-base
-  // furniture; cutting one is essentially never the right answer in a trim flow.
+  // User-pinned cards are an explicit "keep this" signal — never offer for cut.
+  if (mustIncludeNames) {
+    for (const n of mustIncludeNames) protectedNames.add(n);
+  }
+
+  // Combo protection:
+  // - Complete combos: every piece is hard-protected (cutting one silently breaks
+  //   the combo, which is exactly the failure mode this fixes).
+  // - Near-miss combos (1 piece missing): existing pieces become "soft-protected"
+  //   — eligible to cut only as a last resort, after every non-combo candidate.
+  const softProtectedNames = new Set<string>();
+  if (detectedCombos && detectedCombos.length > 0) {
+    const deckNameSet = new Set(cards.map(c => c.name));
+    for (const combo of detectedCombos) {
+      if (combo.isComplete) {
+        for (const name of combo.cards) if (deckNameSet.has(name)) protectedNames.add(name);
+      } else if (combo.missingCards.length === 1) {
+        for (const name of combo.cards) if (deckNameSet.has(name)) softProtectedNames.add(name);
+      }
+    }
+    // Hard protection wins if a card is in both buckets.
+    for (const n of protectedNames) softProtectedNames.delete(n);
+  }
+
+  // Protected from any cut: commanders + basic lands + must-includes + complete-combo pieces.
   const trimmable = cards.filter(c => !protectedNames.has(c.name) && !isBasicLand(c));
   const lands = trimmable.filter(isLand);
   const spells = trimmable.filter(c => !isLand(c));
@@ -205,6 +236,11 @@ export function planTrim(input: TrimInput): TrimResult {
   };
 
   const byRelevancy = (a: ScryfallCard, b: ScryfallCard) => {
+    // Soft-protected (near-miss combo pieces) sort after everything else,
+    // so they only get picked when no other candidates remain.
+    const sa = softProtectedNames.has(a.name) ? 1 : 0;
+    const sb = softProtectedNames.has(b.name) ? 1 : 0;
+    if (sa !== sb) return sa - sb;
     const ra = relevancyMap[a.name] ?? 0;
     const rb = relevancyMap[b.name] ?? 0;
     if (ra !== rb) return ra - rb;
@@ -219,9 +255,12 @@ export function planTrim(input: TrimInput): TrimResult {
   const sortedSpells = [...spells].sort(byRelevancy);
 
   const toCandidate = (card: ScryfallCard, partition: 'land' | 'spell', forced = false): TrimCandidate => {
-    const { key, text } = forced
-      ? { key: 'forced' as TrimReasonKey, text: 'Lowest relevancy (no safer cut available).' }
-      : pickReason(card, ctx);
+    const isSoft = softProtectedNames.has(card.name);
+    const { key, text } = isSoft
+      ? { key: 'combo-near-miss' as TrimReasonKey, text: 'Piece of a one-away combo — cutting widens the gap.' }
+      : forced
+        ? { key: 'forced' as TrimReasonKey, text: 'Lowest relevancy (no safer cut available).' }
+        : pickReason(card, ctx);
     return {
       card,
       reasonKey: key,

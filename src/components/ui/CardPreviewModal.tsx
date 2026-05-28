@@ -48,6 +48,8 @@ interface CardPreviewModalProps {
   swapCandidates?: ScryfallCard[];
   /** Called when user picks a replacement */
   onSwapCard?: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
+  /** Called when user adds a candidate to the deck without swapping */
+  onAddCard?: (newCard: ScryfallCard) => void;
   /** Which side panel tab to show initially */
   initialSideTab?: 'combos' | 'swaps';
   /** Callback to trigger immediate regeneration */
@@ -229,7 +231,7 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity }: CardPreviewModalProps) {
   const commander = useStore((s) => s.commander);
   const generatedDeck = useStore((s) => s.generatedDeck);
   const currency = useStore((s) => s.customization.currency);
@@ -607,6 +609,26 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const canMustInclude = isMissingComboCard && !isInMustInclude;
   const alreadyMustIncluded = isInMustInclude;
 
+  // Determine if displayCard is currently in the deck (or supplied inDeckNames list)
+  const cardInDeck = (() => {
+    const norm = displayCard.name.includes(' // ') ? displayCard.name.split(' // ')[0] : displayCard.name;
+    if (inDeckNames) {
+      return inDeckNames.includes(displayCard.name) || inDeckNames.includes(norm);
+    }
+    if (!generatedDeck) return false;
+    for (const cards of Object.values(generatedDeck.categories)) {
+      for (const c of cards) {
+        if (c.name === displayCard.name || c.name === norm) return true;
+      }
+    }
+    if (generatedDeck.commander?.name === displayCard.name) return true;
+    if (generatedDeck.partnerCommander?.name === displayCard.name) return true;
+    return false;
+  })();
+  // Show direct-add button when the previewed card is not in the deck and a direct-add handler exists.
+  // Skip when a swap candidate is staged (the swap-bar Add covers that case).
+  const canDirectAdd = !!onAddCard && !cardInDeck && !swapPreview && !cardOverride;
+
   const hasNav = !!(onNavigate && canNavigate && !cardOverride);
 
   return createPortal(
@@ -724,7 +746,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
               </svg>
               EDHREC
             </a>
-            {!hideMustInclude && canMustInclude && (
+            {!hideMustInclude && canMustInclude && !canDirectAdd && (
               <button
                 onClick={() => handleAddToDeck(currentCardName)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
@@ -740,6 +762,24 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
               >
                 <X className="w-3.5 h-3.5" />
                 Remove from Deck
+              </button>
+            )}
+            {canDirectAdd && (
+              <button
+                type="button"
+                onClick={() => {
+                  onAddCard!(displayCard);
+                  trackEvent('must_include_added', {
+                    commanderName: commander?.name ?? 'unknown',
+                    cardName: displayCard.name,
+                    source: 'modal',
+                  });
+                  setToastMessage(`Added "${displayCard.name}" to deck`);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add to Deck
               </button>
             )}
             {hasSwapSection && (
@@ -816,6 +856,25 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                       <ArrowLeft className="w-3 h-3 shrink-0" />
                       <span className="truncate">{card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}</span>
                     </button>
+                    {onAddCard && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onAddCard(swapPreview);
+                          trackEvent('must_include_added', {
+                            commanderName: commander?.name ?? 'unknown',
+                            cardName: swapPreview.name,
+                            source: 'modal',
+                          });
+                          setToastMessage(`Added "${swapPreview.name}" to deck`);
+                          setSwapPreview(null);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors animate-fade-in"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

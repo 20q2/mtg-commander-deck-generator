@@ -383,11 +383,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                     </div>
                   ) : (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
-                      <span className={`flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 ${hideMustInclude ? '' : 'group-hover/combo:hidden'}`}>
+                      <span className={`flex items-center gap-0.5 text-[8px] font-semibold text-emerald-400 ${hideMustInclude && !onAddToDeck ? '' : 'group-hover/combo:hidden'}`}>
                         <Package className="w-2.5 h-2.5" />
                         OWNED
                       </span>
-                      {!hideMustInclude && (
+                      {(!hideMustInclude || !!onAddToDeck) && (
                         <button
                           onClick={(e) => handleAddMustInclude(name, e)}
                           className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
@@ -417,8 +417,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                     </div>
                   ) : (
                     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 rounded-md pointer-events-none">
-                      <span className={`flex items-center justify-center text-[9px] font-bold text-amber-400 ${hideMustInclude ? '' : 'group-hover/combo:hidden'}`}>MISSING</span>
-                      {!hideMustInclude && (
+                      <span className={`flex items-center justify-center text-[9px] font-bold text-amber-400 ${hideMustInclude && !onAddToDeck ? '' : 'group-hover/combo:hidden'}`}>MISSING</span>
+                      {(!hideMustInclude || !!onAddToDeck) && (
                         <button
                           onClick={(e) => handleAddMustInclude(name, e)}
                           className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Scissors, Mountain, Minus, Plus } from 'lucide-react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import type { ScryfallCard } from '@/types';
+import type { ScryfallCard, DetectedCombo } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -24,6 +24,8 @@ export interface TrimDeckDialogProps {
   roleTargets: Record<string, number>;
   edhrecCurve: Record<number, number>;
   edhrecTypes: Record<string, number>;
+  detectedCombos?: DetectedCombo[];
+  mustIncludeNames?: Set<string>;
 }
 
 export function TrimDeckDialog(props: TrimDeckDialogProps) {
@@ -63,7 +65,9 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
     roleTargets: props.roleTargets,
     edhrecCurve: props.edhrecCurve,
     edhrecTypes: props.edhrecTypes,
-  }), [cards, commanderName, partnerCommanderName, internalTarget, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes]);
+    detectedCombos: props.detectedCombos,
+    mustIncludeNames: props.mustIncludeNames,
+  }), [cards, commanderName, partnerCommanderName, internalTarget, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes, props.detectedCombos, props.mustIncludeNames]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
   // Cards the user explicitly unchecked. The auto-fill substitution must never
