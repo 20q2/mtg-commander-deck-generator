@@ -1,5 +1,5 @@
 import type { ScryfallCard } from '@/types';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
 
 export type TrimReasonKey =
   | 'low-fit'
@@ -56,7 +56,9 @@ const BASIC_LAND_NAMES = new Set([
 ]);
 
 function isLand(card: ScryfallCard): boolean {
-  return getFrontFaceTypeLine(card).toLowerCase().includes('land');
+  return getFrontFaceTypeLine(card).toLowerCase().includes('land')
+    || isMdfcLand(card)
+    || isChannelLand(card);
 }
 
 function isBasicLand(card: ScryfallCard): boolean {

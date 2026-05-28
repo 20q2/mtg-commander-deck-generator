@@ -1509,10 +1509,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           cards={allDeckCards}
           commanderName={list.commanderName}
           partnerCommanderName={list.partnerCommanderName}
-          // list.deckSize counts commanders; allDeckCards excludes them. Subtract
-          // the commander(s) so the trimmer's overage math lines up with the
-          // count the user sees in the over-count notice.
-          targetSize={list.deckSize - (list.commanderName ? 1 : 0) - (list.partnerCommanderName ? 1 : 0)}
+          // Pass the user-facing deck size (including commander). The dialog
+          // subtracts the commander count internally for the overage math.
+          targetSize={list.deckSize}
           relevancyMap={generatedDeck.cardRelevancyMap || {}}
           inclusionMap={generatedDeck.cardInclusionMap || {}}
           synergyMap={generatedDeck.cardSynergyMap || {}}

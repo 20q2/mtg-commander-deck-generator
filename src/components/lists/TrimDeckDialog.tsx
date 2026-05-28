@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Drawer } from '@/components/ui/drawer';
 import { ManaCost } from '@/components/ui/mtg-icons';
-import { getFrontFaceTypeLine, getCardImageUrl } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, getCardImageUrl, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
 
 export interface TrimDeckDialogProps {
   open: boolean;
@@ -29,18 +29,32 @@ export interface TrimDeckDialogProps {
 export function TrimDeckDialog(props: TrimDeckDialogProps) {
   const { open, onClose, onConfirm, cards, commanderName, partnerCommanderName, targetSize } = props;
 
+  // MDFC lands (Bala Ged Recovery // Sanctuary, Pathways, etc) and Kamigawa
+  // channel lands play as land out of the hand, so they count for the
+  // user's "lands to keep" budget alongside conventional lands.
   const currentLandCount = useMemo(
-    () => cards.filter(c => getFrontFaceTypeLine(c).toLowerCase().includes('land')).length,
+    () => cards.filter(c =>
+      getFrontFaceTypeLine(c).toLowerCase().includes('land') ||
+      isMdfcLand(c) ||
+      isChannelLand(c)
+    ).length,
     [cards],
   );
 
   const [landTarget, setLandTarget] = useState<number>(currentLandCount);
 
+  // targetSize is the user-facing deck size (includes commander). cards excludes
+  // commanders, so subtract the commander count for the internal target used by
+  // the trimmer's overage math.
+  const commanderCount = (commanderName ? 1 : 0) + (partnerCommanderName ? 1 : 0);
+  const internalTarget = targetSize - commanderCount;
+  const overage = cards.length - internalTarget;
+
   const plan: TrimResult = useMemo(() => planTrim({
     cards,
     commanderName,
     partnerCommanderName,
-    targetSize,
+    targetSize: internalTarget,
     targetLandCount: landTarget,
     relevancyMap: props.relevancyMap,
     inclusionMap: props.inclusionMap,
@@ -49,7 +63,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
     roleTargets: props.roleTargets,
     edhrecCurve: props.edhrecCurve,
     edhrecTypes: props.edhrecTypes,
-  }), [cards, commanderName, partnerCommanderName, targetSize, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes]);
+  }), [cards, commanderName, partnerCommanderName, internalTarget, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
   // Cards the user explicitly unchecked. The auto-fill substitution must never
@@ -67,8 +81,6 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   useEffect(() => {
     if (open) setLandTarget(currentLandCount);
   }, [open, currentLandCount]);
-
-  const overage = cards.length - targetSize;
 
   // Auto-close if there's no overage to trim (e.g., parent already trimmed,
   // or expected size was raised while open).
