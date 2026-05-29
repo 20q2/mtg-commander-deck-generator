@@ -3,6 +3,7 @@ import { calculateStats } from './deckGenerator';
 import { getCardRole, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { estimateBracket } from './bracketEstimator';
+import { rebuildRelevancyMap } from './relevancyMap';
 
 const ROLE_TO_CATEGORY: Record<RoleKey, DeckCategory> = {
   ramp: 'ramp',
@@ -179,15 +180,22 @@ export function swapCard(
     }
   }
 
-  // Update relevancy map
+  // Update relevancy map — full contextual rebuild so combo + role-scarcity
+  // signals reflect the new deck state (e.g. cutting your only boardwipe
+  // boosts the next-best wipe; adding a combo piece boosts its partner).
   let newCardRelevancyMap = deck.cardRelevancyMap;
   if (deck.cardRelevancyMap) {
-    newCardRelevancyMap = { ...deck.cardRelevancyMap };
-    const oldName = oldCard.name;
-    const oldNorm = oldName.includes(' // ') ? oldName.split(' // ')[0] : oldName;
-    delete newCardRelevancyMap[oldName];
-    delete newCardRelevancyMap[oldNorm];
-    // New card should already be pre-indexed (from swap candidates/gap analysis)
+    const interimDeck: GeneratedDeck = {
+      ...deck,
+      categories: newCategories,
+      roleCounts: newRoleCounts,
+      rampSubtypeCounts: newRampSubtypeCounts,
+      removalSubtypeCounts: newRemovalSubtypeCounts,
+      boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
+      cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      detectedCombos: newDetectedCombos,
+    };
+    newCardRelevancyMap = rebuildRelevancyMap(interimDeck);
   }
 
   // Re-estimate bracket with updated deck state
@@ -350,6 +358,23 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
     );
   }
 
+  // Rebuild contextual relevancy with the added card factored in.
+  let newCardRelevancyMap = deck.cardRelevancyMap;
+  if (deck.cardRelevancyMap) {
+    const interimDeck: GeneratedDeck = {
+      ...deck,
+      categories: newCategories,
+      roleCounts: newRoleCounts,
+      rampSubtypeCounts: newRampSubtypeCounts,
+      removalSubtypeCounts: newRemovalSubtypeCounts,
+      boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
+      cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      detectedCombos: newDetectedCombos,
+      cardInclusionMap: newCardInclusionMap,
+    };
+    newCardRelevancyMap = rebuildRelevancyMap(interimDeck);
+  }
+
   return {
     deck: {
       ...deck,
@@ -363,6 +388,7 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
+      cardRelevancyMap: newCardRelevancyMap,
       deckScore: newDeckScore,
       bracketEstimation: newBracketEstimation,
     },
@@ -483,6 +509,24 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
     );
   }
 
+  // Rebuild contextual relevancy so the remaining cards reflect the slimmer deck
+  // (e.g. cutting one of two boardwipes lifts the surviving one's score).
+  let newCardRelevancyMap = deck.cardRelevancyMap;
+  if (deck.cardRelevancyMap) {
+    const interimDeck: GeneratedDeck = {
+      ...deck,
+      categories: newCategories,
+      roleCounts: newRoleCounts,
+      rampSubtypeCounts: newRampSubtypeCounts,
+      removalSubtypeCounts: newRemovalSubtypeCounts,
+      boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
+      cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      detectedCombos: newDetectedCombos,
+      cardInclusionMap: newCardInclusionMap,
+    };
+    newCardRelevancyMap = rebuildRelevancyMap(interimDeck);
+  }
+
   return {
     deck: {
       ...deck,
@@ -495,6 +539,7 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
+      cardRelevancyMap: newCardRelevancyMap,
       deckScore: newDeckScore,
       bracketEstimation: newBracketEstimation,
     },
