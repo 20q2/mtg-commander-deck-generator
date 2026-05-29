@@ -1,10 +1,19 @@
 [
   {
+    "version": "1.2.32",
+    "notes": [
+      "Relevancy score now reflects how load-bearing a card is in your current deck — combo pieces and the only card filling a role get a boost",
+      "Trim suggestions are more honest: the only boardwipe in your deck won't get cut, and combo pieces are protected without needing a separate rule",
+      "Drawer panels (trim, etc.) sit on a brighter surface with a thicker edge and ambient shadow so they read as a proper layer over the deck"
+    ]
+  },
+  {
     "version": "1.2.31",
     "notes": [
-      "New trimmer feature, for when your uploaded deck is over the intended amount and you dont know what to cut",    
+      "New trimmer feature, for when your uploaded deck is over the intended amount and you dont know what to cut",
       "Added a quick + button next to the Sideboard and Maybeboard headers to add cards directly to either board",
-      "Add cards to your deck directly from the suggestions"
+      "Add cards to your deck directly from the suggestions",
+      "scrolling down in a deck produces a little side toolbar, allowing you to sort/show or enter/exit edit even while scrolled down"
     ]
   },
   {
