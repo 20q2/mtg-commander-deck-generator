@@ -4170,6 +4170,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       curveAnalysis: relCurveAnalysis,
       typeAnalysis: relTypeAnalysis,
       currentSubtypeCounts,
+      detectedCombos,
+      roleCounts: currentRoleCounts,
     };
 
     const relMap: Record<string, number> = {};
