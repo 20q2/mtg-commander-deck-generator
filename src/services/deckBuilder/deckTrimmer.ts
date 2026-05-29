@@ -8,7 +8,6 @@ export type TrimReasonKey =
   | 'type-overflow'
   | 'anti-synergy'
   | 'lowest-relevancy'
-  | 'forced'
   | 'combo-near-miss';
 
 export interface TrimCandidate {
@@ -35,8 +34,9 @@ export interface TrimInput {
   roleTargets: Record<string, number>;
   edhrecCurve: Record<number, number>;
   edhrecTypes: Record<string, number>;
-  /** Combos detected in the deck — pieces of complete combos are hard-protected;
-   *  pieces of one-away near-misses are soft-protected (last-resort cuts only). */
+  /** Combos detected in the deck. Combo protection is now baked into relevancyMap
+   *  (see scoreRecommendation Component 5) — this is kept only for the
+   *  `combo-near-miss` reason label when a near-miss piece does still get cut. */
   detectedCombos?: DetectedCombo[];
   /** User-pinned cards — hard-protected, never offered as cuts. */
   mustIncludeNames?: Set<string>;
@@ -47,7 +47,6 @@ export interface TrimResult {
   allCandidates: TrimCandidate[];
   cutLands: number;
   cutSpells: number;
-  relaxedGuardrail: boolean;
   effectiveLandTarget: number;
 }
 
@@ -98,7 +97,6 @@ const LABELS: Record<TrimReasonKey, string> = {
   'type-overflow': 'Type-heavy',
   'anti-synergy': 'Anti-synergy',
   'lowest-relevancy': 'Lowest',
-  'forced': 'Forced cut',
   'combo-near-miss': 'Combo piece',
 };
 
@@ -180,26 +178,12 @@ export function planTrim(input: TrimInput): TrimResult {
     for (const n of mustIncludeNames) protectedNames.add(n);
   }
 
-  // Combo protection:
-  // - Complete combos: every piece is hard-protected (cutting one silently breaks
-  //   the combo, which is exactly the failure mode this fixes).
-  // - Near-miss combos (1 piece missing): existing pieces become "soft-protected"
-  //   — eligible to cut only as a last resort, after every non-combo candidate.
-  const softProtectedNames = new Set<string>();
-  if (detectedCombos && detectedCombos.length > 0) {
-    const deckNameSet = new Set(cards.map(c => c.name));
-    for (const combo of detectedCombos) {
-      if (combo.isComplete) {
-        for (const name of combo.cards) if (deckNameSet.has(name)) protectedNames.add(name);
-      } else if (combo.missingCards.length === 1) {
-        for (const name of combo.cards) if (deckNameSet.has(name)) softProtectedNames.add(name);
-      }
-    }
-    // Hard protection wins if a card is in both buckets.
-    for (const n of protectedNames) softProtectedNames.delete(n);
-  }
+  // Combo protection is now baked into relevancyMap (see scoreRecommendation
+  // Component 5). Pieces of complete combos score high enough that they sort
+  // to the top of the keep pile naturally; near-miss pieces are sticky but
+  // cuttable as a last resort. No side-channel protection set needed.
 
-  // Protected from any cut: commanders + basic lands + must-includes + complete-combo pieces.
+  // Protected from any cut: commanders + basic lands + must-includes.
   const trimmable = cards.filter(c => !protectedNames.has(c.name) && !isBasicLand(c));
   const lands = trimmable.filter(isLand);
   const spells = trimmable.filter(c => !isLand(c));
@@ -236,11 +220,6 @@ export function planTrim(input: TrimInput): TrimResult {
   };
 
   const byRelevancy = (a: ScryfallCard, b: ScryfallCard) => {
-    // Soft-protected (near-miss combo pieces) sort after everything else,
-    // so they only get picked when no other candidates remain.
-    const sa = softProtectedNames.has(a.name) ? 1 : 0;
-    const sb = softProtectedNames.has(b.name) ? 1 : 0;
-    if (sa !== sb) return sa - sb;
     const ra = relevancyMap[a.name] ?? 0;
     const rb = relevancyMap[b.name] ?? 0;
     if (ra !== rb) return ra - rb;
@@ -254,13 +233,20 @@ export function planTrim(input: TrimInput): TrimResult {
   const sortedLands = [...lands].sort(byRelevancy);
   const sortedSpells = [...spells].sort(byRelevancy);
 
-  const toCandidate = (card: ScryfallCard, partition: 'land' | 'spell', forced = false): TrimCandidate => {
-    const isSoft = softProtectedNames.has(card.name);
-    const { key, text } = isSoft
+  const toCandidate = (card: ScryfallCard, partition: 'land' | 'spell'): TrimCandidate => {
+    // If the card is in a near-miss combo, surface that label — it's the most
+    // informative thing to tell the user about a still-cut combo piece.
+    const cardNameVariants = card.name.includes(' // ')
+      ? [card.name, card.name.split(' // ')[0]]
+      : [card.name];
+    const isNearMissComboPiece = detectedCombos?.some(combo =>
+      !combo.isComplete &&
+      combo.missingCards.length === 1 &&
+      combo.cards.some(cn => cardNameVariants.includes(cn))
+    ) ?? false;
+    const { key, text } = isNearMissComboPiece
       ? { key: 'combo-near-miss' as TrimReasonKey, text: 'Piece of a one-away combo — cutting widens the gap.' }
-      : forced
-        ? { key: 'forced' as TrimReasonKey, text: 'Lowest relevancy (no safer cut available).' }
-        : pickReason(card, ctx);
+      : pickReason(card, ctx);
     return {
       card,
       reasonKey: key,
@@ -279,30 +265,13 @@ export function planTrim(input: TrimInput): TrimResult {
     landCuts.push(toCandidate(c, 'land'));
   }
 
-  const guardrailSafe = (card: ScryfallCard, livingCounts: Record<string, number>): boolean => {
-    const role = card.deckRole;
-    if (!role) return true;
-    const target = roleTargets[role] ?? 0;
-    return livingCounts[role] > target;
-  };
-  const livingCounts: Record<string, number> = { ...roleCounts };
-
+  // Role-scarcity guardrail is now baked into relevancyMap (see
+  // scoreRecommendation Component 6). The only boardwipe naturally scores
+  // high enough to sort out of the cut window; no separate livingCounts needed.
   const spellCuts: TrimCandidate[] = [];
   for (const c of sortedSpells) {
     if (spellCuts.length >= cutSpells) break;
-    if (!guardrailSafe(c, livingCounts)) continue;
     spellCuts.push(toCandidate(c, 'spell'));
-    if (c.deckRole) livingCounts[c.deckRole]--;
-  }
-
-  let relaxedGuardrail = false;
-  if (spellCuts.length < cutSpells) {
-    relaxedGuardrail = true;
-    const remaining = sortedSpells.filter(c => !spellCuts.some(sc => sc.card.name === c.name));
-    for (const c of remaining) {
-      if (spellCuts.length >= cutSpells) break;
-      spellCuts.push(toCandidate(c, 'spell', true));
-    }
   }
 
   const cuts = [...landCuts, ...spellCuts];
@@ -336,7 +305,6 @@ export function planTrim(input: TrimInput): TrimResult {
     allCandidates,
     cutLands,
     cutSpells,
-    relaxedGuardrail,
     effectiveLandTarget,
   };
 }

@@ -158,12 +158,6 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           </span>
         </div>
 
-        {plan.relaxedGuardrail && (
-          <div className="mx-5 mt-3 px-3 py-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs">
-            All low-relevancy cards fill role gaps — guardrail relaxed for the last few cuts.
-          </div>
-        )}
-
         {checked.size < overage && (
           <div className="mx-5 mt-3 px-3 py-2 rounded border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs">
             Will trim {checked.size} of {overage} cards — uncheck fewer cards, or raise the land target to make up the difference.
