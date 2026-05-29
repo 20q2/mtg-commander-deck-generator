@@ -82,12 +82,14 @@ export function Drawer({ open, onClose, children, position, defaultSizePercent }
   const isRight = position === 'right';
   const isSide = isLeft || isRight;
 
-  // Position classes
+  // Position classes. Background is lifted above --card (13% lightness) so the
+  // drawer reads as an elevated surface against the page, plus a thicker border
+  // and ring shadow on the open edge to seat it visually.
   const panelClasses = [
-    'fixed z-50 flex bg-card shadow-2xl transition-transform duration-300 ease-out',
-    isBottom && `bottom-0 left-0 right-0 flex-col border-t border-border/50 rounded-t-2xl ${open ? 'translate-y-0' : 'translate-y-full'}`,
-    isLeft && `top-0 left-0 bottom-0 flex-row border-r border-border/50 rounded-r-2xl ${open ? 'translate-x-0' : '-translate-x-full'}`,
-    isRight && `top-0 right-0 bottom-0 flex-row-reverse border-l border-border/50 rounded-l-2xl ${open ? 'translate-x-0' : 'translate-x-full'}`,
+    'fixed z-50 flex bg-[hsl(220_13%_18%)] shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-transform duration-300 ease-out',
+    isBottom && `bottom-0 left-0 right-0 flex-col border-t-2 border-border rounded-t-2xl ${open ? 'translate-y-0' : 'translate-y-full'}`,
+    isLeft && `top-0 left-0 bottom-0 flex-row border-r-2 border-border rounded-r-2xl ${open ? 'translate-x-0' : '-translate-x-full'}`,
+    isRight && `top-0 right-0 bottom-0 flex-row-reverse border-l-2 border-border rounded-l-2xl ${open ? 'translate-x-0' : 'translate-x-full'}`,
   ].filter(Boolean).join(' ');
 
   const style = isBottom
