@@ -5,7 +5,7 @@ import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, Ch
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
-import { fetchCommanderCombos } from '@/services/edhrec/client';
+import { fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
@@ -13,7 +13,7 @@ import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
-import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo } from '@/types';
+import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
 import { TrimDeckDialog } from './TrimDeckDialog';
 
@@ -153,7 +153,7 @@ function getArtCropUrl(card: ScryfallCard | null): string | null {
 }
 
 function detectCombosInDeck(
-  combos: { comboId: string; cards: { name: string; id: string }[]; results: string[]; deckCount: number; bracket: string }[],
+  combos: EDHRECCombo[],
   allCardNames: Set<string>,
   commanderCard: ScryfallCard | null,
   partnerCard: ScryfallCard | null,
@@ -164,6 +164,7 @@ function detectCombosInDeck(
     .map(combo => {
       const comboCardNames = combo.cards.map(c => c.name);
       const missingCards = comboCardNames.filter(name => !allCardNames.has(name));
+      const source = combo.source ?? 'commander';
       return {
         comboId: combo.comboId,
         cards: comboCardNames,
@@ -172,9 +173,14 @@ function detectCombosInDeck(
         missingCards,
         deckCount: combo.deckCount,
         bracket: combo.bracket,
-      };
+        source,
+      } as DetectedCombo;
     })
-    .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
+    // Per-source threshold: commander ≤2 missing, color-identity ≤1 missing.
+    .filter(dc => {
+      if (dc.source === 'commander') return dc.isComplete || dc.missingCards.length <= 2;
+      return dc.isComplete || dc.missingCards.length <= 1;
+    });
 
   const commanderNames = new Set<string>();
   if (commanderCard) {
@@ -689,7 +695,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const prevCardsRef = useRef<string[]>(list.cards);
   const isInitialLoadDone = useRef(false);
   // Cache raw combos so incremental updates can re-evaluate completeness
-  const rawCombosRef = useRef<{ comboId: string; cards: { name: string; id: string }[]; results: string[]; deckCount: number; bracket: string }[]>([]);
+  const rawCombosRef = useRef<EDHRECCombo[]>([]);
 
   // Full build — only on initial mount / list.id change
   useEffect(() => {
@@ -774,17 +780,37 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
         }
 
+        // Compute the list's color identity from the mainboard cards so we can fetch
+        // off-commander combos in parallel with commander combos. Lists may have no
+        // commander, so we always derive color identity from contents.
+        const listColors = new Set<string>();
+        for (const c of cards) {
+          for (const ci of c.color_identity || []) listColors.add(ci.toUpperCase());
+        }
+        const listColorArray = ['W', 'U', 'B', 'R', 'G'].filter(c => listColors.has(c));
+
         let detectedCombos: DetectedCombo[] | undefined;
-        if (commanderCard) {
-          try {
-            const combos = await fetchCommanderCombos(commanderCard.name);
-            if (!cancelled) {
-              rawCombosRef.current = combos;
-              detectedCombos = detectCombosInDeck(combos, allDeckNames, commanderCard, partnerCard);
-            }
-          } catch {
-            // Combo fetch failed — not critical
+        try {
+          const [commanderCombosRaw, colorCombosRaw] = await Promise.all([
+            commanderCard ? fetchCommanderCombos(commanderCard.name).catch(() => [] as EDHRECCombo[]) : Promise.resolve([] as EDHRECCombo[]),
+            fetchColorIdentityCombos(listColorArray).catch(() => [] as EDHRECCombo[]),
+          ]);
+          if (!cancelled) {
+            const commanderCombos: EDHRECCombo[] = commanderCombosRaw.map(c => ({ ...c, source: 'commander' as const }));
+            const colorCombos: EDHRECCombo[] = colorCombosRaw.map(c => ({ ...c, source: 'color-identity' as const }));
+
+            // Merge, dedupe by comboId — commander source wins on collision.
+            const byId = new Map<string, EDHRECCombo>();
+            for (const c of commanderCombos) byId.set(c.comboId, c);
+            for (const c of colorCombos) if (!byId.has(c.comboId)) byId.set(c.comboId, c);
+            const mergedCombos = [...byId.values()];
+
+            rawCombosRef.current = mergedCombos;
+            detectedCombos = detectCombosInDeck(mergedCombos, allDeckNames, commanderCard, partnerCard);
+            console.log(`[ListDeckView] Fetched ${commanderCombos.length} commander + ${colorCombos.length} color-identity combos (${mergedCombos.length} unique)`);
           }
+        } catch {
+          // Combo fetch failed — not critical
         }
 
         if (cancelled) return;
