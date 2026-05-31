@@ -1267,3 +1267,49 @@ export async function fetchComboDetails(comboId: string): Promise<ComboDetails> 
   comboDetailsCache.set(comboId, details);
   return details;
 }
+
+// --- Color-identity combo data ---
+
+// Map a Scryfall color identity (array of single-letter codes) to the EDHREC URL slug
+// used for color-identity combo pages: /pages/combos/{slug}.json. Sorted internally
+// so call order doesn't matter (e.g. ["G","B"] and ["B","G"] both yield "golgari").
+export function colorIdentityToSlug(colorIdentity: string[]): string {
+  const set = new Set(colorIdentity.map(c => c.toUpperCase()));
+  const sortedKey = ['W', 'U', 'B', 'R', 'G'].filter(c => set.has(c)).join('');
+
+  switch (sortedKey) {
+    case '': return 'colorless';
+    case 'W': return 'mono-white';
+    case 'U': return 'mono-blue';
+    case 'B': return 'mono-black';
+    case 'R': return 'mono-red';
+    case 'G': return 'mono-green';
+    case 'WU': return 'azorius';
+    case 'UB': return 'dimir';
+    case 'BR': return 'rakdos';
+    case 'RG': return 'gruul';
+    case 'WG': return 'selesnya';
+    case 'WB': return 'orzhov';
+    case 'UR': return 'izzet';
+    case 'BG': return 'golgari';
+    case 'WR': return 'boros';
+    case 'UG': return 'simic';
+    case 'WUG': return 'bant';
+    case 'WUB': return 'esper';
+    case 'UBR': return 'grixis';
+    case 'BRG': return 'jund';
+    case 'WRG': return 'naya';
+    case 'WBR': return 'mardu';
+    case 'URG': return 'temur';
+    case 'WBG': return 'abzan';
+    case 'WUR': return 'jeskai';
+    case 'UBG': return 'sultai';
+    case 'WUBR': return 'yore-tiller';
+    case 'UBRG': return 'glint-eye';
+    case 'WBRG': return 'dune-brood';
+    case 'WURG': return 'ink-treader';
+    case 'WUBG': return 'witch-maw';
+    case 'WUBRG': return 'five-color';
+    default: return 'colorless';
+  }
+}
