@@ -1032,9 +1032,12 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   // Build combo participation map: card name → number of combos it enables.
   // Protect cards in BOTH complete combos and near-misses-in-progress (deckCount >= 2),
   // so cards we just suggested as combo enablers don't immediately get suggested as cuts.
+  // Phase A: only commander-source combos contribute to protection — color-identity
+  // combos are detection-only and must not silently change card-scoring behavior.
   const comboCountMap = new Map<string, number>();
   if (detectedCombos) {
     for (const combo of detectedCombos) {
+      if (combo.source !== 'commander') continue;
       if (!combo.isComplete && combo.deckCount < 2) continue;
       for (const card of combo.cards) {
         comboCountMap.set(card, (comboCountMap.get(card) || 0) + 1);
