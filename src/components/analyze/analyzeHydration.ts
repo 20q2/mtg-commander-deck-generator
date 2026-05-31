@@ -3,14 +3,14 @@
 
 import { getCardsByNames, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
-import { fetchCommanderCombos } from '@/services/edhrec/client';
-import type { GeneratedDeck, DeckStats, DetectedCombo, ScryfallCard } from '@/types';
+import { fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
+import type { GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, ScryfallCard } from '@/types';
 
 // Combo detection helper — inlined here (and duplicated in ListDeckView.tsx today).
 // Extracting it to a shared module is out of scope for this feature; the function
 // is small and self-contained.
 function detectCombosInDeck(
-  combos: { comboId: string; cards: { name: string; id: string }[]; results: string[]; deckCount: number; bracket: string }[],
+  combos: EDHRECCombo[],
   allCardNames: Set<string>,
   commanderCard: ScryfallCard | null,
   partnerCard: ScryfallCard | null,
@@ -21,6 +21,7 @@ function detectCombosInDeck(
     .map(combo => {
       const comboCardNames = combo.cards.map(c => c.name);
       const missingCards = comboCardNames.filter(name => !allCardNames.has(name));
+      const source = combo.source ?? 'commander';
       return {
         comboId: combo.comboId,
         cards: comboCardNames,
@@ -29,9 +30,14 @@ function detectCombosInDeck(
         missingCards,
         deckCount: combo.deckCount,
         bracket: combo.bracket,
-      };
+        source,
+      } as DetectedCombo;
     })
-    .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
+    // Per-source threshold: commander ≤2 missing, color-identity ≤1 missing.
+    .filter(dc => {
+      if (dc.source === 'commander') return dc.isComplete || dc.missingCards.length <= 2;
+      return dc.isComplete || dc.missingCards.length <= 1;
+    });
 
   const commanderNames = new Set<string>();
   if (commanderCard) {
@@ -154,15 +160,33 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
   }
 
+  // Compute color identity from the full card set so we can fetch off-commander
+  // (color-identity) combos in parallel with the commander combos.
+  const allColors = new Set<string>();
+  for (const card of cards) {
+    for (const c of card.color_identity || []) allColors.add(c.toUpperCase());
+  }
+  const colorIdentity = ['W', 'U', 'B', 'R', 'G'].filter(c => allColors.has(c));
+
   let detectedCombos: DetectedCombo[] | undefined;
-  if (commanderCard) {
-    onProgress?.('detecting-combos');
-    try {
-      const combos = await fetchCommanderCombos(commanderCard.name);
-      detectedCombos = detectCombosInDeck(combos, allDeckNames, commanderCard, partnerCard);
-    } catch {
-      // Combo fetch failed — not critical
-    }
+  onProgress?.('detecting-combos');
+  try {
+    const [commanderCombosRaw, colorCombosRaw] = await Promise.all([
+      commanderCard ? fetchCommanderCombos(commanderCard.name).catch(() => [] as EDHRECCombo[]) : Promise.resolve([] as EDHRECCombo[]),
+      fetchColorIdentityCombos(colorIdentity).catch(() => [] as EDHRECCombo[]),
+    ]);
+    const commanderCombos: EDHRECCombo[] = commanderCombosRaw.map(c => ({ ...c, source: 'commander' as const }));
+    const colorCombos: EDHRECCombo[] = colorCombosRaw.map(c => ({ ...c, source: 'color-identity' as const }));
+
+    // Merge, dedupe by comboId — commander source wins on collision.
+    const byId = new Map<string, EDHRECCombo>();
+    for (const c of commanderCombos) byId.set(c.comboId, c);
+    for (const c of colorCombos) if (!byId.has(c.comboId)) byId.set(c.comboId, c);
+    const mergedCombos = [...byId.values()];
+
+    detectedCombos = detectCombosInDeck(mergedCombos, allDeckNames, commanderCard, partnerCard);
+  } catch {
+    // Combo fetch failed — not critical
   }
 
   onProgress?.('analyzing-roles');
@@ -194,12 +218,6 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     deckScore: enrichResult.deckScore,
     gapAnalysis: enrichResult.gapAnalysis,
   };
-
-  const allColors = new Set<string>();
-  for (const card of cards) {
-    for (const c of card.color_identity || []) allColors.add(c);
-  }
-  const colorIdentity = ['W', 'U', 'B', 'R', 'G'].filter(c => allColors.has(c));
 
   onProgress?.('done');
   return { deck, colorIdentity };
