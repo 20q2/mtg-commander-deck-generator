@@ -1225,6 +1225,50 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
   }
 }
 
+// Fetch known combos for a color identity from EDHREC's color-identity combo page.
+// Used for off-commander combo detection — surfaces combos that exist in the deck
+// but aren't listed under the specific commander. Returns combos sorted by popularity
+// (deckCount descending). Cache keys are prefixed with "color:" to avoid colliding
+// with commander slugs.
+export async function fetchColorIdentityCombos(colorIdentity: string[]): Promise<EDHRECCombo[]> {
+  const slug = colorIdentityToSlug(colorIdentity);
+  const cacheKey = `color:${slug}`;
+
+  const cached = comboCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+
+  try {
+    const response = await edhrecFetch<RawComboResponse>(
+      `/pages/combos/${slug}.json`
+    );
+
+    const rawCombos = response.container?.json_dict?.cardlists || [];
+
+    const combos: EDHRECCombo[] = rawCombos.map(entry => {
+      if (entry.href) comboHrefMap.set(entry.combo.comboId, entry.href);
+      return {
+        comboId: entry.combo.comboId,
+        cards: entry.cardviews.map(cv => ({ name: cv.name, id: cv.id })),
+        results: entry.combo.results || [],
+        deckCount: entry.combo.count || 0,
+        rank: entry.combo.rank || 0,
+        bracket: entry.combo.comboVote?.bracket || 'unknown',
+        prereqCount: entry.combo.nonCardPrerequisiteCount || 0,
+      };
+    });
+
+    combos.sort((a, b) => b.deckCount - a.deckCount);
+
+    comboCache.set(cacheKey, { data: combos, timestamp: Date.now() });
+    return combos;
+  } catch (error) {
+    console.error(`[EDHREC] Failed to fetch color-identity combos for ${slug}:`, error);
+    return [];
+  }
+}
+
 // --- EDHREC combo details ---
 
 export interface ComboDetails {
