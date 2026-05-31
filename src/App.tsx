@@ -11,6 +11,7 @@ import { AnalyzePage } from '@/pages/AnalyzePage';
 import { CollectionPage } from '@/pages/CollectionPage';
 import { ListsPage } from '@/pages/ListsPage';
 import { PlaytestPage } from '@/pages/PlaytestPage';
+import { PlaytestLandingPage } from '@/pages/PlaytestLandingPage';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import { loadUserLists } from '@/hooks/useUserLists';
@@ -196,7 +197,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   const { count: collectionCount } = useCollection();
   const userListCount = loadUserLists().length;
   const location = useLocation();
-  const isCollectionPage = location.pathname === '/collection' || location.pathname.startsWith('/lists');
+  const isCollectionPage = location.pathname === '/collection';
+  const isListsPage = location.pathname.startsWith('/lists');
   const isAnalyzePage = location.pathname.startsWith('/analyze');
   const isCreatePage = location.pathname === '/' || location.pathname.startsWith('/build/') || location.pathname.startsWith('/build-from-deck/');
 
@@ -256,7 +258,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
       {/* Commander Art Background (hidden on collection page) */}
-      {!isCollectionPage && (!isAnalyzePage || !!generatedDeck) && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
+      {!isCollectionPage && (!isAnalyzePage || !!generatedDeck) && (!isListsPage || !!generatedDeck) && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen pb-16 sm:pb-0">
@@ -537,6 +539,7 @@ function App() {
         <Route path="/analyze/:param1/:param2" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
         <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
+        <Route path="/playtest" element={<Layout><PlaytestLandingPage /></Layout>} />
         <Route path="/playtest/list/:listId" element={<PlaytestPage kind="list" />} />
         <Route path="/playtest/generated" element={<PlaytestPage kind="generated" />} />
         {import.meta.env.DEV && MetricsPage && (
