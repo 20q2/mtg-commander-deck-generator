@@ -582,6 +582,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             trackEvent('combos_viewed', {
               commanderName: commander?.name ?? 'unknown',
               comboCount: combos.length,
+              commanderComboCount: combos.filter(c => c.source === 'commander').length,
+              colorIdentityComboCount: combos.filter(c => c.source === 'color-identity').length,
             });
           }
         }}

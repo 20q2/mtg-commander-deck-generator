@@ -62,7 +62,14 @@ export interface AnalyticsEventMetadata {
   deck_exported: { commanderName: string; format: 'clipboard' | 'download' };
   theme_toggled: { commanderName: string; themeName: string; selected: boolean };
   collection_imported: { cardCount: number; added: number; updated: number };
-  combos_viewed: { commanderName: string; comboCount: number };
+  combos_viewed: {
+    commanderName: string;
+    comboCount: number;
+    // Combos sourced from the commander's EDHREC combo page.
+    commanderComboCount: number;
+    // Combos sourced from the color-identity combo page (off-commander detection).
+    colorIdentityComboCount: number;
+  };
   page_viewed: { page: string; path: string };
   list_created: { listName: string; cardCount: number };
   list_deleted: { listName: string; cardCount: number };
