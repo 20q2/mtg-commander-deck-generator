@@ -304,6 +304,15 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           })()}
           <span className="text-[10px] text-muted-foreground mt-0.5 block">
             {combo.deckCount.toLocaleString()} decks · Bracket {combo.bracket}
+            {combo.source === 'color-identity' && (
+              <span
+                className="ml-1.5 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium text-violet-300/80 bg-violet-500/10 border border-violet-500/20"
+                title="Not from this commander's typical builds — emerged from your deck's color identity."
+              >
+                <Sparkles className="w-2.5 h-2.5" />
+                Synergy combo
+              </span>
+            )}
           </span>
         </div>
 
