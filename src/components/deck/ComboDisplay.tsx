@@ -45,11 +45,28 @@ const TRIVIAL_WORDS = new Set([
   'card', 'cards', 'you', 'to',
 ]);
 function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): string[] {
+  // Build the list of strings to strip from each prereq: full card names AND
+  // individual significant words from each name. Card names often include commas
+  // or titles ("Mikaeus, the Unhallowed"), and prereqs may refer to just one piece
+  // ("Mikaeus and Devoted Druid"). We need to strip both.
+  const fragments: string[] = [];
+  for (const name of cardNames) {
+    const front = name.includes(' // ') ? name.split(' // ')[0] : name;
+    fragments.push(front);
+    for (const piece of front.split(/[^a-zA-Z]+/)) {
+      if (piece.length >= 3 && !TRIVIAL_WORDS.has(piece.toLowerCase())) {
+        fragments.push(piece);
+      }
+    }
+  }
+  // Strip longer fragments first so the full-name match wins over individual words.
+  fragments.sort((a, b) => b.length - a.length);
+
   return prereqs.filter(p => {
     let stripped = p;
-    for (const name of cardNames) {
-      const front = name.includes(' // ') ? name.split(' // ')[0] : name;
-      stripped = stripped.replace(new RegExp(front.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
+    for (const frag of fragments) {
+      const escaped = frag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      stripped = stripped.replace(new RegExp('\\b' + escaped + '\\b', 'gi'), '');
     }
     const normalized = stripped.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
     const words = normalized.split(/\s+/).filter(w => w && !TRIVIAL_WORDS.has(w));
