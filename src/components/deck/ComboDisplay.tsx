@@ -387,6 +387,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     return (
       <div
         key={combo.comboId}
+        style={{ minHeight: 205 }}
         className={`relative p-3 rounded-lg border overflow-hidden ${
           isExcluded
             ? 'border-red-500/20 bg-red-500/5'
