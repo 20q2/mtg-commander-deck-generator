@@ -120,6 +120,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (typeof window !== 'undefined') localStorage.setItem('combos.showSynergy', String(showSynergy));
   }, [showSynergy]);
+  const [showPrereqs, setShowPrereqs] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem('combos.showPrereqs') !== 'false';
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') localStorage.setItem('combos.showPrereqs', String(showPrereqs));
+  }, [showPrereqs]);
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
@@ -366,7 +373,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     // (~18px each) and distribute the rest. Cap at [40, 80] so we don't get giant
     // thumbs for 2-card combos or unreadable specks for 7-card ones.
     const _details = comboDetails.get(combo.comboId);
-    const meaningfulPrereqs = (_details && _details !== 'loading' && _details !== 'error')
+    const meaningfulPrereqs = (showPrereqs && _details && _details !== 'loading' && _details !== 'error')
       ? extractMeaningfulPrereqs(_details.prerequisites, combo.cards)
       : [];
     const itemCount = combo.cards.length + meaningfulPrereqs.length;
@@ -768,6 +775,20 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           >
             <Sparkles className="w-3 h-3" />
             <span>Synergy: {showSynergy ? 'On' : 'Off'}</span>
+          </button>
+        )}
+        {expanded && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowPrereqs(p => !p); }}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md border transition-colors shrink-0 ${
+              showPrereqs
+                ? 'border-zinc-400/40 bg-zinc-400/15 text-zinc-100 hover:bg-zinc-400/25'
+                : 'border-border bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent'
+            }`}
+            title={showPrereqs ? 'Hide combo requirements (e.g. three Foods)' : 'Show combo requirements'}
+          >
+            <ListChecks className="w-3 h-3" />
+            <span>Details: {showPrereqs ? 'On' : 'Off'}</span>
           </button>
         )}
         {expanded && (
