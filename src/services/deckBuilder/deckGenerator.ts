@@ -3630,13 +3630,16 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           source,
         };
       })
-      // Per-source completeness threshold:
-      //  - commander combos:        complete OR ≤2 missing (existing behavior)
-      //  - color-identity combos:   complete OR ≤1 missing (off-commander tighter threshold)
-      .filter(dc => {
-        if (dc.source === 'commander') return dc.isComplete || dc.missingCards.length <= 2;
-        return dc.isComplete || dc.missingCards.length <= 1;
-      });
+      // Completeness threshold: complete OR ≤2 missing for both sources.
+      // (Originally synergy combos used a tighter ≤1 threshold but in practice that
+      //  filtered out essentially all of them.)
+      .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
+
+    {
+      const cmdr = detectedCombos.filter(c => c.source === 'commander').length;
+      const syn = detectedCombos.filter(c => c.source === 'color-identity').length;
+      console.log(`[DeckGen] Detected combo split — Commander: ${cmdr}, Synergy: ${syn} (of ${allCombosForDetection.length} candidates)`);
+    }
 
     // Deduplicate combos with identical card sets (keep higher deck count)
     {

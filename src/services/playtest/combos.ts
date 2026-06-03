@@ -61,10 +61,7 @@ function detectCombosInDeck(
         source,
       } as DetectedCombo;
     })
-    .filter(dc => {
-      if (dc.source === 'commander') return dc.isComplete || dc.missingCards.length <= 2;
-      return dc.isComplete || dc.missingCards.length <= 1;
-    });
+    .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
 
   const commanderSet = new Set<string>();
   if (commanderName) {
