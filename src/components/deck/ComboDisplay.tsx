@@ -451,7 +451,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                 )}
                 <div
                   className="group/combo relative"
-                  style={{ width: 72 }}
+                  style={{ width: 56 }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     contextMenuRef.current = e.currentTarget as HTMLDivElement;
@@ -618,7 +618,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                 <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
                 <div
                   className="rounded-md border border-zinc-500/30 bg-zinc-500/10 overflow-y-auto overflow-x-hidden"
-                  style={{ width: 72, height: 100 }}
+                  style={{ width: 56, height: 78 }}
                   title={prereq}
                 >
                   <div className="flex items-center justify-center min-h-full px-2 py-2.5">
