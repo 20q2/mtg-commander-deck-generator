@@ -94,7 +94,7 @@ function ComboEntry({
   cardTypeMap: Map<string, CardType> | undefined;
   handlePillHover: (name: string, e: React.MouseEvent) => void;
   setHoverPreview: (v: null) => void;
-  handlePillClick: (name: string) => void;
+  handlePillClick: (name: string, comboCards?: string[]) => void;
   isKnown?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -135,7 +135,7 @@ function ComboEntry({
               }`}
               onMouseEnter={(e) => handlePillHover(name, e)}
               onMouseLeave={() => setHoverPreview(null)}
-              onClick={() => handlePillClick(name)}
+              onClick={() => handlePillClick(name, combo.cards)}
             >
               {cardTypeMap?.get(name) && (
                 <CardTypeIcon type={cardTypeMap.get(name)!} size="sm" className="opacity-60" />
@@ -241,6 +241,9 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const sym = currency === 'EUR' ? '€' : '$';
   const [showBack, setShowBack] = useState(false);
   const [cardOverride, setCardOverride] = useState<ScryfallCard | null>(null);
+  // When the user clicks a combo pill, remember which combo's card list they're
+  // navigating so arrow keys / swipes can cycle through that combo's other cards.
+  const [activeComboCards, setActiveComboCards] = useState<string[] | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ name: string; top: number; left: number; below: boolean } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [swapPreview, setSwapPreview] = useState<ScryfallCard | null>(null);
@@ -263,6 +266,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     setPrevCardId(cardId);
     setShowBack(false);
     setCardOverride(null);
+    setActiveComboCards(null);
     setSwapPreview(null);
     if (initialSideTab === 'swaps') {
       setShowSwaps(true);
@@ -307,11 +311,41 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     }
   }, [card, prevCardImage, nextCardImage]);
 
-  // Keyboard navigation (ArrowLeft/ArrowRight)
+  // Cycle through the active combo's cards while viewing one via cardOverride.
+  const navigateCombo = useCallback(async (direction: 'prev' | 'next') => {
+    if (!cardOverride || !activeComboCards || activeComboCards.length < 2) return;
+    const currentIdx = activeComboCards.indexOf(cardOverride.name);
+    if (currentIdx === -1) return;
+    const len = activeComboCards.length;
+    const nextIdx = direction === 'next'
+      ? (currentIdx + 1) % len
+      : (currentIdx - 1 + len) % len;
+    const nextName = activeComboCards[nextIdx];
+    try {
+      const fetched = await getCardByName(nextName);
+      if (fetched) {
+        slideDirectionRef.current = direction;
+        setCardOverride(fetched);
+        setShowBack(false);
+        setSlideClass(direction === 'next' ? 'animate-card-slide-from-right' : 'animate-card-slide-from-left');
+      }
+    } catch {
+      // ignore fetch errors
+    }
+  }, [cardOverride, activeComboCards]);
+
+  // Keyboard navigation (ArrowLeft/ArrowRight). In cardOverride mode with an
+  // active combo, arrows cycle the combo's cards. Otherwise they navigate the deck.
   useEffect(() => {
-    if (!card || !onNavigate) return;
+    if (!card) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (cardOverride) return; // don't navigate while viewing a combo pill card
+      if (cardOverride && activeComboCards && activeComboCards.length > 1) {
+        if (e.key === 'ArrowLeft') { e.preventDefault(); navigateCombo('prev'); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); navigateCombo('next'); }
+        return;
+      }
+      if (cardOverride) return; // viewing a single combo pill card with no combo context
+      if (!onNavigate) return;
       if (e.key === 'ArrowLeft' && canNavigate?.prev) {
         e.preventDefault();
         slideDirectionRef.current = 'prev';
@@ -324,7 +358,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [card, onNavigate, canNavigate, cardOverride]);
+  }, [card, onNavigate, canNavigate, cardOverride, activeComboCards, navigateCombo]);
 
   // Touch drag-to-swipe navigation — card follows finger, then navigates or snaps back
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -332,15 +366,20 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const isDraggingRef = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  const inComboNav = !!(cardOverride && activeComboCards && activeComboCards.length > 1);
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!onNavigate || cardOverride) return;
+    if (!onNavigate && !inComboNav) return;
+    if (cardOverride && !inComboNav) return;
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     dragOffsetRef.current = 0;
     isDraggingRef.current = false;
-  }, [onNavigate, cardOverride]);
+  }, [onNavigate, cardOverride, inComboNav]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!touchStartRef.current || !onNavigate || cardOverride) return;
+    if (!touchStartRef.current) return;
+    if (!onNavigate && !inComboNav) return;
+    if (cardOverride && !inComboNav) return;
     const dx = e.touches[0].clientX - touchStartRef.current.x;
     const dy = e.touches[0].clientY - touchStartRef.current.y;
     // Lock into horizontal drag once movement is clearly horizontal
@@ -355,9 +394,9 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
         return; // Not enough movement to decide yet
       }
     }
-    // Dampen the drag if moving in a direction we can't navigate
+    // Combo nav cycles, so no rubber-band damping. Deck nav damps at edges.
     let offset = dx;
-    if ((dx < 0 && !canNavigate?.next) || (dx > 0 && !canNavigate?.prev)) {
+    if (!inComboNav && ((dx < 0 && !canNavigate?.next) || (dx > 0 && !canNavigate?.prev))) {
       offset = dx * 0.2; // rubber band effect
     }
     dragOffsetRef.current = offset;
@@ -365,7 +404,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       contentRef.current.style.transform = `translateX(${offset}px)`;
       contentRef.current.style.opacity = `${1 - Math.min(Math.abs(offset) / 400, 0.4)}`;
     }
-  }, [onNavigate, canNavigate, cardOverride]);
+  }, [onNavigate, canNavigate, cardOverride, inComboNav]);
 
   const handleTouchEnd = useCallback(() => {
     if (!touchStartRef.current && !isDraggingRef.current) return;
@@ -374,7 +413,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     touchStartRef.current = null;
     isDraggingRef.current = false;
     dragOffsetRef.current = 0;
-    if (navigated && onNavigate && !cardOverride) {
+    if (navigated && inComboNav) {
+      if (offset < -60) navigateCombo('next');
+      else if (offset > 60) navigateCombo('prev');
+    } else if (navigated && onNavigate && !cardOverride) {
       if (offset < -60 && canNavigate?.next) {
         slideDirectionRef.current = 'next';
         onNavigate('next');
@@ -393,7 +435,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       const cleanup = () => { el.style.transition = ''; el.removeEventListener('transitionend', cleanup); };
       el.addEventListener('transitionend', cleanup);
     }
-  }, [onNavigate, canNavigate, cardOverride]);
+  }, [onNavigate, canNavigate, cardOverride, inComboNav, navigateCombo]);
 
   const handlePillHover = useCallback((name: string, e: React.MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -406,11 +448,12 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     });
   }, []);
 
-  const handlePillClick = useCallback(async (name: string) => {
+  const handlePillClick = useCallback(async (name: string, comboCards?: string[]) => {
     try {
       const fetched = await getCardByName(name);
       if (fetched) {
         setCardOverride(fetched);
+        setActiveComboCards(comboCards ?? null);
         setShowBack(false);
         setHoverPreview(null);
       }
@@ -734,7 +777,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
               Scryfall
             </a>
             <a
-              href={`https://edhrec.com/cards/${(displayCard.name.split(' // ')[0]).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
+              href={`https://edhrec.com/cards/${(displayCard.name.split(' // ')[0]).toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-medium transition-colors"
@@ -1136,6 +1179,28 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     {/* Navigation arrows + position indicator live OUTSIDE the scrolling backdrop
         so they stay pinned to the viewport (backdrop-filter on the backdrop creates
         a containing block that would otherwise trap position: fixed children). */}
+    {inComboNav && (
+      <>
+        <button
+          onClick={(e) => { e.stopPropagation(); navigateCombo('prev'); }}
+          className="fixed left-1 sm:left-4 top-1/2 -translate-y-1/2 z-[60] flex items-center group"
+          title="Previous combo card"
+        >
+          <span className="bg-violet-500/40 group-hover:bg-violet-500/60 active:bg-violet-500/80 text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg relative z-10">
+            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+          </span>
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); navigateCombo('next'); }}
+          className="fixed right-1 sm:right-4 top-1/2 -translate-y-1/2 z-[60] flex items-center group"
+          title="Next combo card"
+        >
+          <span className="bg-violet-500/40 group-hover:bg-violet-500/60 active:bg-violet-500/80 text-white rounded-full p-2.5 sm:p-3 transition-all backdrop-blur-sm flex items-center justify-center shadow-lg relative z-10">
+            <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+          </span>
+        </button>
+      </>
+    )}
     {hasNav && canNavigate.prev && (
       <button
         onClick={(e) => { e.stopPropagation(); slideDirectionRef.current = 'prev'; onNavigate!('prev'); }}
