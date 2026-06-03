@@ -373,10 +373,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     // (~18px each) and distribute the rest. Cap at [40, 80] so we don't get giant
     // thumbs for 2-card combos or unreadable specks for 7-card ones.
     const _details = comboDetails.get(combo.comboId);
-    const meaningfulPrereqs = (showPrereqs && _details && _details !== 'loading' && _details !== 'error')
+    // Compute prereqs regardless of toggle so we can keep chips mounted and
+    // animate their width/opacity when the user toggles details on/off.
+    const allPrereqs = (_details && _details !== 'loading' && _details !== 'error')
       ? extractMeaningfulPrereqs(_details.prerequisites, combo.cards)
       : [];
-    const itemCount = combo.cards.length + meaningfulPrereqs.length;
+    const showingPrereqs = showPrereqs && allPrereqs.length > 0;
+    const itemCount = combo.cards.length + (showingPrereqs ? allPrereqs.length : 0);
     const availablePx = 340 - Math.max(0, itemCount - 1) * 18;
     const itemWidth = Math.min(80, Math.max(40, Math.floor(availablePx / Math.max(1, itemCount))));
     const itemHeight = Math.round(itemWidth * 680 / 488);
@@ -458,7 +461,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                   <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
                 <div
-                  className="group/combo relative"
+                  className="group/combo relative transition-all duration-300"
                   style={{ width: itemWidth }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -614,12 +617,20 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
               </Fragment>
             );
           })}
-          {meaningfulPrereqs.map((prereq, idx) => (
+          {allPrereqs.map((prereq, idx) => (
             <Fragment key={`prereq-${idx}`}>
-              <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+              <Plus
+                className="w-3 h-3 text-muted-foreground shrink-0 transition-all duration-300"
+                style={{ opacity: showingPrereqs ? 1 : 0, width: showingPrereqs ? undefined : 0, marginLeft: showingPrereqs ? undefined : -6 }}
+              />
               <div
-                className="rounded-md border border-zinc-500/30 bg-zinc-500/10 overflow-y-auto overflow-x-hidden"
-                style={{ width: itemWidth, height: itemHeight }}
+                className="rounded-md border border-zinc-500/30 bg-zinc-500/10 overflow-y-auto overflow-x-hidden transition-all duration-300"
+                style={{
+                  width: showingPrereqs ? itemWidth : 0,
+                  height: showingPrereqs ? itemHeight : 0,
+                  opacity: showingPrereqs ? 1 : 0,
+                  borderWidth: showingPrereqs ? undefined : 0,
+                }}
                 title={prereq}
               >
                 <div className="flex items-center justify-center min-h-full px-2 py-2.5">
