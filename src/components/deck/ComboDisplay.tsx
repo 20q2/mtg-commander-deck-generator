@@ -546,11 +546,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                       {(!hideMustInclude || !!onAddToDeck) && (
                         <button
                           onClick={(e) => handleAddMustInclude(name, e)}
-                          className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
+                          className={`hidden group-hover/combo:flex items-center gap-0.5 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white font-semibold transition-colors pointer-events-auto ${itemWidth < 60 ? 'px-1 py-1 text-[8px]' : 'px-1.5 py-1 text-[8px]'}`}
                           title="Add to deck"
                         >
                           <Plus className="w-2.5 h-2.5" />
-                          Add to Deck
+                          {itemWidth >= 60 && 'Add to Deck'}
                         </button>
                       )}
                     </div>
@@ -577,11 +577,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                       {(!hideMustInclude || !!onAddToDeck) && (
                         <button
                           onClick={(e) => handleAddMustInclude(name, e)}
-                          className="hidden group-hover/combo:flex items-center gap-0.5 px-1.5 py-1 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white text-[8px] font-semibold transition-colors pointer-events-auto"
+                          className={`hidden group-hover/combo:flex items-center gap-0.5 rounded bg-emerald-600/90 hover:bg-emerald-500 text-white font-semibold transition-colors pointer-events-auto ${itemWidth < 60 ? 'px-1 py-1 text-[8px]' : 'px-1.5 py-1 text-[8px]'}`}
                           title="Add to deck"
                         >
                           <Plus className="w-2.5 h-2.5" />
-                          Add to Deck
+                          {itemWidth >= 60 && 'Add to Deck'}
                         </button>
                       )}
                     </div>
