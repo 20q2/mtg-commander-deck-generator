@@ -418,7 +418,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         </div>
 
         {/* Card images with + separators */}
-        <div className="flex flex-wrap items-start gap-1.5 mb-2">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
           {combo.cards.map((name, i) => {
             const isMissing = combo.missingCards.includes(name);
             const isBanned = bannedSet.has(name.toLowerCase());
@@ -428,10 +428,10 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             return (
               <Fragment key={name}>
                 {i > 0 && (
-                  <Plus className="w-3 h-3 text-muted-foreground shrink-0 mt-10" />
+                  <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
                 <div
-                  className="group/combo relative flex flex-col gap-1"
+                  className="group/combo relative"
                   style={{ width: 72 }}
                   onContextMenu={(e) => {
                     e.preventDefault();
