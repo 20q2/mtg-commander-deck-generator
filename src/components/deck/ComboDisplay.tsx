@@ -45,7 +45,7 @@ const TRIVIAL_WORDS = new Set([
   'card', 'cards', 'you', 'to',
   // Card-state words — "X doesn't have summoning sickness" / "X is untapped"
   // are assumed operational conditions of a combo with cards already in play.
-  'does', 'not', 'no', 'doesnt', 'summoning', 'sickness',
+  'does', 'do', 'did', 'dont', 'didnt', 'not', 'no', 'doesnt', 'summoning', 'sickness',
   'tapped', 'untapped', 'haste', 'has', 'be', 'can', 'cant',
   // Attachment / enchant relationships are visible from card types — don't restate.
   'attached', 'attach', 'equipped', 'equip', 'enchanted', 'enchant', 'as',
