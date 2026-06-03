@@ -129,6 +129,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
   const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ name: string; top: number; left: number; placement: 'right' | 'left' } | null>(null);
   const { lists: userLists, updateList, createList } = useUserLists();
 
   // When right-click sets contextMenuCard, click the trigger button after render
@@ -468,6 +469,19 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                 >
                 <div
                   onClick={() => handleCardClick(name)}
+                  onMouseEnter={(e) => {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const viewportW = window.innerWidth;
+                    // Show preview on the right if there's room, else left of the card.
+                    const placement: 'right' | 'left' = (viewportW - rect.right > 220) ? 'right' : 'left';
+                    setHoverPreview({
+                      name,
+                      top: rect.top + rect.height / 2,
+                      left: placement === 'right' ? rect.right + 8 : rect.left - 8,
+                      placement,
+                    });
+                  }}
+                  onMouseLeave={() => setHoverPreview(null)}
                   className={`relative rounded-md overflow-hidden transition-all cursor-pointer active:scale-90 ${
                     isBanned ? 'opacity-50 ring-1 ring-red-500/60'
                     : isMissing && collectionNames?.has(name) ? 'opacity-50 ring-1 ring-emerald-500/60'
@@ -880,6 +894,27 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         hideMustInclude={hideMustInclude}
         onRegenerate={onRegenerate}
       />
+      {hoverPreview && createPortal(
+        <div
+          className="pointer-events-none fixed z-[110] animate-fade-in"
+          style={{
+            top: hoverPreview.top,
+            left: hoverPreview.left,
+            transform: hoverPreview.placement === 'right' ? 'translate(0, -50%)' : 'translate(-100%, -50%)',
+          }}
+        >
+          <img
+            src={(() => {
+              const cached = cardDataCache.get(hoverPreview.name);
+              if (cached) return getCardImageUrl(cached, 'normal') ?? '';
+              return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(hoverPreview.name)}&format=image&version=normal`;
+            })()}
+            alt={hoverPreview.name}
+            className="w-56 rounded-lg shadow-2xl border border-white/10"
+          />
+        </div>,
+        document.body
+      )}
       {toastMessage && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
           <Pin className="w-4 h-4 shrink-0" />
