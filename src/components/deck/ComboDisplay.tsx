@@ -48,6 +48,37 @@ const TRIVIAL_WORDS = new Set([
   'does', 'not', 'no', 'doesnt', 'summoning', 'sickness',
   'tapped', 'untapped', 'haste', 'has', 'be', 'can', 'cant',
 ]);
+// Detect per-card state requirements like "X doesn't have summoning sickness",
+// "X is untapped", "X has haste". Returns a map of card name → list of tags
+// to display on that card's image (e.g. "needs haste", "untapped").
+interface CardStateTag { label: string; full: string }
+function extractCardStates(prereqs: string[], cardNames: string[]): Map<string, CardStateTag[]> {
+  const result = new Map<string, CardStateTag[]>();
+  for (const prereq of prereqs) {
+    const lower = prereq.toLowerCase();
+    let owner: string | null = null;
+    for (const name of cardNames) {
+      const front = name.includes(' // ') ? name.split(' // ')[0] : name;
+      if (lower.includes(front.toLowerCase())) { owner = name; break; }
+      const significantWord = front.split(/[^a-zA-Z]+/).find(w => w.length >= 4 && !TRIVIAL_WORDS.has(w.toLowerCase()));
+      if (significantWord && lower.includes(significantWord.toLowerCase())) { owner = name; break; }
+    }
+    if (!owner) continue;
+
+    let label: string | null = null;
+    if (/summoning sickness/.test(lower)) label = 'needs haste';
+    else if (/has haste/.test(lower)) label = 'needs haste';
+    else if (/is untapped/.test(lower)) label = 'untapped';
+    else if (/is tapped/.test(lower)) label = 'tapped';
+    if (!label) continue;
+
+    const existing = result.get(owner) ?? [];
+    if (!existing.some(t => t.label === label)) existing.push({ label, full: prereq });
+    result.set(owner, existing);
+  }
+  return result;
+}
+
 function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): string[] {
   // Build the list of strings to strip from each prereq: full card names AND
   // individual significant words from each name. Card names often include commas
@@ -354,6 +385,10 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
 
   const renderComboCard = (combo: DetectedCombo, isExcluded = false) => {
     const isComboExpanded = expandedCombo === combo.comboId;
+    const detailsForCombo = comboDetails.get(combo.comboId);
+    const cardStateMap = (detailsForCombo && detailsForCombo !== 'loading' && detailsForCombo !== 'error')
+      ? extractCardStates(detailsForCombo.prerequisites, combo.cards)
+      : new Map<string, CardStateTag[]>();
     return (
       <div
         key={combo.comboId}
@@ -418,20 +453,21 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         </div>
 
         {/* Card images with + separators */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+        <div className="flex flex-wrap items-start gap-1.5 mb-2">
           {combo.cards.map((name, i) => {
             const isMissing = combo.missingCards.includes(name);
             const isBanned = bannedSet.has(name.toLowerCase());
             const imgUrl = cardImages.get(name);
             const frontName = name.includes(' // ') ? name.split(' // ')[0] : name;
             const cardComboCount = cardComboMap.get(frontName)?.length ?? 0;
+            const stateTags = cardStateMap.get(name) ?? [];
             return (
               <Fragment key={name}>
                 {i > 0 && (
-                  <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+                  <Plus className="w-3 h-3 text-muted-foreground shrink-0 mt-10" />
                 )}
                 <div
-                  className="group/combo relative"
+                  className="group/combo relative flex flex-col gap-1"
                   style={{ width: 72 }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -571,6 +607,19 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                     </span>
                   )}
                 </div>
+                {stateTags.length > 0 && (
+                  <div className="flex flex-col gap-0.5">
+                    {stateTags.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="px-1 py-0.5 rounded text-[9px] font-medium text-zinc-200/90 bg-zinc-500/15 border border-zinc-500/30 text-center leading-tight"
+                        title={tag.full}
+                      >
+                        {tag.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </Fragment>
             );
           })}
