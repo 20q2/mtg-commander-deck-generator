@@ -54,6 +54,10 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (typeof window !== 'undefined') localStorage.setItem('combos.showSynergy', String(showSynergy));
   }, [showSynergy]);
+  // Source sort is meaningless without synergy combos — fall back to relevance.
+  useEffect(() => {
+    if (!showSynergy && comboSort === 'source') setComboSort('relevance');
+  }, [showSynergy, comboSort]);
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
@@ -657,7 +661,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         )}
         {expanded && (
           <span className="flex items-center rounded-md border border-border overflow-hidden shrink-0" onClick={(e) => e.stopPropagation()}>
-            {(['relevance', 'popularity', 'source'] as const).map((mode) => (
+            {(showSynergy ? (['relevance', 'popularity', 'source'] as const) : (['relevance', 'popularity'] as const)).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setComboSort(mode)}
