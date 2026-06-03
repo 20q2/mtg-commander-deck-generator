@@ -6,7 +6,7 @@ import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaText } from '@/components/ui/mtg-icons';
-import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2, Crown } from 'lucide-react';
+import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -112,7 +112,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [comboDetails, setComboDetails] = useState<Map<string, ComboDetails | 'loading' | 'error'>>(new Map());
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
-  const [comboSort, setComboSort] = useState<'popularity' | 'relevance' | 'source'>('relevance');
+  const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('relevance');
   const [showSynergy, setShowSynergy] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     return localStorage.getItem('combos.showSynergy') !== 'false';
@@ -120,10 +120,6 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (typeof window !== 'undefined') localStorage.setItem('combos.showSynergy', String(showSynergy));
   }, [showSynergy]);
-  // Source sort is meaningless without synergy combos — fall back to relevance.
-  useEffect(() => {
-    if (!showSynergy && comboSort === 'source') setComboSort('relevance');
-  }, [showSynergy, comboSort]);
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
@@ -338,14 +334,6 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const bannedSet = new Set(bannedCards.map(n => n.toLowerCase()));
   const hasExcludedCard = (combo: DetectedCombo) => combo.cards.some(n => bannedSet.has(n.toLowerCase()));
 
-  // Sort by completeness first (complete combos before near-misses), then deckCount.
-  // Used for grouping within a source section in 'source' sort mode.
-  const sortByCompletenessThenPopularity = (list: DetectedCombo[]) =>
-    [...list].sort((a, b) => {
-      if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
-      return b.deckCount - a.deckCount;
-    });
-
   const sortCombos = (list: DetectedCombo[]) => {
     if (comboSort === 'relevance') {
       return [...list].sort((a, b) => {
@@ -364,14 +352,6 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const completeCombos = sortCombos(visibleCombos.filter(c => c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
   const nearMisses = sortCombos(visibleCombos.filter(c => !c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
   const excludedCombos = visibleCombos.filter(c => hasExcludedCard(c) && matchesCardFilter(c));
-
-  // For source-sort view: split everything visible by source, each pre-sorted by completeness.
-  const commanderSourceCombos = sortByCompletenessThenPopularity(
-    visibleCombos.filter(c => c.source === 'commander' && !hasExcludedCard(c) && matchesCardFilter(c)),
-  );
-  const synergySourceCombos = sortByCompletenessThenPopularity(
-    visibleCombos.filter(c => c.source === 'color-identity' && !hasExcludedCard(c) && matchesCardFilter(c)),
-  );
 
   const toggleCardFilter = (name: string) => {
     const front = name.includes(' // ') ? name.split(' // ')[0] : name;
@@ -792,13 +772,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         )}
         {expanded && (
           <span className="flex items-center rounded-md border border-border overflow-hidden shrink-0" onClick={(e) => e.stopPropagation()}>
-            {(showSynergy ? (['relevance', 'popularity', 'source'] as const) : (['relevance', 'popularity'] as const)).map((mode) => (
+            {(['relevance', 'popularity'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setComboSort(mode)}
                 className={`px-2 py-1 text-[10px] transition-colors ${comboSort === mode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
               >
-                {mode === 'popularity' ? 'Popular' : mode === 'relevance' ? 'Relevant' : 'Source'}
+                {mode === 'popularity' ? 'Popular' : 'Relevant'}
               </button>
             ))}
           </span>
@@ -809,65 +789,32 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       </div>
 
       <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[8000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-        {comboSort === 'source' ? (
+        {/* Complete combos */}
+        {completeCombos.length > 0 && (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+            {completeCombos.map(combo => renderComboCard(combo))}
+          </div>
+        )}
+
+        {/* Near-misses */}
+        {nearMisses.length > 0 && (
           <>
-            {/* Commander combos section */}
-            {commanderSourceCombos.length > 0 && (
-              <>
-                <div className="flex items-center gap-2 mb-3">
-                  <Crown className="w-3.5 h-3.5 text-amber-300/90 shrink-0" />
-                  <span className="text-xs font-medium text-muted-foreground">Commander combos ({commanderSourceCombos.length})</span>
-                  <div className="flex-1 border-t border-border/30" />
-                </div>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-                  {commanderSourceCombos.map(combo => renderComboCard(combo))}
-                </div>
-              </>
-            )}
-            {/* Synergy combos section */}
-            {synergySourceCombos.length > 0 && (
-              <>
-                <div className={`flex items-center gap-2 mb-3 ${commanderSourceCombos.length > 0 ? 'mt-4' : ''}`}>
-                  <Sparkles className="w-3.5 h-3.5 text-violet-300/80 shrink-0" />
-                  <span className="text-xs font-medium text-muted-foreground">Synergy combos ({synergySourceCombos.length})</span>
-                  <div className="flex-1 border-t border-border/30" />
-                </div>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-                  {synergySourceCombos.map(combo => renderComboCard(combo))}
-                </div>
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            {/* Complete combos */}
             {completeCombos.length > 0 && (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-                {completeCombos.map(combo => renderComboCard(combo))}
+              <div className="flex items-center gap-2 mt-4 mb-3">
+                <span className="text-xs font-medium text-muted-foreground">Near-Misses</span>
+                <div className="flex-1 border-t border-border/30" />
               </div>
             )}
-
-            {/* Near-misses */}
-            {nearMisses.length > 0 && (
-              <>
-                {completeCombos.length > 0 && (
-                  <div className="flex items-center gap-2 mt-4 mb-3">
-                    <span className="text-xs font-medium text-muted-foreground">Near-Misses</span>
-                    <div className="flex-1 border-t border-border/30" />
-                  </div>
-                )}
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-                  {(showAllNearMisses ? nearMisses : nearMisses.slice(0, 10)).map(combo => renderComboCard(combo))}
-                </div>
-                {nearMisses.length > 10 && !showAllNearMisses && (
-                  <button
-                    onClick={() => setShowAllNearMisses(true)}
-                    className="mt-3 w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/30 rounded-lg hover:bg-accent/20 transition-colors"
-                  >
-                    Show {nearMisses.length - 10} more near-miss combo{nearMisses.length - 10 > 1 ? 's' : ''}
-                  </button>
-                )}
-              </>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+              {(showAllNearMisses ? nearMisses : nearMisses.slice(0, 10)).map(combo => renderComboCard(combo))}
+            </div>
+            {nearMisses.length > 10 && !showAllNearMisses && (
+              <button
+                onClick={() => setShowAllNearMisses(true)}
+                className="mt-3 w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/30 rounded-lg hover:bg-accent/20 transition-colors"
+              >
+                Show {nearMisses.length - 10} more near-miss combo{nearMisses.length - 10 > 1 ? 's' : ''}
+              </button>
             )}
           </>
         )}
