@@ -68,8 +68,8 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
   // Strip longer fragments first so the full-name match wins over individual words.
   fragments.sort((a, b) => b.length - a.length);
 
-  return prereqs.filter(p => {
-    let stripped = p;
+  const isMeaningful = (sentence: string): boolean => {
+    let stripped = sentence;
     for (const frag of fragments) {
       const escaped = frag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       stripped = stripped.replace(new RegExp('\\b' + escaped + '\\b', 'gi'), '');
@@ -77,7 +77,21 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
     const normalized = stripped.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
     const words = normalized.split(/\s+/).filter(w => w && !TRIVIAL_WORDS.has(w));
     return words.length > 0;
-  });
+  };
+
+  // Split each prereq on sentence boundaries and keep only the meaningful sentences.
+  // Compound prereqs like "All Equipments attached to the same creature. That creature
+  // does not have summoning sickness." should keep just the first half.
+  const out: string[] = [];
+  for (const p of prereqs) {
+    const sentences = p
+      .split(/(?<=\.)\s+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const kept = sentences.filter(isMeaningful);
+    if (kept.length > 0) out.push(kept.join(' '));
+  }
+  return out;
 }
 
 export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded }: ComboDisplayProps) {
