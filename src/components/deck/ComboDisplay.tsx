@@ -288,9 +288,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             const tone = isExcluded ? 'text-red-400' : combo.isComplete ? 'text-green-500' : 'text-amber-500';
             const Icon = isExcluded ? Ban : combo.isComplete ? Check : AlertTriangle;
             return (
-              <span className={`flex items-center gap-1 text-xs font-medium min-w-0 ${tone}`}>
-                <Icon className="w-3 h-3 shrink-0" />
-                <span className="truncate">
+              <span className={`flex items-start gap-1 text-xs font-medium min-w-0 ${tone}`}>
+                <Icon className="w-3 h-3 shrink-0 mt-0.5" />
+                <span className="break-words">
                   {combo.cards.map((n, i) => {
                     const front = n.includes(' // ') ? n.split(' // ')[0] : n;
                     const isActive = cardFilter === front;
