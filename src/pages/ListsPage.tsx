@@ -381,8 +381,14 @@ export function ListsPage() {
               src={heroArtUrl}
               alt=""
               className="absolute inset-0 w-full h-full object-cover opacity-25"
+              style={{
+                // True alpha fade — no card-tinted overlay. Image is fully
+                // opaque (within its 25% layer opacity) until 70%, then fades
+                // to transparent by the bottom edge.
+                WebkitMaskImage: 'linear-gradient(to bottom, black 70%, transparent)',
+                maskImage: 'linear-gradient(to bottom, black 70%, transparent)',
+              }}
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-card/40 to-card" />
           </div>
         )}
         <div className="relative z-10">
