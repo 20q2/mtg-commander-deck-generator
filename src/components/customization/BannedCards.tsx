@@ -371,7 +371,7 @@ export function BannedCards() {
               onTogglePreset={handlePickerTogglePreset}
               onToggleBanList={(id) => updateCustomization({ banLists: banLists.map(l => l.id === id ? { ...l, enabled: !l.enabled } : l) })}
               onToggleUserList={handlePickerToggleUserList}
-              onCreateList={() => { setShowListPicker(false); navigate('/lists/create?type=list'); }}
+              onCreateList={() => { setShowListPicker(false); navigate('/lists/create'); }}
             />
           </PopoverContent>
         </Popover>
@@ -439,7 +439,7 @@ export function BannedCards() {
 
       {bannedCards.length === 0 && banLists.filter(l => l.enabled).length === 0 && !appliedExcludeLists.some(r => r.enabled) && (
         <p className="text-xs text-muted-foreground">
-          Search cards to exclude, import a List, or <Link to="/lists/create?type=list" className="text-primary hover:text-primary/80 transition-colors">create one</Link>
+          Search cards to exclude, import a List, or <Link to="/lists/create" className="text-primary hover:text-primary/80 transition-colors">create one</Link>
         </p>
       )}
 

@@ -293,7 +293,7 @@ export function MustIncludeCards() {
             </div>
             <div className="border-t border-border/50 mt-1">
               <button
-                onClick={() => { setShowListPicker(false); navigate('/lists/create?type=list'); }}
+                onClick={() => { setShowListPicker(false); navigate('/lists/create'); }}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 text-primary"
               >
                 <PlusSquare className="w-3.5 h-3.5 shrink-0" />
@@ -366,7 +366,7 @@ export function MustIncludeCards() {
 
       {mustIncludeCards.length === 0 && !appliedIncludeLists.some(r => r.enabled) && (
         <p className="text-xs text-muted-foreground">
-          Search cards to include, import a List, or <Link to="/lists/create?type=list" className="text-primary hover:text-primary/80 transition-colors">create one</Link>
+          Search cards to include, import a List, or <Link to="/lists/create" className="text-primary hover:text-primary/80 transition-colors">create one</Link>
         </p>
       )}
 

@@ -597,7 +597,7 @@ export function AnalyzePage() {
       trackEvent('analyze_deck_saved', { listName: name, cardCount: cardNames.length, source: source.kind });
     };
     const handleOpenInDeckView = source.kind === 'list'
-      ? () => navigate(`/lists/${source.listId}/deck-view`)
+      ? () => navigate(`/decks/${source.listId}`)
       : undefined;
 
     return (

@@ -126,7 +126,7 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
         <div className="flex items-center gap-2">
           {source.kind === 'list' && !savedListId && (
             <a
-              href={`#/lists/${source.listId}/deck-view`}
+              href={`#/decks/${source.listId}`}
               className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
               title="Open original list"
             >

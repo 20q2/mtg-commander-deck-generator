@@ -1220,7 +1220,7 @@ export function BuilderPage() {
           <button
             onClick={() => {
               setSavedToList(false);
-              navigate(savedListId ? `/lists/${savedListId}/deck-view` : '/lists');
+              navigate(savedListId ? `/decks/${savedListId}` : '/decks');
             }}
             className="underline underline-offset-2 hover:text-white/80 transition-colors font-medium"
           >

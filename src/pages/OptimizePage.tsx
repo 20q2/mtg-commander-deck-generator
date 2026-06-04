@@ -425,7 +425,7 @@ export function OptimizePage() {
       return;
     }
     reset();
-    navigate(`/lists/${listId}/deck-view`);
+    navigate(`/decks/${listId}`);
   };
 
   // Compute card count delta for the header
@@ -493,7 +493,7 @@ export function OptimizePage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => navigate(`/lists/${optimizeList.id}/deck-view`)}
+                          onClick={() => navigate(`/decks/${optimizeList.id}`)}
                           className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
                           title="View list"
                         >
