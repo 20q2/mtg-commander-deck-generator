@@ -299,7 +299,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                     to="/"
                     onClick={() => reset()}
                     aria-current={isCreatePage ? 'page' : undefined}
-                    className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                    className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       isCreatePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
@@ -309,7 +309,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                     <Link
                       to="/analyze"
                       aria-current={isAnalyzePage ? 'page' : undefined}
-                      className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                      className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                         isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                       }`}
                     >
@@ -319,7 +319,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <Link
                     to="/decks"
                     aria-current={location.pathname.startsWith('/decks') ? 'page' : undefined}
-                    className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                    className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       location.pathname.startsWith('/decks') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
@@ -333,7 +333,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <Link
                     to="/lists"
                     aria-current={location.pathname.startsWith('/lists') ? 'page' : undefined}
-                    className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                    className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
@@ -347,7 +347,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <Link
                     to="/collection"
                     aria-current={location.pathname === '/collection' ? 'page' : undefined}
-                    className={`text-xs transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                    className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
                       location.pathname === '/collection' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
