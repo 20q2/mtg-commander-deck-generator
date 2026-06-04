@@ -613,6 +613,7 @@ export function ListsPage() {
               partnerCommanderName: commanderOptions?.partnerCommanderName,
               deckSize: commanderOptions?.deckSize,
               primer: commanderOptions?.primer,
+              heroCardName: commanderOptions?.heroCardName,
             });
             trackEvent('list_created', { listName: name, cardCount: cards.length });
             const isDeck = createMode === 'deck' || !!commanderOptions?.commanderName;
@@ -646,6 +647,7 @@ export function ListsPage() {
               partnerCommanderName: commanderOptions?.partnerCommanderName,
               deckSize: commanderOptions?.deckSize,
               primer: commanderOptions?.primer,
+              heroCardName: commanderOptions?.heroCardName,
               type: nextType,
             });
             const isDeck = nextType === 'deck';

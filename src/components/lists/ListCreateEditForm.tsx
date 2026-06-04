@@ -3,12 +3,13 @@ import { createPortal } from 'react-dom';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
-import { CollectionImporter, ImportResultDisplay, type ImportResult } from '@/components/collection/CollectionImporter';
+import { CollectionImporter, ImportResultDisplay, type ImportResult, type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, LayoutGrid, Grid3x3, AlignLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { ListCardGrid, type ListViewMode } from './ListCardGrid';
 
 const CARD_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'] as const;
@@ -34,7 +35,7 @@ function getArtCropUrl(card: ScryfallCard | null): string | null {
 interface ListCreateEditFormProps {
   existingList?: UserCardList | null;
   mode?: 'deck' | 'list';
-  onSave: (name: string, cards: string[], description: string, commanderOptions?: { commanderName?: string; partnerCommanderName?: string; deckSize?: number; primer?: string }) => void;
+  onSave: (name: string, cards: string[], description: string, commanderOptions?: { commanderName?: string; partnerCommanderName?: string; deckSize?: number; primer?: string; heroCardName?: string }) => void;
   onCancel: () => void;
 }
 
@@ -46,12 +47,16 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   const [description, setDescription] = useState(existingList?.description ?? '');
   const [cards, setCards] = useState<string[]>(existingList?.cards ?? []);
   const [primer, setPrimer] = useState(existingList?.primer ?? '');
+  const [heroCardName, setHeroCardName] = useState<string | undefined>(existingList?.heroCardName);
+  const [heroPickerOpen, setHeroPickerOpen] = useState(false);
 
   // Deck size state
   const [deckSize, setDeckSize] = useState<number | ''>(existingList?.deckSize ?? (isDeck ? 100 : ''));
 
   // Track whether the importer has un-imported text
   const [hasPendingImport, setHasPendingImport] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const importerRef = useRef<CollectionImporterHandle>(null);
 
   // Import result/progress — rendered in its own row below the columns
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -363,12 +368,10 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
     }
 
     if (newCards.length > 0) {
-      setCards(prev => {
-        const updated = [...prev, ...newCards];
-        // Fetch types for newly imported cards (async)
-        fetchMissingCardData(updated);
-        return updated;
-      });
+      const updated = [...current, ...newCards];
+      cardsRef.current = updated;
+      setCards(updated);
+      fetchMissingCardData(updated);
     }
 
     return { added: newCards.length, updated: dupeCount };
@@ -380,17 +383,27 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
     setTypeBreakdown({});
   };
 
-  const handleSave = () => {
-    if (isDeck && cards.length === 0) return;
-    const cmdFirstName = commanderName ? commanderName.split(',')[0] : '';
-    const dateSuffix = new Date().toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
-    const finalName = name.trim() || (isDeck
-      ? (cmdFirstName ? `New ${cmdFirstName} Deck ${dateSuffix}` : `New Deck ${dateSuffix}`)
-      : `New List ${dateSuffix}`);
-    const cmdOptions = isDeck || commanderName || partnerCommanderName
-      ? { commanderName: commanderName || undefined, partnerCommanderName: partnerCommanderName || undefined, deckSize: deckSize || undefined, primer: primer.trim() || undefined }
-      : undefined;
-    onSave(finalName, cards, description.trim(), cmdOptions);
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      if (importerRef.current?.hasPending()) {
+        await importerRef.current.triggerImport();
+      }
+      const finalCards = cardsRef.current;
+      if (isDeck && finalCards.length === 0) return;
+      const cmdFirstName = commanderName ? commanderName.split(',')[0] : '';
+      const dateSuffix = new Date().toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
+      const finalName = name.trim() || (isDeck
+        ? (cmdFirstName ? `New ${cmdFirstName} Deck ${dateSuffix}` : `New Deck ${dateSuffix}`)
+        : `New List ${dateSuffix}`);
+      const cmdOptions = isDeck || commanderName || partnerCommanderName || heroCardName
+        ? { commanderName: commanderName || undefined, partnerCommanderName: partnerCommanderName || undefined, deckSize: deckSize || undefined, primer: primer.trim() || undefined, heroCardName }
+        : { heroCardName };
+      onSave(finalName, finalCards, description.trim(), cmdOptions);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // No results: searched but got 0 results and not currently searching
@@ -471,6 +484,97 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                   onChange={(e) => setDescription(e.target.value)}
                   className="h-10 bg-background"
                 />
+              </div>
+            )}
+
+            {/* Hero card section — pick a card whose art becomes the list backdrop.
+                List-only; commander decks always render commander art. */}
+            {!isDeck && (
+              <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {(() => {
+                      const meta = heroCardName ? cardDataRef.current.get(heroCardName) : null;
+                      if (heroCardName && meta?.imageUrl) {
+                        return (
+                          <img
+                            src={meta.imageUrl}
+                            alt={heroCardName}
+                            className="w-10 h-14 rounded object-cover object-top shrink-0"
+                          />
+                        );
+                      }
+                      return (
+                        <div className="w-10 h-14 rounded bg-accent/40 shrink-0 flex items-center justify-center text-muted-foreground/60 text-[10px]">
+                          Auto
+                        </div>
+                      );
+                    })()}
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">
+                        {heroCardName ?? 'Auto — first card in list'}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Backdrop art for this list on the overview.
+                      </div>
+                    </div>
+                  </div>
+                  <Popover open={heroPickerOpen} onOpenChange={setHeroPickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" type="button" disabled={cards.length === 0}>
+                        Pick hero
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-[360px] p-0 max-h-[420px] overflow-hidden flex flex-col">
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                          Pick hero card
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => { setHeroCardName(undefined); setHeroPickerOpen(false); }}
+                          className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                        >
+                          Auto
+                        </button>
+                      </div>
+                      <div className="flex-1 overflow-y-auto px-2 py-2">
+                        {cards.length === 0 ? (
+                          <div className="px-2 py-6 text-xs text-muted-foreground text-center">
+                            Add some cards to the list first.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2">
+                            {cards
+                              .map(n => ({ name: n, meta: cardDataRef.current.get(n) }))
+                              .filter(({ meta }) => meta?.imageUrl)
+                              .map(({ name: cardName, meta }) => (
+                                <button
+                                  key={cardName}
+                                  type="button"
+                                  onClick={() => { setHeroCardName(cardName); setHeroPickerOpen(false); }}
+                                  className={`relative rounded overflow-hidden border transition-colors ${
+                                    heroCardName === cardName
+                                      ? 'border-primary ring-1 ring-primary'
+                                      : 'border-border/40 hover:border-border'
+                                  }`}
+                                >
+                                  <img
+                                    src={meta!.imageUrl!}
+                                    alt={cardName}
+                                    className="w-full h-auto object-cover"
+                                  />
+                                  <div className="px-1.5 py-1 text-[10px] text-foreground/80 truncate text-left">
+                                    {cardName.includes(' // ') ? cardName.split(' // ')[0] : cardName}
+                                  </div>
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
               </div>
             )}
           </div>
@@ -672,6 +776,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
         <div className="space-y-6 bg-accent/20 rounded-xl p-4 border border-border/20">
           {/* Import Cards — shared component */}
           <CollectionImporter
+            ref={importerRef}
             label="Import Cards"
             onImportCards={handleImportCards}
             onCommanderDetected={handleCommanderDetected}
@@ -816,27 +921,29 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
 
       {/* Actions — sticky at bottom */}
       <div className="flex items-center justify-end gap-3 pt-2 border-t border-border/50 sticky bottom-0 bg-background pb-4 -mb-4">
-        {hasPendingImport && cards.length === 0 ? (
-          <p className="text-xs text-amber-400 mr-auto">
-            Hit "Import Cards" above to add your pasted cards
-          </p>
-        ) : isDeck && cards.length === 0 ? (
+        {isDeck && cards.length === 0 && !hasPendingImport ? (
           <p className="text-xs text-amber-400 mr-auto">
             Add at least one card to create a deck
           </p>
         ) : null}
         <button
           onClick={onCancel}
-          className="px-4 py-2 text-sm rounded-lg hover:bg-accent transition-colors"
+          disabled={isSaving}
+          className="px-4 py-2 text-sm rounded-lg hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Cancel
         </button>
         <button
           onClick={handleSave}
-          disabled={isDeck && cards.length === 0}
-          className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          disabled={isSaving || (isDeck && cards.length === 0 && !hasPendingImport)}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          {isEditing ? 'Save Changes' : (isDeck ? 'Create Deck' : 'Create List')}
+          {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          {isEditing
+            ? 'Save Changes'
+            : hasPendingImport
+            ? (isDeck ? 'Import & Create Deck' : 'Import & Create List')
+            : (isDeck ? 'Create Deck' : 'Create List')}
         </button>
       </div>
     </div>
