@@ -200,7 +200,7 @@ export function MustIncludeCards() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => { results.length > 0 && setShowResults(true); }}
-                className="pl-9 pr-9 h-9 text-sm rounded-lg"
+                className="pl-9 pr-9 h-9 text-sm rounded-lg border-primary/60"
               />
               {isSearching && (
                 <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
