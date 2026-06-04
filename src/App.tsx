@@ -538,6 +538,7 @@ function App() {
         <Route path="/analyze/:param1" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/analyze/:param1/:param2" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
+        <Route path="/decks/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/playtest" element={<Layout><PlaytestLandingPage /></Layout>} />
         <Route path="/playtest/list/:listId" element={<PlaytestPage kind="list" />} />

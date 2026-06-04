@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useStore } from '@/store';
 import { getBanList } from '@/services/scryfall/client';
@@ -22,23 +22,28 @@ export function ListsPage() {
   const navigate = useNavigate();
   const { '*': splat } = useParams();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { lists, createList, updateList, deleteList, duplicateList, convertToList, exportList, getListById } = useUserLists();
 
-  // Derive current view from URL segments
+  // Derive `kind` from URL prefix and `view` from remaining segments
   const currentView = useMemo(() => {
+    const kind: 'deck' | 'list' = location.pathname.startsWith('/decks') ? 'deck' : 'list';
     const segments = (splat || '').split('/').filter(Boolean);
-    if (segments.length === 0) return { view: 'browse' as const };
-    if (segments[0] === 'create') return { view: 'create' as const };
+    if (segments.length === 0) return { view: 'browse' as const, kind };
+    if (segments[0] === 'create') return { view: 'create' as const, kind };
     if (segments[0] === 'banlists') {
-      if (segments[1]) return { view: 'banlist-detail' as const, banListId: segments[1] };
-      return { view: 'banlist-browse' as const };
+      // Banlists only exist under /lists; treat as list kind regardless of prefix
+      if (segments[1]) return { view: 'banlist-detail' as const, kind: 'list' as const, banListId: segments[1] };
+      return { view: 'banlist-browse' as const, kind: 'list' as const };
     }
     // segments[0] is a listId
     const listId = segments[0];
-    if (segments[1] === 'edit') return { view: 'edit' as const, listId };
-    if (segments[1] === 'deck-view') return { view: 'deck-view' as const, listId };
-    return { view: 'detail' as const, listId };
-  }, [splat]);
+    if (segments[1] === 'edit') return { view: 'edit' as const, kind, listId };
+    if (segments[1] === 'deck-view') return { view: 'deck-view' as const, kind, listId };
+    // Default: under /decks → deck-view, under /lists → detail
+    if (kind === 'deck') return { view: 'deck-view' as const, kind, listId };
+    return { view: 'detail' as const, kind, listId };
+  }, [splat, location.pathname]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => (localStorage.getItem('mtg-lists-view-mode') as 'grid' | 'list') || 'grid');
   const setViewModePersisted = useCallback((mode: 'grid' | 'list') => { setViewMode(mode); localStorage.setItem('mtg-lists-view-mode', mode); }, []);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
