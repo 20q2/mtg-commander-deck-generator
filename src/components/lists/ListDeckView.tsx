@@ -1981,22 +1981,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Missing must-includes
                   </span>
-                  <div className="flex items-center gap-3">
+                  {onAddCards && (
                     <button
-                      onClick={openMustIncludeDrawer}
+                      onClick={() => onAddCards(missingMustIncludes, 'deck')}
                       className="text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
                     >
-                      Manage list
+                      Add all
                     </button>
-                    {onAddCards && (
-                      <button
-                        onClick={() => onAddCards(missingMustIncludes, 'deck')}
-                        className="text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
-                      >
-                        Add all
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
                 <ul className="py-1">
                   {missingMustIncludes.map(name => (
@@ -2007,6 +1999,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 </ul>
               </PopoverContent>
             </Popover>
+            <button
+              onClick={openMustIncludeDrawer}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 transition-colors whitespace-nowrap"
+            >
+              Go to list
+            </button>
           </div>
         ) : list.deckSize && list.cards.length !== list.deckSize && deckSizeNoticeDismissedAt !== list.cards.length && (
           <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm flex-wrap">
