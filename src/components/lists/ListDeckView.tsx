@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope, Scissors } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope, Scissors, RotateCw } from 'lucide-react';
 import { useStore } from '@/store';
 import { getCardsByNames, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
@@ -22,6 +22,7 @@ import { getBaseRoleTargets } from '@/services/deckBuilder/roleTargets';
 import {
   readEnrichmentCache,
   writeEnrichmentCache,
+  deleteEnrichmentCache,
   touchEnrichmentCache,
   computeContentHash,
   isCacheFresh,
@@ -575,7 +576,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       return next;
     });
   }, []);
-  const [refreshCounter] = useState(0);
+  const [refreshCounter, setRefreshCounter] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [artUrl, setArtUrl] = useState<string | null>(null);
   const [artLoaded, setArtLoaded] = useState(false);
@@ -1625,6 +1626,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                       Duplicate
                     </button>
                   )}
+                  <button
+                    disabled={phasesDone.size < 5}
+                    onClick={async () => {
+                      setShowOverflow(false);
+                      await deleteEnrichmentCache(list.id);
+                      setRefreshCounter(c => c + 1);
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    Refresh stats
+                  </button>
                 </div>
               )}
             </div>
