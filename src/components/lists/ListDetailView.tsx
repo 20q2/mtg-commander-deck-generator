@@ -354,8 +354,8 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           Back to lists
         </button>
 
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
             <h2 className="text-xl font-bold">{list.name}</h2>
             {list.commanderName && (
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
@@ -375,7 +375,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             {list.type === 'deck' && onViewAsDeck && list.cards.length > 0 && (
               <button
                 onClick={onViewAsDeck}
