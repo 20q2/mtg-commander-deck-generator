@@ -1286,6 +1286,44 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           edhrecTypes: enrichResult.edhrecTypes,
         },
       });
+
+      // Persist the freshly-enriched payload so next open is instant.
+      const payload: SerializedEnrichment = {
+        commanderCard: currentDeck.commander,
+        partnerCard: currentDeck.partnerCommander,
+        deckCards: allDeckCards,
+        sideboardCards,
+        maybeboardCards,
+        stats,
+        categories: enrichResult.categories,
+        roleCounts: enrichResult.roleCounts,
+        roleTargets: enrichResult.roleTargets,
+        rampSubtypeCounts: enrichResult.rampSubtypeCounts,
+        removalSubtypeCounts: enrichResult.removalSubtypeCounts,
+        boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
+        cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+        bracketEstimation: enrichResult.bracketEstimation,
+        gameChangerNames: enrichResult.gameChangerNames,
+        cardInclusionMap: enrichResult.cardInclusionMap,
+        cardSynergyMap: enrichResult.cardSynergyMap,
+        cardRelevancyMap: enrichResult.cardRelevancyMap,
+        cardEdhrecMetaMap: enrichResult.cardEdhrecMetaMap,
+        deckScore: enrichResult.deckScore,
+        gapAnalysis: enrichResult.gapAnalysis,
+        swapCandidates: enrichResult.swapCandidates,
+        edhrecCurve: enrichResult.edhrecCurve,
+        edhrecTypes: enrichResult.edhrecTypes,
+        detectedCombos,
+      };
+      await writeEnrichmentCache({
+        listId: list.id,
+        commanderName: list.commanderName ?? null,
+        partnerName: list.partnerCommanderName ?? null,
+        contentHash: computeContentHash(list.cards),
+        cachedAt: Date.now(),
+        lastAccessed: Date.now(),
+        payload,
+      });
     };
 
     if (newlyAdded.length > 0) {
