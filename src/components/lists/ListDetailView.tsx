@@ -7,7 +7,7 @@ import { ManaCost, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import {
   ArrowLeft, Search, X, Grid3X3, List, Copy, CopyPlus, Pencil, Trash2,
-  ChevronDown, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
+  ChevronDown, ChevronLeft, ChevronRight, Loader2, LayoutGrid, Plus,
 } from 'lucide-react';
 
 // --- Constants (mirroring CollectionManager) ---
@@ -654,9 +654,20 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
       )}
 
       {list.cards.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-8">
-          {readOnly ? 'This list is empty.' : 'This list is empty. Click Edit to add cards.'}
-        </p>
+        <div className="flex flex-col items-center gap-3 py-8">
+          <p className="text-sm text-muted-foreground text-center">
+            {readOnly ? 'This list is empty.' : 'This list is empty. Click Edit or Add cards to get started.'}
+          </p>
+          {!readOnly && onEdit && (
+            <button
+              onClick={onEdit}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-primary text-primary hover:bg-primary/10 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add cards
+            </button>
+          )}
+        </div>
       )}
 
       {/* Pagination */}
