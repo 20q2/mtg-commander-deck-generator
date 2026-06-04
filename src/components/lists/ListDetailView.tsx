@@ -137,11 +137,14 @@ interface ListDetailViewProps {
   onViewAsDeck?: () => void;
   onConvertToDeck?: () => void;
   onConvertToList?: () => void;
+  /** Debug hook — fires whenever the in-list color filter selection changes,
+   *  letting a parent (e.g. ListsPage) drive the aurora background from it. */
+  onColorFilterChange?: (colors: string[]) => void;
 }
 
 // --- Component ---
 
-export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList }: ListDetailViewProps) {
+export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange }: ListDetailViewProps) {
   const navigate = useNavigate();
 
   // Card data enrichment
@@ -167,6 +170,10 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
+  // Bubble the color-filter selection up so a parent can drive the aurora.
+  useEffect(() => {
+    onColorFilterChange?.([...selectedColors]);
+  }, [selectedColors, onColorFilterChange]);
   const [colorFilterMode, setColorFilterMode] = useState<ColorFilterMode>('at-least');
   const [selectedType, setSelectedType] = useState('');
   const [selectedRarity, setSelectedRarity] = useState('');

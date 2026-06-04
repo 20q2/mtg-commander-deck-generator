@@ -69,6 +69,10 @@ export function ListsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
+  // Debug override — driven by the in-detail-view color filter so we can
+  // preview any color combo against the aurora without finding a real list.
+  // Falls back to the list's cachedColorIdentity when the filter is cleared.
+  const [auroraDebugColors, setAuroraDebugColors] = useState<string[]>([]);
 
   // Ban lists from store
   const { customization, updateCustomization } = useStore();
@@ -313,7 +317,12 @@ export function ListsPage() {
   if (currentView.view === 'detail') {
     const list = lists.find(l => l.id === currentView.listId);
     if (!list) return null; // useEffect will redirect
-    const aurora = getAuroraColors(list.cachedColorIdentity || []);
+    // Debug override (from in-list color filter) wins when non-empty;
+    // otherwise fall back to the list's cached identity.
+    const identityForAurora = auroraDebugColors.length > 0
+      ? auroraDebugColors
+      : (list.cachedColorIdentity || []);
+    const aurora = getAuroraColors(identityForAurora);
     return (
       <>
         <div
@@ -357,6 +366,7 @@ export function ListsPage() {
           onConvertToList={() => {
             convertToList(list.id);
           }}
+          onColorFilterChange={setAuroraDebugColors}
         />
         </main>
       </>
