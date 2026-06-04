@@ -16,7 +16,6 @@ import type { BanList, UserCardList } from '@/types';
 
 type SortKey = 'updatedAt' | 'name' | 'size';
 type SortDir = 'asc' | 'desc';
-type TypeFilter = 'all' | 'deck' | 'list';
 
 export function ListsPage() {
   const navigate = useNavigate();
@@ -49,7 +48,6 @@ export function ListsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
 
   // Ban lists from store
@@ -85,9 +83,9 @@ export function ListsPage() {
   const populatedBanLists = banLists.filter(l => l.isPreset && l.cards.length > 0);
 
   const filteredAndSortedLists = useMemo(() => {
-    let filtered = lists;
-    if (typeFilter === 'deck') filtered = filtered.filter(l => l.type === 'deck');
-    else if (typeFilter === 'list') filtered = filtered.filter(l => l.type !== 'deck');
+    let filtered = currentView.kind === 'deck'
+      ? lists.filter(l => l.type === 'deck')
+      : lists.filter(l => l.type !== 'deck');
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(l =>
@@ -103,7 +101,7 @@ export function ListsPage() {
       else cmp = a.updatedAt - b.updatedAt;
       return sortDir === 'desc' ? -cmp : cmp;
     });
-  }, [lists, searchQuery, typeFilter, sortKey, sortDir]);
+  }, [lists, searchQuery, currentView.kind, sortKey, sortDir]);
 
   const matchingCardsMap = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -505,38 +503,47 @@ export function ListsPage() {
           <ArrowLeft className="w-4 h-4" />
           Home
         </button>
-        <button
-          onClick={() => navigate('/lists/banlists')}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Shield className="w-3.5 h-3.5" />
-          Ban Lists
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+        {currentView.kind === 'list' && (
+          <button
+            onClick={() => navigate('/lists/banlists')}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Ban Lists
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="flex items-start justify-between mb-8">
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold">My Lists</h2>
+          <h2 className="text-2xl font-bold">
+            {currentView.kind === 'deck' ? 'My Decks' : 'My Lists'}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            A place to store your commander decks, or lists of cards to use with other site features.
+            {currentView.kind === 'deck'
+              ? 'Your saved Commander decks.'
+              : 'Card lists for include/exclude across the site.'}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => navigate('/decks/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Deck
-          </button>
-          <button
-            onClick={() => navigate('/lists/create')}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New List
-          </button>
+          {currentView.kind === 'deck' ? (
+            <button
+              onClick={() => navigate('/decks/create')}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New Deck
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/lists/create')}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New List
+            </button>
+          )}
         </div>
       </div>
 
@@ -560,17 +567,6 @@ export function ListsPage() {
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
-          </div>
-          <div className="flex items-center gap-1 border border-border/50 rounded-lg p-0.5">
-            {(['all', 'deck', 'list'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${typeFilter === t ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                {t === 'all' ? 'All' : t === 'deck' ? 'Decks' : 'Lists'}
-              </button>
-            ))}
           </div>
           <Select
             value={`${sortKey}-${sortDir}`}
@@ -651,34 +647,43 @@ export function ListsPage() {
             ))}
           </div>
         )
-      ) : lists.length > 0 ? (
+      ) : searchQuery.trim() ? (
         <div className="text-center py-12">
-          <p className="text-sm text-muted-foreground">No lists match your search</p>
+          <p className="text-sm text-muted-foreground">
+            {currentView.kind === 'deck' ? 'No decks match your search' : 'No lists match your search'}
+          </p>
         </div>
       ) : (
         <div className="text-center py-16 space-y-4">
           <BookOpen className="w-12 h-12 text-muted-foreground/30 mx-auto" />
           <div className="space-y-2">
-            <p className="text-lg font-medium text-muted-foreground">No lists or decks yet</p>
+            <p className="text-lg font-medium text-muted-foreground">
+              {currentView.kind === 'deck' ? 'No decks yet' : 'No lists yet'}
+            </p>
             <p className="text-sm text-muted-foreground/80">
-              Build a deck to save and tune a Commander pile, or create a card list to save cards you want to quickly exclude or include.
+              {currentView.kind === 'deck'
+                ? 'Build a deck to save and tune a Commander pile.'
+                : 'Create a card list to quickly exclude or include cards across the site.'}
             </p>
           </div>
           <div className="flex items-center justify-center gap-2 flex-wrap">
-            <button
-              onClick={() => navigate('/decks/create')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Build your first deck
-            </button>
-            <button
-              onClick={() => navigate('/lists/create')}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create a list
-            </button>
+            {currentView.kind === 'deck' ? (
+              <button
+                onClick={() => navigate('/decks/create')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Build your first deck
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/lists/create')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create a list
+              </button>
+            )}
           </div>
         </div>
       )}
