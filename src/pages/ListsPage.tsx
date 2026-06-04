@@ -605,7 +605,7 @@ export function ListsPage() {
           visible area after the shift; otherwise the wrapper's right edge
           becomes a hard vertical line where the aurora ends. */}
       <div
-        className="fixed z-0 pointer-events-none"
+        className="aurora-tabbed fixed z-0 pointer-events-none"
         style={{
           top: 0,
           bottom: 0,

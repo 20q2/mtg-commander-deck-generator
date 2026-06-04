@@ -496,6 +496,16 @@
   animation: aurora 25s ease-in-out infinite reverse;
 }
 
+/* Aurora-tabbed: blobs pulled inward to compensate for the wider wrapper
+   used by the Decks↔Lists parallax shift. Without this, the percentage
+   positions sit on a ~150vw container and the blobs drift off-screen. */
+.aurora-tabbed .aurora-bg::before {
+  left: 5%;
+}
+.aurora-tabbed .aurora-bg::after {
+  right: 5%;
+}
+
 /* Commander theme - outlines only, not button backgrounds */
 .commander-gradient .gradient-accent {
   background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
