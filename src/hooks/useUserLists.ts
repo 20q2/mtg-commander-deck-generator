@@ -47,15 +47,13 @@ async function computeCachedFields(
       typeBreakdown[type] = (typeBreakdown[type] ?? 0) + 1;
     }
 
-    // Color identity (only meaningful with a commander)
-    let colorIdentity: string[] | undefined;
-    if (commanderName) {
-      const colors = new Set<string>();
-      for (const [, card] of cardMap) {
-        for (const c of card.color_identity ?? []) colors.add(c);
-      }
-      colorIdentity = WUBRG.filter(c => colors.has(c));
+    // Color identity — computed for ALL lists (not just commander decks)
+    // so the overview can show a colored badge on every list.
+    const colors = new Set<string>();
+    for (const [, card] of cardMap) {
+      for (const c of card.color_identity ?? []) colors.add(c);
     }
+    const colorIdentity: string[] = WUBRG.filter(c => colors.has(c));
 
     // Commander art
     let commanderArtUrl: string | undefined;
@@ -91,6 +89,9 @@ interface CreateListOptions {
 type Listener = (lists: UserCardList[]) => void;
 const listeners = new Set<Listener>();
 let sharedLists: UserCardList[] = loadUserLists();
+// Module-level guard so we only run the one-shot backfill once per page load,
+// regardless of how many components mount useUserLists.
+let backfillDone = false;
 
 function broadcast(next: UserCardList[]) {
   sharedLists = next;
@@ -124,6 +125,21 @@ export function useUserLists() {
         l.id === listId ? { ...l, ...cached } : l
       ));
     });
+  }, []);
+
+  // One-shot backfill: existing lists (created before commander-less identity
+  // caching) won't have cachedColorIdentity set. Recompute it lazily so the
+  // overview can show a color badge on every list without forcing a re-save.
+  useEffect(() => {
+    if (backfillDone) return;
+    backfillDone = true;
+    const stale = sharedLists.filter(l => l.cachedColorIdentity === undefined && l.cards.length > 0);
+    for (const l of stale) {
+      // Fire-and-forget; each call batches its own Scryfall lookups.
+      computeCachedFields(l.cards, l.commanderName).then(cached => {
+        updateShared(prev => prev.map(x => x.id === l.id ? { ...x, ...cached } : x));
+      });
+    }
   }, []);
 
   const createList = useCallback((name: string, cards: string[], description = '', options?: CreateListOptions) => {
