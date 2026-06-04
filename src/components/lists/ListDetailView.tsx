@@ -394,7 +394,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
             {!readOnly && onEdit && (
               <button
                 onClick={onEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/80 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 Edit
@@ -403,7 +403,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
             {!readOnly && onDuplicate && (
               <button
                 onClick={onDuplicate}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/80 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
                 <CopyPlus className="w-3.5 h-3.5" />
                 Duplicate
@@ -412,7 +412,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
             {onExport && (
               <button
                 onClick={onExport}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border bg-card/80 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Copy className="w-3.5 h-3.5" />
                 Export
@@ -422,7 +422,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
               <Popover>
                 <PopoverTrigger asChild>
                   <button
-                    className="ml-auto flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card/40 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    className="ml-auto flex items-center justify-center w-8 h-8 rounded-lg border border-border bg-card/80 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                     title="More actions"
                   >
                     <MoreHorizontal className="w-4 h-4" />
@@ -619,7 +619,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
             commandersOnly
               ? 'border-primary bg-primary/10 text-violet-200'
-              : 'border-border bg-card/40 text-muted-foreground hover:border-primary/50'
+              : 'border-border bg-card/80 text-muted-foreground hover:border-primary/50'
           }`}
         >
           Commanders
@@ -903,7 +903,7 @@ function ListViewTable({
       </div>
 
       {/* Card rows */}
-      <div className="divide-y divide-border/30 bg-card/40">
+      <div className="divide-y divide-border/30 bg-card/80">
         {cards.map((card, i) => (
           <div
             key={`${card.name}-${i}`}
