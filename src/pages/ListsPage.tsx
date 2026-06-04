@@ -315,7 +315,7 @@ export function ListsPage() {
     return (
       <>
         <div className="aurora-bg" />
-        <main className="flex-1 container mx-auto my-8 px-6 py-8 max-w-5xl relative rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm">
+        <main className="flex-1 container mx-auto px-6 py-8 max-w-5xl relative rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm">
         {toasts}
         <ListDetailView
           list={list}
