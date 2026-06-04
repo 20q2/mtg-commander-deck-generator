@@ -10,7 +10,7 @@ import { ListCreateEditForm } from '@/components/lists/ListCreateEditForm';
 import { PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info, Star, Ban } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info, Pin, Ban } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import type { BanList, UserCardList } from '@/types';
 
@@ -696,7 +696,7 @@ export function ListsPage() {
             className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 text-left hover:border-emerald-500/40 transition-colors flex items-start gap-3 relative overflow-hidden"
             style={{ borderLeftWidth: 3, borderLeftColor: 'rgb(16 185 129 / 0.7)' }}
           >
-            <Star className="w-5 h-5 text-emerald-400/90 shrink-0 mt-0.5" />
+            <Pin className="w-5 h-5 text-emerald-400/90 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium">Must Include</h3>
@@ -709,14 +709,14 @@ export function ListsPage() {
           </button>
           <button
             onClick={() => navigate(`/lists/${PSEUDO_EXCLUDED_ID}`)}
-            className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 text-left hover:border-amber-500/40 transition-colors flex items-start gap-3 relative overflow-hidden"
-            style={{ borderLeftWidth: 3, borderLeftColor: 'rgb(245 158 11 / 0.7)' }}
+            className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 text-left hover:border-rose-500/40 transition-colors flex items-start gap-3 relative overflow-hidden"
+            style={{ borderLeftWidth: 3, borderLeftColor: 'rgb(244 63 94 / 0.7)' }}
           >
-            <Ban className="w-5 h-5 text-amber-400/90 shrink-0 mt-0.5" />
+            <Ban className="w-5 h-5 text-rose-400/90 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium">Excluded</h3>
-                <span className="text-[10px] uppercase tracking-wider text-amber-400/70 font-medium">Pinned</span>
+                <span className="text-[10px] uppercase tracking-wider text-rose-400/70 font-medium">Pinned</span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {(customization.bannedCards?.length ?? 0)} card{(customization.bannedCards?.length ?? 0) === 1 ? '' : 's'} excluded from every generated deck
