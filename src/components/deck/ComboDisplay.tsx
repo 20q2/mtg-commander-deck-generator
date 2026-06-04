@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react';
-import type { DetectedCombo, ScryfallCard } from '@/types';
+import type { DetectedCombo, ScryfallCard, LoadPhase } from '@/types';
 import { getCardByName, getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
@@ -25,6 +25,8 @@ interface ComboDisplayProps {
   onMoveToMaybeboard?: (cardNames: string[]) => void;
   /** When true, the panel starts expanded and cannot be collapsed (Inspector usage). */
   forceExpanded?: boolean;
+  /** Progressive load phases — when 'combos' is missing, render skeleton. */
+  phasesDone?: Set<LoadPhase>;
 }
 
 // Cache fetched card data across renders
@@ -96,7 +98,8 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
   return out;
 }
 
-export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, phasesDone }: ComboDisplayProps) {
+  const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
@@ -332,6 +335,21 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     return map;
   }, [combos]);
 
+  if (!combosReady) {
+    return (
+      <div className="mt-6 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
+        <div className="flex items-center gap-2 p-4">
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Checking combos…</span>
+        </div>
+        <div className="px-4 pb-4 space-y-2">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-12 w-full bg-accent/20 rounded animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
   if (combos.length === 0) return null;
 
   // Apply the user's "show synergy combos" toggle before any other filtering.

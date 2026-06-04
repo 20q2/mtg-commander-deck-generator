@@ -1899,14 +1899,15 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               )}
             </div>
           )}
-          {generatedDeck?.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
+          {(!phasesDone.has('combos') || (generatedDeck?.detectedCombos?.length ?? 0) > 0) && (
             <ComboDisplay
-              combos={generatedDeck.detectedCombos}
+              combos={generatedDeck?.detectedCombos ?? []}
               hideMustInclude
               onAddToDeck={onAddCards ? (names) => onAddCards(names, 'deck') : undefined}
               onRemoveFromDeck={handleRemoveCardsWithToast}
               onMoveToSideboard={onMoveToSideboard}
               onMoveToMaybeboard={onMoveToMaybeboard}
+              phasesDone={phasesDone}
             />
           )}
         </DeckDisplay>
