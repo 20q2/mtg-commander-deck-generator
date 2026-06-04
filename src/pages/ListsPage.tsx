@@ -71,8 +71,12 @@ export function ListsPage() {
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
   // Debug override — driven by the in-detail-view color filter so we can
   // preview any color combo against the aurora without finding a real list.
-  // Falls back to the list's cachedColorIdentity when the filter is cleared.
+  // Falls back to derivedIdentity → cachedColorIdentity → [].
   const [auroraDebugColors, setAuroraDebugColors] = useState<string[]>([]);
+  // Derived identity from the detail view's loaded card data — fills the gap
+  // for lists without a cached identity (e.g., commander-less generic lists,
+  // where useUserLists doesn't populate cachedColorIdentity).
+  const [auroraDerivedColors, setAuroraDerivedColors] = useState<string[]>([]);
 
   // Ban lists from store
   const { customization, updateCustomization } = useStore();
@@ -317,10 +321,10 @@ export function ListsPage() {
   if (currentView.view === 'detail') {
     const list = lists.find(l => l.id === currentView.listId);
     if (!list) return null; // useEffect will redirect
-    // Debug override (from in-list color filter) wins when non-empty;
-    // otherwise fall back to the list's cached identity.
-    const identityForAurora = auroraDebugColors.length > 0
-      ? auroraDebugColors
+    // Priority: filter override > derived (from loaded cards) > cached > [].
+    const identityForAurora =
+      auroraDebugColors.length > 0 ? auroraDebugColors
+      : auroraDerivedColors.length > 0 ? auroraDerivedColors
       : (list.cachedColorIdentity || []);
     const aurora = getAuroraColors(identityForAurora);
     return (
@@ -367,6 +371,7 @@ export function ListsPage() {
             convertToList(list.id);
           }}
           onColorFilterChange={setAuroraDebugColors}
+          onDerivedColorIdentityChange={setAuroraDerivedColors}
         />
         </main>
       </>

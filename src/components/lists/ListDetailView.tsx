@@ -140,11 +140,15 @@ interface ListDetailViewProps {
   /** Debug hook — fires whenever the in-list color filter selection changes,
    *  letting a parent (e.g. ListsPage) drive the aurora background from it. */
   onColorFilterChange?: (colors: string[]) => void;
+  /** Fires whenever the derived color identity of the list changes (i.e. after
+   *  card data loads). Lets a parent theme the aurora for commander-less lists
+   *  whose cachedColorIdentity is never populated by useUserLists. */
+  onDerivedColorIdentityChange?: (colors: string[]) => void;
 }
 
 // --- Component ---
 
-export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange }: ListDetailViewProps) {
+export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange, onDerivedColorIdentityChange }: ListDetailViewProps) {
   const navigate = useNavigate();
 
   // Card data enrichment
@@ -222,6 +226,18 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
   const enrichedCards = useMemo(() => {
     return list.cards.map(name => cardDataMap.get(name) ?? { name });
   }, [list.cards, cardDataMap]);
+
+  // Bubble the derived color identity up so a parent can theme on it.
+  // Uses WUBRG order; only includes colors actually present in any card.
+  const WUBRG_AURORA = ['W', 'U', 'B', 'R', 'G'];
+  useEffect(() => {
+    if (!onDerivedColorIdentityChange) return;
+    const present = new Set<string>();
+    for (const c of enrichedCards) {
+      for (const letter of c.colorIdentity ?? []) present.add(letter);
+    }
+    onDerivedColorIdentityChange(WUBRG_AURORA.filter(l => present.has(l)));
+  }, [enrichedCards, onDerivedColorIdentityChange]);
 
   // Filter & sort
   const filteredCards = useMemo(() => {
