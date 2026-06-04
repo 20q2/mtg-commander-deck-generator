@@ -579,6 +579,31 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     const cards: ScryfallCard[] = generatedDeck ? Object.values(generatedDeck.categories).flat() : [];
     return cards.filter(c => (c.color_identity || []).some(color => !allowed.has(color)));
   }, [generatedDeck, list.commanderName, list.partnerCommanderName]);
+
+  // Singleton violations — duplicate non-basic cards. Basics and "any number"
+  // cards (Relentless Rats etc.) are exempt.
+  const duplicateNonBasics = useMemo(() => {
+    const BASICS = new Set([
+      'Plains', 'Island', 'Swamp', 'Mountain', 'Forest',
+      'Snow-Covered Plains', 'Snow-Covered Island', 'Snow-Covered Swamp',
+      'Snow-Covered Mountain', 'Snow-Covered Forest',
+      'Wastes',
+    ]);
+    const ANY_NUMBER = new Set([
+      'Relentless Rats', 'Shadowborn Apostle', 'Rat Colony', 'Persistent Petitioners',
+      'Seven Dwarves', "Dragon's Approach", 'Nazgûl', 'Slime Against Humanity',
+      'Hare Apparent', 'Templar Knight', 'Tempest Hawk',
+    ]);
+    const counts: Record<string, number> = {};
+    for (const name of list.cards) {
+      if (BASICS.has(name) || ANY_NUMBER.has(name)) continue;
+      counts[name] = (counts[name] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .filter(([, n]) => n > 1)
+      .map(([name, n]) => ({ name, count: n }));
+  }, [list.cards]);
+
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
   const { lists: userLists, updateList } = useUserLists();
@@ -1804,6 +1829,38 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                       <span className="text-xs text-rose-300/80 font-mono shrink-0">
                         {(c.color_identity || []).join('') || '∅'}
                       </span>
+                    </li>
+                  ))}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          </div>
+        ) : list.type === 'deck' && duplicateNonBasics.length > 0 ? (
+          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-sm flex-wrap">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>
+              {duplicateNonBasics.length} duplicate non-basic card{duplicateNonBasics.length === 1 ? '' : 's'}
+            </span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 border border-rose-500/40 transition-colors whitespace-nowrap"
+                >
+                  Show duplicates
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 p-0 max-h-96 overflow-y-auto">
+                <div className="px-3 py-2 border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Duplicated cards
+                </div>
+                <ul className="py-1">
+                  {duplicateNonBasics.map(d => (
+                    <li key={d.name} className="px-3 py-1.5 text-sm flex items-center justify-between gap-3 hover:bg-accent/40">
+                      <span className="truncate">{d.name.includes(' // ') ? d.name.split(' // ')[0] : d.name}</span>
+                      <span className="text-xs text-rose-300/80 font-mono shrink-0">×{d.count}</span>
                     </li>
                   ))}
                 </ul>
