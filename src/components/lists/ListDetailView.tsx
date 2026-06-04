@@ -619,7 +619,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
             commandersOnly
               ? 'border-primary bg-primary/10 text-violet-200'
-              : 'border-border text-muted-foreground hover:border-primary/50'
+              : 'border-border bg-card/40 text-muted-foreground hover:border-primary/50'
           }`}
         >
           Commanders
@@ -903,7 +903,7 @@ function ListViewTable({
       </div>
 
       {/* Card rows */}
-      <div className="divide-y divide-border/30">
+      <div className="divide-y divide-border/30 bg-card/40">
         {cards.map((card, i) => (
           <div
             key={`${card.name}-${i}`}
