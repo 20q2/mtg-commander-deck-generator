@@ -1690,21 +1690,52 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                   </button>
                   {(() => {
                     const overSize = !!(list.deckSize && list.cards.length > list.deckSize);
-                    const canTrim = trimReady && overSize;
-                    const trimTitle = !trimReady
-                      ? 'Trim needs commander data — try again once cards load.'
-                      : !overSize
-                      ? `Deck is not over ${list.deckSize ?? 'the expected size'} — nothing to trim.`
-                      : `Trim deck to ${list.deckSize} cards`;
+                    const underSize = !!(list.deckSize && list.cards.length < list.deckSize);
+                    if (overSize) {
+                      const canTrim = trimReady;
+                      const trimTitle = trimReady
+                        ? `Trim deck to ${list.deckSize} cards`
+                        : 'Trim needs commander data — try again once cards load.';
+                      return (
+                        <button
+                          disabled={!canTrim}
+                          onClick={() => { setShowOverflow(false); openTrimDialog(); }}
+                          title={trimTitle}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        >
+                          <Scissors className="w-3.5 h-3.5" />
+                          Trim deck to {list.deckSize}
+                        </button>
+                      );
+                    }
+                    if (underSize) {
+                      const canFill = fillReady;
+                      const fillTitle = fillReady
+                        ? `Fill deck to ${list.deckSize} cards`
+                        : 'Fill needs commander data — try again once cards load.';
+                      return (
+                        <button
+                          disabled={!canFill}
+                          onClick={() => { setShowOverflow(false); openFillDialog(); }}
+                          title={fillTitle}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Fill deck to {list.deckSize}
+                        </button>
+                      );
+                    }
+                    const atTargetTitle = list.deckSize
+                      ? `Deck is exactly at ${list.deckSize} — nothing to fill or trim.`
+                      : 'Set an expected deck size to enable fill / trim.';
                     return (
                       <button
-                        disabled={!canTrim}
-                        onClick={() => { setShowOverflow(false); openTrimDialog(); }}
-                        title={trimTitle}
+                        disabled
+                        title={atTargetTitle}
                         className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                       >
                         <Scissors className="w-3.5 h-3.5" />
-                        Trim deck
+                        Fill / Trim deck
                       </button>
                     );
                   })()}
