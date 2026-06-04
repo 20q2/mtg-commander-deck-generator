@@ -9,6 +9,19 @@ const MTG_COLORS: Record<string, string> = {
   GOLD: '42 50% 35%', // Muted bronze for 3+ colors
 };
 
+// Vivid aurora palette — tuned to read after the 200px blur + 0.11 opacity
+// of `.aurora-bg`. The MTG_COLORS map is intentionally muted for thin
+// borders; those values wash out to near-gray through the aurora.
+const AURORA_COLORS: Record<string, string> = {
+  W: '45 70% 65%',    // warm cream / gold-tinged white
+  U: '215 75% 55%',   // open-sea blue
+  B: '275 50% 40%',   // deep violet (MTG black reads as purple in atmospheric UI)
+  R: '5 75% 55%',     // crimson
+  G: '140 60% 45%',   // forest green
+  C: '220 15% 50%',   // neutral steel
+  GOLD: '38 70% 55%', // warm amber for 3+ color identities
+};
+
 // Curated border colors for each 2-color guild pair (both orderings for safety)
 const GUILD_BORDER: Record<string, string> = {
   'WU': '210 50% 40%',   // Azorius - steel blue
@@ -78,4 +91,32 @@ export function resetTheme() {
   root.style.removeProperty('--gradient-start');
   root.style.removeProperty('--gradient-end');
   root.classList.remove('commander-gradient');
+}
+
+/**
+ * Pure helper — maps a color identity array to two aurora HSL triplets
+ * (without the `hsl(...)` wrapper, so they compose with `/` opacity adjusters).
+ *
+ *   []          → both blobs neutral steel (C)
+ *   [X]         → both blobs X (animation phase difference still gives motion)
+ *   [X, Y]      → blob A = first WUBRG-sorted, blob B = second
+ *   3+ colors   → both blobs gold (matches existing GOLD border treatment)
+ *
+ * Unknown letters fall back to C.
+ */
+export function getAuroraColors(identity: string[]): { a: string; b: string } {
+  const lookup = (letter: string) => AURORA_COLORS[letter] ?? AURORA_COLORS['C'];
+  if (!identity || identity.length === 0) {
+    return { a: AURORA_COLORS['C'], b: AURORA_COLORS['C'] };
+  }
+  if (identity.length === 1) {
+    const c = lookup(identity[0]);
+    return { a: c, b: c };
+  }
+  if (identity.length === 2) {
+    const sorted = sortWUBRG(identity);
+    return { a: lookup(sorted[0]), b: lookup(sorted[1]) };
+  }
+  // 3+ colors
+  return { a: AURORA_COLORS['GOLD'], b: AURORA_COLORS['GOLD'] };
 }
