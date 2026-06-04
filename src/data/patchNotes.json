@@ -1,5 +1,11 @@
 [
   {
+    "version": "1.2.34",
+    "notes": [
+      "Show a deck-list skeleton while card data is being fetched, so the view isn't blank during the first-ever open"
+    ]
+  },
+  {
     "version": "1.2.33",
     "notes": [
       "Saved decks now load instantly on repeat opens — your stats stay cached so you don't wait on the spinner",

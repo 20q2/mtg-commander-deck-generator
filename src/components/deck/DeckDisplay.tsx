@@ -2071,7 +2071,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       return next;
     });
   }, []);
-  const [sortBy, setSortBy] = useState<'name' | 'cmc' | 'price' | 'score' | 'relevancy' | 'edhrank' | 'color'>('name');
+  type SortByKey = 'name' | 'cmc' | 'price' | 'score' | 'relevancy' | 'edhrank' | 'color';
+  const SORT_BY_KEYS: readonly SortByKey[] = ['name', 'cmc', 'price', 'score', 'relevancy', 'edhrank', 'color'];
+  const [sortBy, _setSortBy] = useState<SortByKey>(() => {
+    const saved = localStorage.getItem('mtg-deck-sort-by');
+    return (SORT_BY_KEYS as readonly string[]).includes(saved || '') ? (saved as SortByKey) : 'name';
+  });
+  const setSortBy = useCallback((v: SortByKey | ((prev: SortByKey) => SortByKey)) => {
+    _setSortBy(prev => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      localStorage.setItem('mtg-deck-sort-by', next);
+      return next;
+    });
+  }, []);
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');

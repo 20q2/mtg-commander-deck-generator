@@ -1724,6 +1724,28 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           </div>
         )}
 
+        {!phasesDone.has('cards') ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-4">
+            <div className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 space-y-2">
+              <div className="text-sm text-muted-foreground mb-3">Loading deck list…</div>
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="h-4 w-4 rounded bg-accent/30 animate-pulse" />
+                  <div className="h-4 flex-1 rounded bg-accent/20 animate-pulse" />
+                  <div className="h-4 w-16 rounded bg-accent/20 animate-pulse" />
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="h-16 rounded-lg bg-accent/20 animate-pulse" />
+                <div className="h-16 rounded-lg bg-accent/20 animate-pulse" />
+              </div>
+              <div className="h-20 rounded bg-accent/20 animate-pulse" />
+              <div className="h-24 rounded bg-accent/20 animate-pulse" />
+            </div>
+          </div>
+        ) : (
         <DeckDisplay
           phasesDone={phasesDone}
           onRemoveCards={handleRemoveCardsWithToast}
@@ -1962,6 +1984,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             />
           )}
         </DeckDisplay>
+        )}
 
       </div>
 
