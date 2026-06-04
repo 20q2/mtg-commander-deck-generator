@@ -1576,9 +1576,11 @@ interface DeckStatsProps {
   showCollection?: boolean;
   showRelevancy?: boolean;
   overallGrade?: { letter: string; headline: string } | null;
+  phasesDone?: Set<LoadPhase>;
 }
 
-function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade, phasesDone }: DeckStatsProps) {
+  const taggerReady = !phasesDone || phasesDone.has('tagger');
   const navigate = useNavigate();
   const { generatedDeck, colorIdentity } = useStore();
   if (!generatedDeck) return null;
@@ -1656,7 +1658,15 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               </div>
             )}
           </div>
-          {generatedDeck.bracketEstimation && (() => {
+          {!taggerReady ? (
+            <div className="-mt-2">
+              <div className="flex items-center gap-2 px-1">
+                <div className="w-2 h-2 rounded-full shrink-0 bg-accent/40 animate-pulse" />
+                <span className="inline-block h-3 w-20 bg-accent/30 rounded animate-pulse" />
+                <span className="inline-block h-3 w-16 bg-accent/20 rounded animate-pulse" />
+              </div>
+            </div>
+          ) : generatedDeck.bracketEstimation && (() => {
             const b = generatedDeck.bracketEstimation;
             return (
               <div className="-mt-2">
@@ -2045,10 +2055,6 @@ interface DeckDisplayProps {
 }
 
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, children }: DeckDisplayProps) {
-  // Phase readiness flags — `undefined` phasesDone means "all done" (BuilderPage path).
-  const taggerReady = !phasesDone || phasesDone.has('tagger');
-  const edhrecReady = !phasesDone || phasesDone.has('edhrec');
-  void taggerReady; void edhrecReady; // wired into render in Task 4
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -3688,7 +3694,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </button>
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
-              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
+              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} />
               <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
@@ -4128,7 +4134,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {sidebarHeader || deckSummary}
               </div>
             </div>
-            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} />
+            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} />
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>
