@@ -160,6 +160,15 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
                     ].join(' ')}
                     onClick={toggle}
                   >
+                    {/* Checkbox */}
+                    <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={toggle}
+                        aria-label={`Add ${card.name}`}
+                      />
+                    </div>
+
                     {/* Image thumbnail */}
                     <div
                       className="shrink-0 w-12 h-16 rounded overflow-hidden bg-muted/30 border border-border/40"
@@ -187,15 +196,6 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
                           className="w-full h-full object-cover object-top"
                         />
                       )}
-                    </div>
-
-                    {/* Checkbox */}
-                    <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                      <Checkbox
-                        checked={isChecked}
-                        onCheckedChange={toggle}
-                        aria-label={`Add ${card.name}`}
-                      />
                     </div>
 
                     {/* Main column */}

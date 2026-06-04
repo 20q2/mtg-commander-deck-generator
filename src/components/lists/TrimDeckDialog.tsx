@@ -217,6 +217,21 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                   ].join(' ')}
                   onClick={toggle}
                 >
+                  {/* Checkbox / Kept pill */}
+                  <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                    {isChecked ? (
+                      <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
+                    ) : (
+                      <button
+                        onClick={toggle}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
+                        aria-label={`Restore ${cand.card.name} to the cut list`}
+                      >
+                        Kept
+                      </button>
+                    )}
+                  </div>
+
                   {/* Image thumbnail */}
                   <div
                     className="shrink-0 w-12 h-16 rounded overflow-hidden bg-muted/30 border border-border/40"
@@ -239,21 +254,6 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                         loading="lazy"
                         className="w-full h-full object-cover object-top"
                       />
-                    )}
-                  </div>
-
-                  {/* Checkbox / Kept pill */}
-                  <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                    {isChecked ? (
-                      <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
-                    ) : (
-                      <button
-                        onClick={toggle}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
-                        aria-label={`Restore ${cand.card.name} to the cut list`}
-                      >
-                        Kept
-                      </button>
                     )}
                   </div>
 
