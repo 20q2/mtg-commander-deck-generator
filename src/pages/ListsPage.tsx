@@ -370,10 +370,22 @@ export function ListsPage() {
       : auroraDerivedColors.length > 0 ? auroraDerivedColors
       : (list.cachedColorIdentity || []);
     const aurora = getAuroraColors(identityForAurora);
+    const heroArtUrl = list.cachedCommanderArtUrl ?? list.cachedListArtUrl;
     return (
       <>
         <AuroraThemed colors={aurora} />
-        <main className="flex-1 container mx-auto px-6 py-8 max-w-5xl relative border-x border-border/20 bg-card/15 backdrop-blur-sm">
+        <main className="flex-1 container mx-auto px-6 py-8 max-w-5xl relative border-x border-border/20 bg-card/15 backdrop-blur-sm overflow-hidden">
+        {heroArtUrl && (
+          <div className="absolute inset-x-0 top-0 h-[480px] pointer-events-none -z-0">
+            <img
+              src={heroArtUrl}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover opacity-25"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-card/40 to-card" />
+          </div>
+        )}
+        <div className="relative z-10">
         {toasts}
         <ListDetailView
           list={list}
@@ -408,6 +420,7 @@ export function ListsPage() {
           onColorFilterChange={setAuroraDebugColors}
           onDerivedColorIdentityChange={setAuroraDerivedColors}
         />
+        </div>
         </main>
       </>
     );
