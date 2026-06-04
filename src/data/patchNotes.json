@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.2.33",
+    "notes": [
+      "Saved decks now load instantly on repeat opens — your stats stay cached so you don't wait on the spinner",
+      "First-ever opens fill in progressively: deck list appears first, then role badges, score, combos, and replacements light up as each is ready",
+      "Added a Refresh stats option in the deck's ... menu for when you want to pull fresh numbers"
+    ]
+  },
+  {
     "version": "1.2.32",
     "notes": [
       "Synergy combos — combos your deck happens to assemble even if they aren't listed on your commander's combo page now show up too, with a small Synergy tag",
