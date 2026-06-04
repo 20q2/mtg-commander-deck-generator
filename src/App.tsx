@@ -323,7 +323,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                       location.pathname.startsWith('/decks') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
-                    My Decks
+                    Decks
                     {deckCount > 0 && (
                       <span className="text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                         {deckCount}
@@ -337,7 +337,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                       location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
-                    My Lists
+                    Lists
                     {listCount > 0 && (
                       <span className="text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                         {listCount}
@@ -504,7 +504,7 @@ function Layout({ children }: { children: React.ReactNode }) {
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative ${
               location.pathname.startsWith('/decks') || location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
-            aria-label="My Decks"
+            aria-label="Decks"
           >
             <div className="relative">
               <ListChecks className={`w-5 h-5 ${location.pathname.startsWith('/decks') || location.pathname.startsWith('/lists') ? 'text-primary' : ''}`} />
