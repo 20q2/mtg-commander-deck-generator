@@ -503,16 +503,35 @@ export function ListsPage() {
           <ArrowLeft className="w-4 h-4" />
           Home
         </button>
-        {currentView.kind === 'list' && (
-          <button
-            onClick={() => navigate('/lists/banlists')}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Shield className="w-3.5 h-3.5" />
-            Ban Lists
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        )}
+        <div className="flex items-center gap-4">
+          {currentView.kind === 'deck' ? (
+            <button
+              onClick={() => navigate('/lists')}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              My Lists
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => navigate('/decks')}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                My Decks
+              </button>
+              <button
+                onClick={() => navigate('/lists/banlists')}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Ban Lists
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start justify-between mb-8">
