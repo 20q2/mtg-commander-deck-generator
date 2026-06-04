@@ -618,6 +618,24 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     });
   }, []);
 
+  // Must-include cards that are missing from the deck. customization is the
+  // global preference set, so this only applies to decks (not generic lists).
+  const customizationForMustInclude = useStore(s => s.customization);
+  const missingMustIncludes = useMemo(() => {
+    if (list.type !== 'deck') return [];
+    const mustInclude = customizationForMustInclude.mustIncludeCards || [];
+    if (mustInclude.length === 0) return [];
+    const present = new Set<string>(list.cards);
+    if (list.commanderName) present.add(list.commanderName);
+    if (list.partnerCommanderName) present.add(list.partnerCommanderName);
+    // Allow front-face matches for DFC names ("Fire" matching "Fire // Ice")
+    const presentFrontFaces = new Set<string>();
+    for (const n of present) {
+      if (n.includes(' // ')) presentFrontFaces.add(n.split(' // ')[0]);
+    }
+    return mustInclude.filter(name => !present.has(name) && !presentFrontFaces.has(name));
+  }, [list.type, list.cards, list.commanderName, list.partnerCommanderName, customizationForMustInclude.mustIncludeCards]);
+
   // Unloaded cards — names in list.cards that don't appear in the loaded
   // categories (typically Scryfall lookup failures from typos or renamed cards).
   // Gated on phasesDone.has('cards') so we don't flag everything during loading.
@@ -1914,6 +1932,47 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 </div>
                 <ul className="py-1">
                   {unloadedCards.map(name => (
+                    <li key={name} className="px-3 py-1.5 text-sm hover:bg-accent/40">
+                      <span className="truncate">{name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          </div>
+        ) : missingMustIncludes.length > 0 ? (
+          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm flex-wrap">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>
+              {missingMustIncludes.length} must-include card{missingMustIncludes.length === 1 ? '' : 's'} missing from this deck
+            </span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 transition-colors whitespace-nowrap"
+                >
+                  Show missing
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 p-0 max-h-96 overflow-y-auto">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Missing must-includes
+                  </span>
+                  {onAddCards && (
+                    <button
+                      onClick={() => onAddCards(missingMustIncludes, 'deck')}
+                      className="text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
+                    >
+                      Add all
+                    </button>
+                  )}
+                </div>
+                <ul className="py-1">
+                  {missingMustIncludes.map(name => (
                     <li key={name} className="px-3 py-1.5 text-sm hover:bg-accent/40">
                       <span className="truncate">{name}</span>
                     </li>
