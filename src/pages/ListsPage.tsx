@@ -37,6 +37,49 @@ function buildPseudoList(id: string, cards: string[]): UserCardList {
   };
 }
 
+/**
+ * Aurora background with a faint fade-out → swap → fade-in when the color
+ * pair changes. The aurora-bg's pseudo-elements interpolate the gradient
+ * via CSS vars; the outer wrapper handles the opacity choreography so the
+ * color swap happens at the bottom of the dip, not abruptly.
+ */
+function AuroraThemed({ colors }: { colors: { a: string; b: string } }) {
+  const FADE_MS = 320;
+  const [displayed, setDisplayed] = useState(colors);
+  const [phase, setPhase] = useState<'idle' | 'fading-out' | 'fading-in'>('idle');
+
+  useEffect(() => {
+    if (colors.a === displayed.a && colors.b === displayed.b) return;
+    setPhase('fading-out');
+    const swap = setTimeout(() => {
+      setDisplayed(colors);
+      setPhase('fading-in');
+    }, FADE_MS);
+    return () => clearTimeout(swap);
+  }, [colors.a, colors.b, displayed.a, displayed.b]);
+
+  // After fade-in completes, settle back to idle.
+  useEffect(() => {
+    if (phase !== 'fading-in') return;
+    const settle = setTimeout(() => setPhase('idle'), FADE_MS);
+    return () => clearTimeout(settle);
+  }, [phase]);
+
+  return (
+    <div
+      className="aurora-themed"
+      style={{
+        '--aurora-color-a': displayed.a,
+        '--aurora-color-b': displayed.b,
+        opacity: phase === 'fading-out' ? 0 : 1,
+        transition: `opacity ${FADE_MS}ms ease`,
+      } as React.CSSProperties}
+    >
+      <div className="aurora-bg" />
+    </div>
+  );
+}
+
 export function ListsPage() {
   const navigate = useNavigate();
   const { '*': splat } = useParams();
@@ -329,15 +372,7 @@ export function ListsPage() {
     const aurora = getAuroraColors(identityForAurora);
     return (
       <>
-        <div
-          className="aurora-themed"
-          style={{
-            '--aurora-color-a': aurora.a,
-            '--aurora-color-b': aurora.b,
-          } as React.CSSProperties}
-        >
-          <div className="aurora-bg" />
-        </div>
+        <AuroraThemed colors={aurora} />
         <main className="flex-1 container mx-auto px-6 py-8 max-w-5xl relative border-x border-border/20 bg-card/15 backdrop-blur-sm">
         {toasts}
         <ListDetailView
