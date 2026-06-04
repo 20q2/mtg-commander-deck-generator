@@ -254,6 +254,7 @@ export function ListsPage() {
     if (!list) return null; // useEffect will redirect
     return (
       <main className="flex-1 container mx-auto px-4 py-8">
+        <div className="aurora-bg" />
         {toasts}
         <ListDeckView
           list={list}
