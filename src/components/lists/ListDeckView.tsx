@@ -35,6 +35,8 @@ import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedComb
 import { useUserLists } from '@/hooks/useUserLists';
 import { TrimDeckDialog } from './TrimDeckDialog';
 import { FillDeckDialog } from './FillDeckDialog';
+import { Drawer } from '@/components/ui/drawer';
+import { MustIncludeCards } from '@/components/customization/MustIncludeCards';
 
 interface ListDeckViewProps {
   list: UserCardList;
@@ -729,6 +731,16 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const closeFillDialog = useCallback(() => {
     setFillDialogOpen(false);
     setTimeout(() => setFillDialogMounted(false), 320);
+  }, []);
+  const [mustIncludeDrawerOpen, setMustIncludeDrawerOpen] = useState(false);
+  const [mustIncludeDrawerMounted, setMustIncludeDrawerMounted] = useState(false);
+  const openMustIncludeDrawer = useCallback(() => {
+    setMustIncludeDrawerMounted(true);
+    requestAnimationFrame(() => setMustIncludeDrawerOpen(true));
+  }, []);
+  const closeMustIncludeDrawer = useCallback(() => {
+    setMustIncludeDrawerOpen(false);
+    setTimeout(() => setMustIncludeDrawerMounted(false), 320);
   }, []);
   const actionToastTimer = useRef<ReturnType<typeof setTimeout>>();
   const onRemoveCardsRef = useRef(onRemoveCards);
@@ -1969,14 +1981,22 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Missing must-includes
                   </span>
-                  {onAddCards && (
+                  <div className="flex items-center gap-3">
                     <button
-                      onClick={() => onAddCards(missingMustIncludes, 'deck')}
+                      onClick={openMustIncludeDrawer}
                       className="text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
                     >
-                      Add all
+                      Manage list
                     </button>
-                  )}
+                    {onAddCards && (
+                      <button
+                        onClick={() => onAddCards(missingMustIncludes, 'deck')}
+                        className="text-xs font-semibold text-amber-300 hover:text-amber-200 transition-colors"
+                      >
+                        Add all
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <ul className="py-1">
                   {missingMustIncludes.map(name => (
@@ -2384,6 +2404,38 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           roleTargets={generatedDeck.roleTargets || {}}
           relevancyMap={generatedDeck.cardRelevancyMap || {}}
         />
+      )}
+
+      {/* Must-include manager drawer */}
+      {mustIncludeDrawerMounted && (
+        <Drawer
+          open={mustIncludeDrawerOpen}
+          onClose={closeMustIncludeDrawer}
+          position="right"
+          onPositionChange={() => {}}
+          defaultSizePercent={32}
+        >
+          <div className="flex flex-col h-full">
+            <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border">
+              <div>
+                <h2 className="text-lg font-bold">Must-include list</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Cards you want in every deck.
+                </p>
+              </div>
+              <button
+                onClick={closeMustIncludeDrawer}
+                className="shrink-0 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                aria-label="Close must-include drawer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <MustIncludeCards />
+            </div>
+          </div>
+        </Drawer>
       )}
     </>
   );
