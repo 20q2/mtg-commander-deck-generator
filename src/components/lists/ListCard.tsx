@@ -202,15 +202,10 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         </div>
       </div>
 
-      {list.commanderName ? (
+      {list.commanderName && (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5">
           <CommanderIcon size={11} className="shrink-0" />
           <span className="truncate">{list.commanderName}{list.partnerCommanderName ? ` & ${list.partnerCommanderName}` : ''}</span>
-        </div>
-      ) : (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5">
-          <List className="w-[11px] h-[11px] shrink-0" />
-          <span>List</span>
         </div>
       )}
 
