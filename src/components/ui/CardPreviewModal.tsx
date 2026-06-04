@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, getCachedCard } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
-import type { ScryfallCard, DetectedCombo } from '@/types';
+import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
 import { CardTypeIcon, ManaText } from '@/components/ui/mtg-icons';
@@ -78,6 +78,8 @@ interface CardPreviewModalProps {
   /** Override for the commander color identity used to filter similar-card suggestions.
    *  Falls back to the Zustand-store commander when not provided. */
   commanderColorIdentity?: string[];
+  /** Progressive load phases — when 'swaps' is missing, render placeholder in Replacements panel. */
+  phasesDone?: Set<LoadPhase>;
 }
 
 function ComboEntry({
@@ -231,7 +233,8 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone }: CardPreviewModalProps) {
+  const swapsReady = !phasesDone || phasesDone.has('swaps');
   const commander = useStore((s) => s.commander);
   const generatedDeck = useStore((s) => s.generatedDeck);
   const currency = useStore((s) => s.customization.currency);
@@ -1018,6 +1021,16 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 )}
 
                 {/* Role/subtype bucket — original card highlight + candidates */}
+                {!swapsReady && !hasRoleBucket && (
+                  <div className="space-y-2 mb-3">
+                    <div className="text-[11px] text-muted-foreground">Loading suggestions…</div>
+                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
+                      {[1, 2, 3, 4, 5, 6].map(i => (
+                        <div key={i} className="aspect-[488/680] w-full bg-accent/20 rounded-lg animate-pulse" />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {hasRoleBucket && (
                 <div className="flex items-center gap-1.5 mb-3">
                   <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-400" />

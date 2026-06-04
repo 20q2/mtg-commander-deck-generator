@@ -4154,6 +4154,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         cardComboMap={cardComboMap}
         deckOnly
         hideMustInclude={readOnly}
+        phasesDone={phasesDone}
         swapCandidates={readOnly ? undefined : previewSwapCandidates}
         onSwapCard={readOnly ? undefined : (oldCard, newCard) => {
           // Route through persistent add/remove when available (list context). Otherwise
