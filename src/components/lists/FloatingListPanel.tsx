@@ -95,13 +95,13 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
       title={title}
       headerExtra={headerExtra}
       onClose={onClose}
-      width={520}
+      width={640}
       height={600}
       minWidth={380}
       minHeight={360}
       resizable
       storageKey="floating-list-panel-pos"
-      sizeStorageKey="floating-list-panel-size"
+      sizeStorageKey="floating-list-panel-size-v2"
     >
       <div className="flex-1 min-h-0 overflow-y-auto">
         {browseableLists.length === 0 ? (
