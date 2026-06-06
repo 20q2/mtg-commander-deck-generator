@@ -181,7 +181,7 @@ export function FloatingDialog({
   return createPortal(
     <div
       ref={outerRef}
-      className={`fixed z-[150] bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-2xl flex flex-col ${
+      className={`fixed z-[150] bg-card/95 backdrop-blur-sm border border-border rounded-lg shadow-2xl flex flex-col animate-scale-in origin-center ${
         resizable || isMobile ? '' : 'max-w-[90vw] max-h-[80vh]'
       } ${outerClassName}`}
       style={sizeStyle}

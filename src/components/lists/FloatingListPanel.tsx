@@ -102,12 +102,15 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
         {browseableLists.length === 0 ? (
           <EmptyState />
         ) : mode.kind === 'picker' ? (
-          <PickerView
-            lists={browseableLists}
-            onPick={(id) => setMode({ kind: 'list', listId: id })}
-          />
+          // key forces remount on mode change so animate-fade-in re-runs
+          <div key="picker" className="animate-fade-in">
+            <PickerView
+              lists={browseableLists}
+              onPick={(id) => setMode({ kind: 'list', listId: id })}
+            />
+          </div>
         ) : selectedList ? (
-          <div className="px-4 py-3">
+          <div key={`list-${selectedList.id}`} className="px-4 py-3 animate-fade-in">
             <ListDetailView
               list={selectedList}
               compact
@@ -130,22 +133,26 @@ function PickerView({ lists, onPick }: { lists: UserCardList[]; onPick: (id: str
         {lists.length} list{lists.length === 1 ? '' : 's'} — pick one to browse beside your deck.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {lists.map(list => (
-          <PickerTile key={list.id} list={list} onPick={() => onPick(list.id)} />
+        {lists.map((list, i) => (
+          <PickerTile key={list.id} list={list} onPick={() => onPick(list.id)} index={i} />
         ))}
       </div>
     </div>
   );
 }
 
-function PickerTile({ list, onPick }: { list: UserCardList; onPick: () => void }) {
+function PickerTile({ list, onPick, index }: { list: UserCardList; onPick: () => void; index: number }) {
   const artUrl = list.cachedCommanderArtUrl ?? list.cachedListArtUrl;
   const cardCount = list.cards.length;
 
   return (
     <button
       onClick={onPick}
-      className="relative overflow-hidden text-left rounded-lg border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/40 transition-colors p-2.5 min-h-[64px]"
+      // Subtle stagger on initial mount + tile lift on hover for tactile feel.
+      // Cap delay so a huge list doesn't take forever to finish staggering in.
+      // fillMode: backwards holds the from-state during the delay (no flicker).
+      style={{ animationDelay: `${Math.min(index, 12) * 30}ms`, animationFillMode: 'backwards' }}
+      className="relative overflow-hidden text-left rounded-lg border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/40 hover:scale-[1.02] hover:-translate-y-0.5 active:scale-[0.99] transition-all duration-150 ease-out p-2.5 min-h-[64px] animate-scale-in"
     >
       {artUrl && (
         <div className="absolute inset-0 pointer-events-none">
