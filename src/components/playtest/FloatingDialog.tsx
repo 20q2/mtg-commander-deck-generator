@@ -73,7 +73,6 @@ export function FloatingDialog({
   const setSize = sizeStorageKey ? setPersistedSize : setLocalSize;
 
   const dragOffset = useRef<{ dx: number; dy: number } | null>(null);
-  const resizeStart = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -105,23 +104,60 @@ export function FloatingDialog({
     window.addEventListener('pointerup', onUp);
   };
 
-  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+  // dir is a subset of n/s/e/w — e.g. 'nw' resizes from the top-left corner,
+  // 'e' from the right edge. Position shifts only for edges whose movement
+  // implies repositioning (top/left); width/height clamp uses min/viewport.
+  type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+  const startResize = (dir: ResizeDir) => (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    resizeStart.current = { startX: e.clientX, startY: e.clientY, startW: size.width, startH: size.height };
+    const startState = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: size.width,
+      startH: size.height,
+      startPosX: pos.x,
+      startPosY: pos.y,
+    };
+    const wantsRight  = dir.includes('e');
+    const wantsLeft   = dir.includes('w');
+    const wantsBottom = dir.includes('s');
+    const wantsTop    = dir.includes('n');
+
     const onMove = (ev: PointerEvent) => {
-      if (!resizeStart.current) return;
-      const { startX, startY, startW, startH } = resizeStart.current;
-      const maxW = window.innerWidth - pos.x - 8;
-      const maxH = window.innerHeight - pos.y - 8;
-      setSize({
-        width:  Math.max(minWidth,  Math.min(maxW, startW + (ev.clientX - startX))),
-        height: Math.max(minHeight, Math.min(maxH, startH + (ev.clientY - startY))),
-      });
+      const dx = ev.clientX - startState.startX;
+      const dy = ev.clientY - startState.startY;
+
+      let newW = startState.startW;
+      let newH = startState.startH;
+      let newX = startState.startPosX;
+      let newY = startState.startPosY;
+
+      if (wantsRight)  newW = startState.startW + dx;
+      if (wantsLeft)   newW = startState.startW - dx;
+      if (wantsBottom) newH = startState.startH + dy;
+      if (wantsTop)    newH = startState.startH - dy;
+
+      // Clamp size to min + viewport
+      const maxW = wantsRight ? window.innerWidth - startState.startPosX - 8 : window.innerWidth - 8;
+      const maxH = wantsBottom ? window.innerHeight - startState.startPosY - 8 : window.innerHeight - 8;
+      const clampedW = Math.max(minWidth, Math.min(maxW, newW));
+      const clampedH = Math.max(minHeight, Math.min(maxH, newH));
+
+      // For top/left drags, position must shift by how much size *actually* changed
+      // (using the clamped value) — otherwise hitting min-width pulls the dialog
+      // off into space while the visible width stops shrinking.
+      if (wantsLeft) newX = startState.startPosX + (startState.startW - clampedW);
+      if (wantsTop)  newY = startState.startPosY + (startState.startH - clampedH);
+
+      newX = Math.max(-40, Math.min(window.innerWidth - 200, newX));
+      newY = Math.max(0, Math.min(window.innerHeight - 60, newY));
+
+      setSize({ width: clampedW, height: clampedH });
+      if (wantsLeft || wantsTop) setPos({ x: newX, y: newY });
     };
     const onUp = () => {
-      resizeStart.current = null;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
@@ -162,18 +198,30 @@ export function FloatingDialog({
       </div>
       {children}
       {resizable && !isMobile && (
-        <div
-          onPointerDown={startResize}
-          title="Drag to resize"
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize text-muted-foreground/60 hover:text-foreground"
-          style={{ touchAction: 'none' }}
-        >
-          <svg viewBox="0 0 16 16" className="w-full h-full" fill="currentColor" aria-hidden>
-            <circle cx="13" cy="13" r="1" />
-            <circle cx="13" cy="9"  r="1" />
-            <circle cx="9"  cy="13" r="1" />
-          </svg>
-        </div>
+        <>
+          {/* Edges — thin invisible strips along each side */}
+          <div onPointerDown={startResize('n')} className="absolute top-0 left-2 right-2 h-1.5 cursor-n-resize" style={{ touchAction: 'none' }} />
+          <div onPointerDown={startResize('s')} className="absolute bottom-0 left-2 right-2 h-1.5 cursor-s-resize" style={{ touchAction: 'none' }} />
+          <div onPointerDown={startResize('e')} className="absolute right-0 top-2 bottom-2 w-1.5 cursor-e-resize" style={{ touchAction: 'none' }} />
+          <div onPointerDown={startResize('w')} className="absolute left-0 top-2 bottom-2 w-1.5 cursor-w-resize" style={{ touchAction: 'none' }} />
+          {/* Corners — small squares with diagonal resize cursors */}
+          <div onPointerDown={startResize('nw')} className="absolute top-0 left-0 w-2.5 h-2.5 cursor-nwse-resize" style={{ touchAction: 'none' }} />
+          <div onPointerDown={startResize('ne')} className="absolute top-0 right-0 w-2.5 h-2.5 cursor-nesw-resize" style={{ touchAction: 'none' }} />
+          <div onPointerDown={startResize('sw')} className="absolute bottom-0 left-0 w-2.5 h-2.5 cursor-nesw-resize" style={{ touchAction: 'none' }} />
+          {/* Bottom-right corner keeps a visible dot pattern as the discoverability hint */}
+          <div
+            onPointerDown={startResize('se')}
+            title="Drag to resize"
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize text-muted-foreground/60 hover:text-foreground"
+            style={{ touchAction: 'none' }}
+          >
+            <svg viewBox="0 0 16 16" className="w-full h-full" fill="currentColor" aria-hidden>
+              <circle cx="13" cy="13" r="1" />
+              <circle cx="13" cy="9"  r="1" />
+              <circle cx="9"  cy="13" r="1" />
+            </svg>
+          </div>
+        </>
       )}
     </div>,
     document.body,
