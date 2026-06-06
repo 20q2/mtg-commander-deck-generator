@@ -28,6 +28,8 @@ interface Props {
   outerRef?: (node: HTMLDivElement | null) => void;
   /** Optional extra class on the outer dialog div */
   outerClassName?: string;
+  /** Hide the grip icon to the left of the title. Header drag still works. */
+  hideGrip?: boolean;
   children: React.ReactNode;
 }
 
@@ -45,6 +47,7 @@ export function FloatingDialog({
   headerExtra,
   outerRef,
   outerClassName = '',
+  hideGrip = false,
   children,
 }: Props) {
   const initialHeight =
@@ -188,7 +191,7 @@ export function FloatingDialog({
         className={`flex items-center justify-between gap-3 px-4 py-2 border-b border-border/60 bg-muted/40 rounded-t-lg select-none ${isMobile ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          {!isMobile && <GripHorizontal className="w-4 h-4 opacity-50 shrink-0" />}
+          {!isMobile && !hideGrip && <GripHorizontal className="w-4 h-4 opacity-50 shrink-0" />}
           <h2 className="text-sm font-semibold truncate">{title}</h2>
           {headerExtra}
         </div>

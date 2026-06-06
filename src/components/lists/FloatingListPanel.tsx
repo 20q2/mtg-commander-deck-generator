@@ -60,7 +60,6 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
         <ArrowLeft className="w-3.5 h-3.5" />
         <span>Lists</span>
       </button>
-      <Library className="w-4 h-4 opacity-70 shrink-0" />
       <span className="truncate">{selectedList.name}</span>
     </span>
   ) : (
@@ -95,6 +94,7 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
       minWidth={380}
       minHeight={360}
       resizable
+      hideGrip
       storageKey="floating-list-panel-pos"
       sizeStorageKey="floating-list-panel-size-v2"
     >
