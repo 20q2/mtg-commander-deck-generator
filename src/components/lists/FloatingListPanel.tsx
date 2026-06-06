@@ -46,43 +46,38 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
 
   if (!open) return null;
 
-  const title = (
-    <span className="flex items-center gap-2">
-      <Library className="w-4 h-4 opacity-70" />
-      <span className="truncate">
-        {selectedList ? selectedList.name : 'Lists'}
-      </span>
-    </span>
-  );
-
-  // headerExtra needs onPointerDown propagation stopped because FloatingDialog's
-  // header listens for pointerdown to start a drag — without this, clicks on the
-  // interactive controls (select, back button, link) get swallowed.
-  const headerExtra = selectedList ? (
-    <div
-      className="flex items-center gap-2 min-w-0"
-      onPointerDown={(e) => e.stopPropagation()}
-    >
+  // Interactive controls inside the dialog header need onPointerDown stopped —
+  // FloatingDialog's header div listens for pointerdown to start a drag, and
+  // without this, clicks on these controls would get swallowed by the drag init.
+  const title = selectedList ? (
+    <span className="flex items-center gap-2 min-w-0">
       <button
         onClick={() => setMode({ kind: 'picker' })}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-accent"
+        onPointerDown={(e) => e.stopPropagation()}
+        className="flex items-center gap-1 text-xs font-normal text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded-md hover:bg-accent shrink-0"
         title="Back to list picker"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
         <span>Lists</span>
       </button>
-      <select
-        value={selectedList.id}
-        onChange={(e) => setMode({ kind: 'list', listId: e.target.value })}
-        className="text-xs bg-background border border-border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary max-w-[180px] truncate cursor-pointer"
-      >
-        {browseableLists.map(l => (
-          <option key={l.id} value={l.id}>{l.name}</option>
-        ))}
-      </select>
+      <Library className="w-4 h-4 opacity-70 shrink-0" />
+      <span className="truncate">{selectedList.name}</span>
+    </span>
+  ) : (
+    <span className="flex items-center gap-2">
+      <Library className="w-4 h-4 opacity-70" />
+      <span>Lists</span>
+    </span>
+  );
+
+  const headerExtra = selectedList ? (
+    <div
+      className="flex items-center gap-2 shrink-0"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <Link
         to={`/lists/${selectedList.id}`}
-        className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+        className="text-muted-foreground hover:text-foreground transition-colors"
         title="Open list page"
       >
         <ExternalLink className="w-3.5 h-3.5" />
