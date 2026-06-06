@@ -149,7 +149,7 @@ export function FloatingDialog({
     >
       <div
         onPointerDown={isMobile ? undefined : startHeaderDrag}
-        className={`flex items-center justify-between gap-3 px-4 py-2 border-b border-border/60 select-none ${isMobile ? '' : 'cursor-grab active:cursor-grabbing'}`}
+        className={`flex items-center justify-between gap-3 px-4 py-2 border-b border-border/60 bg-muted/40 rounded-t-lg select-none ${isMobile ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {!isMobile && <GripHorizontal className="w-4 h-4 opacity-50 shrink-0" />}

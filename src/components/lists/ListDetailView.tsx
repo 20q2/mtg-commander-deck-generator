@@ -348,7 +348,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
   }, [navigate]);
 
   return (
-    <div className="space-y-4">
+    <div className={compact ? 'space-y-2' : 'space-y-4'}>
       {/* Header — hidden in compact mode (used by the floating panel, which
           provides its own chrome via FloatingDialog). */}
       {!compact && (
@@ -488,8 +488,13 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
         </div>
       )}
 
-      {/* Type breakdown chips */}
-      {Object.keys(stats.typeBreakdown).length > 0 && (
+      {/* Toolbar group — in compact mode, wraps chips/search/filters/result-count
+          in a distinct background container so they read as one toolbar separate
+          from the card grid. Non-compact keeps the original spacing/no-bg shape. */}
+      <div className={compact ? 'bg-muted/30 rounded-lg p-2 space-y-1.5' : 'space-y-4'}>
+
+      {/* Type breakdown chips — hidden in compact mode to reclaim vertical space */}
+      {!compact && Object.keys(stats.typeBreakdown).length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(stats.typeBreakdown)
             .sort((a, b) => b[1] - a[1])
@@ -677,6 +682,8 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           {filteredCards.length} card{filteredCards.length !== 1 ? 's' : ''} found
         </p>
       )}
+
+      </div>{/* /toolbar group */}
 
       {/* Card Display */}
       {viewMode === 'grid' ? (
