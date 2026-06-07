@@ -40,7 +40,7 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
   if (viewMode === 'list') {
     return (
       <>
-        <div className="max-h-60 lg:max-h-80 overflow-auto p-3 bg-background rounded-lg border border-border/30 columns-2 lg:columns-3 gap-x-6">
+        <div className="max-h-60 lg:max-h-80 overflow-y-auto overflow-x-hidden p-3 bg-background rounded-lg border border-border/30 grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-0 content-start">
           {orderedCards.map((name) => {
             const isCommander = name === commanderName || name === partnerCommanderName;
             return (
@@ -99,7 +99,7 @@ interface ListTextRowProps {
 
 function ListTextRow({ name, isCommander, onRemove, onPreview }: ListTextRowProps) {
   return (
-    <div className="group flex items-center gap-1 py-0.5 break-inside-avoid">
+    <div className="group flex items-center gap-1 py-0.5">
       {isCommander && <CommanderIcon size={10} className="text-amber-400 shrink-0" />}
       <button
         type="button"
