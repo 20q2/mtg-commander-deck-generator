@@ -177,12 +177,16 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
     setTypeBreakdown(breakdown);
   }, []);
 
-  // Fetch card data (type + image URL) for cards not yet in the map
+  // Fetch card data (type + image URL) for cards not yet in the map.
+  // Also surface any legendary creatures we encounter so the commander
+  // dropdown populates for existing decks (CollectionImporter only fires
+  // legendary detection on fresh paste; cards loaded from storage need this).
   const fetchMissingCardData = useCallback(async (currentCards: string[]) => {
     const missing = currentCards.filter(n => !cardDataRef.current.has(n));
     if (missing.length === 0) { recomputeBreakdown(currentCards); return; }
     try {
       const cardMap = await getCardsByNames(missing);
+      const newLegendaries: ScryfallCard[] = [];
       for (const name of missing) {
         const card = cardMap.get(name);
         if (card) {
@@ -190,9 +194,20 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             type: classifyCardType(card.type_line ?? ''),
             imageUrl: getCardImageUrl(card, 'small'),
           });
+          const tl = (card.type_line ?? '').toLowerCase();
+          if (tl.includes('legendary') && tl.includes('creature')) {
+            newLegendaries.push(card);
+          }
         } else {
           cardDataRef.current.set(name, { type: 'Other', imageUrl: null });
         }
+      }
+      if (newLegendaries.length > 0) {
+        setImportedLegendaries(prev => {
+          const byName = new Map(prev.map(c => [c.name, c]));
+          for (const c of newLegendaries) byName.set(c.name, c);
+          return [...byName.values()];
+        });
       }
     } catch { /* ignore */ }
     recomputeBreakdown(currentCards);
