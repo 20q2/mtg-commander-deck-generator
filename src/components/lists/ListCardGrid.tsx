@@ -41,11 +41,11 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
     return (
       <>
         <div className="max-h-60 lg:max-h-80 overflow-y-auto overflow-x-hidden p-3 bg-background rounded-lg border border-border/30 grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-0 content-start">
-          {orderedCards.map((name) => {
+          {orderedCards.map((name, i) => {
             const isCommander = name === commanderName || name === partnerCommanderName;
             return (
               <ListTextRow
-                key={name}
+                key={`${name}-${i}`}
                 name={name}
                 isCommander={isCommander}
                 onRemove={() => onRemove(name)}
@@ -67,14 +67,14 @@ export function ListCardGrid({ cards, cardData, commanderName, partnerCommanderN
         className="grid gap-2 max-h-60 lg:max-h-80 overflow-auto p-2 bg-background rounded-lg border border-border/30"
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))` }}
       >
-        {orderedCards.map((name) => {
+        {orderedCards.map((name, i) => {
           const meta = cardData.get(name);
           const isCommander = name === commanderName || name === partnerCommanderName;
           const status: 'loaded' | 'loading' | 'not-found' =
             !meta ? 'loading' : meta.imageUrl ? 'loaded' : 'not-found';
           return (
             <ListCardTile
-              key={name}
+              key={`${name}-${i}`}
               name={name}
               imageUrl={meta?.imageUrl ?? null}
               status={status}
