@@ -953,14 +953,6 @@ function ListViewTable({
               className="flex items-center gap-2 min-w-0 cursor-pointer"
               onClick={() => onPreview(card.name)}
             >
-              {card.imageUrl && (
-                <img
-                  src={card.imageUrl}
-                  alt=""
-                  className="w-7 h-auto rounded shadow shrink-0"
-                  loading="lazy"
-                />
-              )}
               <span className="text-sm truncate min-w-0 hover:text-primary transition-colors">{card.name}</span>
               {card.manaCost && <ManaCost cost={card.manaCost} className="text-xs shrink-0" />}
             </div>
