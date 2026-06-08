@@ -1,11 +1,13 @@
 import {
   CURRENT_SCHEMA_VERSION,
   MigrationError,
+  STORAGE_KEYS,
   migrateForward,
   type MigrationEnvelope,
   type MigrationData,
   type MigrationPreferences,
 } from './schema';
+import { db } from '@/services/collection/db';
 import type { UserCardList, BanList, AppliedList } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
 
@@ -130,4 +132,55 @@ function isShapedAppliedList(x: unknown): x is AppliedList {
   if (!x || typeof x !== 'object') return false;
   const r = x as Record<string, unknown>;
   return typeof r.listId === 'string' && typeof r.enabled === 'boolean';
+}
+
+// ─── Diff ───────────────────────────────────────────────────────────────
+export type SectionStrategy = 'merge' | 'replace' | 'skip';
+
+export interface ImportPlan {
+  lists: SectionStrategy;
+  collection: SectionStrategy;
+  preferences: SectionStrategy;
+}
+
+export interface ImportDiff {
+  fileCounts: { lists: number; collection: number; preferences: number };
+  localCounts: { lists: number; collection: number; preferences: number };
+  smartDefaults: ImportPlan;
+}
+
+export async function computeDiff(env: MigrationEnvelope): Promise<ImportDiff> {
+  const fileCounts = {
+    lists: env.data.lists?.length ?? 0,
+    collection: env.data.collection?.length ?? 0,
+    preferences: env.data.preferences ? Object.keys(env.data.preferences).length : 0,
+  };
+
+  // Local counts
+  let localLists = 0;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.userLists);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) localLists = parsed.length;
+    }
+  } catch { /* count as 0 */ }
+
+  const localCollection = await db.cards.count();
+
+  let localPrefs = 0;
+  for (const key of Object.values(STORAGE_KEYS)) {
+    if (key === STORAGE_KEYS.userLists) continue; // counted as lists
+    if (localStorage.getItem(key) !== null) localPrefs++;
+  }
+
+  const localCounts = { lists: localLists, collection: localCollection, preferences: localPrefs };
+
+  const smartDefaults: ImportPlan = {
+    lists: localCounts.lists === 0 ? 'replace' : 'merge',
+    collection: localCounts.collection === 0 ? 'replace' : 'merge',
+    preferences: localCounts.preferences === 0 ? 'replace' : 'merge',
+  };
+
+  return { fileCounts, localCounts, smartDefaults };
 }
