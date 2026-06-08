@@ -304,7 +304,7 @@ export function BannedCards() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => { results.length > 0 && setShowResults(true); }}
-                className="pl-9 pr-9 h-9 text-sm rounded-lg"
+                className="pl-9 pr-9 h-9 text-sm rounded-lg border-ring"
               />
               {isSearching && (
                 <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />
@@ -355,7 +355,7 @@ export function BannedCards() {
         <Popover open={showListPicker} onOpenChange={(open) => { setShowListPicker(open); if (!open) setListPickerSearch(''); }}>
           <PopoverTrigger asChild>
             <button
-              className="h-9 w-9 flex items-center justify-center rounded-lg border-2 border-input transition-colors focus:outline-none focus-visible:ring-0 hover:bg-accent text-muted-foreground"
+              className="h-9 w-9 flex items-center justify-center rounded-lg border border-ring transition-colors focus:outline-none focus-visible:ring-0 hover:bg-accent text-muted-foreground"
               title="Apply a list or ban list"
             >
               <ListPlus className="w-4 h-4" />

@@ -31,11 +31,16 @@ function freshCopy(card: ScryfallCard): ScryfallCard {
 /**
  * Queue-based rate limiter that ensures requests are properly spaced.
  * All Scryfall requests MUST go through this to prevent 429 errors.
+ *
+ * Supports a global cooldown: when any caller hits a 429, it can park every
+ * pending and future request until the cooldown expires, instead of letting
+ * dozens of in-flight requests keep firing at 100ms intervals.
  */
 class RateLimiter {
   private queue: Array<() => void> = [];
   private processing = false;
   private lastRequestTime = 0;
+  private cooldownUntil = 0;
 
   /**
    * Wait for permission to make a request.
@@ -48,6 +53,15 @@ class RateLimiter {
     });
   }
 
+  /**
+   * Pause all pending/future acquires until `now + ms`. Idempotent — only
+   * extends the cooldown, never shortens it, so concurrent 429s combine safely.
+   */
+  cooldown(ms: number): void {
+    const target = Date.now() + Math.max(0, ms);
+    if (target > this.cooldownUntil) this.cooldownUntil = target;
+  }
+
   private async processQueue(): Promise<void> {
     if (this.processing || this.queue.length === 0) return;
 
@@ -55,8 +69,14 @@ class RateLimiter {
 
     while (this.queue.length > 0) {
       const now = Date.now();
-      const timeSinceLastRequest = now - this.lastRequestTime;
 
+      // Honor global cooldown first — one 429 parks the whole burst.
+      if (now < this.cooldownUntil) {
+        await new Promise((resolve) => setTimeout(resolve, this.cooldownUntil - now));
+        continue;
+      }
+
+      const timeSinceLastRequest = now - this.lastRequestTime;
       if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
         await new Promise((resolve) =>
           setTimeout(resolve, MIN_REQUEST_DELAY - timeSinceLastRequest)
@@ -79,21 +99,55 @@ class RateLimiter {
 
 const rateLimiter = new RateLimiter();
 
-async function scryfallFetch<T>(endpoint: string): Promise<T> {
-  await rateLimiter.throttle();
+const MAX_RATE_LIMIT_RETRIES = 6;
+const MAX_BACKOFF_MS = 30_000;
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: {
-      'Accept': 'application/json',
-    },
-  });
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(header);
+  if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  return null;
+}
+
+/**
+ * Run a fetch through the rate limiter, retrying on 429 with the server's
+ * Retry-After header (preferred) or exponential backoff + jitter. Every retry
+ * sets a shared cooldown so concurrent callers also back off, which is the
+ * thing that actually keeps Scryfall happy.
+ */
+async function withRateLimit(
+  doFetch: () => Promise<Response>,
+  maxRetries: number = MAX_RATE_LIMIT_RETRIES,
+): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    await rateLimiter.acquire();
+    const response = await doFetch();
+    if (response.status !== 429) return response;
+    if (attempt === maxRetries) return response;
+
+    const retryAfter = parseRetryAfter(response.headers.get('Retry-After'));
+    const expBackoff = Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS);
+    const jitter = Math.random() * 250;
+    const backoffMs = (retryAfter ?? expBackoff) + jitter;
+    console.warn(
+      `[Scryfall] 429 on attempt ${attempt + 1}, cooling down ${Math.round(backoffMs)}ms`,
+    );
+    rateLimiter.cooldown(backoffMs);
+  }
+  // Unreachable — the loop returns or sets a final response above.
+  throw new Error('Scryfall rate-limit retries exhausted');
+}
+
+async function scryfallFetch<T>(endpoint: string): Promise<T> {
+  const response = await withRateLimit(() =>
+    fetch(`${BASE_URL}${endpoint}`, {
+      headers: { 'Accept': 'application/json' },
+    }),
+  );
 
   if (!response.ok) {
-    if (response.status === 429) {
-      // Rate limited - wait and retry once
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return scryfallFetch<T>(endpoint);
-    }
     throw new Error(`Scryfall API error: ${response.status} ${response.statusText}`);
   }
 
@@ -164,16 +218,16 @@ export async function getCardByName(name: string, exact = true): Promise<Scryfal
  * Fetch a single card by name with proper rate limiting.
  * Returns null if not found instead of throwing.
  */
-async function fetchCardByNameThrottled(name: string, retries = 2): Promise<ScryfallCard | null> {
+async function fetchCardByNameThrottled(name: string): Promise<ScryfallCard | null> {
   try {
-    await rateLimiter.acquire();
-
     // Search for cheapest USD paper printing across all sets
     // Filter out digital-only printings and require a USD price
     const searchQuery = encodeURIComponent(`!"${name}" -is:digital`);
-    const response = await fetch(
-      `${BASE_URL}/cards/search?q=${searchQuery}&unique=prints&order=usd&dir=asc`,
-      { headers: { 'Accept': 'application/json' } }
+    const response = await withRateLimit(() =>
+      fetch(
+        `${BASE_URL}/cards/search?q=${searchQuery}&unique=prints&order=usd&dir=asc`,
+        { headers: { 'Accept': 'application/json' } },
+      ),
     );
 
     if (response.ok) {
@@ -190,19 +244,13 @@ async function fetchCardByNameThrottled(name: string, retries = 2): Promise<Scry
       }
     }
 
-    if (response.status === 429 && retries > 0) {
-      const backoffMs = 1000 * (3 - retries);
-      console.warn(`[Scryfall] Rate limited, backing off ${backoffMs}ms...`);
-      await new Promise(resolve => setTimeout(resolve, backoffMs));
-      return fetchCardByNameThrottled(name, retries - 1);
-    }
-
     // Fallback to /cards/named if search returned no results (name mismatch, etc.)
     if (response.status === 404) {
-      await rateLimiter.acquire();
-      const namedResponse = await fetch(
-        `${BASE_URL}/cards/named?exact=${encodeURIComponent(name)}`,
-        { headers: { 'Accept': 'application/json' } }
+      const namedResponse = await withRateLimit(() =>
+        fetch(
+          `${BASE_URL}/cards/named?exact=${encodeURIComponent(name)}`,
+          { headers: { 'Accept': 'application/json' } },
+        ),
       );
       if (!namedResponse.ok) return null;
       const card = await namedResponse.json() as ScryfallCard;
@@ -260,17 +308,17 @@ export async function getCardsByNames(
       ? batch.map(name => ({ name, set: preferredSet }))
       : batch.map(name => ({ name }));
 
-    await rateLimiter.acquire();
-
     try {
-      const response = await fetch(`${BASE_URL}/cards/collection`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ identifiers }),
-      });
+      const response = await withRateLimit(() =>
+        fetch(`${BASE_URL}/cards/collection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify({ identifiers }),
+        }),
+      );
 
       if (response.ok) {
         const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string; set?: string }> };
@@ -298,12 +346,6 @@ export async function getCardsByNames(
             console.warn(`[Scryfall] ${data.not_found.length} cards not found in collection batch`);
           }
         }
-      } else if (response.status === 429) {
-        // Rate limited - back off and retry this batch
-        console.warn('[Scryfall] Rate limited on collection fetch, backing off...');
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        i -= COLLECTION_BATCH_SIZE; // retry this batch
-        continue;
       }
     } catch (err) {
       console.warn('[Scryfall] Collection batch failed:', err);
@@ -319,17 +361,17 @@ export async function getCardsByNames(
       const batch = setNotFoundNames.slice(i, i + COLLECTION_BATCH_SIZE);
       const identifiers = batch.map(name => ({ name }));
 
-      await rateLimiter.acquire();
-
       try {
-        const response = await fetch(`${BASE_URL}/cards/collection`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: JSON.stringify({ identifiers }),
-        });
+        const response = await withRateLimit(() =>
+          fetch(`${BASE_URL}/cards/collection`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({ identifiers }),
+          }),
+        );
 
         if (response.ok) {
           const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string }> };
@@ -343,11 +385,6 @@ export async function getCardsByNames(
               cardCache.set(frontFace, card);
             }
           }
-        } else if (response.status === 429) {
-          console.warn('[Scryfall] Rate limited on fallback collection fetch, backing off...');
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          i -= COLLECTION_BATCH_SIZE;
-          continue;
         }
       } catch (err) {
         console.warn('[Scryfall] Fallback collection batch failed:', err);
@@ -446,12 +483,12 @@ export async function upgradeCardPrintings(
     const fullQuery = `(${nameQuery}) ${filters}`;
     const encodedQuery = encodeURIComponent(fullQuery);
 
-    await rateLimiter.acquire();
-
     try {
-      const response = await fetch(`${BASE_URL}/cards/search?q=${encodedQuery}&unique=prints&order=released&dir=desc`, {
-        headers: { 'Accept': 'application/json' },
-      });
+      const response = await withRateLimit(() =>
+        fetch(`${BASE_URL}/cards/search?q=${encodedQuery}&unique=prints&order=released&dir=desc`, {
+          headers: { 'Accept': 'application/json' },
+        }),
+      );
 
       if (response.ok) {
         const data = await response.json() as ScryfallSearchResponse;

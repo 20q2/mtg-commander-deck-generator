@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Crown, Search, Sparkles, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Crown, Search, Sparkles, X } from 'lucide-react';
 import { CommanderSpotlight, CommanderTile } from './CommanderTile';
 import {
   computeCommanderReadiness,
@@ -197,26 +197,44 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
             savedDeck={savedDecksByCommander.get(spotlight.cmd.name)}
           />
 
-          {/* Carousel nav — dot indicators with a tiny caption so it's clear other picks exist */}
+          {/* Carousel nav — prev/next arrows on the edges, plus a caption + dots at the bottom */}
           {spotlightPool.length > 1 && (
-            <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
-              <div className="flex items-center gap-1.5">
-                {spotlightPool.map((entry, i) => (
-                  <button
-                    key={entry.cmd.name}
-                    type="button"
-                    onClick={() => setSpotlightIndex(i)}
-                    aria-label={`Spotlight ${entry.cmd.name}`}
-                    className={`h-1.5 rounded-full transition-all ${
-                      i === safeSpotlightIndex ? 'w-5 bg-violet-300' : 'w-1.5 bg-white/30 hover:bg-white/50'
-                    }`}
-                  />
-                ))}
+            <>
+              <button
+                type="button"
+                onClick={() => setSpotlightIndex(i => (i - 1 + spotlightPool.length) % spotlightPool.length)}
+                aria-label="Previous commander"
+                className="absolute left-6 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center bg-black/50 hover:bg-violet-500/90 text-white transition-colors shadow ring-1 ring-white/10"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSpotlightIndex(i => (i + 1) % spotlightPool.length)}
+                aria-label="Next commander"
+                className="absolute right-6 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center bg-black/50 hover:bg-violet-500/90 text-white transition-colors shadow ring-1 ring-white/10"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
+                <div className="flex items-center gap-1.5">
+                  {spotlightPool.map((entry, i) => (
+                    <button
+                      key={entry.cmd.name}
+                      type="button"
+                      onClick={() => setSpotlightIndex(i)}
+                      aria-label={`Spotlight ${entry.cmd.name}`}
+                      className={`h-1.5 rounded-full transition-all ${
+                        i === safeSpotlightIndex ? 'w-5 bg-violet-300' : 'w-1.5 bg-white/30 hover:bg-white/50'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] uppercase tracking-wider text-white/60">
+                  Top {spotlightPool.length} ready · {safeSpotlightIndex + 1} of {spotlightPool.length}
+                </span>
               </div>
-              <span className="text-[10px] uppercase tracking-wider text-white/60">
-                Top {spotlightPool.length} ready · {safeSpotlightIndex + 1} of {spotlightPool.length}
-              </span>
-            </div>
+            </>
           )}
         </div>
       )}
