@@ -13,32 +13,44 @@ interface DrawerProps {
   defaultSizePercent?: number;
 }
 
-const MIN_SIZE = 120;
+const MIN_BOTTOM_HEIGHT = 200;
+const MIN_SIDE_WIDTH = 380;
 const DEFAULT_BOTTOM_VH = 55;
 const DEFAULT_SIDE_VW = 38;
+const MOBILE_BREAKPOINT = 640;
+const MOBILE_SIDE_VW = 92;
+
+function computeSize(position: DrawerPosition, defaultSizePercent: number | undefined, isMobile: boolean) {
+  if (position === 'bottom') {
+    const pct = defaultSizePercent ?? DEFAULT_BOTTOM_VH;
+    return Math.max(MIN_BOTTOM_HEIGHT, Math.round(window.innerHeight * pct / 100));
+  }
+  if (isMobile) {
+    return Math.round(window.innerWidth * MOBILE_SIDE_VW / 100);
+  }
+  const pct = defaultSizePercent ?? DEFAULT_SIDE_VW;
+  return Math.max(MIN_SIDE_WIDTH, Math.round(window.innerWidth * pct / 100));
+}
 
 export function Drawer({ open, onClose, children, position, defaultSizePercent }: DrawerProps) {
-  const [size, setSize] = useState(() => {
-    const pct = defaultSizePercent ?? (position === 'bottom' ? DEFAULT_BOTTOM_VH : DEFAULT_SIDE_VW);
-    return position === 'bottom'
-      ? Math.round(window.innerHeight * pct / 100)
-      : Math.round(window.innerWidth * pct / 100);
-  });
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < MOBILE_BREAKPOINT);
+  const [size, setSize] = useState(() => computeSize(position, defaultSizePercent, window.innerWidth < MOBILE_BREAKPOINT));
   const dragging = useRef(false);
   const startPos = useRef(0);
   const startSize = useRef(0);
 
-  // Reset size when position changes
+  // Track viewport crossing the mobile breakpoint so the drawer width stays sensible
+  // when the user rotates / resizes the window.
   useEffect(() => {
-    const pct = defaultSizePercent ?? (position === 'bottom' ? DEFAULT_BOTTOM_VH : DEFAULT_SIDE_VW);
-    setSize(
-      position === 'bottom'
-        ? Math.round(window.innerHeight * pct / 100)
-        : Math.round(window.innerWidth * pct / 100)
-    );
-  }, [position, defaultSizePercent]);
+    const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
-  // Close on Escape
+  useEffect(() => {
+    setSize(computeSize(position, defaultSizePercent, isMobile));
+  }, [position, defaultSizePercent, isMobile]);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') onClose();
   }, [onClose]);
@@ -48,13 +60,17 @@ export function Drawer({ open, onClose, children, position, defaultSizePercent }
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [open, handleKeyDown]);
 
-  // Drag-to-resize
+  // Drag-to-resize is desktop-only — on mobile the drawer takes ~full width and
+  // there's nothing useful to drag toward.
+  const canResize = !isMobile;
+
   const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (!canResize) return;
     dragging.current = true;
     startPos.current = position === 'bottom' ? e.clientY : e.clientX;
     startSize.current = size;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, [size, position]);
+  }, [size, position, canResize]);
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
@@ -63,28 +79,25 @@ export function Drawer({ open, onClose, children, position, defaultSizePercent }
     const maxSize = isBottom
       ? Math.round(window.innerHeight * 0.92)
       : Math.round(window.innerWidth * 0.75);
+    const minSize = isBottom ? MIN_BOTTOM_HEIGHT : MIN_SIDE_WIDTH;
     let delta: number;
-    if (isBottom) delta = startPos.current - cursor; // drag up = bigger
-    else if (position === 'left') delta = cursor - startPos.current; // drag right = bigger
-    else delta = startPos.current - cursor; // right: drag left = bigger
-    setSize(Math.max(MIN_SIZE, Math.min(maxSize, startSize.current + delta)));
+    if (isBottom) delta = startPos.current - cursor;
+    else if (position === 'left') delta = cursor - startPos.current;
+    else delta = startPos.current - cursor;
+    setSize(Math.max(minSize, Math.min(maxSize, startSize.current + delta)));
   }, [position]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
     dragging.current = false;
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    if (size < MIN_SIZE + 20) onClose();
-  }, [size, onClose]);
+  }, []);
 
   const isBottom = position === 'bottom';
   const isLeft = position === 'left';
   const isRight = position === 'right';
   const isSide = isLeft || isRight;
 
-  // Position classes. Background is lifted above --card (13% lightness) so the
-  // drawer reads as an elevated surface against the page, plus a thicker border
-  // and ring shadow on the open edge to seat it visually.
   const panelClasses = [
     'fixed z-50 flex bg-[hsl(220_13%_18%)] shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-transform duration-300 ease-out',
     isBottom && `bottom-0 left-0 right-0 flex-col border-t-2 border-border rounded-t-2xl ${open ? 'translate-y-0' : 'translate-y-full'}`,
@@ -96,25 +109,29 @@ export function Drawer({ open, onClose, children, position, defaultSizePercent }
     ? { height: `${size}px` }
     : { width: `${size}px` };
 
-  const handleCursor = isBottom ? 'cursor-ns-resize' : 'cursor-ew-resize';
-  const handleBar = isBottom
-    ? <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
-    : <div className="h-10 w-1 rounded-full bg-muted-foreground/30" />;
-
+  // Bottom drawers keep a visible grab bar (touch + desktop UX is the same).
+  // Side drawers get a slim invisible resize strip on the open edge — no visible
+  // "drag me" affordance, which previously made the panel feel scrappy.
   return createPortal(
     <div className={panelClasses} style={style}>
-      {/* Drag handle */}
-      <div
-        className={`flex items-center justify-center shrink-0 select-none touch-none ${handleCursor} ${
-          isBottom ? 'py-1.5' : 'px-1.5'
-        }`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-      >
-        {handleBar}
-      </div>
-      {/* Content */}
+      {isBottom ? (
+        <div
+          className="flex items-center justify-center shrink-0 select-none touch-none cursor-ns-resize py-1.5"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+        >
+          <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+        </div>
+      ) : canResize ? (
+        <div
+          className="shrink-0 w-1.5 select-none touch-none cursor-ew-resize hover:bg-muted-foreground/20 transition-colors"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          aria-hidden
+        />
+      ) : null}
       <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isSide ? 'flex flex-col' : ''}`}>
         {children}
       </div>

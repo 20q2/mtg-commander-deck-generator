@@ -221,31 +221,35 @@ export function useUserLists() {
     }
   }, []);
 
-  const duplicateList = useCallback((id: string) => {
+  const duplicateList = useCallback((id: string): string | null => {
+    const original = sharedLists.find(l => l.id === id);
+    if (!original) return null;
+    const now = Date.now();
+    const newId = `list-${now}`;
     updateShared(prev => {
-      const original = prev.find(l => l.id === id);
-      if (!original) return prev;
-      const now = Date.now();
+      const src = prev.find(l => l.id === id);
+      if (!src) return prev;
       const copy: UserCardList = {
-        id: `list-${now}`,
-        type: original.type,
-        name: `${original.name} (Copy)`,
-        description: original.description,
-        cards: [...original.cards],
-        sideboard: original.sideboard ? [...original.sideboard] : undefined,
-        maybeboard: original.maybeboard ? [...original.maybeboard] : undefined,
-        commanderName: original.commanderName,
-        partnerCommanderName: original.partnerCommanderName,
-        primer: original.primer,
-        cachedTypeBreakdown: original.cachedTypeBreakdown,
-        cachedColorIdentity: original.cachedColorIdentity,
-        cachedCommanderArtUrl: original.cachedCommanderArtUrl,
+        id: newId,
+        type: src.type,
+        name: `${src.name} (Copy)`,
+        description: src.description,
+        cards: [...src.cards],
+        sideboard: src.sideboard ? [...src.sideboard] : undefined,
+        maybeboard: src.maybeboard ? [...src.maybeboard] : undefined,
+        commanderName: src.commanderName,
+        partnerCommanderName: src.partnerCommanderName,
+        primer: src.primer,
+        cachedTypeBreakdown: src.cachedTypeBreakdown,
+        cachedColorIdentity: src.cachedColorIdentity,
+        cachedCommanderArtUrl: src.cachedCommanderArtUrl,
         createdAt: now,
         updatedAt: now,
       };
       return [copy, ...prev];
     });
-  }, []);
+    return newId;
+  }, [sharedLists]);
 
   const togglePin = useCallback((id: string) => {
     updateShared(prev => prev.map(l =>

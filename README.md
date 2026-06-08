@@ -5,7 +5,7 @@
 A Commander deck generation engine that builds full EDH decks using real Scryfall and EDHREC data, with a focus on producing playable, synergistic, and structurally coherent Commander lists.
 
 **Live version (official):**
-https://20q2.github.io/mtg-commander-deck-generator/
+https://manafoundry.gg
 
 ---
 

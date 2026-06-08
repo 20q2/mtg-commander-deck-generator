@@ -360,7 +360,10 @@ export function ListsPage() {
           list={list}
           onBack={() => navigate('/lists')}
           onEdit={() => navigate(`/lists/${list.id}/edit`)}
-          onDuplicate={() => { duplicateList(list.id); navigate(list.type === 'deck' ? '/decks' : '/lists'); }}
+          onDuplicate={() => {
+            const newId = duplicateList(list.id);
+            if (newId) navigate(list.type === 'deck' ? `/decks/${newId}` : `/lists/${newId}`);
+          }}
           onExport={() => handleExport(list.id)}
           onDelete={() => handleDelete(list.id)}
           onRemoveCard={(name) => handleRemoveCard(list.id, name)}
@@ -408,7 +411,10 @@ export function ListsPage() {
           onBack={() => navigate(list.type === 'deck' ? '/decks' : `/lists/${list.id}`)}
           onViewAsList={() => navigate(`/lists/${list.id}`)}
           onEdit={() => navigate(list.type === 'deck' ? `/decks/${list.id}/edit` : `/lists/${list.id}/edit`)}
-          onDuplicate={() => { duplicateList(list.id); navigate(list.type === 'deck' ? '/decks' : '/lists'); }}
+          onDuplicate={() => {
+            const newId = duplicateList(list.id);
+            if (newId) navigate(list.type === 'deck' ? `/decks/${newId}` : `/lists/${newId}`);
+          }}
           onRemoveCards={(names) => {
             const current = getListById(list.id) ?? list;
             // Match DFC tolerantly: callers pass the canonical Scryfall name

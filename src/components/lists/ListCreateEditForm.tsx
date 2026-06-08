@@ -871,7 +871,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
       {/* Cards — full-width row below the two columns */}
       {cards.length > 0 && (
         <div className="space-y-3 bg-accent/20 rounded-xl p-4 border border-border/20">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
             <label className="text-sm font-medium">Cards ({cards.length})</label>
             <Button
               variant="ghost"
@@ -900,7 +900,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
               <span className="text-xs">Clear</span>
             </Button>
             {Object.keys(typeBreakdown).length > 0 && (
-              <div className="flex items-end gap-1.5 ml-auto">
+              <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
                 {Object.entries(typeBreakdown)
                   .sort((a, b) => b[1] - a[1])
                   .map(([type, count]) => (
@@ -990,8 +990,8 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
         </div>
       )}
 
-      {/* Actions — sticky at bottom */}
-      <div className="flex items-center justify-end gap-3 pt-2 border-t border-border/50 sticky bottom-0 bg-background pb-4 -mb-4">
+      {/* Actions — sticky at bottom. On mobile, clear the fixed bottom tab nav (h-16). */}
+      <div className="flex items-center justify-end gap-3 pt-2 border-t border-border/50 sticky bottom-16 sm:bottom-0 bg-background pb-4 -mb-4">
         {isDeck && cards.length === 0 && !hasPendingImport ? (
           <p className="text-xs text-amber-400 mr-auto">
             Add at least one card to create a deck

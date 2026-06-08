@@ -257,6 +257,11 @@ function Layout({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const isLegacyHost = typeof window !== 'undefined' && (
+    window.location.hostname === '20q2.github.io' ||
+    window.location.hostname === 'localhost'
+  );
+
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
       {/* Commander Art Background (hidden on collection page) */}
@@ -264,6 +269,19 @@ function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen pb-16 sm:pb-0">
+        {isLegacyHost && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 text-amber-100 backdrop-blur-md relative z-50">
+            <div className="container mx-auto px-4 py-2 text-sm flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+              <span className="text-amber-200/90">This site has an official page!</span>
+              <a
+                href={`https://manafoundry.gg${location.pathname}${location.search}${location.hash}`}
+                className="font-semibold underline underline-offset-2 hover:text-white transition-colors"
+              >
+                Continue at manafoundry.gg
+              </a>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <header className="border-b border-border/50 bg-card/80 backdrop-blur-md sm:sticky sm:top-0 z-40">
           <div className="container mx-auto px-4 py-4">
