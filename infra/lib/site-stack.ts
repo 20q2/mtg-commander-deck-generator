@@ -8,14 +8,17 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
-const DOMAIN_NAME = 'manafoundry.gg';
-const WWW_DOMAIN = `www.${DOMAIN_NAME}`;
-const GITHUB_OWNER = '20q2';
-const GITHUB_REPO = 'mtg-commander-deck-generator';
-
 export class SiteStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+
+    // Override these via .env.local (already git-ignored) to redeploy this stack
+    // to a different domain/repo without editing code.
+    const DOMAIN_NAME = process.env.SITE_DOMAIN || 'manafoundry.gg';
+    const WWW_DOMAIN = `www.${DOMAIN_NAME}`;
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || '20q2';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'mtg-commander-deck-generator';
+    const bucketSlug = DOMAIN_NAME.replace(/\./g, '-');
 
     // Existing hosted zone created when the domain was registered in Route 53.
     const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
@@ -24,7 +27,7 @@ export class SiteStack extends cdk.Stack {
 
     // Private bucket. CloudFront is the only thing that can read it (via OAC below).
     const siteBucket = new s3.Bucket(this, 'SiteBucket', {
-      bucketName: `manafoundry-site-${this.account}`,
+      bucketName: `${bucketSlug}-site-${this.account}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -81,7 +84,6 @@ export class SiteStack extends cdk.Stack {
     });
 
     const deployRole = new iam.Role(this, 'GitHubActionsDeployRole', {
-      roleName: 'manafoundry-github-deploy',
       assumedBy: new iam.FederatedPrincipal(
         githubOidcProvider.openIdConnectProviderArn,
         {
@@ -94,7 +96,7 @@ export class SiteStack extends cdk.Stack {
         },
         'sts:AssumeRoleWithWebIdentity',
       ),
-      description: 'Assumed by GitHub Actions to deploy the manafoundry.gg site',
+      description: `Assumed by GitHub Actions (${GITHUB_OWNER}/${GITHUB_REPO}) to deploy the ${DOMAIN_NAME} site`,
     });
     siteBucket.grantReadWrite(deployRole);
     deployRole.addToPolicy(
