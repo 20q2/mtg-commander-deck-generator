@@ -7,7 +7,7 @@ import {
   type MigrationData,
   type MigrationPreferences,
 } from './schema';
-import { db } from '@/services/collection/db';
+import { db, bulkImport } from '@/services/collection/db';
 import type { UserCardList, BanList, AppliedList } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
 
@@ -183,4 +183,196 @@ export async function computeDiff(env: MigrationEnvelope): Promise<ImportDiff> {
   };
 
   return { fileCounts, localCounts, smartDefaults };
+}
+
+// ─── Apply ──────────────────────────────────────────────────────────────
+export interface ImportSummary {
+  listsImported: number;
+  collectionCardsImported: number;
+  preferencesApplied: number;
+}
+
+export async function applyMigration(
+  env: MigrationEnvelope,
+  plan: ImportPlan,
+): Promise<ImportSummary> {
+  const summary: ImportSummary = {
+    listsImported: 0,
+    collectionCardsImported: 0,
+    preferencesApplied: 0,
+  };
+
+  // ── Lists ────────────────────────────────────────────────────────────
+  if (plan.lists !== 'skip' && env.data.lists && env.data.lists.length > 0) {
+    const existing = readLocalLists();
+    let next: UserCardList[];
+    if (plan.lists === 'replace') {
+      next = env.data.lists;
+    } else {
+      // merge: rename incoming IDs that collide with existing
+      const existingIds = new Set(existing.map(l => l.id));
+      const rebadged = env.data.lists.map(l => {
+        if (!existingIds.has(l.id)) return l;
+        let candidate = `imported-${l.id}`;
+        let n = 2;
+        while (existingIds.has(candidate)) {
+          candidate = `imported-${l.id}-${n++}`;
+        }
+        existingIds.add(candidate);
+        return { ...l, id: candidate };
+      });
+      next = [...existing, ...rebadged];
+    }
+    localStorage.setItem(STORAGE_KEYS.userLists, JSON.stringify(next));
+    summary.listsImported = env.data.lists.length;
+  }
+
+  // ── Collection ───────────────────────────────────────────────────────
+  if (plan.collection !== 'skip' && env.data.collection && env.data.collection.length > 0) {
+    if (plan.collection === 'replace') {
+      await db.cards.clear();
+      // Use bulkImport so metadata gets written via the same path the
+      // collection importer uses. bulkImport sums into existing rows, but
+      // we just cleared, so each becomes a clean add.
+      await bulkImport(env.data.collection.map(c => ({
+        name: c.name,
+        quantity: c.quantity,
+        typeLine: c.typeLine,
+        colorIdentity: c.colorIdentity,
+        cmc: c.cmc,
+        manaCost: c.manaCost,
+        rarity: c.rarity,
+        imageUrl: c.imageUrl,
+        edhrecRank: c.edhrecRank,
+      })));
+    } else {
+      // merge: max(existing.qty, incoming.qty); metadata fields keep
+      // existing-if-defined, otherwise take incoming.
+      await db.transaction('rw', db.cards, async () => {
+        for (const c of env.data.collection!) {
+          const existing = await db.cards.get(c.name);
+          if (!existing) {
+            await db.cards.add({
+              name: c.name,
+              quantity: c.quantity,
+              addedAt: c.addedAt ?? Date.now(),
+              typeLine: c.typeLine,
+              colorIdentity: c.colorIdentity,
+              cmc: c.cmc,
+              manaCost: c.manaCost,
+              rarity: c.rarity,
+              imageUrl: c.imageUrl,
+              edhrecRank: c.edhrecRank,
+            });
+          } else {
+            await db.cards.update(c.name, {
+              quantity: Math.max(existing.quantity, c.quantity),
+              typeLine: existing.typeLine ?? c.typeLine,
+              colorIdentity: existing.colorIdentity ?? c.colorIdentity,
+              cmc: existing.cmc ?? c.cmc,
+              manaCost: existing.manaCost ?? c.manaCost,
+              rarity: existing.rarity ?? c.rarity,
+              imageUrl: existing.imageUrl ?? c.imageUrl,
+              edhrecRank: existing.edhrecRank ?? c.edhrecRank,
+            });
+          }
+        }
+      });
+    }
+    summary.collectionCardsImported = env.data.collection.length;
+  }
+
+  // ── Preferences ──────────────────────────────────────────────────────
+  if (plan.preferences !== 'skip' && env.data.preferences) {
+    const p = env.data.preferences;
+    let applied = 0;
+
+    if (plan.preferences === 'replace') {
+      // Clear in-scope preference keys, then write file values for keys present.
+      for (const key of Object.values(STORAGE_KEYS)) {
+        if (key === STORAGE_KEYS.userLists) continue; // lists handled above
+        localStorage.removeItem(key);
+      }
+      if (p.bannedCards) { localStorage.setItem(STORAGE_KEYS.bannedCards, JSON.stringify(p.bannedCards)); applied++; }
+      if (p.mustIncludeCards) { localStorage.setItem(STORAGE_KEYS.mustIncludeCards, JSON.stringify(p.mustIncludeCards)); applied++; }
+      if (p.currency !== undefined) { localStorage.setItem(STORAGE_KEYS.currency, p.currency); applied++; }
+      if (p.banLists) { localStorage.setItem(STORAGE_KEYS.banLists, JSON.stringify(p.banLists)); applied++; }
+      if (p.appliedIncludeLists) { localStorage.setItem(STORAGE_KEYS.appliedIncludeLists, JSON.stringify(p.appliedIncludeLists)); applied++; }
+      if (p.appliedExcludeLists) { localStorage.setItem(STORAGE_KEYS.appliedExcludeLists, JSON.stringify(p.appliedExcludeLists)); applied++; }
+      if (p.arenaOnly !== undefined) { localStorage.setItem(STORAGE_KEYS.arenaOnly, String(p.arenaOnly)); applied++; }
+      if (p.eaFeaturesEnabled !== undefined) { localStorage.setItem(STORAGE_KEYS.eaFeaturesEnabled, String(p.eaFeaturesEnabled)); applied++; }
+    } else {
+      // merge
+      if (p.bannedCards) { applied += mergeStringArray(STORAGE_KEYS.bannedCards, p.bannedCards) ? 1 : 0; }
+      if (p.mustIncludeCards) { applied += mergeStringArray(STORAGE_KEYS.mustIncludeCards, p.mustIncludeCards) ? 1 : 0; }
+      if (p.currency !== undefined) {
+        // scalar: only write if not already set; file does NOT overwrite local scalar on merge
+        if (localStorage.getItem(STORAGE_KEYS.currency) === null) {
+          localStorage.setItem(STORAGE_KEYS.currency, p.currency);
+        }
+        applied++;
+      }
+      if (p.banLists) { applied += mergeObjectArray(STORAGE_KEYS.banLists, p.banLists, l => l.id) ? 1 : 0; }
+      if (p.appliedIncludeLists) {
+        applied += mergeObjectArray(STORAGE_KEYS.appliedIncludeLists, p.appliedIncludeLists, l => l.listId) ? 1 : 0;
+      }
+      if (p.appliedExcludeLists) {
+        applied += mergeObjectArray(STORAGE_KEYS.appliedExcludeLists, p.appliedExcludeLists, l => l.listId) ? 1 : 0;
+      }
+      if (p.arenaOnly !== undefined) {
+        if (localStorage.getItem(STORAGE_KEYS.arenaOnly) === null) {
+          localStorage.setItem(STORAGE_KEYS.arenaOnly, String(p.arenaOnly));
+        }
+        applied++;
+      }
+      if (p.eaFeaturesEnabled !== undefined) {
+        if (localStorage.getItem(STORAGE_KEYS.eaFeaturesEnabled) === null) {
+          localStorage.setItem(STORAGE_KEYS.eaFeaturesEnabled, String(p.eaFeaturesEnabled));
+        }
+        applied++;
+      }
+    }
+
+    summary.preferencesApplied = applied;
+  }
+
+  return summary;
+}
+
+// ─── Local helpers ──────────────────────────────────────────────────────
+function readLocalLists(): UserCardList[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.userLists);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeStringArray(key: string, incoming: string[]): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    const existing: string[] = raw ? JSON.parse(raw) : [];
+    const merged = Array.from(new Set([...(Array.isArray(existing) ? existing : []), ...incoming]));
+    localStorage.setItem(key, JSON.stringify(merged));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function mergeObjectArray<T>(key: string, incoming: T[], idOf: (item: T) => string): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    const existing: T[] = raw ? JSON.parse(raw) : [];
+    const arr = Array.isArray(existing) ? existing : [];
+    const existingIds = new Set(arr.map(idOf));
+    const toAdd = incoming.filter(i => !existingIds.has(idOf(i)));
+    localStorage.setItem(key, JSON.stringify([...arr, ...toAdd]));
+    return true;
+  } catch {
+    return false;
+  }
 }
