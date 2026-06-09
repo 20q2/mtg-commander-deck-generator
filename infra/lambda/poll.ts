@@ -128,3 +128,35 @@ export async function checkRateLimit(anonId: string, action: 'submit' | 'vote'):
     throw e;
   }
 }
+
+export async function handleSubmit(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  const anonId = headers?.['x-anon-id'] || headers?.['X-Anon-Id'];
+  if (!isValidUuid(anonId)) return jsonResponse(400, { error: 'bad_anon_id' });
+
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { title?: unknown; description?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+
+  const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+  const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+  if (title.length < 1 || title.length > MAX_TITLE) return jsonResponse(400, { error: 'bad_title', max: MAX_TITLE });
+  if (description.length < 1 || description.length > MAX_DESCRIPTION) return jsonResponse(400, { error: 'bad_description', max: MAX_DESCRIPTION });
+
+  const allowed = await checkRateLimit(anonId, 'submit');
+  if (!allowed) return jsonResponse(429, { error: 'rate_limited', action: 'submit', limit: LIMITS.submit });
+
+  const id = randomUUID();
+  const createdAt = new Date().toISOString();
+  const record: SuggestionRecord = {
+    pk: PK_SUGGESTION,
+    sk: `${createdAt}#${id}`,
+    gsiPk: GSI_PK_ALL,
+    id, title, description,
+    status: 'open',
+    voteCount: 0,
+    anonAuthorId: anonId,
+    createdAt,
+  };
+  await client.send(new PutItemCommand({ TableName: TABLE_NAME, Item: marshall(record) }));
+  return jsonResponse(200, { suggestion: toPublic(record) });
+}
