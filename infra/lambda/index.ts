@@ -1,6 +1,10 @@
 import { DynamoDBClient, BatchWriteItemCommand, QueryCommand } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { randomUUID } from 'crypto';
+import {
+  handleSubmit, handleList, handleVote,
+  handleDevNote, handleShip, handleDelete,
+} from './poll';
 
 const client = new DynamoDBClient({});
 const TABLE_NAME = process.env.TABLE_NAME!;
@@ -19,8 +23,18 @@ export async function handler(event: {
 }) {
   try {
     const method = event.requestContext.http.method;
+    const action = event.queryStringParameters?.action;
+
+    // Poll dispatch — must come before analytics fall-through.
+    if (action === 'poll-list' && method === 'GET') return handleList(event.headers);
+    if (action === 'poll-submit' && method === 'POST') return handleSubmit(event.body, event.headers);
+    if (action === 'poll-vote' && method === 'POST') return handleVote(event.body, event.headers);
+    if (action === 'poll-devnote' && method === 'POST') return handleDevNote(event.body, event.headers);
+    if (action === 'poll-ship' && method === 'POST') return handleShip(event.body, event.headers);
+    if (action === 'poll-delete' && method === 'POST') return handleDelete(event.body, event.headers);
 
     if (method === 'POST') {
+      // No action → legacy analytics ingest.
       return handlePost(event.body);
     }
     if (method === 'GET') {
