@@ -37,6 +37,7 @@ export class AnalyticsStack extends cdk.Stack {
       environment: {
         TABLE_NAME: table.tableName,
         METRICS_SECRET: process.env.VITE_METRICS_SECRET || '',
+        POLL_ADMIN_SECRET: process.env.POLL_ADMIN_SECRET || '',
       },
       bundling: {
         minify: true,
