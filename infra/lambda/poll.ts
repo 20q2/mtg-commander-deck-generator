@@ -221,15 +221,12 @@ export async function handleVote(body: string | undefined, headers: Record<strin
   if (parsed.vote !== 0 && parsed.vote !== 1) return jsonResponse(400, { error: 'bad_vote' });
   const targetVoted = parsed.vote === 1;
 
-  // Look up suggestion + current vote state in parallel.
+  // Check current vote state.
   const votePk = `${PK_VOTE_PREFIX}${suggestionId}`;
-  const [suggestionRes, voteRes] = await Promise.all([
-    // Suggestion lives under (pk=POLL#SUGGESTION, sk=<isoCreatedAt>#<id>). We don't know sk, so query by GSI...
-    // ...except we can avoid the lookup entirely: the UpdateItem below uses a ConditionExpression to fail loudly if missing.
-    Promise.resolve(null),
-    client.send(new GetItemCommand({ TableName: TABLE_NAME, Key: marshall({ pk: votePk, sk: anonId }) })),
-  ]);
-  void suggestionRes;
+  const voteRes = await client.send(new GetItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: votePk, sk: anonId }),
+  }));
   const alreadyVoted = !!voteRes.Item;
 
   if (alreadyVoted === targetVoted) {
@@ -273,19 +270,29 @@ export async function handleVote(body: string | undefined, headers: Record<strin
 }
 
 // Helper used by handleVote + admin handlers — looks up a suggestion by its id.
-// We don't know the sk (it contains createdAt), so we scan the partition for the matching id.
-// Small list (≤500), single partition — this is cheap.
+// We don't know the sk (it contains createdAt), so we Query the partition with a
+// FilterExpression and paginate until we find the match. DynamoDB applies Limit
+// BEFORE FilterExpression, so a Limit:1 here would silently only ever match the
+// newest item — that's the bug we're avoiding. The POLL#SUGGESTION partition is
+// expected to stay small (≤500 items) so a full scan is cheap.
 export async function getSuggestionById(id: string): Promise<SuggestionRecord | null> {
-  const res = await client.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    KeyConditionExpression: 'pk = :pk',
-    FilterExpression: 'id = :id',
-    ExpressionAttributeValues: marshall({ ':pk': PK_SUGGESTION, ':id': id }),
-    Limit: 1,
-  }));
-  if (!res.Items || res.Items.length === 0) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return unmarshall(res.Items[0] as any) as SuggestionRecord;
+  let exclusiveStartKey: Record<string, any> | undefined;
+  do {
+    const res = await client.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: 'pk = :pk',
+      FilterExpression: 'id = :id',
+      ExpressionAttributeValues: marshall({ ':pk': PK_SUGGESTION, ':id': id }),
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    if (res.Items && res.Items.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return unmarshall(res.Items[0] as any) as SuggestionRecord;
+    }
+    exclusiveStartKey = res.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return null;
 }
 
 export async function handleDevNote(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
