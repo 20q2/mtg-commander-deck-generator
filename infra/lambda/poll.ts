@@ -287,3 +287,104 @@ export async function getSuggestionById(id: string): Promise<SuggestionRecord | 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return unmarshall(res.Items[0] as any) as SuggestionRecord;
 }
+
+export async function handleDevNote(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  if (!isAdmin(headers)) return jsonResponse(401, { error: 'unauthorized' });
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { suggestionId?: unknown; devNote?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+  const suggestionId = typeof parsed.suggestionId === 'string' ? parsed.suggestionId : '';
+  const devNote = typeof parsed.devNote === 'string' ? parsed.devNote.trim() : '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+  if (devNote.length > MAX_DEVNOTE) return jsonResponse(400, { error: 'bad_devnote', max: MAX_DEVNOTE });
+
+  const suggestion = await getSuggestionById(suggestionId);
+  if (!suggestion) return jsonResponse(404, { error: 'not_found' });
+
+  if (devNote.length === 0) {
+    await client.send(new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+      UpdateExpression: 'REMOVE devNote',
+    }));
+    return jsonResponse(200, { suggestion: toPublic({ ...suggestion, devNote: undefined }) });
+  }
+  await client.send(new UpdateItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+    UpdateExpression: 'SET devNote = :n',
+    ExpressionAttributeValues: marshall({ ':n': devNote }),
+  }));
+  return jsonResponse(200, { suggestion: toPublic({ ...suggestion, devNote }) });
+}
+
+export async function handleShip(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  if (!isAdmin(headers)) return jsonResponse(401, { error: 'unauthorized' });
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { suggestionId?: unknown; shippedVersion?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+  const suggestionId = typeof parsed.suggestionId === 'string' ? parsed.suggestionId : '';
+  const shippedVersion = typeof parsed.shippedVersion === 'string' ? parsed.shippedVersion.trim() : '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+  if (!shippedVersion) return jsonResponse(400, { error: 'bad_shipped_version' });
+
+  const suggestion = await getSuggestionById(suggestionId);
+  if (!suggestion) return jsonResponse(404, { error: 'not_found' });
+  const shippedAt = new Date().toISOString();
+
+  await client.send(new UpdateItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+    UpdateExpression: 'SET #s = :s, shippedVersion = :v, shippedAt = :a',
+    ExpressionAttributeNames: { '#s': 'status' },
+    ExpressionAttributeValues: marshall({ ':s': 'shipped', ':v': shippedVersion, ':a': shippedAt }),
+  }));
+  return jsonResponse(200, { suggestion: toPublic({ ...suggestion, status: 'shipped', shippedVersion, shippedAt }) });
+}
+
+export async function handleDelete(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  if (!isAdmin(headers)) return jsonResponse(401, { error: 'unauthorized' });
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { suggestionId?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+  const suggestionId = typeof parsed.suggestionId === 'string' ? parsed.suggestionId : '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+
+  const suggestion = await getSuggestionById(suggestionId);
+  if (!suggestion) return jsonResponse(200, { ok: true }); // already gone
+
+  // Delete the suggestion itself.
+  await client.send(new DeleteItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+  }));
+
+  // Delete all vote rows for that suggestion (query + batched delete).
+  const votePk = `${PK_VOTE_PREFIX}${suggestionId}`;
+  const { BatchWriteItemCommand } = await import('@aws-sdk/client-dynamodb');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let startKey: Record<string, any> | undefined;
+  do {
+    const res = await client.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: marshall({ ':pk': votePk }),
+      ProjectionExpression: 'sk',
+      ExclusiveStartKey: startKey,
+    }));
+    const items = res.Items || [];
+    for (let i = 0; i < items.length; i += 25) {
+      const batch = items.slice(i, i + 25).map(raw => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { sk } = unmarshall(raw as any) as { sk: string };
+        return { DeleteRequest: { Key: marshall({ pk: votePk, sk }) } };
+      });
+      if (batch.length > 0) {
+        await client.send(new BatchWriteItemCommand({ RequestItems: { [TABLE_NAME]: batch } }));
+      }
+    }
+    startKey = res.LastEvaluatedKey;
+  } while (startKey);
+
+  return jsonResponse(200, { ok: true });
+}
