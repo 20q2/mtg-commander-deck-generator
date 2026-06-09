@@ -25,6 +25,14 @@ function getDeviceType(): 'mobile' | 'desktop' {
   }
 }
 
+function getHost(): string {
+  try {
+    return window.location.hostname.toLowerCase();
+  } catch {
+    return 'unknown';
+  }
+}
+
 function getFirstSeen(): string {
   try {
     const KEY = 'mtg_first_seen';
@@ -74,6 +82,7 @@ export function trackEvent<T extends AnalyticsEventType>(
         firstSeen: getFirstSeen(),
         deviceType: getDeviceType(),
         region: getRegion(),
+        host: getHost(),
       },
     });
 

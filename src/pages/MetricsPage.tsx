@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { fetchMetrics } from '@/services/analytics';
-import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List } from 'lucide-react';
+import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List, Server } from 'lucide-react';
 
 
 interface FeatureAdoption {
@@ -46,6 +46,7 @@ interface MetricsSummary {
   hourlyUniqueUsers: Record<string, number>;
   regionCounts: Record<string, number>;
   deviceCounts: Record<string, number>;
+  hostCounts?: Record<string, number>;
   featureAdoption: FeatureAdoption;
   listActivity?: ListActivity;
   settingsCounts: Record<string, Record<string, number>>;
@@ -288,6 +289,12 @@ export function MetricsPage() {
     : [];
   const maxRegionCount = sortedRegions.length > 0 ? sortedRegions[0][1] : 1;
 
+  const sortedHosts = data
+    ? Object.entries(data.hostCounts ?? {}).sort(([, a], [, b]) => b - a)
+    : [];
+  const hostTotal = sortedHosts.reduce((sum, [, c]) => sum + c, 0);
+  const maxHostCount = sortedHosts.length > 0 ? sortedHosts[0][1] : 1;
+
   const fa = data?.featureAdoption;
   const featureRows = fa && fa.deckCount > 0 ? [
     { label: 'Collection Mode', count: fa.collectionMode ?? 0 },
@@ -475,8 +482,34 @@ export function MetricsPage() {
             </Card>
           </div>
 
-          {/* Row: Regions + Devices + Feature Adoption + List Activity */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Row: Hosts + Regions + Devices + Feature Adoption + List Activity */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <Card className="bg-card/80 backdrop-blur-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Server className="w-4 h-4" />
+                  Hosts
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {sortedHosts.length > 0 ? (
+                  <div className="space-y-3">
+                    {sortedHosts.map(([host, count]) => (
+                      <BarRow
+                        key={host}
+                        label={host}
+                        count={count}
+                        max={maxHostCount}
+                        total={hostTotal}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No host data yet</p>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="bg-card/80 backdrop-blur-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
