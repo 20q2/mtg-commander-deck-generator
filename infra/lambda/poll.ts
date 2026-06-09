@@ -100,3 +100,31 @@ export function isAdmin(headers: Record<string, string | undefined> | undefined)
 
 // Exports referenced by handlers added in later tasks
 export { client, TABLE_NAME, PK_VOTE_PREFIX, PK_RATELIMIT_PREFIX, randomUUID, GetItemCommand, PutItemCommand, UpdateItemCommand, DeleteItemCommand, QueryCommand, marshall, unmarshall };
+
+// Append to infra/lambda/poll.ts
+// Atomically increment the per-day counter; returns true if allowed, false if rate-limited.
+export async function checkRateLimit(anonId: string, action: 'submit' | 'vote'): Promise<boolean> {
+  const pk = `${PK_RATELIMIT_PREFIX}${anonId}#${action}`;
+  const sk = dayBucketUTC();
+  const limit = LIMITS[action];
+  try {
+    await client.send(new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ pk, sk }),
+      UpdateExpression: 'ADD #c :one SET #ttl = if_not_exists(#ttl, :ttl)',
+      ConditionExpression: 'attribute_not_exists(#c) OR #c < :limit',
+      ExpressionAttributeNames: { '#c': 'count', '#ttl': 'ttl' },
+      ExpressionAttributeValues: marshall({
+        ':one': 1,
+        ':limit': limit,
+        ':ttl': endOfUtcDayEpoch(),
+      }),
+    }));
+    return true;
+  } catch (e: unknown) {
+    if (e && typeof e === 'object' && 'name' in e && (e as { name: string }).name === 'ConditionalCheckFailedException') {
+      return false;
+    }
+    throw e;
+  }
+}
