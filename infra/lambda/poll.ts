@@ -208,3 +208,82 @@ export async function handleList(headers: Record<string, string | undefined> | u
     myVotes,
   });
 }
+
+export async function handleVote(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  const anonId = headers?.['x-anon-id'] || headers?.['X-Anon-Id'];
+  if (!isValidUuid(anonId)) return jsonResponse(400, { error: 'bad_anon_id' });
+
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { suggestionId?: unknown; vote?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+  const suggestionId = typeof parsed.suggestionId === 'string' ? parsed.suggestionId : '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+  if (parsed.vote !== 0 && parsed.vote !== 1) return jsonResponse(400, { error: 'bad_vote' });
+  const targetVoted = parsed.vote === 1;
+
+  // Look up suggestion + current vote state in parallel.
+  const votePk = `${PK_VOTE_PREFIX}${suggestionId}`;
+  const [suggestionRes, voteRes] = await Promise.all([
+    // Suggestion lives under (pk=POLL#SUGGESTION, sk=<isoCreatedAt>#<id>). We don't know sk, so query by GSI...
+    // ...except we can avoid the lookup entirely: the UpdateItem below uses a ConditionExpression to fail loudly if missing.
+    Promise.resolve(null),
+    client.send(new GetItemCommand({ TableName: TABLE_NAME, Key: marshall({ pk: votePk, sk: anonId }) })),
+  ]);
+  void suggestionRes;
+  const alreadyVoted = !!voteRes.Item;
+
+  if (alreadyVoted === targetVoted) {
+    // No-op — return current count by querying the suggestion.
+    const cur = await getSuggestionById(suggestionId);
+    if (!cur) return jsonResponse(404, { error: 'not_found' });
+    return jsonResponse(200, { suggestionId, voteCount: cur.voteCount });
+  }
+
+  // Rate-limit before mutating.
+  const allowed = await checkRateLimit(anonId, 'vote');
+  if (!allowed) return jsonResponse(429, { error: 'rate_limited', action: 'vote', limit: LIMITS.vote });
+
+  // Find the suggestion's sk so we can UpdateItem on it.
+  const suggestion = await getSuggestionById(suggestionId);
+  if (!suggestion) return jsonResponse(404, { error: 'not_found' });
+
+  if (targetVoted) {
+    await client.send(new PutItemCommand({
+      TableName: TABLE_NAME,
+      Item: marshall({ pk: votePk, sk: anonId, votedAt: new Date().toISOString() }),
+    }));
+  } else {
+    await client.send(new DeleteItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ pk: votePk, sk: anonId }),
+    }));
+  }
+
+  const delta = targetVoted ? 1 : -1;
+  const update = await client.send(new UpdateItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+    UpdateExpression: 'ADD voteCount :d',
+    ExpressionAttributeValues: marshall({ ':d': delta }),
+    ReturnValues: 'UPDATED_NEW',
+  }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const newCount = Number((unmarshall(update.Attributes as any) as { voteCount: number }).voteCount);
+  return jsonResponse(200, { suggestionId, voteCount: newCount });
+}
+
+// Helper used by handleVote + admin handlers — looks up a suggestion by its id.
+// We don't know the sk (it contains createdAt), so we scan the partition for the matching id.
+// Small list (≤500), single partition — this is cheap.
+export async function getSuggestionById(id: string): Promise<SuggestionRecord | null> {
+  const res = await client.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'pk = :pk',
+    FilterExpression: 'id = :id',
+    ExpressionAttributeValues: marshall({ ':pk': PK_SUGGESTION, ':id': id }),
+    Limit: 1,
+  }));
+  if (!res.Items || res.Items.length === 0) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return unmarshall(res.Items[0] as any) as SuggestionRecord;
+}
