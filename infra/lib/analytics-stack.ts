@@ -59,7 +59,7 @@ export class AnalyticsStack extends cdk.Stack {
           'http://localhost:4173',
         ],
         allowedMethods: [lambda.HttpMethod.GET, lambda.HttpMethod.POST],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Anon-Id'],
         maxAge: cdk.Duration.hours(1),
       },
     });
