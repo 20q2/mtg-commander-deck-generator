@@ -6,8 +6,8 @@ export function PollHero() {
         Community <span className="gradient-text">Poll</span>
       </h1>
       <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-        Suggest a feature, or upvote ones you like. Votes are tied to your browser for now
-        (accounts later — please don't abuse it 🙏).
+        Suggest a feature, or upvote ones you like. Votes are anonymous until we create accounts.
+        (Please be polite in the mean time 🙏).
       </p>
     </div>
   );

@@ -168,10 +168,6 @@ export function CommunityPollPage({ admin = false }: Props) {
           />
         )}
 
-        <p className="mt-8 text-center text-xs text-muted-foreground/70">
-          One vote per browser. No login required. <kbd className="bg-accent px-1.5 py-0.5 rounded text-[10px] font-mono">⌘</kbd>+<kbd className="bg-accent px-1.5 py-0.5 rounded text-[10px] font-mono">↵</kbd> to submit.
-        </p>
-
         {toast && (
           <div className="fixed top-6 right-6 z-50 animate-slide-in-right">
             <div className="glass rounded-xl px-4 py-2.5 text-sm text-foreground shadow-lg">

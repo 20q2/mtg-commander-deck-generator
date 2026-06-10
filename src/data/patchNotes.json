@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.2.38",
+    "notes": [
+      "New Community Poll page — suggest features for ManaFoundry, upvote ones you like, and see what's shipped from the poll.",
+      "Find the link in this popover, right above the patch notes."
+    ]
+  },
+  {
     "version": "1.2.37",
     "notes": [
       "New site url is live! Follow the banner for the new link, as well as a migration tool to bring your decks, lists, and collections over to the new site.",
