@@ -1185,6 +1185,25 @@ interface RawComboResponse {
   };
 }
 
+// EDHREC sometimes lists the same set of cards as multiple combo entries that
+// differ only by a result-variant suffix in the comboId — e.g. "3470-5702--143"
+// and "3470-5702--131" are both Springheart Nantuko + Lotus Cobra with the same
+// deck count. To a deckbuilder these are the same combo, and since every consumer
+// keys React lists / dedupe on comboId, both survive and render as visible
+// duplicates. Collapse by card set, keeping the first entry (callers sort by
+// deck count before calling, so the most popular variant wins).
+function dedupeCombosByCardSet(combos: EDHRECCombo[]): EDHRECCombo[] {
+  const seen = new Set<string>();
+  const out: EDHRECCombo[] = [];
+  for (const c of combos) {
+    const key = c.cards.map(card => card.name).sort().join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
 /**
  * Fetch known combos for a commander from EDHREC.
  * Returns combos sorted by popularity (deckCount descending).
@@ -1219,9 +1238,10 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
     });
 
     combos.sort((a, b) => b.deckCount - a.deckCount);
+    const deduped = dedupeCombosByCardSet(combos);
 
-    comboCache.set(slug, { data: combos, timestamp: Date.now() });
-    return combos;
+    comboCache.set(slug, { data: deduped, timestamp: Date.now() });
+    return deduped;
   } catch (error) {
     console.error(`[EDHREC] Failed to fetch combos for ${commanderName}:`, error);
     return [];
@@ -1263,9 +1283,10 @@ export async function fetchColorIdentityCombos(colorIdentity: string[]): Promise
     });
 
     combos.sort((a, b) => b.deckCount - a.deckCount);
+    const deduped = dedupeCombosByCardSet(combos);
 
-    comboCache.set(cacheKey, { data: combos, timestamp: Date.now() });
-    return combos;
+    comboCache.set(cacheKey, { data: deduped, timestamp: Date.now() });
+    return deduped;
   } catch (error) {
     console.error(`[EDHREC] Failed to fetch color-identity combos for ${slug}:`, error);
     return [];

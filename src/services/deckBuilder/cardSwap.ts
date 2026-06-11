@@ -168,15 +168,24 @@ export function swapCard(
     delete newCardInclusionMap[oldName];
     delete newCardInclusionMap[oldNorm];
 
-    // Look up new card's inclusion from gap analysis
+    // Look up the new card's inclusion %: prefer gap analysis, then any value
+    // already indexed at generation time (swap candidates are indexed there too),
+    // and otherwise leave it unset. Storing an explicit 0 is indistinguishable
+    // from "0% played" and would suppress the edhrec_rank fallback the cut UI uses.
     const newName = newCard.name;
     const newNorm = newName.includes(' // ') ? newName.split(' // ')[0] : newName;
     const gapEntry = deck.gapAnalysis?.find(g => g.name === newName || g.name === newNorm);
-    const newIncl = gapEntry ? gapEntry.inclusion : 0;
-    newCardInclusionMap[newName] = newIncl;
+    const newIncl = gapEntry
+      ? gapEntry.inclusion
+      : (newCardInclusionMap[newName] ?? newCardInclusionMap[newNorm]);
+    if (newIncl !== undefined) {
+      newCardInclusionMap[newName] = newIncl;
+    } else {
+      delete newCardInclusionMap[newName];
+    }
 
     if (newDeckScore !== undefined) {
-      newDeckScore = Math.round(newDeckScore - oldIncl + newIncl);
+      newDeckScore = Math.round(newDeckScore - oldIncl + (newIncl ?? 0));
     }
   }
 
@@ -334,10 +343,16 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
     const newName = newCard.name;
     const newNorm = newName.includes(' // ') ? newName.split(' // ')[0] : newName;
     const gapEntry = deck.gapAnalysis?.find(g => g.name === newName || g.name === newNorm);
-    const newIncl = gapEntry ? gapEntry.inclusion : 0;
-    newCardInclusionMap[newName] = newIncl;
+    // Prefer gap analysis, then any value already indexed at generation time;
+    // leave unset rather than storing an explicit 0 (see swapCard for rationale).
+    const newIncl = gapEntry
+      ? gapEntry.inclusion
+      : (newCardInclusionMap[newName] ?? newCardInclusionMap[newNorm]);
+    if (newIncl !== undefined) {
+      newCardInclusionMap[newName] = newIncl;
+    }
     if (newDeckScore !== undefined) {
-      newDeckScore = Math.round(newDeckScore + newIncl);
+      newDeckScore = Math.round(newDeckScore + (newIncl ?? 0));
     }
   }
 

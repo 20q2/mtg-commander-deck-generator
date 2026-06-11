@@ -1443,14 +1443,7 @@ function mergeThemeCardlists(
     const cardMap = new Map<string, EDHRECCard>();
 
     for (const cardList of cards) {
-      // Track which cards we've seen in THIS theme's list to avoid double-counting
-      const seenInThisList = new Set<string>();
       for (const card of cardList) {
-        if (!seenInThisList.has(card.name)) {
-          seenInThisList.add(card.name);
-          themeOverlapCounts.set(card.name, (themeOverlapCounts.get(card.name) ?? 0) + 1);
-        }
-
         const existing = cardMap.get(card.name);
         if (!existing) {
           cardMap.set(card.name, card);
@@ -1481,6 +1474,24 @@ function mergeThemeCardlists(
     lands: mergeCards(themeDataResults.map(r => r.cardlists.lands)),
     allNonLand: mergeCards(themeDataResults.map(r => r.cardlists.allNonLand)),
   };
+
+  // Count how many distinct themes each card appears in. A card can show up in
+  // several of one theme's lists (e.g. both `creatures` and `allNonLand`), but
+  // that still means "1 theme" — so dedupe within a theme before counting,
+  // otherwise a single-theme card is mis-counted as appearing in every theme.
+  for (const themeData of themeDataResults) {
+    const lists = themeData.cardlists;
+    const namesInTheme = new Set<string>();
+    for (const list of [
+      lists.creatures, lists.instants, lists.sorceries, lists.artifacts,
+      lists.enchantments, lists.planeswalkers, lists.lands, lists.allNonLand,
+    ]) {
+      for (const card of list) namesInTheme.add(card.name);
+    }
+    for (const name of namesInTheme) {
+      themeOverlapCounts.set(name, (themeOverlapCounts.get(name) ?? 0) + 1);
+    }
+  }
 
   return { cardlists, themeOverlapCounts };
 }
@@ -3314,6 +3325,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         if (!scryfallCard) continue;
 
         if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
+        if (notOnArena(scryfallCard, arenaOnly)) continue;
         if (collectionStrategy === 'full' && notInCollection(edhrecCard.name, context.collectionNames)) continue;
         if (exceedsMaxPrice(scryfallCard, shortagePriceCap, currency)) continue;
         if (!isOwnedRarityExempt(edhrecCard.name, context.collectionNames, ignoreOwnedRarity)) {
@@ -3353,6 +3365,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           if (!scryfallCard) continue;
 
           if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
+          if (notOnArena(scryfallCard, arenaOnly)) continue;
           if (collectionStrategy === 'full' && notInCollection(edhrecCard.name, context.collectionNames)) continue;
           if (exceedsMaxPrice(scryfallCard, shortagePriceCap, currency)) continue;
           if (!isOwnedRarityExempt(edhrecCard.name, context.collectionNames, ignoreOwnedRarity)) {
@@ -3802,8 +3815,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const card = scryfallCardMap.get(name)!;
         const weak = auditWeakest();
         if (!weak) break;
-        auditRemove(weak.card, weak.category);
+        // Add first, then evict — so a failed add never drops the deck below size.
         if (auditAdd(card)) {
+          auditRemove(weak.card, weak.category);
           auditSwaps++;
           // Mark all combos this card completes
           for (const dc of detectedCombos) {
@@ -3866,9 +3880,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           if (usedNames.has(missing.name)) continue; // already in deck from a prior combo
           const weak = auditWeakest(evicted);
           if (!weak) { ok = false; break; }
+          // Add first so a failed add never evicts without a replacement.
+          if (!auditAdd(missing)) { ok = false; break; }
           evicted.add(weak.card.name);
           auditRemove(weak.card, weak.category);
-          if (!auditAdd(missing)) { ok = false; break; }
           auditSwaps++;
         }
         if (ok) {
@@ -3892,10 +3907,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
               && passesUserConstraints(scryfallCardMap.get(c.name)!))
             .sort((a, b) => b.inclusion - a.inclusion)[0];
           if (!replacement) continue;
-          auditRemove(found.card, found.category);
-          auditAdd(scryfallCardMap.get(replacement.name)!);
-          auditSwaps++;
-          console.log(`[DeckGen] Combo audit: evicted orphan ${orphanName} (${auditInclusion.get(orphanName) ?? 0}% inclusion) → ${replacement.name}`);
+          // Only evict the orphan if the replacement actually lands, and only
+          // count a swap when it does — otherwise the deck would drop a card.
+          if (auditAdd(scryfallCardMap.get(replacement.name)!)) {
+            auditRemove(found.card, found.category);
+            auditSwaps++;
+            console.log(`[DeckGen] Combo audit: evicted orphan ${orphanName} (${auditInclusion.get(orphanName) ?? 0}% inclusion) → ${replacement.name}`);
+          }
         }
       }
     }

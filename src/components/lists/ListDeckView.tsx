@@ -183,18 +183,19 @@ function detectCombosInDeck(
 ): DetectedCombo[] | undefined {
   if (combos.length === 0) return undefined;
 
-  // Defensive dedupe by comboId. The same combo is often returned by BOTH the
-  // commander combo page (source 'commander') and the color-identity combo page
-  // (source 'color-identity') under an identical comboId. Callers list
+  // Defensive dedupe by card set. The same combo is surfaced more than once two
+  // ways: (1) EDHREC lists a card set as multiple combo entries that differ only
+  // by a result-variant suffix in the comboId ("3470-5702--143" vs "--131"), and
+  // (2) the same combo appears on both the commander page (source 'commander')
+  // and the color-identity page (source 'color-identity'). Keying on comboId
+  // misses case (1) entirely, so dedupe on the card set instead. Callers list
   // commander-source combos first, so keeping the first occurrence preserves the
-  // commander provenance and drops the duplicate "Synergy" copy. Some callers
-  // pre-dedupe (no-op here); the background refresh concatenates without deduping,
-  // and the incremental re-detection reads back that polluted list — this guard
-  // keeps both from surfacing the same combo twice.
-  const seenComboIds = new Set<string>();
+  // commander provenance and drops the duplicate "Synergy" copy.
+  const seenCardSets = new Set<string>();
   const uniqueCombos = combos.filter(c => {
-    if (seenComboIds.has(c.comboId)) return false;
-    seenComboIds.add(c.comboId);
+    const key = c.cards.map(card => card.name).sort().join('|');
+    if (seenCardSets.has(key)) return false;
+    seenCardSets.add(key);
     return true;
   });
 
@@ -235,6 +236,26 @@ function detectCombosInDeck(
   });
 
   return detected.length > 0 ? detected : undefined;
+}
+
+// Defensive card-set dedupe for combos coming straight out of the enrichment
+// cache. Fresh detection flows through detectCombosInDeck (which dedupes), but
+// hydrateFromCache trusts payload.detectedCombos verbatim — and a payload written
+// by an older build can list the same card set twice (EDHREC gives one card set
+// several comboIds that differ only by a result-variant suffix). Surfacing both
+// renders the combo twice and warns about duplicate React keys, so dedupe on the
+// way out of the cache. Card set, not comboId, is the key — that's what makes
+// the duplicates duplicates.
+function dedupeCombosByCardSet(combos: DetectedCombo[] | undefined): DetectedCombo[] | undefined {
+  if (!combos || combos.length === 0) return combos;
+  const seen = new Set<string>();
+  const unique = combos.filter(c => {
+    const key = [...c.cards].sort().join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.length === combos.length ? combos : unique;
 }
 
 // --- Board Card Row (with context menu) ---
@@ -950,7 +971,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         partnerCommander: payload.partnerCard,
         categories: payload.categories,
         stats: payload.stats,
-        detectedCombos: payload.detectedCombos,
+        detectedCombos: dedupeCombosByCardSet(payload.detectedCombos),
         roleCounts: payload.roleCounts,
         roleTargets: payload.roleTargets,
         rampSubtypeCounts: payload.rampSubtypeCounts,
