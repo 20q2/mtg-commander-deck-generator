@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react';
 import type { DetectedCombo, ScryfallCard, LoadPhase } from '@/types';
-import { getCardByName, getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
+import { getCardByName, getCardsByNames, getCardImageUrl, useScryfallImage } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -136,6 +136,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const [hoverPreview, setHoverPreview] = useState<{ name: string; top: number; left: number; placement: 'right' | 'left' } | null>(null);
+  const hoverImage = useScryfallImage(hoverPreview?.name ?? null, 'normal');
   const { lists: userLists, updateList, createList } = useUserLists();
 
   // When right-click sets contextMenuCard, click the trigger button after render
@@ -941,11 +942,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           }}
         >
           <img
-            src={(() => {
-              const cached = cardDataCache.get(hoverPreview.name);
-              if (cached) return getCardImageUrl(cached, 'normal') ?? '';
-              return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(hoverPreview.name)}&format=image&version=normal`;
-            })()}
+            src={hoverImage.url}
             alt={hoverPreview.name}
             className="w-56 rounded-lg shadow-2xl border border-white/10"
           />
