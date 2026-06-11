@@ -1,7 +1,5 @@
 import type { ScryfallCard } from '@/types';
-import { searchCards } from '@/services/scryfall/client';
-
-const SCRYFALL_BASE = 'https://api.scryfall.com';
+import { searchCards, getCardsByIds } from '@/services/scryfall/client';
 
 /**
  * Resolves the tokens this deck can actually create by walking each card's
@@ -36,33 +34,19 @@ export async function resolveDeckTokens(deckCards: ScryfallCard[]): Promise<Scry
   const cached = deckTokensCache.get(cacheKey);
   if (cached) return cached;
 
-  // Scryfall /cards/collection accepts up to 75 identifiers per request.
+  // Goes through the central rate limiter + persistent cache.
+  const byId = await getCardsByIds(ids);
   const cards: ScryfallCard[] = [];
-  for (let i = 0; i < ids.length; i += 75) {
-    const batch = ids.slice(i, i + 75).map(id => ({ id }));
-    try {
-      const res = await fetch(`${SCRYFALL_BASE}/cards/collection`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers: batch }),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      for (const c of data.data ?? []) cards.push(c);
-    } catch {
-      /* swallow — return whatever we managed to fetch */
-    }
+  for (const id of ids) {
+    const card = byId.get(id);
+    if (card) cards.push(card);
   }
-
-  // Restore the original ids ordering (collection endpoint doesn't guarantee order)
-  const byId = new Map(cards.map(c => [c.id, c] as const));
-  const ordered = ids.map(id => byId.get(id)).filter((c): c is ScryfallCard => !!c);
 
   // Dedupe by name + type_line so different printings of the "same" token
   // (different art / set) only appear once in the spawn list.
   const seenKey = new Set<string>();
   const deduped: ScryfallCard[] = [];
-  for (const c of ordered) {
+  for (const c of cards) {
     const key = `${c.name.toLowerCase()}|${c.type_line.toLowerCase()}`;
     if (seenKey.has(key)) continue;
     seenKey.add(key);
