@@ -4,7 +4,7 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, isMdfcLand, getCachedCard, BASIC_LAND_NAMES } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, isMdfcLand, BASIC_LAND_NAMES, useScryfallImage } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
@@ -2090,6 +2090,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
 export function RemovedCardsDialog({ removedCards, onClose }: { removedCards: string[]; onClose: () => void }) {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [hoverY, setHoverY] = useState(0);
+  const hoverPreview = useScryfallImage(hoveredCard, 'normal');
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center" onClick={onClose}>
@@ -2129,7 +2130,7 @@ export function RemovedCardsDialog({ removedCards, onClose }: { removedCards: st
           }}
         >
           <img
-            src={(() => { const c = getCachedCard(hoveredCard); return c ? getCardImageUrl(c, 'normal') : `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(hoveredCard)}&format=image&version=normal`; })()}
+            src={hoverPreview.url}
             alt={hoveredCard}
             className="w-[250px] rounded-xl shadow-2xl border border-border/50"
           />
