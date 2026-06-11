@@ -21,7 +21,7 @@ export interface NextBestMoveProps {
   /** Number of cards over deck target (positive = over, negative = under). */
   deckExcess: number;
   commander: ScryfallCard;
-  onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove' }) => void;
+  onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; comboId?: string }) => void;
   /** Mana base verdict from analysis.manaBase.verdict */
   manaVerdict?: 'critically-low' | 'low' | 'slightly-low' | 'ok' | 'high';
   /** Current land count */
@@ -45,6 +45,8 @@ interface Suggestion {
   cardName?: string;
   /** Which optimize column the cardName belongs to, when navigating to the optimize tab. */
   side?: 'add' | 'remove';
+  /** When set, navigating to the optimize tab opens the Combos sub-view and scrolls to this combo. */
+  comboId?: string;
   message: React.ReactNode;
   navigateTo?: TabKey;
   navLabel?: string;
@@ -342,6 +344,7 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
           tier: 3,
           cardName: missing,
           side: 'add',
+          comboId: nearMiss.comboId,
           message: (
             <>
               Complete the <strong className="text-foreground">{result}</strong> combo — you're 1 card away (<strong className="text-violet-300">{missing}</strong>).
@@ -430,7 +433,7 @@ export function NextBestMove(props: NextBestMoveProps) {
                 onClick={() => props.onNavigate(
                   s.navigateTo!,
                   s.navigateTo === 'optimize' && s.cardName && s.side
-                    ? { cardName: s.cardName, side: s.side }
+                    ? { cardName: s.cardName, side: s.side, comboId: s.comboId }
                     : undefined,
                 )}
                 className="flex-1 min-w-0 flex items-start gap-3 text-left px-2 py-2"

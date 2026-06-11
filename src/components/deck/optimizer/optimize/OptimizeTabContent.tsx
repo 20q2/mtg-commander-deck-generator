@@ -32,8 +32,12 @@ export interface OptimizeTabContentProps {
    * When a user follows a dashboard suggestion into this tab, the suggested
    * card is pre-checked on the matching side. Cleared via `onPreSelectConsumed`
    * after it is applied so it doesn't re-apply on tab switches.
+   *
+   * If `comboId` is set, the tab also switches to the Combos sub-view and
+   * scrolls to the matching combo — used by the "complete this combo"
+   * suggestion so users land on the combo breakdown, not the swap columns.
    */
-  preSelect?: { cardName: string; side: 'add' | 'remove' } | null;
+  preSelect?: { cardName: string; side: 'add' | 'remove'; comboId?: string } | null;
   onPreSelectConsumed?: () => void;
   /** Shared swap list lifted to DeckOptimizer so dashboard + optimize tab stay in sync. */
   baseSwaps?: OptimizeSwaps;
@@ -114,7 +118,9 @@ export function OptimizeTabContent({
 
   // Apply a pre-selection from a dashboard suggestion. If the suggested card
   // isn't present in the current optimize list (e.g. due to capping), skip
-  // gracefully — the user will still land on the tab.
+  // gracefully — the user will still land on the tab. When the suggestion
+  // carries a comboId, also open the Combos sub-view and flash that combo so
+  // the user sees the combo breakdown instead of the default swap columns.
   useEffect(() => {
     if (!preSelect) return;
     const list = preSelect.side === 'add' ? plan.additions : plan.removals;
@@ -123,8 +129,11 @@ export function OptimizeTabContent({
       if (preSelect.side === 'add') plan.selectAdditionGroup([preSelect.cardName]);
       else plan.selectRemovalGroup([preSelect.cardName]);
     }
+    if (preSelect.comboId) {
+      flashCombo(preSelect.comboId);
+    }
     onPreSelectConsumed?.();
-  }, [preSelect, onPreSelectConsumed, plan.additions, plan.removals, plan.selectAdditionGroup, plan.selectRemovalGroup]);
+  }, [preSelect, onPreSelectConsumed, plan.additions, plan.removals, plan.selectAdditionGroup, plan.selectRemovalGroup, flashCombo]);
 
   return (
     <div className="space-y-3 sm:space-y-4 px-3 sm:px-4 pb-3 sm:pb-4 pt-0">

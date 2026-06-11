@@ -84,9 +84,9 @@ export function DeckOptimizer({
   // When a dashboard suggestion sends us to the optimize tab with a specific
   // card, stash it so OptimizeTabContent can pre-check the right tile.
   const [pendingOptimizeSelection, setPendingOptimizeSelection] =
-    useState<{ cardName: string; side: 'add' | 'remove' } | null>(null);
+    useState<{ cardName: string; side: 'add' | 'remove'; comboId?: string } | null>(null);
   const navigateFromDashboard = useCallback(
-    (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove' }) => {
+    (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; comboId?: string }) => {
       if (tab === 'optimize' && opts) setPendingOptimizeSelection(opts);
       setActiveTab(tab);
     },
