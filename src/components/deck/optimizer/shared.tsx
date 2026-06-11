@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban, Package } from 'lucide-react';
+import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban, Package, Pin } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getFrontFaceTypeLine, getCachedCard, getProducedColors } from '@/services/scryfall/client';
@@ -52,6 +52,7 @@ function _AnalyzedCardRow({
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const isBanned = menuProps?.bannedNames.has(ac.card.name);
+  const isMustInclude = menuProps?.mustIncludeNames.has(ac.card.name);
   const price = showDetails && !hidePrice ? getCardPrice(ac.card) : null;
   const typeLine = getFrontFaceTypeLine(ac.card).toLowerCase();
   const cardType = typeLine.includes('creature') ? 'creature'
@@ -91,6 +92,11 @@ function _AnalyzedCardRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm truncate">{ac.card.name}</span>
+          {isMustInclude && (
+            <span title="Must include" className="shrink-0 animate-pop-in">
+              <Pin className="w-3 h-3 text-emerald-500/70" />
+            </span>
+          )}
           {isBanned && (
             <span title="Excluded" className="shrink-0 animate-pop-in">
               <Ban className="w-3 h-3 text-red-400/70" />

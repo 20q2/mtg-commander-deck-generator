@@ -23,7 +23,9 @@ export class TaggerStack extends cdk.Stack {
       cors: [
         {
           allowedOrigins: [
-            'https://20q2.github.io',
+            'https://manafoundry.gg',
+            'https://www.manafoundry.gg',
+            'https://20q2.github.io', // legacy domain — keep during migration window
             'http://localhost:5173',
             'http://localhost:4173',
           ],

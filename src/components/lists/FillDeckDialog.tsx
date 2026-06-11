@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Sparkles } from 'lucide-react';
-import type { GapAnalysisCard } from '@/types';
+import type { GapAnalysisCard, ScryfallCard, UserCardList } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Drawer } from '@/components/ui/drawer';
+import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
+import { getCachedCard } from '@/services/scryfall/client';
 
 const MAX_SUGGESTIONS = 20;
 
@@ -23,6 +25,9 @@ export interface FillDeckDialogProps {
   roleTargets: Record<string, number>;
   /** Per-card relevancy score from generatedDeck.cardRelevancyMap. */
   relevancyMap: Record<string, number>;
+  /** Right-click context-menu support for the candidate rows. */
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
 }
 
 export function FillDeckDialog(props: FillDeckDialogProps) {
@@ -40,9 +45,14 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
     roleCounts,
     roleTargets,
     relevancyMap,
+    onCardAction,
+    menuProps,
   } = props;
 
   const shortfall = Math.max(0, targetSize - currentCount);
+
+  // Which row's context menu is force-open (right-click anywhere on the row).
+  const [contextCardName, setContextCardName] = useState<string | null>(null);
 
   // Filtered candidate pool: gapAnalysis minus anything already in the deck,
   // boards, or the user's banned list. Capped at MAX_SUGGESTIONS so the drawer
@@ -152,13 +162,19 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
                     key={card.name}
                     data-state={isChecked ? 'active' : 'idle'}
                     className={[
-                      'flex items-center gap-3 px-2 py-2 rounded-lg border transition-all duration-300 ease-out cursor-pointer',
+                      'group flex items-center gap-3 px-2 py-2 rounded-lg border transition-all duration-300 ease-out cursor-pointer',
                       'hover:bg-accent/40',
                       isChecked
                         ? 'opacity-100 border-violet-500/30 bg-violet-500/5'
                         : 'opacity-70 border-border/40 bg-card',
                     ].join(' ')}
                     onClick={toggle}
+                    onContextMenu={(e) => {
+                      if (onCardAction && menuProps) {
+                        e.preventDefault();
+                        setContextCardName(card.name);
+                      }
+                    }}
                   >
                     {/* Checkbox */}
                     <div onClick={(e) => e.stopPropagation()} className="shrink-0">
@@ -232,6 +248,24 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
                         {pct}%
                       </div>
                     </div>
+
+                    {/* Context menu — right-click the row, or click the ⋮ */}
+                    {onCardAction && menuProps && (
+                      <span
+                        className={`shrink-0 transition-opacity ${contextCardName === card.name ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <CardContextMenu
+                          card={getCachedCard(card.name) ?? ({ name: card.name } as ScryfallCard)}
+                          onAction={onCardAction}
+                          userLists={menuProps.userLists}
+                          isMustInclude={menuProps.mustIncludeNames.has(card.name)}
+                          isBanned={menuProps.bannedNames.has(card.name)}
+                          forceOpen={contextCardName === card.name}
+                          onForceClose={() => setContextCardName(null)}
+                        />
+                      </span>
+                    )}
                   </li>
                 );
               })}

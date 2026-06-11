@@ -1,5 +1,11 @@
 [
   {
+    "version": "1.2.40",
+    "notes": [
+      "Minor bugfixes and small qol improvements across the app"
+    ]
+  },
+  {
     "version": "1.2.39",
     "notes": [
       "Moved the Inspector out of EA into Beta, its now available for everyone to see and use",

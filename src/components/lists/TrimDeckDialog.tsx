@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Scissors, Mountain, Minus, Plus } from 'lucide-react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import type { ScryfallCard, DetectedCombo } from '@/types';
+import type { ScryfallCard, DetectedCombo, UserCardList } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Drawer } from '@/components/ui/drawer';
 import { ManaCost } from '@/components/ui/mtg-icons';
+import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { getFrontFaceTypeLine, getCardImageUrl, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
 
 export interface TrimDeckDialogProps {
@@ -27,6 +28,9 @@ export interface TrimDeckDialogProps {
   edhrecTypes: Record<string, number>;
   detectedCombos?: DetectedCombo[];
   mustIncludeNames?: Set<string>;
+  /** Right-click context-menu support for the candidate rows. */
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
 }
 
 export function TrimDeckDialog(props: TrimDeckDialogProps) {
@@ -97,6 +101,10 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   // right of the viewport, so there's room over the deck view).
   const [hoverPreview, setHoverPreview] = useState<{ src: string; name: string; left: number; top: number } | null>(null);
   const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Which row's context menu is force-open (right-click anywhere on the row).
+  const [contextCardName, setContextCardName] = useState<string | null>(null);
+  const { onCardAction, menuProps } = props;
 
   if (overage <= 0) return null;
 
@@ -209,13 +217,19 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                   key={cand.card.name}
                   data-state={isChecked ? 'active' : 'kept'}
                   className={[
-                    'flex items-center gap-3 px-2 py-2 rounded-lg border transition-all duration-300 ease-out cursor-pointer',
+                    'group flex items-center gap-3 px-2 py-2 rounded-lg border transition-all duration-300 ease-out cursor-pointer',
                     'hover:bg-accent/40',
                     isChecked
                       ? 'opacity-100 translate-x-0 border-violet-500/20 bg-card'
                       : 'opacity-50 translate-x-3 border-emerald-500/30 bg-emerald-500/5',
                   ].join(' ')}
                   onClick={toggle}
+                  onContextMenu={(e) => {
+                    if (onCardAction && menuProps) {
+                      e.preventDefault();
+                      setContextCardName(cand.card.name);
+                    }
+                  }}
                 >
                   {/* Checkbox / Kept pill */}
                   <div onClick={(e) => e.stopPropagation()} className="shrink-0">
@@ -289,6 +303,24 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                       );
                     })()}
                   </div>
+
+                  {/* Context menu — right-click the row, or click the ⋮ */}
+                  {onCardAction && menuProps && (
+                    <span
+                      className={`shrink-0 transition-opacity ${contextCardName === cand.card.name ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <CardContextMenu
+                        card={cand.card}
+                        onAction={onCardAction}
+                        userLists={menuProps.userLists}
+                        isMustInclude={menuProps.mustIncludeNames.has(cand.card.name)}
+                        isBanned={menuProps.bannedNames.has(cand.card.name)}
+                        forceOpen={contextCardName === cand.card.name}
+                        onForceClose={() => setContextCardName(null)}
+                      />
+                    </span>
+                  )}
                 </li>
               );
             })}

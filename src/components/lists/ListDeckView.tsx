@@ -183,7 +183,22 @@ function detectCombosInDeck(
 ): DetectedCombo[] | undefined {
   if (combos.length === 0) return undefined;
 
-  const detected = combos
+  // Defensive dedupe by comboId. The same combo is often returned by BOTH the
+  // commander combo page (source 'commander') and the color-identity combo page
+  // (source 'color-identity') under an identical comboId. Callers list
+  // commander-source combos first, so keeping the first occurrence preserves the
+  // commander provenance and drops the duplicate "Synergy" copy. Some callers
+  // pre-dedupe (no-op here); the background refresh concatenates without deduping,
+  // and the incremental re-detection reads back that polluted list — this guard
+  // keeps both from surfacing the same combo twice.
+  const seenComboIds = new Set<string>();
+  const uniqueCombos = combos.filter(c => {
+    if (seenComboIds.has(c.comboId)) return false;
+    seenComboIds.add(c.comboId);
+    return true;
+  });
+
+  const detected = uniqueCombos
     .map(combo => {
       const comboCardNames = combo.cards.map(c => c.name);
       const missingCards = comboCardNames.filter(name => !allCardNames.has(name));
@@ -605,7 +620,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
-  const { lists: userLists, updateList } = useUserLists();
+  const { lists: userLists, updateList, createList } = useUserLists();
 
   const [phasesDone, setPhasesDone] = useState<Set<LoadPhase>>(new Set());
   const markPhaseDone = useCallback((p: LoadPhase) => {
@@ -1699,6 +1714,37 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     bannedNames: new Set(customization.bannedCards),
   }), [userLists, customization.mustIncludeCards, customization.bannedCards]);
 
+  // Context-menu handler for the Trim / Fill drawers. Scoped to the non-mutating
+  // actions (must-include, exclude, add-to-list) so the open dialog's plan, which
+  // is computed from a fixed card array, doesn't desync mid-review.
+  const handleDialogCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    const name = card.name;
+    switch (action.type) {
+      case 'mustInclude': {
+        const current = customization.mustIncludeCards;
+        const has = current.includes(name);
+        updateCustomization({ mustIncludeCards: has ? current.filter(n => n !== name) : [...current, name] });
+        break;
+      }
+      case 'exclude': {
+        const currentBanned = customization.bannedCards;
+        const hasBan = currentBanned.includes(name);
+        updateCustomization({ bannedCards: hasBan ? currentBanned.filter(n => n !== name) : [...currentBanned, name] });
+        break;
+      }
+      case 'addToList': {
+        const targetList = userLists.find(l => l.id === action.listId);
+        if (targetList && !targetList.cards.includes(name)) {
+          updateList(action.listId, { cards: [...targetList.cards, name] });
+        }
+        break;
+      }
+      case 'createListAndAdd':
+        createList(action.listName, [name]);
+        break;
+    }
+  }, [customization, updateCustomization, userLists, updateList, createList]);
+
   if (error) {
     return (
       <div className="space-y-4">
@@ -2483,6 +2529,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           edhrecTypes={generatedDeck.edhrecTypes || {}}
           detectedCombos={generatedDeck.detectedCombos}
           mustIncludeNames={new Set(customization.mustIncludeCards)}
+          onCardAction={handleDialogCardAction}
+          menuProps={boardMenuProps}
         />
       )}
 
@@ -2516,6 +2564,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           roleCounts={generatedDeck.roleCounts || {}}
           roleTargets={generatedDeck.roleTargets || {}}
           relevancyMap={generatedDeck.cardRelevancyMap || {}}
+          onCardAction={handleDialogCardAction}
+          menuProps={boardMenuProps}
         />
       )}
 

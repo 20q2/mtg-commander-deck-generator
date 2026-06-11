@@ -26,6 +26,8 @@ export const KEYBINDINGS: Keybinding[] = [
   { keys: ['Ctrl', 'V'], description: 'Paste the clipboard (cascades on repeat)', category: 'Selection' },
 
   // Other
+  { keys: ['Enter'], description: 'Next turn (advance the turn and draw a card)', category: 'Other' },
+  { keys: ['Backspace'], description: 'Reset the playtest (reshuffle and redraw)', category: 'Other' },
   { keys: ['Ctrl', 'Z'], description: 'Undo last action',             category: 'Other' },
   { keys: ['Esc'], description: 'Close the open dialog',              category: 'Other' },
 ];

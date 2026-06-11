@@ -285,6 +285,7 @@ export interface CardContextMenuProps {
 export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose }: CardContextMenuProps) {
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
+  const [showDecks, setShowDecks] = React.useState(false);
   const [showNewList, setShowNewList] = React.useState(false);
   const [newListName, setNewListName] = React.useState('');
   const newListRef = React.useRef<HTMLInputElement>(null);
@@ -294,6 +295,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
     setInternalOpen(v);
     if (!v) {
       setShowLists(false);
+      setShowDecks(false);
       setShowNewList(false);
       setNewListName('');
       onForceClose?.();
@@ -354,13 +356,29 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
           {isBanned ? 'Remove Exclude' : 'Exclude'}
         </button>
         <div className="h-px bg-border my-1" />
-        {!showLists ? (
-          <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowLists(true); }}>
-            <ListPlus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-blue-400 transition-colors" />
-            Add to List...
-          </button>
-        ) : (
+        {!showLists && !showDecks && (
+          <>
+            <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowLists(true); }}>
+              <ListPlus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-blue-400 transition-colors" />
+              Add to List...
+            </button>
+            <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowDecks(true); }}>
+              <CardTypeIcon type="commander" size="sm" className="shrink-0" />
+              Add to Deck...
+            </button>
+          </>
+        )}
+
+        {/* ── Add to List submenu (plain lists only) ── */}
+        {showLists && (
           <div>
+            <button
+              className="w-full text-left px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-1.5 rounded transition-colors"
+              onClick={(e) => { e.stopPropagation(); setShowLists(false); setShowNewList(false); }}
+            >
+              <ChevronRight className="w-3 h-3 rotate-180" />
+              Add to List
+            </button>
             {!showNewList ? (
               <button
                 className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-2 rounded transition-colors"
@@ -397,15 +415,13 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
                 </button>
               </form>
             )}
-            {userLists.length > 0 && (
-              <div className="max-h-64 overflow-y-auto">
-                {userLists.map(list => {
-                  const isDeck = !!list.commanderName;
-                  const inMain = list.cards.includes(card.name);
-                  const inSide = list.sideboard?.includes(card.name) ?? false;
-                  const inMaybe = list.maybeboard?.includes(card.name) ?? false;
-
-                  if (!isDeck) {
+            {(() => {
+              const plainLists = userLists.filter(l => !l.commanderName);
+              if (plainLists.length === 0) return null;
+              return (
+                <div className="max-h-64 overflow-y-auto">
+                  {plainLists.map(list => {
+                    const inMain = list.cards.includes(card.name);
                     return (
                       <button
                         key={list.id}
@@ -421,65 +437,92 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
                         <span className="truncate">{list.name}</span>
                       </button>
                     );
-                  }
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
-                  const allFull = inMain && inSide && inMaybe;
-                  return (
-                    <Popover key={list.id}>
-                      <PopoverTrigger asChild>
-                        <button
-                          className={`${menuBtn}${allFull ? ' opacity-50 pointer-events-none' : ''}`}
-                          disabled={allFull}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <CardTypeIcon type="commander" size="sm" className="shrink-0" />
-                          <span className="truncate flex-1">{list.name}</span>
-                          <ChevronRight className="w-3 h-3 text-muted-foreground/60 shrink-0" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent side="right" align="start" sideOffset={8} className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          className={`${menuBtn}${inMain ? ' opacity-50 pointer-events-none' : ''}`}
-                          onClick={() => fire({ type: 'addToList', listId: list.id, board: 'main' })}
-                          disabled={inMain}
-                        >
-                          {inMain ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          ) : (
-                            <Layers className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          )}
-                          <span>Mainboard</span>
-                        </button>
-                        <button
-                          className={`${menuBtn}${inSide ? ' opacity-50 pointer-events-none' : ''}`}
-                          onClick={() => fire({ type: 'addToList', listId: list.id, board: 'sideboard' })}
-                          disabled={inSide}
-                        >
-                          {inSide ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          ) : (
-                            <ArrowUpDown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          )}
-                          <span>Sideboard</span>
-                        </button>
-                        <button
-                          className={`${menuBtn}${inMaybe ? ' opacity-50 pointer-events-none' : ''}`}
-                          onClick={() => fire({ type: 'addToList', listId: list.id, board: 'maybeboard' })}
-                          disabled={inMaybe}
-                        >
-                          {inMaybe ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          ) : (
-                            <Bookmark className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                          )}
-                          <span>Maybeboard</span>
-                        </button>
-                      </PopoverContent>
-                    </Popover>
-                  );
-                })}
-              </div>
-            )}
+        {/* ── Add to Deck submenu (commander decks, with board picker) ── */}
+        {showDecks && (
+          <div>
+            <button
+              className="w-full text-left px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-1.5 rounded transition-colors"
+              onClick={(e) => { e.stopPropagation(); setShowDecks(false); }}
+            >
+              <ChevronRight className="w-3 h-3 rotate-180" />
+              Add to Deck
+            </button>
+            {(() => {
+              const deckLists = userLists.filter(l => !!l.commanderName);
+              if (deckLists.length === 0) {
+                return <div className="px-3 py-1.5 text-xs text-muted-foreground/70">No decks yet</div>;
+              }
+              return (
+                <div className="max-h-64 overflow-y-auto">
+                  {deckLists.map(list => {
+                    const inMain = list.cards.includes(card.name);
+                    const inSide = list.sideboard?.includes(card.name) ?? false;
+                    const inMaybe = list.maybeboard?.includes(card.name) ?? false;
+                    const allFull = inMain && inSide && inMaybe;
+                    return (
+                      <Popover key={list.id}>
+                        <PopoverTrigger asChild>
+                          <button
+                            className={`${menuBtn}${allFull ? ' opacity-50 pointer-events-none' : ''}`}
+                            disabled={allFull}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <CardTypeIcon type="commander" size="sm" className="shrink-0" />
+                            <span className="truncate flex-1">{list.name}</span>
+                            <ChevronRight className="w-3 h-3 text-muted-foreground/60 shrink-0" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent side="right" align="start" sideOffset={8} className="w-44 p-1" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className={`${menuBtn}${inMain ? ' opacity-50 pointer-events-none' : ''}`}
+                            onClick={() => fire({ type: 'addToList', listId: list.id, board: 'main' })}
+                            disabled={inMain}
+                          >
+                            {inMain ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            ) : (
+                              <Layers className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            )}
+                            <span>Mainboard</span>
+                          </button>
+                          <button
+                            className={`${menuBtn}${inSide ? ' opacity-50 pointer-events-none' : ''}`}
+                            onClick={() => fire({ type: 'addToList', listId: list.id, board: 'sideboard' })}
+                            disabled={inSide}
+                          >
+                            {inSide ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            ) : (
+                              <ArrowUpDown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            )}
+                            <span>Sideboard</span>
+                          </button>
+                          <button
+                            className={`${menuBtn}${inMaybe ? ' opacity-50 pointer-events-none' : ''}`}
+                            onClick={() => fire({ type: 'addToList', listId: list.id, board: 'maybeboard' })}
+                            disabled={inMaybe}
+                          >
+                            {inMaybe ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            ) : (
+                              <Bookmark className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                            )}
+                            <span>Maybeboard</span>
+                          </button>
+                        </PopoverContent>
+                      </Popover>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
       </PopoverContent>

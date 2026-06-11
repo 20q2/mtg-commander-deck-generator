@@ -77,6 +77,7 @@ export function PlaytestActionsBar() {
     </Popover>
   );
 
+  const tokensOpen = modal?.kind === 'tokens';
   const createOpen = modal?.kind === 'create';
   const createBtn = (
     <Button
@@ -129,7 +130,7 @@ export function PlaytestActionsBar() {
       </Group>
       <div className="hidden md:block"><Sep /></div>
       <Group className="hidden md:flex">
-        <Button variant="outline" size="sm" className={btn} onClick={() => openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
+        <Button variant={tokensOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => tokensOpen ? closeModal() : openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
         {createBtn}
       </Group>
       {/* Mobile-only overflow with the hidden items */}

@@ -222,6 +222,13 @@ function makeLogEntry(text: string, category: LogCategory = 'system'): LogEntry 
   return { id: makeInstanceId(), ts: Date.now(), text, category };
 }
 
+// Snap an accumulated rotation back to its nearest upright orientation. Untapping
+// straightens cards turned sideways with Q/E, and snapping to the closest multiple
+// of 360 keeps already-upright cards in place while spinning the short way home.
+function uprightRotation(rotation: number | undefined): number {
+  return Math.round((rotation ?? 0) / 360) * 360;
+}
+
 export const usePlaytestStore = create<Store>((set, get) => ({
   ...initial,
 
@@ -387,15 +394,15 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   nextTurn: () => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const nextTurn = state.turn + 1;
-    const anyTapped = state.battlefield.some(b => b.tapped);
+    const needsUntap = state.battlefield.some(b => b.tapped || uprightRotation(b.rotation) !== (b.rotation ?? 0));
     return {
       history,
       turn: nextTurn,
-      battlefield: anyTapped ? state.battlefield.map(b => ({ ...b, tapped: false })) : state.battlefield,
+      battlefield: needsUntap ? state.battlefield.map(b => ({ ...b, tapped: false, rotation: uprightRotation(b.rotation) })) : state.battlefield,
       log: [
         ...state.log,
         makeLogEntry(`Turn ${nextTurn}`, 'turn'),
-        ...(anyTapped ? [makeLogEntry('Untapped all', 'tap')] : []),
+        ...(needsUntap ? [makeLogEntry('Untapped all', 'tap')] : []),
       ],
     };
   }),
@@ -855,7 +862,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const history = pushHistory(state.history, snapshotOf(state));
     return {
       history,
-      battlefield: state.battlefield.map(b => ({ ...b, tapped: false })),
+      battlefield: state.battlefield.map(b => ({ ...b, tapped: false, rotation: uprightRotation(b.rotation) })),
       log: [...state.log, makeLogEntry('Untapped all', 'tap')],
     };
   }),

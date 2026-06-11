@@ -23,6 +23,13 @@ export function usePlaytestHotkeys() {
         return;
       }
 
+      // Enter (main or numpad — both report e.key === 'Enter'): advance the
+      // turn and draw, matching the Next Turn button.
+      if (e.key === 'Enter') { e.preventDefault(); s.nextTurn(); s.draw(1); return; }
+      // Backspace: reset the playtest, matching the Reset button. preventDefault
+      // also stops the browser's back-navigation behaviour.
+      if (e.key === 'Backspace') { e.preventDefault(); s.reset(); return; }
+
       const k = e.key.toLowerCase();
       if (k === 'd') { e.preventDefault(); s.draw(1); return; }
       if (k === 'u') { e.preventDefault(); s.untapAll(); return; }

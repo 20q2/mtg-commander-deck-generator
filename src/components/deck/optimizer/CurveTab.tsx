@@ -1362,10 +1362,11 @@ function curveRoleGroupOf(role: string | undefined): RoleGroupKey {
 }
 
 function buildCurveCuts({
-  phases, activeRoleGroups,
+  phases, activeRoleGroups, mustIncludeNames,
 }: {
   phases: CurvePhaseAnalysis[];
   activeRoleGroups: Set<RoleGroupKey>;
+  mustIncludeNames?: Set<string>;
 }): AnalyzedCard[] {
   const ALL_GROUPS: RoleGroupKey[] = ['ramp', 'interaction', 'cardDraw', 'other'];
 
@@ -1432,6 +1433,7 @@ function buildCurveCuts({
     for (const phase of phases) {
       for (const ac of phase.cards) {
         if (curveRoleGroupOf(ac.card.deckRole) !== group) continue;
+        if (mustIncludeNames?.has(ac.card.name)) continue; // never suggest cutting a must-include card
         if (seen.has(ac.card.name)) continue;
         seen.add(ac.card.name);
         pool.push(ac);
@@ -1499,8 +1501,8 @@ function CurveSuggestionPanel({
   );
 
   const cuts = useMemo(() =>
-    buildCurveCuts({ phases, activeRoleGroups }),
-    [phases, activeRoleGroups]
+    buildCurveCuts({ phases, activeRoleGroups, mustIncludeNames: menuProps?.mustIncludeNames }),
+    [phases, activeRoleGroups, menuProps?.mustIncludeNames]
   );
 
   const totalDeficit = useMemo(() => {
