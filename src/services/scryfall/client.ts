@@ -469,6 +469,58 @@ export async function getCardsByNames(
   return result;
 }
 
+/**
+ * Batch fetch cards by Scryfall id using /cards/collection (max 75 per request).
+ * Mirrors getCardsByNames but uses { id } identifiers. Goes through the rate
+ * limiter and writes results into both in-memory and persistent caches keyed
+ * by name (consistent with all other paths).
+ *
+ * Returned Map is keyed by id so callers can re-establish input ordering.
+ */
+export async function getCardsByIds(
+  ids: string[],
+  onProgress?: (fetched: number, total: number) => void,
+): Promise<Map<string, ScryfallCard>> {
+  const result = new Map<string, ScryfallCard>();
+  if (ids.length === 0) return result;
+
+  for (let i = 0; i < ids.length; i += COLLECTION_BATCH_SIZE) {
+    const batch = ids.slice(i, i + COLLECTION_BATCH_SIZE);
+    const identifiers = batch.map(id => ({ id }));
+
+    try {
+      const response = await withRateLimit(() =>
+        fetch(`${BASE_URL}/cards/collection`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ identifiers }),
+        }),
+      );
+
+      if (response.ok) {
+        const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ id?: string }> };
+        for (const card of data.data) {
+          cardCache.set(card.name, card);
+          if (card.name.includes(' // ')) {
+            const frontFace = card.name.split(' // ')[0];
+            cardCache.set(frontFace, card);
+          }
+          result.set(card.id, card);
+        }
+        if (data.data.length > 0) {
+          void writePersistedMany(data.data.map(card => ({ name: card.name, card })));
+        }
+      }
+    } catch (err) {
+      console.warn('[Scryfall] getCardsByIds batch failed:', err);
+    }
+
+    onProgress?.(Math.min(i + COLLECTION_BATCH_SIZE, ids.length), ids.length);
+  }
+
+  return result;
+}
+
 const UPGRADE_BATCH_SIZE = 15; // Card names per search query for printing upgrades
 
 /**
