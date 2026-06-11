@@ -7,7 +7,7 @@ import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import type { CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
 import type { ScryfallCard, DeckCategory } from '@/types';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
-import { getCachedCard, getCardImageUrl } from '@/services/scryfall/client';
+import { getCachedCard, getCardImageUrl, CARD_BACK_URL } from '@/services/scryfall/client';
 export type { UserCardList } from '@/types';
 import type { ReactNode } from 'react';
 export { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
@@ -105,14 +105,20 @@ export function roleBarColor(current: number, target: number): string {
   return `hsl(${hue}, 60%, 45%)`;
 }
 
-/** Resolve card image from Scryfall cache first, falling back to API redirect URL. */
+/**
+ * Resolve a card image URL synchronously. Returns the real Scryfall CDN URL
+ * if the card is in the in-memory cache; otherwise returns the bundled
+ * card-back fallback. Never constructs an api.scryfall.com URL — that path
+ * bypasses our rate limiter. Callers that need the real image for an
+ * uncached card should use the useScryfallImage hook instead.
+ */
 export function scryfallImg(name: string, version: 'small' | 'normal' = 'small'): string {
   const cached = getCachedCard(name);
   if (cached) {
     const url = getCardImageUrl(cached, version);
     if (url) return url;
   }
-  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=${version}`;
+  return CARD_BACK_URL;
 }
 
 /** Convert Scryfall edhrec_rank (lower = more popular) to a pseudo-inclusion % (0-99). Returns null if rank is missing. */
