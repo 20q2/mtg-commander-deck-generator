@@ -1,5 +1,6 @@
 import type { ScryfallCard, ScryfallSearchResponse } from '@/types';
 import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
+import { readPersisted, writePersisted } from './cache';
 
 const BASE_URL = import.meta.env.DEV ? '/scryfall-api' : 'https://api.scryfall.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests (Scryfall allows 10/sec)
@@ -201,16 +202,26 @@ export async function searchCards(
 }
 
 export async function getCardByName(name: string, exact = true): Promise<ScryfallCard> {
-  // Check cache first
+  // 1. In-memory cache (hot path)
   const cached = cardCache.get(name);
   if (cached) return freshCopy(cached);
 
+  // 2. Persistent cache (warm path) — silent fallback if unavailable
+  const persisted = await readPersisted(name);
+  if (persisted) {
+    cardCache.set(persisted.name, persisted);
+    if (persisted.name !== name) cardCache.set(name, persisted); // hydrate under requested key too
+    return freshCopy(persisted);
+  }
+
+  // 3. Cold — fetch from Scryfall
   const param = exact ? 'exact' : 'fuzzy';
   const encodedName = encodeURIComponent(name);
   const card = await scryfallFetch<ScryfallCard>(`/cards/named?${param}=${encodedName}`);
 
-  // Cache the result
+  // Cache the result in both layers
   cardCache.set(card.name, card);
+  void writePersisted(card.name, card);
   return freshCopy(card);
 }
 
