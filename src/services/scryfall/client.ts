@@ -226,56 +226,72 @@ export async function getCardByName(name: string, exact = true): Promise<Scryfal
   return freshCopy(card);
 }
 
+const FALLBACK_SEARCH_BATCH_SIZE = 15;
+
 /**
- * Fetch a single card by name with proper rate limiting.
- * Returns null if not found instead of throwing.
+ * Batch-search Scryfall for cards by exact name using OR-joined queries.
+ * Each batch is ONE /cards/search request (rate-limited) for up to
+ * FALLBACK_SEARCH_BATCH_SIZE names, ordered by USD ascending so the cheapest
+ * printing per name is first.
+ *
+ * Used by the price-upgrade and not-found-retry paths in getCardsByNames —
+ * both used to fire one request per card, which 429'd on bursts.
+ *
+ * Callers are responsible for cache writes; this helper only resolves the
+ * cards.
  */
-async function fetchCardByNameThrottled(name: string): Promise<ScryfallCard | null> {
-  try {
-    // Search for cheapest USD paper printing across all sets
-    // Filter out digital-only printings and require a USD price
-    const searchQuery = encodeURIComponent(`!"${name}" -is:digital`);
-    const response = await withRateLimit(() =>
-      fetch(
-        `${BASE_URL}/cards/search?q=${searchQuery}&unique=prints&order=usd&dir=asc`,
-        { headers: { 'Accept': 'application/json' } },
-      ),
-    );
+async function batchSearchByExactName(
+  names: string[],
+  opts: { preferUsd: boolean },
+): Promise<Map<string, ScryfallCard>> {
+  const out = new Map<string, ScryfallCard>();
+  if (names.length === 0) return out;
 
-    if (response.ok) {
-      const searchResult = await response.json() as ScryfallSearchResponse;
-      if (searchResult.data.length > 0) {
-        // Prefer a printing with a normal USD price, then any price, then first result
-        const card = searchResult.data.find(c => c.prices?.usd)
-          || searchResult.data.find(c => getCardPrice(c))
-          || searchResult.data[0];
-        cardCache.set(name, card);
-        // Also cache under Scryfall's canonical name if different
-        if (card.name !== name) cardCache.set(card.name, card);
-        void writePersisted(card.name, card);
-        return card;
-      }
-    }
+  for (let i = 0; i < names.length; i += FALLBACK_SEARCH_BATCH_SIZE) {
+    const batch = names.slice(i, i + FALLBACK_SEARCH_BATCH_SIZE);
+    const nameQuery = batch.map(n => `!"${n}"`).join(' OR ');
+    const fullQuery = `(${nameQuery}) -is:digital`;
+    const url = `${BASE_URL}/cards/search?q=${encodeURIComponent(fullQuery)}&unique=prints&order=usd&dir=asc`;
 
-    // Fallback to /cards/named if search returned no results (name mismatch, etc.)
-    if (response.status === 404) {
-      const namedResponse = await withRateLimit(() =>
-        fetch(
-          `${BASE_URL}/cards/named?exact=${encodeURIComponent(name)}`,
-          { headers: { 'Accept': 'application/json' } },
-        ),
+    try {
+      const response = await withRateLimit(() =>
+        fetch(url, { headers: { 'Accept': 'application/json' } }),
       );
-      if (!namedResponse.ok) return null;
-      const card = await namedResponse.json() as ScryfallCard;
-      cardCache.set(card.name, card);
-      void writePersisted(card.name, card);
-      return card;
-    }
+      if (!response.ok) continue; // 404 = no matches for any name in this batch
 
-    return null;
-  } catch {
-    return null;
+      const data = await response.json() as ScryfallSearchResponse;
+
+      // Group printings by canonical name (also index DFC front-face names so
+      // a request for "Front" matches a card named "Front // Back").
+      const byName = new Map<string, ScryfallCard[]>();
+      for (const card of data.data) {
+        const arr = byName.get(card.name) ?? [];
+        arr.push(card);
+        byName.set(card.name, arr);
+        if (card.name.includes(' // ')) {
+          const front = card.name.split(' // ')[0];
+          const farr = byName.get(front) ?? [];
+          farr.push(card);
+          byName.set(front, farr);
+        }
+      }
+
+      // Pick best printing per requested name. Printings are already ordered
+      // by USD ascending, so [0] is the cheapest available.
+      for (const name of batch) {
+        const printings = byName.get(name);
+        if (!printings || printings.length === 0) continue;
+        const best = opts.preferUsd
+          ? (printings.find(c => c.prices?.usd) ?? printings.find(c => getCardPrice(c)) ?? printings[0])
+          : printings[0];
+        out.set(name, best);
+      }
+    } catch (err) {
+      console.warn('[Scryfall] batchSearchByExactName batch failed:', err);
+    }
   }
+
+  return out;
 }
 
 /**
@@ -443,26 +459,28 @@ export async function getCardsByNames(
       return card && !getCardPrice(card);
     });
     if (noPriceNames.length > 0) {
-      console.log(`[Scryfall] Re-fetching ${noPriceNames.length} cards with no price for older printings...`);
-      for (const name of noPriceNames) {
-        const card = await fetchCardByNameThrottled(name);
-        if (card && getCardPrice(card)) {
-          cardCache.set(name, card);
-          result.set(name, freshCopy(card));
-        }
+      console.log(`[Scryfall] Re-fetching ${noPriceNames.length} cards with no price (batched)...`);
+      const repriced = await batchSearchByExactName(noPriceNames, { preferUsd: true });
+      for (const [name, card] of repriced) {
+        if (!getCardPrice(card)) continue;
+        cardCache.set(name, card);
+        if (card.name !== name) cardCache.set(card.name, card);
+        void writePersisted(card.name, card);
+        result.set(name, freshCopy(card));
       }
     }
   }
 
-  // For any names not found via collection, try individual fallback
+  // For any names not found via collection, try a batched search fallback.
   const notFound = uncachedNames.filter(name => !result.has(name));
   if (notFound.length > 0) {
-    console.log(`[Scryfall] Retrying ${notFound.length} not-found cards individually...`);
-    for (const name of notFound) {
-      const card = await fetchCardByNameThrottled(name);
-      if (card) {
-        result.set(name, freshCopy(card));
-      }
+    console.log(`[Scryfall] Retrying ${notFound.length} not-found cards (batched)...`);
+    const found = await batchSearchByExactName(notFound, { preferUsd: false });
+    for (const [name, card] of found) {
+      cardCache.set(name, card);
+      if (card.name !== name) cardCache.set(card.name, card);
+      void writePersisted(card.name, card);
+      result.set(name, freshCopy(card));
     }
   }
 
