@@ -522,7 +522,7 @@ export function CommanderSearch({ onSelectCommander }: CommanderSearchProps = {}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No deck data yet — generate some decks first!
+                      No deck data yet — create some decks first!
                     </p>
                   )}
 

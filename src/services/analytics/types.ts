@@ -23,7 +23,9 @@ export type AnalyticsEventType =
   | 'analyze_deck_loaded'
   | 'analyze_deck_saved'
   | 'analyze_lane_switched'
-  | 'analyze_cta_clicked';
+  | 'analyze_cta_clicked'
+  | 'poll_nudge_shown'
+  | 'poll_nudge_dismissed';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -86,6 +88,8 @@ export interface AnalyticsEventMetadata {
   analyze_deck_saved: { listName: string; cardCount: number; source: 'paste' | 'list' | 'generated' };
   analyze_lane_switched: { from: string; to: string };
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };
+  poll_nudge_shown: { visitCount: number };
+  poll_nudge_dismissed: { action: 'clicked' | 'dismissed' };
   playtest_started: {
     /** Where the playtest was launched from. */
     source: 'list' | 'generated';

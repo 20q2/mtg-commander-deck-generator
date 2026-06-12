@@ -20,6 +20,7 @@ import { loadUserLists } from '@/hooks/useUserLists';
 import { trackEvent } from '@/services/analytics';
 import { getBanList } from '@/services/scryfall/client';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
+import { PollNudge } from '@/components/ui/PollNudge';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import type { ScryfallCard } from '@/types';
 
@@ -232,6 +233,10 @@ function Layout({ children }: { children: React.ReactNode }) {
   const isAnalyzeHub = location.pathname === '/analyze' || location.pathname === '/analyze/';
   const isCreatePage = location.pathname === '/' || location.pathname.startsWith('/build/') || location.pathname.startsWith('/build-from-deck/');
 
+  // True while the one-time Community-Poll nudge is visible — drives a gentle
+  // ring on the version button it points at, so the nudge's arrow has a target.
+  const [pollNudgeActive, setPollNudgeActive] = useState(false);
+
   const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
   const toggleEaFeatures = useCallback(() => {
     setEaEnabled(prev => {
@@ -379,24 +384,22 @@ function Layout({ children }: { children: React.ReactNode }) {
                       isCreatePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
-                    Generate
+                    Foundry
                   </Link>
-                  {eaEnabled && (
-                    <Link
-                      to="/analyze"
-                      aria-current={isAnalyzePage ? 'page' : undefined}
-                      className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center ${
-                        isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                      }`}
-                    >
-                      <span className="relative inline-block">
-                        Inspector
-                        <span className="absolute -top-0.5 -right-4 text-[7px] font-medium tracking-wider text-muted-foreground/60 uppercase leading-none">
-                          Beta
-                        </span>
+                  <Link
+                    to="/analyze"
+                    aria-current={isAnalyzePage ? 'page' : undefined}
+                    className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center ${
+                      isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    <span className="relative inline-block">
+                      Inspector
+                      <span className="absolute -top-0.5 -right-4 text-[7px] font-medium tracking-wider text-muted-foreground/60 uppercase leading-none">
+                        Beta
                       </span>
-                    </Link>
-                  )}
+                    </span>
+                  </Link>
                   <Link
                     to="/decks"
                     aria-current={location.pathname.startsWith('/decks') ? 'page' : undefined}
@@ -442,7 +445,14 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </nav>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer">
+                    <button
+                      data-poll-nudge-anchor=""
+                      className={`text-xs transition-colors cursor-pointer px-1.5 py-0.5 rounded-md ${
+                        pollNudgeActive
+                          ? 'text-violet-300 ring-1 ring-violet-400/60 bg-violet-400/10 animate-pulse'
+                          : 'text-muted-foreground/50 hover:text-muted-foreground'
+                      }`}
+                    >
                       v{__APP_VERSION__}
                     </button>
                   </PopoverTrigger>
@@ -551,6 +561,9 @@ function Layout({ children }: { children: React.ReactNode }) {
         </footer>
         )}
       </div>
+
+      {/* One-time Community-Poll nudge after 5 sessions (portals itself to body) */}
+      <PollNudge onVisibilityChange={setPollNudgeActive} />
 
       {/* Mobile bottom tab bar — portaled to body so it's never trapped in a containing block */}
       {createPortal(

@@ -80,13 +80,6 @@ export function CollectionPage() {
             Import your MTG card collection, then enable "Build from Collection" when generating decks
             to only use cards you own.
           </p>
-          {hasCollection && (
-            <p className="text-xs text-muted-foreground/80 tabular-nums pt-1">
-              <span className="text-foreground font-medium">{count.toLocaleString()}</span> unique
-              <span className="mx-1.5 text-border">·</span>
-              <span className="text-foreground font-medium">{totalQuantity.toLocaleString()}</span> total
-            </p>
-          )}
         </div>
 
         <aside className="p-4 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm w-full max-w-xs space-y-3 mb-6 lg:mb-0 lg:absolute lg:top-24 lg:right-4 lg:z-30">

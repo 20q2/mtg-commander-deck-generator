@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.1",
+    "notes": [
+      "EA features no longer needs to be enabled to see the Inspector.",
+      "If you're a returning use you'll see a little notice notifying you that you can view patch notes and the community poll from this dialog. Hello! 👋"
+    ]
+  },
+  {
     "version": "1.3.0",
     "notes": [
       "Its finally time to bump up our release version, this patch is filled with multiple small fixes that should greatly improve performance across most of the app, especially during long browser sessions"            
