@@ -1,0 +1,105 @@
+import type { RoleKey } from '@/services/tagger/client';
+import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
+import type { BrewContext, BrewState, BrewRoute } from './brewTypes';
+import { buildHealth, isComplete } from './health';
+
+const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+
+interface Deficit { key: string; kind: 'role' | 'type'; label: string; deficit: number; }
+
+function roleTitle(role: RoleKey): string {
+  return role === 'cardDraw' ? 'Add Card Draw'
+    : role === 'boardwipe' ? 'Add a Board Wipe'
+    : `Add ${ROLE_LABELS[role] ?? role}`;
+}
+
+/** How many candidates of a given role/type remain in the pool (not yet used). */
+function poolHas(ctx: BrewContext, state: BrewState, predicate: (c: BrewContext['candidates'][number]) => boolean): number {
+  const used = new Set(state.usedNames);
+  return ctx.candidates.filter(c => !used.has(c.name) && predicate(c)).length;
+}
+
+export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
+  // Phase transition: once nonland targets are essentially met, only offer the mana base.
+  const nonLandPicks = state.picks.filter(p => !p.card.type_line.toLowerCase().includes('land')).length;
+  if (state.phase !== 'lands' && isComplete(ctx, state)) {
+    return [{
+      id: 'manabase', type: 'manabase', title: 'Build the Mana Base',
+      description: 'Choose a land style; we fill the rest to a clean curve.',
+      targetRole: null, targetType: null, tone: 'neutral', fills: ctx.landTarget,
+    }];
+  }
+
+  const health = buildHealth(ctx, state);
+
+  // Collect role + type deficits.
+  const deficits: Deficit[] = [];
+  for (const role of ROLE_KEYS) {
+    const d = (ctx.roleTargets[role] ?? 0) - (health.roleCounts[role] ?? 0);
+    if (d > 0 && poolHas(ctx, state, c => c.role === role) > 0) {
+      deficits.push({ key: role, kind: 'role', label: roleTitle(role), deficit: d });
+    }
+  }
+  for (const [type, target] of Object.entries(ctx.typeTargets)) {
+    const d = target - (health.typeCounts[type] ?? 0);
+    if (d > 0 && poolHas(ctx, state, c => c.scryfall.type_line.toLowerCase().includes(type)) > 0) {
+      deficits.push({ key: type, kind: 'type', label: `Add ${type.charAt(0).toUpperCase()}${type.slice(1)}s`, deficit: d });
+    }
+  }
+  deficits.sort((a, b) => b.deficit - a.deficit);
+
+  const fillRatio = ctx.nonLandTarget > 0 ? nonLandPicks / ctx.nonLandTarget : 0;
+  // As the deck fills, prefer multi-slot nodes (bundle/lightning) so the session converges.
+  const preferMulti = fillRatio >= 0.5;
+
+  const routes: BrewRoute[] = [];
+
+  // Top deficit becomes the primary "need" route. Bundle if room + preferMulti, else draft.
+  if (deficits[0]) {
+    const top = deficits[0];
+    const asBundle = preferMulti && poolHas(ctx, state, c => matchesDeficit(c, top)) >= 6;
+    routes.push({
+      id: `${asBundle ? 'bundle' : 'draft'}:${top.key}`,
+      type: asBundle ? 'bundle' : 'draft',
+      title: top.label,
+      description: asBundle ? 'Draft a coherent package of cards for this need.' : 'Draft one card for this need.',
+      targetRole: top.kind === 'role' ? (top.key as RoleKey) : null,
+      targetType: top.kind === 'type' ? top.key : null,
+      tone: 'need',
+      tag: 'Deck needs this',
+      fills: asBundle ? 3 : 1,
+    });
+  }
+
+  // Second deficit becomes a secondary route.
+  if (deficits[1]) {
+    const second = deficits[1];
+    routes.push({
+      id: `draft:${second.key}`,
+      type: 'draft',
+      title: second.label,
+      description: 'Draft one card for this need.',
+      targetRole: second.kind === 'role' ? (second.key as RoleKey) : null,
+      targetType: second.kind === 'type' ? second.key : null,
+      tone: 'neutral',
+      fills: 1,
+    });
+  }
+
+  // Always offer a Lightning round once we want to fill faster, or as a third option early.
+  if (preferMulti || routes.length < 2) {
+    routes.push({
+      id: 'lightning',
+      type: 'lightning',
+      title: 'Lightning Round',
+      description: 'Five swift picks, one card each. Build momentum.',
+      targetRole: null, targetType: null, tone: 'neutral', tag: '+5 cards', fills: 5,
+    });
+  }
+
+  return routes.slice(0, 3);
+}
+
+function matchesDeficit(c: BrewContext['candidates'][number], d: Deficit): boolean {
+  return d.kind === 'role' ? c.role === d.key : c.scryfall.type_line.toLowerCase().includes(d.key);
+}
