@@ -4,7 +4,7 @@ import type { BrewContext, BrewState, BrewHealth } from './brewTypes';
 const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
 
 /** Map a Scryfall/EDHREC primary type to a typeTargets key. */
-function typeKey(typeLine: string): string {
+export function typeKey(typeLine: string): string {
   const t = typeLine.toLowerCase();
   if (t.includes('creature')) return 'creature';
   if (t.includes('instant')) return 'instant';
@@ -24,7 +24,7 @@ function priceUsd(card: { prices: { usd?: string | null } }): number {
 export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
   const roleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
   const typeCounts: Record<string, number> = {};
-  let synergyScore = 0;
+  let deckScore = 0;
   let estCostUsd = 0;
   let themeCards = 0;
 
@@ -32,10 +32,10 @@ export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
     if (p.role && ROLE_KEYS.includes(p.role)) roleCounts[p.role] += 1;
     const tk = typeKey(p.card.type_line);
     typeCounts[tk] = (typeCounts[tk] ?? 0) + 1;
-    synergyScore += p.inclusion;
+    deckScore += p.inclusion;
     estCostUsd += priceUsd(p.card);
     // theme density uses the EDHREC theme-synergy flag stamped on the scryfall card if present
-    if ((p.card as { isThemeSynergyCard?: boolean }).isThemeSynergyCard) themeCards += 1;
+    if (p.card.isThemeSynergyCard) themeCards += 1;
   }
 
   // curve verdict: compare avg cmc of picks vs a healthy band
@@ -52,7 +52,7 @@ export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
   return {
     cardCount,
     nonLandTarget: ctx.nonLandTarget,
-    synergyScore,
+    deckScore,
     roleCounts,
     roleTargets: ctx.roleTargets,
     typeCounts,

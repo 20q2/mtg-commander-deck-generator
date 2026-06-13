@@ -1,7 +1,7 @@
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 import type { BrewContext, BrewState, BrewRoute, BrewNode, BrewOption, BrewCandidate, PickReason } from './brewTypes';
 import { scoreCandidate } from './scoring';
-import { buildHealth } from './health';
+import { buildHealth, typeKey } from './health';
 
 const DRAFT_OPTIONS = 5;
 const BUNDLE_SIZE = 3;
@@ -12,7 +12,7 @@ function availableFor(ctx: BrewContext, state: BrewState, route: BrewRoute): Bre
   const pool = ctx.candidates.filter(c => !used.has(c.name) && !c.isLand);
   const matches = pool.filter(c => {
     if (route.targetRole) return c.role === route.targetRole;
-    if (route.targetType) return c.scryfall.type_line.toLowerCase().includes(route.targetType);
+    if (route.targetType) return typeKey(c.scryfall.type_line) === route.targetType;
     return true; // lightning/gamble: whole pool
   });
   // Score and sort desc. (Plan 2 passes real matchingTags; here affinity is empty.)

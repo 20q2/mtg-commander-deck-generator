@@ -101,9 +101,9 @@ export interface BrewState {
 }
 
 export interface BrewHealth {
-  cardCount: number;          // total cards picked (excludes lands until Plan 3)
+  cardCount: number;          // total cards picked (includes lands once the mana-base node runs in Plan 3)
   nonLandTarget: number;
-  synergyScore: number;       // sum of inclusion % across picks (mirrors deckScore)
+  deckScore: number;          // sum of EDHREC inclusion % across picks (mirrors GeneratedDeck.deckScore)
   roleCounts: Record<RoleKey, number>;
   roleTargets: Record<RoleKey, number>;
   typeCounts: Record<string, number>;

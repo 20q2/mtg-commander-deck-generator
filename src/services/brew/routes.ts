@@ -1,7 +1,7 @@
 import type { RoleKey } from '@/services/tagger/client';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 import type { BrewContext, BrewState, BrewRoute } from './brewTypes';
-import { buildHealth, isComplete } from './health';
+import { buildHealth, isComplete, typeKey } from './health';
 
 const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
 
@@ -42,7 +42,7 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
   }
   for (const [type, target] of Object.entries(ctx.typeTargets)) {
     const d = target - (health.typeCounts[type] ?? 0);
-    if (d > 0 && poolHas(ctx, state, c => c.scryfall.type_line.toLowerCase().includes(type)) > 0) {
+    if (d > 0 && poolHas(ctx, state, c => typeKey(c.scryfall.type_line) === type) > 0) {
       deficits.push({ key: type, kind: 'type', label: `Add ${type.charAt(0).toUpperCase()}${type.slice(1)}s`, deficit: d });
     }
   }
@@ -101,5 +101,5 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
 }
 
 function matchesDeficit(c: BrewContext['candidates'][number], d: Deficit): boolean {
-  return d.kind === 'role' ? c.role === d.key : c.scryfall.type_line.toLowerCase().includes(d.key);
+  return d.kind === 'role' ? c.role === d.key : typeKey(c.scryfall.type_line) === d.key;
 }

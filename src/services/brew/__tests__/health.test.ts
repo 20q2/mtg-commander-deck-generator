@@ -19,7 +19,7 @@ describe('buildHealth', () => {
     const h = buildHealth(ctx, makeState({ picks }));
     expect(h.roleCounts.ramp).toBe(3);
     expect(h.cardCount).toBe(3);
-    expect(h.synergyScore).toBe(180);            // 80+60+40
+    expect(h.deckScore).toBe(180);               // 80+60+40
     expect(h.estCostUsd).toBeCloseTo(2.75, 2);
     expect(h.typeCounts.creature).toBe(1);
     expect(h.typeCounts.artifact).toBe(1);
