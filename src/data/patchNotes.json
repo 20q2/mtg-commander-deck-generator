@@ -1,5 +1,11 @@
 [
   {
+    "version": "1.3.3",
+    "notes": [
+      "Small visual QOL improvements when previewing cards"
+    ]
+  },
+  {
     "version": "1.3.2",
     "notes": [
       "Cards with extra rulings will have those rulings shown when you click a card to open its preview"

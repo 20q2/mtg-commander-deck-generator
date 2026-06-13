@@ -354,7 +354,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   if (combos.length === 0) return null;
 
   // Apply the user's "show synergy combos" toggle before any other filtering.
-  const visibleCombos = showSynergy ? combos : combos.filter(c => c.source !== 'color-identity');
+  // Complete combos are always shown — the toggle only hides incomplete synergy
+  // combos, never a combo the deck already assembles.
+  const visibleCombos = showSynergy ? combos : combos.filter(c => c.source !== 'color-identity' || c.isComplete);
   const hiddenSynergyCount = combos.length - visibleCombos.length;
 
   const bannedSet = new Set(bannedCards.map(n => n.toLowerCase()));

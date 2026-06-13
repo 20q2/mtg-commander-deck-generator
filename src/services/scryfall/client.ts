@@ -253,6 +253,16 @@ export async function fetchCardRulings(card: ScryfallCard): Promise<CardRuling[]
   }
 }
 
+/**
+ * Synchronous read of the rulings cache. Returns the cached rulings array, or
+ * `undefined` if this card's rulings haven't been fetched yet. Lets the preview
+ * modal resolve the side-panel layout during render (no async null frame), so
+ * the card image doesn't jump when rulings load in.
+ */
+export function getCachedRulings(card: ScryfallCard): CardRuling[] | undefined {
+  return rulingsCache.get(card.oracle_id || card.id);
+}
+
 const FALLBACK_SEARCH_BATCH_SIZE = 15;
 
 /**

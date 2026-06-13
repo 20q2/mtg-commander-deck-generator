@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2, ScrollText } from 'lucide-react';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, useScryfallImage, fetchCardRulings } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, useScryfallImage, fetchCardRulings, getCachedRulings } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
-import type { ScryfallCard, DetectedCombo, LoadPhase, CardRuling } from '@/types';
+import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
 import { CardTypeIcon, ManaText } from '@/components/ui/mtg-icons';
@@ -114,7 +114,7 @@ function ComboEntry({
   };
 
   return (
-    <div className="rounded-lg bg-white/5 border border-white/10 px-3 py-2.5">
+    <div className="rounded-lg bg-white/10 border border-white/10 px-3 py-2.5">
       <div className={`flex items-center gap-1.5 text-[11px] font-semibold mb-1.5 ${isKnown ? 'text-amber-400' : 'text-violet-400'}`}>
         <Sparkles className="w-3 h-3" />
         Combo
@@ -253,7 +253,11 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const [swapPreview, setSwapPreview] = useState<ScryfallCard | null>(null);
   const [similarHydrated, setSimilarHydrated] = useState<ScryfallCard[] | null>(null);
   const [similarLoading, setSimilarLoading] = useState(false);
-  const [rulings, setRulings] = useState<CardRuling[] | null>(null);
+  // Rulings are read synchronously from the client cache during render (see
+  // below); this counter only forces a re-render once an async fetch populates
+  // that cache. Keeping rulings out of state avoids the null/stale frame that
+  // made the card image jump on navigation.
+  const [, bumpRulings] = useState(0);
   const [sidePanelTab, setSidePanelTab] = useState<'combos' | 'rulings'>('combos');
   const [showSwaps, setShowSwaps] = useState(() => {
     if (initialSideTab === 'swaps') return true;
@@ -556,11 +560,12 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   useEffect(() => {
     const target = cardOverride ?? card;
     if (!target) return;
+    // Already cached → render reads it synchronously, no fetch/re-render needed.
+    if (getCachedRulings(target) !== undefined) return;
     let cancelled = false;
-    setRulings(null);
     fetchCardRulings(target)
-      .then((r) => { if (!cancelled) setRulings(r); })
-      .catch(() => { if (!cancelled) setRulings([]); });
+      .then(() => { if (!cancelled) bumpRulings((t) => t + 1); })
+      .catch(() => { if (!cancelled) bumpRulings((t) => t + 1); });
     return () => { cancelled = true; };
   }, [cardOverride?.id, card?.id]);
 
@@ -673,8 +678,16 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     !card.isMustInclude
   );
   const comboCount = deckCombos.length + (deckOnly ? 0 : knownCombos.length);
-  const hasRulings = (rulings?.length ?? 0) > 0;
-  const hasSidePanel = hasCombos || hasRulings;
+  // Resolve rulings synchronously from the client cache (keyed off cardOverride ?? card,
+  // matching the fetch effect). `undefined` means "not fetched yet" → still loading.
+  const rulingsTarget = cardOverride ?? card;
+  const cachedRulings = rulingsTarget ? getCachedRulings(rulingsTarget) : undefined;
+  const rulingsLoading = !!rulingsTarget && cachedRulings === undefined;
+  const rulingsList = cachedRulings ?? [];
+  const hasRulings = rulingsList.length > 0;
+  // Reserve the side panel while rulings load so the centered image doesn't jump
+  // left when they arrive. Collapses only if the card genuinely has no side content.
+  const hasSidePanel = hasCombos || hasRulings || rulingsLoading;
   // Show the tab switcher only when both sections have content; otherwise the
   // lone section renders with its own header. Fall back to the available tab
   // when the active one has nothing for this card.
@@ -731,16 +744,17 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
           }
         }}
       >
-        {/* Main layout: card column + optional combo panel side-by-side on desktop */}
-        <div className={`${hasSidePanel ? 'md:flex md:items-start md:gap-5' : ''}`}>
-          {/* Card column: image + info + swap candidates */}
-          <div className="min-w-0">
+        {/* Main layout: image + side panel form the top row; the card info wraps to
+            its own full-width, centered row below (md:basis-full on the info block). */}
+        <div className={`${hasSidePanel ? 'md:flex md:flex-wrap md:items-start md:justify-center md:gap-x-5 md:gap-y-4' : ''}`}>
+          {/* Card image column */}
+          <div className="min-w-0 md:order-1">
             {/* Card image */}
             <div className="relative card-preview-image flex justify-center">
               <img
                 src={imgUrl}
                 alt={faceName}
-                className={`max-w-full w-auto rounded-xl shadow-2xl transition-all duration-200 ${hasSidePanel ? 'max-h-[50vh] sm:max-h-[60vh] md:max-h-[75vh] lg:max-h-[80vh]' : 'max-h-[75vh]'}`}
+                className="max-w-full w-auto rounded-xl shadow-2xl transition-all duration-200 max-h-[75vh]"
               />
               {isDfc && (
                 <button
@@ -756,9 +770,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 </button>
               )}
             </div>
+          </div>
 
-            {/* Card info */}
-            <div className="mt-4 text-center card-preview-info overflow-x-hidden">
+          {/* Card info — its own full-width, centered row below the image + side panel */}
+          <div className="mt-4 md:mt-0 text-center card-preview-info overflow-x-hidden md:order-3 md:basis-full">
           <h3 className="text-white font-bold text-lg">{faceName}</h3>
           {(displayCard.isGameChanger || isInMustInclude) && (
             <div className="flex items-center justify-center gap-2 mt-1">
@@ -884,11 +899,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
           </div>
 
             </div>
-          </div>
 
           {/* Side panel — combos and/or rulings, separated by tabs */}
           {hasSidePanel && (
-            <div className="mt-3 md:mt-0 w-full md:w-72 shrink-0 max-h-[30vh] sm:max-h-[35vh] md:max-h-[70vh] overflow-y-auto pr-1.5">
+            <div className="mt-3 md:mt-0 w-full md:w-72 shrink-0 max-h-[30vh] sm:max-h-[35vh] md:max-h-[70vh] overflow-y-auto pr-1.5 md:order-2">
               {showTabSwitcher && (
                 <div className="flex gap-1 mb-3 p-1 rounded-lg bg-white/5 border border-white/10">
                   <button
@@ -915,7 +929,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                   >
                     <ScrollText className="w-3 h-3" />
                     Rulings
-                    <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{rulings?.length ?? 0}</span>
+                    <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{rulingsList.length}</span>
                   </button>
                 </div>
               )}
@@ -947,18 +961,35 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                   </div>
                 </>
               )}
+              {/* Rulings still loading with no combos to show — render a skeleton so the
+                  reserved panel reads as intentional rather than empty space. */}
+              {activeSideTab === 'rulings' && !hasRulings && rulingsLoading && (
+                <>
+                  {!showTabSwitcher && (
+                    <div className="flex items-center gap-1.5 mb-2.5 py-1.5 border-b border-white/10">
+                      <ScrollText className="w-3.5 h-3.5 text-white/60" />
+                      <span className="text-[11px] font-bold text-white/70 tracking-wide uppercase">Rulings</span>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-14 w-full rounded-lg bg-white/5 animate-pulse" />
+                    ))}
+                  </div>
+                </>
+              )}
               {activeSideTab === 'rulings' && hasRulings && (
                 <>
                   {!showTabSwitcher && (
                     <div className="flex items-center gap-1.5 mb-2.5 py-1.5 border-b border-white/10">
                       <ScrollText className="w-3.5 h-3.5 text-white/60" />
                       <span className="text-[11px] font-bold text-white/70 tracking-wide uppercase">Rulings</span>
-                      <span className="ml-auto text-[10px] font-medium text-white/50 bg-white/10 px-1.5 py-0.5 rounded-full">{rulings!.length}</span>
+                      <span className="ml-auto text-[10px] font-medium text-white/50 bg-white/10 px-1.5 py-0.5 rounded-full">{rulingsList.length}</span>
                     </div>
                   )}
                   <div className="space-y-2">
-                    {rulings!.map((ruling, idx) => (
-                      <div key={idx} className="rounded-lg bg-white/5 border border-white/10 px-3 py-2.5">
+                    {rulingsList.map((ruling, idx) => (
+                      <div key={idx} className="rounded-lg bg-white/10 border border-white/10 px-3 py-2.5">
                         <p className="text-[11px] text-white/70 leading-relaxed">
                           <ManaText text={ruling.comment} />
                         </p>
