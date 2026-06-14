@@ -66,13 +66,13 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     seen.add(e.name);
 
     // Stamp the two fields the engine relies on so scoring/health work in production
-    // (Plan-1 review #1 + #4): EDHREC cmc is often missing; theme flag lives on edhrec.
-    e.cmc = scryfall.cmc;
-    scryfall.isThemeSynergyCard = e.isThemeSynergyCard;
+    // (Plan-1 review #1 + #4). Copy the EDHREC record so we don't mutate the cached pool.
+    const edhrec = { ...e, cmc: scryfall.cmc };
+    scryfall.isThemeSynergyCard = e.isThemeSynergyCard; // getCardsByNames returns a fresh copy — safe to mutate
 
     candidates.push({
       name: e.name,
-      edhrec: e,
+      edhrec,
       scryfall,
       role: getCardRole(e.name),
       subtype: getCardSubtype(e.name),

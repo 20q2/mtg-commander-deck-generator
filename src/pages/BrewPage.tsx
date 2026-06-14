@@ -4,7 +4,7 @@ import { useStore } from '@/store';
 import { getCardByName } from '@/services/scryfall/client';
 import { fetchCommanderData } from '@/services/edhrec/client';
 import { prepareBrewContext } from '@/services/brew/prepareBrewContext';
-import { persistBrewSession, hydrateBrewSession } from '@/store';
+import { persistBrewSession, hydrateBrewSession, clearPersistedBrew } from '@/store';
 import { finishBrew } from '@/services/brew/finishBrew';
 import { trackEvent } from '@/services/analytics';
 import type { ThemeResult } from '@/types';
@@ -14,14 +14,15 @@ import { BrewPath } from '@/components/brew/BrewPath';
 import { BrewNode } from '@/components/brew/BrewNode';
 
 export function BrewPage() {
-  const { commanderName } = useParams<{ commanderName: string; partnerName?: string }>();
+  const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
   const [searchParams] = useSearchParams();
   const brewId = searchParams.get('b');
   const navigate = useNavigate();
 
   const {
     commander, partnerCommander, colorIdentity, customization, selectedThemes,
-    setCommander, setEdhrecStats, setEdhrecThemes, setSelectedThemes,
+    setCommander, setPartnerCommander, setEdhrecStats, setEdhrecThemes, setSelectedThemes,
+    setThemesLoading,
     brewContext, brewState, brewNode, startBrewSession, clearBrewSession, setGeneratedDeck,
   } = useStore();
 
@@ -37,6 +38,7 @@ export function BrewPage() {
       const decoded = decodeURIComponent(commanderName);
       if (commander?.name === decoded && selectedThemes.length > 0) return;
       setLoadingCommander(true);
+      setThemesLoading(true);
       try {
         const card = commander?.name === decoded ? commander : await getCardByName(decoded, true);
         if (!card) { navigate('/'); return; }
@@ -57,13 +59,42 @@ export function BrewPage() {
       } catch (e) {
         console.error(e); if (!cancelled) setError('Could not load commander');
       } finally {
-        if (!cancelled) setLoadingCommander(false);
+        if (!cancelled) {
+          setLoadingCommander(false);
+          setThemesLoading(false);
+        }
       }
     }
     load();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commanderName]);
+
+  // 1b) Load partner commander from URL if present, or clear if absent (mirror of BuilderPage).
+  useEffect(() => {
+    if (!commander) return;
+
+    if (!partnerName) {
+      // URL has no partner — clear stale partner from store
+      const { partnerCommander: current } = useStore.getState();
+      if (current) setPartnerCommander(null);
+      return;
+    }
+
+    const decodedPartnerName = decodeURIComponent(partnerName);
+    if (partnerCommander?.name === decodedPartnerName) return;
+
+    async function loadPartnerFromUrl() {
+      try {
+        const partnerCard = await getCardByName(decodedPartnerName, true);
+        if (partnerCard) setPartnerCommander(partnerCard);
+      } catch (error) {
+        console.error('Failed to load partner commander:', error);
+      }
+    }
+
+    loadPartnerFromUrl();
+  }, [partnerName, commander?.name]);
 
   // 2) Hydrate an in-progress brew from sessionStorage when ?b=<id> matches.
   useEffect(() => {
@@ -116,6 +147,7 @@ export function BrewPage() {
       const base = partnerCommander
         ? `/build/${encodeURIComponent(brewContext.commander.name)}/${encodeURIComponent(partnerCommander.name)}`
         : `/build/${encodeURIComponent(brewContext.commander.name)}`;
+      if (brewId) clearPersistedBrew(brewId);
       clearBrewSession();
       navigate(`${base}?g=${g}`);
     } catch (e) {

@@ -525,12 +525,20 @@ export function persistBrewSession(id: string): void {
   try {
     const { brewContext, brewState } = useStore.getState();
     if (!brewContext || !brewState) return;
-    // Sweep stale brew keys, keep only the current one.
+    // Sweep stale brew keys (both prefixes), keep only this id's.
     for (let i = sessionStorage.length - 1; i >= 0; i--) {
       const key = sessionStorage.key(i);
-      if (key && key.startsWith('brew:') && key !== `brew:${id}`) sessionStorage.removeItem(key);
+      if (key && (key.startsWith('brewctx:') || key.startsWith('brewstate:'))
+        && key !== `brewctx:${id}` && key !== `brewstate:${id}`) {
+        sessionStorage.removeItem(key);
+      }
     }
-    sessionStorage.setItem(`brew:${id}`, JSON.stringify({ brewContext, brewState }));
+    // Heavy context: write once (skip if already stored for this id).
+    if (!sessionStorage.getItem(`brewctx:${id}`)) {
+      sessionStorage.setItem(`brewctx:${id}`, JSON.stringify(brewContext));
+    }
+    // Light state: write every time.
+    sessionStorage.setItem(`brewstate:${id}`, JSON.stringify(brewState));
   } catch (e) {
     console.warn('Failed to persist brew session:', e);
   }
@@ -538,15 +546,26 @@ export function persistBrewSession(id: string): void {
 
 export function hydrateBrewSession(id: string): boolean {
   try {
-    const raw = sessionStorage.getItem(`brew:${id}`);
-    if (!raw) return false;
-    const { brewContext, brewState } = JSON.parse(raw);
-    if (!brewContext || !brewState) return false;
+    const ctxRaw = sessionStorage.getItem(`brewctx:${id}`);
+    const stateRaw = sessionStorage.getItem(`brewstate:${id}`);
+    if (!ctxRaw || !stateRaw) return false;
+    const brewContext = JSON.parse(ctxRaw);
+    const brewState = JSON.parse(stateRaw);
     const routes = nextRoutes(brewContext, brewState);
     useStore.setState({ brewContext, brewState, brewRoutes: routes, brewNode: null, brewRerollExclusions: [] });
     return true;
   } catch (e) {
     console.warn('Failed to hydrate brew session:', e);
     return false;
+  }
+}
+
+/** Remove a persisted brew session (call on finish). */
+export function clearPersistedBrew(id: string): void {
+  try {
+    sessionStorage.removeItem(`brewctx:${id}`);
+    sessionStorage.removeItem(`brewstate:${id}`);
+  } catch (e) {
+    console.warn('Failed to clear persisted brew:', e);
   }
 }
