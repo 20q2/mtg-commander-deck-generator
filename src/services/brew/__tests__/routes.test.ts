@@ -51,3 +51,15 @@ describe('nextRoutes', () => {
     expect(routes[0].type).toBe('manabase');
   });
 });
+
+describe('nextRoutes — exhaustion fallback', () => {
+  it('offers the manabase/finish route when no usable route remains and deck is not yet complete', () => {
+    // Only one candidate, already used → no deficits fillable, far from nonland target.
+    const ctx = makeContext({ nonLandTarget: 40, candidates: [
+      makeCandidate('Lone Card', { role: 'removal', primary_type: 'Instant', type_line: 'Instant' }),
+    ]});
+    const routes = nextRoutes(ctx, makeState({ usedNames: ['Lone Card'] }));
+    expect(routes.length).toBeGreaterThanOrEqual(1);
+    expect(routes.some(r => r.type === 'manabase')).toBe(true);
+  });
+});

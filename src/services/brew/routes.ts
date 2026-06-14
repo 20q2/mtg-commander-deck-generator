@@ -97,6 +97,20 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     });
   }
 
+  // Exhaustion fallback: if nothing meaningful can be drafted (no deficit routes and the
+  // pool can't feed a lightning round), surface the mana base / finish route rather than
+  // a dead-end fork. Lightning needs available non-land candidates to be useful.
+  const usedSet = new Set(state.usedNames);
+  const draftableLeft = ctx.candidates.some(c => !usedSet.has(c.name) && !c.isLand);
+  const hasRealRoute = routes.some(r => r.type !== 'lightning') || draftableLeft;
+  if (!hasRealRoute) {
+    return [{
+      id: 'manabase', type: 'manabase', title: 'Build the Mana Base',
+      description: 'No more cards to draft — finish the deck and fill the mana base.',
+      targetRole: null, targetType: null, tone: 'neutral', fills: ctx.landTarget,
+    }];
+  }
+
   return routes.slice(0, 3);
 }
 
