@@ -25,7 +25,10 @@ export type AnalyticsEventType =
   | 'analyze_lane_switched'
   | 'analyze_cta_clicked'
   | 'poll_nudge_shown'
-  | 'poll_nudge_dismissed';
+  | 'poll_nudge_dismissed'
+  | 'brew_started'
+  | 'brew_finished'
+  | 'brew_abandoned';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -90,6 +93,9 @@ export interface AnalyticsEventMetadata {
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };
   poll_nudge_shown: { visitCount: number };
   poll_nudge_dismissed: { action: 'clicked' | 'dismissed' };
+  brew_started: { commanderName: string; partnerName?: string; collectionMode: boolean };
+  brew_finished: { commanderName: string; picks: number };
+  brew_abandoned: { commanderName: string; picks: number };
   playtest_started: {
     /** Where the playtest was launched from. */
     source: 'list' | 'generated';
