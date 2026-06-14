@@ -514,3 +514,39 @@ export const useStore = create<AppState>((set, get) => ({
     error: null,
   })),
 }));
+
+// ---------------------------------------------------------------------------
+// Brew session sessionStorage helpers
+// Keyed as "brew:<id>" — mirrors the "deck:<id>" pattern used by BuilderPage.
+// Call persistBrewSession from a BrewPage useEffect; call hydrateBrewSession on mount.
+// ---------------------------------------------------------------------------
+
+export function persistBrewSession(id: string): void {
+  try {
+    const { brewContext, brewState } = useStore.getState();
+    if (!brewContext || !brewState) return;
+    // Sweep stale brew keys, keep only the current one.
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('brew:') && key !== `brew:${id}`) sessionStorage.removeItem(key);
+    }
+    sessionStorage.setItem(`brew:${id}`, JSON.stringify({ brewContext, brewState }));
+  } catch (e) {
+    console.warn('Failed to persist brew session:', e);
+  }
+}
+
+export function hydrateBrewSession(id: string): boolean {
+  try {
+    const raw = sessionStorage.getItem(`brew:${id}`);
+    if (!raw) return false;
+    const { brewContext, brewState } = JSON.parse(raw);
+    if (!brewContext || !brewState) return false;
+    const routes = nextRoutes(brewContext, brewState);
+    useStore.setState({ brewContext, brewState, brewRoutes: routes, brewNode: null, brewRerollExclusions: [] });
+    return true;
+  } catch (e) {
+    console.warn('Failed to hydrate brew session:', e);
+    return false;
+  }
+}
