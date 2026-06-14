@@ -7,6 +7,8 @@ import { prepareBrewContext } from '@/services/brew/prepareBrewContext';
 import { persistBrewSession, hydrateBrewSession, clearPersistedBrew } from '@/store';
 import { finishBrew } from '@/services/brew/finishBrew';
 import { trackEvent } from '@/services/analytics';
+import { useUserLists } from '@/hooks/useUserLists';
+import { brewDeckToList } from '@/services/brew/brewDeckToList';
 import type { ThemeResult } from '@/types';
 import { BrewSetup } from '@/components/brew/BrewSetup';
 import { BrewHealthStrip } from '@/components/brew/BrewHealthStrip';
@@ -23,8 +25,10 @@ export function BrewPage() {
     commander, partnerCommander, colorIdentity, customization, selectedThemes,
     setCommander, setPartnerCommander, setEdhrecStats, setEdhrecThemes, setSelectedThemes,
     setThemesLoading,
-    brewContext, brewState, brewNode, startBrewSession, clearBrewSession, setGeneratedDeck,
+    brewContext, brewState, brewNode, startBrewSession, clearBrewSession,
   } = useStore();
+
+  const { createList } = useUserLists();
 
   const [loadingCommander, setLoadingCommander] = useState(false);
   const [progress, setProgress] = useState<{ msg: string; pct: number } | null>(null);
@@ -141,16 +145,19 @@ export function BrewPage() {
     setProgress({ msg: 'Finishing your deck…', pct: 0 });
     try {
       const deck = await finishBrew(brewContext, brewState, (msg, pct) => setProgress({ msg, pct }));
-      setGeneratedDeck(deck);
+      const payload = brewDeckToList(deck, brewContext.commander, brewContext.partnerCommander, brewContext.customization);
+      const list = createList(payload.name, payload.cards, '', {
+        type: 'deck',
+        commanderName: brewContext.commander.name,
+        partnerCommanderName: brewContext.partnerCommander?.name,
+        deckSize: payload.deckSize,
+        generationSummary: payload.generationSummary,
+      });
       trackEvent('brew_finished', { commanderName: brewContext.commander.name, picks: brewState.picks.length });
-      const g = `${Date.now()}`;
-      sessionStorage.setItem(`deck:${g}`, JSON.stringify(deck));
-      const base = partnerCommander
-        ? `/build/${encodeURIComponent(brewContext.commander.name)}/${encodeURIComponent(partnerCommander.name)}`
-        : `/build/${encodeURIComponent(brewContext.commander.name)}`;
+      trackEvent('list_created', { listName: payload.name, cardCount: payload.cards.length });
       if (brewId) clearPersistedBrew(brewId);
       clearBrewSession();
-      navigate(`${base}?g=${g}`);
+      navigate(`/decks/${list.id}`);
     } catch (e) {
       console.error(e); setError(e instanceof Error ? e.message : 'Failed to finish');
     } finally {
