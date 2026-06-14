@@ -38,12 +38,13 @@ export function BrewPage() {
       const decoded = decodeURIComponent(commanderName);
       if (commander?.name === decoded && selectedThemes.length > 0) return;
       setLoadingCommander(true);
-      setThemesLoading(true);
       try {
         const card = commander?.name === decoded ? commander : await getCardByName(decoded, true);
         if (!card) { navigate('/'); return; }
         if (cancelled) return;
         setCommander(card);
+        // setThemesLoading must come AFTER setCommander — setCommander resets themesLoading to false.
+        setThemesLoading(true);
         const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
         const data = await fetchCommanderData(card.name, undefined, bracketLevel);
         if (cancelled) return;
