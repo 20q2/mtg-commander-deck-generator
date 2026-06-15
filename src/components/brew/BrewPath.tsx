@@ -3,8 +3,7 @@ import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import {
   Undo2, RefreshCw, Play,
-  Infinity as InfinityIcon, Zap, Dices, Mountain, TrendingUp, Crosshair, Bomb,
-  BookOpen, PawPrint, Flame, ScrollText, Cog, Sparkles, UserRound, Swords, Package, Layers,
+  Infinity as InfinityIcon, Zap, Dices, TrendingUp, Crosshair, Bomb, BookOpen, Package, Layers,
   type LucideIcon,
 } from 'lucide-react';
 import { openNode, type BrewRoute } from '@/services/brew/engine';
@@ -22,23 +21,27 @@ const TONE_RING: Record<string, string> = {
   neutral: 'border-violet-400/60 text-violet-200 bg-violet-500/15',
 };
 
-// Role + card-type keys → symbol. Role and type keys are disjoint, so one map covers both.
-const KEY_ICON: Record<string, LucideIcon> = {
-  // roles
+// Official MTG card-type glyphs (mana-font). These are "the right symbols" for type routes.
+const CARD_TYPE_MS: Record<string, string> = {
+  creature: 'ms-creature', instant: 'ms-instant', sorcery: 'ms-sorcery', artifact: 'ms-artifact',
+  enchantment: 'ms-enchantment', planeswalker: 'ms-planeswalker', battle: 'ms-battle', land: 'ms-land',
+};
+// Functional roles aren't card types, so they keep meaningful Lucide icons.
+const ROLE_LUCIDE: Record<string, LucideIcon> = {
   ramp: TrendingUp, removal: Crosshair, boardwipe: Bomb, cardDraw: BookOpen,
-  // card types
-  creature: PawPrint, instant: Flame, sorcery: ScrollText, artifact: Cog,
-  enchantment: Sparkles, planeswalker: UserRound, battle: Swords, land: Mountain,
 };
 
-/** Pick the at-a-glance symbol for a route (or a past pick), by move type then by what it fills. */
-function iconFor(type: string, key: string | null): LucideIcon {
-  if (type === 'combo') return InfinityIcon;
-  if (type === 'lightning') return Zap;
-  if (type === 'gamble') return Dices;
-  if (type === 'manabase') return Mountain;
-  if (key && KEY_ICON[key]) return KEY_ICON[key];
-  return type === 'bundle' ? Package : Layers;
+type RouteSymbol = { ms?: string; Icon?: LucideIcon };
+
+/** The at-a-glance symbol for a route (or a past pick): mana-font glyph for card types, Lucide otherwise. */
+function symbolFor(type: string, key: string | null): RouteSymbol {
+  if (type === 'combo') return { Icon: InfinityIcon };
+  if (type === 'lightning') return { Icon: Zap };
+  if (type === 'gamble') return { Icon: Dices };
+  if (type === 'manabase') return { ms: 'ms-land' };
+  if (key && CARD_TYPE_MS[key]) return { ms: CARD_TYPE_MS[key] };
+  if (key && ROLE_LUCIDE[key]) return { Icon: ROLE_LUCIDE[key] };
+  return { Icon: type === 'bundle' ? Package : Layers };
 }
 
 /** Scryfall art-crop URL for a card (front face for DFCs). */
@@ -74,14 +77,14 @@ export function BrewPath({ onFinish }: { onFinish: () => void }) {
       <div className="flex items-center justify-center gap-1 mb-6 flex-wrap">
         {brewState.history.map((h, i) => {
           const key = h.routeId.includes(':') ? h.routeId.split(':')[1] : null;
-          const Icon = iconFor(h.routeType, key);
+          const sym = symbolFor(h.routeType, key);
           return (
             <span
               key={i}
               title={h.added.join(', ')}
               className="w-6 h-6 rounded-full border border-border bg-card grid place-items-center text-muted-foreground"
             >
-              <Icon className="w-3 h-3" />
+              {sym.ms ? <i className={`ms ${sym.ms} text-xs leading-none`} /> : sym.Icon ? <sym.Icon className="w-3 h-3" /> : null}
             </span>
           );
         })}
@@ -93,7 +96,7 @@ export function BrewPath({ onFinish }: { onFinish: () => void }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {brewRoutes.map((route: BrewRoute) => {
-          const Icon = iconFor(route.type, route.targetRole ?? route.targetType ?? null);
+          const sym = symbolFor(route.type, route.targetRole ?? route.targetType ?? null);
           const art = repArt[route.id];
           return (
             <button
@@ -114,7 +117,7 @@ export function BrewPath({ onFinish }: { onFinish: () => void }) {
 
               <div className="relative p-5">
                 <div className={`mx-auto mb-3 w-14 h-14 rounded-full grid place-items-center border-2 backdrop-blur-sm transition-transform duration-150 group-hover:scale-110 ${TONE_RING[route.tone] ?? TONE_RING.neutral}`}>
-                  <Icon className="w-7 h-7" />
+                  {sym.ms ? <i className={`ms ${sym.ms} text-[26px] leading-none`} /> : sym.Icon ? <sym.Icon className="w-7 h-7" /> : null}
                 </div>
                 <h3 className="text-base font-semibold mb-1">{route.title}</h3>
                 <p className="text-xs text-muted-foreground mb-3 min-h-[2.5rem]">{route.description}</p>
