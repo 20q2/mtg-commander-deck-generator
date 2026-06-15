@@ -10,6 +10,7 @@ export interface BrewCandidate {
   subtype: string | null;      // From getCardSubtype()
   inclusion: number;           // EDHREC inclusion % (mirror of edhrec.inclusion)
   isLand: boolean;             // type_line includes 'land'
+  themeTags: string[];         // EDHREC theme slugs this card belongs to (∩ the deck's selected themes)
 }
 
 /** Immutable per-session data: the scored pool + targets. Built once by prepareBrewContext(). */
@@ -25,6 +26,7 @@ export interface BrewContext {
   landTarget: number;                    // Number of land slots
   nonLandTarget: number;                 // Sum of typeTargets
   combos: EDHRECCombo[];                 // Commander-source combos, for combo routes (Plan 3)
+  themeNames: Record<string, string>;    // theme slug -> display name (for leaning readout + reasons)
 }
 
 export type ReasonKind = 'synergy' | 'role' | 'theme' | 'curve' | 'combo';
@@ -70,6 +72,7 @@ export interface BrewOption {
   label?: string;             // bundle theme name, e.g. "Sacrifice Synergy"
   cards: BrewCandidate[];     // 1 for draft/lightning/gamble, 3-5 for bundle, 1-3 for combo
   reasons: PickReason[][];    // reasons[i] corresponds to cards[i]
+  spicy?: boolean;            // a wildcard slot: underutilized / off-theme, flagged in the UI
 }
 
 export interface BrewNode {

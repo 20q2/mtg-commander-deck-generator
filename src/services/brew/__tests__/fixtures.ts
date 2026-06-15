@@ -35,7 +35,7 @@ export function makeCandidate(
   name: string,
   opts: { role?: RoleKey | null; subtype?: string | null; inclusion?: number; cmc?: number;
           type_line?: string; primary_type?: string; price?: string; isLand?: boolean;
-          isThemeSynergyCard?: boolean } = {},
+          isThemeSynergyCard?: boolean; themeTags?: string[] } = {},
 ): BrewCandidate {
   const inclusion = opts.inclusion ?? 50;
   return {
@@ -48,6 +48,7 @@ export function makeCandidate(
     subtype: opts.subtype ?? null,
     inclusion,
     isLand: opts.isLand ?? false,
+    themeTags: opts.themeTags ?? [],
   };
 }
 
@@ -64,6 +65,7 @@ export function makeContext(over: Partial<BrewContext> = {}): BrewContext {
     landTarget: over.landTarget ?? 36,
     nonLandTarget: over.nonLandTarget ?? 63,
     combos: over.combos ?? [],
+    themeNames: over.themeNames ?? {},
     ...over,
   };
 }

@@ -184,7 +184,15 @@ export function BrewPage() {
       ) : (
         <div className="space-y-5">
           <BrewHealthStrip />
-          {brewNode ? <BrewNode onFinish={handleFinish} /> : <BrewPath onFinish={handleFinish} />}
+          {/* Key the view on fork-vs-node so each arrival fades in as one cohesive unit
+              instead of its pieces blinking into existence one by one. */}
+          <div key={brewNode ? 'node' : 'fork'} className="animate-brew-view-in">
+            {/* Key BrewNode on the decision count so each auto-advanced card screen remounts
+                (resets its fly-away state and replays the deal-in) instead of reusing the prior one. */}
+            {brewNode
+              ? <BrewNode key={brewState?.history.length ?? 0} onFinish={handleFinish} />
+              : <BrewPath onFinish={handleFinish} />}
+          </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
         </div>
       )}

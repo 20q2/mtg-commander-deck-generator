@@ -4,6 +4,8 @@ vi.mock('@/services/edhrec/client', () => ({
   fetchCommanderData: vi.fn(),
   fetchPartnerCommanderData: vi.fn(),
   fetchCommanderCombos: vi.fn(async () => []),
+  fetchCommanderThemeData: vi.fn(),
+  fetchPartnerThemeData: vi.fn(),
 }));
 vi.mock('@/services/scryfall/client', () => ({
   getCardsByNames: vi.fn(),
@@ -15,7 +17,7 @@ vi.mock('@/services/tagger/client', () => ({
 }));
 
 import { prepareBrewContext } from '../prepareBrewContext';
-import { fetchCommanderData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchCommanderThemeData } from '@/services/edhrec/client';
 import { getCardsByNames } from '@/services/scryfall/client';
 import type { Customization, ScryfallCard, EDHRECCommanderData } from '@/types';
 
@@ -84,6 +86,34 @@ describe('prepareBrewContext', () => {
     expect(ctx.landTarget).toBe(36);
     expect(ctx.nonLandTarget).toBe(63);                    // 99 - 36
     expect(ctx.roleTargets.ramp).toBeGreaterThan(0);
+  });
+
+  it('tags candidates with the themes they belong to', async () => {
+    vi.mocked(fetchCommanderThemeData).mockResolvedValue({
+      themes: [], stats: {}, similarCommanders: [],
+      cardlists: { allNonLand: [{ name: 'Random Bear', sanitized: 'bear', primary_type: 'Creature', inclusion: 40, num_decks: 400 }] },
+    } as unknown as EDHRECCommanderData);
+
+    const ctx = await prepareBrewContext({
+      commander, partnerCommander: null, colorIdentity: ['G', 'W'],
+      customization: baseCustomization,
+      selectedThemes: [{ name: 'Tokens', slug: 'tokens', source: 'edhrec', isSelected: true }],
+    });
+
+    const bear = ctx.candidates.find(c => c.name === 'Random Bear')!;
+    const swords = ctx.candidates.find(c => c.name === 'Swords to Plowshares')!;
+    expect(bear.themeTags).toEqual(['tokens']);   // on the Tokens page
+    expect(swords.themeTags).toEqual([]);          // not on the Tokens page
+    expect(ctx.themeNames).toEqual({ tokens: 'Tokens' });
+  });
+
+  it('leaves themeTags empty when no themes are selected', async () => {
+    const ctx = await prepareBrewContext({
+      commander, partnerCommander: null, colorIdentity: ['G', 'W'],
+      customization: baseCustomization,
+    });
+    expect(ctx.candidates.every(c => c.themeTags.length === 0)).toBe(true);
+    expect(ctx.themeNames).toEqual({});
   });
 
   it('in collection full mode, keeps only owned cards', async () => {

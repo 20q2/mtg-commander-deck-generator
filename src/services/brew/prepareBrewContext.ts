@@ -1,5 +1,5 @@
 import type { ScryfallCard, Customization, ThemeResult, EDHRECCommanderStats, EDHRECCombo } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { calculateTypeTargets, calculateCurveTargets } from '@/services/deckBuilder/curveUtils';
 import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckBuilder/roleTargets';
@@ -81,7 +81,32 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
       subtype: getCardSubtype(e.name),
       inclusion: e.inclusion,
       isLand: false,
+      themeTags: [],
     });
+  }
+
+  // Theme membership: fetch each selected theme's card list and tag candidates that appear on it.
+  // This is the honest "identity" signal — a card belongs to Tokens because EDHREC's Tokens page lists it.
+  const themeNames: Record<string, string> = {};
+  const selected = (args.selectedThemes ?? []).filter(t => t.isSelected && t.slug);
+  if (selected.length > 0) {
+    args.onProgress?.('Reading your themes…', 80);
+    const membership = new Map<string, Set<string>>(); // slug -> card names on that theme page
+    await Promise.all(selected.map(async (t) => {
+      const slug = t.slug!;
+      themeNames[slug] = t.name;
+      try {
+        const data = partnerCommander
+          ? await fetchPartnerThemeData(commander.name, partnerCommander.name, slug, budgetOption, bracketLevel)
+          : await fetchCommanderThemeData(commander.name, slug, budgetOption, bracketLevel);
+        membership.set(slug, new Set(data.cardlists.allNonLand.map(c => c.name)));
+      } catch {
+        membership.set(slug, new Set()); // a theme that won't load just contributes no tags
+      }
+    }));
+    for (const c of candidates) {
+      c.themeTags = selected.map(t => t.slug!).filter(slug => membership.get(slug)?.has(c.name));
+    }
   }
 
   args.onProgress?.('Shuffling up…', 90);
@@ -97,5 +122,6 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     landTarget,
     nonLandTarget,
     combos,
+    themeNames,
   };
 }

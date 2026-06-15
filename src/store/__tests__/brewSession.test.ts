@@ -6,7 +6,7 @@ import type { ScryfallCard, EDHRECCard } from '@/types';
 function cand(name: string, role: BrewCandidate['role'], type_line = 'Instant'): BrewCandidate {
   const scryfall = { id: name, name, cmc: 2, type_line, color_identity: ['W'], prices: { usd: '1' } } as ScryfallCard;
   const edhrec = { name, sanitized: name, primary_type: type_line, inclusion: 60, num_decks: 100 } as EDHRECCard;
-  return { name, edhrec, scryfall, role, subtype: null, inclusion: 60, isLand: false };
+  return { name, edhrec, scryfall, role, subtype: null, inclusion: 60, isLand: false, themeTags: [] };
 }
 
 function ctx(): BrewContext {
@@ -20,7 +20,7 @@ function ctx(): BrewContext {
     customization: {} as BrewContext['customization'], candidates,
     roleTargets: { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10 },
     typeTargets: { creature: 0, instant: 8, artifact: 6 }, curveTargets: { 2: 14 },
-    landTarget: 36, nonLandTarget: 14, combos: [],
+    landTarget: 36, nonLandTarget: 14, combos: [], themeNames: {},
   };
 }
 
@@ -44,7 +44,9 @@ describe('brewSession slice', () => {
     expect(node.options.length).toBeGreaterThanOrEqual(1);
     s.applyBrewOption(node.options[0], []);
     expect(useStore.getState().brewState!.picks.length).toBeGreaterThanOrEqual(1);
-    expect(useStore.getState().brewNode).toBeNull();          // back at fork
+    // Auto-advances straight to the next card screen — the steering fork only returns every 5 picks.
+    expect(useStore.getState().brewNode).not.toBeNull();
+    expect(useStore.getState().brewNode!.options.length).toBeGreaterThanOrEqual(1);
   });
 
   it('undo reverts the last decision', () => {

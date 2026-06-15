@@ -3,6 +3,7 @@ import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 import type { BrewContext, BrewState, BrewRoute } from './brewTypes';
 import { buildHealth, isComplete, typeKey } from './health';
 import { detectNearMissCombos } from './combos';
+import { leaningThemes } from './identity';
 
 const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
 
@@ -55,18 +56,20 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
   const preferMulti = fillRatio >= 0.5;
 
   const routes: BrewRoute[] = [];
+  const leaning = leaningThemes(ctx, state);
+  const leanFlavor = leaning.length > 0 ? ` Fits your ${leaning[0]} plan.` : '';
 
   if (nearMiss.length > 0) {
-    const top = nearMiss[0];
+    const count = Math.min(nearMiss.length, 3);
     routes.push({
-      id: `combo:${top.comboId}`,
+      id: 'combo',
       type: 'combo',
-      title: top.missing.length === 1 ? 'Complete a Combo' : 'Assemble a Combo',
-      description: `Add ${top.missing.join(' + ')} to enable: ${top.results.join(', ')}.`,
+      title: count === 1 ? 'Complete a Combo' : 'Combos',
+      description: count === 1
+        ? "You're a piece away from a combo."
+        : `You're a piece away from ${count} combos.`,
       targetRole: null, targetType: null, tone: 'theme', tag: 'Combo',
-      fills: top.missing.length,
-      comboMissing: top.missing,
-      comboResults: top.results,
+      fills: nearMiss[0].missing.length,
     });
   }
 
@@ -78,7 +81,7 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
       id: `${asBundle ? 'bundle' : 'draft'}:${top.key}`,
       type: asBundle ? 'bundle' : 'draft',
       title: top.label,
-      description: asBundle ? 'Draft a coherent package of cards for this need.' : 'Draft one card for this need.',
+      description: (asBundle ? 'Draft a coherent package of cards for this need.' : 'Draft one card for this need.') + leanFlavor,
       targetRole: top.kind === 'role' ? (top.key as RoleKey) : null,
       targetType: top.kind === 'type' ? top.key : null,
       tone: 'need',

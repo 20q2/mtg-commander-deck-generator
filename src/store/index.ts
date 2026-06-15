@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry, DeckHistoryAction } from '@/types';
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
-import { nextRoutes, openNode, applyPick, undoLast, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick } from '@/services/brew/engine';
+import { nextRoutes, openNode, applyPick, undoLast, advanceAfterPick, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick } from '@/services/brew/engine';
 
 const BANNED_CARDS_KEY = 'mtg-deck-builder-banned-cards';
 const MUST_INCLUDE_CARDS_KEY = 'mtg-deck-builder-must-include-cards';
@@ -433,19 +433,21 @@ export const useStore = create<AppState>((set, get) => ({
       name: c.name, card: c.scryfall, role: c.role, subtype: c.subtype, inclusion: c.inclusion,
       viaRouteId: brewNode.routeId, reasons: option.reasons[i] ?? [],
     }));
-    // Affinity tags: use each card's subtype + (role as a coarse tag) so picking similar cards compounds.
+    // Affinity tags: the card's EDHREC theme memberships drive deck-identity compounding;
+    // subtype is retained so functional packages (counterspells, tutors) still cohere.
     const tags: Record<string, string[]> = {};
     for (const c of option.cards) {
-      const t: string[] = [];
+      const t = [...c.themeTags];
       if (c.subtype) t.push(c.subtype);
-      if (c.role) t.push(c.role);
       tags[c.name] = t;
     }
     const nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags });
+    // You shouldn't have to choose a path after every pick: auto-advance to the next card screen,
+    // surfacing the steering fork only every few decisions (advanceAfterPick returns null then).
     set({
       brewState: nextState,
       brewRoutes: nextRoutes(brewContext, nextState),
-      brewNode: null,
+      brewNode: advanceAfterPick(brewContext, nextState),
       brewRerollExclusions: [],
     });
   },

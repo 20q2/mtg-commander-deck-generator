@@ -21,7 +21,7 @@ function makeCtx(): BrewContext {
     commander: sf('Cmd'), partnerCommander: null, colorIdentity: ['W'],
     customization: { mustIncludeCards: ['Pre-Existing'], collectionMode: false } as unknown as BrewContext['customization'],
     candidates: [], roleTargets: { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10 },
-    typeTargets: {}, curveTargets: {}, landTarget: 36, nonLandTarget: 63, combos: [],
+    typeTargets: {}, curveTargets: {}, landTarget: 36, nonLandTarget: 63, combos: [], themeNames: {},
   };
 }
 function makeState(names: string[]): BrewState {

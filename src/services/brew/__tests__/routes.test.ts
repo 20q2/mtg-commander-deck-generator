@@ -78,7 +78,28 @@ describe('nextRoutes — combo route', () => {
     const routes = nextRoutes(ctx, makeState());
     const comboRoute = routes.find(r => r.type === 'combo');
     expect(comboRoute).toBeDefined();
-    expect(comboRoute?.comboMissing).toEqual(['Cathars Crusade']);
+    expect(comboRoute?.id).toBe('combo');
+    expect(comboRoute?.title).toBe('Complete a Combo'); // exactly one near-miss
     expect(comboRoute?.tone).toBe('theme');
+    // Copy no longer embeds card names or result strings — those live in the node now.
+    expect(comboRoute?.description).not.toContain('Cathars Crusade');
+    expect(comboRoute?.description).not.toContain('Infinite tokens');
+  });
+});
+
+describe('identity-flavored route copy', () => {
+  it('appends the leaning theme to the primary need route description', () => {
+    // A candidate pool with a removal deficit available to draft.
+    const pool = [
+      makeCandidate('Removal A', { role: 'removal', inclusion: 60, type_line: 'Instant', themeTags: ['tokens'] }),
+      makeCandidate('Removal B', { role: 'removal', inclusion: 55, type_line: 'Instant' }),
+    ];
+    const ctx = makeContext({ candidates: pool, themeNames: { tokens: 'Tokens' },
+      roleTargets: { ramp: 0, removal: 8, boardwipe: 0, cardDraw: 0 } });
+    const state = makeState({ themeAffinity: { tokens: 30 } });
+
+    const routes = nextRoutes(ctx, state);
+    const need = routes.find(r => r.targetRole === 'removal')!;
+    expect(need.description).toContain('Tokens plan');
   });
 });
