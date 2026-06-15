@@ -353,6 +353,37 @@
     to   { opacity: 1; transform: scale(1); }
   }
 
+  /* ---- Interactive brewing: choose-a-card animations ---- */
+  /* Deal in: each card slides up and folds upright. Stagger via inline animation-delay. */
+  .animate-brew-card-in {
+    animation: brewCardIn 440ms cubic-bezier(0.22, 0.9, 0.32, 1) backwards;
+    transform-origin: bottom center;
+  }
+  @keyframes brewCardIn {
+    0%   { opacity: 0; transform: translateY(48px) rotateX(-40deg) scale(0.9); }
+    55%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0) rotateX(0deg) scale(1); }
+  }
+  /* Chosen card pops, then shoots up toward the deck/health strip and shrinks away. */
+  .animate-brew-to-deck {
+    animation: brewToDeck 400ms cubic-bezier(0.55, -0.25, 0.85, 0.4) forwards;
+    pointer-events: none;
+  }
+  @keyframes brewToDeck {
+    0%   { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
+    16%  { opacity: 1; transform: translateY(12px) scale(1.07) rotate(-1deg); }
+    100% { opacity: 0; transform: translateY(-320px) scale(0.2) rotate(4deg); }
+  }
+  /* The cards you didn't take melt away. */
+  .animate-brew-dismiss {
+    animation: brewDismiss 260ms ease-in forwards;
+    pointer-events: none;
+  }
+  @keyframes brewDismiss {
+    from { opacity: 1; transform: scale(1) translateY(0); }
+    to   { opacity: 0; transform: scale(0.85) translateY(16px); }
+  }
+
   @keyframes jiggle {
     0%   { transform: translate(0, 0) rotate(0deg); }
     15%  { transform: translate(-2px, -1px) rotate(-3deg); }
