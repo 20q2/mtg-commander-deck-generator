@@ -76,8 +76,7 @@ export interface BrewNode {
   routeId: string;
   type: RouteType;
   prompt: string;             // node heading
-  options: BrewOption[];      // draft/bundle: pick 1 of options; lightning: see picksRemaining
-  picksRemaining?: number;    // lightning round: how many single picks remain (starts at 5)
+  options: BrewOption[];      // pick one option; lightning/combo/bundle options can hold several cards
   canPass: boolean;           // gamble allows passing
 }
 

@@ -22,6 +22,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         {brewNode.type === 'bundle' ? 'Pick one package.'
           : brewNode.type === 'gamble' ? 'Take the bomb or pass.'
           : brewNode.type === 'combo' ? 'Add these pieces to complete the combo, or pass.'
+          : brewNode.type === 'lightning' ? 'Add all five cards at once.'
           : 'Take one card.'}
       </p>
 

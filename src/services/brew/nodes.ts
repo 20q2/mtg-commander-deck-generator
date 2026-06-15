@@ -15,7 +15,8 @@ function availableFor(ctx: BrewContext, state: BrewState, route: BrewRoute): Bre
     if (route.targetType) return typeKey(c.scryfall.type_line) === route.targetType;
     return true; // lightning/gamble: whole pool
   });
-  // Score and sort desc. (Plan 2 passes real matchingTags; here affinity is empty.)
+  // Score and sort desc. NOTE: state.themeAffinity is accumulated by applyPick but not yet fed
+  // back into scoring here (matchingTags left empty) — wiring it in is deferred to a later plan.
   return [...matches].sort((a, b) => scoreCandidate(ctx, state, b) - scoreCandidate(ctx, state, a));
 }
 
@@ -78,9 +79,11 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
   }
 
   if (route.type === 'lightning') {
-    return { routeId: route.id, type: 'lightning', prompt: 'Lightning Round — take one',
-      options: pool.slice(0, DRAFT_OPTIONS).map((c, i) => toOption(ctx, state, [c], `lr:${i}`)),
-      picksRemaining: LIGHTNING_PICKS, canPass: false };
+    // One click adds the top LIGHTNING_PICKS cards at once — matches the route's "+5 cards" promise.
+    const five = pool.slice(0, LIGHTNING_PICKS);
+    return { routeId: route.id, type: 'lightning', prompt: 'Lightning Round — add five at once',
+      options: five.length > 0 ? [toOption(ctx, state, five, 'lightning')] : [],
+      canPass: false };
   }
 
   if (route.type === 'gamble') {

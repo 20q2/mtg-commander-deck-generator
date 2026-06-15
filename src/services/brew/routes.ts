@@ -108,7 +108,7 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
       id: 'lightning',
       type: 'lightning',
       title: 'Lightning Round',
-      description: 'Five swift picks, one card each. Build momentum.',
+      description: 'Add five solid cards in one swoop. Build momentum.',
       targetRole: null, targetType: null, tone: 'neutral', tag: '+5 cards', fills: 5,
     });
   }
