@@ -502,7 +502,11 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {children}
+        {/* Grow the page region so the footer is pushed to the bottom on short pages
+            (e.g. the brew fork/node) instead of floating mid-screen. */}
+        <div className="flex-1 flex flex-col">
+          {children}
+        </div>
 
         {/* Footer — hidden on /analyze once a deck is loaded to give the optimizer more vertical room */}
         {(!isAnalyzePage || !generatedDeck) && (
