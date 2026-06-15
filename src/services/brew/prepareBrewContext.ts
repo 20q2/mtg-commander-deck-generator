@@ -6,6 +6,11 @@ import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckB
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
 import type { BrewContext, BrewCandidate } from './brewTypes';
 
+// Tag candidates with the commander's top-N themes so the player has lots of directions to lean
+// into at the start; the deck's identity then emerges from the cards they actually pick. Each
+// theme is one EDHREC fetch at brew start, so this is a deliberate breadth-vs-latency trade.
+const THEME_TAG_LIMIT = 8;
+
 export interface PrepareBrewArgs {
   commander: ScryfallCard;
   partnerCommander: ScryfallCard | null;
@@ -85,14 +90,16 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     });
   }
 
-  // Theme membership: fetch each selected theme's card list and tag candidates that appear on it.
-  // This is the honest "identity" signal — a card belongs to Tokens because EDHREC's Tokens page lists it.
+  // Theme membership: fetch each of the commander's TOP themes' card lists and tag candidates that
+  // appear on them. Broad on purpose — the player isn't asked to pre-pick a theme, so we surface
+  // many directions and let the deck's identity emerge from what they take. A card belongs to
+  // "Tokens" because EDHREC's Tokens page lists it (the honest identity signal).
   const themeNames: Record<string, string> = {};
-  const selected = (args.selectedThemes ?? []).filter(t => t.isSelected && t.slug);
-  if (selected.length > 0) {
-    args.onProgress?.('Reading your themes…', 80);
+  const themesToTag = (edhrecData.themes ?? []).filter(t => t.slug).slice(0, THEME_TAG_LIMIT);
+  if (themesToTag.length > 0) {
+    args.onProgress?.('Mapping the themes…', 80);
     const membership = new Map<string, Set<string>>(); // slug -> card names on that theme page
-    await Promise.all(selected.map(async (t) => {
+    await Promise.all(themesToTag.map(async (t) => {
       const slug = t.slug!;
       themeNames[slug] = t.name;
       try {
@@ -105,7 +112,7 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
       }
     }));
     for (const c of candidates) {
-      c.themeTags = selected.map(t => t.slug!).filter(slug => membership.get(slug)?.has(c.name));
+      c.themeTags = themesToTag.map(t => t.slug!).filter(slug => membership.get(slug)?.has(c.name));
     }
   }
 

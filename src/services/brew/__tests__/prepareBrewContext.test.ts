@@ -88,7 +88,19 @@ describe('prepareBrewContext', () => {
     expect(ctx.roleTargets.ramp).toBeGreaterThan(0);
   });
 
-  it('tags candidates with the themes they belong to', async () => {
+  it('tags candidates with the commander\'s top themes (no user selection needed)', async () => {
+    // Tagging is driven by the commander's own theme list, not a pre-pick — so the theme can emerge.
+    vi.mocked(fetchCommanderData).mockResolvedValue({
+      themes: [{ name: 'Tokens', slug: 'tokens', count: 300, popularityPercent: 30 }],
+      stats: { numDecks: 1000, manaCurve: { 1: 5, 2: 10, 3: 10 }, landDistribution: { total: 36, nonbasic: 15, basic: 21 },
+        typeDistribution: { creature: 25, instant: 10, sorcery: 8, artifact: 8, enchantment: 6, planeswalker: 1, battle: 0 } },
+      cardlists: {
+        allNonLand: [
+          { name: 'Swords to Plowshares', sanitized: 'swords', primary_type: 'Instant', inclusion: 88, num_decks: 900, isThemeSynergyCard: true },
+          { name: 'Random Bear', sanitized: 'bear', primary_type: 'Creature', inclusion: 40, num_decks: 400 },
+        ],
+      },
+    } as unknown as EDHRECCommanderData);
     vi.mocked(fetchCommanderThemeData).mockResolvedValue({
       themes: [], stats: {}, similarCommanders: [],
       cardlists: { allNonLand: [{ name: 'Random Bear', sanitized: 'bear', primary_type: 'Creature', inclusion: 40, num_decks: 400 }] },
@@ -96,8 +108,7 @@ describe('prepareBrewContext', () => {
 
     const ctx = await prepareBrewContext({
       commander, partnerCommander: null, colorIdentity: ['G', 'W'],
-      customization: baseCustomization,
-      selectedThemes: [{ name: 'Tokens', slug: 'tokens', source: 'edhrec', isSelected: true }],
+      customization: baseCustomization,   // no selectedThemes — tagging comes from the commander's themes
     });
 
     const bear = ctx.candidates.find(c => c.name === 'Random Bear')!;
@@ -107,7 +118,27 @@ describe('prepareBrewContext', () => {
     expect(ctx.themeNames).toEqual({ tokens: 'Tokens' });
   });
 
-  it('leaves themeTags empty when no themes are selected', async () => {
+  it('caps theme tagging at the top themes (breadth vs. latency)', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ name: `Theme ${i}`, slug: `theme-${i}`, count: 100 - i, popularityPercent: 10 }));
+    vi.mocked(fetchCommanderData).mockResolvedValue({
+      themes: many,
+      stats: { numDecks: 1000, manaCurve: { 2: 10 }, landDistribution: { total: 36, nonbasic: 15, basic: 21 },
+        typeDistribution: { creature: 25 } },
+      cardlists: { allNonLand: [{ name: 'Random Bear', sanitized: 'bear', primary_type: 'Creature', inclusion: 40, num_decks: 400 }] },
+    } as unknown as EDHRECCommanderData);
+    vi.mocked(fetchCommanderThemeData).mockResolvedValue({
+      themes: [], stats: {}, cardlists: { allNonLand: [] },
+    } as unknown as EDHRECCommanderData);
+
+    const ctx = await prepareBrewContext({
+      commander, partnerCommander: null, colorIdentity: ['G'], customization: baseCustomization,
+    });
+    expect(Object.keys(ctx.themeNames)).toHaveLength(8);          // top 8 of the 12
+    expect(Object.keys(ctx.themeNames)).toContain('theme-0');
+    expect(Object.keys(ctx.themeNames)).not.toContain('theme-8'); // beyond the cap
+  });
+
+  it('leaves themeTags empty when the commander has no themes', async () => {
     const ctx = await prepareBrewContext({
       commander, partnerCommander: null, colorIdentity: ['G', 'W'],
       customization: baseCustomization,
