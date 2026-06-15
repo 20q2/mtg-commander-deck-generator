@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import {
@@ -6,7 +7,8 @@ import {
   BookOpen, PawPrint, Flame, ScrollText, Cog, Sparkles, UserRound, Swords, Package, Layers,
   type LucideIcon,
 } from 'lucide-react';
-import type { BrewRoute } from '@/services/brew/engine';
+import { openNode, type BrewRoute } from '@/services/brew/engine';
+import type { ScryfallCard } from '@/types';
 
 const TONE_CLASS: Record<string, string> = {
   need: 'border-destructive/40 text-[#fca5a5]',
@@ -15,9 +17,9 @@ const TONE_CLASS: Record<string, string> = {
 };
 
 const TONE_RING: Record<string, string> = {
-  need: 'border-destructive/50 text-[#fca5a5] bg-destructive/10',
-  theme: 'border-[hsl(var(--success))]/50 text-emerald-300 bg-[hsl(var(--success))]/10',
-  neutral: 'border-violet-400/50 text-violet-200 bg-violet-500/10',
+  need: 'border-destructive/60 text-[#fca5a5] bg-destructive/15',
+  theme: 'border-[hsl(var(--success))]/60 text-emerald-300 bg-[hsl(var(--success))]/15',
+  neutral: 'border-violet-400/60 text-violet-200 bg-violet-500/15',
 };
 
 // Role + card-type keys → symbol. Role and type keys are disjoint, so one map covers both.
@@ -39,8 +41,28 @@ function iconFor(type: string, key: string | null): LucideIcon {
   return type === 'bundle' ? Package : Layers;
 }
 
+/** Scryfall art-crop URL for a card (front face for DFCs). */
+function artUrl(card?: ScryfallCard): string | undefined {
+  if (!card) return undefined;
+  return card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop;
+}
+
 export function BrewPath({ onFinish }: { onFinish: () => void }) {
-  const { brewState, brewRoutes, openBrewRoute, undoBrewPick, rerollBrew } = useStore();
+  const { brewContext, brewState, brewRoutes, openBrewRoute, undoBrewPick, rerollBrew } = useStore();
+
+  // A representative card per route — exactly the top card that route would present (so the combo
+  // route wears its missing piece's art, "Add Creatures" the top creature, etc.). Reuses openNode.
+  const repArt = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    if (brewContext && brewState) {
+      for (const r of brewRoutes) {
+        if (r.type === 'manabase') continue;
+        map[r.id] = artUrl(openNode(brewContext, brewState, r).options[0]?.cards[0]?.scryfall);
+      }
+    }
+    return map;
+  }, [brewRoutes, brewContext, brewState]);
+
   if (!brewState) return null;
 
   const pickNumber = brewState.history.length + 1;
@@ -72,22 +94,36 @@ export function BrewPath({ onFinish }: { onFinish: () => void }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {brewRoutes.map((route: BrewRoute) => {
           const Icon = iconFor(route.type, route.targetRole ?? route.targetType ?? null);
+          const art = repArt[route.id];
           return (
             <button
               key={route.id}
               onClick={() => (route.type === 'manabase' ? onFinish() : openBrewRoute(route))}
-              className="group rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm p-5 text-center transition hover:-translate-y-1 hover:border-violet-400 hover:shadow-[0_0_30px_hsl(var(--primary)/0.22)]"
+              className="group relative overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm text-center transition hover:-translate-y-1 hover:border-violet-400 hover:shadow-[0_0_30px_hsl(var(--primary)/0.22)]"
             >
-              <div className={`mx-auto mb-3 w-14 h-14 rounded-full grid place-items-center border-2 transition-transform duration-150 group-hover:scale-110 ${TONE_RING[route.tone] ?? TONE_RING.neutral}`}>
-                <Icon className="w-7 h-7" />
-              </div>
-              <h3 className="text-base font-semibold mb-1">{route.title}</h3>
-              <p className="text-xs text-muted-foreground mb-3 min-h-[2.5rem]">{route.description}</p>
-              {route.tag && (
-                <span className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border ${TONE_CLASS[route.tone] ?? TONE_CLASS.neutral}`}>
-                  {route.tag}
-                </span>
+              {art && (
+                <img
+                  src={art}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover opacity-25 transition duration-500 group-hover:opacity-40 group-hover:scale-110"
+                />
               )}
+              {/* Dark wash keeps the symbol + text readable over the art. */}
+              <div className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/85 to-background/95" />
+
+              <div className="relative p-5">
+                <div className={`mx-auto mb-3 w-14 h-14 rounded-full grid place-items-center border-2 backdrop-blur-sm transition-transform duration-150 group-hover:scale-110 ${TONE_RING[route.tone] ?? TONE_RING.neutral}`}>
+                  <Icon className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-semibold mb-1">{route.title}</h3>
+                <p className="text-xs text-muted-foreground mb-3 min-h-[2.5rem]">{route.description}</p>
+                {route.tag && (
+                  <span className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border bg-background/40 ${TONE_CLASS[route.tone] ?? TONE_CLASS.neutral}`}>
+                    {route.tag}
+                  </span>
+                )}
+              </div>
             </button>
           );
         })}
