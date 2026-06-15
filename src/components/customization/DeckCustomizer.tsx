@@ -24,7 +24,7 @@ const PACING_LABELS: { value: Pacing; label: string }[] = [
 ];
 
 
-export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void } = {}) {
+export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast, brewMode = false }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void; brewMode?: boolean } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
   const { count: collectionCount, cards: collectionCards } = useCollection();
   const { lists: allUserLists } = useUserLists();
@@ -291,6 +291,10 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
       </div>
 
 
+      {/* Mana base + tempo are resolved at the brew's finish (mana-base step), not chosen up front,
+          so the brew setup hides these. The auto-generate flow still shows them. */}
+      {!brewMode && (
+      <>
       {/* Land Count */}
       <div>
         <div className="flex justify-between mb-2">
@@ -425,6 +429,8 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast 
           </>
         )}
       </div>
+      </>
+      )}
 
       {/* Budget Options Accordion */}
       <div className={budgetOpen ? 'pt-2 border-t border-border/50' : ''}>

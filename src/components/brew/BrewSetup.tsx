@@ -1,6 +1,5 @@
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
 import { Wand2 } from 'lucide-react';
 
@@ -17,17 +16,16 @@ export function BrewSetup({ loadingCommander, progress, onStart }: BrewSetupProp
     <div className="space-y-6">
       <div className="text-center">
         <h1 className="text-2xl font-bold">Brew {commander?.name ?? '…'}</h1>
-        <p className="text-sm text-muted-foreground">Pick your themes and constraints, then build the deck one choice at a time.</p>
+        <p className="text-sm text-muted-foreground">Set your budget and power level — you'll shape the theme and mana base as you build, one choice at a time.</p>
       </div>
 
-      {/* Mount the setup pickers only once the commander is loaded. DeckCustomizer early-returns
-          on a null commander BETWEEN hook groups, so mounting it while the commander is still
-          loading and letting it transition null->set crashes (Rules of Hooks). */}
+      {/* Lean brew setup: only the up-front constraints (deck size, budget, power level, collection).
+          No theme picker — the theme emerges from your picks — and no land sliders (the mana base is
+          resolved at the finish). DeckCustomizer's brewMode hides those sections.
+          Mount only once the commander is loaded: DeckCustomizer early-returns on a null commander
+          BETWEEN hook groups, so mounting it mid-load and transitioning null->set crashes (Rules of Hooks). */}
       {commander ? (
-        <>
-          <ArchetypeDisplay />
-          <DeckCustomizer />
-        </>
+        <DeckCustomizer brewMode />
       ) : (
         <div className="text-center text-sm text-muted-foreground py-10">Loading commander…</div>
       )}
