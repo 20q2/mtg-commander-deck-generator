@@ -17,7 +17,7 @@ import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, GeneratedDeck, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Microscope, Swords, Library } from 'lucide-react';
+import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Microscope, Swords, Library, Sparkles } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
@@ -1003,6 +1003,23 @@ export function BuilderPage() {
                 </>
               )}
             </Button>
+            {commander && !isLoading && !themesLoading && !noDataForSettings && (
+              <div className="mt-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const base = partnerCommander
+                      ? `/brew/${formatCommanderNameForUrl(commander.name)}/${formatCommanderNameForUrl(partnerCommander.name)}`
+                      : `/brew/${formatCommanderNameForUrl(commander.name)}`;
+                    navigate(base);
+                  }}
+                  className="text-violet-300 hover:text-violet-200"
+                  title="Build this deck one pick at a time"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" /> …or brew it pick-by-pick
+                </Button>
+              </div>
+            )}
             {isLoading && progressPercent > 0 && (
               <div className="mt-4 w-64 mx-auto">
                 <div className="h-2 bg-muted rounded-full overflow-hidden">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
 import { getCardByName } from '@/services/scryfall/client';
-import { fetchCommanderData } from '@/services/edhrec/client';
+import { fetchCommanderData, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { prepareBrewContext } from '@/services/brew/prepareBrewContext';
 import { persistBrewSession, hydrateBrewSession, clearPersistedBrew } from '@/store';
 import { finishBrew } from '@/services/brew/finishBrew';
@@ -39,11 +39,15 @@ export function BrewPage() {
     let cancelled = false;
     async function load() {
       if (!commanderName) { navigate('/'); return; }
-      const decoded = decodeURIComponent(commanderName);
-      if (commander?.name === decoded && selectedThemes.length > 0) return;
+      // URL carries an EDHREC-style slug (e.g. "heliod-sun-crowned"). Prefer the in-store commander
+      // when its slug matches (button entry); otherwise de-slug + fuzzy-resolve it (cold load / shared link).
+      const matchesSlug = !!commander && formatCommanderNameForUrl(commander.name) === commanderName;
+      if (matchesSlug && selectedThemes.length > 0) return;
       setLoadingCommander(true);
       try {
-        const card = commander?.name === decoded ? commander : await getCardByName(decoded, true);
+        // De-slugged name (dashes→spaces) needs Scryfall FUZZY matching (false), not exact — the
+        // slug dropped the commas/apostrophes that an exact lookup requires.
+        const card = matchesSlug && commander ? commander : await getCardByName(commanderName.replace(/-/g, ' '), false);
         if (!card) { navigate('/'); return; }
         if (cancelled) return;
         setCommander(card);
@@ -86,12 +90,12 @@ export function BrewPage() {
       return;
     }
 
-    const decodedPartnerName = decodeURIComponent(partnerName);
-    if (partnerCommander?.name === decodedPartnerName) return;
+    const partnerSearch = partnerName.replace(/-/g, ' ');
+    if (partnerCommander && formatCommanderNameForUrl(partnerCommander.name) === partnerName) return;
 
     async function loadPartnerFromUrl() {
       try {
-        const partnerCard = await getCardByName(decodedPartnerName, true);
+        const partnerCard = await getCardByName(partnerSearch, false); // fuzzy: de-slugged name
         if (partnerCard) setPartnerCommander(partnerCard);
       } catch (error) {
         console.error('Failed to load partner commander:', error);
@@ -129,8 +133,8 @@ export function BrewPage() {
       startBrewSession(ctx);
       const id = `${Date.now()}`;
       const base = partnerCommander
-        ? `/brew/${encodeURIComponent(commander.name)}/${encodeURIComponent(partnerCommander.name)}`
-        : `/brew/${encodeURIComponent(commander.name)}`;
+        ? `/brew/${formatCommanderNameForUrl(commander.name)}/${formatCommanderNameForUrl(partnerCommander.name)}`
+        : `/brew/${formatCommanderNameForUrl(commander.name)}`;
       navigate(`${base}?b=${id}`, { replace: true });
       trackEvent('brew_started', { commanderName: commander.name, partnerName: partnerCommander?.name, collectionMode: !!customization.collectionMode });
     } catch (e) {
