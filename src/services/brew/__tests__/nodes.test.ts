@@ -51,6 +51,25 @@ describe('openNode', () => {
   });
 });
 
+describe('openNode — combo', () => {
+  it('offers a single option containing the missing combo pieces', () => {
+    const missing = [
+      makeCandidate('Cathars Crusade', { primary_type: 'Enchantment', type_line: 'Enchantment', inclusion: 70 }),
+      makeCandidate('Sol Ring', { role: 'ramp', primary_type: 'Artifact', type_line: 'Artifact', inclusion: 80 }),
+    ];
+    const ctx = makeContext({ candidates: missing });
+    const route: BrewRoute = {
+      id: 'combo:c1', type: 'combo', title: 'Assemble a Combo', description: '',
+      targetRole: null, targetType: null, tone: 'theme', fills: 2,
+      comboMissing: ['Cathars Crusade', 'Sol Ring'], comboResults: ['Infinite tokens'],
+    };
+    const node = openNode(ctx, makeState(), route);
+    expect(node.type).toBe('combo');
+    expect(node.options).toHaveLength(1);
+    expect(node.options[0].cards.map(c => c.name).sort()).toEqual(['Cathars Crusade', 'Sol Ring']);
+  });
+});
+
 describe('deriveReasons', () => {
   it('produces a synergy reason and a role reason for a deficit-role card', () => {
     const ctx = makeContext();

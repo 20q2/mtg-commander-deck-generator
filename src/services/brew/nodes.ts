@@ -88,7 +88,19 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
       options: pool.slice(0, 1).map((c, i) => toOption(ctx, state, [c], `g:${i}`)), canPass: true };
   }
 
-  // draft (and combo handled in Plan 3): pick 1 of ~5
+  if (route.type === 'combo') {
+    const missing = route.comboMissing ?? [];
+    const byName = new Map(ctx.candidates.map(c => [c.name, c]));
+    const cards = missing.map(n => byName.get(n)).filter((c): c is NonNullable<typeof c> => !!c);
+    return {
+      routeId: route.id, type: 'combo',
+      prompt: `Assemble the combo — ${(route.comboResults ?? []).join(', ')}`,
+      options: cards.length > 0 ? [toOption(ctx, state, cards, 'combo')] : [],
+      canPass: true,
+    };
+  }
+
+  // draft: pick 1 of ~5
   return { routeId: route.id, type: route.type, prompt: `${route.title} — take one`,
     options: pool.slice(0, DRAFT_OPTIONS).map((c, i) => toOption(ctx, state, [c], `d:${i}`)), canPass: false };
 }

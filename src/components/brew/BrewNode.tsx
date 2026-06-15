@@ -19,7 +19,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     <div className="text-center">
       <h2 className="text-xl font-semibold mb-1">{brewNode.prompt}</h2>
       <p className="text-xs text-muted-foreground mb-5">
-        {brewNode.type === 'bundle' ? 'Pick one package.' : brewNode.type === 'gamble' ? 'Take the bomb or pass.' : 'Take one card.'}
+        {brewNode.type === 'bundle' ? 'Pick one package.'
+          : brewNode.type === 'gamble' ? 'Take the bomb or pass.'
+          : brewNode.type === 'combo' ? 'Add these pieces to complete the combo, or pass.'
+          : 'Take one card.'}
       </p>
 
       <div className={`grid gap-4 ${brewNode.type === 'bundle' ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
