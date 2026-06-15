@@ -507,8 +507,10 @@ function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Grow the page region so the footer is pushed to the bottom on short pages
-            (e.g. the brew fork/node) instead of floating mid-screen. */}
-        <div className="flex-1 flex flex-col">
+            (e.g. the brew fork/node) instead of floating mid-screen. Keep this a plain block
+            (just flex-1) — making it `flex flex-col` turns page roots into flex items, and a
+            `max-w-… mx-auto` root then shrink-wraps to content (its width swaps with content). */}
+        <div className="flex-1">
           {children}
         </div>
 
