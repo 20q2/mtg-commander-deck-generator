@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/services/edhrec/client', () => ({
   fetchCommanderData: vi.fn(),
   fetchPartnerCommanderData: vi.fn(),
+  fetchCommanderCombos: vi.fn(async () => []),
 }));
 vi.mock('@/services/scryfall/client', () => ({
   getCardsByNames: vi.fn(),

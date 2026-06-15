@@ -1,5 +1,5 @@
-import type { ScryfallCard, Customization, ThemeResult, EDHRECCommanderStats, EDHRECCommanderData } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
+import type { ScryfallCard, Customization, ThemeResult, EDHRECCommanderStats, EDHRECCombo } from '@/types';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos } from '@/services/edhrec/client';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { calculateTypeTargets, calculateCurveTargets } from '@/services/deckBuilder/curveUtils';
 import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckBuilder/roleTargets';
@@ -25,9 +25,12 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
   const budgetOption = customization.budgetOption !== 'any' ? customization.budgetOption : undefined;
   const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
 
-  const edhrecData: EDHRECCommanderData = partnerCommander
-    ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
-    : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+  const [edhrecData, combos] = await Promise.all([
+    partnerCommander
+      ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
+      : fetchCommanderData(commander.name, budgetOption, bracketLevel),
+    fetchCommanderCombos(commander.name).catch(() => [] as EDHRECCombo[]),
+  ]);
 
   args.onProgress?.('Resolving cards…', 45);
   const stats: EDHRECCommanderStats | undefined = edhrecData.stats;
@@ -93,6 +96,6 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     curveTargets,
     landTarget,
     nonLandTarget,
-    combos: [],
+    combos,
   };
 }
