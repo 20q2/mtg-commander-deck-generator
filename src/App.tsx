@@ -21,6 +21,7 @@ import { loadUserLists } from '@/hooks/useUserLists';
 import { trackEvent } from '@/services/analytics';
 import { getBanList } from '@/services/scryfall/client';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
+import { BrewBackdrop } from '@/components/brew/BrewBackdrop';
 import { PollNudge } from '@/components/ui/PollNudge';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import type { ScryfallCard } from '@/types';
@@ -324,6 +325,9 @@ function Layout({ children }: { children: React.ReactNode }) {
       )}
       {/* Commander Art Background (hidden on collection page) */}
       {!isCollectionPage && !isAnalyzeHub && (!isAnalyzePage || !!generatedDeck) && (!isListsPage || !!generatedDeck) && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
+
+      {/* Brew-reactive aurora — shifts with the game plan (over the commander art, under content). */}
+      {location.pathname.startsWith('/brew/') && <BrewBackdrop />}
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen pb-16 sm:pb-0">
