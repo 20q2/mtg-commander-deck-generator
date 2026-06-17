@@ -34,15 +34,6 @@ describe('openNode', () => {
     node.options.forEach(o => expect(o.cards.length).toBeGreaterThanOrEqual(2));
   });
 
-  it('lightning node offers a single option holding five cards', () => {
-    const ctx = makeContext({ candidates: removalPool });
-    const route: BrewRoute = { id: 'lightning', type: 'lightning', title: 'Lightning Round',
-      description: '', targetRole: null, targetType: null, tone: 'neutral', fills: 5 };
-    const node = openNode(ctx, makeState(), route);
-    expect(node.options).toHaveLength(1);
-    expect(node.options[0].cards.length).toBe(5);
-  });
-
   it('excludes already-used cards from options', () => {
     const ctx = makeContext({ candidates: removalPool });
     const route: BrewRoute = { id: 'draft:removal', type: 'draft', title: 'Add Removal',

@@ -106,8 +106,6 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
   const deficits = computeDeficits(ctx, state);
 
   const fillRatio = ctx.nonLandTarget > 0 ? nonLandPicks / ctx.nonLandTarget : 0;
-  // As the deck fills, offer the rapid-fill Lightning round so the session converges.
-  const preferMulti = fillRatio >= 0.5;
 
   const routes: BrewRoute[] = [];
   const leaning = leaningThemes(ctx, state);
@@ -158,21 +156,9 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     });
   }
 
-  // Lightning fill — rapid convergence once the deck has shape, or as a second option early.
-  if (preferMulti || routes.length < 2) {
-    routes.push({
-      id: 'lightning',
-      type: 'lightning',
-      title: 'Lightning Round',
-      description: 'Add five solid cards in one swoop. Build momentum.',
-      targetRole: null, targetType: null, tone: 'neutral', tag: '+5 cards', fills: 5,
-    });
-  }
-
-  // Exhaustion fallback: if nothing meaningful can be drafted (no pack route and the pool can't
-  // feed a lightning round), surface the mana base / finish route rather than a dead-end fork.
-  const hasRealRoute = routes.some(r => r.type !== 'lightning') || draftableLeft;
-  if (!hasRealRoute) {
+  // Exhaustion fallback: if nothing meaningful can be drafted (no pack/elite/combo route), surface
+  // the mana base / finish route rather than a dead-end fork.
+  if (routes.length === 0) {
     return [{
       id: 'manabase', type: 'manabase', title: 'Build the Mana Base',
       description: 'No more cards to draft — finish the deck and fill the mana base.',

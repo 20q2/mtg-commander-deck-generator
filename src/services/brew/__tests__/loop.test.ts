@@ -44,7 +44,7 @@ describe('brew loop', () => {
     ], nonLandTarget: 10 });
     const state = makeState({ usedNames: ['OnlyRemoval'] });
     const routes = nextRoutes(ctx, state);
-    // removal pool empty -> removal route must not appear; lightning fallback may, or manabase if complete
-    expect(routes.every(r => r.targetRole !== 'removal' || r.type === 'lightning')).toBe(true);
+    // removal pool empty -> a removal-targeting route must not appear (manabase/finish surfaces instead)
+    expect(routes.every(r => r.targetRole !== 'removal')).toBe(true);
   });
 });

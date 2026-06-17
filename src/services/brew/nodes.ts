@@ -5,7 +5,7 @@ import type { BrewContext, BrewState, BrewRoute, BrewNode, BrewOption, BrewCandi
 import { scoreCandidate } from './scoring';
 import { buildHealth, typeKey, pool } from './health';
 import { detectNearMissCombos } from './combos';
-import { relicPackBonus, relicBudgetCap } from './relics';
+import { relicBudgetCap } from './relics';
 import { computeDeficits, matchesDeficit } from './routes';
 
 const REASON_CAP = 5;
@@ -29,7 +29,6 @@ function flagReasons(c: BrewCandidate): PickReason[] {
   return out;
 }
 
-const LIGHTNING_PICKS = 5;
 const ELITE_PICKS = 4;
 const PAYOFF_MAX = 40;
 
@@ -246,22 +245,6 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
     return { routeId: route.id, type: 'draft', prompt: `${route.title} — take one, leave the rest`,
       options: top.map((c, i) => toOption(ctx, state, [c], `draft:${i}`, undefined, finishers)),
       canPass: false };
-  }
-
-  const pool = availableFor(ctx, state, route);
-  const bonus = route.targetRole ? relicPackBonus(state.relics, route.targetRole) : 0;
-
-  if (route.type === 'lightning') {
-    // One click adds the top LIGHTNING_PICKS cards at once — matches the route's "+5 cards" promise.
-    const five = pool.slice(0, LIGHTNING_PICKS + bonus);
-    return { routeId: route.id, type: 'lightning', prompt: 'Lightning Round — add five at once',
-      options: five.length > 0 ? [toOption(ctx, state, five, 'lightning', undefined, finishers)] : [],
-      canPass: false };
-  }
-
-  if (route.type === 'gamble') {
-    return { routeId: route.id, type: 'gamble', prompt: `${route.title} — take the bomb or pass`,
-      options: pool.slice(0, 1).map((c, i) => toOption(ctx, state, [c], `g:${i}`, undefined, finishers)), canPass: true };
   }
 
   if (route.type === 'combo') {

@@ -10,14 +10,17 @@ function pick(c: ReturnType<typeof makeCandidate>): BrewPick {
 }
 
 describe('nextRoutes', () => {
-  it('offers 2-3 routes', () => {
+  it('offers 1-3 routes — always the pack, plus combo/elite when available', () => {
+    // A plain early fork (no near-miss combo, not an elite fork) offers just the pack route;
+    // the meaningful choice now lives inside the 3-bundle pack node. Combo/elite add a real fork.
     const ctx = makeContext({ candidates: [
       makeCandidate('Swords to Plowshares', { role: 'removal', primary_type: 'Instant', type_line: 'Instant' }),
       makeCandidate('Sol Ring', { role: 'ramp', primary_type: 'Artifact', type_line: 'Artifact' }),
     ]});
     const routes = nextRoutes(ctx, makeState());
-    expect(routes.length).toBeGreaterThanOrEqual(2);
+    expect(routes.length).toBeGreaterThanOrEqual(1);
     expect(routes.length).toBeLessThanOrEqual(3);
+    expect(routes.some(r => r.id === 'bundle:pack')).toBe(true);
   });
 
   it('surfaces the largest role deficit with a "need" tone', () => {
@@ -41,7 +44,8 @@ describe('nextRoutes', () => {
       makeCandidate(`Removal${i}`, { role: 'removal', subtype: 'spot-removal', primary_type: 'Instant', type_line: 'Instant', inclusion: 60 - i }));
     const ctx = makeContext({ nonLandTarget: 63, candidates: removalPool });
     const routes = nextRoutes(ctx, makeState({ picks: many }));
-    expect(routes.some(r => r.type === 'bundle' || r.type === 'lightning')).toBe(true);
+    expect(routes.some(r => r.type === 'bundle')).toBe(true);
+    expect(routes.some(r => r.type === 'lightning')).toBe(false); // lightning is gone
   });
 
   it('returns a single manabase route once nonland phase completes', () => {
