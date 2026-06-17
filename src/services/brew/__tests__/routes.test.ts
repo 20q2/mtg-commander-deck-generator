@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextRoutes } from '../routes';
+import { nextRoutes, computeDeficits } from '../routes';
 import { makeContext, makeState, makeCandidate } from './fixtures';
 import type { BrewPick } from '../brewTypes';
 import type { EDHRECCombo } from '@/types';
@@ -53,6 +53,25 @@ describe('nextRoutes', () => {
   });
 });
 
+describe('computeDeficits — magnitude', () => {
+  it('carries current count and target alongside the deficit', () => {
+    // removal target 8, two removal picks → current 2, target 8, deficit 6
+    const removalPicks = [
+      pick(makeCandidate('R1', { role: 'removal', type_line: 'Instant', primary_type: 'Instant' })),
+      pick(makeCandidate('R2', { role: 'removal', type_line: 'Instant', primary_type: 'Instant' })),
+    ];
+    const ctx = makeContext({
+      roleTargets: { ramp: 0, removal: 8, boardwipe: 0, cardDraw: 0 },
+      candidates: [makeCandidate('R3', { role: 'removal', type_line: 'Instant', primary_type: 'Instant' })],
+    });
+    const deficits = computeDeficits(ctx, makeState({ picks: removalPicks, usedNames: ['R1', 'R2'] }));
+    const removal = deficits.find(d => d.key === 'removal')!;
+    expect(removal.current).toBe(2);
+    expect(removal.target).toBe(8);
+    expect(removal.deficit).toBe(6);
+  });
+});
+
 describe('nextRoutes — exhaustion fallback', () => {
   it('offers the manabase/finish route when no usable route remains and deck is not yet complete', () => {
     // Only one candidate, already used → no deficits fillable, far from nonland target.
@@ -100,6 +119,6 @@ describe('identity-flavored route copy', () => {
 
     const routes = nextRoutes(ctx, state);
     const need = routes.find(r => r.targetRole === 'removal')!;
-    expect(need.description).toContain('Tokens plan');
+    expect(need.description).toContain('Leaning into Tokens');
   });
 });
