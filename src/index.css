@@ -199,6 +199,34 @@
     to { opacity: 1; }
   }
 
+  /* ---- Collection commander spotlight (carousel) ---- */
+  .animate-spotlight-in {
+    animation: spotlightIn 0.45s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+  }
+
+  @keyframes spotlightIn {
+    from {
+      opacity: 0;
+      transform: translateX(14px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
+
+  /* Autoplay timer bar — duration + play-state are set inline per slide. */
+  .animate-spotlight-progress {
+    animation-name: spotlightProgress;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+
+  @keyframes spotlightProgress {
+    from { width: 0%; }
+    to { width: 100%; }
+  }
+
   .animate-chip-in {
     animation: chipIn 0.3s ease-out both;
   }

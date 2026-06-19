@@ -1030,6 +1030,42 @@ export async function fetchCommandersIncludingColors(colors: string[]): Promise<
 }
 
 /**
+ * Fetch commanders whose color identity is a SUBSET of the given colors — i.e.
+ * every commander a collection of those colors could actually support. This is
+ * the inverse of fetchCommandersIncludingColors (which requires the colors).
+ * Unions all subset combos, dedupes by name, sorts by deck count descending.
+ *
+ * Note: colorless (identity []) commanders are not included; they live under
+ * their own 'C' slug, not in the WUBRG combo keys.
+ */
+export async function fetchCommandersWithinColors(colors: string[]): Promise<EDHRECTopCommander[]> {
+  const available = new Set(colors.map(c => c.toUpperCase()).filter(c => c !== 'C'));
+  if (available.size === 0) return [];
+
+  // Every color combo whose colors are all available in the collection.
+  const matchingKeys = ALL_COLOR_KEYS.filter(key =>
+    key.split('').every(c => available.has(c))
+  );
+  if (matchingKeys.length === 0) return [];
+
+  const results = await Promise.all(
+    matchingKeys.map(key => fetchAllCommandersForColor(key.split('')))
+  );
+
+  const map = new Map<string, EDHRECTopCommander>();
+  for (const list of results) {
+    for (const cmd of list) {
+      const existing = map.get(cmd.name);
+      if (!existing || cmd.numDecks > existing.numDecks) {
+        map.set(cmd.name, cmd);
+      }
+    }
+  }
+
+  return [...map.values()].sort((a, b) => b.numDecks - a.numDecks);
+}
+
+/**
  * Fetch ALL commanders (up to 100) for an exact color combo from EDHREC.
  * Unlike fetchTopCommanders which returns top 12, this returns the full page.
  * Results are cached for 30 minutes.

@@ -1,4 +1,4 @@
-import { Bookmark, ExternalLink, Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { Bookmark, ExternalLink, Loader2, Wand2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { CollectionCard } from '@/services/collection/db';
 import type { CommanderReadiness } from '@/services/collection/commanderReadiness';
@@ -127,18 +127,28 @@ export function CommanderTile({ commander, readiness, loading, savedDeck }: Comm
   );
 }
 
-interface CommanderSpotlightProps {
-  commander: CollectionCard;
-  readiness: CommanderReadiness;
-  savedDeck?: UserCardList;
+/** Minimal shape the spotlight needs — satisfied by CollectionCard and by
+ *  suggested (unowned) commanders, which only carry a name + color identity. */
+export interface SpotlightCommander {
+  name: string;
+  colorIdentity?: string[];
+  imageUrl?: string;
 }
 
-export function CommanderSpotlight({ commander, readiness, savedDeck }: CommanderSpotlightProps) {
+interface CommanderSpotlightProps {
+  commander: SpotlightCommander;
+  readiness: CommanderReadiness;
+  savedDeck?: UserCardList;
+  /** True when this is a commander the player does NOT own yet (a suggestion). */
+  discover?: boolean;
+}
+
+export function CommanderSpotlight({ commander, readiness, savedDeck, discover = false }: CommanderSpotlightProps) {
   const navigate = useNavigate();
   const percent = Math.round(readiness.percent);
-  const tag = readinessTag(readiness.percent);
+  const tag = discover ? 'Discover' : readinessTag(readiness.percent);
   const artCrop = useCommanderArt(commander.name);
-  const hasSavedDeck = !!savedDeck;
+  const hasSavedDeck = !discover && !!savedDeck;
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-violet-400/30 bg-gradient-to-br from-violet-950/40 via-card/60 to-fuchsia-950/30">
@@ -177,8 +187,12 @@ export function CommanderSpotlight({ commander, readiness, savedDeck }: Commande
         {/* Info column */}
         <div className="flex flex-col justify-center min-w-0 space-y-1.5">
           <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-violet-300/90 font-semibold">
-            <Sparkles className="w-3 h-3" />
             {tag}
+            {discover && (
+              <span className="normal-case tracking-normal text-muted-foreground/70 font-medium">
+                · not in your collection yet
+              </span>
+            )}
           </div>
 
           <h3 className="text-base sm:text-xl font-bold leading-tight">{commander.name}</h3>
@@ -195,7 +209,7 @@ export function CommanderSpotlight({ commander, readiness, savedDeck }: Commande
 
           {/* Plain-language explainer — what the % actually measures */}
           <p className="text-xs text-muted-foreground/90 leading-snug pt-1 max-w-prose">
-            You own{' '}
+            You{discover ? ' already own' : ' own'}{' '}
             <span className="text-foreground font-semibold">{readiness.ownedCount}</span>
             {' '}of the top{' '}
             <span className="text-foreground font-semibold">{readiness.totalCount}</span>
@@ -208,7 +222,7 @@ export function CommanderSpotlight({ commander, readiness, savedDeck }: Commande
             >
               EDHREC
             </a>
-            .
+            {discover ? ' — you just don’t have the commander itself yet.' : '.'}
           </p>
 
           {/* Readiness — % is the hero */}
@@ -237,7 +251,7 @@ export function CommanderSpotlight({ commander, readiness, savedDeck }: Commande
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-violet-500 hover:bg-violet-400 text-white rounded-md transition-colors shadow-lg shadow-violet-900/40"
             >
               <Wand2 className="w-3.5 h-3.5" />
-              {hasSavedDeck ? 'Try another theme' : 'Generate deck'}
+              {discover ? 'Preview a deck' : hasSavedDeck ? 'Try another theme' : 'Generate deck'}
             </button>
             {hasSavedDeck && (
               <button
@@ -252,6 +266,94 @@ export function CommanderSpotlight({ commander, readiness, savedDeck }: Commande
               </button>
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface SuggestionTileProps {
+  /** A commander the player does NOT own, surfaced as a suggestion. */
+  commander: SpotlightCommander;
+  readiness: CommanderReadiness;
+}
+
+/**
+ * Grid tile for a suggested (unowned) commander. Mirrors CommanderTile, but
+ * pulls art by name (no CollectionCard) and frames the CTA as a preview since
+ * the player doesn't own the commander itself.
+ */
+export function SuggestionTile({ commander, readiness }: SuggestionTileProps) {
+  const navigate = useNavigate();
+  const art = useCommanderArt(commander.name);
+  const percent = readiness.percent;
+  const owned = readiness.ownedCount;
+  const total = readiness.totalCount;
+  const colors = commander.colorIdentity ?? [];
+
+  const handleBuild = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    buildFromCollection(navigate, commander.name);
+  };
+
+  return (
+    <div className="group relative rounded-xl overflow-hidden bg-card/40 border border-border/40 hover:border-violet-400/40 transition-all">
+      {/* Art crop — no card frame, so we overlay the name ourselves */}
+      {art ? (
+        <img
+          src={art}
+          alt={commander.name}
+          className="w-full aspect-[5/7] object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full aspect-[5/7] bg-accent/50 flex items-center justify-center p-2">
+          <span className="text-[10px] text-muted-foreground text-center leading-tight">{commander.name}</span>
+        </div>
+      )}
+
+      {/* Top overlay — name, color pips, and a "not owned" marker */}
+      <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/85 via-black/40 to-transparent px-2 py-2 pb-6">
+        <div className="flex items-start justify-between gap-1.5">
+          <span className="text-[11px] font-semibold text-white leading-tight line-clamp-2">
+            {commander.name}
+          </span>
+          <span className="shrink-0 mt-0.5 px-1.5 py-0.5 rounded-md bg-black/55 text-[8px] uppercase tracking-wide text-violet-200/90 ring-1 ring-white/10">
+            Not owned
+          </span>
+        </div>
+        <div className="flex items-center gap-1 mt-1">
+          {colors.length > 0 ? (
+            colors.map(c => <i key={c} className={`ms ms-${c.toLowerCase()} ms-cost text-[11px]`} />)
+          ) : (
+            <i className="ms ms-c ms-cost text-[11px]" />
+          )}
+        </div>
+      </div>
+
+      {/* Bottom overlay — staples owned + readiness bar + preview button */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent px-2 py-2 pt-5 space-y-1">
+        <div className="flex items-center justify-between gap-1.5 text-[10px] tabular-nums">
+          <span className="text-violet-200/90">
+            <span className="text-white font-semibold">{owned}</span>
+            <span className="text-white/50">/{total}</span>
+            <span className="text-white/50"> staples</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleBuild}
+            title={`Preview a ${commander.name} deck from your cards`}
+            aria-label={`Preview a ${commander.name} deck`}
+            className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-violet-500/80 hover:bg-violet-400 text-white transition-colors shadow"
+          >
+            <Wand2 className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${readinessGradient(percent)} transition-all duration-700`}
+            style={{ width: `${Math.max(2, percent)}%` }}
+          />
         </div>
       </div>
     </div>

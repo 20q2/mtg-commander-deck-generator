@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Crown, Search, Sparkles, X } from 'lucide-react';
-import { CommanderSpotlight, CommanderTile } from './CommanderTile';
+import { ChevronDown, ChevronLeft, ChevronRight, Crown, Search, X } from 'lucide-react';
+import { CommanderSpotlight, CommanderTile, SuggestionTile, type SpotlightCommander } from './CommanderTile';
 import {
   computeCommanderReadiness,
+  suggestCommanders,
   type CommanderReadiness,
+  type CommanderSuggestion,
 } from '@/services/collection/commanderReadiness';
 import type { CollectionCard } from '@/services/collection/db';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -15,6 +17,12 @@ interface CollectionCommandersProps {
 
 type SortKey = 'readiness' | 'name' | 'recent';
 type ColorFilterMode = 'at-least' | 'exact' | 'exclude';
+
+/** A spotlight carousel entry — either an owned commander or a suggestion. */
+type SpotlightEntry = { cmd: SpotlightCommander; r: CommanderReadiness; discover: boolean };
+
+/** How long each spotlight slide is shown before auto-advancing. */
+const AUTOPLAY_MS = 6000;
 
 const COLOR_CHIPS = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
 
@@ -61,6 +69,11 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
   const [loading, setLoading] = useState(false);
   const taskIdRef = useRef(0);
 
+  // Reverse suggestions: commanders the player doesn't own but has staples for.
+  const [suggestions, setSuggestions] = useState<CommanderSuggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const suggestTaskRef = useRef(0);
+
   useEffect(() => {
     const id = ++taskIdRef.current;
     if (legendaries.length === 0) {
@@ -94,6 +107,29 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legendaries.length, legendaries.map(l => l.name).join('|')]);
 
+  // Compute reverse suggestions whenever the owned-commander set changes.
+  useEffect(() => {
+    const id = ++suggestTaskRef.current;
+    if (legendaries.length === 0) {
+      setSuggestions([]);
+      setSuggestLoading(false);
+      return;
+    }
+    const ownedNames = new Set(legendaries.map(l => l.name));
+    setSuggestLoading(true);
+    suggestCommanders(cards, ownedNames, { resultCount: 12 })
+      .then(res => {
+        if (suggestTaskRef.current === id) setSuggestions(res);
+      })
+      .catch(() => {
+        if (suggestTaskRef.current === id) setSuggestions([]);
+      })
+      .finally(() => {
+        if (suggestTaskRef.current === id) setSuggestLoading(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legendaries.length, legendaries.map(l => l.name).join('|')]);
+
   // Sort + filter controls
   const [sortKey, setSortKey] = useState<SortKey>('readiness');
   const [colorFilter, setColorFilter] = useState<Set<string>>(new Set());
@@ -101,6 +137,8 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
   const [searchQuery, setSearchQuery] = useState('');
   // The Spotlight is the hero; the full list is opt-in via a collapsible.
   const [listOpen, setListOpen] = useState(false);
+  // "Commanders you don't own" is a second opt-in collapsible below the list.
+  const [discoverOpen, setDiscoverOpen] = useState(false);
 
   const toggleColor = (code: string) => {
     setColorFilter(prev => {
@@ -138,28 +176,58 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
     });
   }, [filtered, sortKey, readinessByName]);
 
-  // Spotlight pool: top-N commanders by readiness from the active-filter set.
-  // The Spotlight cycles through these with prev/next; index resets on filter changes.
-  const SPOTLIGHT_POOL_SIZE = 5;
-  const spotlightPool = useMemo(() => {
-    if (readinessByName.size === 0) return [] as { cmd: CollectionCard; r: CommanderReadiness }[];
-    const scored: { cmd: CollectionCard; r: CommanderReadiness }[] = [];
+  // Spotlight pool: top owned commanders by readiness, plus any high-readiness
+  // "discover" suggestions (commanders you don't own but are clearly close to).
+  // The Spotlight auto-cycles through these; index resets on filter changes.
+  const SPOTLIGHT_OWNED_SIZE = 5;
+  const SPOTLIGHT_DISCOVER_SIZE = 2;
+  // Only spotlight an unowned commander if you already have a strong chunk of its
+  // staples. Lower than the owned "Ready" tier (60) since you're missing the
+  // commander itself, so unowned readiness naturally runs lower.
+  const SPOTLIGHT_DISCOVER_MIN_PERCENT = 40;
+  const spotlightPool = useMemo<SpotlightEntry[]>(() => {
+    const owned: SpotlightEntry[] = [];
     for (const cmd of filtered) {
       const r = readinessByName.get(cmd.name);
       if (!r || r.totalCount === 0) continue;
-      scored.push({ cmd, r });
+      owned.push({ cmd, r, discover: false });
     }
-    scored.sort((a, b) => b.r.percent - a.r.percent);
-    return scored.slice(0, SPOTLIGHT_POOL_SIZE);
-  }, [filtered, readinessByName]);
+    owned.sort((a, b) => b.r.percent - a.r.percent);
+
+    const discover: SpotlightEntry[] = suggestions
+      .filter(s => s.readiness.percent >= SPOTLIGHT_DISCOVER_MIN_PERCENT)
+      .slice(0, SPOTLIGHT_DISCOVER_SIZE)
+      .map(s => ({
+        cmd: { name: s.commander.name, colorIdentity: s.commander.colorIdentity },
+        r: s.readiness,
+        discover: true,
+      }));
+
+    // Merge owned + standout discoveries, highest readiness first.
+    return [...owned.slice(0, SPOTLIGHT_OWNED_SIZE), ...discover].sort(
+      (a, b) => b.r.percent - a.r.percent,
+    );
+  }, [filtered, readinessByName, suggestions]);
 
   const [spotlightIndex, setSpotlightIndex] = useState(0);
+  // Pause autoplay while the player is interacting with (hovering) the spotlight.
+  const [autoPaused, setAutoPaused] = useState(false);
   // Reset to the first (best-readiness) entry whenever the filter set changes.
   useEffect(() => {
     setSpotlightIndex(0);
   }, [colorFilter, colorFilterMode, searchQuery]);
   const safeSpotlightIndex = Math.min(spotlightIndex, Math.max(0, spotlightPool.length - 1));
   const spotlight = spotlightPool[safeSpotlightIndex] ?? null;
+
+  // Autoplay: advance one slide per interval. Re-arms on every index change
+  // (so manual navigation resets the timer) and stops while paused or with ≤1 slide.
+  useEffect(() => {
+    if (spotlightPool.length <= 1 || autoPaused) return;
+    const t = setTimeout(() => {
+      setSpotlightIndex(i => (i + 1) % spotlightPool.length);
+    }, AUTOPLAY_MS);
+    return () => clearTimeout(t);
+  }, [spotlightIndex, autoPaused, spotlightPool.length]);
 
   // Map: commander name → the first saved-deck list we find for that commander.
   // Used to show "saved deck" badges and adapt the Spotlight CTA.
@@ -190,12 +258,20 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
     <div>
       {/* Spotlight hero — owns its own padding so the collapsible below can sit flush */}
       {spotlight && (
-        <div className="p-4 relative">
-          <CommanderSpotlight
-            commander={spotlight.cmd}
-            readiness={spotlight.r}
-            savedDeck={savedDecksByCommander.get(spotlight.cmd.name)}
-          />
+        <div
+          className="p-4 relative overflow-hidden"
+          onMouseEnter={() => setAutoPaused(true)}
+          onMouseLeave={() => setAutoPaused(false)}
+        >
+          {/* Keyed wrapper replays the slide-in animation on every swap */}
+          <div key={spotlight.cmd.name} className="animate-spotlight-in">
+            <CommanderSpotlight
+              commander={spotlight.cmd}
+              readiness={spotlight.r}
+              discover={spotlight.discover}
+              savedDeck={spotlight.discover ? undefined : savedDecksByCommander.get(spotlight.cmd.name)}
+            />
+          </div>
 
           {/* Carousel nav — prev/next arrows on the edges, plus a caption + dots at the bottom */}
           {spotlightPool.length > 1 && (
@@ -216,7 +292,18 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
               >
                 <ChevronRight className="w-5 h-5" />
               </button>
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5">
+                {/* Autoplay timer — fills over each slide, freezes when paused (hover) */}
+                <div className="h-0.5 w-16 rounded-full bg-white/15 overflow-hidden">
+                  <div
+                    key={safeSpotlightIndex}
+                    className="h-full bg-violet-300/90 animate-spotlight-progress"
+                    style={{
+                      animationDuration: `${AUTOPLAY_MS}ms`,
+                      animationPlayState: autoPaused ? 'paused' : 'running',
+                    }}
+                  />
+                </div>
                 <div className="flex items-center gap-1.5">
                   {spotlightPool.map((entry, i) => (
                     <button
@@ -231,7 +318,7 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                   ))}
                 </div>
                 <span className="text-[10px] uppercase tracking-wider text-white/60">
-                  Top {spotlightPool.length} ready · {safeSpotlightIndex + 1} of {spotlightPool.length}
+                  {spotlight?.discover ? 'Discover' : 'Ready'} · {safeSpotlightIndex + 1} of {spotlightPool.length}
                 </span>
               </div>
             </>
@@ -249,7 +336,6 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
           className={`w-full flex items-center justify-between gap-2 text-left py-3 px-4 hover:bg-accent/30 transition-colors ${listOpen ? 'border-b border-border/40' : ''}`}
         >
           <h3 className="text-sm font-semibold flex items-center gap-1.5">
-            <Crown className="w-3.5 h-3.5 text-violet-300/80" />
             Your Commanders
             <span className="text-xs text-muted-foreground font-normal ml-1">
               ({listOpen
@@ -257,8 +343,7 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                 : legendaries.length})
             </span>
             {loading && (
-              <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1 ml-2">
-                <Sparkles className="w-3 h-3 animate-pulse text-violet-300/70" />
+              <span className="text-[10px] text-muted-foreground/80 ml-2 animate-pulse">
                 reading staples…
               </span>
             )}
@@ -268,8 +353,11 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
           />
         </button>
 
-        {listOpen && (
-          <div className="px-4 pb-4 space-y-3">
+        <div
+          className={`grid transition-[grid-template-rows] duration-300 ease-out ${listOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-4 space-y-3">
             {/* Controls row */}
             <div className="flex flex-wrap items-center gap-2">
               {/* Search */}
@@ -374,8 +462,70 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                 ))}
               </div>
             )}
+            </div>
           </div>
-        )}
+        </div>
+      </div>
+
+      {/* Collapsible "Commanders you don't own" — reverse suggestions */}
+      <div className="border-t border-border/40">
+        <button
+          type="button"
+          onClick={() => setDiscoverOpen(o => !o)}
+          aria-expanded={discoverOpen}
+          className={`w-full flex items-center justify-between gap-2 text-left py-3 px-4 hover:bg-accent/30 transition-colors ${discoverOpen ? 'border-b border-border/40' : ''}`}
+        >
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            Commanders you don't own
+            {!suggestLoading && (
+              <span className="text-xs text-muted-foreground font-normal ml-1">({suggestions.length})</span>
+            )}
+            {suggestLoading && (
+              <span className="text-[10px] text-muted-foreground/80 ml-2 animate-pulse">
+                finding matches…
+              </span>
+            )}
+          </h3>
+          <ChevronDown
+            className={`w-4 h-4 text-muted-foreground transition-transform ${discoverOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        <div
+          className={`grid transition-[grid-template-rows] duration-300 ease-out ${discoverOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-4 pt-3 space-y-3">
+            <p className="text-xs leading-relaxed text-muted-foreground/80 border-l-2 border-violet-400/40 pl-3">
+              Commanders <span className="text-violet-300/90 font-medium">in your colors</span> you don't
+              own yet — ranked by how many of their most-played cards{' '}
+              <span className="text-foreground/90 font-medium">you already have</span>.
+            </p>
+            {suggestLoading && suggestions.length === 0 ? (
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground animate-pulse">
+                Reading staples across your colors…
+              </div>
+            ) : suggestions.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">No strong matches yet.</p>
+                <p className="text-xs text-muted-foreground/70 mt-1 max-w-md mx-auto">
+                  As your collection grows, commanders you already have the staples for will show up here.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {suggestions.map(s => (
+                  <SuggestionTile
+                    key={s.commander.name}
+                    commander={{ name: s.commander.name, colorIdentity: s.commander.colorIdentity }}
+                    readiness={s.readiness}
+                  />
+                ))}
+              </div>
+            )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
