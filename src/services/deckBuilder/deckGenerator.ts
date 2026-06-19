@@ -20,7 +20,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
@@ -292,9 +292,7 @@ let arenaLegalNameSet: Set<string> | null = null;
 /** True if `name` (or its DFC front face) is in the current Arena-legal name set. */
 function isNameOnArena(name: string): boolean {
   if (!arenaLegalNameSet) return false;
-  if (arenaLegalNameSet.has(name)) return true;
-  if (name.includes(' // ')) return arenaLegalNameSet.has(name.split(' // ')[0]);
-  return false;
+  return arenaLegalNameSet.has(name) || arenaLegalNameSet.has(frontFaceName(name));
 }
 
 // Check if a card is NOT available on MTG Arena (for Arena-only mode).
@@ -1711,6 +1709,27 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     markUsed(partnerCommander.name);
   }
 
+  // Reconcile the commander(s) to their cheapest printing's price. They're fetched via
+  // getCardByName (default printing), which bypasses the cheapest-price pass in getCardsByNames,
+  // so without this the commander could display an inflated foil/etched price. Price-only override,
+  // only ever lower. Skipped under preferredSet (the user pinned a set's printing).
+  if (!preferredSet) {
+    const cmdNames = [commander.name, partnerCommander?.name].filter((n): n is string => !!n);
+    try {
+      const cheapest = await getCheapestPrintings(cmdNames);
+      for (const cmd of [commander, partnerCommander]) {
+        if (!cmd) continue;
+        const cheap = cheapest.get(cmd.name);
+        if (!cheap) continue;
+        const oldP = parseFloat(getCardPrice(cmd, currency) ?? 'Infinity');
+        const newP = parseFloat(getCardPrice(cheap, currency) ?? 'Infinity');
+        if (newP < oldP) cmd.prices = cheap.prices;
+      }
+    } catch (err) {
+      console.warn('[DeckGen] Commander price reconciliation failed (non-fatal):', err);
+    }
+  }
+
   // --- Phase A: Data Acquisition (skippable via generation cache) ---
   const usingCache = isCacheValid(context);
   let gameChangerNames: Set<string> = new Set();
@@ -1912,22 +1931,20 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
   }
 
-  // ── Arena-only: resolve which candidate names are actually on MTG Arena ──
-  // Built once per generation from every name that could enter the deck, then
-  // consulted by notOnArena() (membership by name across all printings). This is
-  // the fix for both Arena-mode bugs: the per-printing `card.games` field wrongly
-  // dropped Arena-legal cards (false negatives), and ungated paths let non-Arena
-  // cards in (false positives). When arenaOnly is off, the set stays null and the
-  // whole feature is a no-op — standard decks are completely unaffected.
+  // ── Arena-only (phase 1): resolve Arena availability for the names known now ──
+  // notOnArena() consults arenaLegalNameSet (membership by name, resolved across all
+  // printings) instead of the unreliable per-printing `card.games` field — the fix
+  // for both Arena-mode bugs (Arena-legal cards wrongly dropped; non-Arena cards
+  // leaking in via ungated paths). The set is built in TWO phases because the EDHREC
+  // card pool isn't fetched yet on the uncached path: phase 1 (here) covers the names
+  // the must-include loop / commander check need; phase 2 (after edhrecData is ready)
+  // adds the pool, before any pool-card Arena check runs. When arenaOnly is off the
+  // set stays null and notOnArena is a no-op — standard decks are unaffected.
   arenaLegalNameSet = null; // reset module state from any prior generation
   if (arenaOnly) {
     onProgress?.('Checking Arena availability...', 4);
-    const candidateNames = new Set<string>();
-    const addName = (n?: string) => { if (n) candidateNames.add(n); };
-    if (edhrecData) {
-      for (const c of edhrecData.cardlists.allNonLand) addName(c.name);
-      for (const c of edhrecData.cardlists.lands) addName(c.name);
-    }
+    const names = new Set<string>();
+    const addName = (n?: string) => { if (n) names.add(n); };
     for (const n of comboCardNames) addName(n);
     for (const n of mustIncludeNames) addName(n);
     for (const n of Object.keys(CHANNEL_LANDS)) addName(n);
@@ -1938,8 +1955,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     addName(commander.name);
     if (partnerCommander) addName(partnerCommander.name);
 
-    arenaLegalNameSet = await getArenaLegalNames([...candidateNames]);
-    console.log(`[DeckGen] Arena-only: resolved Arena availability for ${candidateNames.size} candidate names`);
+    arenaLegalNameSet = await getArenaLegalNames([...names]);
 
     // Commander(s) are user-chosen and force-included — warn (don't block) when
     // they aren't on Arena, per the "warn but allow" UX choice.
@@ -2262,6 +2278,20 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...key,
     };
     console.log('[DeckGen] Generation cache populated for fast regeneration');
+  }
+
+  // ── Arena-only (phase 2): extend the Arena-legal set with the EDHREC card pool ──
+  // edhrecData is still null when phase 1 runs on the uncached path, so the pool
+  // names (which feed nearly every card slot) are resolved here — once edhrecData is
+  // populated and before any pool/multi-copy Arena check. getArenaLegalNames is
+  // per-name cached, so this only issues requests for names phase 1 didn't cover.
+  if (arenaOnly && arenaLegalNameSet && edhrecData) {
+    onProgress?.('Checking Arena availability...', 13);
+    const poolNames = [
+      ...edhrecData.cardlists.allNonLand.map(c => c.name),
+      ...edhrecData.cardlists.lands.map(c => c.name),
+    ];
+    for (const n of await getArenaLegalNames(poolNames)) arenaLegalNameSet.add(n);
   }
 
   // Resolve pacing: user override > auto-detect from EDHREC stats > fallback

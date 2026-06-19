@@ -33,6 +33,10 @@ class ScryfallCacheDB extends Dexie {
     // endpoint, so EVERY EDHREC fetch survives reloads. `liftPools: null` drops the old store.
     this.version(2).stores({ cards: '&name, cachedAt', liftPools: '&name, cachedAt' });
     this.version(3).stores({ cards: '&name, cachedAt', liftPools: null, edhrecResponses: '&endpoint, cachedAt' });
+    // v4 clears the cards table once so entries cached before cheapest-printing reconciliation
+    // (which may hold inflated foil/etched prices) are re-fetched and re-priced. edhrecResponses kept.
+    this.version(4).stores({ cards: '&name, cachedAt', edhrecResponses: '&endpoint, cachedAt' })
+      .upgrade(async tx => { await tx.table('cards').clear(); });
   }
 }
 

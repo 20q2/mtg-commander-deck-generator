@@ -17,7 +17,7 @@ import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, GeneratedDeck, ThemeResult } from '@/types';
-import { Loader2, Wand2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Microscope, Swords, Library } from 'lucide-react';
+import { Loader2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Microscope, Swords, Library } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
@@ -998,8 +998,13 @@ export function BuilderPage() {
                 </>
               ) : (
                 <>
-                  <Wand2 className="w-5 h-5 mr-2" />
-                  Generate Deck
+                  <img
+                    src={`${import.meta.env.BASE_URL}logo.png`}
+                    alt=""
+                    aria-hidden="true"
+                    className="w-5 h-5 brightness-0 invert"
+                  />
+                  Create a Deck
                 </>
               )}
             </Button>
@@ -1035,7 +1040,7 @@ export function BuilderPage() {
                 ✓
               </div>
               <h2 className="text-xl font-bold">
-                Deck generated for {commander.name}
+                Deck built for {commander.name} (not yet saved)
                 {partnerCommander && ` & ${partnerCommander.name}`}
               </h2>
             </div>

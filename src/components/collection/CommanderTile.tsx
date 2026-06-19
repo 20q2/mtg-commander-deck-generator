@@ -5,6 +5,7 @@ import type { CommanderReadiness } from '@/services/collection/commanderReadines
 import type { UserCardList } from '@/types';
 import { useCommanderArt } from '@/hooks/useCommanderArt';
 import { useStore } from '@/store';
+import { LogoMark } from '@/components/ui/logo-mark';
 
 /**
  * Navigate to /build/<name> with the "Build from Collection" toggle pre-enabled.
@@ -250,8 +251,8 @@ export function CommanderSpotlight({ commander, readiness, savedDeck, discover =
               onClick={() => buildFromCollection(navigate, commander.name)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-violet-500 hover:bg-violet-400 text-white rounded-md transition-colors shadow-lg shadow-violet-900/40"
             >
-              <Wand2 className="w-3.5 h-3.5" />
-              {discover ? 'Preview a deck' : hasSavedDeck ? 'Try another theme' : 'Generate deck'}
+              <LogoMark className="w-3.5 h-3.5" />
+              {discover ? 'Preview a deck' : hasSavedDeck ? 'Try another theme' : 'Forge a deck'}
             </button>
             {hasSavedDeck && (
               <button

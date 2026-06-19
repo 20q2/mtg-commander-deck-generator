@@ -2201,6 +2201,16 @@ interface DeckDisplayProps {
   children?: React.ReactNode;
 }
 
+/** Inline amber "heads up" banner for deck-generation shortfalls / warnings. */
+function DeckWarningBanner({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
+      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+      <p className="text-amber-200/90">{children}</p>
+    </div>
+  );
+}
+
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
@@ -3983,36 +3993,27 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         )}
 
         {generatedDeck.collectionShortfall && generatedDeck.collectionShortfall > 0 && (
-          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-            <p className="text-amber-200/90">
-              Your collection didn't have enough cards to fill the deck.{' '}
-              <span className="font-semibold">{generatedDeck.collectionShortfall} extra basic land{generatedDeck.collectionShortfall > 1 ? 's were' : ' was'}</span>{' '}
-              added to reach {totalCards} cards. Check the suggestions below for cards worth picking up!
-            </p>
-          </div>
+          <DeckWarningBanner>
+            Your collection didn't have enough cards to fill the deck.{' '}
+            <span className="font-semibold">{generatedDeck.collectionShortfall} extra basic land{generatedDeck.collectionShortfall > 1 ? 's were' : ' was'}</span>{' '}
+            added to reach {totalCards} cards. Check the suggestions below for cards worth picking up!
+          </DeckWarningBanner>
         )}
 
         {generatedDeck.filterShortfall && generatedDeck.filterShortfall > 0 && (
-          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-            <p className="text-amber-200/90">
-              Your Scryfall filters reduced the available card pool.{' '}
-              <span className="font-semibold">{generatedDeck.filterShortfall} extra basic land{generatedDeck.filterShortfall > 1 ? 's were' : ' was'}</span>{' '}
-              added to reach {totalCards} cards. Try broadening your filters for more variety.
-            </p>
-          </div>
+          <DeckWarningBanner>
+            Your Scryfall filters reduced the available card pool.{' '}
+            <span className="font-semibold">{generatedDeck.filterShortfall} extra basic land{generatedDeck.filterShortfall > 1 ? 's were' : ' was'}</span>{' '}
+            added to reach {totalCards} cards. Try broadening your filters for more variety.
+          </DeckWarningBanner>
         )}
 
         {generatedDeck.arenaIneligibleCards && generatedDeck.arenaIneligibleCards.length > 0 && (
-          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-            <p className="text-amber-200/90">
-              <span className="font-semibold">{generatedDeck.arenaIneligibleCards.join(', ')}</span>{' '}
-              {generatedDeck.arenaIneligibleCards.length > 1 ? "aren't" : "isn't"} available on MTG Arena, so this deck isn't fully Arena-legal.
-              The rest of the deck was built from Arena cards. Pick an Arena-legal commander to make it importable.
-            </p>
-          </div>
+          <DeckWarningBanner>
+            <span className="font-semibold">{generatedDeck.arenaIneligibleCards.join(', ')}</span>{' '}
+            {generatedDeck.arenaIneligibleCards.length > 1 ? "aren't" : "isn't"} available on MTG Arena, so this deck isn't fully Arena-legal.
+            The rest of the deck was built from Arena cards. Pick an Arena-legal commander to make it importable.
+          </DeckWarningBanner>
         )}
 
         {/* Main Content — two-column layout */}

@@ -368,7 +368,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <div>
                   <h1 className="text-lg sm:text-xl font-bold">ManaFoundry</h1>
                   <p className="hidden sm:block text-xs text-muted-foreground">
-                    Generate, analyze, and optimize Commander decks instantly
+                    Forging smarter Commander decks
                   </p>
                 </div>
               </Link>

@@ -263,26 +263,19 @@ export function getCachedRulings(card: ScryfallCard): CardRuling[] | undefined {
   return rulingsCache.get(card.oracle_id || card.id);
 }
 
-const FALLBACK_SEARCH_BATCH_SIZE = 15;
+const FALLBACK_SEARCH_BATCH_SIZE = 30;
 
 /**
- * Batch-search Scryfall for cards by exact name using OR-joined queries.
- * Each batch is ONE /cards/search request (rate-limited) for up to
- * FALLBACK_SEARCH_BATCH_SIZE names, ordered by USD ascending so the cheapest
- * printing per name is first.
+ * Batch-resolve the CHEAPEST priced printing of each name. One /cards/search
+ * request per batch using unique=cards&order=usd&dir=asc — Scryfall returns a
+ * single row per card = its cheapest printing that has a price, so there is no
+ * pagination to page through (a 30-name batch yields <= ~40 rows, well under the
+ * 175/page cap). Callers handle cache writes; this helper only resolves cards.
  *
- * Used by the price-upgrade and not-found-retry paths in getCardsByNames —
- * both used to fire one request per card, which 429'd on bursts.
- *
- * Callers are responsible for cache writes; this helper only resolves the
- * cards.
+ * Exact-name (!"…") matches can also hit a DFC whose FACE shares the name, so we
+ * map results back by full name and by front-face name.
  */
-const FALLBACK_SEARCH_MAX_PAGES = 4; // 4 × 175 = 700 printings per batch ceiling
-
-async function batchSearchByExactName(
-  names: string[],
-  opts: { preferUsd: boolean },
-): Promise<Map<string, ScryfallCard>> {
+async function batchSearchByExactName(names: string[]): Promise<Map<string, ScryfallCard>> {
   const out = new Map<string, ScryfallCard>();
   if (names.length === 0) return out;
 
@@ -290,72 +283,35 @@ async function batchSearchByExactName(
     const batch = names.slice(i, i + FALLBACK_SEARCH_BATCH_SIZE);
     const nameQuery = batch.map(n => `!"${n}"`).join(' OR ');
     const fullQuery = `(${nameQuery}) -is:digital`;
-
-    // Collect printings across however many pages it takes. Stop early once
-    // every name in the batch has at least one printing, or when Scryfall
-    // tells us there are no more pages, or when we hit the page cap. Without
-    // pagination, popular cards (Command Tower has 200+ printings) flood the
-    // first page of 175 and starve other names in the batch.
-    const byName = new Map<string, ScryfallCard[]>();
-    const namesFound = new Set<string>();
-    let totalRows = 0;
-    let pagesFetched = 0;
-
-    for (let page = 1; page <= FALLBACK_SEARCH_MAX_PAGES; page++) {
-      const url = `${BASE_URL}/cards/search?q=${encodeURIComponent(fullQuery)}&unique=prints&order=usd&dir=asc&page=${page}`;
-      try {
-        const response = await withRateLimit(() =>
-          fetch(url, { headers: { 'Accept': 'application/json' } }),
-        );
-        if (!response.ok) break; // 404 on page 1 = no matches at all; later pages just stop here
-
-        const data = await response.json() as ScryfallSearchResponse;
-        pagesFetched++;
-        totalRows += data.data.length;
-
-        for (const card of data.data) {
-          const arr = byName.get(card.name) ?? [];
-          arr.push(card);
-          byName.set(card.name, arr);
-          if (batch.includes(card.name)) namesFound.add(card.name);
-          if (card.name.includes(' // ')) {
-            const front = card.name.split(' // ')[0];
-            const farr = byName.get(front) ?? [];
-            farr.push(card);
-            byName.set(front, farr);
-            if (batch.includes(front)) namesFound.add(front);
-          }
-        }
-
-        if (!data.has_more) break;
-        if (batch.every(n => namesFound.has(n))) break; // every name has at least one row
-      } catch (err) {
-        console.warn('[Scryfall] batchSearchByExactName batch failed:', err);
-        break;
-      }
-    }
-
-    const missing = batch.filter(n => !namesFound.has(n));
-    if (missing.length > 0 || pagesFetched > 1) {
-      console.log(
-        `[Scryfall] batch search: ${batch.length} names, ${pagesFetched} page(s), ${totalRows} prints` +
-        (missing.length > 0 ? ` — missed: ${missing.join(', ')}` : ''),
+    const url = `${BASE_URL}/cards/search?q=${encodeURIComponent(fullQuery)}&unique=cards&order=usd&dir=asc`;
+    try {
+      const response = await withRateLimit(() =>
+        fetch(url, { headers: { 'Accept': 'application/json' } }),
       );
-    }
-
-    // Pick best printing per requested name. Printings are ordered by USD
-    // ascending, so the first printing with a USD price is the cheapest.
-    for (const name of batch) {
-      const printings = byName.get(name);
-      if (!printings || printings.length === 0) continue;
-      const best = opts.preferUsd
-        ? (printings.find(c => c.prices?.usd) ?? printings.find(c => getCardPrice(c)) ?? printings[0])
-        : printings[0];
-      out.set(name, best);
+      if (!response.ok) continue; // 404 = no matches for this batch
+      const data = await response.json() as ScryfallSearchResponse;
+      for (const card of data.data) {
+        if (batch.includes(card.name)) out.set(card.name, card);
+        if (card.name.includes(' // ')) {
+          const front = card.name.split(' // ')[0];
+          if (batch.includes(front)) out.set(front, card);
+        }
+      }
+    } catch (err) {
+      console.warn('[Scryfall] batchSearchByExactName batch failed:', err);
     }
   }
 
   return out;
+}
+
+/**
+ * Resolve the cheapest priced printing per name (one batched unique=cards search).
+ * Exported for callers that fetch cards OUTSIDE getCardsByNames — notably the commander,
+ * which is fetched via getCardByName and so bypasses the in-fetch cheapest-price pass.
+ */
+export async function getCheapestPrintings(names: string[]): Promise<Map<string, ScryfallCard>> {
+  return batchSearchByExactName(names);
 }
 
 /**
@@ -517,58 +473,40 @@ export async function getCardsByNames(
     }
   }
 
-  // Re-fetch cards that came back with no price (e.g. unreleased reprints)
-  // Skip when user specified a preferred set — they want that set's printing, not the cheapest
-  // Re-check ALL no-price cards in the result, not just network-fetched ones.
-  // The persistent cache can hold no-price entries from earlier generations
-  // (e.g. cards that were freshly-spoiled at the time and had no priced
-  // printings yet). We retry the upgrade every generation so they get priced
-  // once Scryfall publishes data — costs at most one batched search per gen.
+  // Reconcile every freshly-fetched card to its CHEAPEST printing's price, keeping the collection
+  // printing's art/object — we override prices ONLY. Also re-checks any card still lacking a price,
+  // preserving the "retry unpriced cards each generation" behavior. One batched unique=cards search
+  // (Scryfall returns the cheapest priced printing per card). Cards served from cache already carry
+  // their reconciled price, so warm decks do ~0 extra requests. Skipped under preferredSet (the user
+  // pinned a set). Safe in Arena mode: legality is name-based and we never swap printings here.
   if (!preferredSet) {
-    const noPriceNames: string[] = [];
-    for (const name of names) {
-      const card = result.get(name);
-      if (card && !getCardPrice(card)) noPriceNames.push(name);
-    }
-    if (noPriceNames.length > 0) {
-      console.log(`[Scryfall] Re-checking ${noPriceNames.length} cards with no price (batched)...`);
-      const repriced = await batchSearchByExactName(noPriceNames, { preferUsd: true });
-      for (const [name, card] of repriced) {
-        if (!getCardPrice(card)) continue;
-        cardCache.set(name, card);
-        if (card.name !== name) cardCache.set(card.name, card);
-        void writePersisted(card.name, card);
-        result.set(name, freshCopy(card));
-      }
-    }
-  }
-
-  // Re-price cards whose price looks suspect — resolved via a non-native fallback (an expensive
-  // foil/etched printing with no normal price), or a real price above a sanity threshold while a
-  // cheaper reprint may exist. Each is swapped to its cheapest buyable printing, but ONLY if
-  // strictly cheaper, so a bad re-fetch can never raise a price. Skipped under preferredSet (the
-  // user pinned a set). Safe in Arena mode: legality is resolved by name, not by printing.
-  if (!preferredSet) {
-    const suspectNames: string[] = [];
-    for (const name of names) {
-      const card = result.get(name);
-      if (card && isSuspectPrice(card, currency)) suspectNames.push(name);
-    }
-    if (suspectNames.length > 0) {
-      console.log(`[Scryfall] Re-pricing ${suspectNames.length} cards with suspect prices (batched)...`);
-      const repriced = await batchSearchByExactName(suspectNames, { preferUsd: true });
+    const networkFetched = uncachedNames.filter(name => result.has(name));
+    const stillNoPrice = names.filter(name => {
+      const c = result.get(name);
+      return c && !getCardPrice(c, currency);
+    });
+    const reconcileNames = [...new Set([...networkFetched, ...stillNoPrice])];
+    if (reconcileNames.length > 0) {
+      const cheapest = await batchSearchByExactName(reconcileNames);
       let lowered = 0;
-      for (const [name, fresh] of repriced) {
-        const oldP = parseFloat(getCardPrice(result.get(name)!, currency) ?? 'Infinity');
-        const newP = parseFloat(getCardPrice(fresh, currency) ?? 'Infinity');
-        if (!(newP < oldP)) continue; // never raise a price; skip if not strictly cheaper
-        cardCache.set(name, fresh);
-        if (fresh.name !== name) cardCache.set(fresh.name, fresh);
-        void writePersisted(fresh.name, fresh);
-        result.set(name, freshCopy(fresh));
+      for (const [name, cheap] of cheapest) {
+        const card = result.get(name);
+        if (!card) continue;
+        const oldP = parseFloat(getCardPrice(card, currency) ?? 'Infinity');
+        const newP = parseFloat(getCardPrice(cheap, currency) ?? 'Infinity');
+        if (!(newP < oldP)) continue; // only ever lower a price, never raise
+        // Override price ONLY — keep the collection printing's image/set/oracle text.
+        card.prices = cheap.prices;
+        const canonical = cardCache.get(card.name) ?? cardCache.get(name);
+        if (canonical) {
+          canonical.prices = cheap.prices;
+          void writePersisted(canonical.name, canonical);
+        }
         lowered++;
       }
-      if (lowered > 0) console.log(`[Scryfall] Re-priced ${lowered}/${suspectNames.length} cards to cheaper printings`);
+      if (lowered > 0) {
+        console.log(`[Scryfall] Re-priced ${lowered}/${reconcileNames.length} cards to their cheapest printing`);
+      }
     }
   }
 
@@ -576,7 +514,7 @@ export async function getCardsByNames(
   const notFound = uncachedNames.filter(name => !result.has(name));
   if (notFound.length > 0) {
     console.log(`[Scryfall] Retrying ${notFound.length} not-found cards (batched)...`);
-    const found = await batchSearchByExactName(notFound, { preferUsd: true });
+    const found = await batchSearchByExactName(notFound);
     for (const [name, card] of found) {
       cardCache.set(name, card);
       if (card.name !== name) cardCache.set(card.name, card);
@@ -838,7 +776,7 @@ const arenaLegalCache = new Map<string, boolean>();
 const ARENA_SEARCH_BATCH_SIZE = 35;
 
 /** Front-face name for a DFC ("Front // Back" → "Front"); identity otherwise. */
-function frontFaceName(name: string): string {
+export function frontFaceName(name: string): string {
   return name.includes(' // ') ? name.split(' // ')[0] : name;
 }
 
@@ -853,18 +791,15 @@ function frontFaceName(name: string): string {
  */
 export async function getArenaLegalNames(names: string[]): Promise<Set<string>> {
   const result = new Set<string>();
+  // Add both the full name and the DFC front face so callers can match either form.
+  const add = (name: string) => { result.add(name); result.add(frontFaceName(name)); };
+
   const uncached: string[] = [];
-  const seen = new Set<string>();
-  for (const name of names) {
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
+  for (const name of new Set(names)) { // dedupe input
+    if (!name) continue;
     const cached = arenaLegalCache.get(name);
-    if (cached === undefined) {
-      uncached.push(name);
-    } else if (cached) {
-      result.add(name);
-      result.add(frontFaceName(name));
-    }
+    if (cached === undefined) uncached.push(name);
+    else if (cached) add(name);
   }
 
   for (let i = 0; i < uncached.length; i += ARENA_SEARCH_BATCH_SIZE) {
@@ -894,10 +829,7 @@ export async function getArenaLegalNames(names: string[]): Promise<Set<string>> 
     for (const name of batch) {
       const onArena = found.has(name) || found.has(frontFaceName(name));
       if (authoritative) arenaLegalCache.set(name, onArena);
-      if (onArena) {
-        result.add(name);
-        result.add(frontFaceName(name));
-      }
+      if (onArena) add(name);
     }
   }
 
@@ -990,23 +922,6 @@ export function getCardPrice(card: ScryfallCard, currency: 'USD' | 'EUR' = 'USD'
   const p = card.prices;
   if (currency === 'EUR') return p?.eur || p?.eur_foil || p?.usd || p?.usd_foil || p?.usd_etched || null;
   return p?.usd || p?.usd_foil || p?.usd_etched || p?.eur || p?.eur_foil || null;
-}
-
-/**
- * A resolved price is "suspect" when it likely doesn't reflect the cheapest buyable printing:
- * (a) the native-currency field is empty so getCardPrice fell through to an expensive
- *     foil/etched/eur value (the $500-foil case), or
- * (b) the native price is present but above a sanity threshold (a cheaper reprint may exist).
- * Basic lands and no-price cards are never suspect (the latter are owned by the no-price pass).
- */
-const PRICE_SUSPECT_THRESHOLD = { USD: 25, EUR: 23 } as const; // EUR ≈ USD * 0.92
-
-function isSuspectPrice(card: ScryfallCard, currency: 'USD' | 'EUR'): boolean {
-  if (BASIC_LAND_NAMES.has(card.name)) return false;
-  if (!getCardPrice(card, currency)) return false; // no price at all → no-price pass owns it
-  const native = currency === 'EUR' ? card.prices?.eur : card.prices?.usd;
-  if (!native) return true;                         // (a) resolved via a non-native fallback
-  return (parseFloat(native) || 0) > PRICE_SUSPECT_THRESHOLD[currency]; // (b) above threshold
 }
 
 // Get the front face type_line for a card.

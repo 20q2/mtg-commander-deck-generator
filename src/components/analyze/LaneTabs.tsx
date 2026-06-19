@@ -1,11 +1,13 @@
-import { ClipboardPaste, Library, Sparkles } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { ClipboardPaste, Library } from 'lucide-react';
+import { LogoMark } from '@/components/ui/logo-mark';
 
 export type LaneKey = 'paste' | 'lists' | 'generate';
 
-const TABS: { key: LaneKey; label: string; icon: typeof ClipboardPaste }[] = [
+const TABS: { key: LaneKey; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { key: 'paste',    label: 'Paste',     icon: ClipboardPaste },
   { key: 'lists',    label: 'My Lists',  icon: Library },
-  { key: 'generate', label: 'Generate',  icon: Sparkles },
+  { key: 'generate', label: 'Forge',     icon: LogoMark },
 ];
 
 interface LaneTabsProps {
