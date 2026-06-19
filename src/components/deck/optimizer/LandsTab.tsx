@@ -7,7 +7,7 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard, ManaBaseAnalysis, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
-import { isMdfcLand, isChannelLand, isAnyLand, isBasicLand, getProducedColors, WUBRG, searchMdfcLands, getChannelLandsForColors, getCardsByNames } from '@/services/scryfall/client';
+import { isMdfcLand, isChannelLand, isAnyLand, isBasicLand, getProducedColors, WUBRG, searchMdfcLands, getChannelLandsForColors, getCardsByNames, getCardPrice } from '@/services/scryfall/client';
 import { getCardRole, getAllCardRoles, isUtilityLand } from '@/services/tagger/client';
 import { useStore } from '@/store';
 import {
@@ -1555,7 +1555,7 @@ export function LandsTabContent({
           primaryType: card.type_line || '',
           imageUrl: card.card_faces?.[0]?.image_uris?.normal || card.image_uris?.normal,
           backImageUrl: card.card_faces?.[1]?.image_uris?.normal || undefined,
-          price: card.prices?.usd || undefined,
+          price: getCardPrice(card) ?? undefined,
           role: role || undefined,
           roleLabel: role ? ROLE_LABELS[role] : undefined,
           allRoleLabels: allRoles.length > 0 ? allRoles.map(r => ROLE_LABELS[r] || r) : undefined,
@@ -1591,7 +1591,7 @@ export function LandsTabContent({
           fillsDeficit: false,
           primaryType: card?.type_line || 'Legendary Land',
           imageUrl: card?.image_uris?.normal,
-          price: card?.prices?.usd || undefined,
+          price: card ? getCardPrice(card) ?? undefined : undefined,
         };
       });
       setChannelLandCards(cards);

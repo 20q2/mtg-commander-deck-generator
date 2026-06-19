@@ -1,4 +1,6 @@
 import type { RoleKey } from '@/services/tagger/client';
+import type { ScryfallCard } from '@/types';
+import { getCardPrice } from '@/services/scryfall/client';
 import type { BrewContext, BrewState, BrewHealth } from './brewTypes';
 
 const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
@@ -21,9 +23,8 @@ export function pool(ctx: BrewContext, state: BrewState): BrewContext['candidate
   return state.discovered.length > 0 ? [...ctx.candidates, ...state.discovered] : ctx.candidates;
 }
 
-function priceUsd(card: { prices: { usd?: string | null } }): number {
-  const p = card.prices?.usd;
-  return p ? parseFloat(p) || 0 : 0;
+function priceUsd(card: ScryfallCard): number {
+  return parseFloat(getCardPrice(card) ?? '') || 0;
 }
 
 export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {

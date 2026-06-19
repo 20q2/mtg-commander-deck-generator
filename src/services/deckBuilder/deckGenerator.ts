@@ -1059,7 +1059,7 @@ export function manaPhilosophyBoost(card: ScryfallCard, name: string, philosophy
     case 'spelllands':
       return isMdfcLand(card) ? SPELLLANDS_MDFC_BOOST : 0;
     case 'budget': {
-      const price = parseFloat(card.prices?.usd ?? '') || 0;
+      const price = parseFloat(getCardPrice(card) ?? '') || 0;
       return -Math.min(price, 30) * BUDGET_PENALTY_PER_USD;
     }
     default:
@@ -1280,7 +1280,7 @@ async function generateLands(
       }
     }
 
-    const landCardMap = await getCardsByNames(landNamesToFetch, undefined, preferredSet);
+    const landCardMap = await getCardsByNames(landNamesToFetch, undefined, preferredSet, { currency });
     if (preferredSet) {
       for (const [name, card] of landCardMap) {
         if (card.set !== preferredSet) landCardMap.delete(name);
@@ -1956,7 +1956,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     onProgress?.('Adding your must-include cards...', 3);
     console.log(`[DeckGen] Processing ${mustIncludeNames.length} must-include cards:`, mustIncludeNames);
 
-    const mustIncludeMap = await getCardsByNames(mustIncludeNames, undefined, preferredSet);
+    const mustIncludeMap = await getCardsByNames(mustIncludeNames, undefined, preferredSet, { currency });
     let addedCount = 0;
 
     for (const name of mustIncludeNames) {
@@ -2480,7 +2480,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // Scale progress from 25% to 35% during the batch fetch
       const pct = 25 + Math.round((fetched / total) * 10);
       onProgress?.('Summoning cards from Scryfall...', pct);
-    }, preferredSet);
+    }, preferredSet, { currency });
     // Post-filter: remove cards that don't match the scryfallQuery filter
     if (preferredSet) {
       for (const [name, card] of cardMap) {
@@ -3406,7 +3406,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log(`[DeckGen] Found ${remainingEdhrecCards.length} remaining EDHREC cards to fill shortage`);
 
       const namesToFetch = remainingEdhrecCards.slice(0, shortage * 3).map(c => c.name);
-      const fillCardMap = await getCardsByNames(namesToFetch, undefined, preferredSet);
+      const fillCardMap = await getCardsByNames(namesToFetch, undefined, preferredSet, { currency });
       if (preferredSet) {
         for (const [name, card] of fillCardMap) {
           if (card.set !== preferredSet) fillCardMap.delete(name);
@@ -3692,7 +3692,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       .slice(0, 40);
 
     if (gapCandidates.length > 0) {
-      const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name), undefined, preferredSet);
+      const gapCardMap = await getCardsByNames(gapCandidates.map(c => c.name), undefined, preferredSet, { currency });
 
       gapAnalysis = gapCandidates
         .map(c => {

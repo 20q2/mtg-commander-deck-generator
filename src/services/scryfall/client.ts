@@ -368,8 +368,10 @@ async function batchSearchByExactName(
 export async function getCardsByNames(
   names: string[],
   onProgress?: (fetched: number, total: number) => void,
-  preferredSet?: string
+  preferredSet?: string,
+  opts?: { currency?: 'USD' | 'EUR' },
 ): Promise<Map<string, ScryfallCard>> {
+  const currency = opts?.currency ?? 'USD';
   const result = new Map<string, ScryfallCard>();
 
   if (names.length === 0) return result;
@@ -541,11 +543,40 @@ export async function getCardsByNames(
     }
   }
 
+  // Re-price cards whose price looks suspect — resolved via a non-native fallback (an expensive
+  // foil/etched printing with no normal price), or a real price above a sanity threshold while a
+  // cheaper reprint may exist. Each is swapped to its cheapest buyable printing, but ONLY if
+  // strictly cheaper, so a bad re-fetch can never raise a price. Skipped under preferredSet (the
+  // user pinned a set). Safe in Arena mode: legality is resolved by name, not by printing.
+  if (!preferredSet) {
+    const suspectNames: string[] = [];
+    for (const name of names) {
+      const card = result.get(name);
+      if (card && isSuspectPrice(card, currency)) suspectNames.push(name);
+    }
+    if (suspectNames.length > 0) {
+      console.log(`[Scryfall] Re-pricing ${suspectNames.length} cards with suspect prices (batched)...`);
+      const repriced = await batchSearchByExactName(suspectNames, { preferUsd: true });
+      let lowered = 0;
+      for (const [name, fresh] of repriced) {
+        const oldP = parseFloat(getCardPrice(result.get(name)!, currency) ?? 'Infinity');
+        const newP = parseFloat(getCardPrice(fresh, currency) ?? 'Infinity');
+        if (!(newP < oldP)) continue; // never raise a price; skip if not strictly cheaper
+        cardCache.set(name, fresh);
+        if (fresh.name !== name) cardCache.set(fresh.name, fresh);
+        void writePersisted(fresh.name, fresh);
+        result.set(name, freshCopy(fresh));
+        lowered++;
+      }
+      if (lowered > 0) console.log(`[Scryfall] Re-priced ${lowered}/${suspectNames.length} cards to cheaper printings`);
+    }
+  }
+
   // For any names not found via collection, try a batched search fallback.
   const notFound = uncachedNames.filter(name => !result.has(name));
   if (notFound.length > 0) {
     console.log(`[Scryfall] Retrying ${notFound.length} not-found cards (batched)...`);
-    const found = await batchSearchByExactName(notFound, { preferUsd: false });
+    const found = await batchSearchByExactName(notFound, { preferUsd: true });
     for (const [name, card] of found) {
       cardCache.set(name, card);
       if (card.name !== name) cardCache.set(card.name, card);
@@ -959,6 +990,23 @@ export function getCardPrice(card: ScryfallCard, currency: 'USD' | 'EUR' = 'USD'
   const p = card.prices;
   if (currency === 'EUR') return p?.eur || p?.eur_foil || p?.usd || p?.usd_foil || p?.usd_etched || null;
   return p?.usd || p?.usd_foil || p?.usd_etched || p?.eur || p?.eur_foil || null;
+}
+
+/**
+ * A resolved price is "suspect" when it likely doesn't reflect the cheapest buyable printing:
+ * (a) the native-currency field is empty so getCardPrice fell through to an expensive
+ *     foil/etched/eur value (the $500-foil case), or
+ * (b) the native price is present but above a sanity threshold (a cheaper reprint may exist).
+ * Basic lands and no-price cards are never suspect (the latter are owned by the no-price pass).
+ */
+const PRICE_SUSPECT_THRESHOLD = { USD: 25, EUR: 23 } as const; // EUR ≈ USD * 0.92
+
+function isSuspectPrice(card: ScryfallCard, currency: 'USD' | 'EUR'): boolean {
+  if (BASIC_LAND_NAMES.has(card.name)) return false;
+  if (!getCardPrice(card, currency)) return false; // no price at all → no-price pass owns it
+  const native = currency === 'EUR' ? card.prices?.eur : card.prices?.usd;
+  if (!native) return true;                         // (a) resolved via a non-native fallback
+  return (parseFloat(native) || 0) > PRICE_SUSPECT_THRESHOLD[currency]; // (b) above threshold
 }
 
 // Get the front face type_line for a card.

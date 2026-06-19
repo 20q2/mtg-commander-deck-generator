@@ -1,6 +1,6 @@
 import type { ScryfallCard, EDHRECCard } from '@/types';
 import { fetchCardRelations, type CardRelation } from '@/services/edhrec/client';
-import { getCardsByNames } from '@/services/scryfall/client';
+import { getCardsByNames, getCardPrice } from '@/services/scryfall/client';
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
 import type { BrewContext, BrewState, BrewCandidate } from './brewTypes';
 import { typeKey } from './health';
@@ -45,7 +45,7 @@ export async function discoverFrom(
   if (wanted.length === 0) return [];
 
   // 3. Resolve via Scryfall (one batched call).
-  const cardMap = await getCardsByNames(wanted.map(([name]) => name));
+  const cardMap = await getCardsByNames(wanted.map(([name]) => name), undefined, undefined, { currency: ctx.customization.currency });
 
   // 4. Filter to in-identity, commander-legal, non-land, in-budget (tightened by a Budget Brewer relic).
   const relicCap = relicBudgetCap(state.relics);
@@ -58,7 +58,7 @@ export async function discoverFrom(
     if (scryfall.legalities?.commander !== 'legal') continue;
     if (scryfall.type_line.toLowerCase().includes('land')) continue;
     if (maxPrice != null) {
-      const price = parseFloat(scryfall.prices?.usd ?? '') || 0;
+      const price = parseFloat(getCardPrice(scryfall, ctx.customization.currency) ?? '') || 0;
       if (price > maxPrice) continue;
     }
     const edhrec: EDHRECCard = {

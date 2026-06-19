@@ -1,4 +1,5 @@
 import type { ScryfallCard } from '@/types';
+import { getCardPrice } from '@/services/scryfall/client';
 import type {
   BrewContext, BrewState, BrewCandidate, BrewEvent, BrewPick, BrewMoment, ComboPiece, BrewCrossroadsPath,
 } from './brewTypes';
@@ -276,7 +277,7 @@ export function applyEvent(ctx: BrewContext, state: BrewState, event: BrewEvent,
     if (choiceId === 'exploit') {
       // Take the most-available (cheapest) missing piece now; watch the rest so the combo closes itself.
       const sorted = [...event.combo.missing].sort((a, b) =>
-        (parseFloat(a.scryfall.prices?.usd ?? '') || 0) - (parseFloat(b.scryfall.prices?.usd ?? '') || 0));
+        (parseFloat(getCardPrice(a.scryfall) ?? '') || 0) - (parseFloat(getCardPrice(b.scryfall) ?? '') || 0));
       const piece = sorted[0];
       const rest = sorted.slice(1).map(c => c.name);
       const withPick = applyPick(state, [candidateToPick(ctx, state, piece, event.id)], {

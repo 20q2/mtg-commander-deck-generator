@@ -1,5 +1,6 @@
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 import { hasTag, isExtraTurn, isMassLandDenial } from '@/services/tagger/client';
+import { getCardPrice } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import type { BrewContext, BrewState, BrewRoute, BrewNode, BrewOption, BrewCandidate, ComboPiece, PickReason } from './brewTypes';
 import { scoreCandidate } from './scoring';
@@ -50,7 +51,7 @@ function availableFor(ctx: BrewContext, state: BrewState, route: BrewRoute): Bre
   const used = new Set(state.usedNames);
   const cap = relicBudgetCap(state.relics);   // Budget Brewer: pricey cards stop appearing
   const available = pool(ctx, state).filter(c =>
-    !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(c.scryfall.prices?.usd ?? '') || 0) <= cap));
+    !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(getCardPrice(c.scryfall) ?? '') || 0) <= cap));
   const matches = available.filter(c => {
     if (route.targetRole) return c.role === route.targetRole;
     if (route.targetType) return typeKey(c.scryfall.type_line) === route.targetType;
@@ -111,7 +112,7 @@ function scoredPool(ctx: BrewContext, state: BrewState): BrewCandidate[] {
   const used = new Set(state.usedNames);
   const cap = relicBudgetCap(state.relics);
   const avail = pool(ctx, state).filter(c =>
-    !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(c.scryfall.prices?.usd ?? '') || 0) <= cap));
+    !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(getCardPrice(c.scryfall) ?? '') || 0) <= cap));
   return [...avail].sort((a, b) =>
     scoreCandidate(ctx, state, b, matchingTagsFor(state, b)) - scoreCandidate(ctx, state, a, matchingTagsFor(state, a)));
 }
