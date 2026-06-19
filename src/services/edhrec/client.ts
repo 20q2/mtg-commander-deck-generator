@@ -9,6 +9,7 @@ import type {
   BudgetOption,
   BracketLevel,
 } from '@/types';
+import { readPersistedResponse, writePersistedResponse } from '@/services/scryfall/cache';
 
 const BASE_URL = import.meta.env.DEV ? '/edhrec-api' : 'https://json.edhrec.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests
@@ -158,6 +159,11 @@ function getBracketSuffix(bracketLevel?: BracketLevel): string {
 }
 
 async function edhrecFetch<T>(endpoint: string): Promise<T> {
+  // Persistent layer (IndexedDB): a previously-fetched endpoint needs no network across reloads.
+  // Skips the rate limiter entirely on a hit. Never throws — falls through to network on any issue.
+  const persisted = await readPersistedResponse<T>(endpoint);
+  if (persisted !== null) return persisted;
+
   await rateLimiter.throttle();
 
   const response = await fetch(`${BASE_URL}${endpoint}`, {
@@ -182,6 +188,7 @@ async function edhrecFetch<T>(endpoint: string): Promise<T> {
     throw new Error(`EDHREC redirect to ${data.redirect}`);
   }
 
+  void writePersistedResponse(endpoint, data);  // fire-and-forget; never blocks
   return data;
 }
 
@@ -1127,8 +1134,57 @@ export async function fetchAverageDeckMultiCopies(
 
 const similarCardsCache = new Map<string, { data: string[]; timestamp: number }>();
 
+interface RawCardPageView { name?: string; inclusion?: number; potential_decks?: number; num_decks?: number; lift?: number; }
+interface RawCardPageList { tag?: string; cardviews?: RawCardPageView[]; }
 interface RawCardPageResponse {
   similar?: string[];
+  container?: { json_dict?: { cardlists?: RawCardPageList[] } };
+}
+
+export interface CardRelation { name: string; source: 'lift' | 'coplay' | 'similar'; coPct: number; }
+
+const LIFT_TAKE = 6;
+const COPLAY_TAKE = 4;
+const SIMILAR_TAKE = 4;
+
+function coPct(v: RawCardPageView): number {
+  return v.potential_decks && v.potential_decks > 0 ? Math.round(((v.inclusion ?? 0) / v.potential_decks) * 100) : 0;
+}
+
+/** Pure: turn a card-page payload into card-to-card relations (lift > coplay > similar). */
+export function parseCardRelations(raw: RawCardPageResponse): CardRelation[] {
+  const lists = raw.container?.json_dict?.cardlists ?? [];
+  const byTag = (tag: string) => lists.find(l => l.tag === tag)?.cardviews ?? [];
+  const out: CardRelation[] = [];
+  for (const v of byTag('highliftcards').slice(0, LIFT_TAKE)) {
+    if (v.name) out.push({ name: v.name, source: 'lift', coPct: coPct(v) });
+  }
+  for (const v of byTag('topcards').slice(0, COPLAY_TAKE)) {
+    if (v.name) out.push({ name: v.name, source: 'coplay', coPct: coPct(v) });
+  }
+  for (const name of (Array.isArray(raw.similar) ? raw.similar : []).slice(0, SIMILAR_TAKE)) {
+    out.push({ name, source: 'similar', coPct: 0 });
+  }
+  return out;
+}
+
+const cardRelationsCache = new Map<string, { data: CardRelation[]; timestamp: number }>();
+
+/** Fetch card-to-card relations (high-lift, co-played, similar) for a single card. [] on failure. */
+export async function fetchCardRelations(cardName: string): Promise<CardRelation[]> {
+  const slug = formatCommanderNameForUrl(cardName);
+  const cached = cardRelationsCache.get(slug);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
+  try {
+    const response = await edhrecFetch<RawCardPageResponse>(`/pages/cards/${slug}.json`);
+    const data = parseCardRelations(response);
+    cardRelationsCache.set(slug, { data, timestamp: Date.now() });
+    return data;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch card relations for "${cardName}":`, error);
+    cardRelationsCache.set(slug, { data: [], timestamp: Date.now() });
+    return [];
+  }
 }
 
 /**
@@ -1152,6 +1208,73 @@ export async function fetchSimilarCards(cardName: string): Promise<string[]> {
   } catch (error) {
     console.warn(`[EDHREC] Failed to fetch similar cards for "${cardName}":`, error);
     similarCardsCache.set(slug, { data: [], timestamp: Date.now() });
+    return [];
+  }
+}
+
+// --- Full card-page lift pool ---
+// Every card EDHREC lists as played alongside this one carries a numeric `lift` (how many times more
+// often it co-occurs than its baseline play rate predicts) plus inclusion/potential_decks. The
+// `highliftcards` list parsed above is just the curated extreme tail; this reads the whole page so a
+// caller can score the full on-color pool by lift + co-occurrence. Same page fetch, cached 14 days.
+
+export interface CardLiftEntry { name: string; lift: number; coPct: number; numDecks: number; }
+
+// Meta lists that aren't "cards played alongside this one."
+const LIFT_POOL_SKIP_TAGS = new Set(['topcommanders', 'newcards']);
+// Lift from a handful of shared decks is statistical noise: a near-unplayed card posts a lift of
+// hundreds/thousands off a few coincidental co-occurrences (mirrors EDHREC hiding these from "high
+// lift"). The floor is ADAPTIVE: require co-occurrence in ~LIFT_MIN_FRACTION of the seed's decks, but
+// clamp it — mainstream seeds get the strict floor; niche seeds relax so a thin archetype still shows
+// SOMETHING (those hits are flagged low-confidence downstream). All tunable.
+const LIFT_MIN_FRACTION = 0.02;
+const LIFT_MIN_FLOOR = 12;     // never trust fewer than this many shared decks, even for ultra-niche seeds
+export const LIFT_STRICT_FLOOR = 50;  // at/above this = high confidence; below = shown but flagged
+
+/** Minimum shared-deck count for a seed of the given popularity (clamped fraction). */
+function liftDeckFloor(potentialDecks: number): number {
+  return Math.min(LIFT_STRICT_FLOOR, Math.max(LIFT_MIN_FLOOR, Math.round(potentialDecks * LIFT_MIN_FRACTION)));
+}
+
+/** Pure: every cardview on a card page with a numeric lift backed by enough decks, deduped (max lift). */
+export function parseCardLiftPool(raw: RawCardPageResponse): CardLiftEntry[] {
+  const lists = raw.container?.json_dict?.cardlists ?? [];
+  const best = new Map<string, CardLiftEntry>();
+  for (const list of lists) {
+    if (list.tag && LIFT_POOL_SKIP_TAGS.has(list.tag)) continue;
+    for (const v of list.cardviews ?? []) {
+      if (!v.name || typeof v.lift !== 'number') continue;
+      if (!v.potential_decks || v.potential_decks <= 0) continue;
+      const numDecks = v.num_decks ?? v.inclusion ?? 0;
+      if (numDecks < liftDeckFloor(v.potential_decks)) continue;   // adaptive low-sample filter
+      const entry: CardLiftEntry = { name: v.name, lift: v.lift, coPct: coPct(v), numDecks };
+      const prev = best.get(v.name);
+      if (!prev || entry.lift > prev.lift) best.set(v.name, entry);
+    }
+  }
+  return [...best.values()];
+}
+
+const cardLiftPoolCache = new Map<string, { data: CardLiftEntry[]; timestamp: number }>();
+
+/** Fetch the full lift pool for a card (every played-alongside card with its lift + co-occurrence %). [] on failure. */
+export async function fetchCardLiftPool(cardName: string, force = false): Promise<CardLiftEntry[]> {
+  const slug = formatCommanderNameForUrl(cardName);
+  // `force` (e.g. the "Re-scan" button) skips the in-memory parsed pool so it re-derives with current
+  // parse logic from the cached raw page. Without it, a re-scan just returns the stale parsed result.
+  if (!force) {
+    const cached = cardLiftPoolCache.get(slug);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
+  }
+  try {
+    // edhrecFetch handles the persistent (cross-reload) layer for the raw page.
+    const response = await edhrecFetch<RawCardPageResponse>(`/pages/cards/${slug}.json`);
+    const data = parseCardLiftPool(response);
+    cardLiftPoolCache.set(slug, { data, timestamp: Date.now() });
+    return data;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch card lift pool for "${cardName}":`, error);
+    cardLiftPoolCache.set(slug, { data: [], timestamp: Date.now() });
     return [];
   }
 }

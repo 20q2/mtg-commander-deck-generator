@@ -8,7 +8,7 @@ import {
   getCardByName,
   getCardImageUrl,
 } from '@/services/scryfall/client';
-import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors } from '@/services/edhrec/client';
+import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
@@ -68,9 +68,14 @@ export interface CommanderSearchProps {
    * settings (no user preferences applied).
    */
   onSelectCommander?: (card: ScryfallCard) => void | Promise<void>;
+  /**
+   * Where selecting a commander navigates. 'build' (default) → the deck generator;
+   * 'brew' → the interactive brewing flow. Ignored when `onSelectCommander` is provided.
+   */
+  destination?: 'build' | 'brew';
 }
 
-export function CommanderSearch({ onSelectCommander }: CommanderSearchProps = {}) {
+export function CommanderSearch({ onSelectCommander, destination = 'build' }: CommanderSearchProps = {}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ScryfallCard[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -204,7 +209,9 @@ export function CommanderSearch({ onSelectCommander }: CommanderSearchProps = {}
       return;
     }
     setCommander(card);
-    navigate(`/build/${encodeURIComponent(card.name)}`);
+    navigate(destination === 'brew'
+      ? `/brew/${formatCommanderNameForUrl(card.name)}`
+      : `/build/${encodeURIComponent(card.name)}`);
   };
 
   // Select a commander from the collection — fetch full ScryfallCard first

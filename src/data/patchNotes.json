@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.4",
+    "notes": [
+      "Explore card relationships on the new Lift Web page, found in the Inspector",
+      "Updated the Inspector's Overview page for a few new graphs",
+      "Put a search bar on the deck building area (in the inspector)"
+    ]
+  },
+  {
     "version": "1.3.3",
     "notes": [
       "Small visual QOL improvements when previewing cards"

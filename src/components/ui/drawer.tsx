@@ -11,6 +11,9 @@ interface DrawerProps {
   onPositionChange: (p: DrawerPosition) => void;
   /** Optional override for the default size (vh for bottom, vw for sides). */
   defaultSizePercent?: number;
+  /** Render a click-to-dismiss backdrop behind the panel (modal behaviour). Off by default so
+   *  existing non-modal drawers keep letting you interact with the page behind them. */
+  closeOnOutsideClick?: boolean;
 }
 
 const MIN_BOTTOM_HEIGHT = 200;
@@ -32,7 +35,7 @@ function computeSize(position: DrawerPosition, defaultSizePercent: number | unde
   return Math.max(MIN_SIDE_WIDTH, Math.round(window.innerWidth * pct / 100));
 }
 
-export function Drawer({ open, onClose, children, position, defaultSizePercent }: DrawerProps) {
+export function Drawer({ open, onClose, children, position, defaultSizePercent, closeOnOutsideClick }: DrawerProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < MOBILE_BREAKPOINT);
   const [size, setSize] = useState(() => computeSize(position, defaultSizePercent, window.innerWidth < MOBILE_BREAKPOINT));
   const dragging = useRef(false);
@@ -113,8 +116,17 @@ export function Drawer({ open, onClose, children, position, defaultSizePercent }
   // Side drawers get a slim invisible resize strip on the open edge — no visible
   // "drag me" affordance, which previously made the panel feel scrappy.
   return createPortal(
-    <div className={panelClasses} style={style}>
-      {isBottom ? (
+    <>
+      {/* Click-to-dismiss backdrop. Kept mounted so it can fade; only captures clicks while open. */}
+      {closeOnOutsideClick && (
+        <div
+          aria-hidden
+          onClick={onClose}
+          className={`fixed inset-0 z-40 bg-black/40 transition-opacity duration-300 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        />
+      )}
+      <div className={panelClasses} style={style}>
+        {isBottom ? (
         <div
           className="flex items-center justify-center shrink-0 select-none touch-none cursor-ns-resize py-1.5"
           onPointerDown={onPointerDown}
@@ -135,7 +147,8 @@ export function Drawer({ open, onClose, children, position, defaultSizePercent }
       <div className={`flex-1 overflow-y-auto overflow-x-hidden ${isSide ? 'flex flex-col' : ''}`}>
         {children}
       </div>
-    </div>,
+      </div>
+    </>,
     document.body,
   );
 }

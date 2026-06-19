@@ -4,22 +4,24 @@ import { createPortal } from 'react-dom';
 interface InfoTooltipProps {
   text: string;
   children?: ReactNode;
+  placement?: 'top' | 'bottom';
 }
 
-export function InfoTooltip({ text, children }: InfoTooltipProps) {
+export function InfoTooltip({ text, children, placement = 'top' }: InfoTooltipProps) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = useRef<HTMLSpanElement>(null);
+  const below = placement === 'bottom';
 
   const show = useCallback(() => {
     if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();
     setPos({
-      top: rect.top - 8,
+      top: below ? rect.bottom + 8 : rect.top - 8,
       left: rect.left + rect.width / 2,
     });
     setVisible(true);
-  }, []);
+  }, [below]);
 
   return (
     <span
@@ -41,12 +43,21 @@ export function InfoTooltip({ text, children }: InfoTooltipProps) {
           style={{
             top: pos.top,
             left: pos.left,
-            transform: 'translate(-50%, -100%)',
+            transform: `translate(-50%, ${below ? '0' : '-100%'})`,
           }}
         >
           {text}
-          <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-border" />
-          <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-[5px] border-4 border-transparent border-t-popover" />
+          {below ? (
+            <>
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 -mb-px border-4 border-transparent border-b-border" />
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 -mb-[5px] border-4 border-transparent border-b-popover" />
+            </>
+          ) : (
+            <>
+              <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-border" />
+              <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-[5px] border-4 border-transparent border-t-popover" />
+            </>
+          )}
         </span>,
         document.body
       )}

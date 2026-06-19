@@ -1,6 +1,6 @@
 // src/components/analyze/DeckBuildingArea.tsx
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowUpDown, Sprout, Swords, Flame, BookOpen, ArrowUp, ArrowDown, LayoutGrid, Check, Eye, ChevronDown } from 'lucide-react';
+import { ArrowUpDown, Sprout, Swords, Flame, BookOpen, ArrowUp, ArrowDown, LayoutGrid, Check, Eye, ChevronDown, Search, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
@@ -346,6 +346,25 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     setSortDir(d => d === 'asc' ? 'desc' : 'asc');
   }, []);
 
+  // Free-text search over card name + rules text. Lives transiently (not
+  // persisted): the icon expands into an input on click, and matches are
+  // distilled by hiding non-matches. `searchOpen` only controls the
+  // expand/collapse animation; the active filter is driven by `searchQuery`.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchActive = searchQuery.trim().length > 0;
+  const matchesSearch = useCallback((card: ScryfallCard): boolean => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    if (card.name.toLowerCase().includes(q)) return true;
+    if (card.oracle_text?.toLowerCase().includes(q)) return true;
+    // Both faces of a DFC count — match either face's name or rules text.
+    return !!card.card_faces?.some(
+      f => f.name?.toLowerCase().includes(q) || f.oracle_text?.toLowerCase().includes(q),
+    );
+  }, [searchQuery]);
+
   type FilterMode = 'off' | 'dim' | 'hide';
   const [filterMode, setFilterMode] = useState<FilterMode>(() => {
     const stored = localStorage.getItem(DIM_ROLES_KEY);
@@ -393,15 +412,17 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   }, [groupKey, themeMembership]);
 
   const sortedColumns = useMemo(() => {
-    const applyFilter = (col: ScryfallCard[]) => hideEnabled && highlightRoles
-      ? col.filter(matchesActiveFilter)
-      : col;
+    const applyFilter = (col: ScryfallCard[]) => {
+      let out = hideEnabled && highlightRoles ? col.filter(matchesActiveFilter) : col;
+      if (searchActive) out = out.filter(matchesSearch);
+      return out;
+    };
     return columns.map(col => ({
       column: col,
       creatures: sortBy(applyFilter(flatCreatures.filter(col.matches)), sortKey, sortDir),
       noncreatures: sortBy(applyFilter(flatNoncreatures.filter(col.matches)), sortKey, sortDir),
     }));
-  }, [columns, flatCreatures, flatNoncreatures, sortKey, sortDir, hideEnabled, highlightRoles, matchesActiveFilter]);
+  }, [columns, flatCreatures, flatNoncreatures, sortKey, sortDir, hideEnabled, highlightRoles, matchesActiveFilter, searchActive, matchesSearch]);
 
   const activeColumns = useMemo(
     () => sortedColumns.filter(c => c.creatures.length > 0 || c.noncreatures.length > 0),
@@ -429,9 +450,12 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     };
     for (const card of flat) groups[categorizeLand(card)].push(card);
     return LAND_CATEGORIES
-      .map(({ key, label }) => ({ key, label, cards: sortBy(groups[key], sortKey, sortDir) }))
+      .map(({ key, label }) => {
+        const cards = searchActive ? groups[key].filter(matchesSearch) : groups[key];
+        return { key, label, cards: sortBy(cards, sortKey, sortDir) };
+      })
       .filter(g => g.cards.length > 0);
-  }, [buckets, sortKey, sortDir, taggerReady]);
+  }, [buckets, sortKey, sortDir, taggerReady, searchActive, matchesSearch]);
 
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -621,6 +645,68 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
               />
             );
           })()}
+          {/* Free-text search — an icon that grows into an input on click and
+              filters the board down to cards matching name or rules text. */}
+          <div className="flex items-center">
+            <button
+              type="button"
+              aria-label="Search cards"
+              title="Search cards by name or rules text"
+              onClick={() => {
+                if (searchActive) {
+                  // Icon acts as a filter toggle: clear + collapse when active.
+                  setSearchQuery('');
+                  setSearchOpen(false);
+                } else {
+                  setSearchOpen(o => {
+                    const next = !o;
+                    if (next) requestAnimationFrame(() => searchInputRef.current?.focus());
+                    return next;
+                  });
+                }
+              }}
+              className={`inline-flex items-center justify-center w-6 h-6 rounded-md transition-colors ${
+                searchActive ? 'text-primary' : 'text-muted-foreground/50 hover:text-foreground'
+              }`}
+            >
+              <Search className="w-3.5 h-3.5" />
+            </button>
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-out ${
+                searchOpen || searchActive ? 'max-w-[10rem] ml-1 opacity-100' : 'max-w-0 ml-0 opacity-0'
+              }`}
+            >
+              <div className="relative flex items-center">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearchQuery('');
+                      setSearchOpen(false);
+                      searchInputRef.current?.blur();
+                    }
+                  }}
+                  onBlur={() => { if (!searchQuery.trim()) setSearchOpen(false); }}
+                  placeholder="Search…"
+                  tabIndex={searchOpen || searchActive ? 0 : -1}
+                  className="w-[10rem] bg-accent/40 border border-border/50 rounded-md pl-2 pr-6 py-0.5 text-[11px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                {searchActive && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1013,6 +1099,7 @@ function CurveCard({
             isMustInclude={menuProps!.mustIncludeNames.has(card.name)}
             isBanned={menuProps!.bannedNames.has(card.name)}
             userLists={menuProps!.userLists}
+            onFocus={() => document.dispatchEvent(new CustomEvent('lift-focus-card', { detail: { name: card.name } }))}
             forceOpen={menuOpen}
             onForceClose={() => setMenuOpen(false)}
           />

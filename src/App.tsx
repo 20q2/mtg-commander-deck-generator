@@ -8,6 +8,8 @@ import { HomePage } from '@/pages/HomePage';
 import { BuilderPage } from '@/pages/BuilderPage';
 import { OptimizePage } from '@/pages/OptimizePage';
 import { AnalyzePage } from '@/pages/AnalyzePage';
+import { BrewPage } from '@/pages/BrewPage';
+import { BrewLandingPage } from '@/pages/BrewLandingPage';
 import { CollectionPage } from '@/pages/CollectionPage';
 import { ListsPage } from '@/pages/ListsPage';
 import { MigratePage } from '@/pages/MigratePage';
@@ -20,6 +22,7 @@ import { loadUserLists } from '@/hooks/useUserLists';
 import { trackEvent } from '@/services/analytics';
 import { getBanList } from '@/services/scryfall/client';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
+import { BrewBackdrop } from '@/components/brew/BrewBackdrop';
 import { PollNudge } from '@/components/ui/PollNudge';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import type { ScryfallCard } from '@/types';
@@ -231,7 +234,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   // build session), so we must explicitly suppress the commander-art backdrop
   // on the hub rather than keying off generatedDeck.
   const isAnalyzeHub = location.pathname === '/analyze' || location.pathname === '/analyze/';
-  const isCreatePage = location.pathname === '/' || location.pathname.startsWith('/build/') || location.pathname.startsWith('/build-from-deck/');
+  const isCreatePage = location.pathname === '/' || location.pathname.startsWith('/build/') || location.pathname.startsWith('/build-from-deck/') || location.pathname === '/brew' || location.pathname.startsWith('/brew/');
 
   // True while the one-time Community-Poll nudge is visible — drives a gentle
   // ring on the version button it points at, so the nudge's arrow has a target.
@@ -323,6 +326,9 @@ function Layout({ children }: { children: React.ReactNode }) {
       )}
       {/* Commander Art Background (hidden on collection page) */}
       {!isCollectionPage && !isAnalyzeHub && (!isAnalyzePage || !!generatedDeck) && (!isListsPage || !!generatedDeck) && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
+
+      {/* Brew-reactive aurora — shifts with the game plan (over the commander art, under content). */}
+      {location.pathname.startsWith('/brew/') && <BrewBackdrop />}
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen pb-16 sm:pb-0">
@@ -501,7 +507,13 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {children}
+        {/* Grow the page region so the footer is pushed to the bottom on short pages
+            (e.g. the brew fork/node) instead of floating mid-screen. Keep this a plain block
+            (just flex-1) — making it `flex flex-col` turns page roots into flex items, and a
+            `max-w-… mx-auto` root then shrink-wraps to content (its width swaps with content). */}
+        <div className="flex-1">
+          {children}
+        </div>
 
         {/* Footer — hidden on /analyze once a deck is loaded to give the optimizer more vertical room */}
         {(!isAnalyzePage || !generatedDeck) && (
@@ -653,6 +665,8 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout><HomePage /></Layout>} />
         <Route path="/build/:commanderName/:partnerName?" element={<Layout><BuilderPage /></Layout>} />
+        <Route path="/brew" element={<Layout><BrewLandingPage /></Layout>} />
+        <Route path="/brew/:commanderName/:partnerName?" element={<Layout><BrewPage /></Layout>} />
         <Route path="/build-from-deck/:listId" element={<Layout><OptimizePage /></Layout>} />
         <Route path="/analyze" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/analyze/:param1" element={<Layout><AnalyzePage /></Layout>} />

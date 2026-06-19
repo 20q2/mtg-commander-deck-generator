@@ -544,7 +544,11 @@ export interface Customization {
   advancedTargets: AdvancedTargets; // Advanced framework overrides (null = use defaults)
   tempoAutoDetect: boolean;
   tempoPacing: Pacing;
+  manaPhilosophy?: ManaPhilosophy; // brew capstone land style; undefined = standard (non-brew) selection
 }
+
+/** Brew mana-base capstone styles. undefined = "Balanced" (standard land selection, no re-weighting). */
+export type ManaPhilosophy = 'reliable' | 'greedy' | 'budget' | 'spelllands';
 
 // Store state
 export interface AppState {
@@ -575,6 +579,18 @@ export interface AppState {
   generatedDeck: GeneratedDeck | null;
   deckHistory: DeckHistoryEntry[];
 
+  // Brew session (interactive brewing mode)
+  brewContext: import('@/services/brew/engine').BrewContext | null;
+  brewState: import('@/services/brew/engine').BrewState | null;
+  brewRoutes: import('@/services/brew/engine').BrewRoute[];
+  brewNode: import('@/services/brew/engine').BrewNode | null;
+  brewQuestion: import('@/services/brew/engine').BrewQuestion | null;
+  brewEvent: import('@/services/brew/engine').BrewEvent | null;
+  brewRelicOffer: import('@/services/brew/engine').BrewRelic[] | null;
+  brewCommitFlash: import('@/services/brew/engine').BrewCommitFlash | null; // transient post-commit banner
+  brewRerollExclusions: string[];
+  brewStatsOpen: boolean; // whether the "Your deck so far" stats rail is shown (wide screens)
+
   // UI
   isLoading: boolean;
   loadingMessage: string;
@@ -603,6 +619,22 @@ export interface AppState {
   setError: (error: string | null) => void;
   setModifyMode: (on: boolean) => void;
   reset: () => void;
+  startBrewSession: (ctx: import('@/services/brew/engine').BrewContext) => void;
+  openBrewRoute: (route: import('@/services/brew/engine').BrewRoute) => void;
+  applyBrewOption: (option: import('@/services/brew/engine').BrewOption, passedNames: string[]) => void;
+  answerBrewQuestion: (answer: import('@/services/brew/engine').BrewAnswer | null) => void;
+  chooseBrewEvent: (choiceId: string) => void;
+  chooseBrewRelic: (relic: import('@/services/brew/engine').BrewRelic) => void;
+  injectCommitTheme: (slug: string) => Promise<void>;
+  gambleDiscover: (name: string) => Promise<void>;
+  pinBrewCard: (name: string) => void;
+  setBrewCommitFlash: (flash: import('@/services/brew/engine').BrewCommitFlash | null) => void;
+  expandBrewDiscoveries: () => Promise<void>;
+  backToBrewFork: () => void;
+  undoBrewPick: () => void;
+  rerollBrew: () => void;
+  clearBrewSession: () => void;
+  toggleBrewStats: (open?: boolean) => void;
 }
 
 // Deck view progressive load phases

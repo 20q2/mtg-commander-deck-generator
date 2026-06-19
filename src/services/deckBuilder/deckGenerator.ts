@@ -15,6 +15,7 @@ import type {
   EDHRECCommanderData,
   EDHRECCommanderStats,
   MaxRarity,
+  ManaPhilosophy,
   BracketLevel,
   BudgetOption,
   CollectionStrategy,
@@ -26,7 +27,7 @@ import {
   calculateCurveTargets,
   hasCurveRoom,
 } from './curveUtils';
-import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, type RoleKey } from '@/services/tagger/client';
+import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
 import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
@@ -1014,6 +1015,30 @@ const TAPLAND_PENALTIES: Record<Pacing, number> = {
   'late-game': 0,
 };
 
+// Brew mana-base capstone: per-land boost/penalty for the chosen land style. Magnitudes sit in the
+// same band as the channel (+80) / MDFC (+50) weights so a style meaningfully reorders the land pick
+// without overpowering EDHREC inclusion. Returns 0 for the standard (no-philosophy) path.
+const RELIABLE_PER_COLOR = 18;     // best fixing: + per colored pip the land can produce
+const GREEDY_UTILITY_BOOST = 55;   // utility lands (abilities beyond mana)
+const SPELLLANDS_MDFC_BOOST = 60;  // MDFCs, on top of the base MDFC_LAND_BOOST
+const BUDGET_PENALTY_PER_USD = 3;  // cheaper lands float up
+export function manaPhilosophyBoost(card: ScryfallCard, name: string, philosophy: ManaPhilosophy): number {
+  switch (philosophy) {
+    case 'reliable':
+      return (card.produced_mana ?? []).filter(c => 'WUBRG'.includes(c)).length * RELIABLE_PER_COLOR;
+    case 'greedy':
+      return isUtilityLand(name) ? GREEDY_UTILITY_BOOST : 0;
+    case 'spelllands':
+      return isMdfcLand(card) ? SPELLLANDS_MDFC_BOOST : 0;
+    case 'budget': {
+      const price = parseFloat(card.prices?.usd ?? '') || 0;
+      return -Math.min(price, 30) * BUDGET_PENALTY_PER_USD;
+    }
+    default:
+      return 0;
+  }
+}
+
 interface MultiCopyResult {
   card: ScryfallCard;
   copies: ScryfallCard[];
@@ -1182,6 +1207,7 @@ async function generateLands(
   ignoreOwnedRarity: boolean = false,
   pacing: Pacing = 'balanced',
   priorityBoosts?: Map<string, number>,
+  manaPhilosophy?: ManaPhilosophy,
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1258,6 +1284,15 @@ async function generateLands(
     if (priorityBoosts) {
       for (const [name, boost] of priorityBoosts) {
         landPenalties.set(name, (landPenalties.get(name) ?? 0) + boost);
+      }
+    }
+
+    // Brew mana-base capstone: re-weight lands toward the chosen style. Gated on manaPhilosophy, so
+    // the standard (non-brew) path — where it's undefined — adds nothing and behaves exactly as before.
+    if (manaPhilosophy) {
+      for (const [name, card] of landCardMap) {
+        const boost = manaPhilosophyBoost(card, name, manaPhilosophy);
+        if (boost !== 0) landPenalties.set(name, (landPenalties.get(name) ?? 0) + boost);
       }
     }
 
@@ -2830,6 +2865,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         ignoreOwnedBudget,
         ignoreOwnedRarity,
         resolvedPacing,
+        undefined,
+        customization.manaPhilosophy,
       ),
     ];
 
@@ -3108,6 +3145,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         ignoreOwnedBudget,
         ignoreOwnedRarity,
         resolvedPacing,
+        undefined,
+        customization.manaPhilosophy,
       ),
     ];
   }

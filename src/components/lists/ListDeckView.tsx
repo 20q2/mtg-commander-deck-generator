@@ -6,7 +6,7 @@ import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
-import { fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
+import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
@@ -1865,6 +1865,22 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               <Library className="w-4 h-4" />
               <span>Lists</span>
             </button>
+            {/* Rebrew — only for decks that came out of the brew flow; restarts a fresh brew with the
+                same commander(s) from the setup screen. */}
+            {!!list.commanderName && (list.name.includes('(Brewed)') || (list.generationSummary ?? '').toLowerCase().includes('brew')) && (
+              <button
+                onClick={() => {
+                  trackEvent('rebrew_clicked', { commanderName: list.commanderName ?? null });
+                  const partner = list.partnerCommanderName ? `/${formatCommanderNameForUrl(list.partnerCommanderName)}` : '';
+                  navigate(`/brew/${formatCommanderNameForUrl(list.commanderName!)}${partner}`);
+                }}
+                title="Brew a fresh deck with this commander"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 hover:text-violet-100 text-sm transition-colors"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Rebrew</span>
+              </button>
+            )}
             <button
               onClick={() => navigate(`/playtest/list/${list.id}`)}
               title="Playtest this deck"

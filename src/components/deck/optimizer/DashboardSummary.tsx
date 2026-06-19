@@ -14,6 +14,66 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Target, Shield, BarChart3, Wand2 } from 'lucide-react';
 import { isAnyLand } from '@/services/scryfall/client';
+import { Radar, type RadarDatum } from '@/components/charts/Radar';
+import { MiniCurve } from '@/components/charts/MiniCurve';
+import { ROLE_AXES } from '@/components/brew/brewVisuals';
+
+/** One Strategy-radar spoke: a theme, its 0-100 match score (the detector's
+ *  composite — what drives the radar shape), and how many deck cards belong to it. */
+export interface ThemeCoverage { slug: string; name: string; score: number; current: number; }
+
+// Role → hue + glyph, reused from the brew radar so a role's spoke colour matches
+// its badge everywhere (ramp green, removal red, wipes ember, draw azure).
+const ROLE_AXIS_META = Object.fromEntries(ROLE_AXES.map(a => [a.key, { hue: a.hue, Icon: a.Icon }]));
+
+// Roles scaled against each role's OWN target: a role that exactly meets target sits on the
+// dashed reference ring (2/3 radius), over-built roles spike past it, deficits dip inside.
+// This shows the deck's lean without letting naturally-small roles (e.g. board wipes, target
+// ~3) collapse to the center the way "relative to the biggest role" did.
+const ROLE_TARGET_RADIUS = 2 / 3; // where "target met" sits, leaving headroom to spike past it
+function roleRadarData(rbs: RoleBreakdown[]): RadarDatum[] {
+  return rbs.map(rb => {
+    const meta = ROLE_AXIS_META[rb.role];
+    const Icon = meta?.Icon;
+    const ratio = rb.target > 0 ? rb.current / rb.target : (rb.current > 0 ? 1.5 : 0);
+    return {
+      key: rb.role, label: rb.label, current: rb.current, target: rb.target,
+      fill: Math.max(0, Math.min(1, ratio * ROLE_TARGET_RADIUS)),
+      ref: ROLE_TARGET_RADIUS,
+      hue: meta?.hue ?? '262 84% 72%',
+      glyph: Icon ? <Icon className="w-[13px] h-[13px]" strokeWidth={2} /> : null,
+    };
+  });
+}
+
+// Strategy spokes: theme names live in the hover `tip` (no visible label — 8 theme
+// names would crowd the small chart). Fill is the detector's 0-100 match score on an
+// absolute scale, so the deck's real themes spike and weak/off themes stay short —
+// raw card-overlap was flat because theme lists overlap heavily (every spoke maxed).
+function themeRadarData(coverage: ThemeCoverage[]): RadarDatum[] {
+  return coverage.map(c => ({
+    key: c.slug,
+    // Short label under each spoke; full name + score on hover.
+    label: c.name.length > 11 ? `${c.name.slice(0, 10)}…` : c.name,
+    current: Math.round(c.score), target: 100,
+    fill: Math.max(0, Math.min(1, c.score / 100)),
+    hue: '262 84% 72%',
+    glyph: null,
+    tip: `${c.name} — ${Math.round(c.score)}/100 match · ${c.current} card${c.current === 1 ? '' : 's'}`,
+  }));
+}
+
+// Collapse CMC 7+ into a single bar so the tile curve stays glanceable.
+function bucketCurve(breakdowns: { cmc: number; current: number; target: number }[]) {
+  const out: { cmc: number; current: number; target: number }[] = [];
+  const plus = { cmc: 7, current: 0, target: 0 };
+  for (const b of breakdowns) {
+    if (b.cmc >= 7) { plus.current += b.current; plus.target += b.target; }
+    else out.push({ cmc: b.cmc, current: b.current, target: b.target });
+  }
+  if (plus.current > 0 || plus.target > 0) out.push(plus);
+  return out;
+}
 
 export interface DashboardSummaryProps {
   commander: ScryfallCard;
@@ -37,6 +97,7 @@ export interface DashboardSummaryProps {
   deckTarget?: number;
   roleBreakdowns?: RoleBreakdown[];
   curvePhases?: CurvePhaseAnalysis[];
+  themeCoverage?: ThemeCoverage[];
   /** Shared swap list (also drives the optimize tab — same source as NextBestMove). */
   baseSwaps?: OptimizeSwaps | null;
 }
@@ -60,7 +121,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     onSaveAsDeck, onOpenInDeckView,
     cardSynergyMap,
     detectedCombos, deckTarget,
-    roleBreakdowns, curvePhases,
+    roleBreakdowns, curvePhases, themeCoverage,
     baseSwaps,
   } = props;
   const [strategyOpen, setStrategyOpen] = useState(false);
@@ -128,6 +189,24 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     cardFit: cardFitHint,
   };
 
+  // ── Tile visuals ──────────────────────────────────────────────────────
+  const roleVisual = (roleBreakdowns && roleBreakdowns.length >= 3)
+    ? <Radar data={roleRadarData(roleBreakdowns)} accent="262 84% 72%" glow={false} gradientId="ovwRole" scale={0.8} />
+    : undefined;
+  const themeVisual = (themeCoverage && themeCoverage.length >= 3)
+    ? <Radar data={themeRadarData(themeCoverage.slice(0, 6))} accent="262 84% 72%" glow={false} gradientId="ovwTheme" scale={0.8} />
+    : undefined;
+  const curveData = analysis.curveBreakdowns ? bucketCurve(analysis.curveBreakdowns) : [];
+  const tempoVisual = curveData.length > 0
+    ? <MiniCurve curve={curveData} barHeight={64} variant="line" />
+    : undefined;
+  const visuals: Record<SubScoreKey, React.ReactNode> = {
+    strategy: themeVisual,
+    roles: roleVisual,
+    tempo: tempoVisual,
+    cardFit: undefined,
+  };
+
   const deckExcess = deckTarget != null ? cards.length - deckTarget : 0;
 
   return (
@@ -170,6 +249,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
                 subscore={planScore.subscores[key]}
                 Icon={meta.Icon}
                 hint={hints[key]}
+                visual={visuals[key]}
                 onClick={() => {
                   if (meta.navigateTo) onNavigate(meta.navigateTo);
                   else setStrategyOpen(v => !v);

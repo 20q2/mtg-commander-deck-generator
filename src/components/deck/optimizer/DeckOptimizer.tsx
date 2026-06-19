@@ -22,7 +22,7 @@ import { buildThemeMembership } from '@/components/analyze/themeMembership';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
 import { AdjustPopoverContent } from './OverviewTab';
-import { DashboardSummary } from './DashboardSummary';
+import { DashboardSummary, type ThemeCoverage } from './DashboardSummary';
 import { buildDashboardWarnings } from '@/services/deckBuilder/dashboardWarnings';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { RolesTabContent } from './RolesTab';
@@ -31,6 +31,7 @@ import { CurveSummaryStrip, ManaCurveLineChart, CurveDetailPanel, type RoleGroup
 import { BracketTabContent } from './BracketTab';
 import { CostTab } from './CostTab';
 import { OptimizeTabContent } from './optimize/OptimizeTabContent';
+import { LiftClustersTab } from './LiftClustersTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -121,6 +122,20 @@ export function DeckOptimizer({
     document.addEventListener('deck-optimizer-reanalyze', handler);
     return () => document.removeEventListener('deck-optimizer-reanalyze', handler);
   }, []);
+
+  // Focus a card in the Lift Web from elsewhere (e.g. right-click → "Focus on graph" in the
+  // deck-building area). Switch to the lift tab and hand the card name down to LiftClustersTab.
+  const [liftFocus, setLiftFocus] = useState<{ name: string; seq: number } | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const name = (e as CustomEvent<{ name?: string }>).detail?.name;
+      if (!name) return;
+      setActiveTab('lift');
+      setLiftFocus(prev => ({ name, seq: (prev?.seq ?? 0) + 1 }));
+    };
+    document.addEventListener('lift-focus-card', handler);
+    return () => document.removeEventListener('lift-focus-card', handler);
+  }, [setActiveTab]);
 
   // When AnalyzePage adds cards via the UI, it dispatches 'analyze-cards-added'
   // with the added card names so we can patch the store with real EDHREC
@@ -585,7 +600,7 @@ export function DeckOptimizer({
       }));
 
       // ── Phase 2: Theme detection (non-blocking) ──
-      const topThemes = (edhrecData.themes || []).slice(0, 4);
+      const topThemes = (edhrecData.themes || []).slice(0, 8);
       if (topThemes.length === 0) return; // no themes available
 
       setThemeLoading(true);
@@ -1140,6 +1155,27 @@ export function DeckOptimizer({
     setAddedCards(new Set());
   }, [onRemoveCards, onAddCards, pushDeckHistory]);
 
+  // Theme-coverage spokes for the Strategy radar: how many of the deck's cards appear in each of the
+  // commander's top evaluated themes. Raw counts only — the radar builder computes fill relative to the
+  // strongest theme. Needs ≥3 themes to read as a shape; otherwise the Strategy tile stays text-only.
+  // NOTE: must stay ABOVE the early returns below — a hook after a conditional return breaks hook order.
+  const dashboardThemeCoverage = useMemo<ThemeCoverage[]>(() => {
+    const evaluated = themeDetection?.evaluatedThemes ?? [];
+    if (evaluated.length < 3) return [];
+    const deckNames = new Set(currentCards.map(c => c.name.toLowerCase()));
+    return evaluated.slice(0, 8).map(et => {
+      const data = themeDataCacheRef.current.get(et.theme.slug);
+      let current = 0;
+      if (data) {
+        for (const c of data.cardlists.allNonLand ?? []) if (deckNames.has(c.name.toLowerCase())) current++;
+        for (const c of data.cardlists.lands ?? []) if (deckNames.has(c.name.toLowerCase())) current++;
+      }
+      return { slug: et.theme.slug, name: et.theme.name, score: et.score, current };
+    });
+    // themeDataCacheRef is populated before themeDetection is set, so detection is a safe trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeDetection, currentCards]);
+
   // --- Pre-analysis: prominent CTA ---
   if (!analysis && !loading) {
     return (
@@ -1465,6 +1501,7 @@ export function DeckOptimizer({
             deckTarget={deckSize}
             roleBreakdowns={analysis.roleBreakdowns}
             curvePhases={analysis.curvePhases}
+            themeCoverage={dashboardThemeCoverage}
             baseSwaps={baseSwaps}
           />
         )}
@@ -1601,6 +1638,24 @@ export function DeckOptimizer({
               onAddCards?.(addNames, 'deck');
               for (const n of addNames) pushDeckHistory({ action: 'add', cardName: n });
             }}
+          />
+        )}
+
+        {/* ── LIFT WEB (experimental) ── */}
+        {activeTab === 'lift' && (
+          <LiftClustersTab
+            currentCards={currentCards}
+            commander={commander}
+            partnerCommander={partnerCommander}
+            commanderName={commanderName}
+            partnerCommanderName={partnerCommanderName}
+            colorIdentity={colorIdentity}
+            onAdd={handleAddCard}
+            addedCards={addedCards}
+            onPreview={handlePreview}
+            onCardAction={handleCardAction}
+            menuProps={menuProps}
+            focusRequest={liftFocus}
           />
         )}
 

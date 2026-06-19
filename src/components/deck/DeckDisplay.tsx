@@ -44,6 +44,7 @@ import {
   LayoutGrid,
   Replace,
   Layers,
+  Crosshair,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -280,9 +281,10 @@ export interface CardContextMenuProps {
   userLists: UserCardList[];
   forceOpen?: boolean;
   onForceClose?: () => void;
+  onFocus?: () => void;   // optional "Focus on graph" action (Lift Web); shown at the top when provided
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
   const [showDecks, setShowDecks] = React.useState(false);
@@ -320,6 +322,15 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" side="bottom" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
+        {onFocus && (
+          <>
+            <button className={menuBtn} onClick={() => { onFocus(); handleOpenChange(false); }}>
+              <Crosshair className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-fuchsia-400 transition-colors" />
+              Focus on graph
+            </button>
+            <div className="h-px bg-border my-1" />
+          </>
+        )}
         {hasAddToDeck && (
           <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
             <Plus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-emerald-400 transition-colors" />

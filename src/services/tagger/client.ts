@@ -108,6 +108,15 @@ export function cardMatchesRole(cardName: string, role: RoleKey): boolean {
   }
 }
 
+/**
+ * A "true" tutor — one that searches up a specific card. Excludes basic-land fetch spells like
+ * Harrow / Cultivate / Kodama's Reach, which Scryfall also tags `tutor` but which really just ramp
+ * (they're already counted on the ramp axis). Labelling those as tutors reads as misleading.
+ */
+export function isTutor(cardName: string): boolean {
+  return hasTag(cardName, 'tutor') && !cardMatchesRole(cardName, 'ramp');
+}
+
 /** Check if a card matches more than one role category. */
 export function hasMultipleRoles(cardName: string): boolean {
   if (!tagSets) return false;

@@ -326,6 +326,13 @@ export function ManaCurveLineChart({
     otherCount: roleByCmc?.[s.cmc]?.other ?? 0,
   }));
 
+  // A CMC slot is "focused" when it's the explicitly selected column, or —
+  // absent a selection — when it falls inside an active phase (Early ≤2, Mid 3–4,
+  // Late 5+). A specific CMC click is more granular, so it wins over the phase.
+  const isFocused = (d: { cmc: number; inPhase: boolean }) =>
+    selectedCmc != null ? d.cmc === selectedCmc : d.inPhase;
+  const isDimmed = (d: { cmc: number; inPhase: boolean }) => !isFocused(d);
+
   return (
     <div className="bg-background/70 pt-2 pb-0 flex flex-col -m-4">
       <div className="flex flex-col gap-0.5 mb-1 px-3">
@@ -403,16 +410,16 @@ export function ManaCurveLineChart({
           {/* Role breakdown bars — stacked columns, per-cell dimming when a CMC is selected */}
           {roleByCmc && (<>
             {show('ramp') && <Bar dataKey="rampCount" stackId="roles" isAnimationActive={false}>
-              {chartData.map((d, i) => <Cell key={i} fill={selectedCmc == null || d.cmc === selectedCmc ? 'rgba(52,211,153,0.45)' : 'rgba(52,211,153,0.10)'} />)}
+              {chartData.map((d, i) => <Cell key={i} fill={isFocused(d) ? 'rgba(52,211,153,0.45)' : 'rgba(52,211,153,0.10)'} />)}
             </Bar>}
             {show('interaction') && <Bar dataKey="interactionCount" stackId="roles" isAnimationActive={false}>
-              {chartData.map((d, i) => <Cell key={i} fill={selectedCmc == null || d.cmc === selectedCmc ? 'rgba(248,113,113,0.40)' : 'rgba(248,113,113,0.09)'} />)}
+              {chartData.map((d, i) => <Cell key={i} fill={isFocused(d) ? 'rgba(248,113,113,0.40)' : 'rgba(248,113,113,0.09)'} />)}
             </Bar>}
             {show('cardDraw') && <Bar dataKey="cardDrawCount" stackId="roles" isAnimationActive={false}>
-              {chartData.map((d, i) => <Cell key={i} fill={selectedCmc == null || d.cmc === selectedCmc ? 'rgba(56,189,248,0.40)' : 'rgba(56,189,248,0.09)'} />)}
+              {chartData.map((d, i) => <Cell key={i} fill={isFocused(d) ? 'rgba(56,189,248,0.40)' : 'rgba(56,189,248,0.09)'} />)}
             </Bar>}
             {show('other') && <Bar dataKey="otherCount" stackId="roles" isAnimationActive={false} radius={[2,2,0,0]}>
-              {chartData.map((d, i) => <Cell key={i} fill={selectedCmc == null || d.cmc === selectedCmc ? 'rgba(148,163,184,0.30)' : 'rgba(148,163,184,0.07)'} />)}
+              {chartData.map((d, i) => <Cell key={i} fill={isFocused(d) ? 'rgba(148,163,184,0.30)' : 'rgba(148,163,184,0.07)'} />)}
             </Bar>}
           </>)}
 
@@ -426,7 +433,7 @@ export function ManaCurveLineChart({
             dot={(props: { cx?: number; cy?: number; index?: number }) => {
               const { cx = 0, cy = 0, index = 0 } = props;
               const d = chartData[index];
-              const dimmed = selectedCmc != null && d?.cmc !== selectedCmc;
+              const dimmed = d ? isDimmed(d) : false;
               return <circle key={`t-${index}`} cx={cx} cy={cy} r={2.5} fill={`rgba(245,158,11,${dimmed ? 0.12 : 0.6})`} />;
             }}
             isAnimationActive
@@ -443,7 +450,7 @@ export function ManaCurveLineChart({
               const { cx = 0, cy = 0, index = 0 } = props;
               const d = chartData[index];
               const isSelected = selectedCmc != null && d?.cmc === selectedCmc;
-              const dimmed = selectedCmc != null && !isSelected;
+              const dimmed = d ? isDimmed(d) : false;
               if (isSelected) {
                 return (
                   <g key={`c-${index}`}>

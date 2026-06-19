@@ -1,7 +1,7 @@
 import {
   Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
   LayoutDashboard, Mountain, BarChart3, Zap, Target, Crown,
-  MapPin, Clock, Gauge, DollarSign, Wand2,
+  MapPin, Clock, Gauge, DollarSign, Wand2, ChartNetwork,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import type { CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
@@ -60,7 +60,7 @@ export interface DeckOptimizerProps {
   onOpenInDeckView?: () => void;
 }
 
-export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost';
+export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift';
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -70,6 +70,7 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
   { key: 'bracket',  label: 'Bracket',  icon: Gauge as typeof LayoutDashboard },
   { key: 'cost',     label: 'Cost (WIP)',     icon: DollarSign as typeof LayoutDashboard },
+  { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
 ];
 
 // URL slug <-> TabKey mapping. Slugs follow the user-facing labels
@@ -82,6 +83,7 @@ export const TAB_SLUG_BY_KEY: Record<TabKey, string> = {
   optimize: 'card-fit',
   bracket:  'bracket',
   cost:     'cost',
+  lift:     'lift-web',
 };
 
 export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
@@ -93,6 +95,7 @@ export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
   optimize:   'optimize',  // legacy URL redirect
   bracket:    'bracket',
   cost:       'cost',
+  'lift-web': 'lift',
 };
 
 // ─── Utility Functions ───────────────────────────────────────────────

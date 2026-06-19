@@ -115,10 +115,12 @@ export function AnalyzePage() {
   const [focusedMisfitName, setFocusedMisfitName] = useState<string | null>(null);
   const handleAnalyzerTabChange = useCallback((next: TabKey) => {
     const slug = TAB_SLUG_BY_KEY[next];
-    // Replace so tab switches don't accumulate in history — keeps the browser
-    // back button (and our "change deck" back button) tied to the user's
-    // real prior page rather than walking through tab changes.
-    navigate(listIdParam ? `/analyze/${listIdParam}/${slug}` : `/analyze/${slug}`, { replace: true });
+    // Push (don't replace) so each tab switch is its own history entry — the
+    // browser back button then walks back through tabs to the overview and on
+    // to the page the user came from, which is what they expect. The "Inspect a
+    // different deck" button no longer relies on navigate(-1) (see
+    // handleChangeDeck), so it stays correct even with tab entries in history.
+    navigate(listIdParam ? `/analyze/${listIdParam}/${slug}` : `/analyze/${slug}`);
   }, [navigate, listIdParam]);
   const getAnalyzerTabHref = useCallback((next: TabKey) => {
     const slug = TAB_SLUG_BY_KEY[next];
@@ -303,12 +305,10 @@ export function AnalyzePage() {
     setSource(null);
     setError(null);
     hydratedListIdRef.current = null;
-    // Prefer browser history (returns to wherever the user came from — list page, /analyze landing, etc.)
-    if (window.history.length > 1) {
-      navigate(-1);
-    } else {
-      navigate('/analyze');
-    }
+    // Go straight to the inspector hub — that's where you pick a different deck.
+    // (Not navigate(-1): now that tab switches push history entries, a relative
+    // back would land on the previous tab instead of leaving the inspector.)
+    navigate('/analyze');
   }, [source, navigate]);
 
   const handleAddCardsToAnalyzerDeck = useCallback(async (names: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => {
