@@ -1153,7 +1153,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                 className="rounded border-border accent-primary w-4 h-4"
               />
               <span className="text-sm font-medium group-hover:text-primary transition-colors">Limit to Arena cards</span>
-              <InfoTooltip text="Only use cards available in MTG Arena. Searches and deck generation will be restricted to Arena's card pool." />
+              <InfoTooltip text="Builds the deck using only cards available on MTG Arena (checked across every printing). Your chosen commander is always included even if it isn't on Arena — you'll be warned if so." />
             </label>
 
             {/* Additional Scryfall Query */}

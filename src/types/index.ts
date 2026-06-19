@@ -366,6 +366,7 @@ export interface GeneratedDeck {
   builtFromCollection?: boolean;
   collectionShortfall?: number;
   filterShortfall?: number; // Extra basic lands added because scryfallQuery filters reduced the available card pool
+  arenaIneligibleCards?: string[]; // Arena-only mode: deck cards not on Arena (the force-included commander(s)) — surfaced as a warning
   detectedCombos?: DetectedCombo[];
   typeTargets?: Record<string, number>;
   dataSource?: DeckDataSource;

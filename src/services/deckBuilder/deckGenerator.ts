@@ -20,7 +20,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
 import {
   calculateTypeTargets,
@@ -274,10 +274,36 @@ function isOwnedRarityExempt(cardName: string, collectionNames: Set<string> | un
   return ignoreOwnedRarity && !!collectionNames && collectionNames.has(cardName);
 }
 
-// Check if a card is not available on MTG Arena (for Arena-only mode)
+// Names confirmed available on MTG Arena (resolved across ALL printings via
+// Scryfall's `game:arena` operator) for the CURRENT generation. Set at the top of
+// generateDeck when arenaOnly is on; null otherwise. We can't trust a card's
+// per-printing `card.games` field — a card's default printing (what name lookups
+// return) frequently omits 'arena' even when another printing is on Arena
+// (e.g. Counterspell), which silently dropped Arena-legal cards. Membership by
+// name is authoritative. Module-scoped because notOnArena is called from many
+// free-function helpers within a single generation; threading the set through their
+// (already long) signatures would be far more error-prone.
+// REQUIRES single-flight generateDeck: the UI guards this (the Generate button
+// disables while a generation's loading state is active, and only one generation
+// view is mounted at a time). If two generations ever overlapped, the later one's
+// reset/rebuild below would corrupt the earlier in-flight one — keep that invariant.
+let arenaLegalNameSet: Set<string> | null = null;
+
+/** True if `name` (or its DFC front face) is in the current Arena-legal name set. */
+function isNameOnArena(name: string): boolean {
+  if (!arenaLegalNameSet) return false;
+  if (arenaLegalNameSet.has(name)) return true;
+  if (name.includes(' // ')) return arenaLegalNameSet.has(name.split(' // ')[0]);
+  return false;
+}
+
+// Check if a card is NOT available on MTG Arena (for Arena-only mode).
+// Consults the name-level Arena-legal set built for this generation; a card whose
+// name isn't in the set is treated as not-on-Arena (fail-closed — never lets a
+// non-Arena card slip through, at worst conservatively drops one).
 function notOnArena(card: ScryfallCard, arenaOnly: boolean): boolean {
   if (!arenaOnly) return false;
-  return !card.games?.includes('arena');
+  return !isNameOnArena(card.name);
 }
 
 // Check if a non-land card exceeds the CMC cap (for Tiny Leaders)
@@ -973,7 +999,9 @@ async function fillWithScryfall(
         if (exceedsMaxRarity(card, maxRarity)) continue;
       }
       if (exceedsCmcCap(card, maxCmc)) continue;
-      if (notOnArena(card, arenaOnly)) continue;
+      // Arena-only is already enforced by the `game:arena` operator appended to the
+      // query above; a name-level notOnArena() re-check here would wrongly drop these
+      // Scryfall-sourced cards (their names aren't in the candidate set).
 
       result.push(card);
       usedNames.add(card.name);
@@ -1064,6 +1092,7 @@ async function resolveMultiCopyCards(
   currency: 'USD' | 'EUR' = 'USD',
   collectionNames?: Set<string>,
   ignoreOwnedRarity: boolean = false,
+  arenaOnly: boolean = false,
 ): Promise<MultiCopyResult[]> {
   // Step 1: Fetch the set of all multi-copy cards from Scryfall (cached after first call)
   const multiCopyCards = await fetchMultiCopyCardNames();
@@ -1123,7 +1152,11 @@ async function resolveMultiCopyCards(
         continue;
       }
 
-      // Verify price/rarity constraints on the card itself
+      // Verify price/rarity/Arena constraints on the card itself
+      if (notOnArena(card, arenaOnly)) {
+        console.log(`[DeckGen] "${cardName}" not available on Arena, skipping multi-copy`);
+        continue;
+      }
       if (exceedsMaxPrice(card, maxCardPrice, currency)) {
         console.log(`[DeckGen] "${cardName}" exceeds max card price, skipping multi-copy`);
         continue;
@@ -1311,12 +1344,14 @@ async function generateLands(
     lands.push(...moreLands);
   }
 
-  // Add Command Tower for multicolor Commander decks (unless banned)
+  // Add Command Tower for multicolor Commander decks (unless banned or not on Arena)
   if (format === 99 && colorIdentity.length >= 2 && !usedNames.has('Command Tower') && !bannedCards.has('Command Tower')) {
     try {
       const commandTower = await getCardByName('Command Tower', true);
-      lands.push(commandTower);
-      usedNames.add('Command Tower');
+      if (!notOnArena(commandTower, arenaOnly)) {
+        lands.push(commandTower);
+        usedNames.add('Command Tower');
+      }
     } catch {
       // Ignore if not found
     }
@@ -1830,6 +1865,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
   const currentSubtypeCounts: Record<string, number> = {};
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;
+  // Cards that ended up in the deck despite not being on Arena (arena-only mode).
+  // Currently only the commander(s), which are user-chosen and force-included —
+  // we warn rather than block. Surfaced on the returned deck.
+  let arenaIneligibleCards: string[] | undefined;
 
   // Process must-include cards FIRST — they get priority over all other selections
   // Track where each must-include came from (first source wins)
@@ -1870,6 +1909,46 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Temp must-include cards:`, tempIncludes);
     for (const name of tempIncludes) {
       addMustInclude(name, 'combo');
+    }
+  }
+
+  // ── Arena-only: resolve which candidate names are actually on MTG Arena ──
+  // Built once per generation from every name that could enter the deck, then
+  // consulted by notOnArena() (membership by name across all printings). This is
+  // the fix for both Arena-mode bugs: the per-printing `card.games` field wrongly
+  // dropped Arena-legal cards (false negatives), and ungated paths let non-Arena
+  // cards in (false positives). When arenaOnly is off, the set stays null and the
+  // whole feature is a no-op — standard decks are completely unaffected.
+  arenaLegalNameSet = null; // reset module state from any prior generation
+  if (arenaOnly) {
+    onProgress?.('Checking Arena availability...', 4);
+    const candidateNames = new Set<string>();
+    const addName = (n?: string) => { if (n) candidateNames.add(n); };
+    if (edhrecData) {
+      for (const c of edhrecData.cardlists.allNonLand) addName(c.name);
+      for (const c of edhrecData.cardlists.lands) addName(c.name);
+    }
+    for (const n of comboCardNames) addName(n);
+    for (const n of mustIncludeNames) addName(n);
+    for (const n of Object.keys(CHANNEL_LANDS)) addName(n);
+    // Auto-included staples (Sol Ring / Arcane Signet / Command Tower) and commanders
+    addName('Sol Ring');
+    addName('Arcane Signet');
+    addName('Command Tower');
+    addName(commander.name);
+    if (partnerCommander) addName(partnerCommander.name);
+
+    arenaLegalNameSet = await getArenaLegalNames([...candidateNames]);
+    console.log(`[DeckGen] Arena-only: resolved Arena availability for ${candidateNames.size} candidate names`);
+
+    // Commander(s) are user-chosen and force-included — warn (don't block) when
+    // they aren't on Arena, per the "warn but allow" UX choice.
+    const offArena: string[] = [];
+    if (!isNameOnArena(commander.name)) offArena.push(commander.name);
+    if (partnerCommander && !isNameOnArena(partnerCommander.name)) offArena.push(partnerCommander.name);
+    if (offArena.length > 0) {
+      arenaIneligibleCards = offArena;
+      console.warn(`[DeckGen] Arena-only: commander(s) not on Arena (included anyway): ${offArena.join(', ')}`);
     }
   }
 
@@ -2278,6 +2357,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       currency,
       context.collectionNames,
       ignoreOwnedRarity,
+      arenaOnly,
     );
 
     for (const { card, copies } of multiCopyResults) {
@@ -3604,7 +3684,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const gapCandidates = edhrecData.cardlists.allNonLand
       .filter(c =>
         !allDeckCardNames.has(c.name) &&
-        !bannedCards.has(c.name)
+        !bannedCards.has(c.name) &&
+        // Don't suggest cards the user couldn't actually run in Arena-only mode
+        (!arenaOnly || isNameOnArena(c.name))
       )
       .sort((a, b) => calculateCardPriority(b) - calculateCardPriority(a))
       .slice(0, 40);
@@ -4348,6 +4430,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     detectedCombos,
     collectionShortfall: context.collectionNames && basicLandFillCount > 0 ? basicLandFillCount : undefined,
     filterShortfall: scryfallQuery && !context.collectionNames && basicLandFillCount > 0 ? basicLandFillCount : undefined,
+    arenaIneligibleCards,
     typeTargets,
     dataSource,
     roleCounts: roleTargets ? { ...currentRoleCounts } : undefined,

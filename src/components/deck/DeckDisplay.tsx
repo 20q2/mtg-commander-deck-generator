@@ -4004,6 +4004,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
         )}
 
+        {generatedDeck.arenaIneligibleCards && generatedDeck.arenaIneligibleCards.length > 0 && (
+          <div className="flex items-start gap-3 p-3 mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-amber-200/90">
+              <span className="font-semibold">{generatedDeck.arenaIneligibleCards.join(', ')}</span>{' '}
+              {generatedDeck.arenaIneligibleCards.length > 1 ? "aren't" : "isn't"} available on MTG Arena, so this deck isn't fully Arena-legal.
+              The rest of the deck was built from Arena cards. Pick an Arena-legal commander to make it importable.
+            </p>
+          </div>
+        )}
+
         {/* Main Content — two-column layout */}
         <div className="flex gap-6 items-start">
           {/* Deck Column */}

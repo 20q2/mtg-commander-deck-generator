@@ -1,6 +1,6 @@
 import type { ScryfallCard, Customization, ThemeResult, EDHRECCommanderStats, EDHRECCombo } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
-import { getCardsByNames, getGameChangerNames } from '@/services/scryfall/client';
+import { getCardsByNames, getGameChangerNames, getArenaLegalNames } from '@/services/scryfall/client';
 import { calculateTypeTargets, calculateCurveTargets } from '@/services/deckBuilder/curveUtils';
 import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckBuilder/roleTargets';
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
@@ -64,6 +64,13 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     && customization.collectionStrategy === 'full'
     && args.collectionNames);
 
+  // Arena-only: never OFFER a pick the player couldn't actually run on Arena.
+  // Resolved by name across all printings (same source the generator uses), so a
+  // card like Counterspell whose default printing isn't on Arena still qualifies.
+  const arenaLegalNames = customization.arenaOnly
+    ? await getArenaLegalNames(poolNames)
+    : null;
+
   const candidates: BrewCandidate[] = [];
   const seen = new Set<string>();
   for (const e of edhrecData.cardlists.allNonLand) {
@@ -71,6 +78,7 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     const scryfall = cardMap.get(e.name);
     if (!scryfall) continue;
     if (ownedOnly && args.collectionNames && !args.collectionNames.has(e.name)) continue;
+    if (arenaLegalNames && !arenaLegalNames.has(e.name)) continue;
     if (scryfall.type_line.toLowerCase().includes('land')) continue; // lands handled at finish/Plan 3
     seen.add(e.name);
 

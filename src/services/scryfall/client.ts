@@ -794,6 +794,85 @@ export async function getGameChangerNames(): Promise<Set<string>> {
   return names;
 }
 
+// Session cache of card name -> "is available on MTG Arena". Resolved across ALL
+// printings via Scryfall's `game:arena` operator, which is the correct signal —
+// the per-printing `card.games` field is unreliable because a card's default
+// printing (what name lookups return) often omits 'arena' even when another
+// printing IS on Arena (e.g. Counterspell's default `dsc` printing).
+const arenaLegalCache = new Map<string, boolean>();
+// `!"A" OR !"B" ...` names per `game:arena (...)` query. Larger than the
+// print-collecting batches (which cap at 15 to bound prints-per-name) because this
+// is a membership query (unique=cards → at most one row per name), so the only
+// limit is query length — 35 exact-name clauses tested well within Scryfall's cap.
+const ARENA_SEARCH_BATCH_SIZE = 35;
+
+/** Front-face name for a DFC ("Front // Back" → "Front"); identity otherwise. */
+function frontFaceName(name: string): string {
+  return name.includes(' // ') ? name.split(' // ')[0] : name;
+}
+
+/**
+ * Given a list of card names, return the subset that is available on MTG Arena
+ * (via ANY printing). Uses Scryfall's `game:arena` search operator rather than the
+ * per-printing `card.games` field, so it correctly reports cards whose default
+ * printing isn't on Arena. Results are cached by name for the session.
+ *
+ * The returned Set contains both the queried name and (for DFCs) the front-face
+ * name, so membership checks work regardless of which form a caller holds.
+ */
+export async function getArenaLegalNames(names: string[]): Promise<Set<string>> {
+  const result = new Set<string>();
+  const uncached: string[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const cached = arenaLegalCache.get(name);
+    if (cached === undefined) {
+      uncached.push(name);
+    } else if (cached) {
+      result.add(name);
+      result.add(frontFaceName(name));
+    }
+  }
+
+  for (let i = 0; i < uncached.length; i += ARENA_SEARCH_BATCH_SIZE) {
+    const batch = uncached.slice(i, i + ARENA_SEARCH_BATCH_SIZE);
+    const nameQuery = batch.map(n => `!"${frontFaceName(n)}"`).join(' OR ');
+    const found = new Set<string>();
+    // Whether we got an authoritative answer for this batch. A 404 means the
+    // `game:arena (...)` query matched nothing — authoritative "none on Arena".
+    // Any other failure is transient; we must NOT cache it (else a network blip
+    // would wrongly mark cards off-Arena for the rest of the session).
+    let authoritative = true;
+    try {
+      const response = await scryfallFetch<ScryfallSearchResponse>(
+        `/cards/search?q=${encodeURIComponent(`game:arena (${nameQuery})`)}&unique=cards`,
+      );
+      for (const card of response.data) {
+        found.add(card.name);
+        found.add(frontFaceName(card.name));
+      }
+    } catch (err) {
+      authoritative = err instanceof Error && err.message.includes('404');
+      if (!authoritative) {
+        console.warn('[Scryfall] getArenaLegalNames batch failed (transient):', err);
+      }
+    }
+
+    for (const name of batch) {
+      const onArena = found.has(name) || found.has(frontFaceName(name));
+      if (authoritative) arenaLegalCache.set(name, onArena);
+      if (onArena) {
+        result.add(name);
+        result.add(frontFaceName(name));
+      }
+    }
+  }
+
+  return result;
+}
+
 // Cached ban list results by format
 const banListCache = new Map<string, { names: string[]; timestamp: number }>();
 const BAN_CACHE_TTL = 60 * 60 * 1000; // 1 hour
