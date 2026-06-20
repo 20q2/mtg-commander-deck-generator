@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.6",
+    "notes": [
+      "Card prices now always reflect the cheapest available printing, so a pricey foil or special version won't throw off your budget anymore",
+      "Arena-only decks now correctly include every card that's available on MTG Arena, and warn you if your commander isn't on Arena"
+    ]
+  },
+  {
     "version": "1.3.5",
     "notes": [
       "New \"Commanders you don't own\" section in your Collection — discover commanders you already have most of the staples for",
