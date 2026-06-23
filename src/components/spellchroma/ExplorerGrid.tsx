@@ -14,10 +14,11 @@ interface ExplorerGridProps {
   hasTags: boolean;       // any tags selected?
   textFilter: string;
   onLoadAll: () => void;
+  onTagClick?: (slug: string) => void;
 }
 
 export function ExplorerGrid({
-  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, onLoadAll,
+  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, onLoadAll, onTagClick,
 }: ExplorerGridProps) {
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
 
@@ -74,7 +75,12 @@ export function ExplorerGrid({
         ))}
       </div>
 
-      <CardPreviewModal card={preview} onClose={() => setPreview(null)} />
+      <CardPreviewModal
+        card={preview}
+        onClose={() => setPreview(null)}
+        showOracleTags
+        onTagClick={onTagClick}
+      />
     </div>
   );
 }

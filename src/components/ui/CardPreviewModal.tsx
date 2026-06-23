@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2, ScrollText } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, useScryfallImage, fetchCardRulings, getCachedRulings } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
+import { tagsForOracleId } from '@/services/spellchroma/tagIndex';
 import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
@@ -80,6 +81,10 @@ interface CardPreviewModalProps {
   commanderColorIdentity?: string[];
   /** Progressive load phases — when 'swaps' is missing, render placeholder in Replacements panel. */
   phasesDone?: Set<LoadPhase>;
+  /** SpellChroma: show the displayed card's oracle tags as clickable chips. */
+  showOracleTags?: boolean;
+  /** SpellChroma: called with a tag slug when a tag chip is clicked (modal then closes). */
+  onTagClick?: (slug: string) => void;
 }
 
 function ComboEntry({
@@ -233,7 +238,7 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone, showOracleTags, onTagClick }: CardPreviewModalProps) {
   const swapsReady = !phasesDone || phasesDone.has('swaps');
   const commander = useStore((s) => s.commander);
   const generatedDeck = useStore((s) => s.generatedDeck);
@@ -792,6 +797,25 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
             </div>
           )}
           <p className="text-white/70 text-sm">{faceType}</p>
+          {showOracleTags && (() => {
+            const slugs = tagsForOracleId(displayCard.oracle_id);
+            if (slugs.length === 0) return null;
+            return (
+              <div className="flex flex-wrap justify-center gap-1.5 mt-2 max-w-md mx-auto">
+                {slugs.map(slug => (
+                  <button
+                    key={slug}
+                    type="button"
+                    onClick={() => { onTagClick?.(slug); onClose(); }}
+                    className="inline-flex items-center px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-200 text-[11px] hover:bg-violet-500/30 transition-colors"
+                    title={`Explore cards tagged “${slug}”`}
+                  >
+                    {slug}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
           {getCardPrice(displayCard, currency) && (
             <p className="text-white/50 text-xs mt-1">{sym}{getCardPrice(displayCard, currency)}</p>
           )}
