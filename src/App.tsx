@@ -10,6 +10,7 @@ import { OptimizePage } from '@/pages/OptimizePage';
 import { AnalyzePage } from '@/pages/AnalyzePage';
 import { BrewPage } from '@/pages/BrewPage';
 import { BrewLandingPage } from '@/pages/BrewLandingPage';
+import { SpellChromaPage } from '@/pages/SpellChromaPage';
 import { CollectionPage } from '@/pages/CollectionPage';
 import { ListsPage } from '@/pages/ListsPage';
 import { MigratePage } from '@/pages/MigratePage';
@@ -235,6 +236,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   // on the hub rather than keying off generatedDeck.
   const isAnalyzeHub = location.pathname === '/analyze' || location.pathname === '/analyze/';
   const isCreatePage = location.pathname === '/' || location.pathname.startsWith('/build/') || location.pathname.startsWith('/build-from-deck/') || location.pathname === '/brew' || location.pathname.startsWith('/brew/');
+  const isSpellChromaPage = location.pathname === '/spellchroma';
 
   // True while the one-time Community-Poll nudge is visible — drives a gentle
   // ring on the version button it points at, so the nudge's arrow has a target.
@@ -407,6 +409,15 @@ function Layout({ children }: { children: React.ReactNode }) {
                     </span>
                   </Link>
                   <Link
+                    to="/spellchroma"
+                    aria-current={isSpellChromaPage ? 'page' : undefined}
+                    className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
+                      isSpellChromaPage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    }`}
+                  >
+                    SpellChroma
+                  </Link>
+                  <Link
                     to="/decks"
                     aria-current={location.pathname.startsWith('/decks') ? 'page' : undefined}
                     className={`text-sm transition-colors px-2 py-1 rounded-md flex items-center gap-1.5 ${
@@ -478,6 +489,13 @@ function Layout({ children }: { children: React.ReactNode }) {
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-violet-300/90" />
                       <span className="text-sm">Community Poll</span>
+                    </Link>
+                    <Link
+                      to="/spellchroma"
+                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-1"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-violet-300/90" />
+                      <span className="text-sm">SpellChroma</span>
                     </Link>
                     <button
                       onClick={toggleEaFeatures}
@@ -671,6 +689,7 @@ function App() {
         <Route path="/analyze" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/analyze/:param1" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/analyze/:param1/:param2" element={<Layout><AnalyzePage /></Layout>} />
+        <Route path="/spellchroma" element={<Layout><SpellChromaPage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
         <Route path="/decks/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
