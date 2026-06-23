@@ -14,7 +14,6 @@ export function getRoleBadgeProps(
       }
     case 'removal':
       switch (card.removalSubtype) {
-        case 'counterspell': return { color: 'text-sky-400/70', bgColor: 'bg-sky-500/80', title: 'Counterspell', label: 'CT' };
         case 'bounce': return { color: 'text-cyan-400/70', bgColor: 'bg-cyan-500/80', title: 'Bounce', label: 'BN' };
         case 'spot-removal': return { color: 'text-rose-400/70', bgColor: 'bg-rose-500/80', title: 'Spot Removal', label: 'SR' };
         default: return { color: 'text-red-400/70', bgColor: 'bg-red-500/80', title: 'Removal', label: 'RE' };
@@ -32,6 +31,9 @@ export function getRoleBadgeProps(
         case 'card-draw': return { color: 'text-blue-400/70', bgColor: 'bg-blue-500/80', title: 'Card Draw', label: 'DR' };
         default: return { color: 'text-indigo-400/70', bgColor: 'bg-indigo-500/80', title: 'Card Advantage', label: 'CA' };
       }
+    case 'protection':
+      // Single conceptual tag — no subtypes. Yellow matches the Brew radar's protection spoke.
+      return { color: 'text-yellow-400/70', bgColor: 'bg-yellow-500/80', title: 'Protection', label: 'PR' };
     default: return null;
   }
 }

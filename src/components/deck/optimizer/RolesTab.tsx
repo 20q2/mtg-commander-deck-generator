@@ -18,7 +18,7 @@ export function RoleSummaryStrip({
 }) {
   return (
     <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4">
-    <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-border/30 bg-background/80 backdrop-blur-sm">
+    <div className="grid grid-cols-2 sm:grid-cols-5 border-b border-border/30 bg-background/80 backdrop-blur-sm">
       {roleBreakdowns.map((rb, i) => {
         const meta = ROLE_META[rb.role];
         const Icon = meta?.icon || Shield;
@@ -173,6 +173,7 @@ export function RoleDetailPanel({
     removal:   'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(244,63,94,0.05),  transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(244,63,94,0.035),  transparent 60%)',
     boardwipe: 'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(249,115,22,0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(249,115,22,0.035), transparent 60%)',
     cardDraw:  'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(14,165,233,0.05), transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(14,165,233,0.035), transparent 60%)',
+    protection:'radial-gradient(ellipse 80% 60% at 15% 0%, rgba(234,179,8,0.05),  transparent 60%), radial-gradient(ellipse 70% 55% at 90% 100%, rgba(234,179,8,0.035),  transparent 60%)',
   };
   const aurora = auroraByRole[rb.role];
 

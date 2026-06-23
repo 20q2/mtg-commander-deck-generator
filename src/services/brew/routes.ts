@@ -4,14 +4,18 @@ import type { BrewContext, BrewState, BrewRoute } from './brewTypes';
 import { buildHealth, isComplete, typeKey, pool } from './health';
 import { detectNearMissCombos } from './combos';
 import { leaningThemes } from './identity';
+import { deckFill, IDENTITY_PHASE_FILL } from './scoring';
 
-const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'];
 
-// An elite single-card draft surfaces on every other fork. Forks land at history lengths 3,7,11,…
-// (see flow.isSteerIndex / STEER_EVERY=4), so fork index = floor(historyLen/4); odd ones get an elite.
-const ELITE_EVERY = 2;
-export function isEliteFork(historyLen: number): boolean {
-  return Math.floor(historyLen / 4) % ELITE_EVERY === 1;
+/** Picks before a Gamble route may appear (mirrors events.GAMBLE_MIN_PICKS; kept local to avoid an import cycle). */
+const GAMBLE_FORK_MIN = 8;
+
+/** Rotate an array left by `by` (stable, wraps). Used to vary which "extra" routes lead each fork. */
+function rotate<T>(arr: T[], by: number): T[] {
+  if (arr.length <= 1) return arr;
+  const n = ((Math.trunc(by) % arr.length) + arr.length) % arr.length;
+  return [...arr.slice(n), ...arr.slice(0, n)];
 }
 
 export interface Deficit {
@@ -36,6 +40,7 @@ const ROLE_FLAVOR: Record<RoleKey, string> = {
   removal: 'Spot removal answers the one card that would otherwise take over the game.',
   boardwipe: "A board wipe is your reset button — sweep the table when you've fallen behind.",
   cardDraw: 'Card draw refills your hand so you never run out of gas.',
+  protection: 'Protection keeps your key permanents alive through removal and board wipes.',
 };
 const TYPE_FLAVOR: Record<string, string> = {
   creature: 'Creatures carry your attack and defense — the bodies that actually win the game.',
@@ -125,36 +130,69 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     });
   }
 
-  // The primary way to pick is to open a package: one screen, three directions (a need, your
-  // emerging theme, a hidden-synergy find) — pick a whole pack, not a single card.
+  // The primary way to pick is to open a package: one screen, three directions — pick a whole pack,
+  // not a single card. Early ("identity phase") the directions are all themes; once the deck's shape
+  // is set, the lead direction becomes the biggest deficit (fill holes + add staples).
   const usedSet = new Set(state.usedNames);
   const draftableLeft = pool(ctx, state).some(c => !usedSet.has(c.name) && !c.isLand);
   const topNeed = deficits[0];
+  const steer = !!topNeed && deckFill(ctx, state) >= IDENTITY_PHASE_FILL;
   if (draftableLeft) {
     routes.push({
       id: 'bundle:pack',
       type: 'bundle',
       title: 'Open a Pack',
-      description: topNeed ? `${deficitFlavor(topNeed)}${leanFlavor}` : `Three packages, three directions — pick what fits.${leanFlavor}`,
-      targetRole: topNeed?.kind === 'role' ? (topNeed.key as RoleKey) : null,
-      targetType: topNeed?.kind === 'type' ? topNeed.key : null,
-      tone: 'need',
-      tag: topNeed ? `${topNeed.shortLabel} ${topNeed.current}/${topNeed.target}` : '3 cards',
+      description: steer
+        ? `${deficitFlavor(topNeed!)}${leanFlavor}`
+        : leaning.length > 0
+          ? `Lean into ${leaning[0]} — three directions to explore.`
+          : "Three directions — find your deck's identity.",
+      targetRole: steer && topNeed!.kind === 'role' ? (topNeed!.key as RoleKey) : null,
+      targetType: steer && topNeed!.kind === 'type' ? topNeed!.key : null,
+      tone: steer ? 'need' : 'theme',
+      tag: steer ? `${topNeed!.shortLabel} ${topNeed!.current}/${topNeed!.target}` : (leaning[0] ?? 'Identity'),
       fills: 3,
     });
   }
 
-  // Elite draft: a rarer, high-stakes "pick THE one card" beat. Only when strong cards exist and
-  // we're not near completion (so it never crowds out the converging bundle late).
-  if (isEliteFork(state.history.length) && draftableLeft && fillRatio < 0.9) {
-    routes.push({
-      id: 'draft:elite',
-      type: 'draft',
-      title: 'Headliner',
-      description: `Four standouts, one slot — commit to a single card.${leanFlavor}`,
-      targetRole: null, targetType: null, tone: 'theme', tag: 'Pick 1 of 4', fills: 1,
+  // Distinct "ways to acquire" beyond opening a pack — each a different decision (commit hard /
+  // trust the synergy graph / take a swing). Surfaced as ROTATING extras so the fork stays a real
+  // menu fork-to-fork instead of always "Open a Pack". slice(0,3) below keeps the pack (+ combo).
+  const extras: BrewRoute[] = [];
+  // Headliner — four standouts; take as many as you want, the rest are gone. A regular option now
+  // (no longer alternating-only), but withheld near completion so it doesn't crowd the late deck.
+  if (draftableLeft && fillRatio < 0.9) {
+    extras.push({
+      id: 'draft:elite', type: 'draft', title: 'Headliner',
+      description: `Four standouts — take any of them, leave the rest.${leanFlavor}`,
+      targetRole: null, targetType: null, tone: 'theme', tag: 'Pick & choose', fills: 1,
     });
   }
+  // Hidden Synergy — draft a card the relationship graph surfaced for YOUR picks. Only when the
+  // discovery pool has fed in some lift/co-play finds (grows stronger later in the run).
+  const hasSynergyFinds = pool(ctx, state).some(c => !usedSet.has(c.name) && !c.isLand && !!c.discoveredVia);
+  if (hasSynergyFinds) {
+    extras.push({
+      id: 'draft:synergy', type: 'draft', title: 'Hidden Synergy',
+      description: 'Cards the graph says click with what you’ve built — take the one that calls to you.',
+      targetRole: null, targetType: null, tone: 'neutral', tag: 'Lift', fills: 1,
+    });
+  }
+  // Take a Gamble — a deep-cut, off-meta swing (resolves through the gamble event: a reveal + leap,
+  // and the leap seeds fresh discoveries). Only once the deck has a shape to gamble against, AND only
+  // when an un-fired deep cut actually exists — mirrors gambleEvent's eligibility so the route never
+  // resolves to a card-less dead-end (gambleEvent filters out used + already-fired `gamble:<name>`).
+  const firedGamble = new Set(state.firedEventIds);
+  const hasGambleCard = [...ctx.candidates, ...state.discovered]
+    .some(c => !c.isLand && !usedSet.has(c.name) && !firedGamble.has(`gamble:${c.name}`));
+  if (state.picks.length >= GAMBLE_FORK_MIN && hasGambleCard) {
+    extras.push({
+      id: 'gamble', type: 'gamble', title: 'Take a Gamble',
+      description: 'A deep cut almost no one runs in decks like yours — take the leap and see what it pulls in.',
+      targetRole: null, targetType: null, tone: 'neutral', tag: 'Risk', fills: 1,
+    });
+  }
+  routes.push(...rotate(extras, (state.seed ?? 0) + state.history.length));
 
   // Exhaustion fallback: if nothing meaningful can be drafted (no pack/elite/combo route), surface
   // the mana base / finish route rather than a dead-end fork.

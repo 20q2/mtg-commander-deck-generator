@@ -1,6 +1,6 @@
 import {
   Infinity as InfinityIcon, Zap, Dices, Sprout, Crosshair, Bomb, BookOpen, Package, Layers,
-  Search, Shield,
+  Search, Shield, Sparkles, Star,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -40,6 +40,15 @@ export const ROLE_AXES: RoleAxis[] = [
   { key: 'protection', label: 'Protection', hue: '45 88% 64%', Icon: Shield },
 ];
 
+/** One section-title look for the whole stats rail — Identity, role coverage, card types, curve all
+ *  share it so the rail reads as one rhythm (centered cap above each chart, no per-section drift). */
+export const RAIL_TITLE_CLASS =
+  'text-center text-[10px] font-medium uppercase tracking-[0.24em] text-muted-foreground/75';
+
+/** One shrink factor for the rail's three radars — keeps them identical and pulls the whole stack
+ *  (identity + role + types + curve) back inside one screen so it fits neatly without scrolling. */
+export const RAIL_RADAR_SCALE = 0.85;
+
 export type RouteSymbol = { ms?: string; Icon?: LucideIcon };
 
 /** The at-a-glance symbol for a route/operation: mana-font glyph for card types, Lucide otherwise. */
@@ -48,6 +57,8 @@ export function symbolFor(type: string, key: string | null): RouteSymbol {
   if (type === 'lightning') return { Icon: Zap };
   if (type === 'gamble') return { Icon: Dices };
   if (type === 'manabase') return { ms: 'ms-land' };
+  if (key === 'synergy') return { Icon: Sparkles };   // Hidden Synergy (lift) route
+  if (key === 'elite') return { Icon: Star };          // Headliner (pick 1 of 4) route
   if (key && CARD_TYPE_MS[key]) return { ms: CARD_TYPE_MS[key] };
   if (key && ROLE_LUCIDE[key]) return { Icon: ROLE_LUCIDE[key] };
   return { Icon: type === 'bundle' ? Package : Layers };
@@ -94,6 +105,8 @@ const KEY_THEME: Record<string, [string, string]> = {
   removal: ['2 78% 60%', 'Removal'],        // burning red
   boardwipe: ['22 88% 56%', 'Board Wipe'],  // ember orange
   cardDraw: ['205 82% 60%', 'Card Draw'],   // clear azure
+  synergy: ['292 76% 64%', 'Hidden Synergy'], // fuchsia lift — matches the in-pack discovery flavor
+  elite: ['275 78% 70%', 'Headliner'],       // royal violet — the standout pick
   creature: ['108 52% 52%', 'Creatures'],   // leaf green
   instant: ['190 78% 58%', 'Instants'],     // cyan
   sorcery: ['338 70% 60%', 'Sorceries'],    // magenta

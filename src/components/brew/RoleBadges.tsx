@@ -1,11 +1,11 @@
-import { cardMatchesRole, hasTag, isTutor } from '@/services/tagger/client';
+import { cardMatchesRole, isTutor } from '@/services/tagger/client';
 import { ROLE_AXES } from '@/components/brew/brewVisuals';
 
 /**
  * Which of the six radar axes a card touches, in ROLE_AXES order. Drawn from the same tagger source
- * the radar uses (cardMatchesRole for the four roles, hasTag for tutor/protection) so a card's
- * badges always agree with how the "Your deck so far" chart would count it. Returns [] when tagger
- * data isn't loaded — badges simply don't render.
+ * the radar uses (cardMatchesRole for the five roles, isTutor for tutors) so a card's badges always
+ * agree with how the "Your deck so far" chart would count it — including counterspells, which
+ * cardMatchesRole('protection') treats as protection. Returns [] when tagger data isn't loaded.
  */
 export function cardRoleAxes(cardName: string): string[] {
   const axes: string[] = [];
@@ -14,7 +14,7 @@ export function cardRoleAxes(cardName: string): string[] {
   if (cardMatchesRole(cardName, 'boardwipe')) axes.push('boardwipe');
   if (cardMatchesRole(cardName, 'cardDraw')) axes.push('cardDraw');
   if (isTutor(cardName)) axes.push('tutor');
-  if (hasTag(cardName, 'protection')) axes.push('protection');
+  if (cardMatchesRole(cardName, 'protection')) axes.push('protection');
   return axes;
 }
 
@@ -35,12 +35,12 @@ export function RoleBadges({ cardName, size = 'sm', corner = 'tl' }: { cardName:
   const axes = cardRoleAxes(cardName).slice(0, 4);
   if (axes.length === 0) return null;
   const sz = SIZE[size];
-  // Bottom-anchored stacks grow upward from the corner (only `bottom` is pinned), so a tall stack
-  // still sits neatly in the bottom-left rather than spilling off the card.
+  // Anchored to the left of its corner and laid out in a horizontal row, the chips grow rightward
+  // along the card edge rather than stacking up the side.
   const pos = corner === 'bl' ? 'bottom-1 left-1' : 'top-1 left-1';
 
   return (
-    <span className={`absolute ${pos} z-20 flex flex-col gap-1`}>
+    <span className={`absolute ${pos} z-20 flex flex-row gap-1`}>
       {axes.map(key => {
         const axis = AXIS_BY_KEY[key];
         if (!axis) return null;

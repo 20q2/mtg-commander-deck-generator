@@ -3,7 +3,7 @@ import type { ScryfallCard } from '@/types';
 import { getCardPrice } from '@/services/scryfall/client';
 import type { BrewContext, BrewState, BrewHealth } from './brewTypes';
 
-const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'];
 
 /** Map a Scryfall/EDHREC primary type to a typeTargets key. */
 export function typeKey(typeLine: string): string {
@@ -28,7 +28,7 @@ function priceUsd(card: ScryfallCard): number {
 }
 
 export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
-  const roleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  const roleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   const typeCounts: Record<string, number> = {};
   let deckScore = 0;
   let estCostUsd = 0;
@@ -69,8 +69,12 @@ export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
   };
 }
 
-/** Tolerance: nonland targets are "satisfied" when picks reach this share of nonLandTarget. */
-export const NONLAND_COMPLETE_RATIO = 0.95;
+/**
+ * Tolerance: nonland targets are "satisfied" when picks reach this share of nonLandTarget.
+ * Deliberately below 1.0 so the run ends a touch sooner (less decision fatigue) and hands more of
+ * the deck to generateDeck — which, post-WS1, now fills that tail in line with the run's identity.
+ */
+export const NONLAND_COMPLETE_RATIO = 0.85;
 
 export function isComplete(ctx: BrewContext, state: BrewState): boolean {
   if (state.phase === 'done') return true;

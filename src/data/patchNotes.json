@@ -1,4 +1,12 @@
-[
+[  
+  {
+    "version": "1.3.7",
+    "notes": [
+      "Commander search improved to showcase more accurate results, as well as recently spoiled commanders (assuming they've made it to scryfall)",
+      "Introduced Protection role (invulnerability, hexproof, counterspells, etc) to deck generation an analysis",
+      "Redesigned the Cost Analyzer (in the Inspector), now shows much better suggestions and swap outs"
+    ]
+  },
   {
     "version": "1.3.6",
     "notes": [

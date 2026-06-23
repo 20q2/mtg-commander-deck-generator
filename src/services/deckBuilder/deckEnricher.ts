@@ -1,5 +1,5 @@
 import type { ScryfallCard, DeckCategory, DetectedCombo, EDHRECCommanderData, EDHRECCard, GapAnalysisCard } from '@/types';
-import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
+import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, getGameChangerNames, isChannelLand, isMdfcLand, getCardsByNames } from '@/services/scryfall/client';
 import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST, collectSwapCandidates } from './deckGenerator';
 import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
@@ -23,6 +23,7 @@ export interface EnrichResult {
   removalSubtypeCounts: Record<string, number>;
   boardwipeSubtypeCounts: Record<string, number>;
   cardDrawSubtypeCounts: Record<string, number>;
+  protectionSubtypeCounts: Record<string, number>;
   bracketEstimation?: BracketEstimation;
   gameChangerNames?: string[];
   cardInclusionMap?: Record<string, number>;
@@ -43,6 +44,7 @@ export interface TaggerStampResult {
   removalSubtypeCounts: Record<string, number>;
   boardwipeSubtypeCounts: Record<string, number>;
   cardDrawSubtypeCounts: Record<string, number>;
+  protectionSubtypeCounts: Record<string, number>;
   bracketEstimation?: BracketEstimation;
   gameChangerNames?: string[];
   gcSet: Set<string> | null;
@@ -62,16 +64,17 @@ export async function stampTaggerAndGameChangers(
 
   const categories: Record<DeckCategory, ScryfallCard[]> = {
     lands: [], ramp: [], cardDraw: [], singleRemoval: [],
-    boardWipes: [], creatures: [], synergy: [], utility: [],
+    boardWipes: [], protection: [], creatures: [], synergy: [], utility: [],
   };
-  const roleCounts: Record<string, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  const roleCounts: Record<string, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   const rampSubtypeCounts: Record<string, number> = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
-  const removalSubtypeCounts: Record<string, number> = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+  const removalSubtypeCounts: Record<string, number> = { bounce: 0, 'spot-removal': 0, removal: 0 };
   const boardwipeSubtypeCounts: Record<string, number> = { 'bounce-wipe': 0, boardwipe: 0 };
   const cardDrawSubtypeCounts: Record<string, number> = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+  const protectionSubtypeCounts: Record<string, number> = { counterspell: 0, protection: 0 };
 
   const ROLE_TO_CATEGORY: Record<string, DeckCategory> = {
-    ramp: 'ramp', removal: 'singleRemoval', boardwipe: 'boardWipes', cardDraw: 'cardDraw',
+    ramp: 'ramp', removal: 'singleRemoval', boardwipe: 'boardWipes', cardDraw: 'cardDraw', protection: 'protection',
   };
 
   let cmcSum = 0;
@@ -92,12 +95,14 @@ export async function stampTaggerAndGameChangers(
         case 'removal': card.removalSubtype = getRemovalSubtype(card.name) ?? undefined; break;
         case 'boardwipe': card.boardwipeSubtype = getBoardwipeSubtype(card.name) ?? undefined; break;
         case 'cardDraw': card.cardDrawSubtype = getCardDrawSubtype(card.name) ?? undefined; break;
+        case 'protection': card.protectionSubtype = getProtectionSubtype(card.name) ?? undefined; break;
       }
       if (!typeLine.includes('land')) roleCounts[role]++;
       if (card.rampSubtype) rampSubtypeCounts[card.rampSubtype] = (rampSubtypeCounts[card.rampSubtype] || 0) + 1;
       if (card.removalSubtype) removalSubtypeCounts[card.removalSubtype] = (removalSubtypeCounts[card.removalSubtype] || 0) + 1;
       if (card.boardwipeSubtype) boardwipeSubtypeCounts[card.boardwipeSubtype] = (boardwipeSubtypeCounts[card.boardwipeSubtype] || 0) + 1;
       if (card.cardDrawSubtype) cardDrawSubtypeCounts[card.cardDrawSubtype] = (cardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
+      if (card.protectionSubtype) protectionSubtypeCounts[card.protectionSubtype] = (protectionSubtypeCounts[card.protectionSubtype] || 0) + 1;
     }
 
     if (!typeLine.includes('land')) {
@@ -133,6 +138,7 @@ export async function stampTaggerAndGameChangers(
     removalSubtypeCounts,
     boardwipeSubtypeCounts,
     cardDrawSubtypeCounts,
+    protectionSubtypeCounts,
     bracketEstimation,
     gameChangerNames,
     gcSet,
@@ -168,7 +174,7 @@ export async function buildEdhrecMaps(
   partnerCommanderName: string | undefined,
 ): Promise<EdhrecMapsResult> {
   let roleTargets: Record<string, number> = getBaseRoleTargets(deckSize);
-  const { categories, roleCounts, rampSubtypeCounts, removalSubtypeCounts, boardwipeSubtypeCounts, cardDrawSubtypeCounts } = taggerResult;
+  const { categories, roleCounts, rampSubtypeCounts, removalSubtypeCounts, boardwipeSubtypeCounts, cardDrawSubtypeCounts, protectionSubtypeCounts } = taggerResult;
 
   try {
     const edhrecData: EDHRECCommanderData = partnerCommanderName
@@ -269,6 +275,7 @@ export async function buildEdhrecMaps(
     const currentSubtypeCounts: Record<string, number> = {
       ...rampSubtypeCounts, ...removalSubtypeCounts,
       ...boardwipeSubtypeCounts, ...cardDrawSubtypeCounts,
+      ...protectionSubtypeCounts,
     };
 
     const scoringCtx: ScoringContext = {
@@ -472,6 +479,7 @@ export async function enrichDeckCards(
     removalSubtypeCounts: tagger.removalSubtypeCounts,
     boardwipeSubtypeCounts: tagger.boardwipeSubtypeCounts,
     cardDrawSubtypeCounts: tagger.cardDrawSubtypeCounts,
+    protectionSubtypeCounts: tagger.protectionSubtypeCounts,
     bracketEstimation: tagger.bracketEstimation,
     gameChangerNames: tagger.gameChangerNames,
     cardInclusionMap: edhrec.cardInclusionMap,

@@ -14,6 +14,8 @@ export interface BrewCandidate {
   discoveredVia?: string;      // seed card display name this candidate was discovered through
   coSynergy?: number;          // 0-100 co-occurrence % with the seed (display + scoring)
   discoverySource?: 'lift' | 'coplay' | 'similar';
+  connectionCount?: number;    // (cluster discovery) how many of YOUR cards lift this — "N of your cards want this"
+  clusterScore?: number;       // (cluster discovery) summed edge strength across those cards (ranking)
 }
 
 /** Immutable per-session data: the scored pool + targets. Built once by prepareBrewContext(). */
@@ -85,10 +87,19 @@ export interface BrewOption {
   reasons: PickReason[][];    // reasons[i] corresponds to cards[i]
   spicy?: boolean;            // a wildcard slot: underutilized / off-theme, flagged in the UI
   comboHave?: ComboPiece[];   // for type 'combo': owned pieces this card combos with (display-only)
+  comboId?: string;           // for type 'combo': EDHREC combo id (for on-demand fetchComboDetails)
+  comboResults?: string[];    // for type 'combo': the FULL payoff lines (label only shows the first)
+  comboDeckCount?: number;    // for type 'combo': popularity (number of EDHREC decks running it)
   /** What this pack represents — drives its header tint in a multi-pack round. */
   flavor?: 'need' | 'theme' | 'discovery' | 'combo' | 'value';
   /** Subjects (theme/role names) of the OTHER bundles on screen — what taking this one walks away from. */
   closing?: string[];
+  /**
+   * A secret bonus card hidden in this (theme) pack: a small, seeded chance surfaces the theme's
+   * defining payoff as a free windfall, revealed only after the player takes the pack. Theme packs
+   * only; undefined on every other pack and on most theme packs.
+   */
+  goldCard?: BrewCandidate;
 }
 
 export interface BrewNode {
@@ -134,6 +145,8 @@ export interface BrewState {
   usedNames: string[];                  // names already in the deck (excludes them from future packs)
   themeAffinity: Record<string, number>; // synergy-tag -> accumulated weight from picks
   rerollsUsed: Record<string, number>;   // fork/node id -> count
+  seed?: number;                          // per-run jitter seed (minted once at session start); falsy = deterministic/no jitter
+  clusterScanPicks?: number;              // picks.length at the last whole-deck lift-cluster scan (re-scans as the deck grows)
   phase: BrewPhase;
   history: BrewHistoryEntry[];
   discovered: BrewCandidate[];          // cards pulled in via card-to-card discovery (blended into the pool)
@@ -236,7 +249,7 @@ export interface BrewCommitFlash {
 /** Story-log entry for the end-of-run recap (decoupled from pick history/undo). */
 export interface BrewMoment {
   atPick: number;                              // picks.length when it happened
-  kind: BrewEventKind | 'relic' | 'opening';
+  kind: BrewEventKind | 'relic' | 'opening' | 'goldCard';
   label: string;                               // short headline
   detail?: string;                             // optional secondary line
 }

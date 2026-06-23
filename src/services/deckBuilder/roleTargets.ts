@@ -11,6 +11,7 @@ export const ROLE_LABELS: Record<string, string> = {
   removal: 'Removal',
   boardwipe: 'Board Wipes',
   cardDraw: 'Card Advantage',
+  protection: 'Protection',
 };
 
 // ─── EDHREC Blend Tuning ────────────────────────────────────────────
@@ -40,7 +41,7 @@ export function computeEdhrecRoleTargets(
   edhrecData: EDHRECCommanderData | null | undefined,
   threshold: number = EDHREC_INCLUSION_THRESHOLD,
 ): Record<RoleKey, number> {
-  const counts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  const counts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   if (!edhrecData?.cardlists?.allNonLand) return counts;
 
   for (const card of edhrecData.cardlists.allNonLand) {
@@ -172,32 +173,33 @@ const THEME_TO_ARCHETYPE: Record<string, Archetype> = {
 // >1.0 = archetype wants MORE of this role, <1.0 = wants LESS.
 
 const ARCHETYPE_ROLE_MULTIPLIERS: Record<Archetype, Record<RoleKey, number>> = {
-  [Archetype.AGGRO]:        { ramp: 1.10, removal: 0.75, boardwipe: 0.67, cardDraw: 0.80 },
-  [Archetype.CONTROL]:      { ramp: 0.90, removal: 1.25, boardwipe: 1.67, cardDraw: 1.10 },
-  [Archetype.COMBO]:        { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.20 },
-  [Archetype.MIDRANGE]:     { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00 },
-  [Archetype.VOLTRON]:      { ramp: 1.10, removal: 1.00, boardwipe: 0.33, cardDraw: 0.90 },
-  [Archetype.SPELLSLINGER]: { ramp: 0.80, removal: 1.00, boardwipe: 1.00, cardDraw: 1.30 },
-  [Archetype.TOKENS]:       { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.00 },
-  [Archetype.ARISTOCRATS]:  { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.10 },
-  [Archetype.REANIMATOR]:   { ramp: 0.90, removal: 0.88, boardwipe: 1.00, cardDraw: 1.20 },
-  [Archetype.TRIBAL]:       { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.00 },
-  [Archetype.LANDFALL]:     { ramp: 1.30, removal: 0.75, boardwipe: 1.00, cardDraw: 0.90 },
-  [Archetype.ARTIFACTS]:    { ramp: 1.10, removal: 0.88, boardwipe: 1.00, cardDraw: 1.00 },
-  [Archetype.ENCHANTRESS]:  { ramp: 0.90, removal: 0.88, boardwipe: 1.00, cardDraw: 1.20 },
-  [Archetype.STORM]:        { ramp: 1.10, removal: 0.63, boardwipe: 0.33, cardDraw: 1.40 },
-  [Archetype.GOODSTUFF]:    { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00 },
+  // protection: Voltron/commander-centric strategies lean hardest on it; aggro/go-wide least.
+  [Archetype.AGGRO]:        { ramp: 1.10, removal: 0.75, boardwipe: 0.67, cardDraw: 0.80, protection: 0.60 },
+  [Archetype.CONTROL]:      { ramp: 0.90, removal: 1.25, boardwipe: 1.67, cardDraw: 1.10, protection: 1.20 },
+  [Archetype.COMBO]:        { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.20, protection: 1.10 },
+  [Archetype.MIDRANGE]:     { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00, protection: 1.00 },
+  [Archetype.VOLTRON]:      { ramp: 1.10, removal: 1.00, boardwipe: 0.33, cardDraw: 0.90, protection: 1.60 },
+  [Archetype.SPELLSLINGER]: { ramp: 0.80, removal: 1.00, boardwipe: 1.00, cardDraw: 1.30, protection: 1.00 },
+  [Archetype.TOKENS]:       { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.00, protection: 0.75 },
+  [Archetype.ARISTOCRATS]:  { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.10, protection: 0.90 },
+  [Archetype.REANIMATOR]:   { ramp: 0.90, removal: 0.88, boardwipe: 1.00, cardDraw: 1.20, protection: 0.90 },
+  [Archetype.TRIBAL]:       { ramp: 1.00, removal: 0.88, boardwipe: 0.67, cardDraw: 1.00, protection: 0.90 },
+  [Archetype.LANDFALL]:     { ramp: 1.30, removal: 0.75, boardwipe: 1.00, cardDraw: 0.90, protection: 0.90 },
+  [Archetype.ARTIFACTS]:    { ramp: 1.10, removal: 0.88, boardwipe: 1.00, cardDraw: 1.00, protection: 1.00 },
+  [Archetype.ENCHANTRESS]:  { ramp: 0.90, removal: 0.88, boardwipe: 1.00, cardDraw: 1.20, protection: 1.20 },
+  [Archetype.STORM]:        { ramp: 1.10, removal: 0.63, boardwipe: 0.33, cardDraw: 1.40, protection: 1.10 },
+  [Archetype.GOODSTUFF]:    { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00, protection: 1.00 },
 };
 
 // ─── Pacing Adjustments ─────────────────────────────────────────────
 // Small secondary multipliers that fine-tune based on tempo.
 
 export const PACING_ROLE_ADJUSTMENTS: Record<Pacing, Record<RoleKey, number>> = {
-  'aggressive-early': { ramp: 1.10, removal: 0.90, boardwipe: 0.85, cardDraw: 0.90 },
-  'fast-tempo':       { ramp: 1.05, removal: 0.95, boardwipe: 0.90, cardDraw: 0.95 },
-  'midrange':         { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00 },
-  'late-game':        { ramp: 0.90, removal: 1.05, boardwipe: 1.15, cardDraw: 1.10 },
-  'balanced':         { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00 },
+  'aggressive-early': { ramp: 1.10, removal: 0.90, boardwipe: 0.85, cardDraw: 0.90, protection: 0.90 },
+  'fast-tempo':       { ramp: 1.05, removal: 0.95, boardwipe: 0.90, cardDraw: 0.95, protection: 0.95 },
+  'midrange':         { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00, protection: 1.00 },
+  'late-game':        { ramp: 0.90, removal: 1.05, boardwipe: 1.15, cardDraw: 1.10, protection: 1.10 },
+  'balanced':         { ramp: 1.00, removal: 1.00, boardwipe: 1.00, cardDraw: 1.00, protection: 1.00 },
 };
 
 /** Multipliers for mana curve phases by pacing. Used by both generator and analyzer. */
@@ -264,21 +266,22 @@ export function inferArchetype(selectedThemes?: ThemeResult[]): Archetype {
 // ─── Base Targets (format-only, backward compat) ────────────────────
 
 export function getBaseRoleTargets(format: DeckFormat): Record<RoleKey, number> {
-  if (format >= 99) return { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10 };
-  if (format >= 60) return { ramp: 4, removal: 5, boardwipe: 2, cardDraw: 4 };
-  if (format >= 40) return { ramp: 2, removal: 3, boardwipe: 1, cardDraw: 2 };
+  if (format >= 99) return { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10, protection: 4 };
+  if (format >= 60) return { ramp: 4, removal: 5, boardwipe: 2, cardDraw: 4, protection: 2 };
+  if (format >= 40) return { ramp: 2, removal: 3, boardwipe: 1, cardDraw: 2, protection: 1 };
   const ratio = format / 99;
   return {
     ramp: Math.max(1, Math.round(10 * ratio)),
     removal: Math.max(1, Math.round(8 * ratio)),
     boardwipe: Math.max(0, Math.round(3 * ratio)),
     cardDraw: Math.max(1, Math.round(10 * ratio)),
+    protection: Math.max(1, Math.round(4 * ratio)),
   };
 }
 
 // ─── Dynamic Role Targets (the main export) ─────────────────────────
 
-const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'];
 
 export function getDynamicRoleTargets(
   format: DeckFormat,
@@ -312,7 +315,6 @@ export function getDynamicRoleTargets(
 
   const result = {} as Record<RoleKey, number>;
   const breakdown = {} as Record<RoleKey, RoleTargetBreakdown>;
-  let total = 0;
 
   for (const role of ROLE_KEYS) {
     const archetypeTarget = base[role] * archetypeMults[role];
@@ -324,7 +326,6 @@ export function getDynamicRoleTargets(
     const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
     const finalCount = Math.max(softFloor, Math.round(afterPacing));
     result[role] = finalCount;
-    total += finalCount;
 
     breakdown[role] = {
       edhrecCount: edhrecCounts ? edhrecCounts[role] : null,
@@ -334,25 +335,25 @@ export function getDynamicRoleTargets(
     };
   }
 
-  // Cap total to reasonable range (scaled by format)
-  const maxTotal = Math.round(format * 0.35); // ~34 for 99
+  // Cap/floor the total to a reasonable range (scaled by format). Protection is purely ADDITIVE — it
+  // sits on top of ramp/removal/draw/wipes rather than cannibalizing them — so the bounds apply to the
+  // FOUR ORIGINAL roles only (at the historical 0.28/0.35 ratios) and protection is left untouched.
+  // (Scaling all five together would let protection's ~4 base inflate or deflate the originals, which
+  // is exactly what "the four original roles keep their counts" is meant to prevent.)
+  const ORIGINAL_ROLES: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+  const maxTotal = Math.round(format * 0.35); // ~35 for 99
   const minTotal = Math.round(format * 0.28); // ~28 for 99
+  const originalTotal = ORIGINAL_ROLES.reduce((s, r) => s + result[r], 0);
 
-  if (total > maxTotal) {
-    const scale = maxTotal / total;
-    for (const role of ROLE_KEYS) {
+  const rescaleOriginals = (scale: number) => {
+    for (const role of ORIGINAL_ROLES) {
       const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
       result[role] = Math.max(softFloor, Math.round(result[role] * scale));
       breakdown[role].blended = result[role];
     }
-  } else if (total < minTotal) {
-    const scale = minTotal / total;
-    for (const role of ROLE_KEYS) {
-      const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
-      result[role] = Math.max(softFloor, Math.round(result[role] * scale));
-      breakdown[role].blended = result[role];
-    }
-  }
+  };
+  if (originalTotal > maxTotal) rescaleOriginals(maxTotal / originalTotal);
+  else if (originalTotal < minTotal) rescaleOriginals(minTotal / originalTotal);
 
   console.log(
     `[DeckGen] Dynamic role targets: archetype=${archetype}, pacing=${pacing}, blend=${blendWeight}`,

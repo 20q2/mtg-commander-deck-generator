@@ -13,6 +13,7 @@ import type { ThemeResult } from '@/types';
 import { BrewSetup } from '@/components/brew/BrewSetup';
 import { BrewSplash } from '@/components/brew/BrewSplash';
 import { BrewHealthStrip } from '@/components/brew/BrewHealthStrip';
+import { BrewDeckListButton } from '@/components/brew/BrewDeckListButton';
 import { BrewTrack } from '@/components/brew/BrewTrack';
 import { BrewStatsPanel } from '@/components/brew/BrewStatsPanel';
 import { BrewIdentityMeter } from '@/components/brew/BrewIdentityMeter';
@@ -247,6 +248,10 @@ export function BrewPage() {
               stays put across every fork/node/question/event, not only between rounds. Kept OUTSIDE
               the space-y wrapper so its row-spacing margin doesn't shove the fixed panel down. */}
           <BrewStatsPanel />
+          {/* Deck list is its own button now: pinned top-right on wide screens (mirroring the stats
+              rail), a right-aligned row above the strip on narrower ones. Outside the space-y wrapper
+              so its row-margin doesn't push the fixed/HUD layout around. */}
+          <BrewDeckListButton />
           <div className="space-y-5 min-w-0">
           {/* Health strip + the "up next" track read as one stacked unit. The identity meter rides
               along as a compact strip on narrow screens (the wide-screen rail carries it otherwise). */}
@@ -269,8 +274,8 @@ export function BrewPage() {
                 : brewQuestion
                   ? <BrewQuestionScreen key={brewQuestion.id} />
                   : brewNode
-                    ? <BrewNode key={brewState?.history.length ?? 0} onFinish={handleFinish} />
-                    : <BrewPath onFinish={handleFinish} onManaBase={() => setCapstone(true)} />}
+                    ? <BrewNode key={brewState?.history.length ?? 0} onFinish={() => setCapstone(true)} />
+                    : <BrewPath onFinish={() => setCapstone(true)} onManaBase={() => setCapstone(true)} />}
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>

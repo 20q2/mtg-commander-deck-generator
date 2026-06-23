@@ -27,7 +27,7 @@ const ORDER: Record<GroupKey, string[]> = {
   color: ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless'],
   colorIdentity: ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless'],
   rarity: ['Mythic', 'Rare', 'Uncommon', 'Common', 'Special'],
-  role: ['Ramp', 'Removal', 'Boardwipe', 'Card Draw', 'Other'],
+  role: ['Ramp', 'Removal', 'Boardwipe', 'Card Draw', 'Protection', 'Other'],
   none: ['All Cards'],
 };
 
@@ -61,6 +61,9 @@ function roleBucket(card: ScryfallCard): string {
   if (card.deckRole === 'removal' || cardMatchesRole(card.name, 'removal')) return 'Removal';
   if (card.deckRole === 'boardwipe' || cardMatchesRole(card.name, 'boardwipe')) return 'Boardwipe';
   if (card.deckRole === 'cardDraw' || cardMatchesRole(card.name, 'cardDraw')) return 'Card Draw';
+  // Protection is checked last (mirrors getCardRole priority) so a card with another primary role
+  // groups under that role; only protection-only cards form the Protection section.
+  if (card.deckRole === 'protection' || cardMatchesRole(card.name, 'protection')) return 'Protection';
   return 'Other';
 }
 

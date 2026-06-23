@@ -117,6 +117,7 @@ const ROLE_WEIGHTS: Record<string, number> = {
   removal: 1.0,
   boardwipe: 0.7, // wipes are important but variance-heavy
   cardDraw: 1.0,
+  protection: 0.6, // valuable resilience, but more deck-dependent than the core four
 };
 
 export function computeRolesSubscore(roleBreakdowns: RoleBreakdown[]): SubScore {

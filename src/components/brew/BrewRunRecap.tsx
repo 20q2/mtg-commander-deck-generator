@@ -21,6 +21,7 @@ const MOMENT_ICON: Record<BrewMoment['kind'], { Icon: LucideIcon; color: string 
   signaturePick: { Icon: Crown, color: '268 84% 72%' },
   gamble: { Icon: Dices, color: '25 88% 58%' },
   relic: { Icon: Gem, color: '38 92% 60%' },
+  goldCard: { Icon: Crown, color: '45 92% 56%' },
 };
 
 export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {

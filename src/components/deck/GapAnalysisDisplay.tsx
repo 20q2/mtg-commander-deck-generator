@@ -18,6 +18,7 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
   removal: 'bg-rose-500/20 text-rose-400',
   boardwipe: 'bg-orange-500/20 text-orange-400',
   cardDraw: 'bg-sky-500/20 text-sky-400',
+  protection: 'bg-yellow-500/20 text-yellow-400',
 };
 
 /* ── Per-card row with context menu ── */

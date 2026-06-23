@@ -46,7 +46,7 @@ export function isLastPickLocked(state: BrewState): boolean {
 /**
  * Undo the most recent decision. Event-sourced picks are committed — once you hit one, undo stops
  * there (the "accept fate" beat), so ordinary picks stay reversible but a trusted Strange Signal or
- * exploited combo piece is permanent.
+ * a finished combo's pieces are permanent.
  */
 export function undoLast(state: BrewState): BrewState {
   if (state.history.length === 0) return state;

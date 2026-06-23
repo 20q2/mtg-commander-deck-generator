@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useStore } from '@/store';
 import { computeDeckStats, type RadarAxis, type TypeBar } from '@/services/brew/engine';
-import { ROLE_AXES, CARD_TYPE_MS, operationTheme } from '@/components/brew/brewVisuals';
+import { ROLE_AXES, CARD_TYPE_MS, operationTheme, RAIL_TITLE_CLASS, RAIL_RADAR_SCALE } from '@/components/brew/brewVisuals';
 import { BrewIdentityMeter } from './BrewIdentityMeter';
 import { Radar, type RadarDatum } from '@/components/charts/Radar';
 import { MiniCurve } from '@/components/charts/MiniCurve';
@@ -46,20 +46,32 @@ function typeRadarData(types: TypeBar[]): RadarDatum[] {
 export function BrewStatsPanel() {
   const { brewContext, brewState, brewStatsOpen, toggleBrewStats } = useStore();
 
-  // Anchor the rail's top to the header's bottom edge — i.e. the top of the main brew container —
-  // rather than a hardcoded offset, since a migration banner makes the header height variable.
-  // Tracking scroll keeps it pinned just under the sticky header once the page scrolls.
+  // Anchor the rail between the header's bottom edge and the footer's top edge — both measured rather
+  // than hardcoded, since a migration banner makes the header height variable and the footer only
+  // enters view at the bottom of a scroll. Tracking scroll keeps the top pinned just under the sticky
+  // header, and grows the bottom inset so the rail never rides over the footer once it scrolls in.
   const [top, setTop] = useState(112);
+  const [bottom, setBottom] = useState(24);
   useEffect(() => {
     const header = document.querySelector('header');
+    const footer = document.querySelector('footer');
     if (!header) return;
-    // +24px (the content column's py-6 top padding) so the rail's top lines up with the health strip.
-    const measure = () => setTop(Math.round(header.getBoundingClientRect().bottom) + 24);
+    const measure = () => {
+      // +24px (the content column's py-6 top padding) so the rail's top lines up with the health strip.
+      setTop(Math.round(header.getBoundingClientRect().bottom) + 24);
+      // Bottom inset = distance from viewport bottom. Default 24px; once the footer crosses into the
+      // viewport, grow the inset to keep the rail's bottom edge 24px above the footer's top.
+      if (footer) {
+        const overlap = window.innerHeight - footer.getBoundingClientRect().top;
+        setBottom(Math.max(24, Math.round(overlap) + 24));
+      }
+    };
     measure();
     window.addEventListener('scroll', measure, { passive: true });
     window.addEventListener('resize', measure);
     const ro = new ResizeObserver(measure); // catch banner dismiss / header reflow
     ro.observe(header);
+    if (footer) ro.observe(footer);
     return () => {
       window.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
@@ -78,7 +90,9 @@ export function BrewStatsPanel() {
     return () => window.clearTimeout(t);
   }, [brewStatsOpen]);
 
-  if (!brewContext || !brewState) return null;
+  // The rail stays hidden until the first pack is in — an empty radar before any choice reads as
+  // broken, and it gives the opening pack the stage to itself. It appears once the deck has shape.
+  if (!brewContext || !brewState || brewState.picks.length === 0) return null;
 
   // Docked to the left margin with a comfortable inset, pinned just under the sticky header via `top`.
   const dockLeft = 24;
@@ -98,19 +112,22 @@ export function BrewStatsPanel() {
     );
   }
 
-  // Charts need a little deck shape before they read as anything but zeros (the identity radar shows
-  // from the start). `show` is always true past the collapse guard above.
+  // The identity radar shows from the first pack (the guard above); the coverage charts need a little
+  // more deck shape before they read as anything but zeros. `show` is always true past the collapse
+  // guard above.
   const showCharts = brewState.picks.length >= 3;
   const stats = showCharts ? computeDeckStats(brewContext, brewState) : null;
 
-  // The rail now stacks three radars + the curve, so it can exceed the viewport — scroll vertically
-  // rather than bleeding off-screen. Widened to 240px and using a thin scrollbar so the gutter sits
-  // beside the 192px radar without clipping it; overflow-x is hidden (only the faint glow halo is lost).
+  // The rail spans the full height between the header and the bottom margin (anchored top + bottom),
+  // and `justify-between` hands the leftover vertical space out evenly between the sections so the
+  // identity/role/types/curve stack breathes to fill the column instead of bunching at the top. `gap-2`
+  // is the floor so they never collide; if the content ever outgrows the column it scrolls (thin
+  // scrollbar, 240px wide so the gutter clears the radar; overflow-x hidden — only the glow halo is lost).
   return (
     <aside
-      style={{ left: dockLeft, top, scrollbarWidth: 'thin' }}
-      className={`hidden min-[1560px]:flex fixed z-20 w-[240px] max-h-[calc(100vh-6rem)] flex-col gap-3
-                 overflow-y-auto overflow-x-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-md px-4 py-4 shadow-xl
+      style={{ left: dockLeft, top, bottom, scrollbarWidth: 'thin' }}
+      className={`hidden min-[1560px]:flex fixed z-20 w-[240px] flex-col justify-between gap-2
+                 overflow-y-auto overflow-x-hidden rounded-2xl border border-border/50 bg-card/40 backdrop-blur-md px-4 py-3 shadow-xl
                  ${closing ? 'animate-brew-rail-out' : 'animate-brew-rail-in'}`}>
       {/* Identity meter — always on, the top of the rail. */}
       <BrewIdentityMeter variant="rail" />
@@ -126,37 +143,35 @@ export function BrewStatsPanel() {
 
       {showCharts && stats && (
         <>
-          <div className="text-center text-[10px] uppercase tracking-[0.28em] text-muted-foreground/75">
-            Your deck so far
-            {stats.rounded && <div className="mt-0.5 text-emerald-300/90 normal-case tracking-normal font-flavor italic text-[11px]">— well-rounded</div>}
+          {/* Role coverage — every section is a title-over-chart unit, no dividers, so the rail reads
+              as one even rhythm (the aside's gap spaces the sections). */}
+          <div className="flex flex-col items-center gap-1">
+            <div className={RAIL_TITLE_CLASS}>
+              Your deck so far
+              {stats.rounded && <div className="mt-0.5 text-emerald-300/90 normal-case tracking-normal font-flavor italic text-[11px]">— well-rounded</div>}
+            </div>
+            <Radar
+              data={roleRadarData(stats.radar)}
+              accent={stats.rounded ? '152 64% 56%' : '262 84% 72%'}
+              glow={stats.rounded}
+              gradientId="radarRole"
+              scale={RAIL_RADAR_SCALE}
+            />
           </div>
-
-          <Radar
-            data={roleRadarData(stats.radar)}
-            accent={stats.rounded ? '152 64% 56%' : '262 84% 72%'}
-            glow={stats.rounded}
-            gradientId="radarRole"
-          />
 
           {/* A radar needs ≥3 axes to read as a shape; the commander's type spread always clears that. */}
           {stats.types.length >= 3 && (
-            <>
-              <div className="h-px bg-border/60" />
-              <div className="flex flex-col items-center gap-1.5">
-                <Radar data={typeRadarData(stats.types)} accent="262 84% 72%" glow={false} gradientId="radarTypes" />
-                <span className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60">Card types</span>
-              </div>
-            </>
+            <div className="flex flex-col items-center gap-1">
+              <div className={RAIL_TITLE_CLASS}>Card types</div>
+              <Radar data={typeRadarData(stats.types)} accent="262 84% 72%" glow={false} gradientId="radarTypes" scale={RAIL_RADAR_SCALE} />
+            </div>
           )}
 
           {stats.curve.length > 0 && (
-            <>
-              <div className="h-px bg-border/60" />
-              <div className="flex flex-col items-center gap-1.5">
-                <MiniCurve curve={stats.curve} />
-                <span className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60">Mana curve</span>
-              </div>
-            </>
+            <div className="flex flex-col items-center gap-1">
+              <div className={RAIL_TITLE_CLASS}>Mana curve</div>
+              <MiniCurve curve={stats.curve} barHeight={64} />
+            </div>
           )}
         </>
       )}

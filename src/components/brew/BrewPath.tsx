@@ -3,7 +3,7 @@ import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { Undo2, RefreshCw, Play, MapPin } from 'lucide-react';
 import { openNode, leaningThemes, isLastPickLocked, type BrewRoute } from '@/services/brew/engine';
-import { symbolFor, SymbolGlyph } from '@/components/brew/brewVisuals';
+import { symbolFor, SymbolGlyph, routeKey } from '@/components/brew/brewVisuals';
 import type { ScryfallCard } from '@/types';
 
 /** Per-tone styling. `need` (deck-needs-this) is the boldest — it reads as the recommended path. */
@@ -64,39 +64,8 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
   const canUndo = brewState.history.length > 0 && !locked;
   const n = brewRoutes.length;
 
-  // Keep the trail to a single, readable lane — show the most recent steps, hint at the rest.
-  const MAX_TRAIL = 16;
-  const trail = brewState.history;
-  const shownTrail = trail.slice(-MAX_TRAIL);
-  const hiddenCount = trail.length - shownTrail.length;
-
   return (
     <div className="text-center">
-      {/* ── The trail you've walked ───────────────────────────────────────── */}
-      {trail.length > 0 && (
-        <div className="flex justify-center mb-6">
-          <div className="relative inline-flex items-center gap-2 max-w-full overflow-x-auto px-3 py-1 no-scrollbar">
-            <span className="pointer-events-none absolute inset-x-3 top-1/2 -translate-y-1/2 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-            {hiddenCount > 0 && (
-              <span className="relative z-10 text-[10px] font-medium text-muted-foreground/70 tabular-nums pr-1">+{hiddenCount}</span>
-            )}
-            {shownTrail.map((h, i) => {
-              const key = h.routeId.includes(':') ? h.routeId.split(':')[1] : null;
-              const sym = symbolFor(h.routeType, key);
-              return (
-                <span
-                  key={hiddenCount + i}
-                  title={h.added.join(', ')}
-                  className="relative z-10 shrink-0 w-6 h-6 rounded-full border border-border bg-card grid place-items-center text-muted-foreground/80"
-                >
-                  <SymbolGlyph sym={sym} size="sm" />
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ── Heading: editorial kicker + engraved title ────────────────────── */}
       <h2 className="font-display text-3xl sm:text-4xl font-semibold text-foreground/95 mb-2 drop-shadow-[0_2px_18px_hsl(var(--primary)/0.35)]">
         Where to next?
@@ -152,7 +121,7 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
       {/* ── The routes, dealt like a hand of cards ────────────────────────── */}
       <div className={`grid grid-cols-1 gap-4 ${n === 1 ? 'sm:grid-cols-1' : n === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
         {brewRoutes.map((route: BrewRoute, i: number) => {
-          const sym = symbolFor(route.type, route.targetRole ?? route.targetType ?? null);
+          const sym = symbolFor(route.type, route.targetRole ?? route.targetType ?? routeKey(route.id));
           const art = repArt[route.id];
           const tone = toneOf(route.tone);
           return (

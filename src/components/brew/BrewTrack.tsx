@@ -1,6 +1,6 @@
 import { useStore } from '@/store';
 import { isComplete, STEER_EVERY, isSteerIndex } from '@/services/brew/engine';
-import { Package, Sparkles, Check } from 'lucide-react';
+import { Layers, Sparkles, Check } from 'lucide-react';
 
 /**
  * A slim "what's ahead" bar under the health strip: the current cycle of nodes — a few packs, then
@@ -24,8 +24,7 @@ export function BrewTrack() {
   }));
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm px-4 py-2 flex items-center gap-4">
-      <span className="shrink-0 text-[10px] uppercase tracking-[0.2em] text-muted-foreground/55">Up next</span>
+    <div className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm px-4 py-2 flex items-center gap-2">
       <div className="relative flex-1 flex items-center justify-between">
         {/* The rail the nodes sit along, with a fill that grows to the current node — a little
             progress bar that increments step by step as you advance through the cycle. */}
@@ -34,14 +33,13 @@ export function BrewTrack() {
             className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out"
             style={{
               width: `${(pos / Math.max(1, STEER_EVERY - 1)) * 100}%`,
-              background: 'linear-gradient(to right, hsl(262 80% 68%), hsl(43 92% 60%))',
-              boxShadow: '0 0 8px hsl(262 80% 68% / 0.5)',
+              background: 'hsl(0 0% 72% / 0.55)',
             }}
           />
         </span>
         {slots.map((s) => {
           const hsl = s.event ? EVENT_HSL : PACK_HSL;
-          const Icon = s.event ? Sparkles : Package;
+          const Icon = s.event ? Sparkles : Layers;
           const tint = s.current ? 0.22 : 0.12;
           return (
             <span
@@ -61,6 +59,20 @@ export function BrewTrack() {
           );
         })}
       </div>
+
+      {/* The run doesn't end at the moment — a dotted tail trails off the final (gold) node and
+          fades out, a quiet promise that the journey keeps going past this important choice. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none shrink-0 h-1 w-16 sm:w-24"
+        style={{
+          backgroundImage: 'radial-gradient(circle at center, hsl(var(--border) / 0.4) 1.3px, transparent 1.6px)',
+          backgroundSize: '7px 4px',
+          backgroundRepeat: 'repeat-x',
+          maskImage: 'linear-gradient(to right, black, transparent 92%)',
+          WebkitMaskImage: 'linear-gradient(to right, black, transparent 92%)',
+        }}
+      />
     </div>
   );
 }

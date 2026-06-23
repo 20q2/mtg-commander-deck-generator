@@ -28,7 +28,10 @@ const TAGS: Record<string, string> = {
   lifegain: 'otag:lifegain',
   sacrifice: 'otag:sacrifice-outlet',
   'graveyard-hate': 'otag:graveyard-hate',
-  protection: 'otag:protects-permanent',
+  // Protection — the broad "keep my board/commander alive" pool (~1300 cards). `otag:protection` is
+  // the PARENT tag: it already subsumes the child protection tags (protects-permanent, gives-hexproof,
+  // gives-indestructible, protection-from-[color], etc.), so it alone is the complete pool.
+  protection: 'otag:protection',
   'mana-fix': 'otag:mana-fix',
   // Land classification
   'utility-land': 'otag:utility-land',

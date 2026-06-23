@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Sparkles, Infinity as InfinityIcon, GitFork, Crown, Dices, SkipForward, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { PASS_CHOICE, type BrewEventKind } from '@/services/brew/engine';
+import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
 
 /**
  * A "moment" — a framed, emotional decision the engine surfaces from runtime data (a Strange
@@ -14,11 +15,23 @@ import { PASS_CHOICE, type BrewEventKind } from '@/services/brew/engine';
 // Each moment owns a mood: signal = arcane magenta, combo = teal, crossroads = gold.
 const MOMENT: Record<BrewEventKind, { color: string; Icon: LucideIcon; eyebrow: string }> = {
   strangeSignal: { color: '292 76% 64%', Icon: Sparkles, eyebrow: 'A curious discovery' },
-  comboFragment: { color: '172 70% 50%', Icon: InfinityIcon, eyebrow: 'Treasure surfaced' },
+  comboFragment: { color: '172 70% 50%', Icon: InfinityIcon, eyebrow: 'Near-miss combo' },
   crossroads: { color: '43 92% 60%', Icon: GitFork, eyebrow: 'A pattern is emerging' },
   signaturePick: { color: '268 84% 72%', Icon: Crown, eyebrow: 'A centerpiece emerges' },
   gamble: { color: '25 88% 58%', Icon: Dices, eyebrow: 'Off the map' },
 };
+
+// A few gold glints that "surface" behind the Combo Fragment sigil on mount (left across the sigil,
+// size, stagger, horizontal drift, spin). Deterministic so the entrance reads the same every time.
+const TREASURE_BITS: { left: string; size: string; delay: string; drift: string; rot: string }[] = [
+  { left: '50%', size: '10px', delay: '0ms',   drift: '0px',   rot: '14deg' },
+  { left: '33%', size: '8px',  delay: '90ms',  drift: '-14px', rot: '-22deg' },
+  { left: '67%', size: '8px',  delay: '120ms', drift: '16px',  rot: '24deg' },
+  { left: '23%', size: '6px',  delay: '220ms', drift: '-22px', rot: '-30deg' },
+  { left: '77%', size: '6px',  delay: '260ms', drift: '24px',  rot: '30deg' },
+  { left: '43%', size: '7px',  delay: '340ms', drift: '-8px',  rot: '-12deg' },
+  { left: '60%', size: '9px',  delay: '400ms', drift: '10px',  rot: '18deg' },
+];
 
 export function BrewEventScreen() {
   const { brewEvent, chooseBrewEvent } = useStore();
@@ -39,13 +52,29 @@ export function BrewEventScreen() {
   return (
     <div className="text-center" style={accent}>
       {/* Sigil — pulses in the moment's colour to mark this as something other than a normal pick. */}
-      <span
-        className="mx-auto mb-3 grid place-items-center w-12 h-12 rounded-full border-2 backdrop-blur-sm brew-node-pulse"
-        style={{ color: `hsl(${mood.color})`, borderColor: `hsl(${mood.color} / 0.6)`,
-          background: `hsl(${mood.color} / 0.12)`, boxShadow: `0 0 30px hsl(${mood.color} / 0.4)` }}
-      >
-        <mood.Icon className="w-6 h-6" />
-      </span>
+      <div className="relative mx-auto mb-3 w-12 h-12">
+        {/* Combo Fragment only: gold treasure glints surface from behind the sigil on mount. */}
+        {brewEvent.kind === 'comboFragment' && (
+          <div aria-hidden className="pointer-events-none absolute left-1/2 bottom-0 z-0 h-[110px] w-[160px] -translate-x-1/2">
+            <span className="brew-treasure-glow" />
+            {TREASURE_BITS.map((b, i) => (
+              <span
+                key={i}
+                className="brew-treasure"
+                style={{ left: b.left, width: b.size, height: b.size, animationDelay: b.delay,
+                  ['--drift' as string]: b.drift, ['--rot' as string]: b.rot }}
+              />
+            ))}
+          </div>
+        )}
+        <span
+          className="relative z-10 grid place-items-center w-12 h-12 rounded-full border-2 backdrop-blur-sm brew-node-pulse"
+          style={{ color: `hsl(${mood.color})`, borderColor: `hsl(${mood.color} / 0.6)`,
+            background: `hsl(${mood.color} / 0.12)`, boxShadow: `0 0 30px hsl(${mood.color} / 0.4)` }}
+        >
+          <mood.Icon className="w-6 h-6" />
+        </span>
+      </div>
       <div className="flex items-center justify-center gap-3 mb-2" style={{ color: `hsl(${mood.color} / 0.85)` }}>
         <span className="h-px w-8 sm:w-14" style={{ background: `linear-gradient(to right, transparent, hsl(${mood.color} / 0.5))` }} />
         <span className="text-[10px] uppercase tracking-[0.32em] whitespace-nowrap">{mood.eyebrow}</span>
@@ -116,12 +145,12 @@ export function BrewEventScreen() {
               size="lg"
               disabled={exiting}
               onClick={() => choose(c.id)}
-              className="btn-shimmer"
+              className="btn-shimmer h-auto flex-col gap-0.5 py-2.5 whitespace-normal"
               style={{ background: `hsl(${mood.color} / 0.18)`, borderColor: `hsl(${mood.color} / 0.6)`, color: `hsl(${mood.color})` }}
               variant="outline"
-              title={c.blurb}
             >
-              {c.label}
+              <span className="text-sm font-semibold leading-tight">{c.label}</span>
+              {c.blurb && <span className="text-[11px] font-normal leading-snug opacity-75">{c.blurb}</span>}
             </Button>
           ))}
         </div>
@@ -141,7 +170,7 @@ export function BrewEventScreen() {
 /** Combo Fragment body: the payoff, the pieces you own (dimmed), and the pieces you still need. */
 function ComboBody({ combo, color }: { combo: NonNullable<import('@/services/brew/engine').BrewEvent['combo']>; color: string }) {
   return (
-    <div className="flex flex-col items-center gap-4">
+    <div className="flex flex-col items-center gap-5">
       <div className="flex flex-wrap items-end justify-center gap-3" style={{ perspective: '1200px' }}>
         {combo.have.map(p => (
           <Piece key={`have:${p.name}`} name={p.name} img={getCardImageUrl(p.scryfall, 'small')} label="Have" dim />
@@ -151,11 +180,13 @@ function ComboBody({ combo, color }: { combo: NonNullable<import('@/services/bre
           <Piece key={`miss:${c.name}`} name={c.name} img={getCardImageUrl(c.scryfall, 'small')} label="Need" color={color} />
         ))}
       </div>
-      {combo.results.length > 0 && (
-        <p className="text-xs uppercase tracking-[0.18em]" style={{ color: `hsl(${color})` }}>
-          → {combo.results.join(' · ')}
-        </p>
-      )}
+      {/* Reuse the app-wide combo walkthrough (Results / Prerequisites / Steps) instead of a flat payoff list. */}
+      <div
+        className="rounded-xl border bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)]"
+        style={{ borderColor: `hsl(${color} / 0.3)` }}
+      >
+        <BrewComboDetails comboId={combo.comboId} results={combo.results} />
+      </div>
     </div>
   );
 }

@@ -74,6 +74,7 @@ export function rebuildRelevancyMap(deck: GeneratedDeck): Record<string, number>
     ...(deck.removalSubtypeCounts ?? {}),
     ...(deck.boardwipeSubtypeCounts ?? {}),
     ...(deck.cardDrawSubtypeCounts ?? {}),
+    ...(deck.protectionSubtypeCounts ?? {}),
   };
 
   const ctx: ScoringContext = {

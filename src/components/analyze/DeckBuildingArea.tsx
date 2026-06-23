@@ -1,6 +1,6 @@
 // src/components/analyze/DeckBuildingArea.tsx
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { ArrowUpDown, Sprout, Swords, Flame, BookOpen, ArrowUp, ArrowDown, LayoutGrid, Check, Eye, ChevronDown, Search, X } from 'lucide-react';
+import { ArrowUpDown, Sprout, Swords, Flame, BookOpen, Shield, ArrowUp, ArrowDown, LayoutGrid, Check, Eye, ChevronDown, Search, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
@@ -41,32 +41,36 @@ const THEME_CHIP_CLASS: string[] = [
 
 // Per-card corner badge (text on a translucent backdrop).
 const ROLE_BADGE: Record<string, string> = {
-  ramp:      'bg-emerald-500/90 text-emerald-50 border border-emerald-300/70',
-  removal:   'bg-rose-500/90 text-rose-50 border border-rose-300/70',
-  boardwipe: 'bg-orange-500/90 text-orange-50 border border-orange-300/70',
-  cardDraw:  'bg-sky-500/90 text-sky-50 border border-sky-300/70',
+  ramp:       'bg-emerald-500/90 text-emerald-50 border border-emerald-300/70',
+  removal:    'bg-rose-500/90 text-rose-50 border border-rose-300/70',
+  boardwipe:  'bg-orange-500/90 text-orange-50 border border-orange-300/70',
+  cardDraw:   'bg-sky-500/90 text-sky-50 border border-sky-300/70',
+  protection: 'bg-yellow-500/90 text-yellow-50 border border-yellow-300/70',
 };
 
 const ROLE_LABEL: Record<string, string> = {
-  ramp:      'Ramp',
-  removal:   'Removal',
-  boardwipe: 'Wipe',
-  cardDraw:  'Draw',
+  ramp:       'Ramp',
+  removal:    'Removal',
+  boardwipe:  'Wipe',
+  cardDraw:   'Draw',
+  protection: 'Protect',
 };
 
 const ROLE_ICON: Record<string, typeof Sprout> = {
-  ramp:      Sprout,
-  removal:   Swords,
-  boardwipe: Flame,
-  cardDraw:  BookOpen,
+  ramp:       Sprout,
+  removal:    Swords,
+  boardwipe:  Flame,
+  cardDraw:   BookOpen,
+  protection: Shield,
 };
 
 // Icons for the role-grouping column headers, keyed by Column.key from groupColumns.ts.
 const ROLE_HEADER_ICON: Record<string, typeof Sprout> = {
-  'role:ramp':    Sprout,
-  'role:removal': Swords,
-  'role:wipe':    Flame,
-  'role:draw':    BookOpen,
+  'role:ramp':       Sprout,
+  'role:removal':    Swords,
+  'role:wipe':       Flame,
+  'role:draw':       BookOpen,
+  'role:protection': Shield,
 };
 
 const COLOR_PRIORITY: Record<string, number> = { W: 0, U: 1, B: 2, R: 3, G: 4 };
@@ -387,7 +391,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
         || (activeRoleGroup === 'ramp' && role === 'ramp')
         || (activeRoleGroup === 'interaction' && (role === 'removal' || role === 'boardwipe'))
         || (activeRoleGroup === 'cardDraw' && role === 'cardDraw')
-        || (activeRoleGroup === 'other' && !role);
+        || (activeRoleGroup === 'other' && (!role || role === 'protection'));
       return cmcOk && groupOk;
     }
     return activeRole ? role === activeRole : !!role;
@@ -946,7 +950,7 @@ function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCm
           || (activeRoleGroup === 'ramp' && role === 'ramp')
           || (activeRoleGroup === 'interaction' && (role === 'removal' || role === 'boardwipe'))
           || (activeRoleGroup === 'cardDraw' && role === 'cardDraw')
-          || (activeRoleGroup === 'other' && !role);
+          || (activeRoleGroup === 'other' && (!role || role === 'protection'));
         const dimForCurve = dimNonRoles && (activeCmcRange != null || activeRoleGroup != null) && !(cmcMatches && groupMatches);
         const dimForRole = dimNonRoles && activeCmcRange == null && activeRoleGroup == null && (activeRole ? role !== activeRole : !role);
         return (

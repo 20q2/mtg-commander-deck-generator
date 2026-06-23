@@ -79,33 +79,51 @@ export function isExtraTurn(cardName: string): boolean {
   return tagSets?.['extra-turn']?.has(cardName) ?? false;
 }
 
-export type RoleKey = 'ramp' | 'removal' | 'boardwipe' | 'cardDraw';
+export type RoleKey = 'ramp' | 'removal' | 'boardwipe' | 'cardDraw' | 'protection';
 export type RampSubtype = 'mana-producer' | 'mana-rock' | 'cost-reducer' | 'ramp';
-export type RemovalSubtype = 'counterspell' | 'bounce' | 'spot-removal' | 'removal';
+export type RemovalSubtype = 'bounce' | 'spot-removal' | 'removal';
 export type BoardwipeSubtype = 'bounce-wipe' | 'boardwipe';
 export type CardDrawSubtype = 'tutor' | 'wheel' | 'cantrip' | 'card-draw' | 'card-advantage';
+export type ProtectionSubtype = 'counterspell' | 'protection';
+
+/**
+ * The tagger tags that make a card count toward each role — the single source of truth for "what
+ * counts as X" when crunching role numbers. Every subcategory tag is listed under its parent so the
+ * parent always subsumes it: a `bounce` / `spot-removal` card is removal, a `mana-dork` / `mana-rock`
+ * is ramp, a `counterspell` is protection, and so on. Add a new subcategory tag here and it counts
+ * toward its parent everywhere at once. (Counterspell lives under protection, not removal — see the
+ * exclusion in cardMatchesRole.)
+ */
+const ROLE_MEMBER_TAGS: Record<RoleKey, string[]> = {
+  ramp: ['ramp', 'cost-reducer', 'mana-dork', 'mana-rock'],
+  removal: ['removal', 'bounce', 'spot-removal'],
+  boardwipe: ['boardwipe'],
+  cardDraw: ['card-advantage', 'tutor', 'draw', 'wheel', 'cantrip'],
+  protection: ['protection', 'counterspell'],
+};
+
+/** Check if a card matches a specific role (regardless of priority), subsuming all its subcategories. */
+export function cardMatchesRole(cardName: string, role: RoleKey): boolean {
+  const sets = tagSets;
+  if (!sets) return false;
+  // Counterspells are protection, not removal — keep them out of the removal bucket.
+  if (role === 'removal' && sets['counterspell']?.has(cardName)) return false;
+  return ROLE_MEMBER_TAGS[role].some(tag => sets[tag]?.has(cardName));
+}
 
 /** Categorize a card by its tagger tags. Returns the best-fit deck role, or null if no tag matches / data unavailable. */
 export function getCardRole(cardName: string): RoleKey | null {
   if (!tagSets) return null;
-  // Check in priority order — boardwipe before removal (it's more specific)
-  if (tagSets['boardwipe']?.has(cardName)) return 'boardwipe';
-  if (tagSets['removal']?.has(cardName)) return 'removal';
-  if (tagSets['ramp']?.has(cardName) || tagSets['cost-reducer']?.has(cardName) || tagSets['mana-dork']?.has(cardName) || tagSets['mana-rock']?.has(cardName)) return 'ramp';
-  if (tagSets['card-advantage']?.has(cardName) || tagSets['tutor']?.has(cardName) || tagSets['draw']?.has(cardName) || tagSets['wheel']?.has(cardName) || tagSets['looting']?.has(cardName) || tagSets['cantrip']?.has(cardName)) return 'cardDraw';
+  // Priority order: boardwipe (most specific) → counterspell-as-protection (beats removal/draw, e.g. a
+  // counter-and-draw spell) → removal → ramp → cardDraw → protection (broad; only claims a card with
+  // no other role, so it never reclassifies an existing ramp/removal/draw/wipe card).
+  if (cardMatchesRole(cardName, 'boardwipe')) return 'boardwipe';
+  if (tagSets['counterspell']?.has(cardName)) return 'protection';
+  if (cardMatchesRole(cardName, 'removal')) return 'removal';
+  if (cardMatchesRole(cardName, 'ramp')) return 'ramp';
+  if (cardMatchesRole(cardName, 'cardDraw')) return 'cardDraw';
+  if (cardMatchesRole(cardName, 'protection')) return 'protection';
   return null;
-}
-
-/** Check if a card matches a specific role (regardless of priority). */
-export function cardMatchesRole(cardName: string, role: RoleKey): boolean {
-  if (!tagSets) return false;
-  switch (role) {
-    case 'boardwipe': return !!tagSets['boardwipe']?.has(cardName);
-    case 'removal': return !!tagSets['removal']?.has(cardName);
-    case 'ramp': return !!(tagSets['ramp']?.has(cardName) || tagSets['cost-reducer']?.has(cardName) || tagSets['mana-dork']?.has(cardName) || tagSets['mana-rock']?.has(cardName));
-    case 'cardDraw': return !!(tagSets['card-advantage']?.has(cardName) || tagSets['tutor']?.has(cardName) || tagSets['draw']?.has(cardName) || tagSets['wheel']?.has(cardName) || tagSets['looting']?.has(cardName) || tagSets['cantrip']?.has(cardName));
-    default: return false;
-  }
 }
 
 /**
@@ -117,13 +135,14 @@ export function isTutor(cardName: string): boolean {
   return hasTag(cardName, 'tutor') && !cardMatchesRole(cardName, 'ramp');
 }
 
-/** Check if a card matches more than one role category. */
+/** Check if a card matches more than one role category (boardwipe + removal count together as interaction). */
 export function hasMultipleRoles(cardName: string): boolean {
   if (!tagSets) return false;
   let count = 0;
-  if (tagSets['boardwipe']?.has(cardName) || tagSets['removal']?.has(cardName)) count++;
-  if (tagSets['ramp']?.has(cardName) || tagSets['cost-reducer']?.has(cardName) || tagSets['mana-dork']?.has(cardName) || tagSets['mana-rock']?.has(cardName)) count++;
-  if (tagSets['card-advantage']?.has(cardName) || tagSets['tutor']?.has(cardName) || tagSets['draw']?.has(cardName) || tagSets['wheel']?.has(cardName) || tagSets['looting']?.has(cardName) || tagSets['cantrip']?.has(cardName)) count++;
+  if (cardMatchesRole(cardName, 'boardwipe') || cardMatchesRole(cardName, 'removal')) count++;
+  if (cardMatchesRole(cardName, 'ramp')) count++;
+  if (cardMatchesRole(cardName, 'cardDraw')) count++;
+  if (cardMatchesRole(cardName, 'protection')) count++;
   return count > 1;
 }
 
@@ -131,10 +150,11 @@ export function hasMultipleRoles(cardName: string): boolean {
 export function getAllCardRoles(cardName: string): RoleKey[] {
   if (!tagSets) return [];
   const roles: RoleKey[] = [];
-  if (tagSets['boardwipe']?.has(cardName)) roles.push('boardwipe');
-  if (tagSets['removal']?.has(cardName)) roles.push('removal');
-  if (tagSets['ramp']?.has(cardName) || tagSets['cost-reducer']?.has(cardName) || tagSets['mana-dork']?.has(cardName) || tagSets['mana-rock']?.has(cardName)) roles.push('ramp');
-  if (tagSets['card-advantage']?.has(cardName) || tagSets['tutor']?.has(cardName) || tagSets['draw']?.has(cardName) || tagSets['wheel']?.has(cardName) || tagSets['looting']?.has(cardName) || tagSets['cantrip']?.has(cardName)) roles.push('cardDraw');
+  if (cardMatchesRole(cardName, 'boardwipe')) roles.push('boardwipe');
+  if (cardMatchesRole(cardName, 'removal')) roles.push('removal');
+  if (cardMatchesRole(cardName, 'ramp')) roles.push('ramp');
+  if (cardMatchesRole(cardName, 'cardDraw')) roles.push('cardDraw');
+  if (cardMatchesRole(cardName, 'protection')) roles.push('protection');
   return roles;
 }
 
@@ -151,7 +171,6 @@ export function getRampSubtype(cardName: string): RampSubtype | null {
 /** For cards with the 'removal' role, return the specific subtype. */
 export function getRemovalSubtype(cardName: string): RemovalSubtype | null {
   if (!tagSets) return null;
-  if (tagSets['counterspell']?.has(cardName)) return 'counterspell';
   if (tagSets['bounce']?.has(cardName)) return 'bounce';
   if (tagSets['spot-removal']?.has(cardName)) return 'spot-removal';
   if (tagSets['removal']?.has(cardName)) return 'removal';
@@ -176,6 +195,14 @@ export function getCardDrawSubtype(cardName: string): CardDrawSubtype | null {
   return 'card-advantage';
 }
 
+/** For cards with the 'protection' role, return the specific subtype. */
+export function getProtectionSubtype(cardName: string): ProtectionSubtype | null {
+  if (!tagSets) return null;
+  if (tagSets['counterspell']?.has(cardName)) return 'counterspell';
+  if (tagSets['protection']?.has(cardName)) return 'protection';
+  return null;
+}
+
 /** Get the subtype of a card for its primary role (if any). */
 export function getCardSubtype(cardName: string): string | null {
   const role = getCardRole(cardName);
@@ -185,6 +212,7 @@ export function getCardSubtype(cardName: string): string | null {
     case 'removal': return getRemovalSubtype(cardName);
     case 'boardwipe': return getBoardwipeSubtype(cardName);
     case 'cardDraw': return getCardDrawSubtype(cardName);
+    case 'protection': return getProtectionSubtype(cardName);
     default: return null;
   }
 }

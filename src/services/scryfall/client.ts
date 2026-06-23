@@ -156,15 +156,86 @@ async function scryfallFetch<T>(endpoint: string): Promise<T> {
   return response.json();
 }
 
+/**
+ * Whether a card may be offered as a selectable commander. It must be legal in
+ * the Commander format, OR an as-yet-unreleased *paper* card that will become
+ * legal on release (freshly-spoiled sets like The Hobbit / Star Trek). Since
+ * `is:commander` already excludes banlisted commanders, the only non-legal case
+ * we keep is upcoming paper. This drops digital/Arena-only cards (Alchemy
+ * rebalances like "Gitrog, Horror of Zhava") and already-released paper cards
+ * that simply aren't commander-legal (playtest cards like "Rusko, Clockmaker").
+ */
+function isCommanderLegalOrUpcoming(card: ScryfallCard): boolean {
+  const legality = card.legalities?.commander;
+  if (legality === 'legal') return true;
+  // Backstop: never offer an explicitly banned commander, even if it's dated today/future. Dropping
+  // `f:commander` means we no longer get format-legality for free, so a future-dated-but-banned card
+  // would otherwise slip through the upcoming-paper path below.
+  if (legality === 'banned') return false;
+  const isPaper = card.games?.includes('paper') ?? false;
+  const today = new Date().toISOString().slice(0, 10);
+  const releasesTodayOrLater = !!card.released_at && card.released_at >= today;
+  return isPaper && releasesTodayOrLater;
+}
+
+/**
+ * Score how well a card name matches the user's typed query, for ordering
+ * commander search results by relevance. Higher = better. Punctuation is
+ * ignored (so "Krenko, Mob Boss" still prefix-matches "krenko mob"), and each
+ * DFC face ("A // B") is scored independently, taking the best.
+ */
+function commanderNameRelevance(name: string, query: string): number {
+  const norm = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const q = norm(query);
+  if (!q) return 0;
+  const faces = [norm(name), ...name.split(' // ').map(norm)];
+  let best = 0;
+  for (const face of faces) {
+    if (!face) continue;
+    if (face === q) best = Math.max(best, 100);              // name is exactly the query
+    else if (face.startsWith(q)) best = Math.max(best, 80);  // name starts with the query
+    else if (face.includes(` ${q}`)) best = Math.max(best, 60); // query starts a later word
+    else if (face.includes(q)) best = Math.max(best, 40);    // query appears mid-word
+  }
+  return best;
+}
+
 export async function searchCommanders(query: string): Promise<ScryfallCard[]> {
   if (!query.trim()) return [];
 
   try {
-    const encodedQuery = encodeURIComponent(`is:commander f:commander ${query}`);
+    // `is:commander` matches anything that can legally head a deck (legendary
+    // creatures + "can be your commander" cards) and already excludes banlisted
+    // commanders — but it does NOT gate on format legality. We deliberately drop
+    // the old `f:commander` filter: Scryfall marks newly-spoiled / unreleased
+    // sets as `not_legal` in commander until ~release day, so `f:commander` hid
+    // those commanders from search entirely (e.g. The Hobbit, or Marvel before
+    // its release flipped legal). `-is:funny` keeps silver-border / un-set joke
+    // legends out of results, matching the old behavior.
+    //
+    // We request order=edhrec only to bias page 1 toward popular cards for very
+    // broad queries; the real ordering is done client-side below, by how well
+    // each NAME matches what the user typed (exact > prefix > word-start >
+    // substring), with EDHREC rank as a tiebreaker within each tier. This keeps
+    // the card you literally typed at the top instead of whatever happens to be
+    // most popular.
+    const encodedQuery = encodeURIComponent(`is:commander -is:funny ${query}`);
     const response = await scryfallFetch<ScryfallSearchResponse>(
       `/cards/search?q=${encodedQuery}&order=edhrec`
     );
-    return response.data;
+
+    return response.data
+      .filter(isCommanderLegalOrUpcoming)
+      .map((card) => ({ card, rel: commanderNameRelevance(card.name, query) }))
+      .sort((a, b) => {
+        if (b.rel !== a.rel) return b.rel - a.rel;
+        const ra = a.card.edhrec_rank ?? Number.POSITIVE_INFINITY;
+        const rb = b.card.edhrec_rank ?? Number.POSITIVE_INFINITY;
+        if (ra !== rb) return ra - rb;
+        return a.card.name.localeCompare(b.card.name);
+      })
+      .map((scored) => scored.card);
   } catch (err) {
     if (err instanceof Error && err.message.includes('404')) return [];
     throw err;
@@ -1088,7 +1159,7 @@ export async function searchValidPartners(
     case 'partner':
       // Generic Partner - find other commanders with Partner keyword
       // Exclude "Partner with X" and "Friends forever" (Scryfall lumps them all under keyword:partner)
-      query = `is:commander f:commander keyword:partner -o:"Partner with" -o:"Friends forever"`;
+      query = `is:commander -is:funny keyword:partner -o:"Partner with" -o:"Friends forever"`;
       break;
 
     case 'partner-with': {
@@ -1106,7 +1177,7 @@ export async function searchValidPartners(
     case 'friends-forever':
       // Friends forever - find other commanders with Friends forever in oracle text
       // Scryfall returns keyword:Partner for these, so we must use oracle text search
-      query = `is:commander f:commander o:"Friends forever"`;
+      query = `is:commander -is:funny o:"Friends forever"`;
       break;
 
     case 'choose-background':
@@ -1116,17 +1187,17 @@ export async function searchValidPartners(
 
     case 'background':
       // Background - find commanders with "Choose a Background"
-      query = `is:commander f:commander o:"Choose a Background"`;
+      query = `is:commander -is:funny o:"Choose a Background"`;
       break;
 
     case 'doctors-companion':
       // Doctor's Companion - find Doctor creatures that are commanders
-      query = `is:commander f:commander t:doctor`;
+      query = `is:commander -is:funny t:doctor`;
       break;
 
     case 'doctor':
       // Doctor - find creatures with Doctor's companion keyword
-      query = `is:commander f:commander keyword:"Doctor's companion"`;
+      query = `is:commander -is:funny keyword:"Doctor's companion"`;
       break;
 
     default:
@@ -1144,8 +1215,11 @@ export async function searchValidPartners(
       `/cards/search?q=${encodedQuery}&order=edhrec`
     );
 
-    // Filter out the commander itself from results
-    return response.data.filter((card) => card.name !== commander.name);
+    // Filter out the commander itself, plus anything not legal-or-upcoming in
+    // Commander (digital/Alchemy rebalances, playtest cards, etc.)
+    return response.data.filter(
+      (card) => card.name !== commander.name && isCommanderLegalOrUpcoming(card)
+    );
   } catch {
     return [];
   }

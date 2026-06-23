@@ -67,9 +67,9 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'roles',    label: 'Roles',    icon: Shield as typeof LayoutDashboard },
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
   { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
-  { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
   { key: 'bracket',  label: 'Bracket',  icon: Gauge as typeof LayoutDashboard },
-  { key: 'cost',     label: 'Cost (WIP)',     icon: DollarSign as typeof LayoutDashboard },
+  { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
+  { key: 'cost',     label: 'Cost',     icon: DollarSign as typeof LayoutDashboard },
   { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
 ];
 
@@ -137,6 +137,7 @@ export const ROLE_META: Record<string, { icon: typeof Sparkles; color: string; b
   removal:   { icon: Swords as typeof Sparkles,     color: 'text-rose-400',    barColor: 'bg-rose-500' },
   boardwipe: { icon: Flame as typeof Sparkles,      color: 'text-orange-400',  barColor: 'bg-orange-500' },
   cardDraw:  { icon: BookOpen as typeof Sparkles,   color: 'text-sky-400',     barColor: 'bg-sky-500' },
+  protection:{ icon: Shield as typeof Sparkles,     color: 'text-yellow-400',  barColor: 'bg-yellow-500' },
 };
 
 export const RANK_STYLES = [
@@ -150,6 +151,7 @@ export const ROLE_BADGE_COLORS: Record<string, string> = {
   Removal: 'bg-rose-500/20 text-rose-400',
   'Board Wipes': 'bg-orange-500/20 text-orange-400',
   'Card Advantage': 'bg-sky-500/20 text-sky-400',
+  Protection: 'bg-yellow-500/20 text-yellow-400',
 };
 
 export const ROLE_ICON_COLORS: Record<string, string> = {
@@ -157,6 +159,7 @@ export const ROLE_ICON_COLORS: Record<string, string> = {
   Removal: 'text-rose-400',
   'Board Wipes': 'text-orange-400',
   'Card Advantage': 'text-sky-400',
+  Protection: 'text-yellow-400',
 };
 
 export const VERDICT_STYLES: Record<string, { border: string; bg: string; icon: string; titleColor: string }> = {
@@ -184,6 +187,7 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
   'Cantrip': 'bg-sky-500/15 text-sky-400/80',
   'Card Draw': 'bg-sky-500/15 text-sky-400/80',
   'Card Advantage': 'bg-sky-500/15 text-sky-400/80',
+  'Protection': 'bg-yellow-500/15 text-yellow-400/80',
   // Land classification tags
   'Utility': 'bg-violet-500/15 text-violet-400/80',
   'Tapland': 'bg-amber-500/15 text-amber-400/80',
@@ -195,6 +199,7 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   'Removal': Swords as typeof Sparkles,
   'Board Wipes': Flame as typeof Sparkles,
   'Card Advantage': BookOpen as typeof Sparkles,
+  'Protection': Shield as typeof Sparkles,
   // Ramp subtypes
   'Mana Dork': Sprout as typeof Sparkles,
   'Mana Rock': Sprout as typeof Sparkles,

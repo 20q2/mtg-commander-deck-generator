@@ -1158,7 +1158,6 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                       card.rampSubtype === 'mana-producer' ? 'Mana Producer' :
                       card.rampSubtype === 'cost-reducer' ? 'Cost Reducer' : 'Ramp'
                     ) : card.deckRole === 'removal' ? (
-                      card.removalSubtype === 'counterspell' ? 'Counterspell' :
                       card.removalSubtype === 'bounce' ? 'Bounce' :
                       card.removalSubtype === 'spot-removal' ? 'Spot Removal' : 'Removal'
                     ) : card.deckRole === 'boardwipe' ? (

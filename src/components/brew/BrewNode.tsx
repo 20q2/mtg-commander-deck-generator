@@ -1,13 +1,28 @@
-import { useState, type MouseEvent } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
-import { operationTheme, routeKey, BrewGlyph } from '@/components/brew/brewVisuals';
+import { operationTheme, routeKey } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
-import type { BrewOption } from '@/services/brew/engine';
+import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import type { BrewOption, BrewCandidate, PickReason } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
+
+/** How strongly a card synergizes with the deck you've built — drives the per-pack "best fit" spotlight.
+ *  Only genuine deck-synergy signals count (whole-deck cluster, a combo finisher, a Game Changer, a
+ *  high-co lift find) — NOT a plain on-theme tag, which is too common to be a standout. */
+const FIT_THRESHOLD = 50;
+function synergyFit(c: BrewCandidate, reasons: PickReason[]): number {
+  let s = 0;
+  if ((c.connectionCount ?? 0) >= 2) s = Math.max(s, 100 + c.connectionCount!);          // lifted by many of your cards
+  if (reasons.some(r => r.kind === 'combo')) s = Math.max(s, 100);                        // finishes a combo with your picks
+  if (reasons.some(r => r.kind === 'gameChanger')) s = Math.max(s, 90);
+  if (c.discoverySource === 'lift' && (c.coSynergy ?? 0) >= FIT_THRESHOLD) s = Math.max(s, c.coSynergy!);
+  return s;
+}
 
 // Each reason kind gets its own quiet colour so the badge row reads at a glance.
 // gameChanger + combo are the headline call-outs and read brighter/bolder than the rest.
@@ -27,7 +42,7 @@ const REASON_CHIP: Record<string, string> = {
 
 // Role chips lead with their operation icon (matching the routes/backdrop) instead of the word "Fills".
 const ROLE_ICON: Record<string, LucideIcon> = {
-  Ramp: Sprout, Removal: Crosshair, 'Board Wipes': Bomb, 'Card Advantage': BookOpen,
+  Ramp: Sprout, Removal: Crosshair, 'Board Wipes': Bomb, 'Card Advantage': BookOpen, Protection: Shield,
 };
 
 // Each pack in a multi-pack round wears its direction: a need it fills, your theme, or a lift find.
@@ -42,8 +57,17 @@ const PACK_FLAVOR: Record<string, { color: string; Icon: LucideIcon; tag: string
 export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState } = useStore();
   const [chosenId, setChosenId] = useState<string | null>(null);
+  // Headliner: multi-select. The set of option ids the player has toggled on, plus a commit flag
+  // that fires the fly-to-deck animation once they lock in their picks.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [committing, setCommitting] = useState(false);
   // Hovering a (small) card pops a full, readable preview anchored beside it.
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
+  // A pack that secretly held a gold card flashes its windfall here before the pick commits.
+  const [reveal, setReveal] = useState<BrewCandidate | null>(null);
+  // Clear any headliner selection when the offered cards change (reroll, back, next node).
+  const shownKey = brewNode ? `${brewNode.routeId}|${brewNode.options.flatMap(o => o.cards.map(c => c.name)).join(',')}` : '';
+  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); }, [shownKey]);
   if (!brewNode) return null;
 
   const hoverPreview = (card: ScryfallCard) => ({
@@ -53,7 +77,13 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
 
   const op = operationTheme(brewNode.type, routeKey(brewNode.routeId));
 
-  const exiting = chosenId !== null;
+  // The Headliner draft lets you take any number of the four standouts at once (no pinning); every
+  // other draft (Hidden Synergy) stays a single-card pick.
+  const isHeadliner = brewNode.type === 'draft' && routeKey(brewNode.routeId) === 'elite';
+  const exiting = chosenId !== null || committing;
+  // A card is on its way to the deck if it's the chosen single pick, or — for the headliner — one of
+  // the selected cards now committing. Everything else melts away.
+  const goingToDeck = (id: string) => id === chosenId || (committing && selectedIds.has(id));
   const allShown = brewNode.options.flatMap(o => o.cards.map(c => c.name));
   // Packaged choices (a bundle, the lightning five, a multi-piece combo) render as a group of
   // smaller card images; a single-card choice renders one large "hero" card, Slay-the-Spire style.
@@ -74,28 +104,50 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     const passed = allShown.filter(n => !taken.has(n));
     setChosenId(option.id);                        // play the fly-to-deck / melt-away animation…
     setHover(null);
-    window.setTimeout(() => applyBrewOption(option, passed), 380); // …then commit the pick
+    if (option.goldCard) {
+      // The lucky case: after the pack flies out, reveal the secret gold card, let it land, then commit.
+      const gold = option.goldCard;
+      window.setTimeout(() => setReveal(gold), 520);
+      window.setTimeout(() => applyBrewOption(option, passed), 2200);
+    } else {
+      window.setTimeout(() => applyBrewOption(option, passed), 380); // …then commit the pick
+    }
+  }
+
+  // Headliner: clicking a card toggles it in/out of your selection (no immediate commit).
+  function toggleSelect(id: string) {
+    if (exiting) return;
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // Headliner: lock in every selected card as one pick (the rest are passed and gone).
+  function commitSelection() {
+    if (exiting || selectedIds.size === 0 || !brewNode) return;
+    const chosen = brewNode.options.filter(o => selectedIds.has(o.id));
+    const combined: BrewOption = {
+      id: chosen.length === 1 ? chosen[0].id : 'draft:multi',
+      cards: chosen.flatMap(o => o.cards),
+      reasons: chosen.flatMap(o => o.reasons),
+    };
+    const taken = new Set(combined.cards.map(c => c.name));
+    const passed = allShown.filter(n => !taken.has(n));
+    setHover(null);
+    setCommitting(true);                           // play the fly-to-deck / melt-away animation…
+    window.setTimeout(() => applyBrewOption(combined, passed), 380); // …then commit all of them
   }
 
   return (
     <div className="text-center" style={{ ['--op' as string]: `hsl(${op.color})`, ['--op-soft' as string]: `hsl(${op.color} / 0.5)` }}>
-      {/* The operation's sigil, in its own colour, presiding over the prompt. */}
-      <span
-        className="mx-auto mb-3 grid place-items-center w-12 h-12 rounded-full border-2 backdrop-blur-sm"
-        style={{
-          color: `hsl(${op.color})`,
-          borderColor: `hsl(${op.color} / 0.6)`,
-          background: `hsl(${op.color} / 0.12)`,
-          boxShadow: `0 0 28px hsl(${op.color} / 0.35)`,
-        }}
-      >
-        <BrewGlyph sym={op.glyph} className="text-[22px] w-6 h-6" />
-      </span>
       <h2 className="font-display text-2xl font-semibold tracking-tight mb-1" style={{ textShadow: `0 2px 22px hsl(${op.color} / 0.35)` }}>
         {brewNode.prompt}
       </h2>
-      <p className="text-xs text-muted-foreground mb-7">
-        {brewNode.type === 'bundle' ? 'Choose one package — the others move on.'
+      <p className="text-xs text-muted-foreground mb-7 mx-auto max-w-md">
+        {brewNode.type === 'bundle' ? 'Every card in the pack you pick joins your deck and steers which packs come next.'
+          : isHeadliner ? 'Pick any number of these standouts. The rest are gone.'
           : brewNode.type === 'draft' ? 'Take one card. The rest are gone.'
           : brewNode.type === 'combo' ? 'Pick a combo to finish, or pass.'
           : 'Take one card.'}
@@ -111,11 +163,16 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               2-over-1 so they're big enough to read. Pick one whole package. ── */
         <div
           key={`${brewNode.routeId}|${allShown.join(',')}`}
-          className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-7 items-stretch"
           style={{ perspective: '1200px' }}
         >
           {brewNode.options.map((option, idx) => {
             const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
+            // Spotlight the single card with the strongest synergy to your build (if any clears the bar),
+            // so a "really good" pick is obvious at a glance — the rest of the pack stays calm.
+            const fits = option.cards.map((c, i) => synergyFit(c, option.reasons[i] ?? []));
+            const topFit = fits.length ? Math.max(...fits) : 0;
+            const bestFitIdx = topFit >= FIT_THRESHOLD ? fits.indexOf(topFit) : -1;
             return (
               <button
                 key={option.id}
@@ -128,15 +185,15 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   background: `linear-gradient(hsl(${fl.color} / 0.08), hsl(${fl.color} / 0.03)), hsl(var(--card) / 0.4)`,
                   ...(exiting ? {} : { animationDelay: `${idx * 70}ms` }),
                 }}
-                className={`group relative z-10 flex flex-col overflow-hidden rounded-2xl border border-[color:var(--pk)]/35 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1.5 hover:border-[color:var(--pk)] hover:shadow-[0_18px_44px_-10px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
+                className={`group relative z-10 flex flex-col overflow-hidden rounded-2xl border border-[color:var(--pk)]/35 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-[box-shadow,border-color] duration-200 hover:border-[color:var(--pk)] hover:shadow-[0_18px_44px_-10px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   exiting ? (option.id === chosenId ? 'animate-brew-to-deck' : 'animate-brew-dismiss') : 'animate-brew-card-in'
                 }`}
               >
-                {/* Header — the pack's direction, in its own colour. */}
+                {/* Header — the pack's direction, in its own colour. The icon + colour signal the
+                    flavor; we drop the old "On theme / Fills a need" word-tag, which read as noise. */}
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--pk)]/20" style={{ background: `hsl(${fl.color} / 0.10)` }}>
                   <fl.Icon className="w-4 h-4 shrink-0" style={{ color: `hsl(${fl.color})` }} />
                   <span className="font-display text-sm font-semibold truncate text-left" style={{ color: `hsl(${fl.color})` }}>{option.label}</span>
-                  <span className="ml-auto shrink-0 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/70">{fl.tag}</span>
                 </div>
                 {/* The cards inside the pack, stacked 2-over-1 so each is big enough to read. */}
                 <div className="grid grid-cols-2 gap-2 px-2.5 pt-4 pb-2 justify-items-center">
@@ -144,12 +201,24 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     const rs = option.reasons[i] ?? [];
                     const finishesCombo = rs.some(r => r.kind === 'combo');
                     const isGameChanger = rs.some(r => r.kind === 'gameChanger');
+                    const isBestFit = i === bestFitIdx;
+                    // A concise "why it's the standout" label for the best-fit badge.
+                    const fitLabel = (c.connectionCount ?? 0) >= 2 ? `${c.connectionCount} synergies`
+                      : finishesCombo ? 'Combo'
+                      : isGameChanger ? 'Game Changer'
+                      : 'Best fit';
                     // A lone final card (odd count) spans both columns and centers on the bottom row.
                     const cardLastOdd = option.cards.length % 2 === 1 && i === option.cards.length - 1;
                     return (
                       <div key={c.name} className={`relative min-w-0 flex flex-col items-center ${cardLastOdd ? 'col-span-2 w-[calc(50%-0.25rem)]' : 'w-full'}`}>
                         <RoleBadges cardName={c.name} size="sm" corner="bl" />
-                        {c.discoverySource === 'lift' && (
+                        {/* The synergy standout — obvious at a glance: a violet glow + a "why" badge. */}
+                        {isBestFit && (
+                          <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-violet-300/80 bg-[#1e1633]/90 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-violet-100 shadow-[0_0_14px_-2px_rgba(167,139,250,0.7)]">
+                            <Sparkles className="w-2.5 h-2.5" /> {fitLabel}
+                          </span>
+                        )}
+                        {c.discoverySource === 'lift' && !isBestFit && (
                           <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-fuchsia-300/70 bg-[#2a0a2e]/90 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-fuchsia-100 shadow-[0_0_12px_-2px_rgba(232,121,249,0.6)]">
                             <Zap className="w-2.5 h-2.5" /> Lift
                           </span>
@@ -165,7 +234,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                           alt={c.name}
                           loading="lazy"
                           {...hoverPreview(c.scryfall)}
-                          className="block w-full h-auto rounded-[4.8%] shadow-[0_4px_14px_rgba(0,0,0,0.5)] ring-1 ring-black/60 transition-transform duration-150 ease-out group-hover:-translate-y-1"
+                          className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,outline-color] duration-150 ease-out outline outline-2 outline-transparent hover:outline-[color:var(--pk)] hover:shadow-[0_0_20px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)] ${isBestFit ? 'ring-2 ring-violet-300/80 shadow-[0_0_22px_-2px_rgba(167,139,250,0.6),0_4px_14px_rgba(0,0,0,0.5)]' : 'ring-1 ring-black/60 shadow-[0_4px_14px_rgba(0,0,0,0.5)]'}`}
                         />
                       </div>
                     );
@@ -175,12 +244,6 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 <div className="mt-auto flex items-center justify-center gap-1 px-3 pb-2.5 pt-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: `hsl(${fl.color})` }}>
                   <Plus className="w-3 h-3" /> Take all {option.cards.length}
                 </div>
-                {/* What you walk away from by taking this pack — the sacrifice, made legible. */}
-                {option.closing && option.closing.length > 0 && (
-                  <div className="px-3 pb-2 text-[10px] text-muted-foreground/70 border-t border-[color:var(--pk)]/15 pt-1.5">
-                    Closing: <span className="text-muted-foreground/90">{option.closing.join(', ')}</span>
-                  </div>
-                )}
               </button>
             );
           })}
@@ -200,19 +263,24 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[130%] blur-3xl z-0"
           style={{ background: `radial-gradient(ellipse at center, hsl(${op.color} / 0.10), transparent 70%)` }}
         />
-        {brewNode.options.map((option, idx) => (
+        {brewNode.options.map((option, idx) => {
+          const isSelected = isHeadliner && selectedIds.has(option.id);
+          return (
           <button
             key={option.id}
-            onClick={() => choose(option)}
+            onClick={() => (isHeadliner ? toggleSelect(option.id) : choose(option))}
             disabled={exiting}
+            aria-pressed={isHeadliner ? isSelected : undefined}
             style={exiting ? undefined : { animationDelay: `${idx * 70}ms` }}
             className={`group relative z-10 flex flex-col items-center gap-2 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--op)] ${
               isCombo
                 ? 'px-4 pt-3 pb-4 border border-border/50 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-colors duration-200 hover:border-[color:var(--op)] hover:bg-card/60'
                 : 'p-1'
             } ${
+              isSelected ? 'ring-2 ring-[color:var(--op)] ring-offset-2 ring-offset-background' : ''
+            } ${
               exiting
-                ? (option.id === chosenId ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
+                ? (goingToDeck(option.id) ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
                 : 'animate-brew-card-in'
             }`}
           >
@@ -226,7 +294,26 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   >
                     {fl && <fl.Icon className="w-3.5 h-3.5" />}{option.label}
                   </div>
-                  {fl && <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground/70">{fl.tag}</span>}
+                  {/* Opt-in combo details: the label shows the short payoff; this reveals the full
+                      results, popularity, and (lazy-fetched) prerequisites + steps — "if we want it".
+                      stopPropagation so opening details never commits the combo pick. */}
+                  {isCombo && option.comboId && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 hover:text-violet-200 transition-colors cursor-pointer"
+                        >
+                          <Info className="w-3 h-3" /> Details
+                        </span>
+                      </PopoverTrigger>
+                      <PopoverContent align="center" className="p-0">
+                        <BrewComboDetails comboId={option.comboId} results={option.comboResults ?? []} deckCount={option.comboDeckCount} />
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </div>
               );
             })()}
@@ -260,8 +347,22 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 return (
                   <div key={c.name} className={`${cardW} relative flex flex-col items-center`}>
                     <RoleBadges cardName={c.name} size={packaged ? 'sm' : 'md'} />
-                    {/* Pin-for-later: keep a card you're not taking now; it resurfaces in later offers. */}
-                    {brewNode.type === 'draft' && (() => {
+                    {/* Headliner: a selection check that reflects whether this standout is in your pick.
+                        The whole card toggles it, so this badge is purely a visual read-out. */}
+                    {isHeadliner && (
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none absolute -top-2 right-1 z-20 grid place-items-center w-6 h-6 rounded-full border backdrop-blur-sm transition-colors ${
+                          isSelected
+                            ? 'border-[color:var(--op)] bg-[color:var(--op)] text-background'
+                            : 'border-border/60 bg-black/55 text-muted-foreground group-hover:border-[color:var(--op)]/60'
+                        }`}
+                      >
+                        {isSelected ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
+                      </span>
+                    )}
+                    {/* Pin-for-later (other drafts): keep a card you're not taking now; it resurfaces later. */}
+                    {brewNode.type === 'draft' && !isHeadliner && (() => {
                       const isPinned = (brewState?.pinnedNames ?? []).includes(c.name);
                       return (
                         <span
@@ -317,8 +418,25 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               })}
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
+      )}
+
+      {/* Headliner: a single CTA to lock in everything you've selected (the rest are gone). */}
+      {isHeadliner && brewNode.options.length > 0 && (
+        <div className="mt-8 flex justify-center">
+          <Button
+            className="btn-shimmer"
+            disabled={exiting || selectedIds.size === 0}
+            onClick={commitSelection}
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            {selectedIds.size === 0
+              ? 'Select at least one'
+              : `Take ${selectedIds.size} ${selectedIds.size === 1 ? 'card' : 'cards'} — leave the rest`}
+          </Button>
+        </div>
       )}
 
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">
@@ -367,6 +485,32 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           document.body,
         );
       })()}
+
+      {/* The secret gold card: a rare windfall hidden in a theme pack. Revealed full-screen after the
+          pack flies to the deck — a golden-bordered hero card the player wasn't promised. */}
+      {reveal && createPortal(
+        <div className="fixed inset-0 z-[130] grid place-items-center bg-black/75 backdrop-blur-sm animate-fade-in" aria-live="polite">
+          {/* Warm radial glow behind the card so it reads as treasure, not just another pick. */}
+          <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] blur-3xl"
+            style={{ background: 'radial-gradient(circle, hsl(45 90% 55% / 0.35), transparent 65%)' }} />
+          <div className="relative z-10 flex flex-col items-center gap-3 animate-brew-card-in">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/70 bg-[#241803]/85 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-amber-200 shadow-[0_0_18px_-2px_rgba(251,191,36,0.55)]">
+              <Crown className="w-3.5 h-3.5" /> Hidden gem
+            </span>
+            <img
+              src={getCardImageUrl(reveal.scryfall, 'normal') ?? ''}
+              alt={reveal.name}
+              className="w-[260px] rounded-[4.8%] shadow-[0_0_60px_-6px_rgba(251,191,36,0.7),0_18px_50px_rgba(0,0,0,0.7)]"
+              style={{ outline: '3px solid hsl(45 90% 60%)', outlineOffset: '-1px' }}
+            />
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="font-display text-lg font-semibold text-amber-100" style={{ textShadow: '0 2px 18px rgba(251,191,36,0.5)' }}>{reveal.name}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-amber-200/80"><Sparkles className="w-3 h-3" /> Added to your deck, on the house</span>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

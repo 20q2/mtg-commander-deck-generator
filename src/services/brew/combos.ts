@@ -15,6 +15,38 @@ function addName(set: Set<string>, name: string): void {
 }
 
 /**
+ * How much we *want* to surface a combo for its payoff, independent of how achievable it is.
+ * EDHREC result strings are free text, so we match on intent. Higher = better. A combo's rank is
+ * the best (max) of its result lines, so a "blink, then deal infinite damage" combo ranks as damage.
+ * "Draw the game" is a literal stalemate — the opposite of a wincon — so it sinks below everything.
+ */
+const PAYOFF_TIERS: { match: RegExp; rank: number }[] = [
+  // Decisive — these straight-up end the game.
+  { match: /\bwin the game\b|infinite damage|infinite mill|infinite life ?loss|infinite drain|exile (?:all|your opponents)/i, rank: 5 },
+  // Floods the board — converts into a win with the rest of the deck.
+  { match: /infinite (?:creature )?tokens?/i, rank: 4 },
+  // Unbounded mana — fuels almost any payoff.
+  { match: /infinite (?:colou?red |colou?rless )?mana/i, rank: 3 },
+  // Card / life engines — strong, but not a kill on their own.
+  { match: /infinite (?:card )?draw|draw your (?:library|deck)|infinite life\b/i, rank: 2 },
+  // Loops that need a separate payoff to matter (blink, untap, storm count…).
+  { match: /infinite (?:blink|flicker|untap|cast|storm|landfall|loot|bounce|combat)/i, rank: 1 },
+  // A stalemate, not a win — actively deprioritise.
+  { match: /draw the game/i, rank: -1 },
+];
+
+/** Best payoff tier across a combo's result lines (0 if none recognised; negative = deprioritised). */
+export function payoffRank(results: string[]): number {
+  let best: number | null = null;
+  for (const r of results) {
+    for (const tier of PAYOFF_TIERS) {
+      if (tier.match.test(r) && (best === null || tier.rank > best)) best = tier.rank;
+    }
+  }
+  return best ?? 0;
+}
+
+/**
  * Combos the current deck is 1-2 cards short of, where every missing piece is available
  * in the candidate pool and at least one piece is already owned (commander or a pick).
  * Sorted by fewest missing, then popularity.
@@ -40,6 +72,11 @@ export function detectNearMissCombos(ctx: BrewContext, state: BrewState): NearMi
     if (!missing.every(n => poolNames.has(n))) continue; // can't actually complete it
     out.push({ comboId: combo.comboId, missing, have, results: combo.results, deckCount: combo.deckCount });
   }
-  out.sort((a, b) => (a.missing.length - b.missing.length) || (b.deckCount - a.deckCount));
+  // Payoff quality first (a decisive combo is worth chasing even if it's a card further off),
+  // then how close we are to finishing it, then popularity.
+  out.sort((a, b) =>
+    (payoffRank(b.results) - payoffRank(a.results)) ||
+    (a.missing.length - b.missing.length) ||
+    (b.deckCount - a.deckCount));
   return out;
 }

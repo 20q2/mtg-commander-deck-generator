@@ -1,5 +1,5 @@
 import type { RoleKey } from '@/services/tagger/client';
-import { hasTag, isTutor } from '@/services/tagger/client';
+import { isTutor } from '@/services/tagger/client';
 import type { BrewContext, BrewState } from './brewTypes';
 import { typeKey } from './health';
 
@@ -9,6 +9,8 @@ export interface TypeBar { key: string; current: number; target: number; }
 export interface DeckStats { radar: RadarAxis[]; curve: CurveBar[]; types: TypeBar[]; rounded: boolean; }
 
 const TUTOR_TARGET = 4;
+// Fallback only — protection is now a first-class role, so its target comes from ctx.roleTargets
+// (per-commander, EDHREC-blended) like the other roles. This applies if that target is ever absent.
 const PROTECTION_TARGET = 3;
 const ROUNDED_THRESHOLD = 0.66;
 
@@ -32,16 +34,14 @@ function axis(key: string, label: string, current: number, target: number): Rada
  * current-vs-expected mana curve. Pure; derived entirely from picks + ctx targets.
  */
 export function computeDeckStats(ctx: BrewContext, state: BrewState): DeckStats {
-  const roleCounts: Record<string, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  const roleCounts: Record<string, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   let tutors = 0;
-  let protection = 0;
   const curveCurrent: Record<number, number> = {};
   const typeCurrent: Record<string, number> = {};
 
   for (const p of state.picks) {
     if (p.role && roleCounts[p.role] !== undefined) roleCounts[p.role] += 1;
     if (isTutor(p.name)) tutors += 1;
-    if (hasTag(p.name, 'protection')) protection += 1;
     const tk = typeKey(p.card.type_line);
     typeCurrent[tk] = (typeCurrent[tk] ?? 0) + 1;
     if (tk !== 'land') {
@@ -53,7 +53,9 @@ export function computeDeckStats(ctx: BrewContext, state: BrewState): DeckStats 
   const radar: RadarAxis[] = [
     ...ROLE_AXES.map(a => axis(a.key, a.label, roleCounts[a.key], ctx.roleTargets[a.key] ?? 0)),
     axis('tutor', 'Tutors', tutors, TUTOR_TARGET),
-    axis('protection', 'Protection', protection, PROTECTION_TARGET),
+    // Protection is now a role: count it via the role system (roleCounts) and read its per-commander
+    // target from ctx.roleTargets, falling back to the flat baseline only if that target is missing.
+    axis('protection', 'Protection', roleCounts['protection'], ctx.roleTargets['protection'] ?? PROTECTION_TARGET),
   ];
 
   const curve: CurveBar[] = Object.keys(ctx.curveTargets)

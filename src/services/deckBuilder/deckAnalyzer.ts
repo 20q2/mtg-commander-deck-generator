@@ -1531,9 +1531,10 @@ export function summaryIconSvg(key: string): string {
 
 export const ROLE_SUBTYPES: Record<string, string[]> = {
   ramp: ['mana-producer', 'mana-rock', 'cost-reducer', 'ramp'],
-  removal: ['counterspell', 'bounce', 'spot-removal', 'removal'],
+  removal: ['bounce', 'spot-removal', 'removal'],
   boardwipe: ['bounce-wipe', 'boardwipe'],
   cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
+  protection: ['counterspell', 'protection'],
 };
 
 export interface ScoringContext {
@@ -2056,7 +2057,6 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     'mana-rock': 'Mana Rock',
     'cost-reducer': 'Cost Reducer',
     'ramp': 'Ramp',
-    'counterspell': 'Counter',
     'bounce': 'Bounce',
     'spot-removal': 'Spot Removal',
     'removal': 'Removal',

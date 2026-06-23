@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope, Scissors, Sparkles, RotateCw, Library } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope, Scissors, Sparkles, RotateCw, Redo2, Library } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
@@ -926,6 +926,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         removalSubtypeCounts: args.taggerResult.removalSubtypeCounts,
         boardwipeSubtypeCounts: args.taggerResult.boardwipeSubtypeCounts,
         cardDrawSubtypeCounts: args.taggerResult.cardDrawSubtypeCounts,
+        protectionSubtypeCounts: args.taggerResult.protectionSubtypeCounts,
         bracketEstimation: args.taggerResult.bracketEstimation,
         gameChangerNames: args.taggerResult.gameChangerNames,
         cardInclusionMap: args.edhrecResult.cardInclusionMap,
@@ -971,6 +972,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         removalSubtypeCounts: payload.removalSubtypeCounts,
         boardwipeSubtypeCounts: payload.boardwipeSubtypeCounts,
         cardDrawSubtypeCounts: payload.cardDrawSubtypeCounts,
+        protectionSubtypeCounts: payload.protectionSubtypeCounts,
         bracketEstimation: payload.bracketEstimation,
         gameChangerNames: payload.gameChangerNames,
         cardInclusionMap: payload.cardInclusionMap,
@@ -1068,7 +1070,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           partnerCommander: partnerCard,
           categories: {
             lands: [], ramp: [], cardDraw: [], singleRemoval: [],
-            boardWipes: [], creatures: deckCards, synergy: [], utility: [],
+            boardWipes: [], protection: [], creatures: deckCards, synergy: [], utility: [],
           },
           stats,
         } as GeneratedDeck,
@@ -1089,6 +1091,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           removalSubtypeCounts: taggerResult.removalSubtypeCounts,
           boardwipeSubtypeCounts: taggerResult.boardwipeSubtypeCounts,
           cardDrawSubtypeCounts: taggerResult.cardDrawSubtypeCounts,
+          protectionSubtypeCounts: taggerResult.protectionSubtypeCounts,
           bracketEstimation: taggerResult.bracketEstimation,
           gameChangerNames: taggerResult.gameChangerNames,
         } : null,
@@ -1449,6 +1452,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           removalSubtypeCounts: enrichResult.removalSubtypeCounts,
           boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
           cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+          protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
           bracketEstimation: enrichResult.bracketEstimation,
           gameChangerNames: enrichResult.gameChangerNames,
           cardInclusionMap: enrichResult.cardInclusionMap,
@@ -1478,6 +1482,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         removalSubtypeCounts: enrichResult.removalSubtypeCounts,
         boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
         cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+        protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
         bracketEstimation: enrichResult.bracketEstimation,
         gameChangerNames: enrichResult.gameChangerNames,
         cardInclusionMap: enrichResult.cardInclusionMap,
@@ -1798,13 +1803,31 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       )}
 
       <div className="relative z-10 space-y-4">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </button>
+          {/* Rebrew — only for decks that came out of the brew flow; restarts a fresh brew with
+              the same commander(s) from the setup screen. Mirrors the Back button styling. */}
+          {!!list.commanderName && (list.name.includes('(Brewed)') || (list.generationSummary ?? '').toLowerCase().includes('brew')) && (
+            <button
+              onClick={() => {
+                trackEvent('rebrew_clicked', { commanderName: list.commanderName ?? null });
+                const partner = list.partnerCommanderName ? `/${formatCommanderNameForUrl(list.partnerCommanderName)}` : '';
+                navigate(`/brew/${formatCommanderNameForUrl(list.commanderName!)}${partner}`);
+              }}
+              title="Brew a fresh deck with this commander"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Redo2 className="w-4 h-4" />
+              Rebrew
+            </button>
+          )}
+        </div>
         <div className="flex items-center justify-between gap-2">
           {editingName ? (
             <input
@@ -1865,22 +1888,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               <Library className="w-4 h-4" />
               <span>Lists</span>
             </button>
-            {/* Rebrew — only for decks that came out of the brew flow; restarts a fresh brew with the
-                same commander(s) from the setup screen. */}
-            {!!list.commanderName && (list.name.includes('(Brewed)') || (list.generationSummary ?? '').toLowerCase().includes('brew')) && (
-              <button
-                onClick={() => {
-                  trackEvent('rebrew_clicked', { commanderName: list.commanderName ?? null });
-                  const partner = list.partnerCommanderName ? `/${formatCommanderNameForUrl(list.partnerCommanderName)}` : '';
-                  navigate(`/brew/${formatCommanderNameForUrl(list.commanderName!)}${partner}`);
-                }}
-                title="Brew a fresh deck with this commander"
-                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 hover:text-violet-100 text-sm transition-colors"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Rebrew</span>
-              </button>
-            )}
             <button
               onClick={() => navigate(`/playtest/list/${list.id}`)}
               title="Playtest this deck"

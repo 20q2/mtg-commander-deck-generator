@@ -1,7 +1,8 @@
+import type { ThemeResult } from '@/types';
 import type { BrewContext, BrewState } from './brewTypes';
 
 // AFFINITY_PER_PICK is 10 (picks.ts), so 20 ≈ two picks into a theme before we call it a "lean".
-const LEANING_THRESHOLD = 20;
+export const LEANING_THRESHOLD = 20;
 const MAX_LEANING = 2;
 
 /** Affinity at which a theme reads as "committed" on the identity meter — matches CROSSROADS_COMMIT. */
@@ -43,6 +44,19 @@ export function leaningThemes(ctx: BrewContext, state: BrewState): string[] {
     .filter(b => b.value >= LEANING_THRESHOLD)
     .slice(0, MAX_LEANING)
     .map(b => b.label);
+}
+
+/**
+ * The run's revealed identity as generateDeck-ready themes (WS1). Maps the leaning/committed
+ * affinity themes to `ThemeResult[]` so finishBrew can hand them to the standard generator — the
+ * backfill, type/curve, and role targets then derive from the *theme* page(s) instead of the
+ * commander's raw averages, so the deck's tail honors what the player actually built. Capped at 2
+ * (the one-click theme max). Empty for an unfocused run → generator behaves exactly as before.
+ */
+export function leaningThemeResults(ctx: BrewContext, state: BrewState): ThemeResult[] {
+  return topIdentity(ctx, state, MAX_LEANING)
+    .filter(b => b.committed || b.value >= LEANING_THRESHOLD)
+    .map(b => ({ name: b.label, source: 'edhrec', slug: b.slug, isSelected: true }));
 }
 
 /** Deterministic epithet pool for runs with no defining moment (varied by pick count, no RNG). */

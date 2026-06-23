@@ -27,7 +27,7 @@ import {
   calculateCurveTargets,
   hasCurveRoom,
 } from './curveUtils';
-import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
+import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
 import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
@@ -132,6 +132,7 @@ function calculateTargetCounts(
       // These will be populated during card categorization
       singleRemoval: 0,
       boardWipes: 0,
+      protection: 0,
       ramp: 0,
       cardDraw: 0,
       synergy: 0,
@@ -153,6 +154,7 @@ function calculateTargetCounts(
       cardDraw: 10,
       singleRemoval: 8,
       boardWipes: 3,
+      protection: 4,
       creatures: 25,
       synergy: 30,
       utility: 3,
@@ -163,6 +165,7 @@ function calculateTargetCounts(
       cardDraw: 4,
       singleRemoval: 5,
       boardWipes: 2,
+      protection: 2,
       creatures: 15,
       synergy: 6,
       utility: 0,
@@ -173,6 +176,7 @@ function calculateTargetCounts(
       cardDraw: 2,
       singleRemoval: 3,
       boardWipes: 1,
+      protection: 1,
       creatures: 11,
       synergy: 4,
       utility: 0,
@@ -189,6 +193,7 @@ function calculateTargetCounts(
       cardDraw: Math.max(1, Math.round(10 * ratio)),
       singleRemoval: Math.max(1, Math.round(8 * ratio)),
       boardWipes: Math.max(0, Math.round(3 * ratio)),
+      protection: Math.max(1, Math.round(4 * ratio)),
       creatures: Math.max(2, Math.round(25 * ratio)),
       synergy: Math.max(1, Math.round(30 * ratio)),
       utility: Math.max(0, Math.round(3 * ratio)),
@@ -740,6 +745,7 @@ const ROLE_TO_CATEGORY: Record<RoleKey, DeckCategory> = {
   removal: 'singleRemoval',
   boardwipe: 'boardWipes',
   cardDraw: 'cardDraw',
+  protection: 'protection',
 };
 
 // Categorize cards by functional role using Scryfall tagger data.
@@ -769,6 +775,7 @@ export function stampRoleSubtypes(card: ScryfallCard): void {
   card.removalSubtype = getRemovalSubtype(card.name) ?? undefined;
   card.boardwipeSubtype = getBoardwipeSubtype(card.name) ?? undefined;
   card.cardDrawSubtype = getCardDrawSubtype(card.name) ?? undefined;
+  card.protectionSubtype = getProtectionSubtype(card.name) ?? undefined;
 }
 
 /** Map a ScryfallCard to a type-based swap bucket key, or null for lands. */
@@ -802,7 +809,7 @@ export function collectSwapCandidates(
   ignoreOwnedRarity: boolean = false,
 ): Record<string, ScryfallCard[]> {
   const result: Record<string, ScryfallCard[]> = {
-    ramp: [], removal: [], boardwipe: [], cardDraw: [],
+    ramp: [], removal: [], boardwipe: [], cardDraw: [], protection: [],
     'type:creature': [], 'type:instant': [], 'type:sorcery': [],
     'type:artifact': [], 'type:enchantment': [], 'type:planeswalker': [],
   };
@@ -855,9 +862,10 @@ export function collectSwapCandidates(
 // Subtypes per role for diversity calculations
 const ROLE_SUBTYPES: Record<string, string[]> = {
   ramp: ['mana-producer', 'mana-rock', 'cost-reducer', 'ramp'],
-  removal: ['counterspell', 'bounce', 'spot-removal', 'removal'],
+  removal: ['bounce', 'spot-removal', 'removal'],
   boardwipe: ['bounce-wipe', 'boardwipe'],
   cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
+  protection: ['counterspell', 'protection'],
 };
 
 function computeRoleBoosts(
@@ -1866,6 +1874,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     cardDraw: [],
     singleRemoval: [],
     boardWipes: [],
+    protection: [],
     creatures: [],
     synergy: [],
     utility: [],
@@ -1881,7 +1890,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // resolvedPacing is set after edhrecData is available; detectedPacing mirrors it for the return value
   let resolvedPacing: Pacing = 'balanced';
   let detectedPacing: Pacing = 'balanced';
-  const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+  const currentRoleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   const currentSubtypeCounts: Record<string, number> = {};
   let swapCandidates: Record<string, ScryfallCard[]> | undefined;
   // Cards that ended up in the deck despite not being on Arena (arena-only mode).
@@ -2987,6 +2996,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       cardDraw: categories.cardDraw.length,
       singleRemoval: categories.singleRemoval.length,
       boardWipes: categories.boardWipes.length,
+      protection: categories.protection.length,
       synergy: categories.synergy.length,
       utility: categories.utility.length,
       lands: categories.lands.length,
@@ -4167,7 +4177,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
     // 5a: Critical Role Deficits (≤50% of target)
     if (roleTargets) {
-      const roleKeys: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+      const roleKeys: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'];
       for (const role of roleKeys) {
         if (fixupSwaps >= MAX_FIXUP_SWAPS) break;
         const target = roleTargets[role] ?? 0;
@@ -4468,15 +4478,17 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     roleTargetBreakdown,
     ...roleTargets ? (() => {
       const rampSub: Record<string, number> = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
-      const removalSub: Record<string, number> = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+      const removalSub: Record<string, number> = { bounce: 0, 'spot-removal': 0, removal: 0 };
       const boardwipeSub: Record<string, number> = { 'bounce-wipe': 0, boardwipe: 0 };
       const cardDrawSub: Record<string, number> = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+      const protectionSub: Record<string, number> = { counterspell: 0, protection: 0 };
       for (const cards of Object.values(categories)) {
         for (const card of cards) {
           if (card.rampSubtype) rampSub[card.rampSubtype] = (rampSub[card.rampSubtype] || 0) + 1;
           if (card.removalSubtype) removalSub[card.removalSubtype] = (removalSub[card.removalSubtype] || 0) + 1;
           if (card.boardwipeSubtype) boardwipeSub[card.boardwipeSubtype] = (boardwipeSub[card.boardwipeSubtype] || 0) + 1;
           if (card.cardDrawSubtype) cardDrawSub[card.cardDrawSubtype] = (cardDrawSub[card.cardDrawSubtype] || 0) + 1;
+          if (card.protectionSubtype) protectionSub[card.protectionSubtype] = (protectionSub[card.protectionSubtype] || 0) + 1;
         }
       }
       return {
@@ -4484,6 +4496,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         removalSubtypeCounts: removalSub,
         boardwipeSubtypeCounts: boardwipeSub,
         cardDrawSubtypeCounts: cardDrawSub,
+        protectionSubtypeCounts: protectionSub,
       };
     })() : {},
     swapCandidates,

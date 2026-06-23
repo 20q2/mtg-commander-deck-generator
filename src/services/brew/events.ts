@@ -1,5 +1,4 @@
 import type { ScryfallCard } from '@/types';
-import { getCardPrice } from '@/services/scryfall/client';
 import type {
   BrewContext, BrewState, BrewCandidate, BrewEvent, BrewPick, BrewMoment, ComboPiece, BrewCrossroadsPath,
 } from './brewTypes';
@@ -94,19 +93,17 @@ export function comboFragmentEvent(ctx: BrewContext, state: BrewState): BrewEven
       .map(n => { const scryfall = ownedArt.get(n); return scryfall ? { name: n, scryfall } : null; })
       .filter((p): p is ComboPiece => !!p)
       .slice(0, 2);
-    const payoff = shortPayoff(nm.results);
     return {
       id: `combo:${nm.comboId}`,
       kind: 'comboFragment',
       title: 'Combo Fragment',
-      flavor: `You're holding part of a known interaction — ${payoff.toLowerCase()}. ${missing.length === 1 ? 'One piece' : `${missing.length} pieces`} away.`,
+      flavor: `You already own a piece of a known combo — ${missing.length === 1 ? 'one card' : `${missing.length} cards`} away from completing it.`,
       combo: { comboId: nm.comboId, results: nm.results, missing, have },
       choices: [
-        { id: 'investigate', label: 'Investigate', blurb: 'The missing pieces start showing up more often.', tone: 'theme' },
-        { id: 'exploit', label: 'Grab a piece', blurb: 'Take a missing piece right now.', tone: 'need' },
+        { id: 'finish', label: 'Finish the combo', blurb: missing.length === 1 ? 'Adds the missing card to your deck.' : `Adds all ${missing.length} missing cards to your deck.`, tone: 'need' },
       ],
       canPass: true,
-      passLabel: 'Abandon it',
+      passLabel: 'Skip for now',
     };
   }
   return null;
@@ -269,25 +266,19 @@ export function applyEvent(ctx: BrewContext, state: BrewState, event: BrewEvent,
 
   if (event.kind === 'comboFragment' && event.combo) {
     const payoff = shortPayoff(event.combo.results);
-    if (choiceId === 'investigate') {
-      const watch = [...new Set([...state.comboWatch, ...event.combo.missing.map(c => c.name)])];
-      return recordMoment({ ...state, comboWatch: watch }, event,
-        { atPick, kind: 'comboFragment', label: `Chasing ${payoff}`, detail: event.combo.missing.map(c => c.name).join(' + ') });
-    }
-    if (choiceId === 'exploit') {
-      // Take the most-available (cheapest) missing piece now; watch the rest so the combo closes itself.
-      const sorted = [...event.combo.missing].sort((a, b) =>
-        (parseFloat(getCardPrice(a.scryfall) ?? '') || 0) - (parseFloat(getCardPrice(b.scryfall) ?? '') || 0));
-      const piece = sorted[0];
-      const rest = sorted.slice(1).map(c => c.name);
-      const withPick = applyPick(state, [candidateToPick(ctx, state, piece, event.id)], {
-        routeType: 'combo', passed: [], tags: { [piece.name]: affinityTags(piece) },
-        moment: { kind: 'comboFragment', label: piece.name },
+    if (choiceId === 'finish') {
+      // Complete the combo outright — add every missing piece as one locked decision.
+      const pieces = event.combo.missing;
+      const picks = pieces.map(p => candidateToPick(ctx, state, p, event.id));
+      const tags = Object.fromEntries(pieces.map(p => [p.name, affinityTags(p)]));
+      const withPick = applyPick(state, picks, {
+        routeType: 'combo', passed: [], tags,
+        moment: { kind: 'comboFragment', label: pieces.length === 1 ? pieces[0].name : `${payoff} combo` },
       });
-      const watched = { ...withPick, comboWatch: [...new Set([...withPick.comboWatch, ...rest])] };
-      return recordMoment(watched, event, { atPick: atPick + 1, kind: 'comboFragment', label: `Grabbed ${piece.name}`, detail: payoff });
+      return recordMoment(withPick, event,
+        { atPick: atPick + picks.length, kind: 'comboFragment', label: `Completed ${payoff}`, detail: pieces.map(p => p.name).join(' + ') });
     }
-    return recordMoment(state, event, { atPick, kind: 'comboFragment', label: `Abandoned ${payoff}` });
+    return recordMoment(state, event, { atPick, kind: 'comboFragment', label: `Skipped ${payoff}` });
   }
 
   if (event.kind === 'gamble' && event.card) {

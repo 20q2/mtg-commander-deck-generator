@@ -45,6 +45,7 @@ import {
   Replace,
   Layers,
   Crosshair,
+  Shield,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -693,7 +694,7 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
       {showRoleColumn && (() => {
         const badge = getRoleBadgeProps(card);
         return badge ? (
-          <span className={`w-5 text-center shrink-0 text-[10px] font-bold ${card.multiRole ? 'text-purple-400/70' : badge.color}`} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage' })[r]).join(' + ') : badge.title}>{
+          <span className={`w-5 text-center shrink-0 text-[10px] font-bold ${card.multiRole ? 'text-purple-400/70' : badge.color}`} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage', protection: 'Protection' })[r]).join(' + ') : badge.title}>{
             card.multiRole ? '*' : badge.label
           }</span>
         ) : card.isUtilityLand ? (
@@ -1762,7 +1763,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                   {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
                   {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
                   {activeFilter.type === 'role' && `${
-                    ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
+                    ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
                   }`}
                   {activeFilter.type === 'owned' && 'Owned cards'}
                 </span>
@@ -1859,7 +1860,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
               {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
               {activeFilter.type === 'role' && `${
-                ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
+                ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
               }`}
               {activeFilter.type === 'owned' && 'Owned cards'}
             </span>
@@ -2001,6 +2002,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               ['removal', 'Removal', 'bg-red-500', Swords],
               ['boardwipe', 'Board Wipes', 'bg-orange-500', Flame],
               ['cardDraw', 'Card Advantage', 'bg-blue-500', BookOpen],
+              ['protection', 'Protection', 'bg-yellow-500', Shield],
             ] as [string, string, string, typeof Sprout][]).map(([key, label, barColor, Icon]) => {
               const count = generatedDeck.roleCounts![key] ?? 0;
               const target = generatedDeck.roleTargets![key] ?? 0;
@@ -2036,7 +2038,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                       },
                       removal: {
                         counts: generatedDeck.removalSubtypeCounts,
-                        entries: [['counterspell', 'counter', 'text-sky-400/80'], ['bounce', 'bounce', 'text-cyan-400/80'], ['spot-removal', 'spot', 'text-rose-400/80'], ['removal', 'other', 'text-red-300/80']],
+                        entries: [['bounce', 'bounce', 'text-cyan-400/80'], ['spot-removal', 'spot', 'text-rose-400/80'], ['removal', 'other', 'text-red-300/80']],
                       },
                       boardwipe: {
                         counts: generatedDeck.boardwipeSubtypeCounts,
@@ -2045,6 +2047,10 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                       cardDraw: {
                         counts: generatedDeck.cardDrawSubtypeCounts,
                         entries: [['tutor', 'tutor', 'text-amber-400/80'], ['wheel', 'wheel', 'text-pink-400/80'], ['cantrip', 'cantrip', 'text-sky-400/80'], ['card-draw', 'draw', 'text-blue-400/80'], ['card-advantage', 'other', 'text-indigo-400/80']],
+                      },
+                      protection: {
+                        counts: generatedDeck.protectionSubtypeCounts,
+                        entries: [['counterspell', 'counter', 'text-sky-400/80'], ['protection', 'other', 'text-yellow-300/80']],
                       },
                     };
                     const config = subtypeConfig[key];
@@ -2924,9 +2930,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
   const singleSelectedRoles = useMemo(() => {
     if (!singleSelectedCard) return [] as Array<{ key: RoleKey; label: string }>;
-    const labels: Record<RoleKey, string> = { ramp: 'Ramp', removal: 'Removal', boardwipe: 'Boardwipe', cardDraw: 'Draw' };
+    const labels: Record<RoleKey, string> = { ramp: 'Ramp', removal: 'Removal', boardwipe: 'Boardwipe', cardDraw: 'Draw', protection: 'Protection' };
     if (singleSelectedCard.multiRole) {
-      return (['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[])
+      return (['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[])
         .filter(r => cardMatchesRole(singleSelectedCard.name, r))
         .map(key => ({ key, label: labels[key] }));
     }
@@ -3587,7 +3593,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           const roleBadges: { bgColor: string; title: string; label: string }[] = [];
           if (card.deckRole && showRoles) {
             if (card.multiRole) {
-              for (const role of ['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]) {
+              for (const role of ['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[]) {
                 if (cardMatchesRole(card.name, role)) {
                   const badge = getRoleBadgeProps({ ...card, deckRole: role } as ScryfallCard);
                   if (badge) roleBadges.push(badge);
@@ -4850,7 +4856,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                             <span>—</span>
                             {singleSelectedRoles.length > 0 ? (
                               singleSelectedRoles.map(({ key, label }) => {
-                                const meta = { ramp: { Icon: Sprout, color: 'text-emerald-400' }, removal: { Icon: Swords, color: 'text-rose-400' }, boardwipe: { Icon: Flame, color: 'text-orange-400' }, cardDraw: { Icon: BookOpen, color: 'text-sky-400' } }[key];
+                                const meta = { ramp: { Icon: Sprout, color: 'text-emerald-400' }, removal: { Icon: Swords, color: 'text-rose-400' }, boardwipe: { Icon: Flame, color: 'text-orange-400' }, cardDraw: { Icon: BookOpen, color: 'text-sky-400' }, protection: { Icon: Shield, color: 'text-yellow-400' } }[key];
                                 const Icon = meta.Icon;
                                 return (
                                   <span key={key} className={`inline-flex items-center gap-1 ${meta.color}`}>
@@ -4873,6 +4879,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
                           { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
                           { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
+                          { mode: 'protection', label: 'Protection', Icon: Shield, color: 'text-yellow-400' },
                           { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
                         ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
                           <button
@@ -5081,7 +5088,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                     <span>—</span>
                                     {singleSelectedRoles.length > 0 ? (
                                       singleSelectedRoles.map(({ key, label }) => {
-                                        const meta = { ramp: { Icon: Sprout, color: 'text-emerald-400' }, removal: { Icon: Swords, color: 'text-rose-400' }, boardwipe: { Icon: Flame, color: 'text-orange-400' }, cardDraw: { Icon: BookOpen, color: 'text-sky-400' } }[key];
+                                        const meta = { ramp: { Icon: Sprout, color: 'text-emerald-400' }, removal: { Icon: Swords, color: 'text-rose-400' }, boardwipe: { Icon: Flame, color: 'text-orange-400' }, cardDraw: { Icon: BookOpen, color: 'text-sky-400' }, protection: { Icon: Shield, color: 'text-yellow-400' } }[key];
                                         const Icon = meta.Icon;
                                         return (
                                           <span key={key} className={`inline-flex items-center gap-1 ${meta.color}`}>

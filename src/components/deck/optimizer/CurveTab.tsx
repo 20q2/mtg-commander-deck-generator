@@ -27,7 +27,6 @@ const SUBTYPE_DISPLAY: Record<string, string> = {
   'mana-rock': 'Mana Rock',
   'cost-reducer': 'Cost Reducer',
   'ramp': 'Ramp',
-  'counterspell': 'Counter',
   'bounce': 'Bounce',
   'spot-removal': 'Spot Removal',
   'removal': 'Removal',

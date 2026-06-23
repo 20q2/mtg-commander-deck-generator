@@ -3,7 +3,12 @@ import type { AppState, Customization, BanList, AppliedList, ScryfallCard, Gener
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
-import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic } from '@/services/brew/engine';
+import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic } from '@/services/brew/engine';
+
+/** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
+const CLUSTER_PHASE_FILL = 0.4;
+/** Re-scan once this many new picks have landed since the last scan, so cluster finds track the deck. */
+const CLUSTER_RESCAN_STEP = 5;
 
 /** Picks at which a mid-build personality question may replace the bare fork. */
 const SECOND_QUESTION_AT = 8;
@@ -474,6 +479,9 @@ export const useStore = create<AppState>((set, get) => ({
       picks: [], usedNames: [], themeAffinity: {}, rerollsUsed: {}, phase: 'nonland', history: [],
       discovered: [], seededNames: [], questionsAsked: 0,
       relics: [], comboWatch: [], firedEventIds: [], lastMomentPick: 0, moments: [],
+      // Per-run jitter seed: minted once here, persisted with the session, so offers vary run-to-run
+      // while a single run stays stable across resume/undo. (1..2^32 so it's always truthy.)
+      seed: Math.floor(Math.random() * 0xfffffffe) + 1,
     };
     // No opening theme prompt — drop the player straight onto the first pack and let the deck's
     // identity emerge from what they actually pick.
@@ -485,6 +493,17 @@ export const useStore = create<AppState>((set, get) => ({
   openBrewRoute: (route: BrewRoute) => {
     const { brewContext, brewState } = get();
     if (!brewContext || !brewState) return;
+    // The Gamble route resolves through the gamble EVENT — a reveal + "take the leap", where the
+    // leap locks the pick and seeds fresh discoveries. Reuse that whole beat instead of a plain node.
+    if (route.type === 'gamble') {
+      const event = gambleEvent(brewContext, brewState);
+      if (event) { set({ brewEvent: event, brewNode: null, brewRerollExclusions: [] }); return; }
+      // No eligible deep cut left (nextRoutes should suppress the route in this case, but guard here
+      // too): openNode has no 'gamble' case and would render a card-less, can't-pass dead-end. Drop the
+      // player onto a fresh pack instead so the fork stays playable.
+      set({ brewNode: buildPackNode(brewContext, brewState), brewRerollExclusions: [] });
+      return;
+    }
     const node = openNode(brewContext, brewState, route);
     set({ brewNode: node, brewRerollExclusions: [] });
   },
@@ -513,7 +532,21 @@ export const useStore = create<AppState>((set, get) => ({
       if (c.subtype) t.push(c.subtype);
       tags[c.name] = t;
     }
-    const nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags });
+    // A secret gold card (rare, theme packs only) rides along as a free extra pick — committed in the
+    // same (undoable) decision, with its own affinity, plus a story moment for the end-run recap.
+    const gold = option.goldCard;
+    if (gold) {
+      picks.push({ name: gold.name, card: gold.scryfall, role: gold.role, subtype: gold.subtype,
+        inclusion: gold.inclusion, viaRouteId: brewNode.routeId, reasons: [] });
+      const t = [...gold.themeTags];
+      if (gold.subtype) t.push(gold.subtype);
+      tags[gold.name] = t;
+    }
+    let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags });
+    if (gold) {
+      nextState = { ...nextState, moments: [...nextState.moments,
+        { atPick: nextState.picks.length, kind: 'goldCard', label: `Struck gold — ${gold.name}`, detail: 'Hidden in the pack' }] };
+    }
     // You shouldn't have to choose a path after every pick: auto-advance to the next card screen,
     // surfacing the steering fork (and its relic/event/question moments) only at milestones.
     const patch = brewAdvancePatch(brewContext, nextState);
@@ -522,6 +555,13 @@ export const useStore = create<AppState>((set, get) => ({
     // expand the pool from the player's recent threads. Fire-and-forget; UI never blocks.
     if (patch.brewNode === null && !isComplete(brewContext, nextState)) {
       void get().expandBrewDiscoveries();
+      // Once the deck has a shape, run the heavier whole-deck cluster scan — and re-run it every few
+      // picks so the "plays with your deck" finds keep reflecting what you've actually drafted.
+      const fill = nextState.picks.length / (brewContext.nonLandTarget || 1);
+      const sinceScan = nextState.picks.length - (nextState.clusterScanPicks ?? -CLUSTER_RESCAN_STEP);
+      if (fill >= CLUSTER_PHASE_FILL && sinceScan >= CLUSTER_RESCAN_STEP) {
+        void get().expandBrewClusters();
+      }
     }
   },
 
@@ -631,6 +671,25 @@ export const useStore = create<AppState>((set, get) => ({
     if (found.length === 0) return;
 
     // Re-read; bail if the session changed under us.
+    const cur = get();
+    if (cur.brewContext !== brewContext || !cur.brewState) return;
+    const existing = new Set(cur.brewState.discovered.map(c => c.name));
+    const fresh = found.filter(c => !existing.has(c.name));
+    if (fresh.length === 0) return;
+    const merged: BrewState = { ...cur.brewState, discovered: [...cur.brewState.discovered, ...fresh] };
+    set({ brewState: merged, brewRoutes: nextRoutes(brewContext, merged) });
+  },
+
+  // The whole-deck lift-cluster scan: treats every card so far as a seed and surfaces cards lifted by
+  // MANY of your picks ("N of your cards want this"). Heavier than single-seed discovery (O(picks)
+  // cached EDHREC fetches), so it's fire-and-forget and re-runs on a coarse cadence as the deck grows.
+  expandBrewClusters: async () => {
+    const { brewContext, brewState } = get();
+    if (!brewContext || !brewState) return;
+    // Stamp the scan pick-count up front so overlapping milestones don't double-scan.
+    set({ brewState: { ...brewState, clusterScanPicks: brewState.picks.length } });
+    const found = await discoverClustersFrom(brewContext, brewState, () => get().brewContext !== brewContext);
+    if (found.length === 0) return;
     const cur = get();
     if (cur.brewContext !== brewContext || !cur.brewState) return;
     const existing = new Set(cur.brewState.discovered.map(c => c.name));

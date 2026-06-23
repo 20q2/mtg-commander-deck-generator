@@ -5,7 +5,7 @@ export { applyPick, undoLast, isLastPickLocked, AFFINITY_PER_PICK, type ApplyPic
 export { nextRoutes, computeDeficits, matchesDeficit, type Deficit } from './routes';
 export { openNode, deriveReasons, buildPackNode } from './nodes';
 export { leaningThemes, topIdentity, generateRunTitle, IDENTITY_COMMIT_THRESHOLD, type IdentityBar } from './identity';
-export { discoverFrom } from './discovery';
+export { discoverFrom, discoverClustersFrom } from './discovery';
 export { computeDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';
 export { detectNearMissCombos, type NearMissCombo } from './combos';
 export { advanceAfterPick, STEER_EVERY, isSteerIndex } from './flow';

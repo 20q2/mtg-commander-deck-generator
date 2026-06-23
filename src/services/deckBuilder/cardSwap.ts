@@ -10,6 +10,7 @@ const ROLE_TO_CATEGORY: Record<RoleKey, DeckCategory> = {
   removal: 'singleRemoval',
   boardwipe: 'boardWipes',
   cardDraw: 'cardDraw',
+  protection: 'protection',
 };
 
 /** Find which DeckCategory a card is stored in. */
@@ -107,12 +108,14 @@ export function swapCard(
   let newRemovalSubtypeCounts = deck.removalSubtypeCounts;
   let newBoardwipeSubtypeCounts = deck.boardwipeSubtypeCounts;
   let newCardDrawSubtypeCounts = deck.cardDrawSubtypeCounts;
+  let newProtectionSubtypeCounts = deck.protectionSubtypeCounts;
   if (deck.roleCounts && deck.roleTargets) {
-    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
     newRampSubtypeCounts = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
-    newRemovalSubtypeCounts = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+    newRemovalSubtypeCounts = { bounce: 0, 'spot-removal': 0, removal: 0 };
     newBoardwipeSubtypeCounts = { 'bounce-wipe': 0, boardwipe: 0 };
     newCardDrawSubtypeCounts = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+    newProtectionSubtypeCounts = { counterspell: 0, protection: 0 };
     for (const cards of Object.values(newCategories)) {
       for (const card of cards) {
         if (card.deckRole && card.deckRole in newRoleCounts) {
@@ -122,6 +125,7 @@ export function swapCard(
         if (card.removalSubtype) newRemovalSubtypeCounts[card.removalSubtype] = (newRemovalSubtypeCounts[card.removalSubtype] || 0) + 1;
         if (card.boardwipeSubtype) newBoardwipeSubtypeCounts[card.boardwipeSubtype] = (newBoardwipeSubtypeCounts[card.boardwipeSubtype] || 0) + 1;
         if (card.cardDrawSubtype) newCardDrawSubtypeCounts[card.cardDrawSubtype] = (newCardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
+        if (card.protectionSubtype) newProtectionSubtypeCounts[card.protectionSubtype] = (newProtectionSubtypeCounts[card.protectionSubtype] || 0) + 1;
       }
     }
   }
@@ -202,6 +206,7 @@ export function swapCard(
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      protectionSubtypeCounts: newProtectionSubtypeCounts,
       detectedCombos: newDetectedCombos,
     };
     newCardRelevancyMap = rebuildRelevancyMap(interimDeck);
@@ -235,6 +240,7 @@ export function swapCard(
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      protectionSubtypeCounts: newProtectionSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
       cardRelevancyMap: newCardRelevancyMap,
@@ -285,12 +291,14 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
   let newRemovalSubtypeCounts = deck.removalSubtypeCounts;
   let newBoardwipeSubtypeCounts = deck.boardwipeSubtypeCounts;
   let newCardDrawSubtypeCounts = deck.cardDrawSubtypeCounts;
+  let newProtectionSubtypeCounts = deck.protectionSubtypeCounts;
   if (deck.roleCounts && deck.roleTargets) {
-    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
     newRampSubtypeCounts = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
-    newRemovalSubtypeCounts = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+    newRemovalSubtypeCounts = { bounce: 0, 'spot-removal': 0, removal: 0 };
     newBoardwipeSubtypeCounts = { 'bounce-wipe': 0, boardwipe: 0 };
     newCardDrawSubtypeCounts = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+    newProtectionSubtypeCounts = { counterspell: 0, protection: 0 };
     for (const cards of Object.values(newCategories)) {
       for (const card of cards) {
         if (card.deckRole && card.deckRole in newRoleCounts) {
@@ -300,6 +308,7 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
         if (card.removalSubtype) newRemovalSubtypeCounts[card.removalSubtype] = (newRemovalSubtypeCounts[card.removalSubtype] || 0) + 1;
         if (card.boardwipeSubtype) newBoardwipeSubtypeCounts[card.boardwipeSubtype] = (newBoardwipeSubtypeCounts[card.boardwipeSubtype] || 0) + 1;
         if (card.cardDrawSubtype) newCardDrawSubtypeCounts[card.cardDrawSubtype] = (newCardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
+        if (card.protectionSubtype) newProtectionSubtypeCounts[card.protectionSubtype] = (newProtectionSubtypeCounts[card.protectionSubtype] || 0) + 1;
       }
     }
   }
@@ -384,6 +393,7 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      protectionSubtypeCounts: newProtectionSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
     };
@@ -401,6 +411,7 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      protectionSubtypeCounts: newProtectionSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
       cardRelevancyMap: newCardRelevancyMap,
@@ -441,12 +452,14 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
   let newRemovalSubtypeCounts = deck.removalSubtypeCounts;
   let newBoardwipeSubtypeCounts = deck.boardwipeSubtypeCounts;
   let newCardDrawSubtypeCounts = deck.cardDrawSubtypeCounts;
+  let newProtectionSubtypeCounts = deck.protectionSubtypeCounts;
   if (deck.roleCounts && deck.roleTargets) {
-    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0 };
+    newRoleCounts = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
     newRampSubtypeCounts = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
-    newRemovalSubtypeCounts = { counterspell: 0, bounce: 0, 'spot-removal': 0, removal: 0 };
+    newRemovalSubtypeCounts = { bounce: 0, 'spot-removal': 0, removal: 0 };
     newBoardwipeSubtypeCounts = { 'bounce-wipe': 0, boardwipe: 0 };
     newCardDrawSubtypeCounts = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+    newProtectionSubtypeCounts = { counterspell: 0, protection: 0 };
     for (const cards of Object.values(newCategories)) {
       for (const card of cards) {
         if (card.deckRole && card.deckRole in newRoleCounts) {
@@ -456,6 +469,7 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
         if (card.removalSubtype) newRemovalSubtypeCounts[card.removalSubtype] = (newRemovalSubtypeCounts[card.removalSubtype] || 0) + 1;
         if (card.boardwipeSubtype) newBoardwipeSubtypeCounts[card.boardwipeSubtype] = (newBoardwipeSubtypeCounts[card.boardwipeSubtype] || 0) + 1;
         if (card.cardDrawSubtype) newCardDrawSubtypeCounts[card.cardDrawSubtype] = (newCardDrawSubtypeCounts[card.cardDrawSubtype] || 0) + 1;
+        if (card.protectionSubtype) newProtectionSubtypeCounts[card.protectionSubtype] = (newProtectionSubtypeCounts[card.protectionSubtype] || 0) + 1;
       }
     }
   }
@@ -536,6 +550,7 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      protectionSubtypeCounts: newProtectionSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
     };
@@ -552,6 +567,7 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
       removalSubtypeCounts: newRemovalSubtypeCounts,
       boardwipeSubtypeCounts: newBoardwipeSubtypeCounts,
       cardDrawSubtypeCounts: newCardDrawSubtypeCounts,
+      protectionSubtypeCounts: newProtectionSubtypeCounts,
       detectedCombos: newDetectedCombos,
       cardInclusionMap: newCardInclusionMap,
       cardRelevancyMap: newCardRelevancyMap,

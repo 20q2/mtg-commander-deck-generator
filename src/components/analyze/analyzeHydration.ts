@@ -206,6 +206,7 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     removalSubtypeCounts: enrichResult.removalSubtypeCounts,
     boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
     cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+    protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
     bracketEstimation: enrichResult.bracketEstimation,
     gameChangerNames: enrichResult.gameChangerNames,
     cardInclusionMap: enrichResult.cardInclusionMap,
