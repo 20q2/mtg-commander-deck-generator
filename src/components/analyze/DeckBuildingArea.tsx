@@ -31,6 +31,8 @@ interface DeckBuildingAreaProps {
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   themeMembership?: ThemeMembership | null;
+  /** Optional control rendered at the start of the header row (e.g. SpellChroma's "Change deck"). */
+  headerExtra?: React.ReactNode;
 }
 
 // Per-theme chip color, matching the THEMES popover (violet = #1, amber = #2).
@@ -275,7 +277,7 @@ const GROUP_STORAGE_KEY = 'analyze-play-area-group';
 const SORT_DIR_STORAGE_KEY = 'analyze-play-area-sort-dir';
 const DIM_ROLES_KEY = 'analyze-play-area-dim-roles';
 
-export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null }: DeckBuildingAreaProps) {
+export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra }: DeckBuildingAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -547,6 +549,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
       {/* Header — bigger, with sort selector */}
       <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
         <div className="flex items-center gap-2 min-w-0">
+          {headerExtra}
           {(() => {
             const deckCount = totalNonLand + buckets.landCount - buckets.mdfcCount;
             const atTarget = deckCount === targetDeckSize;

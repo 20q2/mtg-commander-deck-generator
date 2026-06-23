@@ -61,7 +61,7 @@ export function ExplorerGrid({
         )}
       </div>
 
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+      <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))]">
         {filtered.map(card => (
           <button key={card.id} type="button" onClick={() => setPreview(card)}
             className="group relative aspect-[5/7] rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">

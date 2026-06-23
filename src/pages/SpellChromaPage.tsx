@@ -5,6 +5,8 @@ import { useExplorerSearch } from '@/components/spellchroma/useExplorerSearch';
 import { TagSearchBar } from '@/components/spellchroma/TagSearchBar';
 import { ExplorerGrid } from '@/components/spellchroma/ExplorerGrid';
 import { DeckInput } from '@/components/spellchroma/DeckInput';
+import { ArrowLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { TopTagsStrip } from '@/components/spellchroma/TopTagsStrip';
 import { SpellChromaSplit } from '@/components/spellchroma/SpellChromaSplit';
 import { SpellChromaLanding } from '@/components/spellchroma/SpellChromaLanding';
@@ -25,6 +27,8 @@ export function SpellChromaPage() {
   const result = useExplorerSearch(selectedTags, colorIdentity, sort);
   const addTag = useCallback((slug: string) => setSelectedTags(t => (t.includes(slug) ? t : [...t, slug])), []);
   const removeTag = useCallback((slug: string) => setSelectedTags(t => t.filter(s => s !== slug)), []);
+  // Return to the landing splash (where the paste / decks / lists options live).
+  const backToOptions = useCallback(() => { setSelectedTags([]); setStartedExploring(false); }, []);
 
   // When a deck loads: pull the index (for top-tags + preview tags) and adopt
   // the deck's combined color identity as the explorer filter.
@@ -89,19 +93,29 @@ export function SpellChromaPage() {
     </div>
   );
 
-  return (
-    <div className="container mx-auto px-4 py-6 max-w-[1600px]">
-      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">SpellChroma</h1>
-          <p className="text-sm text-muted-foreground">Tag-driven card discovery — pick what a card should <em>do</em>.</p>
-        </div>
-        <DeckInput onLoad={handleDeckLoaded} label={deck ? 'Change deck' : 'Load a deck'} />
-      </div>
+  // Deck loaded → full-bleed workbench (no page padding; the split fills the
+  // viewport under the nav and the panes carry their own padding).
+  if (deck) {
+    return (
+      <SpellChromaSplit
+        deck={<DeckBuildingArea currentCards={deck} headerExtra={<DeckInput onLoad={handleDeckLoaded} label="Change deck" />} />}
+        explorer={explorer}
+      />
+    );
+  }
 
-      {deck
-        ? <SpellChromaSplit deck={<DeckBuildingArea currentCards={deck} />} explorer={explorer} />
-        : explorer}
+  return (
+    <div className="px-3 sm:px-4 py-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h1 className="text-lg font-bold whitespace-nowrap">
+          SpellChroma <span className="text-xs font-normal text-muted-foreground align-middle">· tag-driven discovery</span>
+        </h1>
+        <Button variant="outline" size="sm" onClick={backToOptions} className="gap-1.5">
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Deck options
+        </Button>
+      </div>
+      {explorer}
     </div>
   );
 }

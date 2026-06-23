@@ -534,7 +534,7 @@ function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Footer — hidden on /analyze once a deck is loaded to give the optimizer more vertical room */}
-        {(!isAnalyzePage || !generatedDeck) && (
+        {(!isAnalyzePage || !generatedDeck) && !isSpellChromaPage && (
         <footer className="border-t border-border/50 bg-card/50 backdrop-blur-sm">
           <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
             <p>

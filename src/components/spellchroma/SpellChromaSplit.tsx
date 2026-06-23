@@ -14,7 +14,7 @@ export function SpellChromaSplit({ deck, explorer }: { deck: ReactNode; explorer
         {explorer}
       </div>
 
-      <div className="hidden lg:block h-[calc(100vh-180px)]">
+      <div className="hidden lg:block h-[calc(100vh-77px)]">
         <PanelGroup direction="horizontal" autoSaveId="spellchroma-split" className="h-full">
           <Panel defaultSize={40} minSize={25} className="overflow-hidden">
             <div className="h-full min-h-0 flex flex-col">{deck}</div>

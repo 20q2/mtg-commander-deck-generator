@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ClipboardPaste, Layers, ListChecks, Loader2, Compass } from 'lucide-react';
+import { ClipboardPaste, Layers, ListChecks, Loader2, Compass, HelpCircle } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getCardsByNames } from '@/services/scryfall/client';
@@ -57,9 +58,35 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
 
   return (
     <main className="relative px-4 py-8">
+      <div className="absolute top-4 right-4 z-20">
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/80 hover:text-foreground transition-colors px-2.5 py-1 rounded-md hover:bg-accent">
+              <HelpCircle className="w-3.5 h-3.5" />
+              What is this?
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="end" className="w-80 p-4 text-xs text-left">
+            <p className="font-semibold text-sm text-foreground mb-2">What is SpellChroma?</p>
+            <p className="text-muted-foreground leading-relaxed mb-2">
+              Find cards by <span className="text-foreground/90">what they do</span> — pick oracle tags
+              like <em>ramp</em> or <em>removal</em> (plus a color identity) and browse every
+              commander-legal match. Load a deck to see its tags and explore outward.
+            </p>
+            <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+              Originally a standalone app — now ported in to live inside ManaFoundry.
+            </p>
+          </PopoverContent>
+        </Popover>
+      </div>
       <div className="text-center py-6 max-w-2xl mx-auto animate-fade-in">
+        <img
+          src={`${import.meta.env.BASE_URL}spellchroma-logo.png`}
+          alt="SpellChroma"
+          className="w-24 h-24 mx-auto mb-4 drop-shadow-[0_0_24px_rgba(139,92,246,0.35)]"
+        />
         <h2 className="text-4xl font-bold mb-3">
-          Explore by what a card <span className="gradient-text">does</span>
+          Card search <span className="gradient-text">simplified</span>
         </h2>
         <p className="text-base text-muted-foreground">
           Load a deck to see its tags — or just start hunting cards by tag.
@@ -87,6 +114,15 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
             </button>
           );
         })}
+        <div className="w-px h-5 bg-border/40 mx-1" aria-hidden />
+        <button
+          type="button"
+          onClick={onExplore}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 border bg-card/40 border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40"
+        >
+          <Compass className="w-4 h-4" />
+          Explore without a deck
+        </button>
       </div>
 
       <div className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[260px]">
@@ -112,14 +148,14 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
         )}
       </div>
 
-      {/* Jump-straight-in escape — preserves SpellChroma's tag-first browsing */}
+      {/* Starter tags — jump straight into tag-first browsing */}
       <div className="max-w-3xl mx-auto mt-6 text-center">
         <div className="flex items-center gap-3 mb-3">
           <div className="flex-1 h-px bg-border/40" />
-          <span className="text-xs text-muted-foreground">or jump straight in</span>
+          <span className="text-xs text-muted-foreground">or jump straight in with a tag</span>
           <div className="flex-1 h-px bg-border/40" />
         </div>
-        <div className="flex flex-wrap justify-center gap-1.5 mb-3">
+        <div className="flex flex-wrap justify-center gap-1.5">
           {STARTER_TAGS.map(slug => (
             <button
               key={slug}
@@ -130,10 +166,6 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
             </button>
           ))}
         </div>
-        <Button variant="ghost" size="sm" onClick={onExplore} className="gap-1.5 text-muted-foreground">
-          <Compass className="w-4 h-4" />
-          Explore without a deck
-        </Button>
       </div>
     </main>
   );
