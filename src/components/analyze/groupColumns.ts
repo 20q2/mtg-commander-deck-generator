@@ -68,12 +68,13 @@ function themeColumns(ctx: ColumnContext): Column[] {
 
 function roleColumns(): Column[] {
   return [
-    { key: 'role:ramp',     label: 'Ramp',    matches: (c) => c.deckRole === 'ramp' },
-    { key: 'role:removal',  label: 'Removal', matches: (c) => c.deckRole === 'removal' },
-    { key: 'role:wipe',     label: 'Wipes',   matches: (c) => c.deckRole === 'boardwipe' },
-    { key: 'role:draw',     label: 'Draw',    matches: (c) => c.deckRole === 'cardDraw' },
-    { key: 'role:other',    label: 'Other',
-      matches: (c) => !c.deckRole || !['ramp', 'removal', 'boardwipe', 'cardDraw'].includes(c.deckRole) },
+    { key: 'role:ramp',       label: 'Ramp',       matches: (c) => c.deckRole === 'ramp' },
+    { key: 'role:removal',    label: 'Removal',    matches: (c) => c.deckRole === 'removal' },
+    { key: 'role:wipe',       label: 'Wipes',      matches: (c) => c.deckRole === 'boardwipe' },
+    { key: 'role:draw',       label: 'Draw',       matches: (c) => c.deckRole === 'cardDraw' },
+    { key: 'role:protection', label: 'Protection', matches: (c) => c.deckRole === 'protection' },
+    { key: 'role:other',      label: 'Other',
+      matches: (c) => !c.deckRole || !['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'].includes(c.deckRole) },
   ];
 }
 

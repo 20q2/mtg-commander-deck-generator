@@ -315,7 +315,6 @@ export function getDynamicRoleTargets(
 
   const result = {} as Record<RoleKey, number>;
   const breakdown = {} as Record<RoleKey, RoleTargetBreakdown>;
-  let total = 0;
 
   for (const role of ROLE_KEYS) {
     const archetypeTarget = base[role] * archetypeMults[role];
@@ -327,7 +326,6 @@ export function getDynamicRoleTargets(
     const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
     const finalCount = Math.max(softFloor, Math.round(afterPacing));
     result[role] = finalCount;
-    total += finalCount;
 
     breakdown[role] = {
       edhrecCount: edhrecCounts ? edhrecCounts[role] : null,
@@ -337,27 +335,25 @@ export function getDynamicRoleTargets(
     };
   }
 
-  // Cap total to reasonable range (scaled by format). The ceiling is raised from the historical
-  // 0.35/0.28 to make room for the protection role ADDITIVELY — protection (~4 base) sits on top of
-  // ramp/removal/draw/wipes rather than cannibalizing them, so the four original roles keep their counts.
-  const maxTotal = Math.round(format * 0.39); // ~39 for 99
-  const minTotal = Math.round(format * 0.31); // ~31 for 99
+  // Cap/floor the total to a reasonable range (scaled by format). Protection is purely ADDITIVE — it
+  // sits on top of ramp/removal/draw/wipes rather than cannibalizing them — so the bounds apply to the
+  // FOUR ORIGINAL roles only (at the historical 0.28/0.35 ratios) and protection is left untouched.
+  // (Scaling all five together would let protection's ~4 base inflate or deflate the originals, which
+  // is exactly what "the four original roles keep their counts" is meant to prevent.)
+  const ORIGINAL_ROLES: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw'];
+  const maxTotal = Math.round(format * 0.35); // ~35 for 99
+  const minTotal = Math.round(format * 0.28); // ~28 for 99
+  const originalTotal = ORIGINAL_ROLES.reduce((s, r) => s + result[r], 0);
 
-  if (total > maxTotal) {
-    const scale = maxTotal / total;
-    for (const role of ROLE_KEYS) {
+  const rescaleOriginals = (scale: number) => {
+    for (const role of ORIGINAL_ROLES) {
       const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
       result[role] = Math.max(softFloor, Math.round(result[role] * scale));
       breakdown[role].blended = result[role];
     }
-  } else if (total < minTotal) {
-    const scale = minTotal / total;
-    for (const role of ROLE_KEYS) {
-      const softFloor = Math.max(role === 'boardwipe' ? 0 : 1, Math.round(base[role] * BASELINE_SOFT_FLOOR));
-      result[role] = Math.max(softFloor, Math.round(result[role] * scale));
-      breakdown[role].blended = result[role];
-    }
-  }
+  };
+  if (originalTotal > maxTotal) rescaleOriginals(maxTotal / originalTotal);
+  else if (originalTotal < minTotal) rescaleOriginals(minTotal / originalTotal);
 
   console.log(
     `[DeckGen] Dynamic role targets: archetype=${archetype}, pacing=${pacing}, blend=${blendWeight}`,

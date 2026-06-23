@@ -108,10 +108,13 @@ export function estimateBracket(
     }
   }
 
-  // ── 3. Interaction count (removal + boardwipe) ──
+  // ── 3. Interaction count (removal + boardwipe + protection) ──
+  // Protection now holds counterspells (previously counted as removal), which are core interaction —
+  // a counterspell answers a threat as surely as a removal spell. Include the protection role so
+  // counterspell-heavy control decks aren't under-counted on interaction.
 
   const interactionCount = roleCounts
-    ? (roleCounts['removal'] ?? 0) + (roleCounts['boardwipe'] ?? 0)
+    ? (roleCounts['removal'] ?? 0) + (roleCounts['boardwipe'] ?? 0) + (roleCounts['protection'] ?? 0)
     : 0;
 
   // ── 4. Hard floor rules ──

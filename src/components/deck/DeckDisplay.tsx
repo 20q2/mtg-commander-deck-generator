@@ -2048,6 +2048,10 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                         counts: generatedDeck.cardDrawSubtypeCounts,
                         entries: [['tutor', 'tutor', 'text-amber-400/80'], ['wheel', 'wheel', 'text-pink-400/80'], ['cantrip', 'cantrip', 'text-sky-400/80'], ['card-draw', 'draw', 'text-blue-400/80'], ['card-advantage', 'other', 'text-indigo-400/80']],
                       },
+                      protection: {
+                        counts: generatedDeck.protectionSubtypeCounts,
+                        entries: [['counterspell', 'counter', 'text-sky-400/80'], ['protection', 'other', 'text-yellow-300/80']],
+                      },
                     };
                     const config = subtypeConfig[key];
                     if (!config?.counts) return null;
@@ -3589,7 +3593,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           const roleBadges: { bgColor: string; title: string; label: string }[] = [];
           if (card.deckRole && showRoles) {
             if (card.multiRole) {
-              for (const role of ['ramp', 'removal', 'boardwipe', 'cardDraw'] as RoleKey[]) {
+              for (const role of ['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[]) {
                 if (cardMatchesRole(card.name, role)) {
                   const badge = getRoleBadgeProps({ ...card, deckRole: role } as ScryfallCard);
                   if (badge) roleBadges.push(badge);
@@ -4875,6 +4879,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
                           { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
                           { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
+                          { mode: 'protection', label: 'Protection', Icon: Shield, color: 'text-yellow-400' },
                           { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
                         ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
                           <button

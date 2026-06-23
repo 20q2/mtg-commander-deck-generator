@@ -67,9 +67,9 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'roles',    label: 'Roles',    icon: Shield as typeof LayoutDashboard },
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
   { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
-  { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
   { key: 'bracket',  label: 'Bracket',  icon: Gauge as typeof LayoutDashboard },
-  { key: 'cost',     label: 'Cost (WIP)',     icon: DollarSign as typeof LayoutDashboard },
+  { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
+  { key: 'cost',     label: 'Cost',     icon: DollarSign as typeof LayoutDashboard },
   { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
 ];
 
@@ -187,6 +187,7 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
   'Cantrip': 'bg-sky-500/15 text-sky-400/80',
   'Card Draw': 'bg-sky-500/15 text-sky-400/80',
   'Card Advantage': 'bg-sky-500/15 text-sky-400/80',
+  'Protection': 'bg-yellow-500/15 text-yellow-400/80',
   // Land classification tags
   'Utility': 'bg-violet-500/15 text-violet-400/80',
   'Tapland': 'bg-amber-500/15 text-amber-400/80',

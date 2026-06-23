@@ -1534,6 +1534,7 @@ export const ROLE_SUBTYPES: Record<string, string[]> = {
   removal: ['bounce', 'spot-removal', 'removal'],
   boardwipe: ['bounce-wipe', 'boardwipe'],
   cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
+  protection: ['counterspell', 'protection'],
 };
 
 export interface ScoringContext {

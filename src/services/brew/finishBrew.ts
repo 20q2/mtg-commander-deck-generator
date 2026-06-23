@@ -3,7 +3,8 @@ import { generateDeck } from '@/services/deckBuilder/deckGenerator';
 import type { BrewContext, BrewState } from './engine';
 import { leaningThemeResults } from './identity';
 
-/** Never drop a commander deck below this many lands, whatever the philosophy asks for. */
+/** Don't let a philosophy's land delta drop a deck below this many lands. Never inflates a base the
+ *  player deliberately set below it — only guards against the delta pushing an already-fine count too low. */
 const LAND_FLOOR = 34;
 
 /**
@@ -45,7 +46,10 @@ export async function finishBrew(
   // the generator's existing land-target math. "Keep it balanced" (undefined) leaves it untouched.
   if (landStyle) {
     const profile = PHILOSOPHY_PROFILE[landStyle];
-    customization.landCount = Math.max(LAND_FLOOR, customization.landCount + profile.landDelta);
+    // The floor only catches the delta dropping lands too low; it never raises a base the player set
+    // below it (so picking a delta-0 style on a deliberately-low land count is a no-op, as intended).
+    const floor = Math.min(customization.landCount, LAND_FLOOR);
+    customization.landCount = Math.max(floor, customization.landCount + profile.landDelta);
     customization.nonBasicLandCount = Math.max(0, Math.min(customization.landCount, customization.nonBasicLandCount + profile.nonBasicDelta));
   }
   let collectionNames: Set<string> | undefined;

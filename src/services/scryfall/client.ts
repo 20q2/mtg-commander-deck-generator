@@ -166,7 +166,12 @@ async function scryfallFetch<T>(endpoint: string): Promise<T> {
  * that simply aren't commander-legal (playtest cards like "Rusko, Clockmaker").
  */
 function isCommanderLegalOrUpcoming(card: ScryfallCard): boolean {
-  if (card.legalities?.commander === 'legal') return true;
+  const legality = card.legalities?.commander;
+  if (legality === 'legal') return true;
+  // Backstop: never offer an explicitly banned commander, even if it's dated today/future. Dropping
+  // `f:commander` means we no longer get format-legality for free, so a future-dated-but-banned card
+  // would otherwise slip through the upcoming-paper path below.
+  if (legality === 'banned') return false;
   const isPaper = card.games?.includes('paper') ?? false;
   const today = new Date().toISOString().slice(0, 10);
   const releasesTodayOrLater = !!card.released_at && card.released_at >= today;

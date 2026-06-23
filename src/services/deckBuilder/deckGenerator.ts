@@ -27,7 +27,7 @@ import {
   calculateCurveTargets,
   hasCurveRoom,
 } from './curveUtils';
-import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
+import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
 import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
@@ -775,6 +775,7 @@ export function stampRoleSubtypes(card: ScryfallCard): void {
   card.removalSubtype = getRemovalSubtype(card.name) ?? undefined;
   card.boardwipeSubtype = getBoardwipeSubtype(card.name) ?? undefined;
   card.cardDrawSubtype = getCardDrawSubtype(card.name) ?? undefined;
+  card.protectionSubtype = getProtectionSubtype(card.name) ?? undefined;
 }
 
 /** Map a ScryfallCard to a type-based swap bucket key, or null for lands. */
@@ -864,6 +865,7 @@ const ROLE_SUBTYPES: Record<string, string[]> = {
   removal: ['bounce', 'spot-removal', 'removal'],
   boardwipe: ['bounce-wipe', 'boardwipe'],
   cardDraw: ['tutor', 'wheel', 'cantrip', 'card-draw', 'card-advantage'],
+  protection: ['counterspell', 'protection'],
 };
 
 function computeRoleBoosts(
@@ -4479,12 +4481,14 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       const removalSub: Record<string, number> = { bounce: 0, 'spot-removal': 0, removal: 0 };
       const boardwipeSub: Record<string, number> = { 'bounce-wipe': 0, boardwipe: 0 };
       const cardDrawSub: Record<string, number> = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
+      const protectionSub: Record<string, number> = { counterspell: 0, protection: 0 };
       for (const cards of Object.values(categories)) {
         for (const card of cards) {
           if (card.rampSubtype) rampSub[card.rampSubtype] = (rampSub[card.rampSubtype] || 0) + 1;
           if (card.removalSubtype) removalSub[card.removalSubtype] = (removalSub[card.removalSubtype] || 0) + 1;
           if (card.boardwipeSubtype) boardwipeSub[card.boardwipeSubtype] = (boardwipeSub[card.boardwipeSubtype] || 0) + 1;
           if (card.cardDrawSubtype) cardDrawSub[card.cardDrawSubtype] = (cardDrawSub[card.cardDrawSubtype] || 0) + 1;
+          if (card.protectionSubtype) protectionSub[card.protectionSubtype] = (protectionSub[card.protectionSubtype] || 0) + 1;
         }
       }
       return {
@@ -4492,6 +4496,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         removalSubtypeCounts: removalSub,
         boardwipeSubtypeCounts: boardwipeSub,
         cardDrawSubtypeCounts: cardDrawSub,
+        protectionSubtypeCounts: protectionSub,
       };
     })() : {},
     swapCandidates,

@@ -84,6 +84,7 @@ export type RampSubtype = 'mana-producer' | 'mana-rock' | 'cost-reducer' | 'ramp
 export type RemovalSubtype = 'bounce' | 'spot-removal' | 'removal';
 export type BoardwipeSubtype = 'bounce-wipe' | 'boardwipe';
 export type CardDrawSubtype = 'tutor' | 'wheel' | 'cantrip' | 'card-draw' | 'card-advantage';
+export type ProtectionSubtype = 'counterspell' | 'protection';
 
 /**
  * The tagger tags that make a card count toward each role — the single source of truth for "what
@@ -194,6 +195,14 @@ export function getCardDrawSubtype(cardName: string): CardDrawSubtype | null {
   return 'card-advantage';
 }
 
+/** For cards with the 'protection' role, return the specific subtype. */
+export function getProtectionSubtype(cardName: string): ProtectionSubtype | null {
+  if (!tagSets) return null;
+  if (tagSets['counterspell']?.has(cardName)) return 'counterspell';
+  if (tagSets['protection']?.has(cardName)) return 'protection';
+  return null;
+}
+
 /** Get the subtype of a card for its primary role (if any). */
 export function getCardSubtype(cardName: string): string | null {
   const role = getCardRole(cardName);
@@ -203,6 +212,7 @@ export function getCardSubtype(cardName: string): string | null {
     case 'removal': return getRemovalSubtype(cardName);
     case 'boardwipe': return getBoardwipeSubtype(cardName);
     case 'cardDraw': return getCardDrawSubtype(cardName);
+    case 'protection': return getProtectionSubtype(cardName);
     default: return null;
   }
 }

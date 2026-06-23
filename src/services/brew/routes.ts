@@ -159,13 +159,13 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
   // trust the synergy graph / take a swing). Surfaced as ROTATING extras so the fork stays a real
   // menu fork-to-fork instead of always "Open a Pack". slice(0,3) below keeps the pack (+ combo).
   const extras: BrewRoute[] = [];
-  // Headliner — commit to one of four standouts. A regular option now (no longer alternating-only),
-  // but withheld near completion so it doesn't crowd the converging late deck.
+  // Headliner — four standouts; take as many as you want, the rest are gone. A regular option now
+  // (no longer alternating-only), but withheld near completion so it doesn't crowd the late deck.
   if (draftableLeft && fillRatio < 0.9) {
     extras.push({
       id: 'draft:elite', type: 'draft', title: 'Headliner',
-      description: `Four standouts, one slot — commit to a single card.${leanFlavor}`,
-      targetRole: null, targetType: null, tone: 'theme', tag: 'Pick 1 of 4', fills: 1,
+      description: `Four standouts — take any of them, leave the rest.${leanFlavor}`,
+      targetRole: null, targetType: null, tone: 'theme', tag: 'Pick & choose', fills: 1,
     });
   }
   // Hidden Synergy — draft a card the relationship graph surfaced for YOUR picks. Only when the
@@ -179,8 +179,13 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     });
   }
   // Take a Gamble — a deep-cut, off-meta swing (resolves through the gamble event: a reveal + leap,
-  // and the leap seeds fresh discoveries). Only once the deck has a shape to gamble against.
-  if (state.picks.length >= GAMBLE_FORK_MIN && draftableLeft) {
+  // and the leap seeds fresh discoveries). Only once the deck has a shape to gamble against, AND only
+  // when an un-fired deep cut actually exists — mirrors gambleEvent's eligibility so the route never
+  // resolves to a card-less dead-end (gambleEvent filters out used + already-fired `gamble:<name>`).
+  const firedGamble = new Set(state.firedEventIds);
+  const hasGambleCard = [...ctx.candidates, ...state.discovered]
+    .some(c => !c.isLand && !usedSet.has(c.name) && !firedGamble.has(`gamble:${c.name}`));
+  if (state.picks.length >= GAMBLE_FORK_MIN && hasGambleCard) {
     extras.push({
       id: 'gamble', type: 'gamble', title: 'Take a Gamble',
       description: 'A deep cut almost no one runs in decks like yours — take the leap and see what it pulls in.',

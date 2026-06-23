@@ -1,8 +1,8 @@
-import { useState, type MouseEvent } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
@@ -42,7 +42,7 @@ const REASON_CHIP: Record<string, string> = {
 
 // Role chips lead with their operation icon (matching the routes/backdrop) instead of the word "Fills".
 const ROLE_ICON: Record<string, LucideIcon> = {
-  Ramp: Sprout, Removal: Crosshair, 'Board Wipes': Bomb, 'Card Advantage': BookOpen,
+  Ramp: Sprout, Removal: Crosshair, 'Board Wipes': Bomb, 'Card Advantage': BookOpen, Protection: Shield,
 };
 
 // Each pack in a multi-pack round wears its direction: a need it fills, your theme, or a lift find.
@@ -57,10 +57,17 @@ const PACK_FLAVOR: Record<string, { color: string; Icon: LucideIcon; tag: string
 export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState } = useStore();
   const [chosenId, setChosenId] = useState<string | null>(null);
+  // Headliner: multi-select. The set of option ids the player has toggled on, plus a commit flag
+  // that fires the fly-to-deck animation once they lock in their picks.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [committing, setCommitting] = useState(false);
   // Hovering a (small) card pops a full, readable preview anchored beside it.
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   // A pack that secretly held a gold card flashes its windfall here before the pick commits.
   const [reveal, setReveal] = useState<BrewCandidate | null>(null);
+  // Clear any headliner selection when the offered cards change (reroll, back, next node).
+  const shownKey = brewNode ? `${brewNode.routeId}|${brewNode.options.flatMap(o => o.cards.map(c => c.name)).join(',')}` : '';
+  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); }, [shownKey]);
   if (!brewNode) return null;
 
   const hoverPreview = (card: ScryfallCard) => ({
@@ -70,7 +77,13 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
 
   const op = operationTheme(brewNode.type, routeKey(brewNode.routeId));
 
-  const exiting = chosenId !== null;
+  // The Headliner draft lets you take any number of the four standouts at once (no pinning); every
+  // other draft (Hidden Synergy) stays a single-card pick.
+  const isHeadliner = brewNode.type === 'draft' && routeKey(brewNode.routeId) === 'elite';
+  const exiting = chosenId !== null || committing;
+  // A card is on its way to the deck if it's the chosen single pick, or — for the headliner — one of
+  // the selected cards now committing. Everything else melts away.
+  const goingToDeck = (id: string) => id === chosenId || (committing && selectedIds.has(id));
   const allShown = brewNode.options.flatMap(o => o.cards.map(c => c.name));
   // Packaged choices (a bundle, the lightning five, a multi-piece combo) render as a group of
   // smaller card images; a single-card choice renders one large "hero" card, Slay-the-Spire style.
@@ -101,6 +114,32 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     }
   }
 
+  // Headliner: clicking a card toggles it in/out of your selection (no immediate commit).
+  function toggleSelect(id: string) {
+    if (exiting) return;
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // Headliner: lock in every selected card as one pick (the rest are passed and gone).
+  function commitSelection() {
+    if (exiting || selectedIds.size === 0 || !brewNode) return;
+    const chosen = brewNode.options.filter(o => selectedIds.has(o.id));
+    const combined: BrewOption = {
+      id: chosen.length === 1 ? chosen[0].id : 'draft:multi',
+      cards: chosen.flatMap(o => o.cards),
+      reasons: chosen.flatMap(o => o.reasons),
+    };
+    const taken = new Set(combined.cards.map(c => c.name));
+    const passed = allShown.filter(n => !taken.has(n));
+    setHover(null);
+    setCommitting(true);                           // play the fly-to-deck / melt-away animation…
+    window.setTimeout(() => applyBrewOption(combined, passed), 380); // …then commit all of them
+  }
+
   return (
     <div className="text-center" style={{ ['--op' as string]: `hsl(${op.color})`, ['--op-soft' as string]: `hsl(${op.color} / 0.5)` }}>
       <h2 className="font-display text-2xl font-semibold tracking-tight mb-1" style={{ textShadow: `0 2px 22px hsl(${op.color} / 0.35)` }}>
@@ -108,6 +147,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
       </h2>
       <p className="text-xs text-muted-foreground mb-7 mx-auto max-w-md">
         {brewNode.type === 'bundle' ? 'Every card in the pack you pick joins your deck and steers which packs come next.'
+          : isHeadliner ? 'Pick any number of these standouts. The rest are gone.'
           : brewNode.type === 'draft' ? 'Take one card. The rest are gone.'
           : brewNode.type === 'combo' ? 'Pick a combo to finish, or pass.'
           : 'Take one card.'}
@@ -223,19 +263,24 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[130%] blur-3xl z-0"
           style={{ background: `radial-gradient(ellipse at center, hsl(${op.color} / 0.10), transparent 70%)` }}
         />
-        {brewNode.options.map((option, idx) => (
+        {brewNode.options.map((option, idx) => {
+          const isSelected = isHeadliner && selectedIds.has(option.id);
+          return (
           <button
             key={option.id}
-            onClick={() => choose(option)}
+            onClick={() => (isHeadliner ? toggleSelect(option.id) : choose(option))}
             disabled={exiting}
+            aria-pressed={isHeadliner ? isSelected : undefined}
             style={exiting ? undefined : { animationDelay: `${idx * 70}ms` }}
             className={`group relative z-10 flex flex-col items-center gap-2 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--op)] ${
               isCombo
                 ? 'px-4 pt-3 pb-4 border border-border/50 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-colors duration-200 hover:border-[color:var(--op)] hover:bg-card/60'
                 : 'p-1'
             } ${
+              isSelected ? 'ring-2 ring-[color:var(--op)] ring-offset-2 ring-offset-background' : ''
+            } ${
               exiting
-                ? (option.id === chosenId ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
+                ? (goingToDeck(option.id) ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
                 : 'animate-brew-card-in'
             }`}
           >
@@ -302,8 +347,22 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 return (
                   <div key={c.name} className={`${cardW} relative flex flex-col items-center`}>
                     <RoleBadges cardName={c.name} size={packaged ? 'sm' : 'md'} />
-                    {/* Pin-for-later: keep a card you're not taking now; it resurfaces in later offers. */}
-                    {brewNode.type === 'draft' && (() => {
+                    {/* Headliner: a selection check that reflects whether this standout is in your pick.
+                        The whole card toggles it, so this badge is purely a visual read-out. */}
+                    {isHeadliner && (
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none absolute -top-2 right-1 z-20 grid place-items-center w-6 h-6 rounded-full border backdrop-blur-sm transition-colors ${
+                          isSelected
+                            ? 'border-[color:var(--op)] bg-[color:var(--op)] text-background'
+                            : 'border-border/60 bg-black/55 text-muted-foreground group-hover:border-[color:var(--op)]/60'
+                        }`}
+                      >
+                        {isSelected ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
+                      </span>
+                    )}
+                    {/* Pin-for-later (other drafts): keep a card you're not taking now; it resurfaces later. */}
+                    {brewNode.type === 'draft' && !isHeadliner && (() => {
                       const isPinned = (brewState?.pinnedNames ?? []).includes(c.name);
                       return (
                         <span
@@ -359,8 +418,25 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               })}
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
+      )}
+
+      {/* Headliner: a single CTA to lock in everything you've selected (the rest are gone). */}
+      {isHeadliner && brewNode.options.length > 0 && (
+        <div className="mt-8 flex justify-center">
+          <Button
+            className="btn-shimmer"
+            disabled={exiting || selectedIds.size === 0}
+            onClick={commitSelection}
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            {selectedIds.size === 0
+              ? 'Select at least one'
+              : `Take ${selectedIds.size} ${selectedIds.size === 1 ? 'card' : 'cards'} — leave the rest`}
+          </Button>
+        </div>
       )}
 
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">

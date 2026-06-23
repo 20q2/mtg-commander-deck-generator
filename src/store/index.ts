@@ -498,6 +498,11 @@ export const useStore = create<AppState>((set, get) => ({
     if (route.type === 'gamble') {
       const event = gambleEvent(brewContext, brewState);
       if (event) { set({ brewEvent: event, brewNode: null, brewRerollExclusions: [] }); return; }
+      // No eligible deep cut left (nextRoutes should suppress the route in this case, but guard here
+      // too): openNode has no 'gamble' case and would render a card-less, can't-pass dead-end. Drop the
+      // player onto a fresh pack instead so the fork stays playable.
+      set({ brewNode: buildPackNode(brewContext, brewState), brewRerollExclusions: [] });
+      return;
     }
     const node = openNode(brewContext, brewState, route);
     set({ brewNode: node, brewRerollExclusions: [] });

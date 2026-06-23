@@ -1626,6 +1626,7 @@ export function DeckOptimizer({
             sideboardNames={sideboardNames ?? []}
             maybeboardNames={maybeboardNames ?? []}
             onPreviewCard={handlePreview}
+            onPreviewCardObject={setPreviewCard}
             onApplyPlan={async (removeNames, addNames) => {
               // Suggestions may come from EDHREC recommendations that have never
               // been hydrated into the Scryfall cache. Some consumers of

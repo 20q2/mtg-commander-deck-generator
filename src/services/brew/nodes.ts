@@ -182,7 +182,7 @@ const BUNDLE_COUNT = 3;        // packs offered per node
  */
 const BUNDLE_FLAVOR: Record<string, string> = {
   // roles
-  ramp: 'Fuel the Engine', removal: 'Clean Sweep', boardwipe: 'Scorched Earth', cardDraw: 'Draw Deep',
+  ramp: 'Fuel the Engine', removal: 'Clean Sweep', boardwipe: 'Scorched Earth', cardDraw: 'Draw Deep', protection: 'Stand Firm',
   // card types
   creature: 'Field an Army', instant: 'Hold Up Answers', sorcery: 'Big Plays',
   artifact: 'The Engine', enchantment: 'Lasting Power', planeswalker: 'Call in Allies',
@@ -197,7 +197,7 @@ const BUNDLE_FLAVOR: Record<string, string> = {
 
 // Role needs keep an accurate, evocative name (a Removal pack genuinely IS a "Clean Sweep"); type
 // needs stay plain ("Creatures") so the name never promises a strategy the cards don't actually share.
-const ROLE_NEED_SLUGS = new Set(['ramp', 'removal', 'boardwipe', 'cardDraw']);
+const ROLE_NEED_SLUGS = new Set(['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection']);
 
 /** Cluster key like 'need:removal' | 'theme:tokens' | 'discovery' | 'pack:a' → its display title. */
 function bundleName(ctx: BrewContext, key: string, fallbackLabel: string): string {
@@ -412,10 +412,10 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
       canPass: true };
   }
 
-  // The elite draft: one card per option, pick exactly one, lose the rest. The high-stakes beat.
+  // The elite draft: one card per option. Take as many standouts as you want; the rest are gone.
   if (route.type === 'draft') {
     const top = availableFor(ctx, state, route).slice(0, ELITE_PICKS);
-    return { routeId: route.id, type: 'draft', prompt: `${route.title} — take one, leave the rest`,
+    return { routeId: route.id, type: 'draft', prompt: `${route.title} — take your pick`,
       options: top.map((c, i) => toOption(ctx, state, [c], `draft:${i}`, undefined, finishers)),
       canPass: false };
   }
