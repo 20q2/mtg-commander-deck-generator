@@ -1,17 +1,33 @@
-import { useMemo, useState } from 'react';
-import { ClipboardPaste, Layers, ListChecks, Loader2, Compass, HelpCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ClipboardPaste, Layers, ListChecks, Loader2, Compass, HelpCircle, Shuffle } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
+import { loadTagDictionary, allTags } from '@/services/spellchroma/tagIndex';
+import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { parseDecklist } from './DeckInput';
 import type { ScryfallCard, UserCardList } from '@/types';
 
 type Lane = 'paste' | 'decks' | 'lists';
 
-// Confident, common oracle-tag slugs for the "jump straight in" chips.
-const STARTER_TAGS = ['ramp', 'removal', 'card-advantage', 'counterspell', 'tutor', 'lifegain', 'sacrifice-outlet', 'draw'];
+// How many "jump straight in" chips to show.
+const STARTER_TAG_COUNT = 8;
+
+// Confident, common oracle-tag slugs — shown until the full dictionary loads,
+// then used as a fallback if the dictionary is unavailable.
+const FALLBACK_STARTER_TAGS = ['ramp', 'removal', 'card-advantage', 'counterspell', 'tutor', 'lifegain', 'sacrifice-outlet', 'draw'];
+
+// Fisher–Yates sample — pick `n` random items without mutating the source.
+function sampleTags(pool: string[], n: number): string[] {
+  const a = [...pool];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, n);
+}
 
 const TABS: { key: Lane; label: string; icon: typeof ClipboardPaste }[] = [
   { key: 'paste', label: 'Paste',      icon: ClipboardPaste },
@@ -31,6 +47,18 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  // Random starter chips, sampled from the de-noised tag dictionary so each
+  // visit can surface something unexpected. `seed` re-rolls on the shuffle
+  // button. Falls back to the curated list until the dictionary loads.
+  const [dictReady, setDictReady] = useState(() => allTags().length > 0);
+  const [seed, setSeed] = useState(0);
+  useEffect(() => { void loadTagDictionary().then(() => setDictReady(true)); }, []);
+  const starterTags = useMemo(() => {
+    void seed; // re-sample when the shuffle button bumps the seed
+    const pool = allTags().map(t => t.s).filter(s => !isIgnoredTag(s));
+    return pool.length >= STARTER_TAG_COUNT ? sampleTags(pool, STARTER_TAG_COUNT) : FALLBACK_STARTER_TAGS;
+  }, [dictReady, seed]);
 
   // Decks = commander decks or anything explicitly typed 'deck'. Lists = the rest.
   const decks = useMemo(
@@ -152,11 +180,22 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
       <div className="max-w-3xl mx-auto mt-6 text-center">
         <div className="flex items-center gap-3 mb-3">
           <div className="flex-1 h-px bg-border/40" />
-          <span className="text-xs text-muted-foreground">or jump straight in with a tag</span>
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            or jump straight in with a tag
+            <button
+              type="button"
+              onClick={() => setSeed(s => s + 1)}
+              title="Shuffle tags"
+              aria-label="Shuffle tags"
+              className="inline-flex items-center justify-center w-5 h-5 rounded-full text-muted-foreground/70 hover:text-violet-200 hover:bg-violet-500/15 transition-colors"
+            >
+              <Shuffle className="w-3 h-3" />
+            </button>
+          </span>
           <div className="flex-1 h-px bg-border/40" />
         </div>
         <div className="flex flex-wrap justify-center gap-1.5">
-          {STARTER_TAGS.map(slug => (
+          {starterTags.map(slug => (
             <button
               key={slug}
               onClick={() => onStarterTag(slug)}
