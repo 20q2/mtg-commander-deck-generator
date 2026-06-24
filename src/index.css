@@ -210,6 +210,64 @@
     to { opacity: 1; }
   }
 
+  /* SpellChroma backdrop fades in to its dimmed resting opacity (0.32), not to
+     full brightness — using the generic 0→1 fade-in overshoots to bright and
+     then snaps back. `forwards` holds the end value across the swap. */
+  .animate-backdrop-in {
+    animation: backdropFadeIn 0.4s ease-out forwards;
+  }
+
+  @keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 0.32; }
+  }
+
+  /* Outgoing backdrop layer during a color-identity crossfade. */
+  .animate-backdrop-out {
+    animation: backdropFadeOut 0.6s ease-out forwards;
+  }
+  @keyframes backdropFadeOut {
+    from { opacity: 0.32; }
+    to { opacity: 0; }
+  }
+
+  /* ── SpellChroma "rich & playful" motion ───────────────────────────────
+     A small, cohesive vocabulary: grid tiles deal in with a springy settle,
+     workbench panes slide in from their sides, the shuffle icon spins. Stagger
+     is applied per-element via inline animation-delay; `backwards`/`both` hold
+     the from-state through the delay so nothing flashes at full opacity first. */
+  .animate-sc-card-in {
+    animation: scCardIn 0.42s cubic-bezier(0.34, 1.4, 0.5, 1) backwards;
+  }
+  @keyframes scCardIn {
+    0%   { opacity: 0; transform: translateY(18px) scale(0.94); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  .animate-sc-pane-left {
+    animation: scPaneLeft 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+  }
+  @keyframes scPaneLeft {
+    from { opacity: 0; transform: translateX(-26px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .animate-sc-pane-right {
+    animation: scPaneRight 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+  }
+  @keyframes scPaneRight {
+    from { opacity: 0; transform: translateX(26px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .animate-sc-spin {
+    animation: scSpin 0.5s cubic-bezier(0.34, 1.3, 0.5, 1);
+  }
+  @keyframes scSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+
   /* ---- Collection commander spotlight (carousel) ---- */
   .animate-spotlight-in {
     animation: spotlightIn 0.45s cubic-bezier(0.22, 0.9, 0.32, 1) both;
