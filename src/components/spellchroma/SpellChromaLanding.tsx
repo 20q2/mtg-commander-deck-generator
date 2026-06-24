@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle } from 'lucide-react';
+import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle, Tag } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -202,8 +202,9 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
             <button
               key={slug}
               onClick={() => onStarterTag(slug)}
-              className="px-2.5 py-1 rounded-full text-xs bg-violet-500/12 text-violet-200 border border-violet-500/25 hover:bg-violet-500/25 hover:scale-105 transition-[transform,background-color]"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-violet-500/12 text-violet-200 border border-violet-500/25 hover:bg-violet-500/25 hover:scale-105 transition-[transform,background-color]"
             >
+              <Tag className="w-3 h-3 opacity-70" />
               {slug}
             </button>
           ))}

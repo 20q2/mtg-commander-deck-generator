@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ScryfallCard } from '@/types';
-import { searchTagPage, searchAllTagPages, type ExplorerSort } from '@/services/spellchroma/explorerSearch';
+import {
+  searchTagPage,
+  searchAllTagPages,
+  type ExplorerSort,
+  type ExplorerFilters,
+} from '@/services/spellchroma/explorerSearch';
 
 interface ExplorerState {
   cards: ScryfallCard[];
@@ -15,19 +20,26 @@ const EMPTY: ExplorerState = { cards: [], total: 0, hasMore: false, loading: fal
 
 /**
  * Drives the explorer results. Page 1 refetches on any change to the (tags,
- * colors, sort) key; `loadAll` fetches remaining pages and appends. An async
+ * filters, sort) key; `loadAll` fetches remaining pages and appends. An async
  * token guards against out-of-order responses when the key changes mid-flight.
  */
-export function useExplorerSearch(slugs: string[], colorIdentity: string[], sort: ExplorerSort) {
+export function useExplorerSearch(slugs: string[], filters: ExplorerFilters, sort: ExplorerSort) {
   const [state, setState] = useState<ExplorerState>(EMPTY);
   const tokenRef = useRef(0);
-  const key = `${[...slugs].sort().join(',')}|${[...colorIdentity].sort().join('')}|${sort}`;
+  const key = [
+    [...slugs].sort().join(','),
+    [...filters.colorIdentity].sort().join(''),
+    filters.colorMode,
+    [...filters.excludedColors].sort().join(''),
+    [...filters.typeFilter].sort().join(','),
+    sort,
+  ].join('|');
 
   useEffect(() => {
     if (slugs.length === 0) { setState(EMPTY); return; }
     const token = ++tokenRef.current;
     setState(s => ({ ...EMPTY, loading: true, cards: s.cards }));
-    searchTagPage(slugs, colorIdentity, sort, 1)
+    searchTagPage(slugs, filters, sort, 1)
       .then(res => {
         if (token !== tokenRef.current) return; // stale
         setState({
@@ -39,7 +51,7 @@ export function useExplorerSearch(slugs: string[], colorIdentity: string[], sort
         if (token !== tokenRef.current) return;
         setState({ ...EMPTY, error: true });
       });
-    // key encodes slugs+colors+sort; intentionally the only dependency.
+    // key encodes slugs+filters+sort; intentionally the only dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
@@ -48,7 +60,7 @@ export function useExplorerSearch(slugs: string[], colorIdentity: string[], sort
     const token = tokenRef.current;
     setState(s => ({ ...s, loadingAll: true }));
     try {
-      const all = await searchAllTagPages(slugs, colorIdentity, sort,
+      const all = await searchAllTagPages(slugs, filters, sort,
         { object: 'list', total_cards: state.total, has_more: true, data: state.cards });
       if (token !== tokenRef.current) return;
       setState(s => ({ ...s, cards: all, hasMore: false, loadingAll: false }));

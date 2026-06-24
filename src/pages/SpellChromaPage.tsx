@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadTagDictionary, loadTagIndex, aggregateDeckTags } from '@/services/spellchroma/tagIndex';
 import type { ExplorerSort, ColorMatch } from '@/services/spellchroma/explorerSearch';
 import { useExplorerSearch } from '@/components/spellchroma/useExplorerSearch';
@@ -12,6 +12,7 @@ import { SpellChromaBackdrop } from '@/components/spellchroma/SpellChromaBackdro
 import { DeckContextPanel } from '@/components/spellchroma/DeckContextPanel';
 import type { CardAction } from '@/components/deck/DeckDisplay';
 import { useUserLists } from '@/hooks/useUserLists';
+import { useCollection } from '@/hooks/useCollection';
 import { useStore } from '@/store';
 import { SiteFooter } from '@/components/SiteFooter';
 import type { ScryfallCard } from '@/types';
@@ -27,6 +28,7 @@ export function SpellChromaPage() {
   const [deck, setDeck] = useState<ScryfallCard[] | null>(null);
   const [indexReady, setIndexReady] = useState(false);
   const [startedExploring, setStartedExploring] = useState(false);
+  const [hideInDeck, setHideInDeck] = useState(false);
 
   useEffect(() => { void loadTagDictionary(); }, []);
 
@@ -109,6 +111,26 @@ export function SpellChromaPage() {
   // at a glance which results you already run. Updates live as cards are added.
   const deckNames = useMemo(() => new Set((deck ?? []).map(c => c.name)), [deck]);
 
+  // Names in the user's collection — the explorer badges these as "owned".
+  const { cards: collectionCards } = useCollection();
+  const collectionNames = useMemo(() => new Set((collectionCards ?? []).map(c => c.name)), [collectionCards]);
+
+  // The sticky count row pins directly below the toolbar. The toolbar wraps to
+  // multiple rows when many tags/filters are active, so we measure its live
+  // height rather than assuming a fixed 52px. (Declared before any early return
+  // to keep hook order stable.)
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerH, setHeaderH] = useState(52);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const update = () => setHeaderH(el.offsetHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [deck, startedExploring]);
+
   // The landing splash shows until the user loads a deck, picks a starter tag,
   // or explicitly chooses to explore without one.
   const showLanding = !deck && selectedTags.length === 0 && !startedExploring;
@@ -129,9 +151,14 @@ export function SpellChromaPage() {
     );
   }
 
-  const explorer = (
-    <div className="flex flex-col gap-3">
+  // `stickyHeader` pins the toolbar to the top of the workbench explorer pane
+  // (its own scroll container); off in the standalone view, where the window
+  // scrolls under the app's fixed nav.
+  const renderExplorer = (stickyHeader: boolean) => (
+    <div className="flex flex-col">
+      <div ref={stickyHeader ? headerRef : undefined}>
       <TagSearchBar
+        sticky={stickyHeader}
         selectedTags={selectedTags}
         onAddTag={addTag}
         onRemoveTag={removeTag}
@@ -147,7 +174,11 @@ export function SpellChromaPage() {
         onSortChange={setSort}
         textFilter={textFilter}
         onTextFilterChange={setTextFilter}
+        showHideInDeck={!!deck}
+        hideInDeck={hideInDeck}
+        onHideInDeckChange={setHideInDeck}
       />
+      </div>
       <ExplorerGrid
         cards={result.cards}
         total={result.total}
@@ -158,8 +189,12 @@ export function SpellChromaPage() {
         hasTags={selectedTags.length > 0}
         textFilter={textFilter}
         sort={sort}
+        sticky={stickyHeader}
+        stickyTop={headerH}
         dealKey={`${selectedTags.join(',')}|${colorIdentity.join('')}|${colorMode}|${excludedColors.join('')}|${typeFilter.join(',')}`}
         deckNames={deckNames}
+        collectionNames={collectionNames}
+        hideInDeck={hideInDeck}
         onLoadAll={result.loadAll}
         onTagClick={addTag}
         onCardAction={handleCardAction}
@@ -178,10 +213,10 @@ export function SpellChromaPage() {
           deck={
             <DeckContextPanel
               cards={deck}
-              colorIdentity={colorIdentity}
               topTags={topTags}
               selectedTags={selectedTags}
               onTagClick={addTag}
+              onRemoveTag={removeTag}
               onCardAction={handleCardAction}
               menuProps={menuProps}
               headerExtra={
@@ -192,7 +227,7 @@ export function SpellChromaPage() {
               }
             />
           }
-          explorer={explorer}
+          explorer={renderExplorer(true)}
         />
       </>
     );
@@ -211,7 +246,7 @@ export function SpellChromaPage() {
             Deck options
           </Button>
         </div>
-        {explorer}
+        {renderExplorer(false)}
       </div>
       <SiteFooter />
     </div>

@@ -245,7 +245,7 @@
   }
 
   .animate-sc-pane-left {
-    animation: scPaneLeft 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+    animation: scPaneLeft 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) backwards;
   }
   @keyframes scPaneLeft {
     from { opacity: 0; transform: translateX(-26px); }

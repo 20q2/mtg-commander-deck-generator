@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { Tags } from 'lucide-react';
+import { Tags, Tag } from 'lucide-react';
 import type { DeckTagCount } from '@/services/spellchroma/tagIndex';
 
 interface TopTagsStripProps {
@@ -46,6 +46,7 @@ export function TopTagsStrip({ tags, selected, onTagClick, limit = 24 }: TopTags
                     : 'bg-violet-500/12 text-violet-100/90 border-violet-500/25 hover:bg-violet-500/25'
               }`}
             >
+              <Tag className="w-3 h-3 opacity-70" />
               {t.slug}
               <span className="opacity-60 tabular-nums">{t.count}</span>
             </button>

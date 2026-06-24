@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { Check } from 'lucide-react';
+import { Check, Plus, ChevronsDown, Loader2, Layers } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { randomLoadingPhrase } from '@/services/spellchroma/loadingPhrases';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { typeRank, type ExplorerSort } from '@/services/spellchroma/explorerSearch';
+import { AddTagPopover } from './AddTagPopover';
 import type { DeckPanelMenuProps } from './DeckContextPanel';
 
 // Per-tile entrance delay for the staggered "deal-in". Capped so a large result
@@ -29,6 +30,14 @@ interface ExplorerGridProps {
   dealKey?: string;
   /** Names of cards already in the loaded deck — those tiles get an "in deck" badge. */
   deckNames?: Set<string>;
+  /** Names of cards in the user's collection — those tiles get an "owned" badge. */
+  collectionNames?: Set<string>;
+  /** When true, in-deck cards are dropped from the grid entirely. */
+  hideInDeck?: boolean;
+  /** Pin the count row just below the (also-sticky) toolbar in the workbench pane. */
+  sticky?: boolean;
+  /** Pixel offset for the sticky count row — the measured toolbar height. */
+  stickyTop?: number;
   onLoadAll: () => void;
   onTagClick?: (slug: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
@@ -36,7 +45,7 @@ interface ExplorerGridProps {
 }
 
 export function ExplorerGrid({
-  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dealKey, deckNames, onLoadAll, onTagClick,
+  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dealKey, deckNames, collectionNames, hideInDeck = false, sticky = false, stickyTop = 52, onLoadAll, onTagClick,
   onCardAction, menuProps,
 }: ExplorerGridProps) {
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
@@ -71,9 +80,26 @@ export function ExplorerGrid({
     return [...filtered].sort((a, b) => typeRank(a) - typeRank(b));
   }, [filtered, sort]);
 
+  // Optionally drop cards already in the loaded deck.
+  const visible = useMemo(
+    () => (hideInDeck && deckNames ? ordered.filter(c => !deckNames.has(c.name)) : ordered),
+    [ordered, hideInDeck, deckNames],
+  );
+  const hiddenCount = ordered.length - visible.length;
+
   // States that pre-empt the grid.
   if (!hasTags) {
-    return <Empty title="Pick a tag to start exploring" sub="Add an oracle tag above — try “ramp”, “sacrifice-outlet”, or “treasure”." />;
+    return (
+      <Empty title="Pick a tag to start exploring" sub="Add an oracle tag — try “ramp”, “sacrifice-outlet”, or “treasure”."
+        action={onTagClick && (
+          <AddTagPopover selectedTags={[]} onAddTag={onTagClick} align="center">
+            <Button size="sm" className="gap-1.5 mt-2 bg-violet-600 hover:bg-violet-500 text-white">
+              <Plus className="w-4 h-4" /> Add tag
+            </Button>
+          </AddTagPopover>
+        )}
+      />
+    );
   }
   if (error) {
     return <Empty title="Search failed" sub="Scryfall didn’t respond. Try again or change tags." />;
@@ -87,26 +113,32 @@ export function ExplorerGrid({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+      <div style={sticky ? { top: stickyTop } : undefined}
+        className={`flex items-center justify-between text-xs text-muted-foreground px-3 py-2 border-b border-border/50 bg-card/95 backdrop-blur-sm ${sticky ? 'sticky z-20' : ''}`}>
         <span>
-          {filtered.length === cards.length
+          {filtered.length === cards.length && hiddenCount === 0
             ? `Showing ${cards.length} of ${total}`
-            : `Showing ${filtered.length} of ${cards.length} loaded (${total} total)`}
+            : `Showing ${visible.length} of ${cards.length} loaded (${total} total)`}
+          {hiddenCount > 0 && <span className="text-violet-300/70"> · {hiddenCount} in deck hidden</span>}
         </span>
         {hasMore && (
-          <Button variant="outline" size="sm" onClick={onLoadAll} disabled={loadingAll}>
+          <Button variant="outline" size="sm" onClick={onLoadAll} disabled={loadingAll} className="gap-1.5 text-white">
+            {loadingAll
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <ChevronsDown className="w-3.5 h-3.5" />}
             {loadingAll ? 'Loading…' : `Load all ${total}`}
           </Button>
         )}
       </div>
 
-      <div key={dealKey} ref={gridRef} className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
-        {ordered.map((card, i) => (
+      <div key={dealKey} ref={gridRef} className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
+        {visible.map((card, i) => (
           <ExplorerCard
             key={card.id}
             card={card}
             index={i}
             inDeck={!!deckNames?.has(card.name)}
+            inCollection={!!collectionNames?.has(card.name)}
             onSelect={setPreview}
             onCardAction={onCardAction}
             menuProps={menuProps}
@@ -124,46 +156,53 @@ export function ExplorerGrid({
   );
 }
 
-function Empty({ title, sub }: { title: string; sub: string }) {
+function Empty({ title, sub, action }: { title: string; sub: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-20 px-6 gap-1">
       <p className="text-foreground/90 font-medium">{title}</p>
       <p className="text-sm text-muted-foreground max-w-sm">{sub}</p>
+      {action}
     </div>
   );
 }
 
-function ExplorerCard({ card, index, inDeck = false, onSelect, onCardAction, menuProps }: {
+function ExplorerCard({ card, index, inDeck = false, inCollection = false, onSelect, onCardAction, menuProps }: {
   card: ScryfallCard;
   index: number;
   inDeck?: boolean;
+  inCollection?: boolean;
   onSelect: (c: ScryfallCard) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: DeckPanelMenuProps;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const canMenu = !!(onCardAction && menuProps);
+  const titleSuffix = inDeck ? ' · already in your deck' : inCollection ? ' · in your collection' : '';
   return (
     <div className="relative animate-sc-card-in" style={{ animationDelay: cardDelay(index) }}>
       <button
         type="button"
         onClick={() => onSelect(card)}
         onContextMenu={(e) => { if (!canMenu) return; e.preventDefault(); setMenuOpen(true); }}
-        className={`group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-transform duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)] ${
-          inDeck ? 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-background' : ''
+        className={`group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-[transform,opacity] duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)] ${
+          inDeck ? 'ring-1 ring-inset ring-violet-400/50 opacity-45 hover:opacity-100' : ''
         }`}
-        title={inDeck ? `${card.name} · already in your deck` : card.name}
+        title={`${card.name}${titleSuffix}`}
       >
         <img
           src={getCardImageUrl(card, 'normal') ?? ''}
           alt={card.name}
           loading="lazy"
-          className={`absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105 ${inDeck ? 'brightness-[0.78]' : ''}`}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
         />
         {inDeck && (
-          <span className="absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/90 text-emerald-50 border border-emerald-300/60 shadow-sm">
-            <Check className="w-3 h-3" strokeWidth={3} />
-            In deck
+          <span className="absolute top-1 left-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500/70 text-violet-50 shadow-sm" title="Already in your deck">
+            <Layers className="w-2.5 h-2.5" />
+          </span>
+        )}
+        {inCollection && (
+          <span className="absolute top-1 right-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/80 text-emerald-50 shadow-sm" title="In your collection">
+            <Check className="w-2.5 h-2.5" strokeWidth={3} />
           </span>
         )}
       </button>

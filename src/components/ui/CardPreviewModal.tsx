@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2, ScrollText } from 'lucide-react';
+import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2, ScrollText, Tag } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, useScryfallImage, fetchCardRulings, getCachedRulings } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
 import { tagsForOracleId } from '@/services/spellchroma/tagIndex';
@@ -807,9 +807,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                     key={slug}
                     type="button"
                     onClick={() => { onTagClick?.(slug); onClose(); }}
-                    className="inline-flex items-center px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-200 text-[11px] hover:bg-violet-500/30 transition-colors"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-200 text-[11px] hover:bg-violet-500/30 transition-colors"
                     title={`Explore cards tagged “${slug}”`}
                   >
+                    <Tag className="w-3 h-3 opacity-70" />
                     {slug}
                   </button>
                 ))}
