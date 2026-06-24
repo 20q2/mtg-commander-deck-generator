@@ -7,11 +7,13 @@ import { ExplorerGrid } from '@/components/spellchroma/ExplorerGrid';
 import { DeckInput } from '@/components/spellchroma/DeckInput';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { TopTagsStrip } from '@/components/spellchroma/TopTagsStrip';
 import { SpellChromaSplit } from '@/components/spellchroma/SpellChromaSplit';
 import { SpellChromaLanding } from '@/components/spellchroma/SpellChromaLanding';
 import { SpellChromaBackdrop } from '@/components/spellchroma/SpellChromaBackdrop';
-import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
+import { DeckContextPanel } from '@/components/spellchroma/DeckContextPanel';
+import type { CardAction } from '@/components/deck/DeckDisplay';
+import { useUserLists } from '@/hooks/useUserLists';
+import { useStore } from '@/store';
 import type { ScryfallCard } from '@/types';
 
 export function SpellChromaPage() {
@@ -24,6 +26,48 @@ export function SpellChromaPage() {
   const [startedExploring, setStartedExploring] = useState(false);
 
   useEffect(() => { void loadTagDictionary(); }, []);
+
+  const { lists: userLists, updateList, createList } = useUserLists();
+  const customization = useStore(s => s.customization);
+  const updateCustomization = useStore(s => s.updateCustomization);
+
+  const menuProps = useMemo(() => ({
+    userLists,
+    mustIncludeNames: new Set(customization.mustIncludeCards),
+    bannedNames: new Set(customization.bannedCards),
+  }), [userLists, customization.mustIncludeCards, customization.bannedCards]);
+
+  // Add/remove mutate the ephemeral loaded deck in place; list/ban/must-include
+  // delegate to the shared store + user-lists hook (mirrors ListDeckView).
+  const handleCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    const name = card.name;
+    switch (action.type) {
+      case 'addToDeck':
+        setDeck(prev => (prev && prev.some(c => c.id === card.id)) ? prev : [...(prev ?? []), card]);
+        break;
+      case 'remove':
+        setDeck(prev => prev ? prev.filter(c => c.id !== card.id) : prev);
+        break;
+      case 'mustInclude': {
+        const cur = customization.mustIncludeCards;
+        updateCustomization({ mustIncludeCards: cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name] });
+        break;
+      }
+      case 'exclude': {
+        const cur = customization.bannedCards;
+        updateCustomization({ bannedCards: cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name] });
+        break;
+      }
+      case 'addToList': {
+        const target = userLists.find(l => l.id === action.listId);
+        if (target && !target.cards.includes(name)) updateList(action.listId, { cards: [...target.cards, name] });
+        break;
+      }
+      case 'createListAndAdd':
+        createList(action.listName, [name]);
+        break;
+    }
+  }, [customization, updateCustomization, userLists, updateList, createList]);
 
   const result = useExplorerSearch(selectedTags, colorIdentity, sort);
   const addTag = useCallback((slug: string) => setSelectedTags(t => (t.includes(slug) ? t : [...t, slug])), []);
@@ -40,6 +84,12 @@ export function SpellChromaPage() {
     setColorIdentity([...ci]);
     const ok = await loadTagIndex();
     setIndexReady(ok);
+    // Seed the explorer with the deck's single most relevant (non-trivia) tag
+    // so it isn't an empty "pick a tag" prompt. Don't clobber an existing pick.
+    if (ok) {
+      const top = aggregateDeckTags(cards).find(t => !t.ignored);
+      if (top) setSelectedTags(prev => (prev.length === 0 ? [top.slug] : prev));
+    }
   }, []);
 
   const topTags = useMemo(
@@ -77,9 +127,6 @@ export function SpellChromaPage() {
         textFilter={textFilter}
         onTextFilterChange={setTextFilter}
       />
-      {topTags.length > 0 && (
-        <TopTagsStrip tags={topTags} selected={selectedTags} onTagClick={addTag} />
-      )}
       <ExplorerGrid
         cards={result.cards}
         total={result.total}
@@ -91,6 +138,8 @@ export function SpellChromaPage() {
         textFilter={textFilter}
         onLoadAll={result.loadAll}
         onTagClick={addTag}
+        onCardAction={handleCardAction}
+        menuProps={menuProps}
       />
     </div>
   );
@@ -102,7 +151,18 @@ export function SpellChromaPage() {
       <>
         <SpellChromaBackdrop colorIdentity={colorIdentity} />
         <SpellChromaSplit
-          deck={<DeckBuildingArea currentCards={deck} headerExtra={<DeckInput onLoad={handleDeckLoaded} label="Change deck" />} />}
+          deck={
+            <DeckContextPanel
+              cards={deck}
+              colorIdentity={colorIdentity}
+              topTags={topTags}
+              selectedTags={selectedTags}
+              onTagClick={addTag}
+              onCardAction={handleCardAction}
+              menuProps={menuProps}
+              headerExtra={<DeckInput onLoad={handleDeckLoaded} label="Change deck" />}
+            />
+          }
           explorer={explorer}
         />
       </>
