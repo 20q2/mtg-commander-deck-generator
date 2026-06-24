@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { Check, Plus, ChevronsDown, Loader2, Layers } from 'lucide-react';
+import { Check, Plus, ChevronsDown, Loader2, Layers, X, Tag } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl } from '@/services/scryfall/client';
-import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { randomLoadingPhrase } from '@/services/spellchroma/loadingPhrases';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { typeRank, type ExplorerSort } from '@/services/spellchroma/explorerSearch';
+import { tagsForOracleId } from '@/services/spellchroma/tagIndex';
+import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { AddTagPopover } from './AddTagPopover';
 import type { DeckPanelMenuProps } from './DeckContextPanel';
 
@@ -34,21 +36,28 @@ interface ExplorerGridProps {
   collectionNames?: Set<string>;
   /** When true, in-deck cards are dropped from the grid entirely. */
   hideInDeck?: boolean;
+  /** Show the "hide in-deck cards" toggle in the count row (a deck is loaded). */
+  showHideInDeck?: boolean;
+  onHideInDeckChange?: (v: boolean) => void;
+  /** Deck's top tag slugs — surfaced first in the empty-state Add-tag picker. */
+  topTags?: string[];
   /** Pin the count row just below the (also-sticky) toolbar in the workbench pane. */
   sticky?: boolean;
   /** Pixel offset for the sticky count row — the measured toolbar height. */
   stickyTop?: number;
+  /** Currently-selected search tags — drive active state in the card popover. */
+  selectedTags?: string[];
   onLoadAll: () => void;
   onTagClick?: (slug: string) => void;
+  onRemoveTag?: (slug: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: DeckPanelMenuProps;
 }
 
 export function ExplorerGrid({
-  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dealKey, deckNames, collectionNames, hideInDeck = false, sticky = false, stickyTop = 52, onLoadAll, onTagClick,
+  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dealKey, deckNames, collectionNames, hideInDeck = false, showHideInDeck = false, onHideInDeckChange, topTags, selectedTags, sticky = false, stickyTop = 52, onLoadAll, onTagClick, onRemoveTag,
   onCardAction, menuProps,
 }: ExplorerGridProps) {
-  const [preview, setPreview] = useState<ScryfallCard | null>(null);
   // Springy reorder/add/remove for in-place changes (sort flip, text filter,
   // "load all"). A new search remounts the grid via `key`, so auto-animate stays
   // quiet there and the CSS deal-in handles the fresh wave.
@@ -92,7 +101,7 @@ export function ExplorerGrid({
     return (
       <Empty title="Pick a tag to start exploring" sub="Add an oracle tag — try “ramp”, “sacrifice-outlet”, or “treasure”."
         action={onTagClick && (
-          <AddTagPopover selectedTags={[]} onAddTag={onTagClick} align="center">
+          <AddTagPopover selectedTags={[]} topTags={topTags} onAddTag={onTagClick} align="center">
             <Button size="sm" className="gap-1.5 mt-2 bg-violet-600 hover:bg-violet-500 text-white">
               <Plus className="w-4 h-4" /> Add tag
             </Button>
@@ -121,17 +130,35 @@ export function ExplorerGrid({
             : `Showing ${visible.length} of ${cards.length} loaded (${total} total)`}
           {hiddenCount > 0 && <span className="text-violet-300/70"> · {hiddenCount} in deck hidden</span>}
         </span>
-        {hasMore && (
-          <Button variant="outline" size="sm" onClick={onLoadAll} disabled={loadingAll} className="gap-1.5 text-white">
-            {loadingAll
-              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              : <ChevronsDown className="w-3.5 h-3.5" />}
-            {loadingAll ? 'Loading…' : `Load all ${total}`}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {showHideInDeck && (
+            <button
+              type="button"
+              onClick={() => onHideInDeckChange?.(!hideInDeck)}
+              aria-pressed={hideInDeck}
+              title={hideInDeck ? 'Showing only cards not in your deck' : 'Hide cards already in your deck'}
+              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border transition-colors ${
+                hideInDeck
+                  ? 'bg-violet-500/20 text-violet-200 border-violet-500/40'
+                  : 'border-border/50 text-muted-foreground/70 hover:text-foreground hover:bg-accent/50'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Hide in&nbsp;deck</span>
+            </button>
+          )}
+          {hasMore && (
+            <Button variant="outline" size="sm" onClick={onLoadAll} disabled={loadingAll} className="gap-1.5 text-white">
+              {loadingAll
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <ChevronsDown className="w-3.5 h-3.5" />}
+              {loadingAll ? 'Loading…' : `Load all ${total}`}
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div key={dealKey} ref={gridRef} className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
+      <div key={dealKey} ref={gridRef} className="grid gap-4 px-4 pb-4 grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
         {visible.map((card, i) => (
           <ExplorerCard
             key={card.id}
@@ -139,19 +166,14 @@ export function ExplorerGrid({
             index={i}
             inDeck={!!deckNames?.has(card.name)}
             inCollection={!!collectionNames?.has(card.name)}
-            onSelect={setPreview}
+            selectedTags={selectedTags}
+            onTagClick={onTagClick}
+            onRemoveTag={onRemoveTag}
             onCardAction={onCardAction}
             menuProps={menuProps}
           />
         ))}
       </div>
-
-      <CardPreviewModal
-        card={preview}
-        onClose={() => setPreview(null)}
-        showOracleTags
-        onTagClick={onTagClick}
-      />
     </div>
   );
 }
@@ -166,46 +188,102 @@ function Empty({ title, sub, action }: { title: string; sub: string; action?: Re
   );
 }
 
-function ExplorerCard({ card, index, inDeck = false, inCollection = false, onSelect, onCardAction, menuProps }: {
+function ExplorerCard({ card, index, inDeck = false, inCollection = false, selectedTags, onTagClick, onRemoveTag, onCardAction, menuProps }: {
   card: ScryfallCard;
   index: number;
   inDeck?: boolean;
   inCollection?: boolean;
-  onSelect: (c: ScryfallCard) => void;
+  selectedTags?: string[];
+  onTagClick?: (slug: string) => void;
+  onRemoveTag?: (slug: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: DeckPanelMenuProps;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const canMenu = !!(onCardAction && menuProps);
   const titleSuffix = inDeck ? ' · already in your deck' : inCollection ? ' · in your collection' : '';
+
+  const tags = useMemo(() => {
+    const all = tagsForOracleId(card.oracle_id ?? '');
+    const helpful = all.filter(s => !isIgnoredTag(s));
+    return helpful.length ? helpful : all;
+  }, [card]);
+  const selected = new Set(selectedTags ?? []);
+
   return (
     <div className="relative animate-sc-card-in" style={{ animationDelay: cardDelay(index) }}>
-      <button
-        type="button"
-        onClick={() => onSelect(card)}
-        onContextMenu={(e) => { if (!canMenu) return; e.preventDefault(); setMenuOpen(true); }}
-        className={`group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-[transform,opacity] duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)] ${
-          inDeck ? 'ring-1 ring-inset ring-violet-400/50 opacity-45 hover:opacity-100' : ''
-        }`}
-        title={`${card.name}${titleSuffix}`}
-      >
-        <img
-          src={getCardImageUrl(card, 'normal') ?? ''}
-          alt={card.name}
-          loading="lazy"
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-        />
-        {inDeck && (
-          <span className="absolute top-1 left-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500/70 text-violet-50 shadow-sm" title="Already in your deck">
-            <Layers className="w-2.5 h-2.5" />
-          </span>
-        )}
-        {inCollection && (
-          <span className="absolute top-1 right-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/80 text-emerald-50 shadow-sm" title="In your collection">
-            <Check className="w-2.5 h-2.5" strokeWidth={3} />
-          </span>
-        )}
-      </button>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            onContextMenu={(e) => { if (!canMenu) return; e.preventDefault(); setMenuOpen(true); }}
+            className={`group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-[transform,opacity] duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)] data-[state=open]:-translate-y-1 data-[state=open]:scale-[1.03] data-[state=open]:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)] data-[state=open]:!opacity-100 ${
+              inDeck ? 'ring-1 ring-inset ring-violet-400/50 opacity-45 hover:opacity-100' : ''
+            }`}
+            title={`${card.name}${titleSuffix}`}
+          >
+            <img
+              src={getCardImageUrl(card, 'normal') ?? ''}
+              alt={card.name}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+            />
+            {inDeck && (
+              <span className="absolute top-1 left-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-violet-500/70 text-violet-50 shadow-sm" title="Already in your deck">
+                <Layers className="w-2.5 h-2.5" />
+              </span>
+            )}
+            {inCollection && (
+              <span className="absolute top-1 right-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-md bg-background/90 text-foreground border border-border/60 shadow-sm" title="In your collection">
+                <Check className="w-2.5 h-2.5" strokeWidth={3} />
+              </span>
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="right" align="start" className="w-64 p-0 overflow-hidden max-h-[80vh] overflow-y-auto">
+          <div className="animate-preview-pop">
+            <img src={getCardImageUrl(card, 'normal') ?? ''} alt={card.name} className="w-full block" />
+            <div className="p-3 flex flex-col gap-2">
+              <div>
+                <p className="text-sm font-semibold leading-tight">{card.name}</p>
+                {card.type_line && <p className="text-xs text-muted-foreground">{card.type_line}</p>}
+              </div>
+              {onCardAction && !inDeck && (
+                <Button size="sm" className="gap-1.5 bg-violet-600 hover:bg-violet-500 text-white"
+                  onClick={() => onCardAction(card, { type: 'addToDeck' })}>
+                  <Plus className="w-3.5 h-3.5" /> Add to deck
+                </Button>
+              )}
+              <div>
+                <p className="text-[11px] font-semibold text-violet-300/90 mb-1.5">Tags · click to refine your search</p>
+                {tags.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No oracle tags for this card.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {tags.map(slug => {
+                      const active = selected.has(slug);
+                      return (
+                        <button key={slug} type="button"
+                          onClick={() => (active ? onRemoveTag?.(slug) : onTagClick?.(slug))}
+                          title={active ? `Remove “${slug}” from search` : `Add “${slug}” to search`}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
+                            active
+                              ? 'bg-violet-500/30 text-violet-100 border-violet-400/50'
+                              : 'bg-violet-500/12 text-violet-100/90 border-violet-500/25 hover:bg-violet-500/25'
+                          }`}>
+                          <Tag className="w-3 h-3 opacity-70" />
+                          {slug}
+                          {active && <X className="w-3 h-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
       {canMenu && (
         <span
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-0"

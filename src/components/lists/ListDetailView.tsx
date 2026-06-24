@@ -153,11 +153,18 @@ interface ListDetailViewProps {
    *  dropped onto a deck view to add the card. Read with
    *  `dataTransfer.getData('application/x-mtg-card-name')`. */
   draggableCards?: boolean;
+  /** Lowercased names of cards in the active deck. When provided, list cards
+   *  already in the deck are dimmed + labelled "In deck", and an extra filter
+   *  (All / Only in deck / Not in deck) appears. Omit when there's no active
+   *  deck context (e.g. the standalone Lists page). */
+  deckCardNames?: Set<string>;
 }
+
+type DeckFilterMode = 'all' | 'in' | 'out';
 
 // --- Component ---
 
-export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange, onDerivedColorIdentityChange, compact, draggableCards }: ListDetailViewProps) {
+export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange, onDerivedColorIdentityChange, compact, draggableCards, deckCardNames }: ListDetailViewProps) {
   const navigate = useNavigate();
 
   // Card data enrichment
@@ -191,6 +198,14 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
   const [selectedType, setSelectedType] = useState('');
   const [selectedRarity, setSelectedRarity] = useState('');
   const [commandersOnly, setCommandersOnly] = useState(false);
+  const [deckFilter, setDeckFilter] = useState<DeckFilterMode>('all');
+
+  // Whether a given card is in the active deck (only meaningful when
+  // deckCardNames is provided by the floating panel).
+  const isInDeck = useCallback(
+    (name: string) => !!deckCardNames?.has(name.toLowerCase()),
+    [deckCardNames],
+  );
 
   // Sort & View
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -279,8 +294,12 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
       });
     }
 
+    if (deckCardNames && deckFilter !== 'all') {
+      result = result.filter(c => (deckFilter === 'in' ? isInDeck(c.name) : !isInDeck(c.name)));
+    }
+
     return sortCards(result, sortKey, sortDir);
-  }, [enrichedCards, searchQuery, selectedColors, colorFilterMode, selectedType, selectedRarity, commandersOnly, sortKey, sortDir]);
+  }, [enrichedCards, searchQuery, selectedColors, colorFilterMode, selectedType, selectedRarity, commandersOnly, deckCardNames, deckFilter, isInDeck, sortKey, sortDir]);
 
   // Pagination
   const itemsPerPage = viewMode === 'grid' ? ITEMS_PER_PAGE_GRID : ITEMS_PER_PAGE_LIST;
@@ -301,7 +320,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
     return { typeBreakdown };
   }, [enrichedCards]);
 
-  const activeFilters = (selectedColors.size > 0 ? 1 : 0) + (selectedType ? 1 : 0) + (selectedRarity ? 1 : 0) + (commandersOnly ? 1 : 0);
+  const activeFilters = (selectedColors.size > 0 ? 1 : 0) + (selectedType ? 1 : 0) + (selectedRarity ? 1 : 0) + (commandersOnly ? 1 : 0) + (deckFilter !== 'all' ? 1 : 0);
 
   const toggleColor = (code: string) => {
     setSelectedColors(prev => {
@@ -318,6 +337,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
     setSelectedType('');
     setSelectedRarity('');
     setCommandersOnly(false);
+    setDeckFilter('all');
     setSearchQuery('');
     setPage(1);
   };
@@ -644,6 +664,22 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           Commanders
         </button>
 
+        {/* In-deck filter — only when an active deck is in context */}
+        {deckCardNames && (
+          <div className="relative">
+            <select
+              value={deckFilter}
+              onChange={(e) => { setDeckFilter(e.target.value as DeckFilterMode); setPage(1); }}
+              className="appearance-none pl-2.5 pr-7 py-1 text-xs rounded-md bg-background border border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="all">In deck: All</option>
+              <option value="in">Only in deck</option>
+              <option value="out">Not in deck</option>
+            </select>
+            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+          </div>
+        )}
+
         {/* Sort */}
         <div className="relative ml-auto">
           <select
@@ -697,6 +733,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           onPreview={handlePreview}
           readOnly={readOnly}
           draggable={draggableCards}
+          isInDeck={deckCardNames ? isInDeck : undefined}
         />
       ) : (
         <ListViewTable
@@ -707,6 +744,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
           sortDir={sortDir}
           onToggleSort={toggleSort}
           readOnly={readOnly}
+          isInDeck={deckCardNames ? isInDeck : undefined}
         />
       )}
 
@@ -810,6 +848,7 @@ function GridView({
   onPreview,
   readOnly,
   draggable,
+  isInDeck,
 }: {
   cards: ListCardData[];
   onRemove?: (name: string) => void;
@@ -818,13 +857,15 @@ function GridView({
   /** When true, card tiles can be HTML5-dragged out of the grid. The drop
    *  target reads the card name from dataTransfer (`application/x-mtg-card-name`). */
   draggable?: boolean;
+  /** When provided, tiles whose card is in the active deck are dimmed + labelled. */
+  isInDeck?: (name: string) => boolean;
 }) {
   const [parent] = useAutoAnimate({ duration: 250 });
 
   return (
     <div ref={parent} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
       {cards.map((card, i) => (
-        <GridCard key={`${card.name}-${i}`} card={card} onRemove={onRemove} onPreview={onPreview} readOnly={readOnly} draggable={draggable} />
+        <GridCard key={`${card.name}-${i}`} card={card} onRemove={onRemove} onPreview={onPreview} readOnly={readOnly} draggable={draggable} inDeck={!!isInDeck?.(card.name)} />
       ))}
     </div>
   );
@@ -836,12 +877,14 @@ function GridCard({
   onPreview,
   readOnly,
   draggable,
+  inDeck,
 }: {
   card: ListCardData;
   onRemove?: (name: string) => void;
   onPreview: (name: string) => void;
   readOnly?: boolean;
   draggable?: boolean;
+  inDeck?: boolean;
 }) {
   const [showControls, setShowControls] = useState(false);
 
@@ -865,17 +908,24 @@ function GridCard({
         <img
           src={card.imageUrl}
           alt={card.name}
-          className="w-full aspect-[5/7] object-cover cursor-pointer"
+          className={`w-full aspect-[5/7] object-cover cursor-pointer transition-opacity ${inDeck ? 'opacity-50' : ''}`}
           loading="lazy"
           onClick={() => onPreview(card.name)}
           draggable={false}
         />
       ) : (
         <div
-          className="w-full aspect-[5/7] bg-accent/50 flex items-center justify-center p-2 cursor-pointer"
+          className={`w-full aspect-[5/7] bg-accent/50 flex items-center justify-center p-2 cursor-pointer ${inDeck ? 'opacity-50' : ''}`}
           onClick={() => onPreview(card.name)}
         >
           <span className="text-[10px] text-muted-foreground text-center leading-tight">{card.name}</span>
+        </div>
+      )}
+
+      {/* In-deck marker — sits above the dimmed art, below the hover controls */}
+      {inDeck && (
+        <div className="absolute top-1 left-1 z-10 pointer-events-none rounded-full bg-emerald-500/90 text-white text-[9px] font-semibold px-1.5 py-0.5 shadow">
+          In deck
         </div>
       )}
 
@@ -910,6 +960,7 @@ function ListViewTable({
   sortDir,
   onToggleSort,
   readOnly,
+  isInDeck,
 }: {
   cards: ListCardData[];
   onRemove?: (name: string) => void;
@@ -918,6 +969,7 @@ function ListViewTable({
   sortDir: 'asc' | 'desc';
   onToggleSort: (key: SortKey) => void;
   readOnly?: boolean;
+  isInDeck?: (name: string) => boolean;
 }) {
   const SortHeader = ({ label, field, className = '' }: { label: string; field: SortKey; className?: string }) => (
     <button
@@ -943,7 +995,9 @@ function ListViewTable({
 
       {/* Card rows */}
       <div className="divide-y divide-border/30 bg-card/80">
-        {cards.map((card, i) => (
+        {cards.map((card, i) => {
+          const inDeck = !!isInDeck?.(card.name);
+          return (
           <div
             key={`${card.name}-${i}`}
             className={`grid ${readOnly ? 'grid-cols-[1fr_auto_auto]' : 'grid-cols-[1fr_auto_auto_auto]'} gap-2 px-3 py-1.5 items-center hover:bg-accent/30 group transition-colors`}
@@ -953,7 +1007,10 @@ function ListViewTable({
               className="flex items-center gap-2 min-w-0 cursor-pointer"
               onClick={() => onPreview(card.name)}
             >
-              <span className="text-sm truncate min-w-0 hover:text-primary transition-colors">{card.name}</span>
+              <span className={`text-sm truncate min-w-0 hover:text-primary transition-colors ${inDeck ? 'text-muted-foreground' : ''}`}>{card.name}</span>
+              {inDeck && (
+                <span className="shrink-0 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-medium px-1.5 py-0.5">In deck</span>
+              )}
               {card.manaCost && <ManaCost cost={card.manaCost} className="text-xs shrink-0" />}
             </div>
 
@@ -980,7 +1037,8 @@ function ListViewTable({
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

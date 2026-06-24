@@ -2289,6 +2289,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const showMenuRef = useRef<HTMLDivElement>(null);
   const showMenuMobileRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const editToolbarRef = useRef<HTMLDivElement>(null);
   const [toolbarOffscreen, setToolbarOffscreen] = useState(false);
   const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
@@ -2307,6 +2308,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     setModifyMode(isEditMode);
   }, [isEditMode, onEditModeChange, setModifyMode]);
   useEffect(() => () => { setModifyMode(false); }, [setModifyMode]);
+  // Auto-focus the "Add a card" input in the edit toolbar when modify mode opens
+  useEffect(() => {
+    if (!isEditMode) return;
+    const t = setTimeout(() => {
+      editToolbarRef.current?.querySelector<HTMLInputElement>('input[type="text"]')?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [isEditMode]);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
   const [replacePopoverOpen, setReplacePopoverOpen] = useState(false);
@@ -4785,7 +4794,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 )}
               </div>
             </div>
-            <div className="pointer-events-auto flex items-center gap-3 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-5 py-3">
+            <div ref={editToolbarRef} className="pointer-events-auto flex items-center gap-3 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-5 py-3">
               {toolbarExtra}
               <div className="flex items-center gap-2">
                 {onRemoveCards && (

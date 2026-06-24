@@ -17,6 +17,17 @@ import { useStore } from '@/store';
 import { SiteFooter } from '@/components/SiteFooter';
 import type { ScryfallCard } from '@/types';
 
+// Debounce a value so rapid filter toggles don't fire a search per click —
+// the search waits until selections settle.
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
+
 export function SpellChromaPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [colorIdentity, setColorIdentity] = useState<string[]>([]);
@@ -78,7 +89,10 @@ export function SpellChromaPage() {
     () => ({ colorIdentity, colorMode, excludedColors, typeFilter }),
     [colorIdentity, colorMode, excludedColors, typeFilter],
   );
-  const result = useExplorerSearch(selectedTags, filters, sort);
+  // Debounce color + type filter changes (~550ms) so toggling several doesn't
+  // fire a search each click; tags and sort still search immediately.
+  const debouncedFilters = useDebouncedValue(filters, 550);
+  const result = useExplorerSearch(selectedTags, debouncedFilters, sort);
   const addTag = useCallback((slug: string) => setSelectedTags(t => (t.includes(slug) ? t : [...t, slug])), []);
   const removeTag = useCallback((slug: string) => setSelectedTags(t => t.filter(s => s !== slug)), []);
   // Return to the landing splash (where the paste / decks / lists options live).
@@ -105,6 +119,11 @@ export function SpellChromaPage() {
   const topTags = useMemo(
     () => (deck && indexReady ? aggregateDeckTags(deck) : []),
     [deck, indexReady],
+  );
+  // Deck's most relevant (non-trivia) tag slugs — surfaced first in the Add-tag picker.
+  const topTagSlugs = useMemo(
+    () => topTags.filter(t => !t.ignored).map(t => t.slug).slice(0, 12),
+    [topTags],
   );
 
   // Names already in the loaded deck — the explorer badges these so you can see
@@ -156,10 +175,11 @@ export function SpellChromaPage() {
   // scrolls under the app's fixed nav.
   const renderExplorer = (stickyHeader: boolean) => (
     <div className="flex flex-col">
-      <div ref={stickyHeader ? headerRef : undefined}>
+      <div ref={stickyHeader ? headerRef : undefined} className={stickyHeader ? 'sticky top-0 z-30' : undefined}>
       <TagSearchBar
-        sticky={stickyHeader}
+        sticky={false}
         selectedTags={selectedTags}
+        topTags={topTagSlugs}
         onAddTag={addTag}
         onRemoveTag={removeTag}
         colorIdentity={colorIdentity}
@@ -174,9 +194,6 @@ export function SpellChromaPage() {
         onSortChange={setSort}
         textFilter={textFilter}
         onTextFilterChange={setTextFilter}
-        showHideInDeck={!!deck}
-        hideInDeck={hideInDeck}
-        onHideInDeckChange={setHideInDeck}
       />
       </div>
       <ExplorerGrid
@@ -191,12 +208,17 @@ export function SpellChromaPage() {
         sort={sort}
         sticky={stickyHeader}
         stickyTop={headerH}
-        dealKey={`${selectedTags.join(',')}|${colorIdentity.join('')}|${colorMode}|${excludedColors.join('')}|${typeFilter.join(',')}`}
+        dealKey={`${selectedTags.join(',')}|${debouncedFilters.colorIdentity.join('')}|${debouncedFilters.colorMode}|${debouncedFilters.excludedColors.join('')}|${debouncedFilters.typeFilter.join(',')}`}
         deckNames={deckNames}
         collectionNames={collectionNames}
         hideInDeck={hideInDeck}
+        showHideInDeck={!!deck}
+        onHideInDeckChange={setHideInDeck}
+        topTags={topTagSlugs}
+        selectedTags={selectedTags}
         onLoadAll={result.loadAll}
         onTagClick={addTag}
+        onRemoveTag={removeTag}
         onCardAction={handleCardAction}
         menuProps={menuProps}
       />

@@ -253,7 +253,10 @@
   }
 
   .animate-sc-pane-right {
-    animation: scPaneRight 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+    /* `backwards` (not `both`): hold the from-state only during the (zero) delay,
+       then revert to no transform. A lingering transform on this scroll container
+       would break `position: sticky` for the explorer's sticky header rows. */
+    animation: scPaneRight 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) backwards;
   }
   @keyframes scPaneRight {
     from { opacity: 0; transform: translateX(26px); }
@@ -348,6 +351,17 @@
 
   .animate-scale-in {
     animation: scaleIn 0.2s ease-out;
+  }
+
+  /* SpellChroma deck-card preview: a springy pop that grows from the card's
+     side (origin-left, since the popover opens to the right of the thumbnail). */
+  .animate-preview-pop {
+    animation: previewPop 0.26s cubic-bezier(0.34, 1.56, 0.5, 1) both;
+    transform-origin: left center;
+  }
+  @keyframes previewPop {
+    0%   { opacity: 0; transform: scale(0.82) translateX(-8px); }
+    100% { opacity: 1; transform: scale(1) translateX(0); }
   }
 
   @keyframes scaleIn {

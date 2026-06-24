@@ -5,7 +5,7 @@ import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, Ch
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
-import { ManaCost } from '@/components/ui/mtg-icons';
+import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
@@ -589,6 +589,15 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
 
 // --- Main Component ---
 
+// Derive the primary card type (for CardTypeIcon) from a Scryfall type_line.
+// "Legendary Artifact Creature — Golem" → "creature". Creature wins so the
+// claw shows for artifact/enchantment creatures.
+function primaryTypeFromLine(typeLine: string | undefined): string {
+  const tl = (typeLine || '').split('//')[0].split('—')[0].toLowerCase();
+  const order = ['creature', 'planeswalker', 'land', 'battle', 'artifact', 'enchantment', 'instant', 'sorcery', 'tribal'];
+  return order.find(t => tl.includes(t)) || 'creature';
+}
+
 export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
   const navigate = useNavigate();
   const generatedDeck = useStore(s => s.generatedDeck);
@@ -740,7 +749,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const priceSym = customization.currency === 'EUR' ? '€' : '$';
 
   // Action toast with undo (for add/remove cards)
-  const [actionToast, setActionToast] = useState<{ message: string; onUndo?: () => void; kind?: 'success' | 'error' } | null>(null);
+  const [actionToast, setActionToast] = useState<{ message: string; onUndo?: () => void; kind?: 'success' | 'error'; cardType?: string } | null>(null);
   const [deckSizeNoticeDismissedAt, setDeckSizeNoticeDismissedAt] = useState<number | null>(null);
   // Split open / mounted so the drawer can play its CSS slide-out before unmounting.
   const [trimDialogOpen, setTrimDialogOpen] = useState(false);
@@ -783,9 +792,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   onAddCardsRef.current = onAddCards;
   const onRemoveFromBoardRef = useRef(onRemoveFromBoard);
   onRemoveFromBoardRef.current = onRemoveFromBoard;
-  const showActionToast = useCallback((message: string, onUndo: () => void) => {
+  const showActionToast = useCallback((message: string, onUndo: () => void, cardType?: string) => {
     clearTimeout(actionToastTimer.current);
-    setActionToast({ message, onUndo, kind: 'success' });
+    setActionToast({ message, onUndo, kind: 'success', cardType });
     actionToastTimer.current = setTimeout(() => setActionToast(null), 4000);
   }, []);
   const showErrorToast = useCallback((message: string) => {
@@ -1597,7 +1606,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     setSearchQuery('');
     setSearchResults([]);
     setShowSearchResults(false);
-    showActionToast(`Added ${card.name}`, () => onRemoveCardsRef.current?.([card.name]));
+    showActionToast(`Added ${card.name}`, () => onRemoveCardsRef.current?.([card.name]), primaryTypeFromLine(card.type_line));
   }, [onAddCards, pushDeckHistory, showActionToast]);
 
   // Enter-to-add: skip the dropdown and try to resolve+add the typed name directly.
@@ -1649,7 +1658,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     showActionToast(`Added ${cardName}${label}`, () => {
       if (destination === 'deck') onRemoveCardsRef.current?.([cardName]);
       else onRemoveFromBoardRef.current?.(cardName, destination);
-    });
+    }, primaryTypeFromLine(pendingCard.type_line));
   }, [pendingCard, onAddCards, pushDeckHistory, showActionToast]);
 
   const handleCancelPicker = useCallback(() => {
@@ -2519,7 +2528,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
       {/* Action toast with undo */}
       {actionToast && createPortal(
-        <div className={`fixed bottom-6 right-6 z-[999] px-4 py-2 ${actionToast.kind === 'error' ? 'bg-rose-500/90' : 'bg-emerald-500/90'} text-white text-sm rounded-lg shadow-lg animate-fade-in flex items-center gap-3`}>
+        <div className={`fixed bottom-6 right-6 z-[999] px-4 py-2 ${actionToast.kind === 'error' ? 'bg-rose-500/90' : 'bg-emerald-500/90'} text-white text-sm rounded-lg shadow-lg animate-fade-in flex items-center gap-2`}>
+          {actionToast.cardType && <CardTypeIcon type={actionToast.cardType} size="sm" className="shrink-0" />}
           {actionToast.message}
           {actionToast.onUndo && (
             <button

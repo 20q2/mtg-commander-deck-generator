@@ -5,6 +5,7 @@ import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { ListDetailView } from '@/components/lists/ListDetailView';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { useUserLists } from '@/hooks/useUserLists';
+import { useStore } from '@/store';
 import type { UserCardList } from '@/types';
 
 interface FloatingListPanelProps {
@@ -16,6 +17,21 @@ type Mode = { kind: 'picker' } | { kind: 'list'; listId: string };
 
 export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
   const { lists } = useUserLists();
+  const generatedDeck = useStore(s => s.generatedDeck);
+
+  // Lowercased name-set of everything in the active deck (commander + partner +
+  // every category) so the open list can flag cards you've already added. Stays
+  // undefined when there's no active deck — marking/filter then lie dormant.
+  const deckCardNames = useMemo(() => {
+    if (!generatedDeck) return undefined;
+    const names = new Set<string>();
+    if (generatedDeck.commander) names.add(generatedDeck.commander.name.toLowerCase());
+    if (generatedDeck.partnerCommander) names.add(generatedDeck.partnerCommander.name.toLowerCase());
+    for (const cards of Object.values(generatedDeck.categories)) {
+      for (const c of cards) names.add(c.name.toLowerCase());
+    }
+    return names;
+  }, [generatedDeck]);
 
   // Only show non-deck lists — matches how MustIncludeCards and BannedCards
   // filter (deck-typed entries are full decks, not browseable reference lists).
@@ -116,6 +132,7 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
               compact
               readOnly
               draggableCards
+              deckCardNames={deckCardNames}
             />
           </div>
         ) : null}
