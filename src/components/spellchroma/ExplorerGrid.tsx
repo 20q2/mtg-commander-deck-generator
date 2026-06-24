@@ -4,6 +4,8 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { Button } from '@/components/ui/button';
 import { randomLoadingPhrase } from '@/services/spellchroma/loadingPhrases';
+import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
+import type { DeckPanelMenuProps } from './DeckContextPanel';
 
 interface ExplorerGridProps {
   cards: ScryfallCard[];
@@ -16,10 +18,13 @@ interface ExplorerGridProps {
   textFilter: string;
   onLoadAll: () => void;
   onTagClick?: (slug: string) => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: DeckPanelMenuProps;
 }
 
 export function ExplorerGrid({
   cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, onLoadAll, onTagClick,
+  onCardAction, menuProps,
 }: ExplorerGridProps) {
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
 
@@ -73,15 +78,13 @@ export function ExplorerGrid({
 
       <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))]">
         {filtered.map(card => (
-          <button key={card.id} type="button" onClick={() => setPreview(card)}
-            className="group relative aspect-[5/7] rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <img
-              src={getCardImageUrl(card, 'normal') ?? ''}
-              alt={card.name}
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-            />
-          </button>
+          <ExplorerCard
+            key={card.id}
+            card={card}
+            onSelect={setPreview}
+            onCardAction={onCardAction}
+            menuProps={menuProps}
+          />
         ))}
       </div>
 
@@ -100,6 +103,52 @@ function Empty({ title, sub }: { title: string; sub: string }) {
     <div className="flex flex-col items-center justify-center text-center py-20 px-6 gap-1">
       <p className="text-foreground/90 font-medium">{title}</p>
       <p className="text-sm text-muted-foreground max-w-sm">{sub}</p>
+    </div>
+  );
+}
+
+function ExplorerCard({ card, onSelect, onCardAction, menuProps }: {
+  card: ScryfallCard;
+  onSelect: (c: ScryfallCard) => void;
+  onCardAction?: (card: ScryfallCard, action: CardAction) => void;
+  menuProps?: DeckPanelMenuProps;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const canMenu = !!(onCardAction && menuProps);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => onSelect(card)}
+        onContextMenu={(e) => { if (!canMenu) return; e.preventDefault(); setMenuOpen(true); }}
+        className="group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        title={card.name}
+      >
+        <img
+          src={getCardImageUrl(card, 'normal') ?? ''}
+          alt={card.name}
+          loading="lazy"
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+        />
+      </button>
+      {canMenu && (
+        <span
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-0"
+          onClick={(e) => e.stopPropagation()}
+          aria-hidden
+        >
+          <CardContextMenu
+            card={card}
+            onAction={onCardAction!}
+            hasAddToDeck
+            isMustInclude={menuProps!.mustIncludeNames.has(card.name)}
+            isBanned={menuProps!.bannedNames.has(card.name)}
+            userLists={menuProps!.userLists}
+            forceOpen={menuOpen}
+            onForceClose={() => setMenuOpen(false)}
+          />
+        </span>
+      )}
     </div>
   );
 }
