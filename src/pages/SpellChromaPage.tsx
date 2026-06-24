@@ -104,15 +104,17 @@ export function SpellChromaPage() {
 
   if (showLanding) {
     return (
-      <div className="container mx-auto px-4 max-w-[1600px]">
-        <SpellChromaBackdrop colorIdentity={colorIdentity} />
-        <SpellChromaLanding
-          onLoad={handleDeckLoaded}
-          onExplore={() => setStartedExploring(true)}
-          onStarterTag={addTag}
-        />
+      <>
+        <div className="container mx-auto px-4 max-w-[1600px]">
+          <SpellChromaBackdrop colorIdentity={colorIdentity} />
+          <SpellChromaLanding
+            onLoad={handleDeckLoaded}
+            onExplore={() => setStartedExploring(true)}
+            onStarterTag={addTag}
+          />
+        </div>
         <SiteFooter />
-      </div>
+      </>
     );
   }
 
@@ -172,21 +174,21 @@ export function SpellChromaPage() {
   }
 
   return (
-    <div className="px-3 sm:px-4 py-3">
-      <SpellChromaBackdrop colorIdentity={colorIdentity} />
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h1 className="text-lg font-bold whitespace-nowrap">
-          SpellChroma <span className="text-xs font-normal text-muted-foreground align-middle">· tag-driven discovery</span>
-        </h1>
-        <Button variant="outline" size="sm" onClick={backToOptions} className="gap-1.5">
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Deck options
-        </Button>
+    <>
+      <div className="px-3 sm:px-4 py-3">
+        <SpellChromaBackdrop colorIdentity={colorIdentity} />
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h1 className="text-lg font-bold whitespace-nowrap">
+            SpellChroma <span className="text-xs font-normal text-muted-foreground align-middle">· tag-driven discovery</span>
+          </h1>
+          <Button variant="outline" size="sm" onClick={backToOptions} className="gap-1.5">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Deck options
+          </Button>
+        </div>
+        {explorer}
       </div>
-      {explorer}
-      <div className="mt-6">
-        <SiteFooter />
-      </div>
-    </div>
+      <SiteFooter />
+    </>
   );
 }
