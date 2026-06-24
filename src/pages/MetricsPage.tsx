@@ -75,6 +75,11 @@ const EVENT_LABELS: Record<string, string> = {
   list_exported: 'Lists Exported',
   list_toggled: 'List Toggles',
   playtest_started: 'Playtest Sessions',
+  inspector_tab_viewed: 'Inspector Tab Views',
+  spellchroma_viewed: 'SpellChroma Views',
+  spellchroma_deck_loaded: 'SpellChroma Decks Loaded',
+  spellchroma_tag_selected: 'SpellChroma Tags Selected',
+  spellchroma_card_added: 'SpellChroma Cards Added',
 };
 
 const REGION_FLAGS: Record<string, string> = {

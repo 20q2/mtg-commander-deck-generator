@@ -14,6 +14,7 @@ import type { CardAction } from '@/components/deck/DeckDisplay';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useCollection } from '@/hooks/useCollection';
 import { useStore } from '@/store';
+import { trackEvent } from '@/services/analytics';
 import { SiteFooter } from '@/components/SiteFooter';
 import type { ScryfallCard } from '@/types';
 
@@ -42,6 +43,8 @@ export function SpellChromaPage() {
   const [hideInDeck, setHideInDeck] = useState(false);
 
   useEffect(() => { void loadTagDictionary(); }, []);
+  // One-shot adoption ping when the SpellChroma page opens.
+  useEffect(() => { trackEvent('spellchroma_viewed', {}); }, []);
 
   const { lists: userLists, updateList, createList } = useUserLists();
   const customization = useStore(s => s.customization);
@@ -60,6 +63,7 @@ export function SpellChromaPage() {
     switch (action.type) {
       case 'addToDeck':
         setDeck(prev => (prev && prev.some(c => c.id === card.id)) ? prev : [...(prev ?? []), card]);
+        trackEvent('spellchroma_card_added', { dest: 'deck' });
         break;
       case 'remove':
         setDeck(prev => prev ? prev.filter(c => c.id !== card.id) : prev);
@@ -77,10 +81,12 @@ export function SpellChromaPage() {
       case 'addToList': {
         const target = userLists.find(l => l.id === action.listId);
         if (target && !target.cards.includes(name)) updateList(action.listId, { cards: [...target.cards, name] });
+        trackEvent('spellchroma_card_added', { dest: 'list' });
         break;
       }
       case 'createListAndAdd':
         createList(action.listName, [name]);
+        trackEvent('spellchroma_card_added', { dest: 'list' });
         break;
     }
   }, [customization, updateCustomization, userLists, updateList, createList]);
@@ -93,7 +99,10 @@ export function SpellChromaPage() {
   // fire a search each click; tags and sort still search immediately.
   const debouncedFilters = useDebouncedValue(filters, 550);
   const result = useExplorerSearch(selectedTags, debouncedFilters, sort);
-  const addTag = useCallback((slug: string) => setSelectedTags(t => (t.includes(slug) ? t : [...t, slug])), []);
+  const addTag = useCallback((slug: string) => {
+    setSelectedTags(t => (t.includes(slug) ? t : [...t, slug]));
+    trackEvent('spellchroma_tag_selected', { slug });
+  }, []);
   const removeTag = useCallback((slug: string) => setSelectedTags(t => t.filter(s => s !== slug)), []);
   // Return to the landing splash (where the paste / decks / lists options live).
   // Clears the loaded deck too, so this works from the deck workbench as well.
@@ -101,8 +110,9 @@ export function SpellChromaPage() {
 
   // When a deck loads: pull the index (for top-tags + preview tags) and adopt
   // the deck's combined color identity as the explorer filter.
-  const handleDeckLoaded = useCallback(async (cards: ScryfallCard[]) => {
+  const handleDeckLoaded = useCallback(async (cards: ScryfallCard[], source: string = 'unknown') => {
     setDeck(cards);
+    trackEvent('spellchroma_deck_loaded', { source, cardCount: cards.length });
     const ci = new Set<string>();
     for (const c of cards) for (const col of c.color_identity ?? []) ci.add(col);
     setColorIdentity([...ci]);

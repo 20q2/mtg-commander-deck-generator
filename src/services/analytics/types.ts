@@ -23,7 +23,12 @@ export type AnalyticsEventType =
   | 'analyze_deck_loaded'
   | 'analyze_deck_saved'
   | 'analyze_lane_switched'
+  | 'inspector_tab_viewed'
   | 'analyze_cta_clicked'
+  | 'spellchroma_viewed'
+  | 'spellchroma_deck_loaded'
+  | 'spellchroma_tag_selected'
+  | 'spellchroma_card_added'
   | 'poll_nudge_shown'
   | 'poll_nudge_dismissed'
   | 'brew_started'
@@ -91,7 +96,17 @@ export interface AnalyticsEventMetadata {
   analyze_deck_loaded: { source: 'paste' | 'list' | 'generated'; cardCount: number; hasCommander: boolean };
   analyze_deck_saved: { listName: string; cardCount: number; source: 'paste' | 'list' | 'generated' };
   analyze_lane_switched: { from: string; to: string };
+  /** An inspector analyzer tab became active (overview/roles/mana/tempo/optimize/bracket/cost/lift). */
+  inspector_tab_viewed: { tab: string };
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };
+  /** SpellChroma page opened. */
+  spellchroma_viewed: Record<string, never>;
+  /** A deck was loaded into SpellChroma (paste / saved deck / list). */
+  spellchroma_deck_loaded: { source: string; cardCount: number };
+  /** A tag was added to the SpellChroma explorer search. */
+  spellchroma_tag_selected: { slug: string };
+  /** A card was added from the SpellChroma explorer to the deck or a list. */
+  spellchroma_card_added: { dest: 'deck' | 'list' };
   poll_nudge_shown: { visitCount: number };
   poll_nudge_dismissed: { action: 'clicked' | 'dismissed' };
   brew_started: { commanderName: string; partnerName?: string; collectionMode: boolean };

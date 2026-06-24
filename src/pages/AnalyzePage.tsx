@@ -137,6 +137,19 @@ export function AnalyzePage() {
     }
   }, [activeLane]);
 
+  // Track which inspector tab people actually use, but only once a deck is loaded
+  // (the tabs are inert on the hub). Dedupe on (deck-present, tab) so deck edits —
+  // which change the deck reference but not the tab — don't re-fire.
+  const lastTabFireRef = useRef('');
+  useEffect(() => {
+    const present = !!generatedDeck;
+    const key = `${present}|${activeAnalyzerTab}`;
+    if (!present) { lastTabFireRef.current = key; return; }
+    if (lastTabFireRef.current === key) return;
+    lastTabFireRef.current = key;
+    trackEvent('inspector_tab_viewed', { tab: activeAnalyzerTab });
+  }, [activeAnalyzerTab, generatedDeck]);
+
   // Page-view event with source attribution (one-shot on mount).
   useEffect(() => {
     const generated = useStore.getState().generatedDeck;

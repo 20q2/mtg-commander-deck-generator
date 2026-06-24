@@ -37,7 +37,7 @@ const TABS: { key: Lane; label: string; icon: typeof ClipboardPaste }[] = [
 ];
 
 interface SpellChromaLandingProps {
-  onLoad: (cards: ScryfallCard[]) => void;
+  onLoad: (cards: ScryfallCard[], source?: string) => void;
   onExplore: () => void;
   onStarterTag: (slug: string) => void;
 }
@@ -73,14 +73,14 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
     [lists],
   );
 
-  const resolve = async (names: string[], id?: string) => {
+  const resolve = async (names: string[], id?: string, source?: string) => {
     if (names.length === 0) return;
     setBusy(true);
     if (id) setLoadingId(id);
     try {
       const map = await getCardsByNames(names);
       const cards = names.map(n => map.get(n)).filter((c): c is ScryfallCard => !!c);
-      if (cards.length > 0) onLoad(cards);
+      if (cards.length > 0) onLoad(cards, source);
     } finally {
       setBusy(false);
       setLoadingId(null);
@@ -166,16 +166,16 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
               placeholder={'Paste a decklist…\n\n1 Sol Ring\n1 Cultivate\nBeast Within'}
               className="w-full text-sm rounded-md bg-background border border-border/60 p-3 resize-y focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
-            <Button className="self-end" disabled={busy || text.trim() === ''} onClick={() => resolve(parseDecklist(text))}>
+            <Button className="self-end" disabled={busy || text.trim() === ''} onClick={() => resolve(parseDecklist(text), undefined, 'paste')}>
               {busy ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" />Loading…</> : 'Load deck'}
             </Button>
           </div>
         )}
         {lane === 'decks' && (
-          <PickGrid lists={decks} emptyLabel="No saved decks yet. Paste one, or build a deck and come back." busy={busy} loadingId={loadingId} onPick={l => resolve(l.cards, l.id)} />
+          <PickGrid lists={decks} emptyLabel="No saved decks yet. Paste one, or build a deck and come back." busy={busy} loadingId={loadingId} onPick={l => resolve(l.cards, l.id, 'deck')} />
         )}
         {lane === 'lists' && (
-          <PickGrid lists={plainLists} emptyLabel="No saved lists yet." busy={busy} loadingId={loadingId} onPick={l => resolve(l.cards, l.id)} />
+          <PickGrid lists={plainLists} emptyLabel="No saved lists yet." busy={busy} loadingId={loadingId} onPick={l => resolve(l.cards, l.id, 'list')} />
         )}
       </div>
 
