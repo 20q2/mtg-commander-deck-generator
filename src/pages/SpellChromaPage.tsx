@@ -4,7 +4,6 @@ import type { ExplorerSort } from '@/services/spellchroma/explorerSearch';
 import { useExplorerSearch } from '@/components/spellchroma/useExplorerSearch';
 import { TagSearchBar } from '@/components/spellchroma/TagSearchBar';
 import { ExplorerGrid } from '@/components/spellchroma/ExplorerGrid';
-import { DeckInput } from '@/components/spellchroma/DeckInput';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SpellChromaSplit } from '@/components/spellchroma/SpellChromaSplit';
@@ -74,7 +73,8 @@ export function SpellChromaPage() {
   const addTag = useCallback((slug: string) => setSelectedTags(t => (t.includes(slug) ? t : [...t, slug])), []);
   const removeTag = useCallback((slug: string) => setSelectedTags(t => t.filter(s => s !== slug)), []);
   // Return to the landing splash (where the paste / decks / lists options live).
-  const backToOptions = useCallback(() => { setSelectedTags([]); setStartedExploring(false); }, []);
+  // Clears the loaded deck too, so this works from the deck workbench as well.
+  const backToOptions = useCallback(() => { setDeck(null); setSelectedTags([]); setStartedExploring(false); }, []);
 
   // When a deck loads: pull the index (for top-tags + preview tags) and adopt
   // the deck's combined color identity as the explorer filter.
@@ -164,7 +164,12 @@ export function SpellChromaPage() {
               onTagClick={addTag}
               onCardAction={handleCardAction}
               menuProps={menuProps}
-              headerExtra={<DeckInput onLoad={handleDeckLoaded} label="Change deck" />}
+              headerExtra={
+                <Button variant="outline" size="sm" onClick={backToOptions} className="gap-1.5">
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Deck options
+                </Button>
+              }
             />
           }
           explorer={explorer}
