@@ -105,6 +105,10 @@ export function SpellChromaPage() {
     [deck, indexReady],
   );
 
+  // Names already in the loaded deck — the explorer badges these so you can see
+  // at a glance which results you already run. Updates live as cards are added.
+  const deckNames = useMemo(() => new Set((deck ?? []).map(c => c.name)), [deck]);
+
   // The landing splash shows until the user loads a deck, picks a starter tag,
   // or explicitly chooses to explore without one.
   const showLanding = !deck && selectedTags.length === 0 && !startedExploring;
@@ -155,6 +159,7 @@ export function SpellChromaPage() {
         textFilter={textFilter}
         sort={sort}
         dealKey={`${selectedTags.join(',')}|${colorIdentity.join('')}|${colorMode}|${excludedColors.join('')}|${typeFilter.join(',')}`}
+        deckNames={deckNames}
         onLoadAll={result.loadAll}
         onTagClick={addTag}
         onCardAction={handleCardAction}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
+import { Check } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -26,6 +27,8 @@ interface ExplorerGridProps {
   /** Changes when the underlying search (tags/filters) changes — remounts the
    *  grid so the staggered deal-in replays for a genuinely new result set. */
   dealKey?: string;
+  /** Names of cards already in the loaded deck — those tiles get an "in deck" badge. */
+  deckNames?: Set<string>;
   onLoadAll: () => void;
   onTagClick?: (slug: string) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
@@ -33,7 +36,7 @@ interface ExplorerGridProps {
 }
 
 export function ExplorerGrid({
-  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dealKey, onLoadAll, onTagClick,
+  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dealKey, deckNames, onLoadAll, onTagClick,
   onCardAction, menuProps,
 }: ExplorerGridProps) {
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
@@ -103,6 +106,7 @@ export function ExplorerGrid({
             key={card.id}
             card={card}
             index={i}
+            inDeck={!!deckNames?.has(card.name)}
             onSelect={setPreview}
             onCardAction={onCardAction}
             menuProps={menuProps}
@@ -129,9 +133,10 @@ function Empty({ title, sub }: { title: string; sub: string }) {
   );
 }
 
-function ExplorerCard({ card, index, onSelect, onCardAction, menuProps }: {
+function ExplorerCard({ card, index, inDeck = false, onSelect, onCardAction, menuProps }: {
   card: ScryfallCard;
   index: number;
+  inDeck?: boolean;
   onSelect: (c: ScryfallCard) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: DeckPanelMenuProps;
@@ -144,15 +149,23 @@ function ExplorerCard({ card, index, onSelect, onCardAction, menuProps }: {
         type="button"
         onClick={() => onSelect(card)}
         onContextMenu={(e) => { if (!canMenu) return; e.preventDefault(); setMenuOpen(true); }}
-        className="group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-transform duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)]"
-        title={card.name}
+        className={`group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-transform duration-200 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-[0_10px_30px_-8px_rgba(0,0,0,0.7)] ${
+          inDeck ? 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-background' : ''
+        }`}
+        title={inDeck ? `${card.name} · already in your deck` : card.name}
       >
         <img
           src={getCardImageUrl(card, 'normal') ?? ''}
           alt={card.name}
           loading="lazy"
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+          className={`absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105 ${inDeck ? 'brightness-[0.78]' : ''}`}
         />
+        {inDeck && (
+          <span className="absolute top-1.5 left-1.5 z-10 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/90 text-emerald-50 border border-emerald-300/60 shadow-sm">
+            <Check className="w-3 h-3" strokeWidth={3} />
+            In deck
+          </span>
+        )}
       </button>
       {canMenu && (
         <span
