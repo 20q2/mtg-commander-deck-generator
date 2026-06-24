@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ClipboardPaste, Layers, ListChecks, Loader2, Compass, HelpCircle, Shuffle } from 'lucide-react';
+import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -32,7 +32,7 @@ function sampleTags(pool: string[], n: number): string[] {
 const TABS: { key: Lane; label: string; icon: typeof ClipboardPaste }[] = [
   { key: 'paste', label: 'Paste',      icon: ClipboardPaste },
   { key: 'decks', label: 'Your Decks', icon: Layers },
-  { key: 'lists', label: 'Your Lists', icon: ListChecks },
+  { key: 'lists', label: 'Your Lists', icon: Library },
 ];
 
 interface SpellChromaLandingProps {
