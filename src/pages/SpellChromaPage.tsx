@@ -14,6 +14,7 @@ import { DeckContextPanel } from '@/components/spellchroma/DeckContextPanel';
 import type { CardAction } from '@/components/deck/DeckDisplay';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useStore } from '@/store';
+import { SiteFooter } from '@/components/SiteFooter';
 import type { ScryfallCard } from '@/types';
 
 export function SpellChromaPage() {
@@ -110,6 +111,7 @@ export function SpellChromaPage() {
           onExplore={() => setStartedExploring(true)}
           onStarterTag={addTag}
         />
+        <SiteFooter />
       </div>
     );
   }
@@ -182,6 +184,9 @@ export function SpellChromaPage() {
         </Button>
       </div>
       {explorer}
+      <div className="mt-6">
+        <SiteFooter />
+      </div>
     </div>
   );
 }

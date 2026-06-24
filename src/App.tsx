@@ -25,6 +25,7 @@ import { getBanList } from '@/services/scryfall/client';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
 import { BrewBackdrop } from '@/components/brew/BrewBackdrop';
 import { PollNudge } from '@/components/ui/PollNudge';
+import { SiteFooter } from '@/components/SiteFooter';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import type { ScryfallCard } from '@/types';
 
@@ -533,63 +534,10 @@ function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
 
-        {/* Footer — hidden on /analyze once a deck is loaded to give the optimizer more vertical room */}
-        {(!isAnalyzePage || !generatedDeck) && !isSpellChromaPage && (
-        <footer className="border-t border-border/50 bg-card/50 backdrop-blur-sm">
-          <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-            <p>
-              Card data from{' '}
-              <a
-                href="https://scryfall.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Scryfall
-              </a>
-              {' · '}
-              Inspired by{' '}
-              <a
-                href="https://edhrec.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                EDHREC
-              </a>
-              {' · '}
-              <a
-                href="https://github.com/20q2/mtg-commander-deck-generator"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                GitHub
-              </a>
-              {' · '}
-              Support me on{' '}
-              <a
-                href="https://www.patreon.com/c/ShadowMonk598"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Patreon
-              </a>
-              {' · '}
-              Send{' '}
-              <a
-                href="https://forms.gle/H3eKtDh52muFm7d56"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Feedback
-              </a>
-            </p>
-          </div>
-        </footer>
-        )}
+        {/* Footer — hidden on /analyze once a deck is loaded to give the optimizer more vertical room.
+            On /spellchroma the page renders its own footer in non-workbench states (the full-bleed
+            workbench fills the viewport, like the optimizer). */}
+        {(!isAnalyzePage || !generatedDeck) && !isSpellChromaPage && <SiteFooter />}
       </div>
 
       {/* One-time Community-Poll nudge after 5 sessions (portals itself to body) */}
