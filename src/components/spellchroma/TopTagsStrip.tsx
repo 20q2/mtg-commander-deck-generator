@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
+import { Tags } from 'lucide-react';
 import type { DeckTagCount } from '@/services/spellchroma/tagIndex';
 
 interface TopTagsStripProps {
@@ -10,6 +12,8 @@ interface TopTagsStripProps {
 
 export function TopTagsStrip({ tags, selected, onTagClick, limit = 24 }: TopTagsStripProps) {
   const [showAll, setShowAll] = useState(false);
+  // Reveal/hide of the trivia tags ("show all") and any tag changes animate.
+  const [stripRef] = useAutoAnimate<HTMLDivElement>({ duration: 260, easing: 'cubic-bezier(0.34, 1.4, 0.5, 1)' });
   if (tags.length === 0) return null;
 
   const helpful = tags.filter(t => !t.ignored);
@@ -21,8 +25,11 @@ export function TopTagsStrip({ tags, selected, onTagClick, limit = 24 }: TopTags
 
   return (
     <div className="rounded-lg bg-violet-500/[0.06] border border-violet-500/20 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-semibold text-violet-300/90 mr-1">Your deck’s top tags</span>
+      <div ref={stripRef} className="flex flex-wrap items-center gap-1.5">
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-300/90 mr-1">
+          <Tags className="w-3.5 h-3.5" />
+          Your deck’s top tags
+        </span>
         {shown.map(t => {
           const active = sel.has(t.slug);
           return (

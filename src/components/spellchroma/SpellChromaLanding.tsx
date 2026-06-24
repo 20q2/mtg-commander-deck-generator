@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,8 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
   // button. Falls back to the curated list until the dictionary loads.
   const [dictReady, setDictReady] = useState(() => allTags().length > 0);
   const [seed, setSeed] = useState(0);
+  // Starter chips swap with a springy pop when shuffled / when the dictionary loads.
+  const [chipsRef] = useAutoAnimate<HTMLDivElement>({ duration: 260, easing: 'cubic-bezier(0.34, 1.5, 0.5, 1)' });
   useEffect(() => { void loadTagDictionary().then(() => setDictReady(true)); }, []);
   const starterTags = useMemo(() => {
     void seed; // re-sample when the shuffle button bumps the seed
@@ -107,7 +110,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
           </PopoverContent>
         </Popover>
       </div>
-      <div className="text-center py-6 max-w-2xl mx-auto animate-fade-in">
+      <div className="text-center py-6 max-w-2xl mx-auto animate-slide-up" style={{ animationFillMode: 'backwards' }}>
         <img
           src={`${import.meta.env.BASE_URL}spellchroma-logo.png`}
           alt="SpellChroma"
@@ -122,7 +125,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
       </div>
 
       {/* Lane tabs */}
-      <div role="tablist" aria-label="Choose how to load a deck" className="flex items-center gap-1.5 justify-center mb-6">
+      <div role="tablist" aria-label="Choose how to load a deck" className="flex items-center gap-1.5 justify-center mb-6 animate-slide-up" style={{ animationDelay: '80ms', animationFillMode: 'backwards' }}>
         {TABS.map(tab => {
           const active = lane === tab.key;
           return (
@@ -153,7 +156,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
         </button>
       </div>
 
-      <div className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[260px]">
+      <div className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[260px] animate-slide-up" style={{ animationDelay: '160ms', animationFillMode: 'backwards' }}>
         {lane === 'paste' && (
           <div className="flex flex-col gap-3">
             <textarea
@@ -177,7 +180,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
       </div>
 
       {/* Starter tags — jump straight into tag-first browsing */}
-      <div className="max-w-3xl mx-auto mt-6 text-center">
+      <div className="max-w-3xl mx-auto mt-6 text-center animate-slide-up" style={{ animationDelay: '240ms', animationFillMode: 'backwards' }}>
         <div className="flex items-center gap-3 mb-3">
           <div className="flex-1 h-px bg-border/40" />
           <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -187,19 +190,19 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
               onClick={() => setSeed(s => s + 1)}
               title="Shuffle tags"
               aria-label="Shuffle tags"
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full text-muted-foreground/70 hover:text-violet-200 hover:bg-violet-500/15 transition-colors"
+              className="inline-flex items-center justify-center w-5 h-5 rounded-full text-muted-foreground/70 hover:text-violet-200 hover:bg-violet-500/15 transition-colors hover:scale-110 active:scale-95"
             >
-              <Shuffle className="w-3 h-3" />
+              <Shuffle key={seed} className={`w-3 h-3 ${seed > 0 ? 'animate-sc-spin' : ''}`} />
             </button>
           </span>
           <div className="flex-1 h-px bg-border/40" />
         </div>
-        <div className="flex flex-wrap justify-center gap-1.5">
+        <div ref={chipsRef} className="flex flex-wrap justify-center gap-1.5">
           {starterTags.map(slug => (
             <button
               key={slug}
               onClick={() => onStarterTag(slug)}
-              className="px-2.5 py-1 rounded-full text-xs bg-violet-500/12 text-violet-200 border border-violet-500/25 hover:bg-violet-500/25 transition-colors"
+              className="px-2.5 py-1 rounded-full text-xs bg-violet-500/12 text-violet-200 border border-violet-500/25 hover:bg-violet-500/25 hover:scale-105 transition-[transform,background-color]"
             >
               {slug}
             </button>
