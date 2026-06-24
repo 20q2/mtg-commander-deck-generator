@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -35,6 +36,9 @@ export function DeckContextPanel({
   cards, colorIdentity, topTags, selectedTags, onTagClick, onCardAction, menuProps, headerExtra,
 }: DeckContextPanelProps) {
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
+  // Cards added (from the explorer) or removed animate into place; the initial
+  // mount deals in via CSS (auto-animate stays quiet on first render).
+  const [gridRef] = useAutoAnimate<HTMLDivElement>({ duration: 300, easing: 'cubic-bezier(0.34, 1.4, 0.5, 1)' });
 
   const sorted = useMemo(
     () => [...cards].sort((a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name)),
@@ -55,11 +59,12 @@ export function DeckContextPanel({
         {topTags.length > 0 && (
           <TopTagsStrip tags={topTags} selected={selectedTags} onTagClick={onTagClick} />
         )}
-        <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))]">
-          {sorted.map(card => (
+        <div ref={gridRef} className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))]">
+          {sorted.map((card, i) => (
             <DeckCard
               key={card.id}
               card={card}
+              index={i}
               onSelect={setPreview}
               onCardAction={onCardAction}
               menuProps={menuProps}
@@ -73,8 +78,9 @@ export function DeckContextPanel({
   );
 }
 
-function DeckCard({ card, onSelect, onCardAction, menuProps }: {
+function DeckCard({ card, index, onSelect, onCardAction, menuProps }: {
   card: ScryfallCard;
+  index: number;
   onSelect: (c: ScryfallCard) => void;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: DeckPanelMenuProps;
@@ -82,12 +88,12 @@ function DeckCard({ card, onSelect, onCardAction, menuProps }: {
   const [menuOpen, setMenuOpen] = useState(false);
   const canMenu = !!(onCardAction && menuProps);
   return (
-    <div className="relative">
+    <div className="relative animate-sc-card-in" style={{ animationDelay: `${Math.min(index, 22) * 16}ms` }}>
       <button
         type="button"
         onClick={() => onSelect(card)}
         onContextMenu={(e) => { if (!canMenu) return; e.preventDefault(); setMenuOpen(true); }}
-        className="group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="group relative aspect-[5/7] w-full rounded-lg overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-transform duration-200 hover:-translate-y-0.5 hover:scale-[1.04] hover:shadow-[0_8px_22px_-8px_rgba(0,0,0,0.7)]"
         title={card.name}
       >
         <img

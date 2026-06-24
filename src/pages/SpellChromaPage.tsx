@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { loadTagDictionary, loadTagIndex, aggregateDeckTags } from '@/services/spellchroma/tagIndex';
-import type { ExplorerSort } from '@/services/spellchroma/explorerSearch';
+import type { ExplorerSort, ColorMatch } from '@/services/spellchroma/explorerSearch';
 import { useExplorerSearch } from '@/components/spellchroma/useExplorerSearch';
 import { TagSearchBar } from '@/components/spellchroma/TagSearchBar';
 import { ExplorerGrid } from '@/components/spellchroma/ExplorerGrid';
@@ -19,6 +19,9 @@ import type { ScryfallCard } from '@/types';
 export function SpellChromaPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [colorIdentity, setColorIdentity] = useState<string[]>([]);
+  const [colorMode, setColorMode] = useState<ColorMatch>('subset');
+  const [excludedColors, setExcludedColors] = useState<string[]>([]);
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [sort, setSort] = useState<ExplorerSort>('edhrec');
   const [textFilter, setTextFilter] = useState('');
   const [deck, setDeck] = useState<ScryfallCard[] | null>(null);
@@ -69,7 +72,11 @@ export function SpellChromaPage() {
     }
   }, [customization, updateCustomization, userLists, updateList, createList]);
 
-  const result = useExplorerSearch(selectedTags, colorIdentity, sort);
+  const filters = useMemo(
+    () => ({ colorIdentity, colorMode, excludedColors, typeFilter }),
+    [colorIdentity, colorMode, excludedColors, typeFilter],
+  );
+  const result = useExplorerSearch(selectedTags, filters, sort);
   const addTag = useCallback((slug: string) => setSelectedTags(t => (t.includes(slug) ? t : [...t, slug])), []);
   const removeTag = useCallback((slug: string) => setSelectedTags(t => t.filter(s => s !== slug)), []);
   // Return to the landing splash (where the paste / decks / lists options live).
@@ -126,6 +133,12 @@ export function SpellChromaPage() {
         onRemoveTag={removeTag}
         colorIdentity={colorIdentity}
         onColorsChange={setColorIdentity}
+        colorMode={colorMode}
+        onColorModeChange={setColorMode}
+        excludedColors={excludedColors}
+        onExcludedChange={setExcludedColors}
+        typeFilter={typeFilter}
+        onTypeFilterChange={setTypeFilter}
         sort={sort}
         onSortChange={setSort}
         textFilter={textFilter}
@@ -140,6 +153,8 @@ export function SpellChromaPage() {
         error={result.error}
         hasTags={selectedTags.length > 0}
         textFilter={textFilter}
+        sort={sort}
+        dealKey={`${selectedTags.join(',')}|${colorIdentity.join('')}|${colorMode}|${excludedColors.join('')}|${typeFilter.join(',')}`}
         onLoadAll={result.loadAll}
         onTagClick={addTag}
         onCardAction={handleCardAction}
