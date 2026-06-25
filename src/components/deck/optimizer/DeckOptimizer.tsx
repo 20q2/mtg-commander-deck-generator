@@ -666,10 +666,7 @@ export function DeckOptimizer({
         const bestSlug = detection.matchedThemes[0].theme.slug;
         const bestThemeData = themeDataMap.get(bestSlug);
         setPrimaryThemeSlug(bestSlug);
-        // If secondary theme detected, set it too
-        if (detection.hasSecondaryTheme && detection.matchedThemes.length >= 2) {
-          setSecondaryThemeSlug(detection.matchedThemes[1].theme.slug);
-        }
+        // Single-tag model — no secondary slot (see handleThemeSelect).
 
         if (bestThemeData) {
           themeEnhancedDataRef.current = bestThemeData;
@@ -934,33 +931,17 @@ export function DeckOptimizer({
     setThemeLoading(false);
   }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
 
-  // Sequential-pick theme selection handler
+  // Single-tag selection: pick one theme, picking another replaces it, clicking
+  // the active one clears it. A 2nd "secondary" slot used to exist but was dead
+  // weight — runAnalysisFor (card adds, pacing/size/land changes) and auto-detect
+  // only ever applied the primary, so the secondary silently dropped on the next
+  // recompute. One slot is the honest model.
   const handleThemeSelect = useCallback(async (slug: string) => {
-    let newPrimary = primaryThemeSlug;
-    let newSecondary = secondaryThemeSlug;
-
-    if (slug === primaryThemeSlug) {
-      // Deselect primary → promote secondary
-      newPrimary = secondaryThemeSlug;
-      newSecondary = null;
-    } else if (slug === secondaryThemeSlug) {
-      // Deselect secondary
-      newSecondary = null;
-    } else if (!primaryThemeSlug) {
-      // No primary → set as primary
-      newPrimary = slug;
-    } else if (!secondaryThemeSlug) {
-      // Primary exists, no secondary → set as secondary
-      newSecondary = slug;
-    } else {
-      // Both exist → replace secondary
-      newSecondary = slug;
-    }
-
+    const newPrimary = slug === primaryThemeSlug ? null : slug;
     setPrimaryThemeSlug(newPrimary);
-    setSecondaryThemeSlug(newSecondary);
-    await applyThemeSelection(newPrimary, newSecondary);
-  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection]);
+    setSecondaryThemeSlug(null);
+    await applyThemeSelection(newPrimary, null);
+  }, [primaryThemeSlug, applyThemeSelection]);
 
   // Context menu support
   const customization = useStore(s => s.customization);
@@ -1287,7 +1268,6 @@ export function DeckOptimizer({
             detection={themeDetection}
             allThemes={cachedEdhrecDataRef.current?.themes || []}
             primaryThemeSlug={primaryThemeSlug}
-            secondaryThemeSlug={secondaryThemeSlug}
             onThemeSelect={handleThemeSelect}
             userLandTarget={userLandTarget}
             onLandTargetChange={handleLandTargetChange}
@@ -1487,7 +1467,6 @@ export function DeckOptimizer({
                   detection={themeDetection}
                   allThemes={cachedEdhrecDataRef.current?.themes ?? []}
                   primaryThemeSlug={primaryThemeSlug}
-                  secondaryThemeSlug={secondaryThemeSlug}
                   onThemeSelect={handleThemeSelect}
                   userLandTarget={userLandTarget}
                   onLandTargetChange={handleLandTargetChange}
