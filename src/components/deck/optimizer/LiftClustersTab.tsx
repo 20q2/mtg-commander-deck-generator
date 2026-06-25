@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChartNetwork, Plus, Check, Zap, Network, List, Share2, Anchor, Search, X, Link2, Flame, Layers, Mountain, Loader2 } from 'lucide-react';
+import { ChartNetwork, Plus, Check, Zap, Network, List, Share2, Anchor, Search, X, Link2, Flame, Layers, Unlink, Mountain, Loader2 } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
-import { getCardImageUrl, isLand } from '@/services/scryfall/client';
+import { getCardImageUrl } from '@/services/scryfall/client';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
+import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { scryfallImg } from './constants';
 import type { CardRowMenuProps } from './shared';
-import { scanLiftCandidates, edgeScore, bombScore, clusterScore, type LiftCandidate, type DeckLink } from '@/services/optimizer/liftClusters';
+import { scanLiftCandidates, edgeScore, bombScore, clusterScore, LIFT_SCAN_CACHE, liftDeckKey, buildLiftScanInputs, type LiftCandidate, type DeckLink } from '@/services/optimizer/liftClusters';
 import { LiftGraph } from './LiftGraph';
 
 /**
@@ -33,15 +34,12 @@ interface LiftClustersTabProps {
   focusRequest?: { name: string; seq: number } | null;   // external "Focus on graph" (e.g. deck-building area)
 }
 
-type ScanResult = { candidates: LiftCandidate[]; deckLinks: DeckLink[] };
 type ScanState =
   | { phase: 'idle' }
   | { phase: 'scanning'; done: number; total: number }
+  | { phase: 'building' }   // fetch done; resolving candidates + laying out the graph
   | { phase: 'done'; candidates: LiftCandidate[]; deckLinks: DeckLink[] }
   | { phase: 'error'; message: string };
-
-/** Per-deck result cache so re-opening the same deck is instant and a changed decklist re-scans. */
-const SCAN_CACHE = new Map<string, ScanResult>();
 
 const MAX_RESULTS = 40;   // per kind → up to 80 candidate cards (bombs + clusters) plotted
 const HIGH_LIFT = 5;         // "insanely high" single-card lift threshold (tunable)
@@ -70,9 +68,10 @@ interface LiftFilters {
   type: TypeFilter;        // bombs / clusters / both / deck
   hideStaples: boolean;    // drop broadly-played good-stuff (bombs only)
   hideThin: boolean;       // drop low-confidence "thin data" hits
-  hideLands: boolean;      // (deck mode) drop lands — widely played, they rarely lift like spells do
+  hideIslands: boolean;    // (deck mode) drop "islands" — cards with no synergy tie to anything (default on)
+  hideLands: boolean;      // (deck mode) drop lands — only offered once islands are shown
 }
-const EMPTY_FILTERS: LiftFilters = { anchors: new Set(), type: 'all', hideStaples: false, hideThin: false, hideLands: false };
+const EMPTY_FILTERS: LiftFilters = { anchors: new Set(), type: 'all', hideStaples: false, hideThin: false, hideIslands: true, hideLands: false };
 
 // Hard filters — "Spice only" / "Hide thin data" / "Pairs with" REMOVE a candidate from the lab entirely
 // (out of both the list and the graph, regardless of the graph's dim/hide mode). "Pairs with" is a
@@ -104,31 +103,15 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
   useEffect(() => () => { cancelledRef.current = true; }, []);
 
   const deckKey = useMemo(
-    () => [commanderName, partnerCommanderName ?? '', ...currentCards.map(c => c.name).sort()].join('|'),
+    () => liftDeckKey(commanderName, partnerCommanderName, currentCards),
     [commanderName, partnerCommanderName, currentCards],
   );
 
-  const deckIdentity = useCallback((): string[] => {
-    if (colorIdentity && colorIdentity.length) return colorIdentity;
-    const set = new Set<string>();
-    for (const c of [commander, partnerCommander, ...currentCards]) {
-      for (const col of c?.color_identity ?? []) set.add(col);
-    }
-    return [...set];
-  }, [colorIdentity, commander, partnerCommander, currentCards]);
-
   const runScan = useCallback(async (force = false) => {
     cancelledRef.current = false;
-    const exclude = new Set<string>([
-      ...currentCards.map(c => c.name),
-      commanderName,
-      ...(partnerCommanderName ? [partnerCommanderName] : []),
-    ]);
-    const seedNames = [...new Set<string>([
-      commanderName,
-      ...(partnerCommanderName ? [partnerCommanderName] : []),
-      ...currentCards.filter(c => !isLand(c)).map(c => c.name),
-    ])];
+    const { seedNames, excludeNames: exclude, identity } = buildLiftScanInputs({
+      commander, partnerCommander, commanderName, partnerCommanderName, currentCards, colorIdentity,
+    });
     // If results are already showing, keep them up and just flag a recheck — don't swap to the
     // progress bar, which unmounts the graph (and drops fullscreen). The progress bar is only for
     // the very first scan, when there's nothing to show yet.
@@ -138,14 +121,19 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
     try {
       const result = await scanLiftCandidates({
         seedNames,
-        identity: deckIdentity(),
+        identity,
         excludeNames: exclude,
         force,
-        onProgress: (done, total) => { if (!cancelledRef.current && !keepGraph) setState({ phase: 'scanning', done, total }); },
+        // Climb to N/N during the fetch, then flip to "building" while we resolve candidates and lay
+        // out the graph — so the bar doesn't sit frozen at "66 / 66" through the (network) build step.
+        onProgress: (done, total) => {
+          if (cancelledRef.current || keepGraph) return;
+          setState(done >= total ? { phase: 'building' } : { phase: 'scanning', done, total });
+        },
         isCancelled: () => cancelledRef.current,
       });
       if (cancelledRef.current) return;
-      SCAN_CACHE.set(deckKey, result);
+      LIFT_SCAN_CACHE.set(deckKey, result);
       setState({ phase: 'done', candidates: result.candidates, deckLinks: result.deckLinks });
       setRechecking(false);
     } catch (e) {
@@ -154,13 +142,13 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
       if (!keepGraph) setState({ phase: 'error', message: e instanceof Error ? e.message : 'Scan failed' });
       // On a recheck failure we keep the existing results on screen rather than tearing the graph down.
     }
-  }, [currentCards, commanderName, partnerCommanderName, deckIdentity, deckKey]);
+  }, [currentCards, commanderName, partnerCommanderName, commander, partnerCommander, colorIdentity, deckKey]);
 
   // Auto-run on first open per deck; show cached results instantly; re-run when the decklist changes.
   const runScanRef = useRef(runScan);
   runScanRef.current = runScan;
   useEffect(() => {
-    const cached = SCAN_CACHE.get(deckKey);
+    const cached = LIFT_SCAN_CACHE.get(deckKey);
     if (cached) { setState({ phase: 'done', candidates: cached.candidates, deckLinks: cached.deckLinks }); return; }
     if (currentCards.length === 0) return;
     runScanRef.current();
@@ -289,6 +277,13 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
         </div>
       )}
 
+      {state.phase === 'building' && (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-fuchsia-400 shrink-0" />
+          Building lift graph…
+        </div>
+      )}
+
       {state.phase === 'error' && (
         <p className="text-sm text-destructive">Couldn’t finish the scan: {state.message}</p>
       )}
@@ -316,6 +311,7 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
                 mode={filters.type === 'deck' ? 'deck' : 'candidates'}
                 candidates={keptCandidates}
                 deckLinks={deckLinks}
+                hideIslands={filters.hideIslands}
                 hideLands={filters.hideLands}
                 bombNames={bombNameSet}
                 deckCardsByName={graph.deckCardsByName}
@@ -506,10 +502,19 @@ function LiftFilterBar({
           )}
         </>
       ) : (
-        <button onClick={() => patch({ hideLands: !filters.hideLands })} className={chip(filters.hideLands)}
-          title="Hide lands — they're widely played and rarely lift the way spells do">
-          <Mountain className="w-3 h-3" /> Hide lands
-        </button>
+        <>
+          <button onClick={() => patch({ hideIslands: !filters.hideIslands })} className={chip(filters.hideIslands)}
+            title="Hide islands — cards with no notable synergy tie to anything else, so the relationships have room to breathe">
+            <Unlink className="w-3 h-3" /> Hide islands
+          </button>
+          {/* Lands rarely lift like spells, so once you reveal the islands you can still drop them. */}
+          {!filters.hideIslands && (
+            <button onClick={() => patch({ hideLands: !filters.hideLands })} className={chip(filters.hideLands)}
+              title="Hide lands — they're widely played and rarely lift the way spells do">
+              <Mountain className="w-3 h-3" /> Hide lands
+            </button>
+          )}
+        </>
       )}
 
       {/* right side: count + graph/list toggle. Deck mode is inherently a synergy map (no list
@@ -602,6 +607,20 @@ function LiftCandidateRow({
   candidate, mode, onAdd, addedCards, onPreview, onCardAction, menuProps,
 }: { candidate: LiftCandidate; mode: 'bomb' | 'cluster' } & LiftClustersTabProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // Hover → larger card preview, anchored to the row's thumbnail. A short delay keeps
+  // the preview from flickering while the cursor scans down a list of hits.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [hovered, setHovered] = useState(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startHover = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHovered(true), 140);
+  };
+  const endHover = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setHovered(false);
+  };
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
   const { card, connectionCount, bestNumDecks, edges } = candidate;
   const added = addedCards.has(card.name);
   const lowConf = bestNumDecks < CONFIDENCE_FLOOR;
@@ -619,14 +638,18 @@ function LiftCandidateRow({
       className={`group flex items-center gap-3 py-2 px-2.5 hover:bg-accent/40 cursor-pointer transition-all ${staple ? 'opacity-60 hover:opacity-100' : ''}`}
       onClick={() => onPreview(card.name)}
       onContextMenu={(e) => { if (onCardAction) { e.preventDefault(); setMenuOpen(true); } }}
+      onMouseEnter={startHover}
+      onMouseLeave={endHover}
     >
       <img
+        ref={imgRef}
         src={getCardImageUrl(card, 'small') || scryfallImg(card.name)}
         alt={card.name}
         className="w-10 h-auto rounded shadow-md shrink-0"
         loading="lazy"
         onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name); }}
       />
+      {hovered && <MagnifiedPreview card={card} anchorRef={imgRef} />}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-sm font-medium truncate">{card.name}</span>

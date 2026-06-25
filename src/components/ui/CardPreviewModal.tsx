@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2, ScrollText, Tag } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, useScryfallImage, fetchCardRulings, getCachedRulings } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
-import { tagsForOracleId } from '@/services/spellchroma/tagIndex';
+import { tagsForOracleId, loadTagIndex, isTagIndexLoaded } from '@/services/spellchroma/tagIndex';
 import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
@@ -81,9 +82,8 @@ interface CardPreviewModalProps {
   commanderColorIdentity?: string[];
   /** Progressive load phases — when 'swaps' is missing, render placeholder in Replacements panel. */
   phasesDone?: Set<LoadPhase>;
-  /** SpellChroma: show the displayed card's oracle tags as clickable chips. */
-  showOracleTags?: boolean;
-  /** SpellChroma: called with a tag slug when a tag chip is clicked (modal then closes). */
+  /** SpellChroma: called with a tag slug when a tag chip is clicked in the Tags tab (modal then closes).
+   *  When provided, the Tags-tab chips become clickable filters; otherwise they're static. */
   onTagClick?: (slug: string) => void;
 }
 
@@ -238,8 +238,9 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone, showOracleTags, onTagClick }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone, onTagClick }: CardPreviewModalProps) {
   const swapsReady = !phasesDone || phasesDone.has('swaps');
+  const navigate = useNavigate();
   const commander = useStore((s) => s.commander);
   const generatedDeck = useStore((s) => s.generatedDeck);
   const currency = useStore((s) => s.customization.currency);
@@ -263,7 +264,19 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   // that cache. Keeping rulings out of state avoids the null/stale frame that
   // made the card image jump on navigation.
   const [, bumpRulings] = useState(0);
-  const [sidePanelTab, setSidePanelTab] = useState<'combos' | 'rulings'>('combos');
+  // Forces a re-render once the lazily-loaded tag index arrives (see effect below).
+  const [, bumpTags] = useState(0);
+  const [sidePanelTab, setSidePanelTab] = useState<'combos' | 'rulings' | 'tags'>(() => {
+    const stored = localStorage.getItem('spellchroma-card-side-tab');
+    return stored === 'tags' || stored === 'rulings' || stored === 'combos' ? stored : 'combos';
+  });
+  // Remember the user's last-picked side-panel tab across cards and sessions. The
+  // activeSideTab fallback (below) still handles cards that lack the preferred tab
+  // without overwriting the stored preference.
+  const selectSideTab = useCallback((tab: 'combos' | 'rulings' | 'tags') => {
+    setSidePanelTab(tab);
+    localStorage.setItem('spellchroma-card-side-tab', tab);
+  }, []);
   const [showSwaps, setShowSwaps] = useState(() => {
     if (initialSideTab === 'swaps') return true;
     const stored = localStorage.getItem('showSwapCandidates');
@@ -283,7 +296,6 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     setCardOverride(null);
     setActiveComboCards(null);
     setSwapPreview(null);
-    setSidePanelTab('combos');
     if (initialSideTab === 'swaps') {
       setShowSwaps(true);
     } else {
@@ -574,6 +586,17 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     return () => { cancelled = true; };
   }, [cardOverride?.id, card?.id]);
 
+  // Lazily load the SpellChroma tag index so the Tags tab works in every context
+  // the preview opens (not just SpellChroma, which loads it eagerly). Cached after
+  // the first load; the bump forces one re-render once tags become available.
+  useEffect(() => {
+    if (!card) return;
+    if (isTagIndexLoaded()) return;
+    let cancelled = false;
+    loadTagIndex().then(() => { if (!cancelled) bumpTags((t) => t + 1); });
+    return () => { cancelled = true; };
+  }, [card?.id]);
+
   // Sort swap candidates: card type match first, then matching subtype tag, then rest
   // Must be above the early return to satisfy Rules of Hooks
   const sortedSwapCandidates = useMemo(() => {
@@ -690,16 +713,21 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const rulingsLoading = !!rulingsTarget && cachedRulings === undefined;
   const rulingsList = cachedRulings ?? [];
   const hasRulings = rulingsList.length > 0;
-  // Reserve the side panel while rulings load so the centered image doesn't jump
-  // left when they arrive. Collapses only if the card genuinely has no side content.
-  const hasSidePanel = hasCombos || hasRulings || rulingsLoading;
-  // Show the tab switcher only when both sections have content; otherwise the
-  // lone section renders with its own header. Fall back to the available tab
-  // when the active one has nothing for this card.
-  const showTabSwitcher = hasCombos && hasRulings;
-  const activeSideTab = sidePanelTab === 'combos'
-    ? (hasCombos ? 'combos' : 'rulings')
-    : (hasRulings ? 'rulings' : 'combos');
+  // Oracle tags for the focused card (cardOverride ?? card, matching rulings so the
+  // panel always reflects the focused card, not a staged swap preview).
+  const tagSlugs = rulingsTarget ? tagsForOracleId(rulingsTarget.oracle_id) : [];
+  const hasTags = tagSlugs.length > 0;
+  // Available side-panel tabs in display order. The switcher appears only when 2+
+  // have content; a lone section renders with its own header. Reserve the panel
+  // while rulings load so the centered image doesn't jump when they arrive.
+  const availableTabs: Array<'combos' | 'tags' | 'rulings'> = [];
+  if (hasCombos) availableTabs.push('combos');
+  if (hasTags) availableTabs.push('tags');
+  if (hasRulings || rulingsLoading) availableTabs.push('rulings');
+  const hasSidePanel = availableTabs.length > 0;
+  const showTabSwitcher = availableTabs.length > 1;
+  // Fall back to the first available tab when the active one has nothing for this card.
+  const activeSideTab = availableTabs.includes(sidePanelTab) ? sidePanelTab : availableTabs[0];
   const canMustInclude = isMissingComboCard && !isInMustInclude;
   const alreadyMustIncluded = isInMustInclude;
 
@@ -797,26 +825,6 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
             </div>
           )}
           <p className="text-white/70 text-sm">{faceType}</p>
-          {showOracleTags && (() => {
-            const slugs = tagsForOracleId(displayCard.oracle_id);
-            if (slugs.length === 0) return null;
-            return (
-              <div className="flex flex-wrap justify-center gap-1.5 mt-2 max-w-md mx-auto">
-                {slugs.map(slug => (
-                  <button
-                    key={slug}
-                    type="button"
-                    onClick={() => { onTagClick?.(slug); onClose(); }}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-200 text-[11px] hover:bg-violet-500/30 transition-colors"
-                    title={`Explore cards tagged “${slug}”`}
-                  >
-                    <Tag className="w-3 h-3 opacity-70" />
-                    {slug}
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
           {getCardPrice(displayCard, currency) && (
             <p className="text-white/50 text-xs mt-1">{sym}{getCardPrice(displayCard, currency)}</p>
           )}
@@ -927,35 +935,54 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
 
           {/* Side panel — combos and/or rulings, separated by tabs */}
           {hasSidePanel && (
-            <div className="mt-3 md:mt-0 w-full md:w-72 shrink-0 max-h-[30vh] sm:max-h-[35vh] md:max-h-[70vh] overflow-y-auto pr-1.5 md:order-2">
+            <div className="mt-3 md:mt-0 w-full md:w-[19.5rem] shrink-0 max-h-[30vh] sm:max-h-[35vh] md:max-h-[70vh] overflow-y-auto pr-1.5 md:order-2">
               {showTabSwitcher && (
                 <div className="flex gap-1 mb-3 p-1 rounded-lg bg-white/5 border border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setSidePanelTab('combos')}
-                    className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
-                      activeSideTab === 'combos'
-                        ? 'bg-violet-500/20 text-violet-200'
-                        : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                    }`}
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    Combos
-                    <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{comboCount}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSidePanelTab('rulings')}
-                    className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
-                      activeSideTab === 'rulings'
-                        ? 'bg-white/15 text-white/90'
-                        : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                    }`}
-                  >
-                    <ScrollText className="w-3 h-3" />
-                    Rulings
-                    <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{rulingsList.length}</span>
-                  </button>
+                  {hasCombos && (
+                    <button
+                      type="button"
+                      onClick={() => selectSideTab('combos')}
+                      className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
+                        activeSideTab === 'combos'
+                          ? 'bg-violet-500/20 text-violet-200'
+                          : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                      }`}
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      Combos
+                      <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{comboCount}</span>
+                    </button>
+                  )}
+                  {hasTags && (
+                    <button
+                      type="button"
+                      onClick={() => selectSideTab('tags')}
+                      className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
+                        activeSideTab === 'tags'
+                          ? 'bg-violet-500/20 text-violet-200'
+                          : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                      }`}
+                    >
+                      <Tag className="w-3 h-3" />
+                      Tags
+                      <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{tagSlugs.length}</span>
+                    </button>
+                  )}
+                  {(hasRulings || rulingsLoading) && (
+                    <button
+                      type="button"
+                      onClick={() => selectSideTab('rulings')}
+                      className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors ${
+                        activeSideTab === 'rulings'
+                          ? 'bg-white/15 text-white/90'
+                          : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                      }`}
+                    >
+                      <ScrollText className="w-3 h-3" />
+                      Rulings
+                      <span className="text-[10px] font-medium px-1.5 rounded-full bg-white/10 text-white/50">{rulingsList.length}</span>
+                    </button>
+                  )}
                 </div>
               )}
               {activeSideTab === 'combos' && deckCombos.length > 0 && (
@@ -982,6 +1009,42 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                   <div className="space-y-2">
                     {knownCombos.map((combo) => (
                       <ComboEntry key={combo.comboId} combo={combo} currentCardName={currentCardName} cardTypeMap={cardTypeMap} handlePillHover={handlePillHover} setHoverPreview={setHoverPreview} handlePillClick={handlePillClick} isKnown />
+                    ))}
+                  </div>
+                </>
+              )}
+              {activeSideTab === 'tags' && hasTags && (
+                <>
+                  {!showTabSwitcher && (
+                    <div className="flex items-center gap-1.5 mb-2.5 py-1.5 border-b border-white/10">
+                      <Tag className="w-3.5 h-3.5 text-violet-400" />
+                      <span className="text-[11px] font-bold text-violet-300 tracking-wide uppercase">Tags</span>
+                      <span className="ml-auto text-[10px] font-medium text-violet-400/60 bg-violet-500/10 px-1.5 py-0.5 rounded-full">{tagSlugs.length}</span>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-white/50 leading-snug mb-2.5">
+                    Click a tag to search for similar cards in SpellChroma.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {tagSlugs.map((slug) => (
+                      <button
+                        key={slug}
+                        type="button"
+                        onClick={() => {
+                          if (onTagClick) onTagClick(slug);
+                          else {
+                            // Carry the previewed card along so SpellChroma opens with
+                            // it already loaded in the deck area (the card we came from).
+                            const params = new URLSearchParams({ tags: slug, card: rulingsTarget.name });
+                            navigate(`/spellchroma?${params.toString()}`);
+                          }
+                          onClose();
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-200 text-xs hover:bg-violet-500/30 transition-colors"
+                      >
+                        <Tag className="w-3.5 h-3.5 opacity-70" />
+                        {slug}
+                      </button>
                     ))}
                   </div>
                 </>

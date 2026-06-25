@@ -2,10 +2,23 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Tag } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
-import { allTags } from '@/services/spellchroma/tagIndex';
+import { allTags, type TagDictEntry } from '@/services/spellchroma/tagIndex';
+import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 
 interface TagEntry { s: string; l: string }
 interface Section { label?: string; items: TagEntry[] }
+
+/**
+ * Beginner-friendly starter tags shown when no deck is loaded. The raw
+ * dictionary order leads with obscure cycle/name trivia, so we surface a
+ * curated set of the most useful discovery tags instead. Slugs not present in
+ * the loaded dictionary are silently dropped, so this list can be generous.
+ */
+const STARTER_TAGS = [
+  'ramp', 'removal', 'card-advantage', 'counterspell', 'lifegain',
+  'sacrifice-outlet', 'tutor', 'treasure', 'tokens', 'boardwipe',
+  'mill', 'cantrip', 'protection', 'graveyard-recursion', 'reanimation',
+];
 
 interface AddTagPopoverProps {
   selectedTags: string[];
@@ -32,17 +45,26 @@ export function AddTagPopover({ selectedTags, onAddTag, align = 'start', topTags
     const bySlug = new Map(dict.map(e => [e.s, e]));
     const sel = new Set(selectedTags);
     const q = query.trim().toLowerCase();
+    // Selected tags and trivia (cycle/name/watermark) tags are never offered.
+    const usable = (e: TagDictEntry) => !sel.has(e.s) && !isIgnoredTag(e.s);
 
     if (q !== '') {
-      const items = dict.filter(t => !sel.has(t.s) && (t.s.includes(q) || t.l.toLowerCase().includes(q))).slice(0, 40);
+      const items = dict.filter(t => usable(t) && (t.s.includes(q) || t.l.toLowerCase().includes(q))).slice(0, 40);
       return [{ items }];
     }
 
-    const top = (topTags ?? []).filter(s => !sel.has(s)).map(s => bySlug.get(s) ?? { s, l: '' });
-    const topSet = new Set(top.map(e => e.s));
-    const rest = dict.filter(e => !sel.has(e.s) && !topSet.has(e.s)).slice(0, Math.max(0, 40 - top.length));
-    return top.length
-      ? [{ label: 'From your deck', items: top }, { label: 'All tags', items: rest }]
+    // Lead with the deck's top tags when one is loaded; otherwise with curated
+    // starter tags. We never fall back to raw dictionary order as the lead —
+    // it's full of obscure trivia that makes the empty state look broken.
+    const lead: TagEntry[] = topTags?.length
+      ? topTags.filter(s => !sel.has(s)).map(s => bySlug.get(s) ?? { s, l: '' })
+      : STARTER_TAGS.map(s => bySlug.get(s)).filter((e): e is TagDictEntry => !!e && !sel.has(e.s));
+    const leadLabel = topTags?.length ? 'From your deck' : 'Popular tags';
+
+    const leadSet = new Set(lead.map(e => e.s));
+    const rest = dict.filter(e => usable(e) && !leadSet.has(e.s)).slice(0, Math.max(0, 40 - lead.length));
+    return lead.length
+      ? [{ label: leadLabel, items: lead }, { label: 'All tags', items: rest }]
       : [{ items: rest }];
   }, [query, selectedTags, topTags]);
 

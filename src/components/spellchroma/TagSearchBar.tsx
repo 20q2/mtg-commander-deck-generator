@@ -1,9 +1,9 @@
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { Plus, X, Search, Tag, ArrowUpDown } from 'lucide-react';
+import { Plus, X, Search, Tag, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { ExplorerSort, ColorMatch } from '@/services/spellchroma/explorerSearch';
+import type { ExplorerSort, ColorMatch, SortDir } from '@/services/spellchroma/explorerSearch';
 import { ColorFilterControl } from './ColorFilterControl';
 import { TypeFilterControl } from './TypeFilterControl';
 import { AddTagPopover } from './AddTagPopover';
@@ -30,24 +30,31 @@ interface TagSearchBarProps {
   onTypeFilterChange: (next: string[]) => void;
   sort: ExplorerSort;
   onSortChange: (s: ExplorerSort) => void;
+  sortDir: SortDir;
+  onToggleSortDir: () => void;
   textFilter: string;
   onTextFilterChange: (s: string) => void;
   /** Pin the bar to the top of its scroll container (the workbench explorer pane). */
   sticky?: boolean;
+  /** Flush-left control (e.g. a back arrow) rendered against the bar's left edge,
+   *  full-height with its own divider — mirrors the workbench deck-pane back arrow. */
+  leading?: React.ReactNode;
 }
 
 export function TagSearchBar({
   selectedTags, topTags, onAddTag, onRemoveTag, colorIdentity, onColorsChange,
   colorMode, onColorModeChange, excludedColors, onExcludedChange,
   typeFilter, onTypeFilterChange,
-  sort, onSortChange, textFilter, onTextFilterChange, sticky = false,
+  sort, onSortChange, sortDir, onToggleSortDir, textFilter, onTextFilterChange, sticky = false,
+  leading,
 }: TagSearchBarProps) {
   // Selected-tag chips fade/shift in and out — a plain quick ease, no spring.
   const [tagsRef] = useAutoAnimate<HTMLDivElement>({ duration: 140, easing: 'ease-out' });
 
   return (
-    <div className={`flex flex-col gap-2 px-3 py-2 min-h-[52px] bg-card/95 backdrop-blur-sm border-b border-border/50 ${sticky ? 'sticky top-0 z-30' : ''}`}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={`flex items-stretch min-h-[52px] bg-card/95 backdrop-blur-sm border-b border-border/50 ${sticky ? 'sticky top-0 z-30' : ''}`}>
+      {leading}
+      <div className="flex flex-1 min-w-0 flex-wrap items-center gap-2 px-3 py-2">
         {/* Add-tag trigger sits OUTSIDE the auto-animated chip group so it stays a
             stable anchor — inside, auto-animate's FLIP would slide it onto a new
             row whenever chips are added/removed. */}
@@ -67,8 +74,8 @@ export function TagSearchBar({
         <div ref={tagsRef} className="flex flex-wrap items-center gap-2">
           {selectedTags.map(slug => (
             <button key={slug} type="button" aria-label={`Remove ${slug}`} title={`Remove ${slug}`}
-              onClick={() => onRemoveTag(slug)} className="group focus:outline-none rounded-full overflow-hidden">
-              <Badge className="gap-1 pr-1.5 cursor-pointer overflow-hidden whitespace-nowrap bg-violet-600 hover:bg-violet-600 text-white border border-violet-400/50 group-hover:bg-destructive group-hover:border-destructive/60 group-focus-visible:ring-2 group-focus-visible:ring-ring transition-colors">
+              onClick={() => onRemoveTag(slug)} className="group shrink-0 focus:outline-none rounded-full">
+              <Badge className="gap-1 pr-1.5 cursor-pointer whitespace-nowrap bg-violet-600 hover:bg-violet-600 text-white border border-violet-400/50 group-hover:bg-destructive group-hover:border-destructive/60 group-focus-visible:ring-2 group-focus-visible:ring-ring transition-colors">
                 <Tag className="w-3 h-3 opacity-70 group-hover:hidden" />
                 <X className="w-3 h-3 hidden group-hover:block" />
                 {slug}
@@ -92,8 +99,27 @@ export function TagSearchBar({
       {/* Card type filter */}
       <TypeFilterControl typeFilter={typeFilter} onTypeFilterChange={onTypeFilterChange} />
 
-      {/* Sort */}
-      <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/70" aria-hidden />
+      {/* Name/text filter (client-side over loaded results) */}
+      <div className="relative">
+        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
+        <Input value={textFilter} onChange={e => onTextFilterChange(e.target.value)}
+          placeholder="Filter…" className="pl-7 h-8 w-36" />
+      </div>
+
+      {/* Sort direction — click to flip ascending/descending of the active sort. */}
+      <button
+        type="button"
+        onClick={onToggleSortDir}
+        title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+        aria-label={sortDir === 'asc' ? 'Sorted ascending, switch to descending' : 'Sorted descending, switch to ascending'}
+        className="inline-flex items-center justify-center w-7 h-7 shrink-0 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-accent/50 transition-colors"
+      >
+        {sortDir === 'asc'
+          ? <ArrowUpNarrowWide className="w-3.5 h-3.5" />
+          : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
+      </button>
+
+      {/* Sort key */}
       <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
         {SORTS.map((s, i) => (
           <div key={s.key} className="contents">
@@ -104,13 +130,6 @@ export function TagSearchBar({
             </button>
           </div>
         ))}
-      </div>
-
-      {/* Name/text filter (client-side over loaded results) */}
-      <div className="relative">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
-        <Input value={textFilter} onChange={e => onTextFilterChange(e.target.value)}
-          placeholder="Filter…" className="pl-7 h-8 w-36" />
       </div>
       </div>
     </div>

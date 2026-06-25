@@ -1,5 +1,5 @@
 import {
-  Infinity as InfinityIcon, Zap, Dices, Sprout, Crosshair, Bomb, BookOpen, Package, Layers,
+  Infinity as InfinityIcon, Zap, Dices, Sprout, Swords, Bomb, BookOpen, Package, Layers,
   Search, Shield, Sparkles, Star,
   type LucideIcon,
 } from 'lucide-react';
@@ -21,7 +21,7 @@ export const CARD_TYPE_MS: Record<string, string> = {
 // Functional roles aren't card types, so they get meaningful Lucide icons.
 // Ramp is a Sprout — growth, lands, mana coming online.
 export const ROLE_LUCIDE: Record<string, LucideIcon> = {
-  ramp: Sprout, removal: Crosshair, boardwipe: Bomb, cardDraw: BookOpen,
+  ramp: Sprout, removal: Swords, boardwipe: Bomb, cardDraw: BookOpen,
 };
 
 /**
@@ -33,7 +33,7 @@ export const ROLE_LUCIDE: Record<string, LucideIcon> = {
 export interface RoleAxis { key: string; label: string; hue: string; Icon: LucideIcon; }
 export const ROLE_AXES: RoleAxis[] = [
   { key: 'ramp', label: 'Ramp', hue: '142 68% 52%', Icon: Sprout },
-  { key: 'removal', label: 'Removal', hue: '2 80% 62%', Icon: Crosshair },
+  { key: 'removal', label: 'Removal', hue: '2 80% 62%', Icon: Swords },
   { key: 'boardwipe', label: 'Wipes', hue: '22 90% 58%', Icon: Bomb },
   { key: 'cardDraw', label: 'Draw', hue: '205 82% 62%', Icon: BookOpen },
   { key: 'tutor', label: 'Tutors', hue: '275 78% 70%', Icon: Search },

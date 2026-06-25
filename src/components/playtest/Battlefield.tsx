@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { usePlaytestSettings, BG_STYLES, CARD_SIZES } from '@/store/playtestSettingsStore';
+import { usePlaytestSettings, CARD_SIZES, resolveBgLayers } from '@/store/playtestSettingsStore';
 import { BattlefieldCard } from '@/components/playtest/BattlefieldCard';
 import { FreeCounter } from '@/components/playtest/FreeCounter';
 import { FreeDie } from '@/components/playtest/FreeDie';
@@ -17,6 +17,8 @@ export function Battlefield() {
   const setMarqueeSelection = usePlaytestStore(s => s.setMarqueeSelection);
   const clearSelection = usePlaytestStore(s => s.clearSelection);
   const bg = usePlaytestSettings(s => s.bg);
+  const colorIdentity = usePlaytestStore(s => s.colorIdentity);
+  const bgLayers = resolveBgLayers(bg, colorIdentity);
   const dotGrid = usePlaytestSettings(s => s.dotGrid);
   // Tailwind's md breakpoint is 768px. Keep the floating piles to mobile so
   // the desktop hand-row piles don't share dnd-kit IDs with floating ones.
@@ -144,8 +146,26 @@ export function Battlefield() {
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
       className="flex-1 relative border-b border-border/50 overflow-hidden"
-      style={{ background: BG_STYLES[bg].background }}
+      style={{ background: bgLayers.image ? '#0a0c10' : bgLayers.base }}
     >
+      {/* Art background (auto-matched or hand-picked) with a dark scrim so cards
+          and text stay legible on top of busy art. Sits beneath the dot grid. */}
+      {bgLayers.image && (
+        <div aria-hidden className="absolute inset-0 pointer-events-none" style={{ zIndex: 0 }}>
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${bgLayers.image})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{ background: 'linear-gradient(rgba(8,10,14,0.6), rgba(8,10,14,0.72))' }}
+          />
+        </div>
+      )}
       {dotGrid && (
         <div
           aria-hidden

@@ -459,7 +459,7 @@ export function LandCountDetail({
     >
       <div className={`${hasRightColumn ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: rating summary + lands list */}
-        <div className={`${hasRightColumn ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
+        <div className={`${hasRightColumn ? 'md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4' : 'w-full'} space-y-3`}>
               <LandRatingSummary analysis={analysis} />
               {analysis.landCards.length > 0 && (
                 <CollapsibleCardGroups groups={landCardGroups} totalCount={analysis.landCards.length} />
@@ -702,7 +702,7 @@ export function ManaSourcesDetail({
     >
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: summary + ramp cards grouped */}
-        <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
+        <div className={`${hasSuggestions ? 'md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4' : 'w-full'} space-y-3`}>
           <ManaSourcesSummary ms={analysis.manaSources} deckSize={analysis.manaBase.deckSize} />
           {groups.length > 0 ? (<>
             <div className="flex items-center gap-1 mb-1.5 px-0.5">
@@ -939,7 +939,7 @@ export function FixingDetail({
     >
       <div className={`${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: fixing summary + mana fixers + multi-color + recently added */}
-        <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'} space-y-3`}>
+        <div className={`${hasSuggestions ? 'md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4' : 'w-full'} space-y-3`}>
           <FixingSummaryBox analysis={analysis} />
 
           {/* Demand vs Supply — per-color breakdown */}
@@ -1408,7 +1408,7 @@ export function MdfcDetail({
     >
       <div className="flex flex-col md:flex-row md:items-stretch gap-4">
         {/* Left: summary + all lands in deck */}
-        <div className="md:w-[30%] shrink-0 space-y-3">
+        <div className="md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4 space-y-3">
           <FlexLandSummaryBox
             mdfcCount={adjustedMdfcCount}
             channelLandCount={channelLands.length}

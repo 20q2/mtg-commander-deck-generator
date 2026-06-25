@@ -110,6 +110,70 @@ function buildDeckLinks(poolsBySeed: { seed: string; pool: CardLiftEntry[] }[], 
   return [...map.values()].sort((x, y) => score(y) - score(x)).slice(0, DECK_LINK_CAP);
 }
 
+export interface LiftScanResult { candidates: LiftCandidate[]; deckLinks: DeckLink[]; }
+
+/**
+ * Per-deck scan cache, shared between the Lift Web tab and the Overview bento so a background warm
+ * from one makes the other instant (and EDHREC isn't hit twice). Keyed by `liftDeckKey`.
+ */
+export const LIFT_SCAN_CACHE = new Map<string, LiftScanResult>();
+
+/** Stable cache key for a decklist (order-independent), matching the Lift Web tab + bento. */
+export function liftDeckKey(commanderName: string, partnerCommanderName: string | undefined, cards: ScryfallCard[]): string {
+  return [commanderName, partnerCommanderName ?? '', ...cards.map(c => c.name).sort()].join('|');
+}
+
+/** Resolve the seed/exclude/identity inputs for a deck scan — one source of truth for both callers. */
+export function buildLiftScanInputs(opts: {
+  commander?: ScryfallCard;
+  partnerCommander?: ScryfallCard;
+  commanderName: string;
+  partnerCommanderName?: string;
+  currentCards: ScryfallCard[];
+  colorIdentity?: string[];
+}): { seedNames: string[]; excludeNames: Set<string>; identity: string[] } {
+  const { commander, partnerCommander, commanderName, partnerCommanderName, currentCards, colorIdentity } = opts;
+  const excludeNames = new Set<string>([
+    ...currentCards.map(c => c.name),
+    commanderName,
+    ...(partnerCommanderName ? [partnerCommanderName] : []),
+  ]);
+  const seedNames = [...new Set<string>([
+    commanderName,
+    ...(partnerCommanderName ? [partnerCommanderName] : []),
+    ...currentCards.filter(c => !isLand(c)).map(c => c.name),
+  ])];
+  let identity = colorIdentity && colorIdentity.length ? colorIdentity : null;
+  if (!identity) {
+    const set = new Set<string>();
+    for (const c of [commander, partnerCommander, ...currentCards]) {
+      for (const col of c?.color_identity ?? []) set.add(col);
+    }
+    identity = [...set];
+  }
+  return { seedNames, excludeNames, identity };
+}
+
+// Selection thresholds — kept identical to the Lift Web tab so the bento teaser names the same hits.
+const PICK_HIGH_LIFT = 5;          // "insanely high" single-card lift (a bomb)
+const PICK_CLUSTER_MIN_CONN = 2;   // a cluster = lifted by at least this many of your cards
+
+/**
+ * Pick the single strongest bomb and the single strongest cluster from a scan — the two hits the
+ * Overview bento teases. Mirrors the tab's bomb/cluster bucketing (bombs win ties over clusters).
+ */
+export function selectTopLiftPicks(candidates: LiftCandidate[]): { bomb: LiftCandidate | null; cluster: LiftCandidate | null } {
+  const bomb = candidates
+    .filter(c => c.bestLift >= PICK_HIGH_LIFT)
+    .map(c => ({ c, s: bombScore(c) }))
+    .sort((a, b) => b.s - a.s)[0]?.c ?? null;
+  const cluster = candidates
+    .filter(c => c.connectionCount >= PICK_CLUSTER_MIN_CONN && c.card.name !== bomb?.card.name)
+    .map(c => ({ c, s: clusterScore(c) }))
+    .sort((a, b) => b.s - a.s)[0]?.c ?? null;
+  return { bomb, cluster };
+}
+
 export interface ScanArgs {
   seedNames: string[];
   identity: string[];

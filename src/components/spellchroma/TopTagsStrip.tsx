@@ -12,9 +12,19 @@ interface TopTagsStripProps {
   limit?: number;
 }
 
-export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 24 }: TopTagsStripProps) {
+export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15 }: TopTagsStripProps) {
   const [showAll, setShowAll] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  // Persist collapse state so it survives switching SpellChroma views (the strip
+  // remounts on view change and would otherwise default back to open).
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('spellchroma-top-tags-collapsed') === 'true',
+  );
+  const toggleCollapsed = () =>
+    setCollapsed(c => {
+      const next = !c;
+      localStorage.setItem('spellchroma-top-tags-collapsed', String(next));
+      return next;
+    });
   // Collapse/expand, "show all" reveal, and tag changes all animate.
   const [bodyRef] = useAutoAnimate<HTMLDivElement>({ duration: 220, easing: 'cubic-bezier(0.34, 1.4, 0.5, 1)' });
   const [stripRef] = useAutoAnimate<HTMLDivElement>({ duration: 260, easing: 'cubic-bezier(0.34, 1.4, 0.5, 1)' });
@@ -28,12 +38,14 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
   const sel = new Set(selected);
 
   return (
-    <div className="rounded-lg bg-violet-500/[0.06] border border-violet-500/20 px-3 py-2">
+    // Flush, non-rounded secondary header — mirrors the explorer's "Showing X of Y"
+    // bar: full-bleed (negates the deck pane's p-3), border-b, same px-3 py-2.
+    <div className="-mx-3 -mt-3 px-3 py-2 border-b border-border/50 bg-card/95 backdrop-blur-sm">
       <button
         type="button"
-        onClick={() => setCollapsed(c => !c)}
+        onClick={toggleCollapsed}
         aria-expanded={!collapsed}
-        className="flex w-full items-center gap-1 text-[11px] font-semibold text-violet-300/90 hover:text-violet-200 transition-colors"
+        className="flex w-full items-center gap-1 text-[11px] font-semibold text-foreground hover:text-foreground/80 transition-colors"
       >
         <Tags className="w-3.5 h-3.5" />
         Your deck’s top tags
@@ -43,7 +55,7 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
       <div ref={bodyRef}>
       {!collapsed && (
       <div ref={stripRef} className="flex flex-wrap items-center gap-1.5 mt-2">
-        {shown.map(t => {
+        {shown.map((t, i) => {
           const active = sel.has(t.slug);
           return (
             <button
@@ -51,7 +63,10 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
               type="button"
               onClick={() => (active ? onRemoveTag?.(t.slug) : onTagClick(t.slug))}
               title={active ? `Remove “${t.slug}” from search` : `Explore cards tagged “${t.slug}”`}
-              className={`group/chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
+              // Bubble in with a staggered delay so chips pop in one-by-one on open.
+              // Cap the index so a long "show all" list doesn't drag the tail out.
+              style={{ animationDelay: `${Math.min(i, 14) * 28}ms` }}
+              className={`animate-chip-bubble group/chip inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
                 active
                   ? 'bg-violet-500/30 text-violet-100 border-violet-400/50 hover:bg-violet-500/40'
                   : t.ignored

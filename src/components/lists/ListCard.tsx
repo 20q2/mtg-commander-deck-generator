@@ -81,9 +81,15 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
-        className="w-full px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative cursor-pointer"
+        className="w-full px-4 py-3 hover:bg-accent/30 rounded-lg transition-colors text-left group relative cursor-pointer overflow-hidden"
       >
-        <div className="flex items-center gap-4">
+        {commanderArtUrl && (
+          <div className="absolute inset-0 pointer-events-none">
+            <img src={commanderArtUrl} alt="" className="w-full h-full object-cover opacity-[0.10]" />
+            <div className="absolute inset-0 bg-gradient-to-r from-card via-card/75 to-card/45" />
+          </div>
+        )}
+        <div className="relative flex items-center gap-4">
         {commanderArtUrl ? (
           <img
             src={commanderArtUrl}
@@ -151,7 +157,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         </div>
         </div>
         {matchingCards && matchingCards.length > 0 && (
-          <div className="flex items-center gap-1.5 -mx-4 -mb-3 mt-1.5 px-4 py-2 bg-black/20 border-t border-border/60 rounded-b-lg">
+          <div className="relative flex items-center gap-1.5 -mx-4 -mb-3 mt-1.5 px-4 py-2 bg-black/20 border-t border-border/60 rounded-b-lg">
             <div className="ml-[56px] flex items-center gap-1.5">
               <Search className="w-3 h-3 text-muted-foreground shrink-0" />
               <div className="flex items-center gap-1 overflow-hidden">
@@ -180,8 +186,8 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
     >
       {commanderArtUrl && (
         <div className="absolute inset-0 pointer-events-none">
-          <img src={commanderArtUrl} alt="" className="w-full h-full object-cover opacity-[0.18]" />
-          <div className="absolute inset-0 bg-gradient-to-t from-card via-card/60 to-transparent" />
+          <img src={commanderArtUrl} alt="" className="w-full h-full object-cover opacity-[0.24]" />
+          <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-transparent" />
         </div>
       )}
       <div className="relative flex flex-col flex-1">

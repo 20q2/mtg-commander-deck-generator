@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { fetchMetrics } from '@/services/analytics';
-import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List, Server } from 'lucide-react';
+import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List, Server, TrendingUp, FlaskConical, Microscope, Sparkles, Gamepad2 } from 'lucide-react';
 
 
 interface FeatureAdoption {
@@ -47,6 +48,7 @@ interface MetricsSummary {
   regionCounts: Record<string, number>;
   deviceCounts: Record<string, number>;
   hostCounts?: Record<string, number>;
+  inspectorTabCounts?: Record<string, number>;
   featureAdoption: FeatureAdoption;
   listActivity?: ListActivity;
   settingsCounts: Record<string, Record<string, number>>;
@@ -80,6 +82,39 @@ const EVENT_LABELS: Record<string, string> = {
   spellchroma_deck_loaded: 'SpellChroma Decks Loaded',
   spellchroma_tag_selected: 'SpellChroma Tags Selected',
   spellchroma_card_added: 'SpellChroma Cards Added',
+  // Builder / deck editing
+  card_swapped: 'Card Swaps',
+  cards_removed: 'Cards Removed',
+  must_include_added: 'Must-Include Added',
+  build_mode_toggled: 'Build Mode Toggled',
+  deck_optimized: 'Decks Optimized',
+  deck_imported: 'Decks Imported',
+  // Analyze / Inspector
+  analyze_page_viewed: 'Analyze Page Views',
+  analyze_deck_loaded: 'Analyze Decks Loaded',
+  analyze_deck_saved: 'Analyze Decks Saved',
+  analyze_lane_switched: 'Analyze Lane Switches',
+  analyze_cta_clicked: 'Analyze CTA Clicks',
+  // Brew
+  brew_started: 'Brews Started',
+  brew_finished: 'Brews Finished',
+  brew_abandoned: 'Brews Abandoned',
+  rebrew_clicked: 'Rebrew Clicks',
+  // Poll nudge
+  poll_nudge_shown: 'Poll Nudge Shown',
+  poll_nudge_dismissed: 'Poll Nudge Dismissed',
+};
+
+// Inspector analyzer tabs are stored by internal TabKey; map to their UI labels.
+const INSPECTOR_TAB_LABELS: Record<string, string> = {
+  overview: 'Overview',
+  roles: 'Roles',
+  lands: 'Mana',
+  curve: 'Tempo',
+  bracket: 'Bracket',
+  optimize: 'Card Fit',
+  cost: 'Cost',
+  lift: 'Lift Web',
 };
 
 const REGION_FLAGS: Record<string, string> = {
@@ -165,7 +200,7 @@ function BarRow({
   max,
   total,
 }: {
-  label: string;
+  label: ReactNode;
   count: number;
   max: number;
   total?: number;
@@ -188,6 +223,76 @@ function BarRow({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * Vertical funnel: each step's bar width is relative to the first (top) step,
+ * and the % shown is conversion from the previous step.
+ */
+function Funnel({ steps }: { steps: { label: string; count: number }[] }) {
+  const first = steps[0]?.count ?? 0;
+  return (
+    <div className="space-y-2.5">
+      {steps.map((s, i) => {
+        const prev = i > 0 ? steps[i - 1].count : null;
+        const width = first > 0 ? (s.count / first) * 100 : 0;
+        return (
+          <div key={s.label}>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="leading-tight">{s.label}</span>
+              <span className="tabular-nums shrink-0 ml-3">
+                {s.count.toLocaleString()}
+                {prev !== null && prev > 0 && (
+                  <span className="text-xs text-muted-foreground ml-1">({pct(s.count, prev)})</span>
+                )}
+              </span>
+            </div>
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-300"
+                style={{ width: `${width}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A single funnel panel wrapped in a Card with an icon header. */
+function FunnelCard({
+  title,
+  icon,
+  steps,
+  footer,
+}: {
+  title: string;
+  icon: ReactNode;
+  steps: { label: string; count: number }[];
+  footer?: ReactNode;
+}) {
+  const hasData = steps.some(s => s.count > 0);
+  return (
+    <Card className="bg-card/80 backdrop-blur-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          {icon}
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {hasData ? (
+          <>
+            <Funnel steps={steps} />
+            {footer && <div className="mt-3 pt-3 border-t border-border/50">{footer}</div>}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">No activity yet</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -316,6 +421,51 @@ export function MetricsPage() {
   ].sort((a, b) => b.count - a.count) : [];
 
   const sc = data?.settingsCounts;
+
+  // Feature funnels & usage — all derived from eventCounts (no backend change).
+  const ec = data?.eventCounts ?? {};
+  const ev = (key: string) => ec[key] ?? 0;
+
+  const brewSteps = [
+    { label: 'Brews Started', count: ev('brew_started') },
+    { label: 'Brews Finished', count: ev('brew_finished') },
+  ];
+  const analyzeSteps = [
+    { label: 'Page Viewed', count: ev('analyze_page_viewed') },
+    { label: 'Deck Loaded', count: ev('analyze_deck_loaded') },
+    { label: 'Deck Saved', count: ev('analyze_deck_saved') },
+  ];
+  const spellchromaSteps = [
+    { label: 'Opened', count: ev('spellchroma_viewed') },
+    { label: 'Deck Loaded', count: ev('spellchroma_deck_loaded') },
+    { label: 'Tag Selected', count: ev('spellchroma_tag_selected') },
+    { label: 'Card Added', count: ev('spellchroma_card_added') },
+  ];
+
+  // Feature usage — which features are getting touched, ranked. `isNew` flags
+  // recently-shipped features so adoption is legible at a glance.
+  const featureUsage = [
+    { label: 'SpellChroma', count: ev('spellchroma_viewed'), isNew: true },
+    { label: 'Analyze / Inspector', count: ev('analyze_page_viewed'), isNew: true },
+    { label: 'Brew', count: ev('brew_started'), isNew: true },
+    { label: 'Playtest', count: ev('playtest_started'), isNew: true },
+    { label: 'Combos Viewed', count: ev('combos_viewed') },
+    { label: 'Lists Created', count: ev('list_created') },
+    { label: 'Card Swaps', count: ev('card_swapped') },
+    { label: 'Must-Includes', count: ev('must_include_added') },
+    { label: 'Theme Toggles', count: ev('theme_toggled') },
+    { label: 'Collection Imports', count: ev('collection_imported') },
+    { label: 'Deck Imports', count: ev('deck_imported') },
+  ]
+    .filter(f => f.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const maxFeatureUsage = featureUsage.length > 0 ? featureUsage[0].count : 1;
+
+  // Inspector per-tab usage (needs the inspectorTabCounts backend aggregation).
+  const sortedInspectorTabs = data
+    ? Object.entries(data.inspectorTabCounts ?? {}).sort(([, a], [, b]) => b - a)
+    : [];
+  const maxInspectorTab = sortedInspectorTabs.length > 0 ? sortedInspectorTabs[0][1] : 1;
 
   return (
     <main className="flex-1 container mx-auto px-4 py-8">
@@ -630,6 +780,156 @@ export function MetricsPage() {
                     </div>
                   );
                 })()}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Feature Usage & Funnels */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card className="bg-card/80 backdrop-blur-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Feature Usage
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {featureUsage.length > 0 ? (
+                  <div className="space-y-3">
+                    {featureUsage.map(({ label, count, isNew }) => (
+                      <BarRow
+                        key={label}
+                        label={isNew ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            {label}
+                            <Badge variant="secondary" className="px-1.5 py-0 text-[9px] leading-tight uppercase tracking-wide">
+                              New
+                            </Badge>
+                          </span>
+                        ) : label}
+                        count={count}
+                        max={maxFeatureUsage}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No feature usage yet</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <FunnelCard
+              title="Brew Funnel"
+              icon={<FlaskConical className="w-4 h-4" />}
+              steps={brewSteps}
+              footer={
+                <div className="space-y-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between">
+                    <span>Abandoned</span>
+                    <span className="tabular-nums">
+                      {ev('brew_abandoned').toLocaleString()}
+                      {ev('brew_started') > 0 && (
+                        <span className="ml-1">({pct(ev('brew_abandoned'), ev('brew_started'))})</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Rebrew Clicks</span>
+                    <span className="tabular-nums">{ev('rebrew_clicked').toLocaleString()}</span>
+                  </div>
+                </div>
+              }
+            />
+
+            <FunnelCard
+              title="Analyze Funnel"
+              icon={<Microscope className="w-4 h-4" />}
+              steps={analyzeSteps}
+              footer={
+                <div className="space-y-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between">
+                    <span>CTA Clicks (entry)</span>
+                    <span className="tabular-nums">{ev('analyze_cta_clicked').toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Lane Switches</span>
+                    <span className="tabular-nums">{ev('analyze_lane_switched').toLocaleString()}</span>
+                  </div>
+                </div>
+              }
+            />
+
+            <FunnelCard
+              title="SpellChroma Funnel"
+              icon={<Sparkles className="w-4 h-4" />}
+              steps={spellchromaSteps}
+            />
+          </div>
+
+          {/* Inspector tabs + Playtest + Poll nudge — quick stats */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <Card className="bg-card/80 backdrop-blur-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Microscope className="w-4 h-4" />
+                  Inspector Tabs
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {sortedInspectorTabs.length > 0 ? (
+                  <div className="space-y-3">
+                    {sortedInspectorTabs.map(([tab, count]) => (
+                      <BarRow
+                        key={tab}
+                        label={INSPECTOR_TAB_LABELS[tab] ?? tab}
+                        count={count}
+                        max={maxInspectorTab}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No inspector tab data yet</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card/80 backdrop-blur-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Gamepad2 className="w-4 h-4" />
+                  Playtest
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {ev('playtest_started') > 0 ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold tabular-nums">{ev('playtest_started').toLocaleString()}</span>
+                    <span className="text-sm text-muted-foreground">sessions started</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No playtest sessions yet</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-card/80 backdrop-blur-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <List className="w-4 h-4" />
+                  Poll Nudge
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {ev('poll_nudge_shown') > 0 ? (
+                  <Funnel
+                    steps={[
+                      { label: 'Shown', count: ev('poll_nudge_shown') },
+                      { label: 'Dismissed', count: ev('poll_nudge_dismissed') },
+                    ]}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">No poll nudges shown yet</p>
+                )}
               </CardContent>
             </Card>
           </div>

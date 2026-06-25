@@ -23,6 +23,7 @@ import { buildThemeMembership } from '@/components/analyze/themeMembership';
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
 import { AdjustPopoverContent } from './OverviewTab';
 import { DashboardSummary, type ThemeCoverage } from './DashboardSummary';
+import { OverviewBento } from './dashboard/OverviewBento';
 import { buildDashboardWarnings } from '@/services/deckBuilder/dashboardWarnings';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { RolesTabContent } from './RolesTab';
@@ -1330,11 +1331,12 @@ export function DeckOptimizer({
               <TooltipContent side="right">Check a different deck</TooltipContent>
             </Tooltip>
           )}
-          {TABS.filter(t => t.key !== 'cost').map(tab => {
+          {TABS.map(tab => {
             const isActive = activeTab === tab.key;
             const tabGrade = tabGrades[tab.key];
             const gradeStyle = tabGrade ? (HEALTH_GRADE_STYLES[tabGrade] || HEALTH_GRADE_STYLES.C) : null;
             const bracketBadge = tab.key === 'bracket' && bracketLevel ? BRACKET_COLORS[bracketLevel] : null;
+            const showCostBadge = tab.key === 'cost' && deckTotalPrice > 0;
             const tabHref = getTabHref?.(tab.key);
             return (
               <Tooltip key={tab.key}>
@@ -1367,50 +1369,17 @@ export function DeckOptimizer({
                         {bracketLevel}
                       </span>
                     )}
-                  </a>
-                </TooltipTrigger>
-                <TooltipContent side="right">{tab.label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-          <div className="flex-1" />
-          {(() => {
-            const costTab = TABS.find(t => t.key === 'cost');
-            if (!costTab) return null;
-            const isActive = activeTab === 'cost';
-            const costHref = getTabHref?.('cost');
-            return (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <a
-                    href={costHref ?? '#'}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setActiveTab('cost');
-                    }}
-                    aria-label={costTab.label}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`relative flex flex-col items-center justify-center gap-1 py-3 transition-all duration-200 no-underline ${
-                      isActive
-                        ? 'text-primary bg-accent/30'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/20'
-                    }`}
-                  >
-                    {isActive && (
-                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r-sm bg-primary" />
-                    )}
-                    <costTab.icon className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} />
-                    {deckTotalPrice > 0 && (
+                    {showCostBadge && (
                       <span className="text-[9px] font-bold leading-none px-1 py-0.5 rounded tabular-nums text-violet-300 bg-violet-500/20">
                         {costBadgeLabel}
                       </span>
                     )}
                   </a>
                 </TooltipTrigger>
-                <TooltipContent side="right">{costTab.label}</TooltipContent>
+                <TooltipContent side="right">{tab.label}</TooltipContent>
               </Tooltip>
             );
-          })()}
+          })}
           </TooltipProvider>
         </aside>
 
@@ -1503,6 +1472,22 @@ export function DeckOptimizer({
             curvePhases={analysis.curvePhases}
             themeCoverage={dashboardThemeCoverage}
             baseSwaps={baseSwaps}
+            bentoSlot={
+              <OverviewBento
+                commanderName={commanderName}
+                partnerCommanderName={partnerCommanderName}
+                commander={commander}
+                partnerCommander={partnerCommander}
+                colorIdentity={colorIdentity}
+                currentCards={currentCards}
+                analysis={analysis}
+                currency={customization.currency}
+                mustIncludeNames={menuProps.mustIncludeNames}
+                sideboardNames={sideboardNames ?? []}
+                maybeboardNames={maybeboardNames ?? []}
+                onNavigate={navigateFromDashboard}
+              />
+            }
           />
         )}
 

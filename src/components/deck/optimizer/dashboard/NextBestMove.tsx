@@ -36,6 +36,12 @@ export interface NextBestMoveProps {
    * optimize tab always recommend the exact same card.
    */
   baseSwaps?: OptimizeSwaps | null;
+  /**
+   * Rendered in place of `null` when there are no visible suggestions (e.g. the
+   * Overview's Cost + Lift bento). Lets the dashboard fill the slot once the
+   * deck has no real next steps left.
+   */
+  fallback?: React.ReactNode;
 }
 
 interface Suggestion {
@@ -400,9 +406,13 @@ const BADGE_STYLE = 'bg-violet-500/20 text-violet-200';
 
 export function NextBestMove(props: NextBestMoveProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const allSuggestions = buildSuggestions(props);
+  // Card Fit suggestions (everything routing to the optimize tab — trim/fill,
+  // cardFit/strategy picks, near-miss combos) are intentionally excluded: their
+  // card-quality recommendations aren't dependable enough to surface here yet.
+  // What's left is structural — Mana, Roles, Tempo, limited-data notices.
+  const allSuggestions = buildSuggestions(props).filter(s => s.navigateTo !== 'optimize');
   const visible = allSuggestions.filter(s => !dismissed.has(s.id)).slice(0, MAX_SHOWN);
-  if (visible.length === 0) return null;
+  if (visible.length === 0) return props.fallback ? <>{props.fallback}</> : null;
 
   const dismiss = (id: string) => {
     setDismissed(prev => {

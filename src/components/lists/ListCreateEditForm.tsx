@@ -7,7 +7,7 @@ import { CollectionImporter, ImportResultDisplay, type ImportResult, type Collec
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
-import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, LayoutGrid, Grid3x3, AlignLeft, ChevronDown } from 'lucide-react';
+import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, Image as ImageIcon, LayoutGrid, Grid3x3, AlignLeft, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { ListCardGrid, type ListViewMode } from './ListCardGrid';
@@ -814,6 +814,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                     { icon: Heading2, action: () => insertLinePrefix('## '), title: 'Heading' },
                     { icon: List, action: () => insertLinePrefix('- '), title: 'Bullet list' },
                     { icon: ListOrdered, action: () => insertLinePrefix('1. '), title: 'Numbered list' },
+                    { icon: ImageIcon, action: () => insertFormat('![', '](image url)'), title: 'Image — ![alt](https://…)' },
                     { icon: Minus, action: () => insertFormat('\n---\n'), title: 'Divider' },
                   ].map(({ icon: Icon, action, title }) => (
                     <button

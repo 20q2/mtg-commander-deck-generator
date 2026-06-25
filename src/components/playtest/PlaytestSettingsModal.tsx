@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings, Keyboard, X } from 'lucide-react';
+import { Settings, Keyboard, Image as ImageIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { usePlaytestSettings, BG_STYLES, CARD_SIZES, type BattlefieldBg, type BattlefieldCardSize } from '@/store/playtestSettingsStore';
+import { usePlaytestSettings, BG_STYLES, CARD_SIZES, type BattlefieldPreset, type BattlefieldCardSize } from '@/store/playtestSettingsStore';
+import { usePlaytestStore } from '@/store/playtestStore';
+import { ART_BACKGROUNDS, artUrl, backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import { KEYBINDINGS } from '@/components/playtest/hooks/keybindings';
 
 interface Props {
@@ -11,8 +13,6 @@ interface Props {
 }
 
 export function PlaytestSettingsModal({ open, onClose }: Props) {
-  const bg = usePlaytestSettings(s => s.bg);
-  const setBg = usePlaytestSettings(s => s.setBg);
   const cardSize = usePlaytestSettings(s => s.cardSize);
   const setCardSize = usePlaytestSettings(s => s.setCardSize);
   const animations = usePlaytestSettings(s => s.animations);
@@ -20,7 +20,7 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
   const dotGrid = usePlaytestSettings(s => s.dotGrid);
   const setDotGrid = usePlaytestSettings(s => s.setDotGrid);
 
-  const [tab, setTab] = useState<'general' | 'keys'>('general');
+  const [tab, setTab] = useState<'general' | 'background' | 'keys'>('general');
 
   if (!open) return null;
 
@@ -47,37 +47,18 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
           <TabButton active={tab === 'general'} onClick={() => setTab('general')} icon={<Settings className="w-3.5 h-3.5" />}>
             General
           </TabButton>
+          <TabButton active={tab === 'background'} onClick={() => setTab('background')} icon={<ImageIcon className="w-3.5 h-3.5" />}>
+            Background
+          </TabButton>
           <TabButton active={tab === 'keys'} onClick={() => setTab('keys')} icon={<Keyboard className="w-3.5 h-3.5" />}>
             Keybindings
           </TabButton>
         </div>
 
         {tab === 'keys' && <KeybindingsTab />}
+        {tab === 'background' && <BackgroundTab />}
         {tab === 'general' && <div className="px-5 py-4 space-y-5 text-sm">
           <div>
-            <div className="mb-2 font-medium text-foreground/90">Battlefield background</div>
-            <div className="grid grid-cols-2 gap-2">
-              {(Object.keys(BG_STYLES) as BattlefieldBg[]).map((key) => {
-                const selected = bg === key;
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setBg(key)}
-                    className={`relative h-16 rounded-md border text-xs font-medium transition-all overflow-hidden ${
-                      selected
-                        ? 'border-primary ring-2 ring-primary'
-                        : 'border-border/60 hover:border-foreground/40'
-                    }`}
-                  >
-                    <span className="absolute inset-0" style={{ background: BG_STYLES[key].background }} />
-                    <span className="relative z-10 drop-shadow">{BG_STYLES[key].label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="border-t border-border/40 pt-4">
             <div className="mb-2 font-medium text-foreground/90">Battlefield card size</div>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(CARD_SIZES) as BattlefieldCardSize[]).map((key) => {
@@ -146,6 +127,105 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+function BackgroundTab() {
+  const bg = usePlaytestSettings(s => s.bg);
+  const setBg = usePlaytestSettings(s => s.setBg);
+  const colorIdentity = usePlaytestStore(s => s.colorIdentity);
+
+  const autoUrl = backgroundUrlForIdentity(colorIdentity);
+  const colorHex = bg.kind === 'color' ? bg.hex : '#1b2230';
+
+  return (
+    <div className="px-5 py-4 space-y-4 text-sm max-h-[60vh] overflow-y-auto">
+      {/* Auto — art matched to the loaded deck's color identity */}
+      <button
+        onClick={() => setBg({ kind: 'auto' })}
+        className={`relative w-full h-20 rounded-md border overflow-hidden text-left transition-all ${
+          bg.kind === 'auto' ? 'border-primary ring-2 ring-primary' : 'border-border/60 hover:border-foreground/40'
+        }`}
+      >
+        <span className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${autoUrl})` }} />
+        <span className="absolute inset-0" style={{ background: 'linear-gradient(rgba(8,10,14,0.4), rgba(8,10,14,0.7))' }} />
+        <span className="relative z-10 flex flex-col justify-end h-full p-2.5">
+          <span className="font-semibold text-foreground drop-shadow">Auto</span>
+          <span className="text-[11px] text-foreground/85 drop-shadow">Match your deck&rsquo;s colors</span>
+        </span>
+      </button>
+
+      {/* Gradient presets */}
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-muted-foreground/80 mb-1.5">Gradients</div>
+        <div className="grid grid-cols-2 gap-2">
+          {(Object.keys(BG_STYLES) as BattlefieldPreset[]).map((key) => {
+            const selected = bg.kind === 'preset' && bg.id === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setBg({ kind: 'preset', id: key })}
+                className={`relative h-14 rounded-md border text-xs font-medium transition-all overflow-hidden ${
+                  selected ? 'border-primary ring-2 ring-primary' : 'border-border/60 hover:border-foreground/40'
+                }`}
+              >
+                <span className="absolute inset-0" style={{ background: BG_STYLES[key].background }} />
+                <span className="relative z-10 drop-shadow">{BG_STYLES[key].label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Solid color */}
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-muted-foreground/80 mb-1.5">Solid color</div>
+        <label
+          className={`flex items-center gap-3 rounded-md border p-2.5 cursor-pointer transition-all ${
+            bg.kind === 'color' ? 'border-primary ring-2 ring-primary' : 'border-border/60 hover:border-foreground/40'
+          }`}
+        >
+          <input
+            type="color"
+            value={colorHex}
+            onChange={(e) => setBg({ kind: 'color', hex: e.target.value })}
+            className="h-8 w-12 rounded cursor-pointer bg-transparent"
+          />
+          <span className="text-xs text-foreground/80">{bg.kind === 'color' ? bg.hex : 'Pick a solid color'}</span>
+        </label>
+      </div>
+
+      {/* SpellChroma art */}
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-muted-foreground/80 mb-1.5">SpellChroma art</div>
+        <div className="grid grid-cols-3 gap-2">
+          {ART_BACKGROUNDS.map(({ name, label }) => {
+            const selected = bg.kind === 'art' && bg.name === name;
+            return (
+              <button
+                key={name}
+                onClick={() => setBg({ kind: 'art', name })}
+                title={label}
+                className={`relative h-16 rounded-md border overflow-hidden transition-all ${
+                  selected ? 'border-primary ring-2 ring-primary' : 'border-border/60 hover:border-foreground/40'
+                }`}
+              >
+                <img
+                  src={artUrl(name)}
+                  alt={label}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  draggable={false}
+                />
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-[10px] font-medium text-white text-left leading-tight">
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 

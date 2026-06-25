@@ -438,11 +438,24 @@ const ROLE_FLAVOR: Record<string, { noun: string; okMsg: string; whyItMatters: s
     excessHint: 'drawing cards is great, but you need things worth casting too',
     zeroMsg: 'No card draw at all — you\'ll empty your hand by turn 5-6 and be topdecking the rest of the game while opponents refuel. Card advantage is how you stay in the game.',
   },
+  protection: {
+    noun: 'protection',
+    okMsg: 'your key pieces should survive removal and disruption.',
+    whyItMatters: 'your commander and combo pieces will be easy to pick off',
+    excessHint: 'extra protection could be traded for threats or interaction',
+    zeroMsg: 'No protection at all — your commander and key pieces will be easy targets for removal. Even a couple of counterspells or protective effects keep your game plan alive.',
+  },
 };
 
 export function getRoleVerdict(rb: RoleBreakdown): { verdict: string; message: string } {
   const { current, target, deficit, role } = rb;
-  const flavor = ROLE_FLAVOR[role] || { noun: role, okMsg: 'this role is well covered.', whyItMatters: '' };
+  const flavor = ROLE_FLAVOR[role] || {
+    noun: role,
+    okMsg: 'this role is well covered.',
+    whyItMatters: '',
+    excessHint: '',
+    zeroMsg: `No ${role} at all — consider adding some to round out the deck.`,
+  };
   const surplus = current - target;
 
   // Zero cards — always critically low with special message

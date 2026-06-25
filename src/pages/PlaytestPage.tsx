@@ -497,19 +497,28 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>
         {activeCard ? (
-          <img
-            src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
-            alt={activeCard.name}
-            className="rounded-[5px] shadow-2xl ring-2 ring-primary/40"
-            style={{
-              width: CARD_SIZES[cardSize].width + 10,
-              cursor: 'grabbing',
-              transform: activeTapped ? 'rotate(90deg)' : undefined,
-              transformOrigin: 'center',
-              filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.5))',
-            }}
-            draggable={false}
-          />
+          // Mirror the battlefield card's box model: an upright outer wrapper at
+          // the real card width (this is the node dnd-kit measures for the drop
+          // position) with the tap rotation on the INNER image. If the rotation
+          // lived on the measured node, dnd-kit would read the rotated (wide-
+          // short) bounding box and the dropped card — re-rendered as an upright
+          // box that rotates about its center — would land left-and-down of where
+          // it was released. Keeping the outer box upright makes the overlay and
+          // the dropped card share the exact same center, so it lands where shown.
+          // No scale/size bump: the drag preview is the same size as on the field.
+          <div style={{ width: CARD_SIZES[cardSize].width, cursor: 'grabbing' }}>
+            <img
+              src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
+              alt={activeCard.name}
+              className="block w-full rounded-[5px] shadow-2xl ring-2 ring-primary/40"
+              style={{
+                transform: activeTapped ? 'rotate(90deg)' : undefined,
+                transformOrigin: 'center',
+                filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.5))',
+              }}
+              draggable={false}
+            />
+          </div>
         ) : activeCreate?.kind === 'counter' ? (
           (() => {
             const cfg = COUNTER_COLORS.find(c => c.key === activeCreate.color) ?? COUNTER_COLORS[0];

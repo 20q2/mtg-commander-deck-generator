@@ -54,7 +54,7 @@ function sortWUBRG(colors: string[]): string[] {
 
 // Default theme values
 const DEFAULT_RING = '262 83% 58%';
-const DEFAULT_BORDER = '220 13% 20%';
+const DEFAULT_BORDER = '220 13% 27%';
 
 export function applyCommanderTheme(colors: string[]) {
   const root = document.documentElement;

@@ -72,6 +72,11 @@ export function allTags(): TagDictEntry[] {
   return dict ?? [];
 }
 
+/** Whether the per-card index is loaded (so callers can skip a redundant lazy-load). */
+export function isTagIndexLoaded(): boolean {
+  return index !== null;
+}
+
 /** Tag slugs for a card by oracle_id. Empty if the index isn't loaded or the card is untagged. */
 export function tagsForOracleId(oracleId: string): string[] {
   if (!index || !dict) return [];

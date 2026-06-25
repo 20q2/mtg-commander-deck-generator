@@ -184,7 +184,7 @@ export function RoleDetailPanel({
     >
       <div className={`h-full ${hasSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left column: summary + current cards grouped by subtype */}
-        <div className={`${hasSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}`}>
+        <div className={`${hasSuggestions ? 'md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4' : 'w-full'}`}>
           <RoleSummary rb={rb} />
           {rb.cards.length > 0 ? (
             <RoleCardGroups cards={rb.cards} role={rb.role} onPreview={onPreview} onCardAction={onCardAction} menuProps={menuProps} addedCards={addedCards} />

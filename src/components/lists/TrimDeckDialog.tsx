@@ -56,6 +56,9 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   const commanderCount = (commanderName ? 1 : 0) + (partnerCommanderName ? 1 : 0);
   const internalTarget = targetSize - commanderCount;
   const overage = cards.length - internalTarget;
+  // Fine-tune mode: deck is exactly at target. There's no overage to trim, but
+  // the user can still cut a weak card to open a slot (then Fill a better one).
+  const fineTune = overage === 0;
 
   const plan: TrimResult = useMemo(() => planTrim({
     cards,
@@ -91,10 +94,11 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
     if (open) setLandTarget(currentLandCount);
   }, [open, currentLandCount]);
 
-  // Auto-close if there's no overage to trim (e.g., parent already trimmed,
-  // or expected size was raised while open).
+  // Auto-close only when the deck has dropped *below* target (e.g. the parent
+  // already trimmed, or expected size was raised) — at exactly target we stay
+  // open in fine-tune mode.
   useEffect(() => {
-    if (open && overage <= 0) onClose();
+    if (open && overage < 0) onClose();
   }, [open, overage, onClose]);
 
   // Hover preview — anchor to the left of the thumbnail (drawer sits on the
@@ -106,7 +110,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   const [contextCardName, setContextCardName] = useState<string | null>(null);
   const { onCardAction, menuProps } = props;
 
-  if (overage <= 0) return null;
+  if (overage < 0) return null;
 
   return (
     <Drawer
@@ -128,7 +132,9 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
               </span>
             </h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {overage} over target — pick which one{overage === 1 ? '' : 's'} to cut
+              {fineTune
+                ? 'At target — cut a card to open a slot, then Fill a better one in'
+                : `${overage} over target — pick which one${overage === 1 ? '' : 's'} to cut`}
             </p>
           </div>
           <button
@@ -183,6 +189,10 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           <ul ref={listRef} className="space-y-2">
             {plan.allCandidates.map((cand) => {
               const isChecked = checked.has(cand.card.name);
+              // The green "Kept" treatment only applies in over-target mode, where
+              // unchecked rows are cards we're choosing *not* to cut. In fine-tune
+              // mode every row is a neutral, selectable cut candidate.
+              const showAsKept = !isChecked && !fineTune;
               const toggle = () => {
                 if (checked.has(cand.card.name)) {
                   // Uncheck: mark as kept (protected from auto-fill), and try
@@ -221,7 +231,9 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                     'hover:bg-accent/40',
                     isChecked
                       ? 'opacity-100 translate-x-0 border-violet-500/20 bg-card'
-                      : 'opacity-50 translate-x-3 border-emerald-500/30 bg-emerald-500/5',
+                      : fineTune
+                        ? 'opacity-100 translate-x-0 border-border bg-card'
+                        : 'opacity-50 translate-x-3 border-emerald-500/30 bg-emerald-500/5',
                   ].join(' ')}
                   onClick={toggle}
                   onContextMenu={(e) => {
@@ -233,9 +245,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                 >
                   {/* Checkbox / Kept pill */}
                   <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-                    {isChecked ? (
-                      <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
-                    ) : (
+                    {showAsKept ? (
                       <button
                         onClick={toggle}
                         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors"
@@ -243,6 +253,8 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                       >
                         Kept
                       </button>
+                    ) : (
+                      <Checkbox checked={isChecked} onCheckedChange={toggle} aria-label={`Cut ${cand.card.name}`} />
                     )}
                   </div>
 
@@ -330,14 +342,18 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-border">
           <div className="text-xs text-muted-foreground">
-            {checked.size === overage
-              ? `Cutting ${plan.cutLands} land${plan.cutLands === 1 ? '' : 's'}, ${checked.size - plan.cutLands} spell${(checked.size - plan.cutLands) === 1 ? '' : 's'}`
-              : `Trim ${checked.size} of ${overage} — leaves ${cards.length - checked.size}/${targetSize}`}
+            {fineTune
+              ? (checked.size === 0
+                  ? 'Select a card to cut'
+                  : `Cut ${checked.size} → ${cards.length + commanderCount - checked.size}/${targetSize}, then Fill to refill`)
+              : checked.size === overage
+                ? `Cutting ${plan.cutLands} land${plan.cutLands === 1 ? '' : 's'}, ${checked.size - plan.cutLands} spell${(checked.size - plan.cutLands) === 1 ? '' : 's'}`
+                : `Trim ${checked.size} of ${overage} — leaves ${cards.length - checked.size}/${targetSize}`}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button onClick={() => onConfirm([...checked])} disabled={checked.size === 0}>
-              Trim {checked.size} cards
+              {fineTune ? 'Cut' : 'Trim'} {checked.size} card{checked.size === 1 ? '' : 's'}
             </Button>
           </div>
         </div>

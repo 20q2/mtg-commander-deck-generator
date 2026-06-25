@@ -46,6 +46,7 @@ import {
   Layers,
   Crosshair,
   Shield,
+  Tag,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -66,6 +67,7 @@ import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/groupin
 import { StacksColumn } from './visualGrid/StacksColumn';
 import { MasonryStacks } from './visualGrid/MasonryStacks';
 import { getRoleBadgeProps } from '@/components/deck/roleBadge';
+import { loadTagIndex, aggregateDeckTags, type DeckTagCount } from '@/services/spellchroma/tagIndex';
 
 /**
  * Treat a card as "owned" if it's in the player's imported collection OR if it's
@@ -368,18 +370,36 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
           {isBanned ? 'Remove Exclude' : 'Exclude'}
         </button>
         <div className="h-px bg-border my-1" />
-        {!showLists && !showDecks && (
+        {!showLists && !showDecks && (() => {
+          const listCount = userLists.filter(l => !l.commanderName && l.cards.includes(card.name)).length;
+          const deckCount = userLists.filter(l => !!l.commanderName && (
+            l.cards.includes(card.name) ||
+            (l.sideboard?.includes(card.name) ?? false) ||
+            (l.maybeboard?.includes(card.name) ?? false)
+          )).length;
+          return (
           <>
             <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowLists(true); }}>
               <ListPlus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-blue-400 transition-colors" />
               Add to List...
+              {listCount > 0 && (
+                <span className="ml-auto px-1.5 rounded-full bg-blue-400/15 text-blue-300/90 text-[10px] font-medium tabular-nums" title={`Already in ${listCount} list${listCount === 1 ? '' : 's'}`}>
+                  {listCount}
+                </span>
+              )}
             </button>
             <button className={menuBtn} onClick={(e) => { e.stopPropagation(); setShowDecks(true); }}>
               <CardTypeIcon type="commander" size="sm" className="shrink-0" />
               Add to Deck...
+              {deckCount > 0 && (
+                <span className="ml-auto px-1.5 rounded-full bg-emerald-400/15 text-emerald-300/90 text-[10px] font-medium tabular-nums" title={`Already in ${deckCount} deck${deckCount === 1 ? '' : 's'}`}>
+                  {deckCount}
+                </span>
+              )}
             </button>
           </>
-        )}
+          );
+        })()}
 
         {/* ── Add to List submenu (plain lists only) ── */}
         {showLists && (
@@ -1703,12 +1723,27 @@ interface DeckStatsProps {
   showRelevancy?: boolean;
   overallGrade?: { letter: string; headline: string } | null;
   phasesDone?: Set<LoadPhase>;
+  cardCountAction?: { delta: number; ready: boolean; onClick: () => void };
+  /** ?deck= reference used when following a Top Tags chip into SpellChroma. */
+  spellChromaDeckRef?: string;
 }
 
-function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade, phasesDone }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade, phasesDone, cardCountAction, spellChromaDeckRef = 'generated' }: DeckStatsProps) {
   const taggerReady = !phasesDone || phasesDone.has('tagger');
   const navigate = useNavigate();
   const { generatedDeck, colorIdentity } = useStore();
+  // SpellChroma top tags — lazily load the per-card index, then aggregate.
+  const [deckTags, setDeckTags] = useState<DeckTagCount[]>([]);
+  useEffect(() => {
+    if (!generatedDeck) return;
+    let alive = true;
+    loadTagIndex().then(ok => {
+      if (!ok || !alive) return;
+      const cards = Object.values(generatedDeck.categories).flat();
+      setDeckTags(aggregateDeckTags(cards));
+    });
+    return () => { alive = false; };
+  }, [generatedDeck]);
   if (!generatedDeck) return null;
 
   const { stats, categories, partnerCommander } = generatedDeck;
@@ -1773,10 +1808,38 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
 
           {/* Basic Stats */}
           <div className={`grid gap-3 ${ownedCount !== null ? 'grid-cols-3' : 'grid-cols-2'}`}>
-            <div className="bg-accent/30 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
-              <div className="text-xs text-muted-foreground">Cards</div>
-            </div>
+            {cardCountAction ? (() => {
+              const { delta, ready, onClick } = cardCountAction;
+              const hint = delta < 0 ? `${-delta} to fill` : delta > 0 ? `${delta} over` : null;
+              const verb = delta < 0 ? 'Fill' : 'Trim';
+              const title = !ready
+                ? 'Preparing suggestions…'
+                : delta === 0
+                  ? 'Fine-tune — cut a card to swap in a better one'
+                  : `${verb} deck to target`;
+              return (
+                <button
+                  type="button"
+                  disabled={!ready}
+                  onClick={onClick}
+                  title={title}
+                  className={`rounded-lg p-3 text-center transition-colors ${
+                    ready
+                      ? 'bg-accent/30 hover:bg-accent/50 cursor-pointer'
+                      : 'bg-accent/20 cursor-not-allowed opacity-60'
+                  }`}
+                >
+                  <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
+                  <div className="text-xs text-muted-foreground">Cards</div>
+                  {hint && <div className="text-[10px] text-violet-300/80 -mt-0.5">{hint}</div>}
+                </button>
+              );
+            })() : (
+              <div className="bg-accent/30 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
+                <div className="text-xs text-muted-foreground">Cards</div>
+              </div>
+            )}
             <div className="bg-accent/30 rounded-lg p-3 text-center">
               <div className="text-2xl font-bold text-foreground">{stats.averageCmc}</div>
               <div className="text-xs text-muted-foreground">Avg CMC</div>
@@ -2100,6 +2163,38 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
         </div>
       </div>
 
+      {/* Top Tags (SpellChroma) */}
+      {(() => {
+        const top = deckTags.filter(t => !t.ignored).slice(0, 10);
+        if (top.length === 0) return null;
+        return (
+          <div>
+            <div className="text-xs text-muted-foreground mb-2">Top Tags</div>
+            <div className="flex flex-wrap gap-1">
+              {top.map(t => (
+                <button
+                  key={t.slug}
+                  type="button"
+                  onClick={() => {
+                    trackEvent('deck_stats_tag_clicked', { slug: t.slug });
+                    // Carry the current deck along so SpellChroma opens with the deck
+                    // panel in place. 'generated' reads the store; list deck views pass
+                    // their saved id (the store deck is cleared when they unmount).
+                    navigate(`/spellchroma?deck=${encodeURIComponent(spellChromaDeckRef)}&tags=${encodeURIComponent(t.slug)}`);
+                  }}
+                  title={`Explore cards tagged “${t.slug}”`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs leading-tight border bg-violet-500/12 text-violet-100/90 border-violet-500/25 hover:bg-violet-500/25 transition-colors"
+                >
+                  <Tag className="w-3 h-3 opacity-70" />
+                  {t.slug}
+                  <span className="opacity-60 tabular-nums">{t.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
@@ -2185,6 +2280,13 @@ interface DeckDisplayProps {
   toolbarExtra?: React.ReactNode;
   /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
   boardCounts?: { sideboard: number; maybeboard: number };
+  /**
+   * Makes the "Cards" stat clickable to open the fill/trim drawer (list deck view).
+   * `delta` = current total − target: negative → short (Fill), positive → over (Trim),
+   * 0 → at target (Trim opens in fine-tune/swap mode). `ready` gates the click while
+   * the relevant suggestion data is still loading.
+   */
+  cardCountAction?: { delta: number; ready: boolean; onClick: () => void };
   /** Content rendered inside the deck card (e.g. boards) */
   deckFooter?: React.ReactNode | ((args: { viewShiftControls: React.ReactNode }) => React.ReactNode);
   /** Render prop for header-level actions (e.g. export, save). Receives onExport trigger. When provided, the Export button is removed from the summary row. */
@@ -2204,6 +2306,13 @@ interface DeckDisplayProps {
   onSetMaybeboard?: (names: string[]) => void;
   /** Set of completed load phases. When omitted, all panels render as fully loaded. */
   phasesDone?: Set<LoadPhase>;
+  /**
+   * ?deck= reference passed to SpellChroma when a Top Tags chip is clicked, so
+   * the current deck comes along. Defaults to 'generated' (reads the store's
+   * generatedDeck). List deck views must pass their saved list id instead — they
+   * clear the store deck on unmount, so 'generated' would resolve to nothing.
+   */
+  spellChromaDeckRef?: string;
   children?: React.ReactNode;
 }
 
@@ -2217,7 +2326,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -3977,7 +4086,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </button>
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
-              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} />
+              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
               <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
@@ -4427,7 +4536,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {sidebarHeader || deckSummary}
               </div>
             </div>
-            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} />
+            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>

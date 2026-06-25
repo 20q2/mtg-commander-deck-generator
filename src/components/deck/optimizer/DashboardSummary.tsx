@@ -100,6 +100,8 @@ export interface DashboardSummaryProps {
   themeCoverage?: ThemeCoverage[];
   /** Shared swap list (also drives the optimize tab — same source as NextBestMove). */
   baseSwaps?: OptimizeSwaps | null;
+  /** Cost + Lift bento shown in the next-steps slot when no real next steps remain. */
+  bentoSlot?: ReactNode;
 }
 
 const SUBSCORE_META: Record<SubScoreKey, {
@@ -122,7 +124,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     cardSynergyMap,
     detectedCombos, deckTarget,
     roleBreakdowns, curvePhases, themeCoverage,
-    baseSwaps,
+    baseSwaps, bentoSlot,
   } = props;
   const [strategyOpen, setStrategyOpen] = useState(false);
 
@@ -238,6 +240,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         suggestedLands={analysis.manaBase?.adjustedSuggestion}
         limitedData={planScore.limitedData}
         baseSwaps={baseSwaps ?? null}
+        fallback={bentoSlot}
       />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-stretch">
         {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map((key, i) => {

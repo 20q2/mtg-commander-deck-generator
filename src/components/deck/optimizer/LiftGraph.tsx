@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, type Simulation } from 'd3-force';
+import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, forceRadial, type Simulation } from 'd3-force';
 import { Check, Maximize2, HelpCircle, Expand, Shrink, Search } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl, isAnyLand } from '@/services/scryfall/client';
@@ -34,7 +34,8 @@ interface LiftGraphProps {
   toolbar?: ReactNode;               // extra control(s) rendered in the top-left overlay (e.g. Recheck)
   mode?: 'candidates' | 'deck';      // 'deck' plots your own cards' ties to each other instead of candidates
   deckLinks?: DeckLink[];            // deck↔deck ties (used only in 'deck' mode)
-  hideLands?: boolean;               // (deck mode) drop land nodes — they rarely lift like spells do
+  hideIslands?: boolean;             // (deck mode) drop tie-less "island" cards entirely instead of haloing them
+  hideLands?: boolean;              // (deck mode) drop land nodes — only offered while islands are shown
   onFocusCard?: (name: string) => void;  // right-click "Focus" — pin the graph to this deck card
   fullscreenRef?: { current: HTMLElement | null };  // element to full-screen (the panel incl. filter bar)
 }
@@ -48,6 +49,7 @@ interface GNode {
   r: number;
   commander?: boolean;
   focus?: boolean;        // a selected "pairs with" anchor — coloured + enlarged
+  solo?: boolean;         // (deck mode) no synergy tie to any other card — banished to a quiet halo
   lowConf?: boolean;
   // d3 mutates these:
   x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null;
@@ -172,10 +174,11 @@ function buildGraph(
 }
 
 /** Deck mode: every node is a card you already run; every link is a lift tie between two of them.
- *  No focus → plot the WHOLE deck (even cards with no notable ties sit on their own). Focusing a card
- *  (right-click → Focus, or the Pairs-with picker) drills in to just that card and what it ties to. */
+ *  No focus → plot the whole deck; tie-less "island" cards are either hidden (default) or pushed to a
+ *  quiet halo. Focusing a card (right-click → Focus, or the Pairs-with picker) drills in to just that
+ *  card and what it ties to. */
 function buildDeckGraph(
-  deckLinks: DeckLink[], deckByName: Map<string, ScryfallCard>, commanders: Set<string>, focusAnchors: Set<string>, hideLands: boolean,
+  deckLinks: DeckLink[], deckByName: Map<string, ScryfallCard>, commanders: Set<string>, focusAnchors: Set<string>, hideIslands: boolean, hideLands: boolean,
 ): { nodes: GNode[]; links: GLink[] } {
   const focusing = focusAnchors.size > 0;
   const nodeMap = new Map<string, GNode>();
@@ -212,11 +215,17 @@ function buildDeckGraph(
   for (const l of links) { l.w = l.score / maxScore; l.cw = l.coPct / maxCoPct; }
   const maxNodeCoPct = Math.max(1, ...nodeCoPct.values());
   for (const n of nodeMap.values()) {
+    // A card with no notable tie to any other deck card. It carries no synergy to show, so it's
+    // pushed out to a dim halo (see the physics) — small and quiet so the connected core reads.
+    n.solo = (degree.get(n.id) ?? 0) === 0;
     const norm = (nodeCoPct.get(n.id) ?? 0) / maxNodeCoPct;
-    n.r = clamp(11 + norm * 17, 11, 28);
+    n.r = n.solo ? 9 : clamp(11 + norm * 17, 11, 28);
     if (n.focus) n.r = clamp(n.r * 1.5, 26, 42);
   }
-  return { nodes: [...nodeMap.values()], links };
+  // Islands carry no link (degree 0), so dropping them never orphans an edge. Hidden by default so the
+  // relationship core fills the canvas; toggle off to reveal them as a quiet halo around the clusters.
+  const allNodes = [...nodeMap.values()];
+  return { nodes: hideIslands ? allNodes.filter(n => !n.solo) : allNodes, links };
 }
 
 /** Searchable list of the cards currently on the map; picking one zooms the camera to it. */
@@ -251,7 +260,7 @@ function NodeFinder({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
 }
 
 export function LiftGraph(props: LiftGraphProps) {
-  const { candidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, onPreview, addedCards, matchedNames, focusAnchors = NO_ANCHORS, displayMode, onCardAction, menuProps, toolbar, mode = 'candidates', deckLinks = NO_LINKS, hideLands = false, onFocusCard, fullscreenRef } = props;
+  const { candidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, onPreview, addedCards, matchedNames, focusAnchors = NO_ANCHORS, displayMode, onCardAction, menuProps, toolbar, mode = 'candidates', deckLinks = NO_LINKS, hideIslands = true, hideLands = false, onFocusCard, fullscreenRef } = props;
   const deckMode = mode === 'deck';
   // 'hide' rebuilds the graph to matches-only (re-lays-out); 'dim' plots everything and fades
   // non-matches in place (no resimulation — preserves the player's arrangement).
@@ -261,9 +270,9 @@ export function LiftGraph(props: LiftGraphProps) {
   );
   const { nodes, links } = useMemo(
     () => deckMode
-      ? buildDeckGraph(deckLinks, deckCardsByName, commanderNames, focusAnchors, hideLands)
+      ? buildDeckGraph(deckLinks, deckCardsByName, commanderNames, focusAnchors, hideIslands, hideLands)
       : buildGraph(shownCandidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, focusAnchors),
-    [deckMode, deckLinks, shownCandidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, focusAnchors, hideLands],
+    [deckMode, deckLinks, shownCandidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, focusAnchors, hideIslands, hideLands],
   );
   // Deck hubs that anchor at least one matched candidate — these stay bright when dimming.
   const activeHubs = useMemo(() => {
@@ -444,19 +453,27 @@ export function LiftGraph(props: LiftGraphProps) {
         // Short, strong ties make connected cards condense into TIGHT islands; the global charge then
         // shoves those islands apart so relationships read as distinct constellations, not a hairball.
         // Deck mode: every tie short+strong so each synergy cluster balls up tightly and pulls apart.
-        .distance(l => deckMode ? 22 + 34 * (1 - l.w) : (l.primary ? 26 + 46 * (1 - l.w) : 44 + 96 * (1 - l.w)))
-        .strength(l => deckMode ? 0.55 + 0.4 * l.w : (l.targetBomb ? (l.primary ? 0.8 : 0.02) : 0.45 + 0.4 * l.w)))
-      .force('charge', forceManyBody<GNode>().strength(deckMode ? -230 : ((n: GNode) => (n.kind === 'deck' ? -520 : -300) * spread)))
+        .distance(l => deckMode ? 46 + 64 * (1 - l.w) : (l.primary ? 26 + 46 * (1 - l.w) : 44 + 96 * (1 - l.w)))
+        .strength(l => deckMode ? 0.42 + 0.35 * l.w : (l.targetBomb ? (l.primary ? 0.8 : 0.02) : 0.45 + 0.4 * l.w)))
+      // Deck mode: connected cards repel hard so their constellations spread out and breathe instead of
+      // overlapping; solo cards barely repel (the radial halo + collision place them, no shove on the core).
+      .force('charge', forceManyBody<GNode>().strength(
+        deckMode ? ((n: GNode) => (n.solo ? -70 : -480)) : ((n: GNode) => (n.kind === 'deck' ? -520 : -300) * spread)))
       // Generous collision padding gives every card room to breathe; two passes resolve the
-      // tightly-packed islands far more stably than one high-strength pass.
-      .force('collide', forceCollide<GNode>(n => n.r + 9).strength(0.92).iterations(2))
+      // tightly-packed islands far more stably than one high-strength pass. Deck mode pads extra so
+      // the cards in a constellation don't crowd shoulder-to-shoulder.
+      .force('collide', forceCollide<GNode>(n => n.r + (deckMode ? 16 : 9)).strength(0.92).iterations(2))
       .on('tick', () => setTick(t => t + 1));
     // Containment. Candidate mode's hub-and-spoke is self-centring, so a plain forceCenter is fine.
-    // Deck mode has many tie-less cards that a bare charge flings off to the horizon (which then makes
-    // the fit zoom way out and shrink the real deck to a dot) — so pull every card gently toward the
-    // middle with gravity, keeping isolated cards in a tidy halo around the connected clusters.
+    // Deck mode splits into two zones: connected cards are pulled gently to the middle (so the synergy
+    // constellations get the room to spread and present), while tie-less "solo" cards are pulled out to
+    // a ring near the canvas edge — a quiet halo that frames the relationships without crushing them.
     if (deckMode) {
-      sim.force('x', forceX<GNode>(w / 2).strength(0.08)).force('y', forceY<GNode>(h / 2).strength(0.08));
+      const ringR = Math.min(w, h) * 0.42;
+      sim
+        .force('x', forceX<GNode>(w / 2).strength(n => (n.solo ? 0 : 0.07)))
+        .force('y', forceY<GNode>(h / 2).strength(n => (n.solo ? 0 : 0.07)))
+        .force('halo', forceRadial<GNode>(ringR, w / 2, h / 2).strength(n => (n.solo ? 0.35 : 0)));
     } else {
       sim.force('center', forceCenter(w / 2, h / 2));
     }
@@ -496,10 +513,10 @@ export function LiftGraph(props: LiftGraphProps) {
     stopAnim();                   // a grab takes over from any in-flight fit tween
     (e.target as Element).setPointerCapture?.(e.pointerId);
     drag.current = { mode: 'node', node: n, moved: false, sx: e.clientX, sy: e.clientY, ox: 0, oy: 0 };
-    // Very gentle reheat so only the grabbed node's immediate neighbours ease along via the link
-    // springs. Kept tiny (0.03 vs the old 0.25) so the global charge/centre forces have too little
-    // energy to shuffle the rest of the map — combined with the high velocityDecay it stays calm.
-    simRef.current?.alphaTarget(0.03).restart();
+    // Deliberately do NOT reheat the simulation here. onMove drives the grabbed node directly, so a
+    // motionless click-and-hold should leave the (cooled) map perfectly still. Reheating to a sustained
+    // alphaTarget on mere pointer-down kept the sim ticking with nothing pinned, so every node drifted
+    // under the forces — the whole graph "spun like a galaxy" just from holding a node.
   };
   const onBgDown = (e: React.PointerEvent) => {
     if (e.button === 2) return;   // don't start a pan on right-click
@@ -632,7 +649,10 @@ export function LiftGraph(props: LiftGraphProps) {
               const hoverDim = hover && !neighbours?.has(n.id);
               // Filtered-out nodes recede hard; hover-dimmed (but matching) nodes fade gently.
               const filterDim = !!activeHubs && (n.kind === 'deck' ? !activeHubs.has(n.id) : !matchedNames.has(n.id));
-              const opacity = filterDim ? 0.12 : hoverDim ? 0.28 : 1;
+              // Solo halo cards sit quiet at rest so the connected core reads, but brighten when hovered
+              // (themselves or as a neighbour — though solo cards have no ties, so only on direct hover).
+              const soloDim = n.solo && hover !== n.id && !neighbours?.has(n.id);
+              const opacity = filterDim ? 0.12 : hoverDim ? 0.28 : soloDim ? 0.4 : 1;
               const isHub = n.kind === 'deck';
               const isFocus = !!n.focus;   // selected "pairs with" anchor — gets the bright pulsing treatment
               // Emphasis swap: candidates (the cards worth adding) are the round, glowing "objects of

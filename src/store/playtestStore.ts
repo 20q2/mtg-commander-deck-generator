@@ -31,6 +31,9 @@ interface PlaytestState {
   loading: boolean;                                        // true while hydrate is in-flight
   error: string | null;
   source: SourceMeta | null;
+  // Deck color identity (WUBRG letters) derived once at hydrate — drives the
+  // "Auto" battlefield background. Stable even if the commander leaves the zone.
+  colorIdentity: string[];
   zones: Zones;
   battlefield: BattlefieldCard[];
   life: number;
@@ -168,6 +171,7 @@ const initial: PlaytestState = {
   loading: false,
   error: null,
   source: null,
+  colorIdentity: [],
   zones: emptyZones(),
   battlefield: [],
   life: STARTING_LIFE,
@@ -238,11 +242,18 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const built = await buildLibrary(input);
+      // Color identity for the Auto background: the commander defines it, but
+      // fall back to the union across all cards for lists with no command zone.
+      const ciPool = built.zones.command.length
+        ? built.zones.command
+        : Object.values(built.zones).flat();
+      const colorIdentity = Array.from(new Set(ciPool.flatMap(c => c.color_identity ?? [])));
       set({
         ...initial,
         ready: true,
         loading: false,
         source: { kind: built.kind, name: built.name, commanderNames: built.commanderNames },
+        colorIdentity,
         zones: built.zones,
         log: [makeLogEntry(`Loaded "${built.name}" (${built.zones.library.length} cards in library)`, 'system')],
       });
@@ -281,6 +292,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         ready: true,
         loading: false,
         source,
+        colorIdentity: state.colorIdentity,
         zones: { ...emptyZones(), library: reshuffled, command: [...state.zones.command] },
         log: [makeLogEntry('Reset', 'system')],
       };

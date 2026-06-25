@@ -9,8 +9,11 @@ import { backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground
  *
  * Layers crossfade: when the identity changes, the new art blooms in over the
  * old one, which fades out and is then pruned — no hard cut.
+ *
+ * `revealArt` (set when no tags are selected) softens the dark overlay a touch
+ * so the art shows through more — a quiet reward when the user isn't mid-search.
  */
-export function SpellChromaBackdrop({ colorIdentity }: { colorIdentity: string[] }) {
+export function SpellChromaBackdrop({ colorIdentity, revealArt = false }: { colorIdentity: string[]; revealArt?: boolean }) {
   const url = backgroundUrlForIdentity(colorIdentity);
   // Stack of layers; the last is the active one fading in, earlier ones are
   // previous backdrops fading out (pruned once their fade-out finishes).
@@ -36,7 +39,7 @@ export function SpellChromaBackdrop({ colorIdentity }: { colorIdentity: string[]
           />
         );
       })}
-      <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/55 to-background/90" />
+      <div className={`absolute inset-0 bg-gradient-to-b from-background/40 via-background/55 to-background/90 transition-opacity duration-700 ${revealArt ? 'opacity-[0.66]' : 'opacity-100'}`} />
     </div>
   );
 }

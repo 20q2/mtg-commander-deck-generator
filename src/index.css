@@ -21,7 +21,7 @@
     --accent-foreground: 220 13% 95%;
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 20%;
+    --border: 220 13% 27%;
     --input: 220 13% 18%;
     --ring: 262 83% 58%;
     --radius: 0.875rem;
@@ -309,6 +309,26 @@
       transform: translateY(8px) scale(0.9);
     }
     to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Springy "bubble in" — overshoots then settles. Stagger via inline
+     animation-delay per chip (see TopTagsStrip). */
+  .animate-chip-bubble {
+    animation: chipBubble 0.4s cubic-bezier(0.34, 1.7, 0.5, 1) backwards;
+  }
+
+  @keyframes chipBubble {
+    0% {
+      opacity: 0;
+      transform: translateY(6px) scale(0.6);
+    }
+    60% {
+      opacity: 1;
+    }
+    100% {
       opacity: 1;
       transform: translateY(0) scale(1);
     }

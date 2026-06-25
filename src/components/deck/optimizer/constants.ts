@@ -68,9 +68,9 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'lands',    label: 'Mana',     icon: Mountain as typeof LayoutDashboard },
   { key: 'curve',    label: 'Tempo',    icon: BarChart3 as typeof LayoutDashboard },
   { key: 'bracket',  label: 'Bracket',  icon: Gauge as typeof LayoutDashboard },
-  { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
   { key: 'cost',     label: 'Cost',     icon: DollarSign as typeof LayoutDashboard },
   { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
+  { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
 ];
 
 // URL slug <-> TabKey mapping. Slugs follow the user-facing labels

@@ -1759,7 +1759,7 @@ export function CurveDetailPanel({
     >
       <div className={`${showSuggestions ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left column: grouped card list */}
-        <div className={showSuggestions ? 'md:w-[30%] shrink-0' : 'w-full'}>
+        <div className={showSuggestions ? 'md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4' : 'w-full'}>
           <CurvePhaseHelperCard phases={phases} activeRoleGroups={activeRoleGroups} />
           <PhaseRoleCardList
             phases={phases}

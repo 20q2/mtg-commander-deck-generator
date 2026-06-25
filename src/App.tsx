@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useLocation, Link } from 'react-router-dom';
-import { Settings, Sparkles, Wand2, ListChecks, Library, BarChart3, Microscope, MessageSquare } from 'lucide-react';
+import { Settings, Sparkles, ListChecks, Library, BarChart3, Microscope, MessageSquare, Wrench } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
@@ -418,6 +418,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   >
                     SpellChroma
                   </Link>
+                  <div className="h-5 w-px bg-border/70 mx-1" aria-hidden="true" />
                   <Link
                     to="/decks"
                     aria-current={location.pathname.startsWith('/decks') ? 'page' : undefined}
@@ -491,13 +492,6 @@ function Layout({ children }: { children: React.ReactNode }) {
                       <MessageSquare className="w-3.5 h-3.5 text-violet-300/90" />
                       <span className="text-sm">Community Poll</span>
                     </Link>
-                    <Link
-                      to="/spellchroma"
-                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-1"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-violet-300/90" />
-                      <span className="text-sm">SpellChroma</span>
-                    </Link>
                     <button
                       onClick={toggleEaFeatures}
                       className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-2"
@@ -557,28 +551,78 @@ function Layout({ children }: { children: React.ReactNode }) {
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
               isCreatePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
-            aria-label="Generate"
+            aria-label="Foundry"
           >
-            <Wand2 className={`w-5 h-5 ${isCreatePage ? 'text-primary' : ''}`} />
-            <span className="text-[10px] font-medium">Generate</span>
+            <span
+              className={`w-5 h-5 bg-current ${isCreatePage ? 'text-primary' : ''}`}
+              style={{
+                WebkitMaskImage: `url(${import.meta.env.BASE_URL}logo.png)`,
+                maskImage: `url(${import.meta.env.BASE_URL}logo.png)`,
+                WebkitMaskSize: 'contain',
+                maskSize: 'contain',
+                WebkitMaskRepeat: 'no-repeat',
+                maskRepeat: 'no-repeat',
+                WebkitMaskPosition: 'center',
+                maskPosition: 'center',
+              }}
+              aria-hidden="true"
+            />
+            <span className="text-[10px] font-medium">Foundry</span>
           </Link>
-          <Link
-            to="/analyze"
-            onClick={() => window.scrollTo(0, 0)}
-            aria-current={isAnalyzePage ? 'page' : undefined}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
-              isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            aria-label="Inspector"
-          >
-            <div className="relative">
-              <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
-              <span className="absolute -top-0 -right-3.5 text-[6px] font-medium tracking-wider text-muted-foreground/60 uppercase leading-[1.1]">
-                Beta
-              </span>
-            </div>
-            <span className="text-[10px] font-medium">Inspector</span>
-          </Link>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Tools"
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+                  isAnalyzePage || isSpellChromaPage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Wrench className={`w-5 h-5 ${isAnalyzePage || isSpellChromaPage ? 'text-primary' : ''}`} />
+                <span className="text-[10px] font-medium">Tools</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="center" className="w-44 p-1.5">
+              <Link
+                to="/analyze"
+                onClick={() => window.scrollTo(0, 0)}
+                aria-current={isAnalyzePage ? 'page' : undefined}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors ${
+                  isAnalyzePage ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                <Microscope className={`w-4 h-4 ${isAnalyzePage ? 'text-primary' : ''}`} />
+                <span className="text-sm font-medium">Inspector</span>
+                <span className="ml-auto text-[8px] font-medium tracking-wider text-muted-foreground/60 uppercase">
+                  Beta
+                </span>
+              </Link>
+              <Link
+                to="/spellchroma"
+                onClick={() => window.scrollTo(0, 0)}
+                aria-current={isSpellChromaPage ? 'page' : undefined}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors ${
+                  isSpellChromaPage ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                <span
+                  className={`w-4 h-4 bg-current ${isSpellChromaPage ? 'text-primary' : ''}`}
+                  style={{
+                    WebkitMaskImage: `url(${import.meta.env.BASE_URL}spellchroma-logo.png)`,
+                    maskImage: `url(${import.meta.env.BASE_URL}spellchroma-logo.png)`,
+                    WebkitMaskSize: 'contain',
+                    maskSize: 'contain',
+                    WebkitMaskRepeat: 'no-repeat',
+                    maskRepeat: 'no-repeat',
+                    WebkitMaskPosition: 'center',
+                    maskPosition: 'center',
+                  }}
+                  aria-hidden="true"
+                />
+                <span className="text-sm font-medium">SpellChroma</span>
+              </Link>
+            </PopoverContent>
+          </Popover>
           <Link
             to="/decks"
             onClick={() => window.scrollTo(0, 0)}

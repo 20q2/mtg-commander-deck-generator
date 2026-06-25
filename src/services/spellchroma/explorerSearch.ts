@@ -2,6 +2,7 @@ import { searchCards } from '@/services/scryfall/client';
 import type { ScryfallCard, ScryfallSearchResponse } from '@/types';
 
 export type ExplorerSort = 'edhrec' | 'cmc' | 'name' | 'type';
+export type SortDir = 'asc' | 'desc';
 
 /** How the selected colors constrain a card's color identity. */
 export type ColorMatch = 'subset' | 'exact' | 'atleast';
@@ -80,11 +81,12 @@ export function searchTagPage(
   filters: ExplorerFilters,
   sort: ExplorerSort,
   page: number,
+  dir: SortDir = 'asc',
 ): Promise<ScryfallSearchResponse> {
   // Scryfall has no "type" order; type grouping is applied client-side, so the
   // server still sorts by edhrec for that mode.
   const order = sort === 'type' ? 'edhrec' : sort;
-  return searchCards(buildExplorerQuery(slugs, filters), [], { order, page });
+  return searchCards(buildExplorerQuery(slugs, filters), [], { order, dir, page });
 }
 
 /**
@@ -97,13 +99,14 @@ export async function searchAllTagPages(
   filters: ExplorerFilters,
   sort: ExplorerSort,
   firstPage: ScryfallSearchResponse,
+  dir: SortDir = 'asc',
 ): Promise<ScryfallCard[]> {
   const cards = [...firstPage.data];
   let page = 1;
   let hasMore = firstPage.has_more;
   while (hasMore) {
     page += 1;
-    const res = await searchTagPage(slugs, filters, sort, page);
+    const res = await searchTagPage(slugs, filters, sort, page, dir);
     cards.push(...res.data);
     hasMore = res.has_more;
   }

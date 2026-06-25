@@ -257,11 +257,12 @@ export async function searchCards(
   colorIdentity: string[],
   options: {
     order?: 'edhrec' | 'cmc' | 'name';
+    dir?: 'asc' | 'desc';
     page?: number;
     skipFormatFilter?: boolean;
   } = {}
 ): Promise<ScryfallSearchResponse> {
-  const { order = 'edhrec', page = 1, skipFormatFilter = false } = options;
+  const { order = 'edhrec', dir, page = 1, skipFormatFilter = false } = options;
   const colorFilter = colorIdentity.length > 0 ? `id<=${colorIdentity.join('')}` : '';
   const formatFilter = skipFormatFilter ? '' : 'f:commander';
   // Wrap query in parentheses so color filter applies to entire query (including OR clauses)
@@ -269,7 +270,7 @@ export async function searchCards(
   const encodedQuery = encodeURIComponent(fullQuery.trim());
 
   // Check search cache first
-  const cacheKey = `${encodedQuery}|${order}|${page}`;
+  const cacheKey = `${encodedQuery}|${order}|${dir ?? ''}|${page}`;
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
     return cached.data;
@@ -278,7 +279,7 @@ export async function searchCards(
   let result: ScryfallSearchResponse;
   try {
     result = await scryfallFetch<ScryfallSearchResponse>(
-      `/cards/search?q=${encodedQuery}&order=${order}&page=${page}`
+      `/cards/search?q=${encodedQuery}&order=${order}${dir ? `&dir=${dir}` : ''}&page=${page}`
     );
   } catch (e) {
     // Scryfall returns 404 when a search matches zero cards — that's an empty

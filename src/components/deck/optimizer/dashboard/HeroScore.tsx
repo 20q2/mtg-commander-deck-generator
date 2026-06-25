@@ -74,7 +74,7 @@ export function HeroScore({
       {artUrl && (
         <div
           className="absolute inset-0 -z-20 bg-cover bg-right rounded-xl pointer-events-none"
-          style={{ backgroundImage: `url(${artUrl})`, opacity: 0.3 }}
+          style={{ backgroundImage: `url(${artUrl})`, opacity: 0.5 }}
           aria-hidden="true"
         />
       )}

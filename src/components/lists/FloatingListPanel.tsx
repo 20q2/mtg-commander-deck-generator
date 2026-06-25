@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Library } from 'lucide-react';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { ListDetailView } from '@/components/lists/ListDetailView';
-import { ColorIdentity } from '@/components/ui/mtg-icons';
+import { ColorIdentity, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useStore } from '@/store';
 import type { UserCardList } from '@/types';
@@ -59,6 +59,7 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
   const selectedList = mode.kind === 'list'
     ? browseableLists.find(l => l.id === mode.listId)
     : undefined;
+  const listArtUrl = selectedList?.cachedCommanderArtUrl ?? selectedList?.cachedListArtUrl;
 
   if (!open) return null;
 
@@ -114,28 +115,42 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
       storageKey="floating-list-panel-pos"
       sizeStorageKey="floating-list-panel-size-v2"
     >
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {browseableLists.length === 0 ? (
-          <EmptyState />
-        ) : mode.kind === 'picker' ? (
-          // key forces remount on mode change so animate-fade-in re-runs
-          <div key="picker" className="animate-fade-in">
-            <PickerView
-              lists={browseableLists}
-              onPick={(id) => setMode({ kind: 'list', listId: id })}
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        {/* When a list is open, its artwork washes the whole panel body — pinned
+            behind the scrolling content so it reads as atmosphere, not clutter. */}
+        {selectedList && listArtUrl && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <img
+              src={listArtUrl}
+              alt=""
+              className="w-full h-full object-cover opacity-40"
             />
+            <div className="absolute inset-0 bg-gradient-to-b from-card/25 via-card/70 to-card" />
           </div>
-        ) : selectedList ? (
-          <div key={`list-${selectedList.id}`} className="px-4 py-3 animate-fade-in">
-            <ListDetailView
-              list={selectedList}
-              compact
-              readOnly
-              draggableCards
-              deckCardNames={deckCardNames}
-            />
-          </div>
-        ) : null}
+        )}
+        <div className="relative flex-1 min-h-0 overflow-y-auto">
+          {browseableLists.length === 0 ? (
+            <EmptyState />
+          ) : mode.kind === 'picker' ? (
+            // key forces remount on mode change so animate-fade-in re-runs
+            <div key="picker" className="animate-fade-in">
+              <PickerView
+                lists={browseableLists}
+                onPick={(id) => setMode({ kind: 'list', listId: id })}
+              />
+            </div>
+          ) : selectedList ? (
+            <div key={`list-${selectedList.id}`} className="px-4 py-3 animate-fade-in">
+              <ListDetailView
+                list={selectedList}
+                compact
+                readOnly
+                draggableCards
+                deckCardNames={deckCardNames}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
     </FloatingDialog>
   );
@@ -143,13 +158,16 @@ export function FloatingListPanel({ open, onClose }: FloatingListPanelProps) {
 
 // ---------- Picker (splash) ----------
 
+// Canonical card-type ordering for the chip row (mirrors ListCard).
+const TYPE_ORDER = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Battle', 'Land'];
+
 function PickerView({ lists, onPick }: { lists: UserCardList[]; onPick: (id: string) => void }) {
   return (
     <div className="px-3 py-3">
-      <p className="text-xs text-muted-foreground px-1 mb-2">
+      <p className="text-xs text-muted-foreground px-1 mb-2.5">
         {lists.length} list{lists.length === 1 ? '' : 's'} — pick one to browse beside your deck.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {lists.map((list, i) => (
           <PickerTile key={list.id} list={list} onPick={() => onPick(list.id)} index={i} />
         ))}
@@ -162,6 +180,15 @@ function PickerTile({ list, onPick, index }: { list: UserCardList; onPick: () =>
   const artUrl = list.cachedCommanderArtUrl ?? list.cachedListArtUrl;
   const cardCount = list.cards.length;
 
+  // Ordered type-breakdown entries → the little count chips along the footer.
+  const typeChips = list.cachedTypeBreakdown
+    ? Object.entries(list.cachedTypeBreakdown).sort((a, b) => {
+        const ai = TYPE_ORDER.indexOf(a[0]);
+        const bi = TYPE_ORDER.indexOf(b[0]);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      })
+    : [];
+
   return (
     <button
       onClick={onPick}
@@ -169,39 +196,69 @@ function PickerTile({ list, onPick, index }: { list: UserCardList; onPick: () =>
       // Cap delay so a huge list doesn't take forever to finish staggering in.
       // fillMode: backwards holds the from-state during the delay (no flicker).
       style={{ animationDelay: `${Math.min(index, 12) * 30}ms`, animationFillMode: 'backwards' }}
-      className="relative overflow-hidden text-left rounded-lg border border-border/50 bg-card/40 hover:bg-card/70 hover:border-primary/40 hover:scale-[1.02] hover:-translate-y-0.5 active:scale-[0.99] transition-all duration-150 ease-out p-2.5 min-h-[64px] animate-scale-in"
+      className="group relative flex flex-col overflow-hidden text-left rounded-xl border border-border/50 bg-card/40 hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 active:translate-y-0 transition-all duration-200 ease-out animate-scale-in"
     >
-      {artUrl && (
-        <div className="absolute inset-0 pointer-events-none">
+      {/* Hero art banner — the selected artwork reads through clearly here, then
+          fades into the card body so the name/meta stay legible on top of it. */}
+      <div className="relative h-24 w-full overflow-hidden bg-accent/30">
+        {artUrl ? (
           <img
             src={artUrl}
             alt=""
             loading="lazy"
-            className="w-full h-full object-cover opacity-[0.18]"
+            className="absolute inset-0 w-full h-full object-cover opacity-70 group-hover:opacity-90 group-hover:scale-[1.04] transition-all duration-300 ease-out"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-card/80 via-card/60 to-card/80" />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Library className="w-7 h-7 text-muted-foreground/25" />
+          </div>
+        )}
+        {/* Top sheen + bottom fade into the body color. */}
+        <div className="absolute inset-0 bg-gradient-to-b from-card/10 via-transparent to-card" />
+        {/* Title + commander overlaid at the foot of the art for the "pop" look. */}
+        <div className="absolute inset-x-0 bottom-0 px-3 pb-2">
+          <p className="text-sm font-semibold leading-tight truncate drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+            {list.name}
+          </p>
+          {list.commanderName ? (
+            <p className="text-[11px] text-foreground/75 truncate mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+              {list.commanderName}
+            </p>
+          ) : list.description ? (
+            <p className="text-[11px] text-foreground/70 truncate mt-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+              {list.description}
+            </p>
+          ) : null}
         </div>
-      )}
-      <div className="relative min-w-0">
-        <p className="text-sm font-semibold truncate">{list.name}</p>
-        {list.commanderName && (
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
-            {list.commanderName}
-          </p>
-        )}
-        {list.description && !list.commanderName && (
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
-            {list.description}
-          </p>
-        )}
-        <div className="flex items-center gap-2 mt-1.5">
-          <span className="text-[11px] text-muted-foreground">
+      </div>
+
+      {/* Body — card count, colors, and the card-type chip row. */}
+      <div className="relative flex flex-col gap-2 px-3 pt-2 pb-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-muted-foreground">
             {cardCount} card{cardCount === 1 ? '' : 's'}
           </span>
           {list.cachedColorIdentity && list.cachedColorIdentity.length > 0 && (
-            <ColorIdentity colors={list.cachedColorIdentity} size="sm" />
+            <>
+              <span className="text-border">·</span>
+              <ColorIdentity colors={list.cachedColorIdentity} size="sm" />
+            </>
           )}
         </div>
+        {typeChips.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {typeChips.map(([type, count]) => (
+              <span
+                key={type}
+                title={`${count} ${type}${count === 1 ? '' : 's'}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30 group-hover:border-border/50 transition-colors"
+              >
+                <CardTypeIcon type={type} size="sm" className="opacity-60 text-[10px]" />
+                {count}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </button>
   );

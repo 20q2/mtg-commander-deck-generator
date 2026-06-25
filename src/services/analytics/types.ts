@@ -29,6 +29,8 @@ export type AnalyticsEventType =
   | 'spellchroma_deck_loaded'
   | 'spellchroma_tag_selected'
   | 'spellchroma_card_added'
+  | 'spellchroma_open_clicked'
+  | 'deck_stats_tag_clicked'
   | 'poll_nudge_shown'
   | 'poll_nudge_dismissed'
   | 'brew_started'
@@ -106,7 +108,11 @@ export interface AnalyticsEventMetadata {
   /** A tag was added to the SpellChroma explorer search. */
   spellchroma_tag_selected: { slug: string };
   /** A card was added from the SpellChroma explorer to the deck or a list. */
-  spellchroma_card_added: { dest: 'deck' | 'list' };
+  spellchroma_card_added: { dest: 'deck' | 'list' | 'sideboard' | 'maybeboard' };
+  /** "Open in SpellChroma" clicked from a deck toolbar. */
+  spellchroma_open_clicked: { from: 'list-deck' | 'builder' };
+  /** A Top Tags chip in the deck Statistics sidebar was clicked → opens SpellChroma. */
+  deck_stats_tag_clicked: { slug: string };
   poll_nudge_shown: { visitCount: number };
   poll_nudge_dismissed: { action: 'clicked' | 'dismissed' };
   brew_started: { commanderName: string; partnerName?: string; collectionMode: boolean };

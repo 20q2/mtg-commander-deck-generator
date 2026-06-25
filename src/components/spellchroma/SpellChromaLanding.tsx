@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle, Tag } from 'lucide-react';
+import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle, Tag, Search, Plus } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { useUserLists } from '@/hooks/useUserLists';
-import { getCardsByNames } from '@/services/scryfall/client';
+import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { loadTagDictionary, allTags } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
@@ -12,6 +12,16 @@ import { parseDecklist } from './DeckInput';
 import type { ScryfallCard, UserCardList } from '@/types';
 
 type Lane = 'paste' | 'decks' | 'lists';
+
+// Remember the last lane the user picked so we land them back on it next visit.
+const LANE_PREF_KEY = 'spellchroma-landing-lane';
+function loadLanePref(): Lane {
+  try {
+    const v = localStorage.getItem(LANE_PREF_KEY);
+    if (v === 'paste' || v === 'decks' || v === 'lists') return v;
+  } catch { /* localStorage unavailable */ }
+  return 'paste';
+}
 
 // How many "jump straight in" chips to show.
 const STARTER_TAG_COUNT = 8;
@@ -32,19 +42,21 @@ function sampleTags(pool: string[], n: number): string[] {
 
 const TABS: { key: Lane; label: string; icon: typeof ClipboardPaste }[] = [
   { key: 'paste', label: 'Paste',      icon: ClipboardPaste },
-  { key: 'decks', label: 'Your Decks', icon: Layers },
-  { key: 'lists', label: 'Your Lists', icon: Library },
+  { key: 'decks', label: 'My Decks', icon: Layers },
+  { key: 'lists', label: 'My Lists', icon: Library },
 ];
 
 interface SpellChromaLandingProps {
-  onLoad: (cards: ScryfallCard[], source?: string) => void;
+  /** `listId` is the saved UserCardList id when loading a library deck/list;
+   *  omitted for pasted decks (which stay ephemeral). */
+  onLoad: (cards: ScryfallCard[], source?: string, listId?: string) => void;
   onExplore: () => void;
   onStarterTag: (slug: string) => void;
 }
 
 export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChromaLandingProps) {
   const { lists } = useUserLists();
-  const [lane, setLane] = useState<Lane>('paste');
+  const [lane, setLane] = useState<Lane>(loadLanePref);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -80,7 +92,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
     try {
       const map = await getCardsByNames(names);
       const cards = names.map(n => map.get(n)).filter((c): c is ScryfallCard => !!c);
-      if (cards.length > 0) onLoad(cards, source);
+      if (cards.length > 0) onLoad(cards, source, id);
     } finally {
       setBusy(false);
       setLoadingId(null);
@@ -88,7 +100,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
   };
 
   return (
-    <main className="relative px-4 py-8">
+    <main className="relative px-3 sm:px-4 py-6 sm:py-8">
       <div className="absolute top-4 right-4 z-20">
         <Popover>
           <PopoverTrigger asChild>
@@ -110,22 +122,22 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
           </PopoverContent>
         </Popover>
       </div>
-      <div className="text-center py-6 max-w-2xl mx-auto animate-slide-up" style={{ animationFillMode: 'backwards' }}>
+      <div className="text-center py-4 sm:py-6 max-w-2xl mx-auto animate-slide-up" style={{ animationFillMode: 'backwards' }}>
         <img
           src={`${import.meta.env.BASE_URL}spellchroma-logo.png`}
           alt="SpellChroma"
-          className="w-24 h-24 mx-auto mb-4 drop-shadow-[0_0_24px_rgba(139,92,246,0.35)]"
+          className="w-16 h-16 sm:w-24 sm:h-24 mx-auto mb-3 sm:mb-4 drop-shadow-[0_0_24px_rgba(139,92,246,0.35)]"
         />
-        <h2 className="text-4xl font-bold mb-3">
+        <h2 className="text-3xl sm:text-4xl font-bold mb-2 sm:mb-3">
           Card search <span className="gradient-text">simplified</span>
         </h2>
-        <p className="text-base text-muted-foreground">
+        <p className="text-sm sm:text-base text-muted-foreground px-4">
           Load a deck to see its tags — or just start hunting cards by tag.
         </p>
       </div>
 
       {/* Lane tabs */}
-      <div role="tablist" aria-label="Choose how to load a deck" className="flex items-center gap-1.5 justify-center mb-6 animate-slide-up" style={{ animationDelay: '80ms', animationFillMode: 'backwards' }}>
+      <div role="tablist" aria-label="Choose how to load a deck" className="flex flex-wrap items-center gap-1.5 justify-center mb-6 animate-slide-up" style={{ animationDelay: '80ms', animationFillMode: 'backwards' }}>
         {TABS.map(tab => {
           const active = lane === tab.key;
           return (
@@ -133,25 +145,28 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
               key={tab.key}
               role="tab"
               aria-selected={active}
-              onClick={() => setLane(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 border ${
+              onClick={() => {
+                setLane(tab.key);
+                try { localStorage.setItem(LANE_PREF_KEY, tab.key); } catch { /* ignore */ }
+              }}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-200 border ${
                 active
-                  ? 'bg-primary/20 text-violet-200 border-primary/50'
-                  : 'bg-card/40 border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                  ? 'bg-primary/30 text-violet-200 border-primary/60'
+                  : 'bg-card/70 border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent/60'
               }`}
             >
-              <tab.icon className="w-4 h-4" />
+              <tab.icon className="w-4 h-4 shrink-0" />
               {tab.label}
             </button>
           );
         })}
-        <div className="w-px h-5 bg-border/40 mx-1" aria-hidden />
+        <div className="hidden sm:block w-px h-5 bg-border/40 mx-1" aria-hidden />
         <button
           type="button"
           onClick={onExplore}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-full transition-all duration-200 border bg-card/40 border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/40"
+          className="flex items-center gap-1.5 px-3 sm:px-4 py-2 text-sm font-medium rounded-full whitespace-nowrap transition-all duration-200 border bg-card/70 border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent/60"
         >
-          <Compass className="w-4 h-4" />
+          <Compass className="w-4 h-4 shrink-0" />
           Explore without a deck
         </button>
       </div>
@@ -159,6 +174,9 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
       <div className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[260px] animate-slide-up" style={{ animationDelay: '160ms', animationFillMode: 'backwards' }}>
         {lane === 'paste' && (
           <div className="flex flex-col gap-3">
+            <AddCardSearch
+              onAdd={name => setText(prev => (prev.trim() ? prev.replace(/\n*$/, '') + '\n' : '') + `1 ${name}`)}
+            />
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}
@@ -214,6 +232,61 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
   );
 }
 
+// Card-name autocomplete that appends the picked card to the paste textarea, so
+// you can build a list by searching instead of (or alongside) pasting.
+function AddCardSearch({ onAdd }: { onAdd: (name: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 2) { setSuggestions([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      const results = await autocompleteCardName(query.trim());
+      setSuggestions(results.slice(0, 8));
+    }, 200);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query]);
+
+  const add = (name: string) => {
+    onAdd(name);
+    setQuery('');
+    setSuggestions([]);
+  };
+
+  return (
+    <div className="relative">
+      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60 pointer-events-none" />
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { setQuery(''); setSuggestions([]); }
+          if (e.key === 'Enter' && suggestions.length > 0) { e.preventDefault(); add(suggestions[0]); }
+        }}
+        placeholder="Search a card to add to the list…"
+        className="w-full text-sm rounded-md bg-background border border-border/60 pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+      />
+      {suggestions.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-y-auto">
+          {suggestions.map(name => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => add(name)}
+              className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors truncate"
+            >
+              <Plus className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PickGrid({ lists, emptyLabel, busy, loadingId, onPick }: {
   lists: UserCardList[];
   emptyLabel: string;
@@ -241,10 +314,22 @@ function PickGrid({ lists, emptyLabel, busy, loadingId, onPick }: {
                 <div className="absolute inset-0 bg-gradient-to-r from-card/80 via-card/60 to-card/80" />
               </div>
             )}
+            <div className="relative w-12 h-12 shrink-0 rounded-md overflow-hidden bg-muted/30">
+              {list.cachedCommanderArtUrl ? (
+                <img
+                  src={list.cachedCommanderArtUrl}
+                  alt={list.commanderName ?? ''}
+                  className="w-full h-full object-cover"
+                />
+              ) : null}
+            </div>
             <div className="relative flex-1 min-w-0">
               <p className="text-sm font-semibold truncate">{list.name}</p>
               <p className="text-xs text-muted-foreground truncate">{list.commanderName ?? `${list.cards.length} cards`}</p>
-              {list.cachedColorIdentity && list.cachedColorIdentity.length > 0 && (
+              {/* An empty (but defined) identity means a genuinely colorless deck —
+                  ColorIdentity renders the colorless pip for it. Only `undefined`
+                  (identity not yet computed) shows nothing. */}
+              {list.cachedColorIdentity && (
                 <div className="mt-1"><ColorIdentity colors={list.cachedColorIdentity} size="sm" /></div>
               )}
             </div>

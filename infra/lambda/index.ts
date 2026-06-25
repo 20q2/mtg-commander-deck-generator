@@ -114,6 +114,7 @@ async function handleGet(params: Record<string, string>) {
     const regionCounts: Record<string, number> = {};
     const deviceCounts: Record<string, number> = {};
     const hostCounts: Record<string, number> = {};
+    const inspectorTabCounts: Record<string, number> = {};
     const featureAdoption = {
       collectionMode: 0,
       hyperFocus: 0,
@@ -269,6 +270,13 @@ async function handleGet(params: Record<string, string>) {
         }
       }
 
+      // Inspector tab usage — which analyzer tabs people actually open.
+      if (item.event === 'inspector_tab_viewed') {
+        const rawTab = meta?.tab;
+        const tab = typeof rawTab === 'string' && rawTab ? rawTab : 'unknown';
+        inspectorTabCounts[tab] = (inspectorTabCounts[tab] || 0) + 1;
+      }
+
       // List activity
       if (item.event === 'list_created') {
         listActivity.created++;
@@ -368,6 +376,7 @@ async function handleGet(params: Record<string, string>) {
         regionCounts,
         deviceCounts,
         hostCounts,
+        inspectorTabCounts,
         featureAdoption,
         listActivity,
         settingsCounts,

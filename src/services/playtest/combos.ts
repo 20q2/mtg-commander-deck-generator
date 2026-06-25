@@ -14,15 +14,17 @@ export async function resolveCombos(input: SourceInput): Promise<DetectedCombo[]
     return input.deck.detectedCombos ?? [];
   }
   const list = input.list;
-  if (!list.commanderName) return [];
   const allNames = new Set<string>([
     ...list.cards,
-    list.commanderName,
+    ...(list.commanderName ? [list.commanderName] : []),
     ...(list.partnerCommanderName ? [list.partnerCommanderName] : []),
   ]);
   try {
+    // No commander → pull combos for the deck's colors only (color-identity page).
     const [commanderRaw, colorRaw] = await Promise.all([
-      fetchCommanderCombos(list.commanderName).catch(() => [] as EDHRECCombo[]),
+      list.commanderName
+        ? fetchCommanderCombos(list.commanderName).catch(() => [] as EDHRECCombo[])
+        : Promise.resolve([] as EDHRECCombo[]),
       fetchColorIdentityCombos(list.cachedColorIdentity ?? []).catch(() => [] as EDHRECCombo[]),
     ]);
     const commanderCombos: EDHRECCombo[] = commanderRaw.map(c => ({ ...c, source: 'commander' as const }));

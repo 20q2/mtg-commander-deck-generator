@@ -5,6 +5,16 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePlaytestStore } from '@/store/playtestStore';
 
+// Defined at module scope (not inside the component) so they keep a stable
+// component identity across renders. If these lived in the render body, every
+// re-render would create new function references, and React would unmount and
+// remount everything wrapped in <Group> — silently resetting the uncontrolled
+// Scry/Mill/Surveil popover to closed whenever the bar re-rendered.
+const Group = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
+  <div className={`flex items-center gap-1 ${className}`}>{children}</div>
+);
+const Sep = () => <div className="w-px h-5 bg-border/60 mx-1" aria-hidden />;
+
 export function PlaytestActionsBar() {
   const draw = usePlaytestStore(s => s.draw);
   const untapAll = usePlaytestStore(s => s.untapAll);
@@ -90,11 +100,6 @@ export function PlaytestActionsBar() {
       <Plus className={icon} />Create
     </Button>
   );
-
-  const Group = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-    <div className={`flex items-center gap-1 ${className}`}>{children}</div>
-  );
-  const Sep = () => <div className="w-px h-5 bg-border/60 mx-1" aria-hidden />;
 
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtn = (

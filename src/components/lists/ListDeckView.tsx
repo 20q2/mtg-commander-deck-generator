@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Swords, Microscope, Scissors, Sparkles, RotateCw, Redo2, Library } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Microscope, Scissors, Sparkles, RotateCw, Redo2, Library } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
+import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
@@ -124,6 +125,14 @@ function renderSimpleMarkdown(md: string): string {
 
   const inlineFormat = (text: string) =>
     escape(text)
+      // ![alt](url) — only http(s) URLs render; anything else falls back to the alt text
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt: string, url: string) => {
+        const clean = url.trim();
+        if (!/^https?:\/\//i.test(clean)) return alt;
+        const safeUrl = clean.replace(/"/g, '%22');
+        const safeAlt = alt.replace(/"/g, '');
+        return `<img src="${safeUrl}" alt="${safeAlt}" class="max-w-full h-auto rounded-md my-2" loading="lazy" />`;
+      })
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>');
 
@@ -775,6 +784,22 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     setFillDialogOpen(false);
     setTimeout(() => setFillDialogMounted(false), 320);
   }, []);
+
+  // Makes the "Cards" stat in the deck-stats sidebar a one-click entry to the
+  // fill/trim drawer. delta < 0 → short (Fill); delta >= 0 → over or at target
+  // (Trim; at exactly target the Trim drawer opens in fine-tune/swap mode).
+  const cardCountAction = useMemo(() => {
+    if (!list.deckSize) return undefined;
+    const delta = list.cards.length - list.deckSize;
+    const ready = delta < 0
+      ? fillReady && !!onAddCards
+      : trimReady && !!list.commanderName && !!onMoveToMaybeboard;
+    return {
+      delta,
+      ready,
+      onClick: () => { if (delta < 0) openFillDialog(); else openTrimDialog(); },
+    };
+  }, [list.deckSize, list.cards.length, list.commanderName, fillReady, trimReady, onAddCards, onMoveToMaybeboard, openFillDialog, openTrimDialog]);
   const [mustIncludeDrawerOpen, setMustIncludeDrawerOpen] = useState(false);
   const [mustIncludeDrawerMounted, setMustIncludeDrawerMounted] = useState(false);
   const openMustIncludeDrawer = useCallback(() => {
@@ -1161,6 +1186,13 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         const fallbackEdhrec: EdhrecMapsResult = {
           roleTargets: getBaseRoleTargets(list.deckSize || list.cards.length),
         };
+        // Roles render off roleTargets — push it to the store so no-commander
+        // decks show the role breakdown (roleCounts came from the tagger phase).
+        useStore.setState(state => ({
+          generatedDeck: state.generatedDeck
+            ? { ...state.generatedDeck, roleTargets: fallbackEdhrec.roleTargets }
+            : null,
+        }));
         await persistCache({
           commanderCard, partnerCard, deckCards, sbCards, mbCards, stats,
           taggerResult, edhrecResult: fallbackEdhrec, swapsResult: {},
@@ -1276,9 +1308,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         let swapsResult: SwapCandidatesResult = {};
         let detectedCombos: DetectedCombo[] | undefined;
 
-        if (commanderCard) {
+        // Combos run regardless of commander — no-commander decks still pull
+        // color-identity combos for their colors. (Gating this on commander used
+        // to wipe the cached combos coldLoad had written.)
+        {
           const allDeckNames = new Set<string>();
-          allDeckNames.add(commanderCard.name);
+          if (commanderCard) allDeckNames.add(commanderCard.name);
           if (partnerCard) allDeckNames.add(partnerCard.name);
           for (const c of deckCards) allDeckNames.add(c.name);
           const listColors = new Set<string>();
@@ -1286,7 +1321,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           const listColorArray = ['W', 'U', 'B', 'R', 'G'].filter(c => listColors.has(c));
           try {
             const [a, b] = await Promise.all([
-              fetchCommanderCombos(commanderCard.name).catch(() => [] as EDHRECCombo[]),
+              commanderCard
+                ? fetchCommanderCombos(commanderCard.name).catch(() => [] as EDHRECCombo[])
+                : Promise.resolve([] as EDHRECCombo[]),
               fetchColorIdentityCombos(listColorArray).catch(() => [] as EDHRECCombo[]),
             ]);
             const merged: EDHRECCombo[] = [
@@ -1296,8 +1333,10 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             rawCombosRef.current = merged;
             detectedCombos = detectCombosInDeck(merged, allDeckNames, commanderCard, partnerCard);
           } catch { /* non-critical */ }
-
           if (cancelled) return;
+        }
+
+        if (commanderCard) {
           edhrecResult = await buildEdhrecMaps(
             taggerResult,
             list.deckSize || list.cards.length,
@@ -1886,6 +1925,17 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               <span>Inspect (Beta)</span>
             </button>
             <button
+              onClick={() => {
+                trackEvent('spellchroma_open_clicked', { from: 'list-deck' });
+                navigate(`/spellchroma?deck=${list.id}`);
+              }}
+              title="Explore new cards for this deck in SpellChroma"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
+            >
+              <SpellChromaIcon className="w-4 h-4" />
+              <span>SpellChroma</span>
+            </button>
+            <button
               onClick={() => setListsPanelOpen(v => !v)}
               title="Open a list alongside the deck"
               className={`flex items-center gap-1.5 h-8 px-3 rounded-lg border text-sm transition-colors ${
@@ -2271,12 +2321,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         ) : (
         <DeckDisplay
           phasesDone={phasesDone}
+          spellChromaDeckRef={list.id}
           onRemoveCards={handleRemoveCardsWithToast}
           onAddCards={onAddCards ? (names, _dest) => onAddCards(names, 'deck') : undefined}
           onMoveToSideboard={onMoveToSideboard}
           onMoveToMaybeboard={onMoveToMaybeboard}
           onChangeQuantity={onChangeQuantity}
           boardCounts={{ sideboard: sideboardCards.length, maybeboard: maybeboardCards.length }}
+          cardCountAction={cardCountAction}
           sideboardNames={list.sideboard}
           maybeboardNames={list.maybeboard}
           onSetSideboard={onSetSideboard}
@@ -2451,6 +2503,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                         { icon: Heading2, action: () => insertLinePrefix('## '), title: 'Heading' },
                         { icon: List, action: () => insertLinePrefix('- '), title: 'Bullet list' },
                         { icon: ListOrdered, action: () => insertLinePrefix('1. '), title: 'Numbered list' },
+                        { icon: ImageIcon, action: () => insertFormat('![', '](image url)'), title: 'Image — ![alt](https://…)' },
                         { icon: Minus, action: () => insertFormat('\n---\n'), title: 'Divider' },
                       ].map(({ icon: Icon, action, title }) => (
                         <button
