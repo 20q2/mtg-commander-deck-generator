@@ -277,6 +277,8 @@ export interface CardContextMenuProps {
   hasAddToDeck?: boolean;
   hasSideboard?: boolean;
   hasMaybeboard?: boolean;
+  /** Label the board items "Add to …" instead of "Move to …" (card-exploration context, where the card isn't in the deck yet). */
+  addToBoard?: boolean;
   isInSideboard?: boolean;
   isInMaybeboard?: boolean;
   isMustInclude?: boolean;
@@ -287,7 +289,7 @@ export interface CardContextMenuProps {
   onFocus?: () => void;   // optional "Focus on graph" action (Lift Web); shown at the top when provided
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
   const [showDecks, setShowDecks] = React.useState(false);
@@ -348,14 +350,16 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
         )}
         {hasSideboard && (
           <button className={menuBtn} onClick={() => fire({ type: 'sideboard' })}>
-            <ArrowUpDown className={`w-3.5 h-3.5 transition-colors ${isInSideboard ? 'text-amber-400' : 'text-muted-foreground group-hover/item:text-amber-400'}`} />
-            {isInSideboard ? 'Remove from Sideboard' : 'Move to Sideboard'}
+            {addToBoard
+              ? <Layers className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-amber-400 transition-colors" />
+              : <ArrowUpDown className={`w-3.5 h-3.5 transition-colors ${isInSideboard ? 'text-amber-400' : 'text-muted-foreground group-hover/item:text-amber-400'}`} />}
+            {addToBoard ? 'Add to Sideboard' : isInSideboard ? 'Remove from Sideboard' : 'Move to Sideboard'}
           </button>
         )}
         {hasMaybeboard && (
           <button className={menuBtn} onClick={() => fire({ type: 'maybeboard' })}>
             <Bookmark className={`w-3.5 h-3.5 transition-colors ${isInMaybeboard ? 'text-purple-400' : 'text-muted-foreground group-hover/item:text-purple-400'}`} />
-            {isInMaybeboard ? 'Remove from Maybeboard' : 'Move to Maybeboard'}
+            {addToBoard ? 'Add to Maybeboard' : isInMaybeboard ? 'Remove from Maybeboard' : 'Move to Maybeboard'}
           </button>
         )}
         {(hasRemove || hasAddToDeck || hasSideboard || hasMaybeboard) && (

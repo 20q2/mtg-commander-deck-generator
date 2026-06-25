@@ -22,7 +22,15 @@ import { useStore } from '@/store';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { trackEvent } from '@/services/analytics';
 import { SiteFooter } from '@/components/SiteFooter';
+import { useActionToast, ActionToast } from '@/components/ui/action-toast';
 import type { ScryfallCard } from '@/types';
+
+// Primary card type (for the toast's type icon), mirroring ListDeckView.
+function primaryTypeFromLine(typeLine: string | undefined): string {
+  const tl = (typeLine || '').split('//')[0].split('—')[0].toLowerCase();
+  const order = ['creature', 'planeswalker', 'land', 'battle', 'artifact', 'enchantment', 'instant', 'sorcery', 'tribal'];
+  return order.find(t => tl.includes(t)) || 'creature';
+}
 
 // Debounce a value so rapid filter toggles don't fire a search per click —
 // the search waits until selections settle.
@@ -127,9 +135,11 @@ export function SpellChromaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { lists: userLists, updateList, createList } = useUserLists();
+  const { lists: userLists, updateList, createList, deleteList } = useUserLists();
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
+  // Bottom-right confirmation toast for adds (manual add + explorer).
+  const { toast, success, dismiss } = useActionToast();
 
   const menuProps = useMemo(() => ({
     userLists,
@@ -144,11 +154,23 @@ export function SpellChromaPage() {
     switch (action.type) {
       case 'addToDeck': {
         const already = !!deck && deck.some(c => c.id === card.id);
+        const prevDeck = deck;
         const next = already ? deck! : [...(deck ?? []), card];
         setDeck(next);
         // Persist back to the saved library deck when one is being edited in place.
         if (activeDeckId) updateList(activeDeckId, { cards: next.map(c => c.name) });
         trackEvent('spellchroma_card_added', { dest: 'deck' });
+        if (already) {
+          success(`${name} is already in your deck`, { cardType: primaryTypeFromLine(card.type_line) });
+        } else {
+          success(`Added ${name}`, {
+            cardType: primaryTypeFromLine(card.type_line),
+            onUndo: () => {
+              setDeck(prevDeck);
+              if (activeDeckId) updateList(activeDeckId, { cards: (prevDeck ?? []).map(c => c.name) });
+            },
+          });
+        }
         break;
       }
       case 'remove': {
@@ -175,22 +197,40 @@ export function SpellChromaPage() {
         const board = action.type === 'sideboard' ? 'sideboard' : 'maybeboard';
         const target = userLists.find(l => l.id === activeDeckId);
         const current = target?.[board] ?? [];
-        if (!current.includes(name)) updateList(activeDeckId, { [board]: [...current, name] });
+        const onBoard = current.includes(name);
+        if (!onBoard) updateList(activeDeckId, { [board]: [...current, name] });
         trackEvent('spellchroma_card_added', { dest: board });
+        success(onBoard ? `${name} is already in ${board}` : `Added ${name} to ${board}`, {
+          cardType: primaryTypeFromLine(card.type_line),
+          ...(onBoard ? {} : { onUndo: () => updateList(activeDeckId, { [board]: current }) }),
+        });
         break;
       }
       case 'addToList': {
         const target = userLists.find(l => l.id === action.listId);
-        if (target && !target.cards.includes(name)) updateList(action.listId, { cards: [...target.cards, name] });
+        const inList = !!target?.cards.includes(name);
+        if (target && !inList) updateList(action.listId, { cards: [...target.cards, name] });
         trackEvent('spellchroma_card_added', { dest: 'list' });
+        success(
+          !target ? `Added ${name}` : inList ? `${name} is already in ${target.name}` : `Added ${name} to ${target.name}`,
+          {
+            cardType: primaryTypeFromLine(card.type_line),
+            ...(target && !inList ? { onUndo: () => updateList(action.listId, { cards: target.cards }) } : {}),
+          },
+        );
         break;
       }
-      case 'createListAndAdd':
-        createList(action.listName, [name]);
+      case 'createListAndAdd': {
+        const created = createList(action.listName, [name]);
         trackEvent('spellchroma_card_added', { dest: 'list' });
+        success(`Added ${name} to ${action.listName}`, {
+          cardType: primaryTypeFromLine(card.type_line),
+          onUndo: () => deleteList(created.id),
+        });
         break;
+      }
     }
-  }, [customization, updateCustomization, userLists, updateList, createList, deck, activeDeckId]);
+  }, [customization, updateCustomization, userLists, updateList, createList, deleteList, deck, activeDeckId, success]);
 
   // Context-menu actions fired on a sideboard/maybeboard card. The source board
   // is supplied by the panel, so `remove` removes from that board, `addToDeck`
@@ -586,6 +626,8 @@ export function SpellChromaPage() {
               sideboard={sideboardCards}
               maybeboard={maybeboardCards}
               onBoardCardAction={handleBoardCardAction}
+              colorIdentity={colorIdentity}
+              boardsEnabled={!!activeDeckId}
               topTags={topTags}
               selectedTags={selectedTags}
               onTagClick={addTag}
@@ -615,6 +657,7 @@ export function SpellChromaPage() {
             </div>
           }
         />
+        <ActionToast toast={toast} onDismiss={dismiss} />
       </>
     );
   }
@@ -634,6 +677,7 @@ export function SpellChromaPage() {
         {renderGrid(true, 77 + headerH)}
       </div>
       <SiteFooter />
+      <ActionToast toast={toast} onDismiss={dismiss} />
     </div>
   );
 }

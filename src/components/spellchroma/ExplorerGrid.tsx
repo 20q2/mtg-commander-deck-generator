@@ -319,7 +319,11 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, selec
           <CardContextMenu
             card={card}
             onAction={onCardAction!}
-            hasAddToDeck
+            hasAddToDeck={!inDeck}
+            hasRemove={inDeck}
+            hasSideboard={!inDeck && boardsEnabled}
+            hasMaybeboard={!inDeck && boardsEnabled}
+            addToBoard
             isMustInclude={menuProps!.mustIncludeNames.has(card.name)}
             isBanned={menuProps!.bannedNames.has(card.name)}
             userLists={menuProps!.userLists}

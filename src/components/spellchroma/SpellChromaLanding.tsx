@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { ClipboardPaste, Layers, Library, Loader2, Compass, HelpCircle, Shuffle, Tag, Search, Plus } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { useUserLists } from '@/hooks/useUserLists';
-import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
+import { getCardsByNames } from '@/services/scryfall/client';
+import { useCardNameSearch } from '@/hooks/useCardNameSearch';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { loadTagDictionary, allTags } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
@@ -235,24 +236,11 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
 // Card-name autocomplete that appends the picked card to the paste textarea, so
 // you can build a list by searching instead of (or alongside) pasting.
 function AddCardSearch({ onAdd }: { onAdd: (name: string) => void }) {
-  const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.trim().length < 2) { setSuggestions([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      const results = await autocompleteCardName(query.trim());
-      setSuggestions(results.slice(0, 8));
-    }, 200);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query]);
+  const { query, setQuery, suggestions, clear } = useCardNameSearch();
 
   const add = (name: string) => {
     onAdd(name);
-    setQuery('');
-    setSuggestions([]);
+    clear();
   };
 
   return (
@@ -262,7 +250,7 @@ function AddCardSearch({ onAdd }: { onAdd: (name: string) => void }) {
         value={query}
         onChange={e => setQuery(e.target.value)}
         onKeyDown={e => {
-          if (e.key === 'Escape') { setQuery(''); setSuggestions([]); }
+          if (e.key === 'Escape') clear();
           if (e.key === 'Enter' && suggestions.length > 0) { e.preventDefault(); add(suggestions[0]); }
         }}
         placeholder="Search a card to add to the list…"

@@ -2,7 +2,7 @@
 export function SiteFooter() {
   return (
     <footer className="border-t border-border/50 bg-card/50 backdrop-blur-sm">
-      <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
+      <div className="container mx-auto px-4 py-3 text-center text-sm text-muted-foreground">
         <p>
           Card data from{' '}
           <a
@@ -52,6 +52,18 @@ export function SiteFooter() {
           >
             Feedback
           </a>
+        </p>
+        <p className="mt-1.5 text-xs text-muted-foreground/70">
+          Unofficial Fan Content permitted under the{' '}
+          <a
+            href="https://company.wizards.com/en/legal/fancontentpolicy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:underline"
+          >
+            WotC Fan Content Policy
+          </a>
+          . Not approved/endorsed by Wizards. Portions © Wizards of the Coast LLC.
         </p>
       </div>
     </footer>

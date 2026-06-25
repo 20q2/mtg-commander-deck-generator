@@ -140,21 +140,6 @@ function BackgroundTab() {
 
   return (
     <div className="px-5 py-4 space-y-4 text-sm max-h-[60vh] overflow-y-auto">
-      {/* Auto — art matched to the loaded deck's color identity */}
-      <button
-        onClick={() => setBg({ kind: 'auto' })}
-        className={`relative w-full h-20 rounded-md border overflow-hidden text-left transition-all ${
-          bg.kind === 'auto' ? 'border-primary ring-2 ring-primary' : 'border-border/60 hover:border-foreground/40'
-        }`}
-      >
-        <span className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${autoUrl})` }} />
-        <span className="absolute inset-0" style={{ background: 'linear-gradient(rgba(8,10,14,0.4), rgba(8,10,14,0.7))' }} />
-        <span className="relative z-10 flex flex-col justify-end h-full p-2.5">
-          <span className="font-semibold text-foreground drop-shadow">Auto</span>
-          <span className="text-[11px] text-foreground/85 drop-shadow">Match your deck&rsquo;s colors</span>
-        </span>
-      </button>
-
       {/* Gradient presets */}
       <div>
         <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-muted-foreground/80 mb-1.5">Gradients</div>
@@ -198,6 +183,20 @@ function BackgroundTab() {
       {/* SpellChroma art */}
       <div>
         <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-muted-foreground/80 mb-1.5">SpellChroma art</div>
+        {/* Auto — picks the SpellChroma art matched to the loaded deck's colors */}
+        <button
+          onClick={() => setBg({ kind: 'auto' })}
+          className={`relative w-full h-20 rounded-md border overflow-hidden text-left transition-all mb-2 ${
+            bg.kind === 'auto' ? 'border-primary ring-2 ring-primary' : 'border-border/60 hover:border-foreground/40'
+          }`}
+        >
+          <span className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${autoUrl})` }} />
+          <span className="absolute inset-0" style={{ background: 'linear-gradient(rgba(8,10,14,0.4), rgba(8,10,14,0.7))' }} />
+          <span className="relative z-10 flex flex-col justify-end h-full p-2.5">
+            <span className="font-semibold text-foreground drop-shadow">Auto</span>
+            <span className="text-[11px] text-foreground/85 drop-shadow">Match your deck&rsquo;s colors</span>
+          </span>
+        </button>
         <div className="grid grid-cols-3 gap-2">
           {ART_BACKGROUNDS.map(({ name, label }) => {
             const selected = bg.kind === 'art' && bg.name === name;

@@ -73,7 +73,7 @@ interface SettingsActions {
 }
 
 const defaults: Settings = {
-  bg: { kind: 'auto' },
+  bg: { kind: 'preset', id: 'arena' },
   cardSize: 'medium',
   animations: true,
   dotGrid: true,

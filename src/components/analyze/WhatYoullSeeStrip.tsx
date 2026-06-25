@@ -1,4 +1,4 @@
-import { LayoutDashboard, Shield, Mountain, BarChart3, Gauge } from 'lucide-react';
+import { LayoutDashboard, Shield, Mountain, BarChart3, Gauge, DollarSign, ChartNetwork, Wand2 } from 'lucide-react';
 
 const PILLARS = [
   { key: 'overview', label: 'Overview', desc: 'Health grade and at-a-glance gaps', color: 'text-emerald-400', icon: LayoutDashboard },
@@ -6,13 +6,16 @@ const PILLARS = [
   { key: 'mana',     label: 'Mana',     desc: 'Land count, fixing, color sources', color: 'text-violet-400',  icon: Mountain },
   { key: 'tempo',    label: 'Tempo',    desc: 'Curve shape and pacing fit', color: 'text-amber-400',   icon: BarChart3 },
   { key: 'bracket',  label: 'Bracket',  desc: 'Estimated power level (1-5)', color: 'text-rose-400',    icon: Gauge },
+  { key: 'cost',     label: 'Cost',     desc: 'Cheaper printings to trim the price', color: 'text-lime-400',    icon: DollarSign },
+  { key: 'lift',     label: 'Lift Web', desc: 'Cards that pair unusually well with yours', color: 'text-fuchsia-400', icon: ChartNetwork },
+  { key: 'cardfit',  label: 'Card Fit', desc: 'Misfits to cut, gaps to fill', color: 'text-cyan-400',    icon: Wand2 },
 ];
 
 export function WhatYoullSeeStrip() {
   return (
     <div className="mt-8 max-w-5xl mx-auto">
       <p className="text-xs text-muted-foreground uppercase tracking-wider text-center mb-3">What we'll show you</p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
         {PILLARS.map(p => (
           <div
             key={p.key}
