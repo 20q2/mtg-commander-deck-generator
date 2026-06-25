@@ -691,7 +691,7 @@ export function BuilderPage() {
   return (
     <main className="flex-1 container mx-auto px-4 py-8">
       {/* Back Button + Playtest Row */}
-      <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <Button
           variant="ghost"
           onClick={handleBack}
@@ -701,7 +701,7 @@ export function BuilderPage() {
           {showDeck ? 'Back to Settings' : 'Back to Search'}
         </Button>
         {showDeck && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
                 trackEvent('analyze_cta_clicked', { from: 'builder' });

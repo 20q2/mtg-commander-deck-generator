@@ -1037,11 +1037,11 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4"
       onClick={onClose}
     >
       <div
-        className="bg-card rounded-xl shadow-2xl w-full max-w-2xl mx-4 animate-scale-in"
+        className="bg-card rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">

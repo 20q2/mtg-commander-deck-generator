@@ -14,6 +14,8 @@ interface SpellChromaMobileTabsProps {
   noun?: 'deck' | 'list';
   /** Slugs of the tags currently driving the explorer search. */
   selectedTags: string[];
+  /** Number of cards the current search matches — shown on the Explore tab. */
+  exploreCount: number;
   onRemoveTag: (slug: string) => void;
   /** Add a tag to the search — powers the inline "Add tag" button. */
   onAddTag: (slug: string) => void;
@@ -30,7 +32,7 @@ interface SpellChromaMobileTabsProps {
  * exploring. Sticky to the viewport top; the toolbars below it scroll freely.
  */
 export function SpellChromaMobileTabs({
-  active, onChange, deckCount, noun = 'deck', selectedTags, onRemoveTag, onAddTag, topTags,
+  active, onChange, deckCount, noun = 'deck', selectedTags, exploreCount, onRemoveTag, onAddTag, topTags,
 }: SpellChromaMobileTabsProps) {
   const tagCount = selectedTags.length;
   const deckLabel = noun === 'list' ? 'List' : 'Deck';
@@ -69,11 +71,9 @@ export function SpellChromaMobileTabs({
           >
             <SpellChromaIcon className="w-4 h-4" />
             Explore
-            {tagCount > 0 && (
-              <span className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none tabular-nums ${
-                active === 'explore' ? 'bg-white/20 text-white' : 'bg-violet-500/20 text-violet-200'
-              }`}>
-                {tagCount}
+            {tagCount > 0 && exploreCount > 0 && (
+              <span className={`text-xs font-normal tabular-nums ${active === 'explore' ? 'text-white/70' : 'text-muted-foreground/60'}`}>
+                {exploreCount}
               </span>
             )}
           </button>

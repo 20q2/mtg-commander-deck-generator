@@ -645,6 +645,7 @@ export function SpellChromaPage() {
               deckCount={deck.length}
               noun={targetNoun}
               selectedTags={selectedTags}
+              exploreCount={result.total}
               onRemoveTag={removeTag}
               onAddTag={addTag}
               topTags={topTagSlugs}
@@ -673,7 +674,7 @@ export function SpellChromaPage() {
                   onClick={backToDeck}
                   title={`Back to ${targetNoun}`}
                   aria-label={`Back to ${targetNoun}`}
-                  className="self-stretch -my-2 -ml-3 h-auto w-[52px] shrink-0 rounded-none border-r border-border/30"
+                  className="hidden lg:inline-flex self-stretch -my-2 -ml-3 h-auto w-[52px] shrink-0 rounded-none border-r border-border/30"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </Button>
