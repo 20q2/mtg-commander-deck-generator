@@ -72,7 +72,15 @@ export function ColorFilterControl({
       <PopoverContent align="end" className="w-64 p-3 flex flex-col gap-3">
         {/* Include */}
         <div className="flex flex-col gap-1.5">
-          <p className="text-xs font-medium text-muted-foreground">Colors</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">Colors</p>
+            {colorIdentity.length > 0 && (
+              <button type="button" onClick={() => onColorsChange([])}
+                className="text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors">
+                Clear
+              </button>
+            )}
+          </div>
           <ColorToggle value={colorIdentity} onChange={setInclude} />
         </div>
 
@@ -95,7 +103,15 @@ export function ColorFilterControl({
 
         {/* Exclude */}
         <div className="flex flex-col gap-1.5">
-          <p className="text-xs font-medium text-muted-foreground">Exclude</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">Exclude</p>
+            {excludedColors.length > 0 && (
+              <button type="button" onClick={() => onExcludedChange([])}
+                className="text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors">
+                Clear
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-1.5" role="group" aria-label="Exclude colors">
             {COLORS.map(({ c, label }) => {
               const active = excludedColors.includes(c);

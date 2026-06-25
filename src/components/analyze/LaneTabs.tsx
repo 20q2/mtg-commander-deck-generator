@@ -7,7 +7,7 @@ export type LaneKey = 'paste' | 'lists' | 'generate';
 const TABS: { key: LaneKey; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { key: 'paste',    label: 'Paste',     icon: ClipboardPaste },
   { key: 'lists',    label: 'My Decks',  icon: ListChecks },
-  { key: 'generate', label: 'Forge',     icon: LogoMark },
+  { key: 'generate', label: 'Assemble',  icon: LogoMark },
 ];
 
 interface LaneTabsProps {

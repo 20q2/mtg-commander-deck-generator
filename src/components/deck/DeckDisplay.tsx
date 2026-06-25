@@ -275,6 +275,9 @@ export interface CardContextMenuProps {
   onAction: (card: ScryfallCard, action: CardAction) => void;
   hasRemove?: boolean;
   hasAddToDeck?: boolean;
+  /** Noun for the working-deck actions ("Add to / Remove from …"). Defaults to "deck";
+   *  SpellChroma passes "list" when a saved list (not a deck) is loaded. */
+  noun?: 'deck' | 'list';
   hasSideboard?: boolean;
   hasMaybeboard?: boolean;
   /** Label the board items "Add to …" instead of "Move to …" (card-exploration context, where the card isn't in the deck yet). */
@@ -289,7 +292,8 @@ export interface CardContextMenuProps {
   onFocus?: () => void;   // optional "Focus on graph" action (Lift Web); shown at the top when provided
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, noun = 'deck', forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
+  const workingNoun = noun === 'list' ? 'List' : 'Deck';
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
   const [showDecks, setShowDecks] = React.useState(false);
@@ -339,13 +343,13 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
         {hasAddToDeck && (
           <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
             <Plus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-emerald-400 transition-colors" />
-            Add to Deck
+            Add to {workingNoun}
           </button>
         )}
         {hasRemove && (
           <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
             <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
-            Remove from Deck
+            Remove from {workingNoun}
           </button>
         )}
         {hasSideboard && (

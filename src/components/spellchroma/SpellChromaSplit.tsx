@@ -1,17 +1,26 @@
 import type { ReactNode } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import type { MobileTab } from './SpellChromaMobileTabs';
 
 /**
  * SpellChroma workbench split: the deck playmat on the left, the explorer on
  * the right, with a draggable divider (ratio persisted via autoSaveId).
- * Default ~40/60 (explorer-focused). Stacks vertically below lg.
+ * Default ~40/60 (explorer-focused). Below lg there's no room for both, so the
+ * panes become tabs (`mobileHeader`) and we show one at a time — both stay
+ * mounted (toggled with `hidden`) so each pane's scroll/state survives a swap.
  */
-export function SpellChromaSplit({ deck, explorer }: { deck: ReactNode; explorer: ReactNode }) {
+export function SpellChromaSplit({ deck, explorer, mobileTab, mobileHeader }: {
+  deck: ReactNode;
+  explorer: ReactNode;
+  mobileTab: MobileTab;
+  mobileHeader: ReactNode;
+}) {
   return (
     <>
-      <div className="lg:hidden flex flex-col gap-4">
-        <div className="animate-sc-pane-left">{deck}</div>
-        <div className="animate-sc-pane-right">{explorer}</div>
+      <div className="lg:hidden flex flex-col">
+        {mobileHeader}
+        <div className={mobileTab === 'deck' ? 'animate-sc-pane-left' : 'hidden'}>{deck}</div>
+        <div className={mobileTab === 'explore' ? 'animate-sc-pane-right' : 'hidden'}>{explorer}</div>
       </div>
 
       <div className="hidden lg:block h-[calc(100vh-77px)]">

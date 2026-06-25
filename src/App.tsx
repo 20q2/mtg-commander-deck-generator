@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useLocation, Link } from 'react-router-dom';
-import { Settings, Sparkles, ListChecks, Library, BarChart3, Microscope, MessageSquare, Wrench } from 'lucide-react';
+import { Settings, Sparkles, Layers, Library, BarChart3, Microscope, MessageSquare, Package, Boxes } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
@@ -371,7 +371,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <div>
                   <h1 className="text-lg sm:text-xl font-bold">ManaFoundry</h1>
                   <p className="hidden sm:block text-xs text-muted-foreground">
-                    Forging smarter Commander decks
+                    Casting smarter Commander decks
                   </p>
                 </div>
               </Link>
@@ -569,98 +569,119 @@ function Layout({ children }: { children: React.ReactNode }) {
             />
             <span className="text-[10px] font-medium">Foundry</span>
           </Link>
+          <Link
+            to="/analyze"
+            onClick={() => window.scrollTo(0, 0)}
+            aria-current={isAnalyzePage ? 'page' : undefined}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+              isAnalyzePage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+            aria-label="Inspector"
+          >
+            <div className="relative">
+              <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
+              <span className="absolute -top-1 -right-3.5 text-[7px] font-medium tracking-wider text-muted-foreground/60 uppercase leading-none">
+                Beta
+              </span>
+            </div>
+            <span className="text-[10px] font-medium">Inspector</span>
+          </Link>
+          <Link
+            to="/spellchroma"
+            onClick={() => window.scrollTo(0, 0)}
+            aria-current={isSpellChromaPage ? 'page' : undefined}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+              isSpellChromaPage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+            aria-label="SpellChroma"
+          >
+            <span
+              className={`w-5 h-5 bg-current ${isSpellChromaPage ? 'text-primary' : ''}`}
+              style={{
+                WebkitMaskImage: `url(${import.meta.env.BASE_URL}spellchroma-logo.png)`,
+                maskImage: `url(${import.meta.env.BASE_URL}spellchroma-logo.png)`,
+                WebkitMaskSize: 'contain',
+                maskSize: 'contain',
+                WebkitMaskRepeat: 'no-repeat',
+                maskRepeat: 'no-repeat',
+                WebkitMaskPosition: 'center',
+                maskPosition: 'center',
+              }}
+              aria-hidden="true"
+            />
+            <span className="text-[10px] font-medium">SpellChroma</span>
+          </Link>
           <Popover>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                aria-label="Tools"
+                aria-label="My Stuff"
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
-                  isAnalyzePage || isSpellChromaPage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  isListsPage || isCollectionPage ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Wrench className={`w-5 h-5 ${isAnalyzePage || isSpellChromaPage ? 'text-primary' : ''}`} />
-                <span className="text-[10px] font-medium">Tools</span>
+                <div className="relative">
+                  <Boxes className={`w-5 h-5 ${isListsPage || isCollectionPage ? 'text-primary' : ''}`} />
+                  {deckCount > 0 && (
+                    <span className="absolute -top-1.5 -right-2 text-[9px] font-semibold bg-primary/90 text-primary-foreground px-1 py-px rounded-full min-w-[1rem] text-center leading-tight">
+                      {deckCount}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] font-medium">My Stuff</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="top" align="center" className="w-44 p-1.5">
+            <PopoverContent side="top" align="end" className="w-48 p-1.5">
               <Link
-                to="/analyze"
+                to="/decks"
                 onClick={() => window.scrollTo(0, 0)}
-                aria-current={isAnalyzePage ? 'page' : undefined}
+                aria-current={location.pathname.startsWith('/decks') ? 'page' : undefined}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors ${
-                  isAnalyzePage ? 'text-foreground' : 'text-muted-foreground'
+                  location.pathname.startsWith('/decks') ? 'text-foreground' : 'text-muted-foreground'
                 }`}
               >
-                <Microscope className={`w-4 h-4 ${isAnalyzePage ? 'text-primary' : ''}`} />
-                <span className="text-sm font-medium">Inspector</span>
-                <span className="ml-auto text-[8px] font-medium tracking-wider text-muted-foreground/60 uppercase">
-                  Beta
-                </span>
+                <Layers className={`w-4 h-4 ${location.pathname.startsWith('/decks') ? 'text-primary' : ''}`} />
+                <span className="text-sm font-medium">My Decks</span>
+                {deckCount > 0 && (
+                  <span className="ml-auto text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                    {deckCount}
+                  </span>
+                )}
               </Link>
               <Link
-                to="/spellchroma"
+                to="/lists"
                 onClick={() => window.scrollTo(0, 0)}
-                aria-current={isSpellChromaPage ? 'page' : undefined}
+                aria-current={location.pathname.startsWith('/lists') ? 'page' : undefined}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors ${
-                  isSpellChromaPage ? 'text-foreground' : 'text-muted-foreground'
+                  location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground'
                 }`}
               >
-                <span
-                  className={`w-4 h-4 bg-current ${isSpellChromaPage ? 'text-primary' : ''}`}
-                  style={{
-                    WebkitMaskImage: `url(${import.meta.env.BASE_URL}spellchroma-logo.png)`,
-                    maskImage: `url(${import.meta.env.BASE_URL}spellchroma-logo.png)`,
-                    WebkitMaskSize: 'contain',
-                    maskSize: 'contain',
-                    WebkitMaskRepeat: 'no-repeat',
-                    maskRepeat: 'no-repeat',
-                    WebkitMaskPosition: 'center',
-                    maskPosition: 'center',
-                  }}
-                  aria-hidden="true"
-                />
-                <span className="text-sm font-medium">SpellChroma</span>
+                <Library className={`w-4 h-4 ${location.pathname.startsWith('/lists') ? 'text-primary' : ''}`} />
+                <span className="text-sm font-medium">My Lists</span>
+                {listCount > 0 && (
+                  <span className="ml-auto text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                    {listCount}
+                  </span>
+                )}
+              </Link>
+              <Link
+                to="/collection"
+                onClick={() => window.scrollTo(0, 0)}
+                aria-current={location.pathname === '/collection' ? 'page' : undefined}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors ${
+                  location.pathname === '/collection' ? 'text-foreground' : 'text-muted-foreground'
+                }`}
+              >
+                <Package className={`w-4 h-4 ${location.pathname === '/collection' ? 'text-primary' : ''}`} />
+                <span className="text-sm font-medium">My Collection</span>
+                {collectionCount > 0 && (
+                  <span className="ml-auto text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                    {collectionCount.toLocaleString()}
+                  </span>
+                )}
               </Link>
             </PopoverContent>
           </Popover>
-          <Link
-            to="/decks"
-            onClick={() => window.scrollTo(0, 0)}
-            aria-current={location.pathname.startsWith('/decks') || location.pathname.startsWith('/lists') ? 'page' : undefined}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative ${
-              location.pathname.startsWith('/decks') || location.pathname.startsWith('/lists') ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            aria-label="Decks"
-          >
-            <div className="relative">
-              <ListChecks className={`w-5 h-5 ${location.pathname.startsWith('/decks') || location.pathname.startsWith('/lists') ? 'text-primary' : ''}`} />
-              {deckCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[9px] font-semibold bg-primary/90 text-primary-foreground px-1 py-px rounded-full min-w-[1rem] text-center leading-tight">
-                  {deckCount}
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] font-medium">Decks</span>
-          </Link>
-          <Link
-            to="/collection"
-            onClick={() => window.scrollTo(0, 0)}
-            aria-current={location.pathname === '/collection' ? 'page' : undefined}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
-              location.pathname === '/collection' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-            aria-label="My Collection"
-          >
-            <div className="relative">
-              <Library className={`w-5 h-5 ${location.pathname === '/collection' ? 'text-primary' : ''}`} />
-              {collectionCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[9px] font-semibold bg-primary/90 text-primary-foreground px-1 py-px rounded-full min-w-[1rem] text-center leading-tight">
-                  {collectionCount > 999 ? `${Math.floor(collectionCount / 1000)}k` : collectionCount}
-                </span>
-              )}
-            </div>
-            <span className="text-[10px] font-medium">Collection</span>
-          </Link>
         </div>
       </nav>,
       document.body

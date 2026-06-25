@@ -42,6 +42,8 @@ interface ExplorerGridProps {
   /** Show the "hide in-deck cards" toggle in the count row (a deck is loaded). */
   showHideInDeck?: boolean;
   onHideInDeckChange?: (v: boolean) => void;
+  /** Whether the loaded thing is a deck or a list — used for "in your deck/list" wording. */
+  noun?: 'deck' | 'list';
   /** When true, only cards in the user's collection are shown. */
   collectionOnly?: boolean;
   /** Show the "owned only" toggle in the count row (the collection is non-empty). */
@@ -67,7 +69,7 @@ interface ExplorerGridProps {
 }
 
 export function ExplorerGrid({
-  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dir = 'asc', dealKey, deckNames, collectionNames, hideInDeck = false, showHideInDeck = false, onHideInDeckChange, collectionOnly = false, showCollectionOnly = false, onCollectionOnlyChange, topTags, selectedTags, sticky = false, stickyTop = 52, onLoadAll, onTagClick, onRemoveTag,
+  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dir = 'asc', dealKey, deckNames, collectionNames, hideInDeck = false, showHideInDeck = false, onHideInDeckChange, noun = 'deck', collectionOnly = false, showCollectionOnly = false, onCollectionOnlyChange, topTags, selectedTags, sticky = false, stickyTop = 52, onLoadAll, onTagClick, onRemoveTag,
   onCardAction, boardsEnabled = false, menuProps, cardComboMap,
 }: ExplorerGridProps) {
   // Full-card preview opened by clicking the image inside a card's popover
@@ -151,7 +153,7 @@ export function ExplorerGrid({
   return (
     <div className="flex flex-col gap-3">
       <div style={sticky ? { top: stickyTop } : undefined}
-        className={`flex items-center justify-between text-xs text-muted-foreground px-3 py-2 border-b border-border/50 bg-card/95 backdrop-blur-sm ${sticky ? 'sticky z-20' : ''}`}>
+        className={`flex items-center justify-between text-xs text-muted-foreground px-3 py-2 border-b border-border/50 bg-card/95 backdrop-blur-sm ${sticky ? 'lg:sticky z-20' : ''}`}>
         <span>
           {filtered.length === cards.length && hiddenCount === 0
             ? `Showing ${cards.length} of ${total}`
@@ -180,7 +182,7 @@ export function ExplorerGrid({
               type="button"
               onClick={() => onHideInDeckChange?.(!hideInDeck)}
               aria-pressed={hideInDeck}
-              title={hideInDeck ? 'Showing only cards not in your deck' : 'Hide cards already in your deck'}
+              title={hideInDeck ? `Showing only cards not in your ${noun}` : `Hide cards already in your ${noun}`}
               className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md border transition-colors ${
                 hideInDeck
                   ? 'bg-violet-500/20 text-violet-200 border-violet-500/40'
@@ -188,7 +190,7 @@ export function ExplorerGrid({
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{hideInDeck ? 'Hiding in deck' : 'Showing in deck'}</span>
+              <span className="hidden sm:inline">{hideInDeck ? `Hiding in ${noun}` : `Showing in ${noun}`}</span>
             </button>
           )}
           {hasMore && (
@@ -202,7 +204,7 @@ export function ExplorerGrid({
         </div>
       </div>
 
-      <div key={dealKey} ref={gridRef} className="grid gap-4 px-4 pb-4 grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
+      <div key={dealKey} ref={gridRef} className="grid gap-3 px-3 pb-4 grid-cols-2 sm:gap-4 sm:px-4 sm:grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
         {visible.map((card, i) => (
           <ExplorerCard
             key={card.id}
@@ -210,6 +212,7 @@ export function ExplorerGrid({
             index={i}
             inDeck={!!deckNames?.has(card.name)}
             inCollection={!!collectionNames?.has(card.name)}
+            noun={noun}
             selectedTags={selectedTags}
             onTagClick={onTagClick}
             onRemoveTag={onRemoveTag}
@@ -243,11 +246,12 @@ function Empty({ title, sub, action, spinner = false }: { title: string; sub: st
   );
 }
 
-function ExplorerCard({ card, index, inDeck = false, inCollection = false, selectedTags, onTagClick, onRemoveTag, onCardAction, boardsEnabled = false, onPreview, menuProps }: {
+function ExplorerCard({ card, index, inDeck = false, inCollection = false, noun = 'deck', selectedTags, onTagClick, onRemoveTag, onCardAction, boardsEnabled = false, onPreview, menuProps }: {
   card: ScryfallCard;
   index: number;
   inDeck?: boolean;
   inCollection?: boolean;
+  noun?: 'deck' | 'list';
   selectedTags?: string[];
   onTagClick?: (slug: string) => void;
   onRemoveTag?: (slug: string) => void;
@@ -258,7 +262,7 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, selec
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const canMenu = !!(onCardAction && menuProps);
-  const titleSuffix = inDeck ? ' · already in your deck' : inCollection ? ' · in your collection' : '';
+  const titleSuffix = inDeck ? ` · already in your ${noun}` : inCollection ? ' · in your collection' : '';
 
   const tags = useMemo(() => {
     const all = tagsForOracleId(card.oracle_id ?? '');
@@ -286,7 +290,7 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, selec
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
             />
             {inDeck && (
-              <span className="absolute top-1 left-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/90 text-white border border-emerald-300/60 shadow-sm" title="Already in your deck">
+              <span className="absolute top-1 left-1 z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500/90 text-white border border-emerald-300/60 shadow-sm" title={`Already in your ${noun}`}>
                 <Check className="w-2.5 h-2.5" strokeWidth={3} />
               </span>
             )}
@@ -302,6 +306,7 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, selec
           count={1}
           tags={tags}
           selected={selected}
+          noun={noun}
           onTagClick={(slug) => onTagClick?.(slug)}
           onRemoveTag={onRemoveTag}
           onPreview={onPreview}
@@ -319,6 +324,7 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, selec
           <CardContextMenu
             card={card}
             onAction={onCardAction!}
+            noun={noun}
             hasAddToDeck={!inDeck}
             hasRemove={inDeck}
             hasSideboard={!inDeck && boardsEnabled}

@@ -1,5 +1,5 @@
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { Plus, X, Search, Tag, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
+import { Plus, X, Search, Tag, Filter, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,9 @@ interface TagSearchBarProps {
   /** Flush-left control (e.g. a back arrow) rendered against the bar's left edge,
    *  full-height with its own divider — mirrors the workbench deck-pane back arrow. */
   leading?: React.ReactNode;
+  /** Hide the Add-tag button + tag chips below lg. Used in the workbench where the
+   *  mobile tab header owns the tags — keeps the toolbar's filters/sort on phones. */
+  hideTagsOnMobile?: boolean;
 }
 
 export function TagSearchBar({
@@ -46,7 +49,7 @@ export function TagSearchBar({
   colorMode, onColorModeChange, excludedColors, onExcludedChange,
   typeFilter, onTypeFilterChange,
   sort, onSortChange, sortDir, onToggleSortDir, textFilter, onTextFilterChange, sticky = false,
-  leading,
+  leading, hideTagsOnMobile = false,
 }: TagSearchBarProps) {
   // Selected-tag chips fade/shift in and out — a plain quick ease, no spring.
   const [tagsRef] = useAutoAnimate<HTMLDivElement>({ duration: 140, easing: 'ease-out' });
@@ -55,82 +58,100 @@ export function TagSearchBar({
     <div className={`flex items-stretch min-h-[52px] bg-card/95 backdrop-blur-sm border-b border-border/50 ${sticky ? 'sticky top-0 z-30' : ''}`}>
       {leading}
       <div className="flex flex-1 min-w-0 flex-wrap items-center gap-2 px-3 py-2">
-        {/* Add-tag trigger sits OUTSIDE the auto-animated chip group so it stays a
-            stable anchor — inside, auto-animate's FLIP would slide it onto a new
-            row whenever chips are added/removed. */}
-        <AddTagPopover selectedTags={selectedTags} topTags={topTags} onAddTag={onAddTag} align="start">
-          <Button
-            variant="outline"
-            size="sm"
-            className={`shrink-0 h-auto gap-1 px-2.5 py-0.5 text-xs rounded-full font-semibold border-violet-500/60 text-violet-300 hover:bg-violet-500/10 hover:text-violet-200 transition-colors ${
-              selectedTags.length === 0 ? 'animate-pulse-subtle' : ''
-            }`}
-          >
-            <Plus className="w-3 h-3" /> Add tag
-          </Button>
-        </AddTagPopover>
+        {/* Add-tag + selected chips. In the workbench on phones these are hidden —
+            the sticky mobile tab header owns the tags there — so the toolbar keeps
+            only its filters/sort. Always shown on lg and in the deck-less explorer. */}
+        <div className={`${hideTagsOnMobile ? 'hidden lg:flex' : 'flex'} min-w-0 flex-wrap items-center gap-2`}>
+          {/* Add-tag trigger sits OUTSIDE the auto-animated chip group so it stays a
+              stable anchor — inside, auto-animate's FLIP would slide it onto a new
+              row whenever chips are added/removed. */}
+          <AddTagPopover selectedTags={selectedTags} topTags={topTags} onAddTag={onAddTag} align="start">
+            <Button
+              variant="outline"
+              size="sm"
+              className={`shrink-0 h-auto gap-1 px-2.5 py-0.5 text-xs rounded-full font-semibold border-violet-500/60 text-violet-300 hover:bg-violet-500/10 hover:text-violet-200 transition-colors ${
+                selectedTags.length === 0 ? 'animate-pulse-subtle' : ''
+              }`}
+            >
+              <Plus className="w-3 h-3" /> Add tag
+            </Button>
+          </AddTagPopover>
 
-        {/* Selected tags — auto-animated so chips pop in/out. */}
-        <div ref={tagsRef} className="flex flex-wrap items-center gap-2">
-          {selectedTags.map(slug => (
-            <button key={slug} type="button" aria-label={`Remove ${slug}`} title={`Remove ${slug}`}
-              onClick={() => onRemoveTag(slug)} className="group shrink-0 focus:outline-none rounded-full">
-              <Badge className="gap-1 pr-1.5 cursor-pointer whitespace-nowrap bg-violet-600 hover:bg-violet-600 text-white border border-violet-400/50 group-hover:bg-destructive group-hover:border-destructive/60 group-focus-visible:ring-2 group-focus-visible:ring-ring transition-colors">
-                <Tag className="w-3 h-3 opacity-70 group-hover:hidden" />
-                <X className="w-3 h-3 hidden group-hover:block" />
-                {slug}
-              </Badge>
-            </button>
-          ))}
+          {/* Selected tags — auto-animated so chips pop in/out. */}
+          <div ref={tagsRef} className="flex flex-wrap items-center gap-2">
+            {selectedTags.map(slug => (
+              <button key={slug} type="button" aria-label={`Remove ${slug}`} title={`Remove ${slug}`}
+                onClick={() => onRemoveTag(slug)} className="group shrink-0 focus:outline-none rounded-full">
+                <Badge className="gap-1 pr-1.5 cursor-pointer whitespace-nowrap bg-violet-600 hover:bg-violet-600 text-white border border-violet-400/50 group-hover:bg-destructive group-hover:border-destructive/60 group-focus-visible:ring-2 group-focus-visible:ring-ring transition-colors">
+                  <Tag className="w-3 h-3 opacity-70 group-hover:hidden" />
+                  <X className="w-3 h-3 hidden group-hover:block" />
+                  {slug}
+                </Badge>
+              </button>
+            ))}
+          </div>
         </div>
 
-      <div className="flex-1" />
+        {/* Spacer pushes the filters to the right of the tags — but only while the
+            tags are on screen. When they're hidden (workbench on mobile) the spacer
+            collapses so the filter controls left-align instead of floating right. */}
+        <div className={hideTagsOnMobile ? 'hidden lg:block lg:flex-1' : 'flex-1'} />
 
-      {/* Color identity (match mode + include/exclude) */}
-      <ColorFilterControl
-        colorIdentity={colorIdentity}
-        onColorsChange={onColorsChange}
-        colorMode={colorMode}
-        onColorModeChange={onColorModeChange}
-        excludedColors={excludedColors}
-        onExcludedChange={onExcludedChange}
-      />
+        {/* Filter-row marker — mirrors the sort-direction icon below it, signalling
+            "these are the filters" (decorative, matches the sort icon's footprint). */}
+        <span className="inline-flex items-center justify-center w-7 h-7 shrink-0 text-muted-foreground/60" title="Filters" aria-hidden>
+          <Filter className="w-3.5 h-3.5" />
+        </span>
 
-      {/* Card type filter */}
-      <TypeFilterControl typeFilter={typeFilter} onTypeFilterChange={onTypeFilterChange} />
+        {/* Color identity (match mode + include/exclude) */}
+        <ColorFilterControl
+          colorIdentity={colorIdentity}
+          onColorsChange={onColorsChange}
+          colorMode={colorMode}
+          onColorModeChange={onColorModeChange}
+          excludedColors={excludedColors}
+          onExcludedChange={onExcludedChange}
+        />
 
-      {/* Name/text filter (client-side over loaded results) */}
-      <div className="relative">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
-        <Input value={textFilter} onChange={e => onTextFilterChange(e.target.value)}
-          placeholder="Filter…" className="pl-7 h-8 w-36" />
-      </div>
+        {/* Card type filter */}
+        <TypeFilterControl typeFilter={typeFilter} onTypeFilterChange={onTypeFilterChange} />
 
-      {/* Sort direction — click to flip ascending/descending of the active sort. */}
-      <button
-        type="button"
-        onClick={onToggleSortDir}
-        title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
-        aria-label={sortDir === 'asc' ? 'Sorted ascending, switch to descending' : 'Sorted descending, switch to ascending'}
-        className="inline-flex items-center justify-center w-7 h-7 shrink-0 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-accent/50 transition-colors"
-      >
-        {sortDir === 'asc'
-          ? <ArrowUpNarrowWide className="w-3.5 h-3.5" />
-          : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
-      </button>
+        {/* Name/text filter (client-side over loaded results) */}
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
+          <Input value={textFilter} onChange={e => onTextFilterChange(e.target.value)}
+            placeholder="Filter…" className="pl-7 h-8 w-36" />
+        </div>
 
-      {/* Sort key */}
-      <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
-        {SORTS.map((s, i) => (
-          <div key={s.key} className="contents">
-            {i > 0 && <div className="w-px h-4 bg-border/50" />}
-            <button type="button" onClick={() => onSortChange(s.key)} aria-pressed={sort === s.key}
-              className={`text-xs px-2.5 py-1 transition-colors ${sort === s.key ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/70 hover:text-foreground hover:bg-accent/50'}`}>
-              {s.label}
-            </button>
+        {/* Sort direction + key stay together as one unit so the asc/desc toggle
+            never wraps onto a line by itself, away from the sort buttons. */}
+        <div className="flex items-center gap-2">
+          {/* Sort direction — click to flip ascending/descending of the active sort. */}
+          <button
+            type="button"
+            onClick={onToggleSortDir}
+            title={sortDir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+            aria-label={sortDir === 'asc' ? 'Sorted ascending, switch to descending' : 'Sorted descending, switch to ascending'}
+            className="inline-flex items-center justify-center w-7 h-7 shrink-0 rounded-md text-muted-foreground/70 hover:text-foreground hover:bg-accent/50 transition-colors"
+          >
+            {sortDir === 'asc'
+              ? <ArrowUpNarrowWide className="w-3.5 h-3.5" />
+              : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Sort key */}
+          <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+            {SORTS.map((s, i) => (
+              <div key={s.key} className="contents">
+                {i > 0 && <div className="w-px h-4 bg-border/50" />}
+                <button type="button" onClick={() => onSortChange(s.key)} aria-pressed={sort === s.key}
+                  className={`text-xs px-2.5 py-1 transition-colors ${sort === s.key ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/70 hover:text-foreground hover:bg-accent/50'}`}>
+                  {s.label}
+                </button>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
       </div>
     </div>
   );

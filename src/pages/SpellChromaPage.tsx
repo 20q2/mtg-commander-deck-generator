@@ -12,6 +12,7 @@ import { ExplorerGrid } from '@/components/spellchroma/ExplorerGrid';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SpellChromaSplit } from '@/components/spellchroma/SpellChromaSplit';
+import { SpellChromaMobileTabs, type MobileTab } from '@/components/spellchroma/SpellChromaMobileTabs';
 import { SpellChromaLanding } from '@/components/spellchroma/SpellChromaLanding';
 import { SpellChromaBackdrop } from '@/components/spellchroma/SpellChromaBackdrop';
 import { DeckContextPanel } from '@/components/spellchroma/DeckContextPanel';
@@ -65,6 +66,10 @@ export function SpellChromaPage() {
   const [startedExploring, setStartedExploring] = useState(false);
   const [hideInDeck, setHideInDeck] = useState(false);
   const [collectionOnly, setCollectionOnly] = useState(false);
+  // Which pane the mobile tab header is showing (desktop renders both side by
+  // side and ignores this). Starts on the deck — you load it, read its top tags,
+  // tap one, and addTag flips you to Explore to see the matches.
+  const [mobileTab, setMobileTab] = useState<MobileTab>('deck');
   // Color-identity combos for the current color filter — powers the combo tab in
   // card previews. SpellChroma decks have no commander, so these come purely from
   // the selected colors (auto-adopted from a loaded deck, or set via the filters).
@@ -161,7 +166,7 @@ export function SpellChromaPage() {
         if (activeDeckId) updateList(activeDeckId, { cards: next.map(c => c.name) });
         trackEvent('spellchroma_card_added', { dest: 'deck' });
         if (already) {
-          success(`${name} is already in your deck`, { cardType: primaryTypeFromLine(card.type_line) });
+          success(`${name} is already in your ${targetNoun}`, { cardType: primaryTypeFromLine(card.type_line) });
         } else {
           success(`Added ${name}`, {
             cardType: primaryTypeFromLine(card.type_line),
@@ -300,6 +305,10 @@ export function SpellChromaPage() {
   const result = useExplorerSearch(selectedTags, debouncedFilters, sort, sortDir);
   const addTag = useCallback((slug: string) => {
     setSelectedTags(t => (t.includes(slug) ? t : [...t, slug]));
+    // On mobile, picking a tag (often from the deck's top-tags strip) jumps to the
+    // explorer so the matches are visible right away. No-op on desktop (both panes
+    // are always on screen there).
+    setMobileTab('explore');
     trackEvent('spellchroma_tag_selected', { slug });
   }, []);
   const removeTag = useCallback((slug: string) => setSelectedTags(t => t.filter(s => s !== slug)), []);
@@ -439,6 +448,12 @@ export function SpellChromaPage() {
     () => (activeDeckId ? userLists.find(l => l.id === activeDeckId) ?? null : null),
     [activeDeckId, userLists],
   );
+  // A saved *list* (type !== 'deck') reads as "list" throughout the UI and has no
+  // sideboard/maybeboard — those are a deck-only concept. Ephemeral loads
+  // (generated/pasted/card-preview) carry no activeList and default to deck wording.
+  const isList = !!activeList && activeList.type !== 'deck';
+  const targetNoun: 'deck' | 'list' = isList ? 'list' : 'deck';
+  const boardsEnabled = activeList?.type === 'deck';
   const [sideboardCards, setSideboardCards] = useState<ScryfallCard[]>([]);
   const [maybeboardCards, setMaybeboardCards] = useState<ScryfallCard[]>([]);
   const sideboardKey = (activeList?.sideboard ?? []).join('|');
@@ -550,7 +565,7 @@ export function SpellChromaPage() {
           onClick={backToOptions}
           title="Back to start"
           aria-label="Back to start"
-          className="flex w-[52px] shrink-0 items-center justify-center border-r border-border/30 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          className="hidden sm:flex w-[52px] shrink-0 items-center justify-center border-r border-border/30 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
@@ -573,6 +588,7 @@ export function SpellChromaPage() {
       onToggleSortDir={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}
       textFilter={textFilter}
       onTextFilterChange={setTextFilter}
+      hideTagsOnMobile={!!deck}
     />
   );
 
@@ -607,7 +623,8 @@ export function SpellChromaPage() {
       onTagClick={addTag}
       onRemoveTag={removeTag}
       onCardAction={handleCardAction}
-      boardsEnabled={!!activeDeckId}
+      boardsEnabled={boardsEnabled}
+      noun={targetNoun}
       menuProps={menuProps}
       cardComboMap={cardComboMap}
     />
@@ -620,6 +637,19 @@ export function SpellChromaPage() {
       <>
         <SpellChromaBackdrop colorIdentity={colorIdentity} revealArt={selectedTags.length === 0} />
         <SpellChromaSplit
+          mobileTab={mobileTab}
+          mobileHeader={
+            <SpellChromaMobileTabs
+              active={mobileTab}
+              onChange={setMobileTab}
+              deckCount={deck.length}
+              noun={targetNoun}
+              selectedTags={selectedTags}
+              onRemoveTag={removeTag}
+              onAddTag={addTag}
+              topTags={topTagSlugs}
+            />
+          }
           deck={
             <DeckContextPanel
               cards={deck}
@@ -627,7 +657,9 @@ export function SpellChromaPage() {
               maybeboard={maybeboardCards}
               onBoardCardAction={handleBoardCardAction}
               colorIdentity={colorIdentity}
-              boardsEnabled={!!activeDeckId}
+              boardsEnabled={boardsEnabled}
+              noun={targetNoun}
+              deckName={activeList?.name}
               topTags={topTags}
               selectedTags={selectedTags}
               onTagClick={addTag}
@@ -639,8 +671,8 @@ export function SpellChromaPage() {
                 <Button
                   variant="ghost"
                   onClick={backToDeck}
-                  title="Back to deck"
-                  aria-label="Back to deck"
+                  title={`Back to ${targetNoun}`}
+                  aria-label={`Back to ${targetNoun}`}
                   className="self-stretch -my-2 -ml-3 h-auto w-[52px] shrink-0 rounded-none border-r border-border/30"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -651,8 +683,10 @@ export function SpellChromaPage() {
           explorer={
             <div className="flex flex-col">
               {/* Toolbar pins to the top of the workbench explorer pane (its own
-                  scroll container), with the count row stacking just beneath it. */}
-              <div ref={headerRef} className="sticky top-0 z-30">{toolbar}</div>
+                  scroll container), with the count row stacking just beneath it.
+                  Sticky only on lg+: on mobile the sticky tab header owns the top,
+                  so the toolbar scrolls with the grid instead of hiding behind it. */}
+              <div ref={headerRef} className="lg:sticky lg:top-0 z-30">{toolbar}</div>
               {renderGrid(true, headerH)}
             </div>
           }
@@ -670,7 +704,7 @@ export function SpellChromaPage() {
           entirely: the toolbar carries its own bg/border and a flush left-edge back
           arrow (mirroring the workbench deck pane), with the count row pinned right
           beneath it. */}
-      <div ref={headerRef} className="sticky top-[77px] z-30">
+      <div ref={headerRef} className="sticky top-0 sm:top-[77px] z-30">
         {toolbar}
       </div>
       <div className="flex-1">

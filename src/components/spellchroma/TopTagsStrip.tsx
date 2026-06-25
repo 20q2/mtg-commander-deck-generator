@@ -10,9 +10,11 @@ interface TopTagsStripProps {
   /** Remove a selected tag — clicking an active chip toggles it off. */
   onRemoveTag?: (slug: string) => void;
   limit?: number;
+  /** Heading for the strip — names the loaded deck/list (e.g. "DECK Foo’s top tags"). */
+  heading?: string;
 }
 
-export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15 }: TopTagsStripProps) {
+export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15, heading = 'Your deck’s top tags' }: TopTagsStripProps) {
   const [showAll, setShowAll] = useState(false);
   // Persist collapse state so it survives switching SpellChroma views (the strip
   // remounts on view change and would otherwise default back to open).
@@ -48,7 +50,7 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
         className="flex w-full items-center gap-1 text-[11px] font-semibold text-foreground hover:text-foreground/80 transition-colors"
       >
         <Tags className="w-3.5 h-3.5" />
-        Your deck’s top tags
+        {heading}
         <span className="text-violet-300/60 font-normal">· {helpful.length}</span>
         <ChevronDown className={`ml-auto w-3.5 h-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
       </button>

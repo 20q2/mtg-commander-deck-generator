@@ -17,6 +17,7 @@ import { AddCardPopover } from './AddCardPopover';
 import { tagsForOracleId, aggregateDeckTags, type DeckTagCount } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { useCardCombos } from './useCardCombos';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 type DeckView = 'cards' | 'list' | 'table' | 'text' | 'web';
 
@@ -77,8 +78,12 @@ interface DeckContextPanelProps {
   onBoardCardAction?: (card: ScryfallCard, action: CardAction, board: 'sideboard' | 'maybeboard') => void;
   /** The deck's adopted color identity — scopes the manual add-card search. */
   colorIdentity?: string[];
-  /** A saved list is loaded → manual-add offers sideboard/maybeboard targets. */
+  /** A saved deck is loaded → manual-add offers sideboard/maybeboard targets. */
   boardsEnabled?: boolean;
+  /** Whether the loaded thing is a deck or a list — labels the header + add buttons. */
+  noun?: 'deck' | 'list';
+  /** Name of the loaded saved deck/list (if any) — used in the top-tags heading. */
+  deckName?: string;
   menuProps?: DeckPanelMenuProps;
   /** Card name → combos it appears in, for the preview modal's combo tab. */
   cardComboMap?: Map<string, DetectedCombo[]>;
@@ -121,8 +126,12 @@ function cardTags(card: ScryfallCard): string[] {
  * right-click for the context menu.
  */
 export function DeckContextPanel({
-  cards, sideboard, maybeboard, topTags, selectedTags, onTagClick, onRemoveTag, onCardAction, onBoardCardAction, colorIdentity = [], boardsEnabled = false, menuProps, cardComboMap, headerExtra,
+  cards, sideboard, maybeboard, topTags, selectedTags, onTagClick, onRemoveTag, onCardAction, onBoardCardAction, colorIdentity = [], boardsEnabled = false, noun = 'deck', deckName, menuProps, cardComboMap, headerExtra,
 }: DeckContextPanelProps) {
+  const mainBoardLabel = noun === 'list' ? 'List' : 'Deck';
+  // Name the loaded deck/list in the top-tags heading (e.g. "Foo’s top tags");
+  // ephemeral loads with no saved name fall back to the generic label.
+  const topTagsHeading = deckName ? `${deckName}’s top tags` : 'Your deck’s top tags';
   // Both view groups remember the user's last pick across decks and sessions.
   const [view, setView] = useState<DeckView>(() => {
     const stored = localStorage.getItem('spellchroma-deck-view');
@@ -271,7 +280,7 @@ export function DeckContextPanel({
   // join the menu only when populated. The caret appears only when there's more
   // than one board to choose between.
   const boardOptions = [
-    { key: 'main' as const, label: 'Deck', count: cards.length, Icon: LayoutGrid, tint: '' },
+    { key: 'main' as const, label: mainBoardLabel, count: cards.length, Icon: LayoutGrid, tint: '' },
     ...(hasSideboard ? [{ key: 'sideboard' as const, label: 'Sideboard', count: sideboard!.length, Icon: Layers, tint: 'text-amber-300' }] : []),
     ...(hasMaybeboard ? [{ key: 'maybeboard' as const, label: 'Maybeboard', count: maybeboard!.length, Icon: Bookmark, tint: 'text-purple-300' }] : []),
   ];
@@ -281,7 +290,7 @@ export function DeckContextPanel({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-background/85">
-      <div className="flex items-center gap-3 px-3 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
         {headerExtra}
         {showSwitcher ? (
           <Popover>
@@ -309,7 +318,7 @@ export function DeckContextPanel({
           </Popover>
         ) : (
           <span className="text-sm font-bold uppercase tracking-wider whitespace-nowrap">
-            Deck ({headerCount})
+            {mainBoardLabel} ({headerCount})
           </span>
         )}
         {onCardAction && (
@@ -320,7 +329,7 @@ export function DeckContextPanel({
             onCardAction={onCardAction}
           />
         )}
-        <div ref={clusterRef} className="ml-auto flex-1 min-w-0 flex items-center justify-end gap-2 overflow-hidden">
+        <div ref={clusterRef} className="ml-auto flex-1 min-w-0 flex items-center justify-end gap-2 overflow-hidden max-sm:basis-full max-sm:flex-wrap max-sm:overflow-visible">
           {/* Narrow the deck to cards that share a selected tag. Only meaningful
               once a tag is selected, so the button appears only then. */}
           {selectedTags.length > 0 && (
@@ -370,7 +379,7 @@ export function DeckContextPanel({
         <div className="flex-1 min-h-0 flex flex-col">
           {displayTags.length > 0 && (
             <div className="px-3 pt-3">
-              <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} />
+              <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} />
             </div>
           )}
           <DeckBuildingArea currentCards={boardCards} onCardAction={boardCardAction} menuProps={builderMenuProps} />
@@ -384,7 +393,7 @@ export function DeckContextPanel({
       ) : view === 'table' ? (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
-            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} />
+            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} />
           )}
           <DeckTableView
             cards={visibleCards}
@@ -395,12 +404,13 @@ export function DeckContextPanel({
             boardType={boardType}
             menuProps={menuProps}
             onPreview={setPreview}
+            noun={noun}
           />
         </div>
       ) : (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
-            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} />
+            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} />
           )}
           {groups.map(group => (
             <DeckSection
@@ -419,6 +429,7 @@ export function DeckContextPanel({
               boardType={boardType}
               menuProps={menuProps}
               onPreview={setPreview}
+              noun={noun}
             />
           ))}
         </div>
@@ -436,7 +447,7 @@ export function DeckContextPanel({
 }
 
 function DeckSection({
-  iconKey, label, count, stacks, layout = 'cards', collapsed, onToggle, selectedTags, onTagClick, onRemoveTag, onCardAction, boardType, menuProps, onPreview,
+  iconKey, label, count, stacks, layout = 'cards', collapsed, onToggle, selectedTags, onTagClick, onRemoveTag, onCardAction, boardType, menuProps, onPreview, noun = 'deck',
 }: {
   iconKey: string;
   label: string;
@@ -452,6 +463,7 @@ function DeckSection({
   boardType?: 'sideboard' | 'maybeboard';
   menuProps?: DeckPanelMenuProps;
   onPreview?: (card: ScryfallCard) => void;
+  noun?: 'deck' | 'list';
 }) {
   const [gridRef] = useAutoAnimate<HTMLDivElement>({ duration: 300, easing: 'cubic-bezier(0.34, 1.4, 0.5, 1)' });
   return (
@@ -483,6 +495,7 @@ function DeckSection({
               boardType={boardType}
               menuProps={menuProps}
               onPreview={onPreview}
+              noun={noun}
             />
           ))}
         </div>
@@ -491,7 +504,7 @@ function DeckSection({
   );
 }
 
-function DeckCard({ stack, index = 0, layout = 'cards', selectedTags, onTagClick, onRemoveTag, onCardAction, boardType, menuProps, onPreview }: {
+function DeckCard({ stack, index = 0, layout = 'cards', selectedTags, onTagClick, onRemoveTag, onCardAction, boardType, menuProps, onPreview, noun = 'deck' }: {
   stack: CardStack;
   index?: number;
   layout?: 'cards' | 'list' | 'table';
@@ -503,6 +516,7 @@ function DeckCard({ stack, index = 0, layout = 'cards', selectedTags, onTagClick
   boardType?: 'sideboard' | 'maybeboard';
   menuProps?: DeckPanelMenuProps;
   onPreview?: (card: ScryfallCard) => void;
+  noun?: 'deck' | 'list';
 }) {
   const { card, count } = stack;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -628,6 +642,7 @@ function DeckCard({ stack, index = 0, layout = 'cards', selectedTags, onTagClick
           <CardContextMenu
             card={card}
             onAction={onCardAction!}
+            noun={noun}
             hasRemove
             hasAddToDeck={!!boardType}
             hasSideboard={boardType === 'maybeboard'}
@@ -646,15 +661,17 @@ function DeckCard({ stack, index = 0, layout = 'cards', selectedTags, onTagClick
 
 // Shared card preview + tag chips, used by every deck view's popover (and the
 // SpellChroma explorer, so both sides look identical).
-export function CardTagPopoverContent({ card, count, tags, selected, onTagClick, onRemoveTag, onPreview, onAddToDeck, onAddToSideboard, onAddToMaybeboard }: {
+export function CardTagPopoverContent({ card, count, tags, selected, noun = 'deck', onTagClick, onRemoveTag, onPreview, onAddToDeck, onAddToSideboard, onAddToMaybeboard }: {
   card: ScryfallCard;
   count: number;
   tags: string[];
   selected: Set<string>;
+  /** Whether the loaded thing is a deck or a list — labels the quick-add button. */
+  noun?: 'deck' | 'list';
   onTagClick: (slug: string) => void;
   onRemoveTag?: (slug: string) => void;
   onPreview?: (card: ScryfallCard) => void;
-  /** When provided, a quick "Add to deck" button is shown (used by the explorer). */
+  /** When provided, a quick "Add to deck/list" button is shown (used by the explorer). */
   onAddToDeck?: (card: ScryfallCard) => void;
   /** When provided (a saved list is loaded), stacked board buttons share the add row. */
   onAddToSideboard?: (card: ScryfallCard) => void;
@@ -665,8 +682,17 @@ export function CardTagPopoverContent({ card, count, tags, selected, onTagClick,
   const currency = useStore((s) => s.customization.currency);
   const price = getCardPrice(card, currency);
   const sym = currency === 'EUR' ? '€' : '$';
+  // On a phone there's no room for a 320px popover beside a card tile — Radix only
+  // flips along the same axis (right↔left), so side="right" just clips. Open it
+  // below (or above, when there's no room below) where the full screen width is
+  // available; keep the desktop side-by-side placement on wider screens.
+  const wideEnough = useMediaQuery('(min-width: 640px)');
   return (
-    <PopoverContent side="right" align="start" className="w-80 p-0 overflow-hidden max-h-[80vh] overflow-y-auto border-2 border-violet-400/40 ring-1 ring-violet-500/10 shadow-2xl shadow-violet-950/40">
+    <PopoverContent
+      side={wideEnough ? 'right' : 'bottom'}
+      align={wideEnough ? 'start' : 'center'}
+      collisionPadding={8}
+      className="w-80 max-w-[calc(100vw-1rem)] p-0 overflow-hidden max-h-[80vh] overflow-y-auto border-2 border-violet-400/40 ring-1 ring-violet-500/10 shadow-2xl shadow-violet-950/40">
       <div className="relative animate-preview-pop">
         <PopoverClose
           className="absolute top-2 right-2 z-10 inline-flex items-center justify-center w-7 h-7 rounded-full bg-background/80 text-foreground/80 border border-border shadow-sm hover:bg-background hover:text-foreground transition-colors"
@@ -708,7 +734,7 @@ export function CardTagPopoverContent({ card, count, tags, selected, onTagClick,
               <PopoverClose asChild>
                 <button type="button" onClick={() => onAddToDeck(card)}
                   className="flex-[2] inline-flex items-center justify-center gap-1.5 min-h-[2.5rem] rounded-md bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-colors">
-                  <Plus className="w-4 h-4" /> Add to deck
+                  <Plus className="w-4 h-4" /> Add to {noun}
                 </button>
               </PopoverClose>
               {(onAddToSideboard || onAddToMaybeboard) && (
@@ -782,7 +808,7 @@ export function CardTagPopoverContent({ card, count, tags, selected, onTagClick,
 type TableSort = 'name' | 'mv' | 'type' | 'matches';
 
 // Flat, sortable table of the deck. Click a header to sort (re-click flips dir).
-function DeckTableView({ cards, selectedTags, onTagClick, onRemoveTag, onCardAction, boardType, menuProps, onPreview }: {
+function DeckTableView({ cards, selectedTags, onTagClick, onRemoveTag, onCardAction, boardType, menuProps, onPreview, noun = 'deck' }: {
   cards: ScryfallCard[];
   selectedTags: string[];
   onTagClick: (slug: string) => void;
@@ -791,6 +817,7 @@ function DeckTableView({ cards, selectedTags, onTagClick, onRemoveTag, onCardAct
   boardType?: 'sideboard' | 'maybeboard';
   menuProps?: DeckPanelMenuProps;
   onPreview?: (card: ScryfallCard) => void;
+  noun?: 'deck' | 'list';
 }) {
   const [sortKey, setSortKey] = useState<TableSort>('name');
   const [dir, setDir] = useState<'asc' | 'desc'>('asc');
@@ -860,6 +887,7 @@ function DeckTableView({ cards, selectedTags, onTagClick, onRemoveTag, onCardAct
             boardType={boardType}
             menuProps={menuProps}
             onPreview={onPreview}
+            noun={noun}
           />
         ))}
       </div>

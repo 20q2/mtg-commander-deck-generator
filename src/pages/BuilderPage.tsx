@@ -1016,7 +1016,7 @@ export function BuilderPage() {
                     aria-hidden="true"
                     className="w-5 h-5 brightness-0 invert"
                   />
-                  Create a Deck
+                  Assemble a Deck
                 </>
               )}
             </Button>
