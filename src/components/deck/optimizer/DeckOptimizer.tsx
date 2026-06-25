@@ -465,15 +465,31 @@ export function DeckOptimizer({
     if (!baseData) return null;
 
     const commanderNamesForAnalyze = partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName];
+
+    // Keep the plan/strategy score theme-aware on EVERY recompute. The strategy
+    // subscore needs themeMembership + primaryThemeData + planName; without them
+    // analyzeDeck returns strategy 0, so adding a card / changing pacing/land/size
+    // would collapse the Strategy tile to 0 until the user touched the theme again.
+    const themeData = themeEnhancedDataRef.current;
+    const primaryInfo = resolveThemeInfo(primaryThemeSlug);
+    const storedDeck = useStore.getState().generatedDeck;
+    const themeContext = {
+      themeMembership: primaryInfo ? buildThemeMembership(primaryInfo, null, themeDataCacheRef.current) : undefined,
+      primaryThemeData: themeData ?? undefined,
+      planName: primaryInfo?.name ?? undefined,
+      cardSynergyMap: storedDeck?.cardSynergyMap,
+      gapCandidates: storedDeck?.gapAnalysis,
+    };
+
     const baseInclusionMap = buildInclusionMap(baseData);
     const baseResult = analyzeDeck({
       edhrecData: baseData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
       cardInclusionMap: baseInclusionMap, colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
+      ...themeContext,
     });
 
-    const themeData = themeEnhancedDataRef.current;
     if (!themeData || opts.baseOnly) return baseResult;
 
     const themeInclusionMap = buildInclusionMap(themeData);
@@ -482,6 +498,7 @@ export function DeckOptimizer({
       cardInclusionMap: themeInclusionMap, colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
+      ...themeContext,
     });
     const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
     const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
@@ -491,7 +508,7 @@ export function DeckOptimizer({
     });
     const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
     return { ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs };
-  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity]);
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity, resolveThemeInfo, primaryThemeSlug, commanderName, partnerCommanderName]);
 
   // When user adjusts the intended deck size, re-run analysis. The new
   // deckSize takes effect on the next render via the `deckSize` derivation
