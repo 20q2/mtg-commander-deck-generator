@@ -10,11 +10,15 @@ interface TopTagsStripProps {
   /** Remove a selected tag — clicking an active chip toggles it off. */
   onRemoveTag?: (slug: string) => void;
   limit?: number;
-  /** Heading for the strip — names the loaded deck/list (e.g. "DECK Foo’s top tags"). */
+  /** Heading for the strip when no deck name is supplied (e.g. ephemeral loads). */
   heading?: string;
+  /** Saved deck/list name — rendered as a clickable purple link to its page. */
+  deckName?: string;
+  /** Open the loaded deck/list's page (only set for saved library items). */
+  onOpenDeck?: () => void;
 }
 
-export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15, heading = 'Your deck’s top tags' }: TopTagsStripProps) {
+export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15, heading = 'Your deck’s top tags', deckName, onOpenDeck }: TopTagsStripProps) {
   const [showAll, setShowAll] = useState(false);
   // Persist collapse state so it survives switching SpellChroma views (the strip
   // remounts on view change and would otherwise default back to open).
@@ -43,17 +47,32 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
     // Flush, non-rounded secondary header — mirrors the explorer's "Showing X of Y"
     // bar: full-bleed (negates the deck pane's p-3), border-b, same px-3 py-2.
     <div className="-mx-3 -mt-3 px-3 py-2 border-b border-border/50 bg-card/95 backdrop-blur-sm">
-      <button
-        type="button"
-        onClick={toggleCollapsed}
-        aria-expanded={!collapsed}
-        className="flex w-full items-center gap-1 text-[11px] font-semibold text-foreground hover:text-foreground/80 transition-colors"
-      >
-        <Tags className="w-3.5 h-3.5" />
-        {heading}
-        <span className="text-violet-300/60 font-normal">· {helpful.length}</span>
-        <ChevronDown className={`ml-auto w-3.5 h-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
-      </button>
+      <div className="flex w-full items-center gap-1 text-[11px] font-semibold text-foreground">
+        <Tags className="w-3.5 h-3.5 shrink-0" />
+        {/* Saved deck/list name: clickable link to its page. The rest of the row
+            still toggles the strip open/closed. Ephemeral loads have no name and
+            fall back to the plain (non-link) heading. */}
+        {deckName && onOpenDeck && (
+          <button
+            type="button"
+            onClick={onOpenDeck}
+            title={`Open “${deckName}”`}
+            className="shrink-0 max-w-[55%] truncate text-violet-300 hover:text-violet-200 hover:underline underline-offset-2 transition-colors"
+          >
+            {deckName}’s
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          className="flex flex-1 items-center gap-1 hover:text-foreground/80 transition-colors"
+        >
+          {deckName && onOpenDeck ? 'top tags' : heading}
+          <span className="text-violet-300/60 font-normal">· {helpful.length}</span>
+          <ChevronDown className={`ml-auto w-3.5 h-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+        </button>
+      </div>
       <div ref={bodyRef}>
       {!collapsed && (
       <div ref={stripRef} className="flex flex-wrap items-center gap-1.5 mt-2">
