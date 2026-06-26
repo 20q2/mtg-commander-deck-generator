@@ -5,8 +5,8 @@ import { buildCardComboMap } from '@/services/spellchroma/combos';
 import { getCardByName, getCardsByNames } from '@/services/scryfall/client';
 import { fetchColorIdentityCombos } from '@/services/edhrec/client';
 import type { EDHRECCombo } from '@/types';
-import type { ExplorerSort, ColorMatch, SortDir } from '@/services/spellchroma/explorerSearch';
 import { useExplorerSearch } from '@/components/spellchroma/useExplorerSearch';
+import { useExplorerFilters } from '@/components/spellchroma/useExplorerFilters';
 import { TagSearchBar } from '@/components/spellchroma/TagSearchBar';
 import { ExplorerGrid } from '@/components/spellchroma/ExplorerGrid';
 import { ArrowLeft, Loader2 } from 'lucide-react';
@@ -45,22 +45,23 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 }
 
 export function SpellChromaPage() {
-  // Seed from a ?tags= deep link (e.g. a card preview's Tags tab links here when
-  // opened outside SpellChroma). Lazy init so the explorer renders straight away
-  // without a landing-splash flash. The param is stripped on mount (effect below).
+  // All explorer filter state (tags, colors, type, sort, text) lives in
+  // useExplorerFilters, which seeds from the URL query string on mount and mirrors
+  // changes back so any filtered view is a shareable link. ?card=/?deck= remain
+  // handled here (one-shot card seed / persisted deck id).
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [selectedTags, setSelectedTags] = useState<string[]>(() => {
-    const raw = new URLSearchParams(window.location.search).get('tags');
-    return raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
-  });
-  const [colorIdentity, setColorIdentity] = useState<string[]>([]);
-  const [colorMode, setColorMode] = useState<ColorMatch>('subset');
-  const [excludedColors, setExcludedColors] = useState<string[]>([]);
-  const [typeFilter, setTypeFilter] = useState<string[]>([]);
-  const [sort, setSort] = useState<ExplorerSort>('edhrec');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [textFilter, setTextFilter] = useState('');
+  const {
+    selectedTags, setSelectedTags,
+    colorIdentity, setColorIdentity,
+    colorMode, setColorMode,
+    excludedColors, setExcludedColors,
+    typeFilter, setTypeFilter,
+    sort, setSort,
+    sortDir, setSortDir,
+    textFilter, setTextFilter,
+    reset: resetFilters,
+  } = useExplorerFilters();
   const [deck, setDeck] = useState<ScryfallCard[] | null>(null);
   const [indexReady, setIndexReady] = useState(false);
   const [startedExploring, setStartedExploring] = useState(false);
@@ -108,9 +109,9 @@ export function SpellChromaPage() {
   }, [colorIdentity]);
   // One-shot adoption ping when the SpellChroma page opens.
   useEffect(() => { trackEvent('spellchroma_viewed', {}); }, []);
-  // Track any deep-linked tags and load the deep-linked card (the card a preview's
-  // Tags tab came from) into the deck area, then strip the ?tags=/?card= params so a
-  // refresh/back doesn't re-seed (the slugs already live in selectedTags state).
+  // Track any deep-linked tags for analytics and load the deep-linked card (the card
+  // a preview's Tags tab came from) into the deck area. Tags now persist in the URL
+  // (owned by useExplorerFilters), so we strip only ?card= here — a one-shot seed.
   useEffect(() => {
     const raw = searchParams.get('tags');
     const cardName = searchParams.get('card');
@@ -131,9 +132,8 @@ export function SpellChromaPage() {
         } catch { /* card lookup failed — just skip seeding the deck */ }
       })();
     }
-    if (raw || cardName) {
+    if (cardName) {
       const next = new URLSearchParams(searchParams);
-      next.delete('tags');
       next.delete('card');
       setSearchParams(next, { replace: true });
     }
@@ -302,6 +302,10 @@ export function SpellChromaPage() {
   // Debounce color + type filter changes (~550ms) so toggling several doesn't
   // fire a search each click; tags and sort still search immediately.
   const debouncedFilters = useDebouncedValue(filters, 550);
+  // The text box stays fully responsive (it's a controlled input on `textFilter`),
+  // but the actual client-side filter+grid re-render runs off this debounced value
+  // so typing doesn't re-filter all loaded cards on every keystroke.
+  const debouncedTextFilter = useDebouncedValue(textFilter, 200);
   const result = useExplorerSearch(selectedTags, debouncedFilters, sort, sortDir);
   const addTag = useCallback((slug: string) => {
     setSelectedTags(t => (t.includes(slug) ? t : [...t, slug]));
@@ -316,18 +320,18 @@ export function SpellChromaPage() {
   // Clears the loaded deck too, so this works from the deck workbench as well.
   const backToOptions = useCallback(() => {
     setDeck(null);
-    setSelectedTags([]);
+    // Clear every filter back to default — including the adopted color identity, so
+    // the backdrop dispels back to wastes (the neutral landing art) instead of
+    // lingering on the loaded deck's guild. The sync effect drops the URL params.
+    resetFilters();
     setStartedExploring(false);
     setActiveDeckId(null);
-    // Drop the adopted color identity so the backdrop dispels back to wastes
-    // (the neutral landing art) instead of lingering on the loaded deck's guild.
-    setColorIdentity([]);
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.delete('deck');
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [setSearchParams, resetFilters]);
 
   // Workbench back. When SpellChroma was opened via a deck/card deep link (the
   // "Open in SpellChroma" button on the Builder/List deck toolbars), return to
@@ -603,7 +607,7 @@ export function SpellChromaPage() {
       loadingAll={result.loadingAll}
       error={result.error}
       hasTags={selectedTags.length > 0}
-      textFilter={textFilter}
+      textFilter={debouncedTextFilter}
       sort={sort}
       dir={sortDir}
       sticky={sticky}
@@ -661,6 +665,7 @@ export function SpellChromaPage() {
               boardsEnabled={boardsEnabled}
               noun={targetNoun}
               deckName={activeList?.name}
+              onOpenDeck={activeList ? () => navigate(`/${activeList.type === 'deck' ? 'decks' : 'lists'}/${activeList.id}`) : undefined}
               topTags={topTags}
               selectedTags={selectedTags}
               onTagClick={addTag}
