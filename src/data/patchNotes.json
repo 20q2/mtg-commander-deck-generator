@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.11",
+    "notes": [
+      "Smoother performance and URL paramenters used throughout SpellChroma",
+      "A handful of small adjustments to improve the mobile experience"
+    ]
+  },
+  {
     "version": "1.3.10",
     "notes": [
       "Lots of QoL Spellchroma tweaks, mostly centered around the mobile experience."

@@ -132,7 +132,7 @@ export function CostTab({
       <div className="flex flex-col gap-4 p-4">
 
         {/* ── Sticky budget controls (totals, potential-savings note, apply) ── */}
-        <div className="sticky top-0 z-20 -mx-8 -mt-8 mb-4 px-4 pt-4 pb-3 bg-background/80 backdrop-blur-md border-b border-border/40 flex flex-col gap-3">
+        <div className="sticky top-0 z-20 -mx-7 sm:-mx-8 -mt-4 mb-4 px-4 pt-4 pb-3 bg-background/80 backdrop-blur-md border-b border-border/40 flex flex-col gap-3">
         <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-2.5 flex items-center gap-4 flex-wrap">
           <div className="flex items-baseline gap-2 flex-shrink-0">
             <span className="text-sm text-zinc-400">Current</span>

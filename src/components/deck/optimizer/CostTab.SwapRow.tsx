@@ -174,66 +174,74 @@ export function SwapRow({
       ].join(' ')}
     >
       <div
-        className="flex items-center gap-3 px-3 py-2.5 hover:bg-zinc-900/40 rounded cursor-pointer"
+        className="flex flex-col gap-2.5 px-3 py-3 sm:flex-row sm:items-center sm:gap-3 sm:py-2.5 hover:bg-zinc-900/40 rounded cursor-pointer"
         onClick={() => onToggle(row.id)}
       >
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={() => onToggle(row.id)}
-          onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 accent-violet-500 flex-shrink-0 cursor-pointer"
-          aria-label={`Swap ${row.current.name} for ${row.suggestion.name}`}
-        />
+        {/* Checkbox + the two cards: stacked on mobile, inline on desktop. */}
+        <div className="flex items-start gap-3 flex-1 min-w-0 sm:items-center">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => onToggle(row.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="h-4 w-4 mt-1 sm:mt-0 accent-violet-500 flex-shrink-0 cursor-pointer"
+            aria-label={`Swap ${row.current.name} for ${row.suggestion.name}`}
+          />
 
-        <CardCell
-          name={row.current.name}
-          price={row.currentPrice}
-          cmc={row.current.cmc}
-          manaCost={row.current.mana_cost}
-          typeLine={row.current.type_line}
-          img={currentImg}
-          card={row.current}
-          onPreview={onPreview}
-          currency={currency}
-        />
+          <div className="flex flex-col gap-2 flex-1 min-w-0 sm:flex-row sm:items-center sm:gap-3">
+            <CardCell
+              name={row.current.name}
+              price={row.currentPrice}
+              cmc={row.current.cmc}
+              manaCost={row.current.mana_cost}
+              typeLine={row.current.type_line}
+              img={currentImg}
+              card={row.current}
+              onPreview={onPreview}
+              currency={currency}
+            />
 
-        <ArrowRight className="h-4 w-4 text-zinc-500 flex-shrink-0" />
+            <ArrowRight className="h-4 w-4 text-zinc-500 flex-shrink-0 self-center rotate-90 sm:rotate-0 sm:self-auto" />
 
-        <CardCell
-          name={row.suggestion.name}
-          price={row.suggestion.price}
-          cmc={row.suggestion.cmc}
-          manaCost={row.suggestion.manaCost}
-          typeLine={row.suggestion.typeLine}
-          img={suggestionImg}
-          card={row.suggestion.card}
-          onPreview={onPreview}
-          currency={currency}
-        />
-
-        <div className="flex flex-col items-end gap-1 flex-shrink-0 pl-1 w-24">
-          <span className="text-sm tabular-nums text-zinc-400">
-            Save{' '}
-            <span className="font-semibold" style={{ color: savingsColor(row.savings, maxSavings) }}>
-              {formatPrice(row.savings, currency)}
-            </span>
-          </span>
+            <CardCell
+              name={row.suggestion.name}
+              price={row.suggestion.price}
+              cmc={row.suggestion.cmc}
+              manaCost={row.suggestion.manaCost}
+              typeLine={row.suggestion.typeLine}
+              img={suggestionImg}
+              card={row.suggestion.card}
+              onPreview={onPreview}
+              currency={currency}
+            />
+          </div>
         </div>
 
-        {otherCount > 0 ? (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-            className="flex items-center gap-0.5 text-xs text-zinc-400 hover:text-zinc-100 flex-shrink-0 w-16"
-            aria-expanded={open}
-          >
-            <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
-            <span className="tabular-nums">{otherCount} more</span>
-          </button>
-        ) : (
-          <span className="w-16 flex-shrink-0" />
-        )}
+        {/* Savings + alternatives toggle: own line on mobile (indented past the checkbox). */}
+        <div className="flex items-center justify-end gap-3 pl-7 sm:pl-0 sm:flex-shrink-0">
+          <div className="flex flex-col items-end gap-1 flex-shrink-0 pl-1 w-24">
+            <span className="text-sm tabular-nums text-zinc-400">
+              Save{' '}
+              <span className="font-semibold" style={{ color: savingsColor(row.savings, maxSavings) }}>
+                {formatPrice(row.savings, currency)}
+              </span>
+            </span>
+          </div>
+
+          {otherCount > 0 ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+              className="flex items-center gap-0.5 text-xs text-zinc-400 hover:text-zinc-100 flex-shrink-0 w-16"
+              aria-expanded={open}
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+              <span className="tabular-nums">{otherCount} more</span>
+            </button>
+          ) : (
+            <span className="w-16 flex-shrink-0" />
+          )}
+        </div>
       </div>
 
       {open && otherCount > 0 && (

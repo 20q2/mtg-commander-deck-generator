@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { Check, Plus, ChevronsDown, Loader2, Layers, Package } from 'lucide-react';
 import type { ScryfallCard, DetectedCombo } from '@/types';
@@ -95,8 +95,13 @@ export function ExplorerGrid({
     if (!q) return cards;
     return cards.filter(c =>
       c.name.toLowerCase().includes(q) ||
+      c.type_line?.toLowerCase().includes(q) ||
       c.oracle_text?.toLowerCase().includes(q) ||
-      c.card_faces?.some(f => f.name?.toLowerCase().includes(q) || f.oracle_text?.toLowerCase().includes(q)),
+      c.card_faces?.some(f =>
+        f.name?.toLowerCase().includes(q) ||
+        f.type_line?.toLowerCase().includes(q) ||
+        f.oracle_text?.toLowerCase().includes(q),
+      ),
     );
   }, [cards, textFilter]);
 
@@ -246,7 +251,7 @@ function Empty({ title, sub, action, spinner = false }: { title: string; sub: st
   );
 }
 
-function ExplorerCard({ card, index, inDeck = false, inCollection = false, noun = 'deck', selectedTags, onTagClick, onRemoveTag, onCardAction, boardsEnabled = false, onPreview, menuProps }: {
+const ExplorerCard = memo(function ExplorerCard({ card, index, inDeck = false, inCollection = false, noun = 'deck', selectedTags, onTagClick, onRemoveTag, onCardAction, boardsEnabled = false, onPreview, menuProps }: {
   card: ScryfallCard;
   index: number;
   inDeck?: boolean;
@@ -272,7 +277,10 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, noun 
   const selected = useMemo(() => new Set(selectedTags ?? []), [selectedTags]);
 
   return (
-    <div className="relative animate-sc-card-in" style={{ animationDelay: cardDelay(index) }}>
+    <div
+      className={`relative [content-visibility:auto] [contain-intrinsic-size:auto_240px] ${index < 60 ? 'animate-sc-card-in' : ''}`}
+      style={index < 60 ? { animationDelay: cardDelay(index) } : undefined}
+    >
       <Popover>
         <PopoverTrigger asChild>
           <button
@@ -340,4 +348,21 @@ function ExplorerCard({ card, index, inDeck = false, inCollection = false, noun 
       )}
     </div>
   );
-}
+}, (prev, next) =>
+  // Skip re-rendering tiles whose own data is unchanged so a single toolbar click
+  // (sort/color/type/owned-only) doesn't re-render every card in the grid. `index`
+  // is intentionally excluded from the compare — it only drives the mount-time
+  // CSS deal-in delay, which is inert once a tile is on screen (a genuinely new
+  // search remounts the whole grid via its `key`, giving fresh tiles fresh delays).
+  prev.card === next.card &&
+  prev.inDeck === next.inDeck &&
+  prev.inCollection === next.inCollection &&
+  prev.noun === next.noun &&
+  prev.selectedTags === next.selectedTags &&
+  prev.boardsEnabled === next.boardsEnabled &&
+  prev.onTagClick === next.onTagClick &&
+  prev.onRemoveTag === next.onRemoveTag &&
+  prev.onCardAction === next.onCardAction &&
+  prev.onPreview === next.onPreview &&
+  prev.menuProps === next.menuProps,
+);

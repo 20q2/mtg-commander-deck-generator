@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { Plus, X, Search, Tag, Filter, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -53,6 +54,13 @@ export function TagSearchBar({
 }: TagSearchBarProps) {
   // Selected-tag chips fade/shift in and out — a plain quick ease, no spring.
   const [tagsRef] = useAutoAnimate<HTMLDivElement>({ duration: 140, easing: 'ease-out' });
+
+  // The text filter starts collapsed to a magnifying-glass button (matching the
+  // Types / color pickers) and expands into an input on click. It stays open while
+  // it holds a query; blurring it empty collapses it back to the icon.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const collapseIfEmpty = () => { if (!textFilter.trim()) setSearchOpen(false); };
 
   return (
     <div className={`flex items-stretch min-h-[52px] bg-card/95 backdrop-blur-sm border-b border-border/50 ${sticky ? 'sticky top-0 z-30' : ''}`}>
@@ -116,12 +124,43 @@ export function TagSearchBar({
         {/* Card type filter */}
         <TypeFilterControl typeFilter={typeFilter} onTypeFilterChange={onTypeFilterChange} />
 
-        {/* Name/text filter (client-side over loaded results) */}
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
-          <Input value={textFilter} onChange={e => onTextFilterChange(e.target.value)}
-            placeholder="Filter…" className="pl-7 h-8 w-36" />
-        </div>
+        {/* Name / rules-text / type-line filter (client-side over loaded results).
+            Collapsed to an icon button until clicked, then expands into a dark input. */}
+        {searchOpen || textFilter ? (
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
+            <Input
+              ref={searchInputRef}
+              autoFocus
+              value={textFilter}
+              onChange={e => onTextFilterChange(e.target.value)}
+              onBlur={collapseIfEmpty}
+              placeholder="Name, text, type…"
+              className="pl-7 pr-7 h-8 w-44 bg-background"
+            />
+            {textFilter && (
+              <button
+                type="button"
+                onClick={() => { onTextFilterChange(''); searchInputRef.current?.focus(); }}
+                aria-label="Clear filter"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSearchOpen(true)}
+            title="Filter results"
+            aria-label="Filter results"
+            className="w-8 px-0 shrink-0"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </Button>
+        )}
 
         {/* Sort direction + key stay together as one unit so the asc/desc toggle
             never wraps onto a line by itself, away from the sort buttons. */}

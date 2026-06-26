@@ -84,6 +84,8 @@ interface DeckContextPanelProps {
   noun?: 'deck' | 'list';
   /** Name of the loaded saved deck/list (if any) — used in the top-tags heading. */
   deckName?: string;
+  /** Open the loaded deck/list's page — makes the name in the top-tags heading a link. */
+  onOpenDeck?: () => void;
   menuProps?: DeckPanelMenuProps;
   /** Card name → combos it appears in, for the preview modal's combo tab. */
   cardComboMap?: Map<string, DetectedCombo[]>;
@@ -126,7 +128,7 @@ function cardTags(card: ScryfallCard): string[] {
  * right-click for the context menu.
  */
 export function DeckContextPanel({
-  cards, sideboard, maybeboard, topTags, selectedTags, onTagClick, onRemoveTag, onCardAction, onBoardCardAction, colorIdentity = [], boardsEnabled = false, noun = 'deck', deckName, menuProps, cardComboMap, headerExtra,
+  cards, sideboard, maybeboard, topTags, selectedTags, onTagClick, onRemoveTag, onCardAction, onBoardCardAction, colorIdentity = [], boardsEnabled = false, noun = 'deck', deckName, onOpenDeck, menuProps, cardComboMap, headerExtra,
 }: DeckContextPanelProps) {
   const mainBoardLabel = noun === 'list' ? 'List' : 'Deck';
   // Name the loaded deck/list in the top-tags heading (e.g. "Foo’s top tags");
@@ -379,7 +381,7 @@ export function DeckContextPanel({
         <div className="flex-1 min-h-0 flex flex-col">
           {displayTags.length > 0 && (
             <div className="px-3 pt-3">
-              <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} />
+              <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} />
             </div>
           )}
           <DeckBuildingArea currentCards={boardCards} onCardAction={boardCardAction} menuProps={builderMenuProps} />
@@ -393,7 +395,7 @@ export function DeckContextPanel({
       ) : view === 'table' ? (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
-            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} />
+            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} />
           )}
           <DeckTableView
             cards={visibleCards}
@@ -410,7 +412,7 @@ export function DeckContextPanel({
       ) : (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
-            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} />
+            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} />
           )}
           {groups.map(group => (
             <DeckSection
