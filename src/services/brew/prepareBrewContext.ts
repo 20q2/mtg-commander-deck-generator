@@ -134,6 +134,20 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     }
   }
 
+  // How many of the commander's known combos each card appears in. ≥2 makes a card "combo glue" —
+  // a recurring piece worth flagging (e.g. Isochron Scepter, Dramatic Reversal). DFC front-faces are
+  // counted under both the full name and the front face so either form matches a pool card later.
+  const comboPieceCounts: Record<string, number> = {};
+  for (const combo of combos) {
+    for (const { name } of combo.cards) {
+      comboPieceCounts[name] = (comboPieceCounts[name] ?? 0) + 1;
+      if (name.includes(' // ')) {
+        const front = name.split(' // ')[0];
+        comboPieceCounts[front] = (comboPieceCounts[front] ?? 0) + 1;
+      }
+    }
+  }
+
   args.onProgress?.('Shuffling up…', 90);
   return {
     commander,
@@ -147,6 +161,7 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     landTarget,
     nonLandTarget,
     combos,
+    comboPieceCounts,
     themeNames,
     themeSignatures,
     gameChangerNames,

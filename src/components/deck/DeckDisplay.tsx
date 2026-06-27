@@ -3948,6 +3948,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         )}
         {/* Header + Mobile Stats combined card */}
         <div className="bg-card/50 rounded-lg border border-border/50 mb-4 xl:hidden">
+        {renderHeaderActions ? (
         <div className="flex items-center justify-between p-3 flex-wrap gap-3">
           <div className="hidden flex-1 items-center gap-2 sm:gap-3 flex-wrap">
             {/* Sort */}
@@ -4079,6 +4080,39 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
           {deckSummary}
         </div>
+        ) : (
+          /* Deckview / optimizer: card-count, price, and board counts get their own
+             row above the Statistics dropdown (Export moves to the toolbar below). */
+          <div className="px-4 py-2.5 text-sm text-muted-foreground">
+            {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
+            {showPrice && showCollectionChecks && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
+              <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
+            )}
+            {boardCounts && (boardCounts.sideboard > 0 || boardCounts.maybeboard > 0) && (
+              <span className="text-xs">
+                {' · '}
+                {[
+                  boardCounts.sideboard > 0 ? `${boardCounts.sideboard} sideboard` : null,
+                  boardCounts.maybeboard > 0 ? `${boardCounts.maybeboard} maybe` : null,
+                ].filter(Boolean).join(' · ')}
+              </span>
+            )}
+            {(customization.budgetOption !== 'any' || customization.maxCardPrice !== null || customization.deckBudget !== null) && (
+              <span className="ml-1 text-xs">
+                ({[
+                  customization.budgetOption === 'budget' ? 'Budget' : customization.budgetOption === 'expensive' ? 'Expensive' : null,
+                  customization.maxCardPrice !== null ? `<${sym}${customization.maxCardPrice}/card` : null,
+                  customization.deckBudget !== null ? `${totalPrice > customization.deckBudget ? '~' : ''}${sym}${customization.deckBudget} budget, excludes commander` : null,
+                ].filter(Boolean).join(' · ')})
+              </span>
+            )}
+            {usedThemes && usedThemes.length > 0 && (
+              <span className="ml-2">
+                · Built with: <span className="font-medium">{usedThemes.join(', ')}</span>
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Stats - Mobile/Tablet (inside combined card) */}
         <div className="xl:hidden border-t border-border/30">
@@ -4155,8 +4189,18 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
         {/* Toolbar - Mobile/Tablet (below stats, above deck) */}
         <div ref={toolbarRef} className="flex items-center gap-2 flex-wrap mb-4">
+          {/* Mobile only: Export shares row 1 with the view options; on desktop Export lives in the sidebar.
+              order/break classes split the toolbar into two rows on mobile and reset to a single row on desktop. */}
+          {!renderHeaderActions && (
+            <Button onClick={() => setShowExportModal(true)} className="btn-shimmer order-1 xl:hidden">
+              <Copy className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+          )}
+          {/* Mobile only: full-width break pushes Sort/Show/Search onto row 2 */}
+          <div aria-hidden className="basis-full h-0 order-2 xl:hidden" />
           {/* Sort */}
-          <div className="flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
+          <div className="order-3 xl:order-none flex items-center gap-2 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50">
             <button
               type="button"
               onClick={toggleSortReversed}
@@ -4182,7 +4226,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
 
           {/* Show Toggles */}
-          <div className="relative" ref={showMenuMobileRef}>
+          <div className="order-3 xl:order-none relative" ref={showMenuMobileRef}>
             <button
               onClick={() => setShowMenu(v => !v)}
               className={`flex items-center gap-1.5 bg-card/50 rounded-lg px-3 py-1.5 border border-border/50 text-xs transition-colors ${showMenu ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
@@ -4251,15 +4295,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </div>
 
           {/* Search */}
-          <div className="relative flex items-center gap-2">
-            <div className="relative">
+          <div className="order-3 xl:order-none relative flex flex-1 xl:flex-none items-center gap-2">
+            <div className="relative flex-1 xl:flex-none">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search..."
-                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-28 sm:w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+                className="bg-card/50 border border-border/50 rounded-lg pl-8 pr-8 py-1.5 text-xs w-full xl:w-48 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
               />
               {searchQuery && (
                 <button
@@ -4279,7 +4323,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
           {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
           <TooltipProvider delayDuration={200}>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="order-1 xl:order-none ml-auto flex items-center gap-1.5">
             {!readOnly && !isEditMode && (
               <Tooltip>
                 <TooltipTrigger asChild>

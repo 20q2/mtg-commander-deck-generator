@@ -55,7 +55,7 @@ export function HomePage() {
           <span className="gradient-text">Perfect Deck</span>
         </h2>
         <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">
-          Choose a commander and we'll help create a complete deck
+          Choose a commander and we'll help assemble a complete deck
           optimized for your strategy
         </p>
       </div>

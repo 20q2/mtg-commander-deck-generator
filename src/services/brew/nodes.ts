@@ -101,6 +101,12 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
   // Headline call-outs first — the things worth knowing even off the combo screen.
   const finishers = comboFinishers ?? comboFinishersFor(ctx, state);
   if (finishers.has(c.name)) reasons.push({ kind: 'combo', label: 'Finishes a combo', value: 100 });
+  // Combo glue: a card that recurs across the commander's combos (not a near-miss finisher right now,
+  // but a piece worth knowing about). The finisher call-out above is louder, so skip this when both apply.
+  else {
+    const comboCount = ctx.comboPieceCounts[c.name] ?? 0;
+    if (comboCount >= 2) reasons.push({ kind: 'comboPiece', label: `In ${comboCount} combos`, value: 55 });
+  }
   if (ctx.gameChangerNames instanceof Set && ctx.gameChangerNames.has(c.name)) reasons.push({ kind: 'gameChanger', label: 'Game Changer', value: 100 });
   // Why it fits the plan.
   if (c.role) {
@@ -173,7 +179,7 @@ function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[]): string[
 }
 
 const BUNDLE_MIN = 2;          // a bundle needs at least this many cards to "feel like" a strategy
-const BUNDLE_MAX = 4;          // cap so one decision doesn't fill too many slots at once
+const BUNDLE_MAX = 3;          // cap so one decision doesn't fill too many slots at once
 const BUNDLE_COUNT = 3;        // packs offered per node
 
 /**

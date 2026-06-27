@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { Plus, X, Search, Tag, Filter, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
+import { Plus, X, Search, Tag, SearchCode, Filter, ArrowUpNarrowWide, ArrowDownWideNarrow } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { ExplorerSort, ColorMatch, SortDir } from '@/services/spellchroma/explorerSearch';
+import { isRawTerm, rawTermText } from '@/services/spellchroma/explorerSearch';
 import { ColorFilterControl } from './ColorFilterControl';
 import { TypeFilterControl } from './TypeFilterControl';
 import { AddTagPopover } from './AddTagPopover';
@@ -65,11 +66,22 @@ export function TagSearchBar({
   return (
     <div className={`flex items-stretch min-h-[52px] bg-card/95 backdrop-blur-sm border-b border-border/50 ${sticky ? 'sticky top-0 z-30' : ''}`}>
       {leading}
-      <div className="flex flex-1 min-w-0 flex-wrap items-center gap-2 px-3 py-2">
+      {/* On phones the toolbar stacks into three distinct rows — tags, filters,
+          sort — each its own flex row (flex-col). From lg up it collapses back to
+          the original single wrapping row (flex-row + flex-wrap); the grouping
+          wrappers below use lg:contents so their children flow into that row
+          exactly as they did before. */}
+      <div className="flex flex-col lg:flex-row flex-1 min-w-0 lg:flex-wrap items-stretch lg:items-center gap-2 px-3 py-2">
         {/* Add-tag + selected chips. In the workbench on phones these are hidden —
             the sticky mobile tab header owns the tags there — so the toolbar keeps
             only its filters/sort. Always shown on lg and in the deck-less explorer. */}
         <div className={`${hideTagsOnMobile ? 'hidden lg:flex' : 'flex'} min-w-0 flex-wrap items-center gap-2`}>
+          {/* Tag-row marker — mirrors the filter/sort markers, signalling "these are
+              the tags" (decorative, matches their footprint). */}
+          <span className="inline-flex items-center justify-center w-7 h-7 shrink-0 text-muted-foreground/60" title="Tags" aria-hidden>
+            <Tag className="w-3.5 h-3.5" />
+          </span>
+
           {/* Add-tag trigger sits OUTSIDE the auto-animated chip group so it stays a
               stable anchor — inside, auto-animate's FLIP would slide it onto a new
               row whenever chips are added/removed. */}
@@ -85,82 +97,95 @@ export function TagSearchBar({
             </Button>
           </AddTagPopover>
 
-          {/* Selected tags — auto-animated so chips pop in/out. */}
+          {/* Selected tags — auto-animated so chips pop in/out. Raw Scryfall-query
+              terms render amber with a code icon to distinguish them from tags. */}
           <div ref={tagsRef} className="flex flex-wrap items-center gap-2">
-            {selectedTags.map(slug => (
-              <button key={slug} type="button" aria-label={`Remove ${slug}`} title={`Remove ${slug}`}
-                onClick={() => onRemoveTag(slug)} className="group shrink-0 focus:outline-none rounded-full">
-                <Badge className="gap-1 pr-1.5 cursor-pointer whitespace-nowrap bg-violet-600 hover:bg-violet-600 text-white border border-violet-400/50 group-hover:bg-destructive group-hover:border-destructive/60 group-focus-visible:ring-2 group-focus-visible:ring-ring transition-colors">
-                  <Tag className="w-3 h-3 opacity-70 group-hover:hidden" />
-                  <X className="w-3 h-3 hidden group-hover:block" />
-                  {slug}
-                </Badge>
-              </button>
-            ))}
+            {selectedTags.map(entry => {
+              const raw = isRawTerm(entry);
+              const label = raw ? rawTermText(entry) : entry;
+              return (
+                <button key={entry} type="button" aria-label={`Remove ${label}`} title={`Remove ${label}`}
+                  onClick={() => onRemoveTag(entry)} className="group shrink-0 focus:outline-none rounded-full">
+                  <Badge className={`gap-1 pr-1.5 cursor-pointer whitespace-nowrap text-white group-hover:bg-destructive group-hover:border-destructive/60 group-focus-visible:ring-2 group-focus-visible:ring-ring transition-colors ${
+                    raw
+                      ? 'bg-amber-600 hover:bg-amber-600 border border-amber-400/50 font-mono'
+                      : 'bg-violet-600 hover:bg-violet-600 border border-violet-400/50'
+                  }`}>
+                    {raw
+                      ? <SearchCode className="w-3 h-3 opacity-70 group-hover:hidden" />
+                      : <Tag className="w-3 h-3 opacity-70 group-hover:hidden" />}
+                    <X className="w-3 h-3 hidden group-hover:block" />
+                    {label}
+                  </Badge>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Spacer pushes the filters to the right of the tags — but only while the
-            tags are on screen. When they're hidden (workbench on mobile) the spacer
-            collapses so the filter controls left-align instead of floating right. */}
-        <div className={hideTagsOnMobile ? 'hidden lg:block lg:flex-1' : 'flex-1'} />
+        {/* Spacer pushes the filters to the right of the tags on desktop. On phones
+            the toolbar stacks, so the spacer collapses out entirely. */}
+        <div className="hidden lg:block lg:flex-1" />
 
-        {/* Filter-row marker — mirrors the sort-direction icon below it, signalling
-            "these are the filters" (decorative, matches the sort icon's footprint). */}
-        <span className="inline-flex items-center justify-center w-7 h-7 shrink-0 text-muted-foreground/60" title="Filters" aria-hidden>
-          <Filter className="w-3.5 h-3.5" />
-        </span>
+        {/* Filters group — its own row on phones, flows inline on lg (lg:contents). */}
+        <div className="flex items-center gap-2 lg:contents">
+          {/* Filter-row marker — mirrors the sort-direction icon below it, signalling
+              "these are the filters" (decorative, matches the sort icon's footprint). */}
+          <span className="inline-flex items-center justify-center w-7 h-7 shrink-0 text-muted-foreground/60" title="Filters" aria-hidden>
+            <Filter className="w-3.5 h-3.5" />
+          </span>
 
-        {/* Color identity (match mode + include/exclude) */}
-        <ColorFilterControl
-          colorIdentity={colorIdentity}
-          onColorsChange={onColorsChange}
-          colorMode={colorMode}
-          onColorModeChange={onColorModeChange}
-          excludedColors={excludedColors}
-          onExcludedChange={onExcludedChange}
-        />
+          {/* Color identity (match mode + include/exclude) */}
+          <ColorFilterControl
+            colorIdentity={colorIdentity}
+            onColorsChange={onColorsChange}
+            colorMode={colorMode}
+            onColorModeChange={onColorModeChange}
+            excludedColors={excludedColors}
+            onExcludedChange={onExcludedChange}
+          />
 
-        {/* Card type filter */}
-        <TypeFilterControl typeFilter={typeFilter} onTypeFilterChange={onTypeFilterChange} />
+          {/* Card type filter */}
+          <TypeFilterControl typeFilter={typeFilter} onTypeFilterChange={onTypeFilterChange} />
 
-        {/* Name / rules-text / type-line filter (client-side over loaded results).
-            Collapsed to an icon button until clicked, then expands into a dark input. */}
-        {searchOpen || textFilter ? (
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
-            <Input
-              ref={searchInputRef}
-              autoFocus
-              value={textFilter}
-              onChange={e => onTextFilterChange(e.target.value)}
-              onBlur={collapseIfEmpty}
-              placeholder="Name, text, type…"
-              className="pl-7 pr-7 h-8 w-44 bg-background"
-            />
-            {textFilter && (
-              <button
-                type="button"
-                onClick={() => { onTextFilterChange(''); searchInputRef.current?.focus(); }}
-                aria-label="Clear filter"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSearchOpen(true)}
-            title="Filter results"
-            aria-label="Filter results"
-            className="w-8 px-0 shrink-0"
-          >
-            <Search className="w-3.5 h-3.5" />
-          </Button>
-        )}
+          {/* Name / rules-text / type-line filter (client-side over loaded results).
+              Collapsed to an icon button until clicked, then expands into a dark input. */}
+          {searchOpen || textFilter ? (
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
+              <Input
+                ref={searchInputRef}
+                autoFocus
+                value={textFilter}
+                onChange={e => onTextFilterChange(e.target.value)}
+                onBlur={collapseIfEmpty}
+                placeholder="Name, text, type…"
+                className="pl-7 pr-7 h-8 w-44 bg-background"
+              />
+              {textFilter && (
+                <button
+                  type="button"
+                  onClick={() => { onTextFilterChange(''); searchInputRef.current?.focus(); }}
+                  aria-label="Clear filter"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSearchOpen(true)}
+              title="Filter results"
+              aria-label="Filter results"
+              className="w-8 px-0 shrink-0"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
 
         {/* Sort direction + key stay together as one unit so the asc/desc toggle
             never wraps onto a line by itself, away from the sort buttons. */}

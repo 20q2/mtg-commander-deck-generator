@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.3.12",
+    "notes": [
+      "Add your own custom Scryfall query parameters to your Spellchroma exploration (Start typing it out and you'll see the new button to add a query)",      
+      "Added a new icon for the Inspector",
+      "Updated card rarity picker to be multiselect (instead of max rarity)",
+      "Updated a few places in Spellchroma & the deck view to be better suited for mobile"
+    ]
+  },
+  {
     "version": "1.3.11",
     "notes": [
       "Smoother performance and URL paramenters used throughout SpellChroma",

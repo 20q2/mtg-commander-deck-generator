@@ -2,7 +2,7 @@ import { useState, useEffect, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
@@ -29,6 +29,8 @@ function synergyFit(c: BrewCandidate, reasons: PickReason[]): number {
 const REASON_CHIP: Record<string, string> = {
   gameChanger: 'border-amber-300/70 bg-gradient-to-r from-amber-400/25 to-yellow-500/15 text-amber-100 font-semibold shadow-[0_0_12px_-2px_rgba(251,191,36,0.4)]',
   combo: 'border-teal-300/60 bg-teal-500/20 text-teal-100 font-semibold',
+  // Combo glue: related to combos (teal family) but quieter than the "Finishes a combo" call-out.
+  comboPiece: 'border-teal-400/40 bg-teal-500/12 text-teal-200',
   role: 'border-sky-400/40 bg-sky-500/12 text-sky-200',
   synergy: 'border-violet-400/40 bg-violet-500/15 text-violet-200',
   theme: 'border-emerald-400/40 bg-emerald-500/12 text-emerald-200',
@@ -201,6 +203,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     const rs = option.reasons[i] ?? [];
                     const finishesCombo = rs.some(r => r.kind === 'combo');
                     const isGameChanger = rs.some(r => r.kind === 'gameChanger');
+                    const isComboPiece = rs.some(r => r.kind === 'comboPiece');
                     const isBestFit = i === bestFitIdx;
                     // A concise "why it's the standout" label for the best-fit badge.
                     const fitLabel = (c.connectionCount ?? 0) >= 2 ? `${c.connectionCount} synergies`
@@ -223,9 +226,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                             <Zap className="w-2.5 h-2.5" /> Lift
                           </span>
                         )}
-                        {(finishesCombo || isGameChanger) && (
+                        {(finishesCombo || isGameChanger || isComboPiece) && (
                           <span className="absolute bottom-1 right-1 z-20 flex flex-col gap-1">
                             {finishesCombo && <span title="Finishes a combo" className="grid place-items-center w-4 h-4 rounded-full bg-teal-500/90 text-white shadow ring-1 ring-black/40"><InfinityIcon className="w-2.5 h-2.5" /></span>}
+                            {isComboPiece && <span title="Combo piece — recurs across this commander's combos" className="grid place-items-center w-4 h-4 rounded-full bg-teal-500/30 text-teal-100 shadow ring-1 ring-teal-300/50"><Link2 className="w-2.5 h-2.5" /></span>}
                             {isGameChanger && <span title="Game Changer" className="grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40"><Crown className="w-2.5 h-2.5" /></span>}
                           </span>
                         )}
@@ -400,7 +404,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     {reasons.length > 0 && (
                       <div className="mt-2 flex w-full flex-wrap justify-center gap-1">
                         {reasons.map((r, ri) => {
-                          const LeadIcon = r.kind === 'lift' ? Zap : r.kind === 'role' ? ROLE_ICON[r.label] : undefined;
+                          const LeadIcon = r.kind === 'lift' ? Zap : r.kind === 'comboPiece' ? Link2 : r.kind === 'role' ? ROLE_ICON[r.label] : undefined;
                           return (
                             <span
                               key={ri}

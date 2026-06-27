@@ -685,6 +685,11 @@ export function AnalyzePage() {
         }}
       />
       <div className="relative text-center py-6 max-w-2xl mx-auto animate-fade-in">
+        <img
+          src={`${import.meta.env.BASE_URL}inspector-logo.png`}
+          alt="Inspector"
+          className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-3 sm:mb-4 invert drop-shadow-[0_0_24px_rgba(140,180,255,0.35)]"
+        />
         <h2 className="text-4xl font-bold mb-3">
           Inspect any{' '}
           <span className="gradient-text">Commander deck</span>
@@ -692,8 +697,11 @@ export function AnalyzePage() {
         <p className="text-base text-muted-foreground">
           Spot what's missing before you sleeve up.
         </p>
-        <p className="mt-3 inline-flex items-start gap-1.5 text-[11px] text-violet-300/70">
-          <FlaskConical className="w-3 h-3 shrink-0 mt-0.5" aria-hidden="true" />
+      </div>
+
+      <div className="fixed top-[96px] right-2 sm:right-4 z-30 max-w-[320px] rounded-lg border border-violet-400/20 bg-card/85 backdrop-blur-md px-3 py-2 shadow-lg shadow-black/20">
+        <p className="inline-flex items-center gap-1.5 text-[11px] leading-snug text-violet-300/70">
+          <FlaskConical className="w-4 h-4 shrink-0" aria-hidden="true" />
           <span>
             Inspector is still in early development — things may be buggy or behave in surprising ways, especially if your deck does something unique.
           </span>

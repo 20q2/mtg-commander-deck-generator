@@ -111,6 +111,21 @@ const INCLUSION_WEIGHT = 0.4;
 /** Flat bonus for a card the player pinned "for later" — floats it back up in future offers. */
 const PIN_BONUS = 25;
 
+/** Combo glue (appears in ≥2 of the commander's combos) gets a small, capped bump so it surfaces a
+ *  bit more often in packs — never enough to leapfrog a clearly better card. */
+const COMBO_PIECE_PER = 4;
+const COMBO_PIECE_CAP = 6;   // count past this stops adding (max ≈ +24)
+
+/**
+ * "Deep cuts early": while the deck is forming its identity, favor theme-DEFINING cards (high EDHREC
+ * synergy — they show up far more in this commander's decks than baseline) and dampen generic staples
+ * (high inclusion, low synergy). Full strength on an empty deck, fading to zero by mid-game so staples
+ * flow back in naturally once the identity is set. Mirrors the deck generator's Hyper Focus idea.
+ */
+const DEEP_CUT_FADE_FILL = 0.5;     // bias is gone once the deck is this full
+const DEEP_CUT_SYNERGY_W = 140;     // reward per unit of synergy (synergy is -1..1)
+const DEEP_CUT_STAPLE_W = 90;       // dampening per unit of (inclusion × non-synergy)
+
 /**
  * Composite score for a candidate given current state.
  * Reuses scoreRecommendation (role/curve/type/combo/scarcity) and layers theme-affinity on top.
@@ -147,6 +162,15 @@ export function scoreCandidate(
   // Cards the player pinned for later get a flat boost so they resurface in future offers.
   const pinned = (state.pinnedNames ?? []).includes(candidate.name);
   const pin = pinned ? PIN_BONUS : 0;
+  // Combo glue floats up a touch (capped) so recurring combo pieces show in packs more often.
+  const comboCount = ctx.comboPieceCounts[candidate.name] ?? 0;
+  const comboPiece = comboCount >= 2 ? Math.min(comboCount, COMBO_PIECE_CAP) * COMBO_PIECE_PER : 0;
+  // Deep-cut early bias: reward theme-defining synergy, dampen generic staples, fading out by mid-game.
+  const earlyRamp = Math.max(0, 1 - deckFill(ctx, state) / DEEP_CUT_FADE_FILL);
+  const syn = candidate.edhrec.synergy ?? 0;            // -1..1; defining-ness for this commander
+  const incl = candidate.inclusion ?? 0;                // 0..100; staple-ness
+  const stapleness = (incl / 100) * (1 - Math.max(0, Math.min(1, syn)));
+  const deepCut = earlyRamp * (syn * DEEP_CUT_SYNERGY_W - stapleness * DEEP_CUT_STAPLE_W);
   // After a commit, push off-theme cards below the surfacing line — unless they fill a critical role
   // or the player explicitly pinned them (an explicit "I want this" overrides the soft-remove).
   // Scaled by deck fill: gentle early (a committed deck still sees some spice) and firm late.
@@ -155,5 +179,5 @@ export function scoreCandidate(
     && !isUrgentFill(ctx, state, candidate)
     && !pinned
     ? OFF_THEME_PENALTY * (0.5 + 0.5 * deckFill(ctx, state)) : 0;
-  return base + affinity + discovery + cluster + combo - penalty + staples + pin;
+  return base + affinity + discovery + cluster + combo - penalty + staples + pin + comboPiece + deepCut;
 }

@@ -1,4 +1,5 @@
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { X } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { MAJOR_TYPES } from '@/services/spellchroma/explorerSearch';
 
@@ -24,6 +25,13 @@ export function TypeFilterControl({ typeFilter, onTypeFilterChange }: TypeFilter
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-60 p-2">
+        {/* Header carries the close X — the grid below has no corner to spare. */}
+        <div className="mb-1.5 flex items-center justify-between px-1">
+          <p className="text-xs font-medium text-muted-foreground">Card types</p>
+          <PopoverClose aria-label="Close" className="-mr-1 rounded-md p-1 text-muted-foreground/60 hover:bg-accent/50 hover:text-foreground transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </PopoverClose>
+        </div>
         <div className="grid grid-cols-2 gap-1">
           {MAJOR_TYPES.map(t => {
             const active = typeFilter.includes(t.slug);

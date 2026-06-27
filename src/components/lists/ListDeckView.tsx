@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Microscope, Scissors, Sparkles, RotateCw, Redo2, Library } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
+import { InspectorIcon } from '@/components/analyze/InspectorIcon';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
@@ -1876,7 +1877,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             </button>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           {editingName ? (
             <input
               ref={nameInputRef}
@@ -1909,9 +1910,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               )}
             </div>
           )}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
             {totalDeckPrice !== null && totalDeckPrice > 0 && (
-              <span className="text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
+              <span className="hidden xl:inline text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
             )}
             <button
               onClick={() => {
@@ -1921,7 +1922,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               title="Inspect this deck"
               className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
             >
-              <Microscope className="w-4 h-4" />
+              <InspectorIcon className="w-4 h-4" />
               <span>Inspect (Beta)</span>
             </button>
             <button

@@ -55,11 +55,37 @@ export function buildTypeClause(types: string[]): string {
 }
 
 /**
- * Tag terms only. Tags are AND-ed (cards must carry every selected tag),
- * matching the original SpellChroma.
+ * Sentinel prefix marking a `selectedTags` entry as a raw, user-authored Scryfall
+ * query fragment rather than a tag slug. Tag slugs are kebab-case and never
+ * contain `:`, so the prefix is unambiguous.
  */
-export function buildOtagQuery(slugs: string[]): string {
-  return slugs.map(s => `otag:${s}`).join(' ');
+const RAW_TERM_PREFIX = 'raw:';
+
+/** True if a `selectedTags` entry is a raw Scryfall query (vs. a tag slug). */
+export function isRawTerm(entry: string): boolean {
+  return entry.startsWith(RAW_TERM_PREFIX);
+}
+
+/** The query text of a raw term, with the sentinel prefix stripped. */
+export function rawTermText(entry: string): string {
+  return entry.slice(RAW_TERM_PREFIX.length);
+}
+
+/** Wrap user-typed query text as a raw-term `selectedTags` entry. */
+export function makeRawTerm(text: string): string {
+  return `${RAW_TERM_PREFIX}${text.trim()}`;
+}
+
+/**
+ * Query terms from selected entries, AND-ed (cards must satisfy every term),
+ * matching the original SpellChroma. Tag slugs become `otag:<slug>`; raw terms
+ * (see {@link makeRawTerm}) emit their verbatim Scryfall query, parenthesized so
+ * any internal OR stays grouped.
+ */
+export function buildOtagQuery(entries: string[]): string {
+  return entries
+    .map(e => (isRawTerm(e) ? `(${rawTermText(e)})` : `otag:${e}`))
+    .join(' ');
 }
 
 /**

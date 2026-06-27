@@ -155,16 +155,28 @@ export function ExplorerGrid({
     return <Empty title="No cards match those tags" sub="Try fewer tags or a wider color identity." />;
   }
 
+  // A new search (tag/filter change) refetches page 1 while the previous results
+  // stay on screen. Surface that with a dimmed grid + a spinner in the sticky
+  // count row so the change registers even when the user is scrolled down.
+  const refreshing = loading && cards.length > 0;
+
   return (
     <div className="flex flex-col gap-3">
       <div style={sticky ? { top: stickyTop } : undefined}
         className={`flex items-center justify-between text-xs text-muted-foreground px-3 py-2 border-b border-border/50 bg-card/95 backdrop-blur-sm ${sticky ? 'lg:sticky z-20' : ''}`}>
-        <span>
-          {filtered.length === cards.length && hiddenCount === 0
-            ? `Showing ${cards.length} of ${total}`
-            : `Showing ${visible.length} of ${cards.length} loaded (${total} total)`}
-          {hiddenCount > 0 && <span className="text-violet-300/70"> · {hiddenCount} hidden</span>}
-        </span>
+        {refreshing ? (
+          <span className="inline-flex items-center gap-1.5 text-violet-300">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            {phrase}…
+          </span>
+        ) : (
+          <span>
+            {filtered.length === cards.length && hiddenCount === 0
+              ? `Showing ${cards.length} of ${total}`
+              : `Showing ${visible.length} of ${cards.length} loaded (${total} total)`}
+            {hiddenCount > 0 && <span className="text-violet-300/70"> · {hiddenCount} hidden</span>}
+          </span>
+        )}
         <div className="flex items-center gap-2">
           {showCollectionOnly && (
             <button
@@ -209,7 +221,7 @@ export function ExplorerGrid({
         </div>
       </div>
 
-      <div key={dealKey} ref={gridRef} className="grid gap-3 px-3 pb-4 grid-cols-2 sm:gap-4 sm:px-4 sm:grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]">
+      <div key={dealKey} ref={gridRef} className={`grid gap-3 px-3 pb-4 grid-cols-2 sm:gap-4 sm:px-4 sm:grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] transition-opacity duration-200 ${refreshing ? 'opacity-50 pointer-events-none' : ''}`}>
         {visible.map((card, i) => (
           <ExplorerCard
             key={card.id}

@@ -31,12 +31,13 @@ export interface BrewContext {
   landTarget: number;                    // Number of land slots
   nonLandTarget: number;                 // Sum of typeTargets
   combos: EDHRECCombo[];                 // Commander-source combos, for combo routes (Plan 3)
+  comboPieceCounts: Record<string, number>; // card name -> how many of `combos` it appears in (≥2 = "combo piece" / glue)
   themeNames: Record<string, string>;    // theme slug -> display name (for leaning readout + reasons)
   themeSignatures: Record<string, string[]>; // theme slug -> card names ranked by EDHREC theme-synergy (the cards that DEFINE the theme, not staples played in it)
   gameChangerNames?: Set<string>;        // WotC "game changer" list — surfaced as a pick reason
 }
 
-export type ReasonKind = 'synergy' | 'role' | 'theme' | 'curve' | 'combo' | 'discovery' | 'lift' | 'gameChanger' | 'tag';
+export type ReasonKind = 'synergy' | 'role' | 'theme' | 'curve' | 'combo' | 'comboPiece' | 'discovery' | 'lift' | 'gameChanger' | 'tag';
 
 export interface PickReason {
   kind: ReasonKind;

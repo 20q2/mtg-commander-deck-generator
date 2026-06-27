@@ -1,9 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Tag } from 'lucide-react';
+import { Tag, SearchCode } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { allTags, type TagDictEntry } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
+import { makeRawTerm } from '@/services/spellchroma/explorerSearch';
 
 interface TagEntry { s: string; l: string }
 interface Section { label?: string; items: TagEntry[] }
@@ -61,15 +62,19 @@ export function AddTagPopover({ selectedTags, onAddTag, align = 'start', topTags
       : STARTER_TAGS.map(s => bySlug.get(s)).filter((e): e is TagDictEntry => !!e && !sel.has(e.s));
     const leadLabel = topTags?.length ? 'From your deck' : 'Popular tags';
 
-    const leadSet = new Set(lead.map(e => e.s));
-    const rest = dict.filter(e => usable(e) && !leadSet.has(e.s)).slice(0, Math.max(0, 40 - lead.length));
-    return lead.length
-      ? [{ label: leadLabel, items: lead }, { label: 'All tags', items: rest }]
-      : [{ items: rest }];
+    // Only the curated lead is shown when the query is empty — we deliberately
+    // omit the raw-dictionary dump (full of obscure cycle/name trivia), which
+    // made the empty state look like noise.
+    return lead.length ? [{ label: leadLabel, items: lead }] : [];
   }, [query, selectedTags, topTags]);
 
   const pick = (slug: string) => { onAddTag(slug); setQuery(''); setOpen(false); };
   const empty = sections.every(s => s.items.length === 0);
+
+  // Whenever there's typed text, offer it verbatim as a raw Scryfall query — the
+  // escape hatch for criteria with no matching tag (e.g. `pow<=3`, `is:commander`).
+  const trimmedQuery = query.trim();
+  const addRawQuery = () => { onAddTag(makeRawTerm(trimmedQuery)); setQuery(''); setOpen(false); };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -78,7 +83,11 @@ export function AddTagPopover({ selectedTags, onAddTag, align = 'start', topTags
         <Input autoFocus value={query} onChange={e => setQuery(e.target.value)}
           placeholder="Search tags… (e.g. ramp, sacrifice)" className="mb-2" />
         <div className="max-h-64 overflow-y-auto flex flex-col">
-          {empty && <p className="text-xs text-muted-foreground px-2 py-3">No matching tags.</p>}
+          {empty && (
+            <p className="text-xs text-muted-foreground px-2 py-3">
+              {trimmedQuery ? 'No matching tags.' : 'No tags to show.'}
+            </p>
+          )}
           {sections.map((sec, i) => (
             sec.items.length === 0 ? null : (
               <div key={sec.label ?? i} className="flex flex-col">
@@ -97,6 +106,22 @@ export function AddTagPopover({ selectedTags, onAddTag, align = 'start', topTags
             )
           ))}
         </div>
+
+        {/* Escape hatch: drop the typed text straight into the Scryfall query as a
+            raw term. Pinned below the list so it's reachable whether or not tags
+            matched. Amber (vs. the violet tag accent) marks it as "not a tag". */}
+        {trimmedQuery && (
+          <button
+            type="button"
+            onClick={addRawQuery}
+            className="mt-1 flex w-full items-center gap-1.5 text-left px-2 py-2 rounded border-t border-border/50 hover:bg-amber-500/10 transition-colors group"
+          >
+            <SearchCode className="w-3.5 h-3.5 shrink-0 text-amber-400/80" />
+            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+              Search <span className="font-mono text-amber-300">{trimmedQuery}</span> as a Scryfall query
+            </span>
+          </button>
+        )}
       </PopoverContent>
     </Popover>
   );

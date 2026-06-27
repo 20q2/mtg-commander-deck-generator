@@ -1,7 +1,8 @@
-import { Layers, Tag, X, Plus } from 'lucide-react';
+import { Layers, Tag, X, Plus, SearchCode } from 'lucide-react';
 import { SpellChromaIcon } from './SpellChromaIcon';
 import { AddTagPopover } from './AddTagPopover';
 import { Button } from '@/components/ui/button';
+import { isRawTerm, rawTermText } from '@/services/spellchroma/explorerSearch';
 
 export type MobileTab = 'deck' | 'explore';
 
@@ -94,21 +95,30 @@ export function SpellChromaMobileTabs({
               <Plus className="w-3 h-3" /> Add tag
             </Button>
           </AddTagPopover>
-          {selectedTags.map(slug => (
-            <button
-              key={slug}
-              type="button"
-              onClick={() => onRemoveTag(slug)}
-              aria-label={`Remove ${slug}`}
-              title={`Remove ${slug}`}
-              className="group rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-violet-400/50 bg-violet-600 py-0.5 pl-2 pr-1.5 text-[11px] font-medium text-white transition-colors group-hover:border-destructive/60 group-hover:bg-destructive">
-                {slug}
-                <X className="w-3 h-3 opacity-80" />
-              </span>
-            </button>
-          ))}
+          {selectedTags.map(entry => {
+            const raw = isRawTerm(entry);
+            const label = raw ? rawTermText(entry) : entry;
+            return (
+              <button
+                key={entry}
+                type="button"
+                onClick={() => onRemoveTag(entry)}
+                aria-label={`Remove ${label}`}
+                title={`Remove ${label}`}
+                className="group rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full py-0.5 pl-2 pr-1.5 text-[11px] font-medium text-white transition-colors group-hover:border-destructive/60 group-hover:bg-destructive ${
+                  raw
+                    ? 'border border-amber-400/50 bg-amber-600 font-mono'
+                    : 'border border-violet-400/50 bg-violet-600'
+                }`}>
+                  {raw && <SearchCode className="w-3 h-3 opacity-80" />}
+                  {label}
+                  <X className="w-3 h-3 opacity-80" />
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

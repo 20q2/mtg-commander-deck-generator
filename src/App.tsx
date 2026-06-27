@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useLocation, Link } from 'react-router-dom';
-import { Settings, Sparkles, Layers, Library, BarChart3, Microscope, MessageSquare, Package, Boxes } from 'lucide-react';
+import { Settings, Sparkles, Layers, Library, BarChart3, MessageSquare, Package, Boxes } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
@@ -579,7 +579,20 @@ function Layout({ children }: { children: React.ReactNode }) {
             aria-label="Inspector"
           >
             <div className="relative">
-              <Microscope className={`w-5 h-5 ${isAnalyzePage ? 'text-primary' : ''}`} />
+              <span
+                className={`block w-5 h-5 bg-current ${isAnalyzePage ? 'text-primary' : ''}`}
+                style={{
+                  WebkitMaskImage: `url(${import.meta.env.BASE_URL}inspector-logo.png)`,
+                  maskImage: `url(${import.meta.env.BASE_URL}inspector-logo.png)`,
+                  WebkitMaskSize: 'contain',
+                  maskSize: 'contain',
+                  WebkitMaskRepeat: 'no-repeat',
+                  maskRepeat: 'no-repeat',
+                  WebkitMaskPosition: 'center',
+                  maskPosition: 'center',
+                }}
+                aria-hidden="true"
+              />
               <span className="absolute -top-1 -right-3.5 text-[7px] font-medium tracking-wider text-muted-foreground/60 uppercase leading-none">
                 Beta
               </span>

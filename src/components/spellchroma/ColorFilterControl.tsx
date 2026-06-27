@@ -1,4 +1,5 @@
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { X } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { ColorToggle } from './ColorToggle';
 import type { ColorMatch } from '@/services/spellchroma/explorerSearch';
@@ -74,12 +75,18 @@ export function ColorFilterControl({
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium text-muted-foreground">Colors</p>
-            {colorIdentity.length > 0 && (
-              <button type="button" onClick={() => onColorsChange([])}
-                className="text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors">
-                Clear
-              </button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {colorIdentity.length > 0 && (
+                <button type="button" onClick={() => onColorsChange([])}
+                  className="text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors">
+                  Clear
+                </button>
+              )}
+              {/* Explicit close — lets phone users dismiss without tapping the backdrop. */}
+              <PopoverClose aria-label="Close" className="-mr-1 rounded-md p-1 text-muted-foreground/60 hover:bg-accent/50 hover:text-foreground transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </PopoverClose>
+            </div>
           </div>
           <ColorToggle value={colorIdentity} onChange={setInclude} />
         </div>

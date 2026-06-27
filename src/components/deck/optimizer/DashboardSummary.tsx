@@ -50,13 +50,20 @@ function roleRadarData(rbs: RoleBreakdown[]): RadarDatum[] {
 // names would crowd the small chart). Fill is the detector's 0-100 match score on an
 // absolute scale, so the deck's real themes spike and weak/off themes stay short —
 // raw card-overlap was flat because theme lists overlap heavily (every spoke maxed).
+//
+// Match scores cluster tightly (most themes land 60-70, the dominant one ~90), so a
+// linear score→radius map reads as a near-regular blob and the real spike barely shows.
+// We exaggerate the spread with a power curve: scores stay anchored at the ends (0→0,
+// 100→1) but the gentle 0.25 linear gap between a 65 and a 90 widens into a clear spike.
+const STRATEGY_CONTRAST = 1.7;
+const contrastFill = (score: number) => Math.pow(Math.max(0, Math.min(1, score / 100)), STRATEGY_CONTRAST);
 function themeRadarData(coverage: ThemeCoverage[]): RadarDatum[] {
   return coverage.map(c => ({
     key: c.slug,
     // Short label under each spoke; full name + score on hover.
     label: c.name.length > 11 ? `${c.name.slice(0, 10)}…` : c.name,
     current: Math.round(c.score), target: 100,
-    fill: Math.max(0, Math.min(1, c.score / 100)),
+    fill: contrastFill(c.score),
     hue: '262 84% 72%',
     glyph: null,
     tip: `${c.name} — ${Math.round(c.score)}/100 match · ${c.current} card${c.current === 1 ? '' : 's'}`,
