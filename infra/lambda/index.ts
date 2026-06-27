@@ -142,7 +142,7 @@ async function handleGet(params: Record<string, string>) {
     const settingsCounts: Record<string, Record<string, number>> = {
       budgetOption: {},
       bracketLevel: {},
-      maxRarity: {},
+      allowedRarities: {},
       gameChangerLimit: {},
       deckFormat: {},
       comboPreference: {},
@@ -241,7 +241,7 @@ async function handleGet(params: Record<string, string>) {
         };
         if (meta.budgetOption !== undefined) bucket('budgetOption', meta.budgetOption);
         if (meta.bracketLevel !== undefined) bucket('bracketLevel', meta.bracketLevel);
-        bucket('maxRarity', meta.maxRarity ?? 'none');
+        bucket('allowedRarities', Array.isArray(meta.allowedRarities) ? (meta.allowedRarities as string[]).join(',') : 'none');
         if (meta.gameChangerLimit !== undefined) bucket('gameChangerLimit', meta.gameChangerLimit);
 
         // Deck format

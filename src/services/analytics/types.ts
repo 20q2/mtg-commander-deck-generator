@@ -55,7 +55,7 @@ export interface AnalyticsEventMetadata {
     maxCardPrice: number | null;
     deckBudget: number | null;
     bracketLevel: string | number;
-    maxRarity: string | null;
+    allowedRarities: string[] | null;
     hyperFocus: boolean;
     gameChangerLimit: string | number;
     tinyLeaders: boolean;
