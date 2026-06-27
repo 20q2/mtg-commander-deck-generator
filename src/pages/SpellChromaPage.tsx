@@ -99,6 +99,17 @@ export function SpellChromaPage() {
   const deckParamHandled = useRef(false);
 
   useEffect(() => { void loadTagDictionary(); }, []);
+  // The per-card tag popovers read from the lazily-fetched tag index. A deck load
+  // pulls it (handleDeckLoaded), but the deck-less explorer paths — "explore without
+  // a deck", a starter-tag pick, or a hard refresh that restores tags from the URL —
+  // have no deck to trigger it, so previews showed "No oracle tags". Pull it as soon
+  // as the explorer is engaged. loadTagIndex is cached, so repeat calls are free.
+  useEffect(() => {
+    if (indexReady || (!deck && !startedExploring && selectedTags.length === 0)) return;
+    let cancelled = false;
+    void loadTagIndex().then(ok => { if (!cancelled) setIndexReady(ok); });
+    return () => { cancelled = true; };
+  }, [deck, startedExploring, selectedTags.length, indexReady]);
   // Tint the dynamic --border/--ring CSS vars to the active color identity (the
   // adopted deck's colors or the selected color filter), matching the rest of
   // the app. Falls back to the neutral default when no colors are in play.
@@ -607,6 +618,7 @@ export function SpellChromaPage() {
       loadingAll={result.loadingAll}
       error={result.error}
       hasTags={selectedTags.length > 0}
+      indexReady={indexReady}
       textFilter={debouncedTextFilter}
       sort={sort}
       dir={sortDir}

@@ -27,6 +27,8 @@ interface ExplorerGridProps {
   loadingAll: boolean;
   error: boolean;
   hasTags: boolean;       // any tags selected?
+  /** Whether the per-card tag index has loaded — bumps tiles so popover tags fill in. */
+  indexReady?: boolean;
   textFilter: string;
   sort: ExplorerSort;
   dir?: SortDir;
@@ -69,7 +71,7 @@ interface ExplorerGridProps {
 }
 
 export function ExplorerGrid({
-  cards, total, hasMore, loading, loadingAll, error, hasTags, textFilter, sort, dir = 'asc', dealKey, deckNames, collectionNames, hideInDeck = false, showHideInDeck = false, onHideInDeckChange, noun = 'deck', collectionOnly = false, showCollectionOnly = false, onCollectionOnlyChange, topTags, selectedTags, sticky = false, stickyTop = 52, onLoadAll, onTagClick, onRemoveTag,
+  cards, total, hasMore, loading, loadingAll, error, hasTags, indexReady = false, textFilter, sort, dir = 'asc', dealKey, deckNames, collectionNames, hideInDeck = false, showHideInDeck = false, onHideInDeckChange, noun = 'deck', collectionOnly = false, showCollectionOnly = false, onCollectionOnlyChange, topTags, selectedTags, sticky = false, stickyTop = 52, onLoadAll, onTagClick, onRemoveTag,
   onCardAction, boardsEnabled = false, menuProps, cardComboMap,
 }: ExplorerGridProps) {
   // Full-card preview opened by clicking the image inside a card's popover
@@ -227,6 +229,7 @@ export function ExplorerGrid({
             key={card.id}
             card={card}
             index={i}
+            indexReady={indexReady}
             inDeck={!!deckNames?.has(card.name)}
             inCollection={!!collectionNames?.has(card.name)}
             noun={noun}
@@ -263,9 +266,10 @@ function Empty({ title, sub, action, spinner = false }: { title: string; sub: st
   );
 }
 
-const ExplorerCard = memo(function ExplorerCard({ card, index, inDeck = false, inCollection = false, noun = 'deck', selectedTags, onTagClick, onRemoveTag, onCardAction, boardsEnabled = false, onPreview, menuProps }: {
+const ExplorerCard = memo(function ExplorerCard({ card, index, indexReady = false, inDeck = false, inCollection = false, noun = 'deck', selectedTags, onTagClick, onRemoveTag, onCardAction, boardsEnabled = false, onPreview, menuProps }: {
   card: ScryfallCard;
   index: number;
+  indexReady?: boolean;
   inDeck?: boolean;
   inCollection?: boolean;
   noun?: 'deck' | 'list';
@@ -281,11 +285,14 @@ const ExplorerCard = memo(function ExplorerCard({ card, index, inDeck = false, i
   const canMenu = !!(onCardAction && menuProps);
   const titleSuffix = inDeck ? ` · already in your ${noun}` : inCollection ? ' · in your collection' : '';
 
+  // `indexReady` is a dep so tiles that mounted before the tag index finished
+  // loading recompute their tags once it arrives (otherwise the popover stays
+  // stuck on the empty snapshot from mount).
   const tags = useMemo(() => {
     const all = tagsForOracleId(card.oracle_id ?? '');
     const helpful = all.filter(s => !isIgnoredTag(s));
     return helpful.length ? helpful : all;
-  }, [card]);
+  }, [card, indexReady]);
   const selected = useMemo(() => new Set(selectedTags ?? []), [selectedTags]);
 
   return (
@@ -367,6 +374,7 @@ const ExplorerCard = memo(function ExplorerCard({ card, index, inDeck = false, i
   // CSS deal-in delay, which is inert once a tile is on screen (a genuinely new
   // search remounts the whole grid via its `key`, giving fresh tiles fresh delays).
   prev.card === next.card &&
+  prev.indexReady === next.indexReady &&
   prev.inDeck === next.inDeck &&
   prev.inCollection === next.inCollection &&
   prev.noun === next.noun &&
