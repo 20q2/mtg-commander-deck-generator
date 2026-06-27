@@ -610,7 +610,7 @@ export function OptimizePage() {
                         budgetOption: 'any',
                         gameChangerLimit: 'unlimited',
                         bracketLevel: 'all',
-                        maxRarity: null,
+                        allowedRarities: null,
                         tinyLeaders: false,
                         collectionMode: false,
                         arenaOnly: false,
