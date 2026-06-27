@@ -27,7 +27,7 @@ function buildPristineCustomization(): Customization {
     budgetOption: 'any',
     gameChangerLimit: 'unlimited',
     bracketLevel: 'all',
-    maxRarity: null,
+    allowedRarities: null,
     tinyLeaders: false,
     ignoreOwnedBudget: false,
     ignoreOwnedRarity: false,

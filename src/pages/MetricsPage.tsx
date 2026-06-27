@@ -129,7 +129,7 @@ const REGION_FLAGS: Record<string, string> = {
 const SETTING_LOGICAL_ORDER: Record<string, string[]> = {
   bracketLevel: ['all', '1', '2', '3', '4', '5'],
   comboPreference: ['None', 'A Few', 'Many'],
-  maxRarity: ['common', 'uncommon', 'rare', 'none'],
+  allowedRarities: ['common', 'uncommon', 'rare', 'mythic', 'none'],
   deckFormat: ['Commander', 'Brawl', 'Custom'],
   landCount: ['≤33 (Aggro)', '34-36', '37 (Standard)', '38-40', '41+ (Control)'],
 };
@@ -142,7 +142,7 @@ const SETTINGS_PANELS = [
   { key: 'budgetOption', label: 'EDHREC Card Pool' },
   { key: 'deckBudget', label: 'Deck Budget' },
   { key: 'maxCardPrice', label: 'Max Card Price' },
-  { key: 'maxRarity', label: 'Max Rarity' },
+  { key: 'allowedRarities', label: 'Rarities' },
   { key: 'landCount', label: 'Land Count' },
 ];
 

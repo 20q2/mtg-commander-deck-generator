@@ -414,7 +414,7 @@ export async function buildSwapCandidates(
       colorIdentity,
       new Set(),
       null,
-      'mythic',
+      null,
       null,
       undefined,
       'USD',

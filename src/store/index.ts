@@ -242,7 +242,7 @@ const defaultCustomization: Customization = {
   budgetOption: 'any' as const, // Default to normal card pool
   gameChangerLimit: 'unlimited' as const,
   bracketLevel: 'all' as const,
-  maxRarity: null,
+  allowedRarities: null,
   tinyLeaders: false,
   ignoreOwnedBudget: false,
   ignoreOwnedRarity: false,
