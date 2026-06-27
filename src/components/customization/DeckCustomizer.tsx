@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { useStore } from '@/store';
-import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, MaxRarity, Pacing } from '@/types';
+import type { DeckFormat, BudgetOption, GameChangerLimit, BracketLevel, Rarity, Pacing } from '@/types';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
@@ -23,6 +23,13 @@ const PACING_LABELS: { value: Pacing; label: string }[] = [
   { value: 'late-game', label: 'Late Game' },
 ];
 
+
+const RARITY_OPTIONS: { value: Rarity; label: string }[] = [
+  { value: 'common', label: 'Common' },
+  { value: 'uncommon', label: 'Uncommon' },
+  { value: 'rare', label: 'Rare' },
+  { value: 'mythic', label: 'Mythic' },
+];
 
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast, brewMode = false }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void; brewMode?: boolean } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
@@ -220,6 +227,24 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
     const parsed = parseInt(gcLimitInputValue, 10);
     if (!isNaN(parsed) && parsed > 0) {
       updateCustomization({ gameChangerLimit: parsed });
+    }
+  };
+
+  const toggleRarity = (r: Rarity) => {
+    const current = customization.allowedRarities; // null = "All"
+    if (current === null) {
+      // Leaving "All" → start a fresh allow-list with just this rarity
+      updateCustomization({ allowedRarities: [r] });
+      return;
+    }
+    const next = current.includes(r)
+      ? current.filter((x) => x !== r)
+      : [...current, r];
+    // Empty selection snaps back to "All"; selecting all four collapses to "All"
+    if (next.length === 0 || next.length === RARITY_OPTIONS.length) {
+      updateCustomization({ allowedRarities: null });
+    } else {
+      updateCustomization({ allowedRarities: next });
     }
   };
 
@@ -1064,11 +1089,15 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
             Other
-            {!otherOpen && (customization.maxRarity !== null || customization.tinyLeaders || customization.arenaOnly || customization.scryfallQuery) && (
+            {!otherOpen && (customization.allowedRarities !== null || customization.tinyLeaders || customization.arenaOnly || customization.scryfallQuery) && (
               <span className="text-[10px] font-normal text-violet-200 bg-primary/20 px-1.5 py-0.5 rounded-full">
                 {[
                   customization.arenaOnly ? 'Arena' : null,
-                  customization.maxRarity !== null ? `${customization.maxRarity} max` : null,
+                  customization.allowedRarities !== null
+                    ? customization.allowedRarities
+                        .map((r) => r.charAt(0).toUpperCase() + r.slice(1))
+                        .join(', ')
+                    : null,
                   customization.tinyLeaders ? 'Tiny Leaders' : null,
                   customization.scryfallQuery ? 'Custom query' : null,
                 ].filter(Boolean).join(' · ')}
@@ -1090,33 +1119,42 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
           <div className="overflow-hidden">
           <div className="mt-3 space-y-6 px-3">
             <div>
-              <label className="text-sm font-medium mb-2 block">Max Card Rarity</label>
+              <label className="text-sm font-medium mb-2 block">Card Rarity</label>
               <p className="text-xs text-muted-foreground mb-2">
-                Restrict cards to a maximum rarity level.
+                Limit which rarities cards can be.
               </p>
               <div className="flex gap-2">
-                {([
-                  { value: 'common' as MaxRarity, label: 'Common' },
-                  { value: 'uncommon' as MaxRarity, label: 'Uncommon' },
-                  { value: 'rare' as MaxRarity, label: 'Rare' },
-                  { value: null as MaxRarity, label: 'All' },
-                ] as const).map((option) => (
-                  <button
-                    key={option.label}
-                    onClick={() => updateCustomization({ maxRarity: option.value })}
-                    className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
-                      customization.maxRarity === option.value
-                        ? option.value === null
-                          ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
-                          : 'border-primary bg-primary/10 text-violet-200 border'
-                        : 'border border-border hover:border-primary/50'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {RARITY_OPTIONS.map((option) => {
+                  const active =
+                    customization.allowedRarities !== null &&
+                    customization.allowedRarities.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      onClick={() => toggleRarity(option.value)}
+                      className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                        active
+                          ? 'border-primary bg-primary/10 text-violet-200 border'
+                          : 'border border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+                <button
+                  key="all"
+                  onClick={() => updateCustomization({ allowedRarities: null })}
+                  className={`flex-1 py-1.5 px-1 rounded text-xs font-medium transition-colors ${
+                    customization.allowedRarities === null
+                      ? 'bg-muted border border-muted-foreground/30 text-muted-foreground'
+                      : 'border border-border hover:border-primary/50'
+                  }`}
+                >
+                  All
+                </button>
               </div>
-              {customization.maxRarity !== null && collectionCount > 0 && (
+              {customization.allowedRarities !== null && collectionCount > 0 && (
                 <label className="flex items-center gap-3 mt-2 ml-3 select-none group cursor-pointer">
                   <input
                     type="checkbox"
