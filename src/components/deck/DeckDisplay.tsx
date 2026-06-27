@@ -4628,7 +4628,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           if (customization.budgetOption === 'expensive') summaryParts.push('Expensive');
           if (customization.maxCardPrice !== null) summaryParts.push(`<${sym}${customization.maxCardPrice}/card`);
           if (customization.deckBudget !== null) summaryParts.push(`${sym}${customization.deckBudget} deck budget`);
-          if (customization.maxRarity) summaryParts.push(`${customization.maxRarity.charAt(0).toUpperCase() + customization.maxRarity.slice(1)} max`);
+          if (customization.allowedRarities) summaryParts.push(customization.allowedRarities.map((r) => r.charAt(0).toUpperCase() + r.slice(1)).join(', '));
           if (customization.tinyLeaders) summaryParts.push('Tiny Leaders');
           if (customization.arenaOnly) summaryParts.push('Arena Only');
           if (customization.collectionMode) summaryParts.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
