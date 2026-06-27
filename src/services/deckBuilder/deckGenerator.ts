@@ -14,7 +14,7 @@ import type {
   EDHRECCombo,
   EDHRECCommanderData,
   EDHRECCommanderStats,
-  MaxRarity,
+  Rarity,
   ManaPhilosophy,
   BracketLevel,
   BudgetOption,
@@ -29,6 +29,7 @@ import {
 } from './curveUtils';
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket } from './bracketEstimator';
+import { rarityAllowed, buildRarityQueryFragment } from './rarityFilter';
 import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
 import type { Pacing, RoleTargetBreakdown } from '@/types';
@@ -255,14 +256,6 @@ function exceedsMaxPrice(card: ScryfallCard, maxPrice: number | null, currency: 
   return isNaN(price) || price > maxPrice;
 }
 
-// Check if a card exceeds the max rarity limit
-const RARITY_ORDER: Record<string, number> = { common: 0, uncommon: 1, rare: 2, mythic: 3 };
-
-function exceedsMaxRarity(card: ScryfallCard, maxRarity: MaxRarity): boolean {
-  if (maxRarity === null) return false;
-  return (RARITY_ORDER[card.rarity] ?? 3) > RARITY_ORDER[maxRarity];
-}
-
 // Check if a card is NOT in the user's collection (for collection mode)
 function notInCollection(cardName: string, collectionNames: Set<string> | undefined): boolean {
   if (!collectionNames) return false;
@@ -391,7 +384,7 @@ function pickFromPrefetched(
   maxCardPrice: number | null = null,
   maxGameChangers: number = Infinity,
   gameChangerCount: { value: number } = { value: 0 },
-  maxRarity: MaxRarity = null,
+  allowedRarities: Rarity[] | null = null,
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
@@ -429,7 +422,7 @@ function pickFromPrefetched(
       if (exceedsMaxPrice(scryfallCard, effectiveCap, currency)) return false;
     }
     if (!isOwnedRarityExempt(edhrecCard.name, collectionNames, ignoreOwnedRarity)) {
-      if (exceedsMaxRarity(scryfallCard, maxRarity)) return false;
+      if (!rarityAllowed(scryfallCard.rarity, allowedRarities)) return false;
     }
     if (exceedsCmcCap(scryfallCard, maxCmc)) return false;
     if (notOnArena(scryfallCard, arenaOnly)) return false;
@@ -545,7 +538,7 @@ function pickFromPrefetchedWithCurve(
   maxCardPrice: number | null = null,
   maxGameChangers: number = Infinity,
   gameChangerCount: { value: number } = { value: 0 },
-  maxRarity: MaxRarity = null,
+  allowedRarities: Rarity[] | null = null,
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
@@ -633,7 +626,7 @@ function pickFromPrefetchedWithCurve(
 
       // Rarity limit check
       if (!isOwnedRarityExempt(edhrecCard.name, collectionNames, ignoreOwnedRarity)) {
-        if (exceedsMaxRarity(scryfallCard, maxRarity)) {
+        if (!rarityAllowed(scryfallCard.rarity, allowedRarities)) {
           continue;
         }
       }
@@ -799,7 +792,7 @@ export function collectSwapCandidates(
   colorIdentity: string[],
   bannedCards: Set<string>,
   maxCardPrice: number | null,
-  maxRarity: MaxRarity,
+  allowedRarities: Rarity[] | null,
   maxCmc: number | null,
   collectionNames: Set<string> | undefined,
   currency: 'USD' | 'EUR',
@@ -833,7 +826,7 @@ export function collectSwapCandidates(
       if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
       if (exceedsMaxPrice(scryfallCard, maxCardPrice, currency)) continue;
       if (!isOwnedRarityExempt(edhrecCard.name, collectionNames, ignoreOwnedRarity)) {
-        if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
+        if (!rarityAllowed(scryfallCard.rarity, allowedRarities)) continue;
       }
       if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
       if (notOnArena(scryfallCard, arenaOnly)) continue;
@@ -956,7 +949,7 @@ async function fillWithScryfall(
   usedNames: Set<string>,
   bannedCards: Set<string> = new Set(),
   maxCardPrice: number | null = null,
-  maxRarity: MaxRarity = null,
+  allowedRarities: Rarity[] | null = null,
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
@@ -971,8 +964,8 @@ async function fillWithScryfall(
 
   // Add rarity filter to Scryfall query if set (skip when owned cards can bypass rarity)
   let fullQuery = query;
-  if (maxRarity && !ignoreOwnedRarity) {
-    fullQuery += ` r<=${maxRarity}`;
+  if (!ignoreOwnedRarity) {
+    fullQuery += buildRarityQueryFragment(allowedRarities);
   }
   // Add CMC cap to Scryfall query (Tiny Leaders)
   if (maxCmc !== null) {
@@ -1002,7 +995,7 @@ async function fillWithScryfall(
         if (exceedsMaxPrice(card, effectiveCap, currency)) continue;
       }
       if (!isOwnedRarityExempt(card.name, collectionNames, ignoreOwnedRarity)) {
-        if (exceedsMaxRarity(card, maxRarity)) continue;
+        if (!rarityAllowed(card.rarity, allowedRarities)) continue;
       }
       if (exceedsCmcCap(card, maxCmc)) continue;
       // Arena-only is already enforced by the `game:arena` operator appended to the
@@ -1094,7 +1087,7 @@ async function resolveMultiCopyCards(
   deckSize: number,
   bannedCards: Set<string>,
   maxCardPrice: number | null,
-  maxRarity: MaxRarity,
+  allowedRarities: Rarity[] | null,
   currency: 'USD' | 'EUR' = 'USD',
   collectionNames?: Set<string>,
   ignoreOwnedRarity: boolean = false,
@@ -1168,7 +1161,7 @@ async function resolveMultiCopyCards(
         continue;
       }
       if (!isOwnedRarityExempt(cardName, collectionNames, ignoreOwnedRarity)) {
-        if (exceedsMaxRarity(card, maxRarity)) {
+        if (!rarityAllowed(card.rarity, allowedRarities)) {
           console.log(`[DeckGen] "${cardName}" exceeds max rarity, skipping multi-copy`);
           continue;
         }
@@ -1232,7 +1225,7 @@ async function generateLands(
   onProgress?: (message: string, percent: number) => void,
   bannedCards: Set<string> = new Set(),
   maxCardPrice: number | null = null,
-  maxRarity: MaxRarity = null,
+  allowedRarities: Rarity[] | null = null,
   maxCmc: number | null = null,
   budgetTracker: BudgetTracker | null = null,
   collectionNames?: Set<string>,
@@ -1335,7 +1328,7 @@ async function generateLands(
       }
     }
 
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, maxRarity, maxCmc, budgetTracker, collectionNames, landPenalties.size > 0 ? landPenalties : undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget, ignoreOwnedRarity);
+    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, allowedRarities, maxCmc, budgetTracker, collectionNames, landPenalties.size > 0 ? landPenalties : undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget, ignoreOwnedRarity);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
   }
@@ -1346,7 +1339,7 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, maxRarity, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, allowedRarities, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity);
     lands.push(...moreLands);
   }
 
@@ -1684,7 +1677,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const maxCardPrice = customization.maxCardPrice ?? null;
   const budgetOption = customization.budgetOption !== 'any' ? customization.budgetOption : undefined;
   const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
-  const maxRarity = customization.maxRarity ?? null;
+  const allowedRarities = customization.allowedRarities ?? null;
   const maxCmc = customization.tinyLeaders ? 3 : null;
   const arenaOnly = !!customization.arenaOnly;
   const scryfallQuery = customization.scryfallQuery ?? '';
@@ -2005,8 +1998,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
       // Skip cards that exceed the max rarity limit
       if (!isOwnedRarityExempt(name, context.collectionNames, ignoreOwnedRarity)) {
-        if (exceedsMaxRarity(card, maxRarity)) {
-          console.warn(`[DeckGen] Must-include card "${name}" skipped (rarity "${card.rarity}" exceeds max "${maxRarity}")`);
+        if (!rarityAllowed(card.rarity, allowedRarities)) {
+          console.warn(`[DeckGen] Must-include card "${name}" skipped (rarity "${card.rarity}" exceeds max "${allowedRarities}")`);
           continue;
         }
       }
@@ -2392,7 +2385,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       format === 99 ? 100 : format, // EDHREC uses 100-card decks
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       currency,
       context.collectionNames,
       ignoreOwnedRarity,
@@ -2691,7 +2684,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCardPrice,
       maxGameChangers,
       gameChangerCount,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -2720,7 +2713,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         usedNames,
         bannedCards,
         maxCardPrice,
-        maxRarity,
+        allowedRarities,
         maxCmc,
         budgetTracker,
         context.collectionNames,
@@ -2756,7 +2749,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCardPrice,
       maxGameChangers,
       gameChangerCount,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -2791,7 +2784,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCardPrice,
       maxGameChangers,
       gameChangerCount,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -2826,7 +2819,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCardPrice,
       maxGameChangers,
       gameChangerCount,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -2861,7 +2854,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       maxCardPrice,
       maxGameChangers,
       gameChangerCount,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -2897,7 +2890,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         maxCardPrice,
         maxGameChangers,
         gameChangerCount,
-        maxRarity,
+        allowedRarities,
         maxCmc,
         budgetTracker,
         context.collectionNames,
@@ -2971,7 +2964,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         onProgress,
         bannedCards,
         maxCardPrice,
-        maxRarity,
+        allowedRarities,
         maxCmc,
         budgetTracker,
         context.collectionNames,
@@ -3010,7 +3003,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       colorIdentity,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       context.collectionNames,
       currency,
@@ -3032,7 +3025,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3052,7 +3045,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3072,7 +3065,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3092,7 +3085,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3114,7 +3107,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3136,7 +3129,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3158,7 +3151,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       usedNames,
       bannedCards,
       maxCardPrice,
-      maxRarity,
+      allowedRarities,
       maxCmc,
       budgetTracker,
       context.collectionNames,
@@ -3181,7 +3174,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         usedNames,
         bannedCards,
         maxCardPrice,
-        maxRarity,
+        allowedRarities,
         maxCmc,
         budgetTracker,
         context.collectionNames,
@@ -3205,7 +3198,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         usedNames,
         bannedCards,
         maxCardPrice,
-        maxRarity,
+        allowedRarities,
         maxCmc,
         budgetTracker,
         context.collectionNames,
@@ -3252,7 +3245,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         onProgress,
         bannedCards,
         maxCardPrice,
-        maxRarity,
+        allowedRarities,
         maxCmc,
         budgetTracker,
         context.collectionNames,
@@ -3288,7 +3281,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const card = await getCardByName(staple.name, true);
         // Respect budget, rarity, arena-only constraints
         if (!isOwnedBudgetExempt(staple.name, context.collectionNames, ignoreOwnedBudget) && exceedsMaxPrice(card, maxCardPrice, currency)) continue;
-        if (!isOwnedRarityExempt(staple.name, context.collectionNames, ignoreOwnedRarity) && exceedsMaxRarity(card, maxRarity)) continue;
+        if (!isOwnedRarityExempt(staple.name, context.collectionNames, ignoreOwnedRarity) && !rarityAllowed(card.rarity, allowedRarities)) continue;
         if (notOnArena(card, arenaOnly)) continue;
         markUsed(card.name);
         categorizeCards([card], categories);
@@ -3488,7 +3481,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         if (collectionStrategy === 'full' && notInCollection(edhrecCard.name, context.collectionNames)) continue;
         if (exceedsMaxPrice(scryfallCard, shortagePriceCap, currency)) continue;
         if (!isOwnedRarityExempt(edhrecCard.name, context.collectionNames, ignoreOwnedRarity)) {
-          if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
+          if (!rarityAllowed(scryfallCard.rarity, allowedRarities)) continue;
         }
         if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
 
@@ -3528,7 +3521,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           if (collectionStrategy === 'full' && notInCollection(edhrecCard.name, context.collectionNames)) continue;
           if (exceedsMaxPrice(scryfallCard, shortagePriceCap, currency)) continue;
           if (!isOwnedRarityExempt(edhrecCard.name, context.collectionNames, ignoreOwnedRarity)) {
-            if (exceedsMaxRarity(scryfallCard, maxRarity)) continue;
+            if (!rarityAllowed(scryfallCard.rarity, allowedRarities)) continue;
           }
           if (exceedsCmcCap(scryfallCard, maxCmc)) continue;
 
@@ -3579,7 +3572,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const toFill = Math.min(deficit, stillNeeded - filled);
         const cards = await fillWithScryfall(
           query, colorIdentity, toFill, usedNames, bannedCards,
-          shortagePriceCap, maxRarity, maxCmc, null,
+          shortagePriceCap, allowedRarities, maxCmc, null,
           context.collectionNames, currency, arenaOnly, scryfallQuery,
           collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity
         );
@@ -3598,7 +3591,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const moreCards = await fillWithScryfall(
           '(t:artifact OR t:enchantment OR t:creature)',
           colorIdentity, remaining, usedNames, bannedCards,
-          shortagePriceCap, maxRarity, maxCmc, null,
+          shortagePriceCap, allowedRarities, maxCmc, null,
           context.collectionNames, currency, arenaOnly, scryfallQuery,
           collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity
         );
@@ -3863,7 +3856,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     if (exceedsCmcCap(card, maxCmc)) return false;
     if (notOnArena(card, arenaOnly)) return false;
     const rarityExempt = isOwnedRarityExempt(card.name, context.collectionNames, ignoreOwnedRarity);
-    if (!rarityExempt && exceedsMaxRarity(card, maxRarity)) return false;
+    if (!rarityExempt && !rarityAllowed(card.rarity, allowedRarities)) return false;
     const budgetExempt = isOwnedBudgetExempt(card.name, context.collectionNames, ignoreOwnedBudget);
     if (!budgetExempt && exceedsMaxPrice(card, maxCardPrice, currency)) return false;
     if (collectionStrategy === 'full' && notInCollection(card.name, context.collectionNames)) return false;
