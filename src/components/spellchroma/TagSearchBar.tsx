@@ -15,6 +15,7 @@ const SORTS: { key: ExplorerSort; label: string }[] = [
   { key: 'cmc',    label: 'CMC' },
   { key: 'name',   label: 'A–Z' },
   { key: 'type',   label: 'Type' },
+  { key: 'new',    label: 'New' },
 ];
 
 interface TagSearchBarProps {

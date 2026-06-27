@@ -256,7 +256,7 @@ export async function searchCards(
   query: string,
   colorIdentity: string[],
   options: {
-    order?: 'edhrec' | 'cmc' | 'name';
+    order?: 'edhrec' | 'cmc' | 'name' | 'released';
     dir?: 'asc' | 'desc';
     page?: number;
     skipFormatFilter?: boolean;

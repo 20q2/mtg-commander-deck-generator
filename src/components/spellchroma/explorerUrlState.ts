@@ -23,7 +23,7 @@ export const DEFAULT_FILTERS: ExplorerFilterState = {
 };
 
 const COLOR_MODES: ColorMatch[] = ['subset', 'exact', 'atleast'];
-const SORTS: ExplorerSort[] = ['edhrec', 'cmc', 'name', 'type'];
+const SORTS: ExplorerSort[] = ['edhrec', 'cmc', 'name', 'type', 'new'];
 const DIRS: SortDir[] = ['asc', 'desc'];
 const COLOR_LETTERS = new Set(['W', 'U', 'B', 'R', 'G']);
 

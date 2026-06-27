@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.3.13",
+    "notes": [
+      "Fixed SpellChroma cards sometimes showing no tags when you explore without a deck or refresh the page",
+      "Added a \"New\" sort to SpellChroma so you can browse the most recently released cards first",
+      "When SpellChroma hides cards, the count now tells you why (already in your deck, or not in your collection)",
+      "More mobile polish in the SpellChroma deck view"
+    ]
+  },
+  {
     "version": "1.3.12",
     "notes": [
       "Add your own custom Scryfall query parameters to your Spellchroma exploration (Start typing it out and you'll see the new button to add a query)",      

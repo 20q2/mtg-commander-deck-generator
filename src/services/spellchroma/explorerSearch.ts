@@ -1,7 +1,7 @@
 import { searchCards } from '@/services/scryfall/client';
 import type { ScryfallCard, ScryfallSearchResponse } from '@/types';
 
-export type ExplorerSort = 'edhrec' | 'cmc' | 'name' | 'type';
+export type ExplorerSort = 'edhrec' | 'cmc' | 'name' | 'type' | 'new';
 export type SortDir = 'asc' | 'desc';
 
 /** How the selected colors constrain a card's color identity. */
@@ -110,9 +110,13 @@ export function searchTagPage(
   dir: SortDir = 'asc',
 ): Promise<ScryfallSearchResponse> {
   // Scryfall has no "type" order; type grouping is applied client-side, so the
-  // server still sorts by edhrec for that mode.
-  const order = sort === 'type' ? 'edhrec' : sort;
-  return searchCards(buildExplorerQuery(slugs, filters), [], { order, dir, page });
+  // server still sorts by edhrec for that mode. "new" maps to Scryfall's
+  // `released` order; its direction is inverted so the UI's default `asc`
+  // (= "newest first", matching how the client sorts) lines up with the page-1
+  // cards the server returns (Scryfall `released asc` is oldest-first).
+  const order = sort === 'type' ? 'edhrec' : sort === 'new' ? 'released' : sort;
+  const effectiveDir = sort === 'new' ? (dir === 'asc' ? 'desc' : 'asc') : dir;
+  return searchCards(buildExplorerQuery(slugs, filters), [], { order, dir: effectiveDir, page });
 }
 
 /**

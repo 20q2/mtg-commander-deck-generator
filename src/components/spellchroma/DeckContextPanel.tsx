@@ -348,9 +348,11 @@ export function DeckContextPanel({
               {!compactToolbar && <span className="whitespace-nowrap">Matched</span>}
             </button>
           )}
-          {/* Cards sub-mode: our grouped grid, or the full DeckBuildingArea playmat. */}
+          {/* Cards sub-mode: our grouped grid, or the full DeckBuildingArea playmat.
+              On mobile it moves to the right end of the row (after the view tabs);
+              on desktop it keeps its spot just left of the view tabs. */}
           {view === 'cards' && (
-            <div className="shrink-0 flex items-center border border-border/50 rounded-md overflow-hidden">
+            <div className="shrink-0 flex items-center border border-border/50 rounded-md overflow-hidden max-sm:order-last max-sm:ml-auto">
               {([['grid', 'Grid', Grid3x3], ['builder', 'Builder', Columns3]] as const).map(([key, label, Icon], i) => (
                 <div key={key} className="contents">
                   {i > 0 && <div className="w-px h-4 bg-border/50" />}

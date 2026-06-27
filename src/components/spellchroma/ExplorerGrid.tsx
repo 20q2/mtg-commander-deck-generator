@@ -119,6 +119,10 @@ export function ExplorerGrid({
       sort === 'cmc' ? (a, b) => (a.cmc ?? 0) - (b.cmc ?? 0)
       : sort === 'name' ? (a, b) => a.name.localeCompare(b.name)
       : sort === 'type' ? (a, b) => typeRank(a) - typeRank(b)
+      // released_at is ISO "YYYY-MM-DD", so a string compare is chronological;
+      // compare b→a so the default (asc) puts the newest releases first. Missing
+      // dates sort last (treated as oldest).
+      : sort === 'new' ? (a, b) => (b.released_at ?? '').localeCompare(a.released_at ?? '')
       : byRank;
     const sign = dir === 'desc' ? -1 : 1;
     return [...filtered].sort((a, b) => sign * primary(a, b) || byRank(a, b));
@@ -132,6 +136,12 @@ export function ExplorerGrid({
     return list;
   }, [ordered, hideInDeck, deckNames, collectionOnly, collectionNames]);
   const hiddenCount = ordered.length - visible.length;
+  // Cards only ever leave `visible` via the two toggles below, so the reason is
+  // fully determined by which are active — spell it out instead of a bare "hidden".
+  const hiddenReason =
+    hideInDeck && collectionOnly ? `already in your ${noun} or not owned`
+    : hideInDeck ? `already in your ${noun}`
+    : 'not in your collection';
 
   // States that pre-empt the grid.
   if (!hasTags) {
@@ -176,7 +186,7 @@ export function ExplorerGrid({
             {filtered.length === cards.length && hiddenCount === 0
               ? `Showing ${cards.length} of ${total}`
               : `Showing ${visible.length} of ${cards.length} loaded (${total} total)`}
-            {hiddenCount > 0 && <span className="text-violet-300/70"> · {hiddenCount} hidden</span>}
+            {hiddenCount > 0 && <span className="text-violet-300/70"> · {hiddenCount} {hiddenReason}</span>}
           </span>
         )}
         <div className="flex items-center gap-2">
