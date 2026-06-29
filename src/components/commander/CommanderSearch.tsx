@@ -310,8 +310,12 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     </div>
   );
 
+  // Browsing strategies wants more horizontal room so the commander chips spread
+  // out instead of stacking in a narrow column; collapse back once a query is typed.
+  const isStrategyBrowse = suggestionTab === 'strategy' && !query && !ownedOnly;
+
   return (
-    <div className="w-full max-w-lg mx-auto relative">
+    <div className={`w-full mx-auto relative transition-[max-width] duration-300 ${isStrategyBrowse ? 'max-w-3xl' : 'max-w-lg'}`}>
       <div className="relative">
         <div className="absolute left-4 inset-y-0 flex items-center pointer-events-none">
           <Search className="w-5 h-5 text-muted-foreground" />
@@ -465,13 +469,13 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               <div className="flex justify-center gap-2 mb-4">
                 <button
                   onClick={() => setSuggestionTab('edhrec')}
-                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'edhrec' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'edhrec' ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
                 >
                   Top commanders
                 </button>
                 <button
                   onClick={() => setSuggestionTab('strategy')}
-                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'strategy' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'strategy' ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
                 >
                   By strategy
                 </button>
