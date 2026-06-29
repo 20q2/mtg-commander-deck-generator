@@ -1591,3 +1591,74 @@ export async function fetchAllTags(): Promise<EDHRECTag[]> {
     return [];
   }
 }
+
+interface RawTagCommanderEntry {
+  name?: string;
+  sanitized?: string;
+  inclusion?: number;
+  num_decks?: number;
+}
+
+interface RawTagPageResponse {
+  container?: { json_dict?: { cardlists?: Array<{ tag?: string; cardviews?: RawTagCommanderEntry[] }> } };
+}
+
+/** Pure: parse a tag page into its top commanders (no color enrichment). Drops partner pairs. */
+export function parseTagCommanders(raw: RawTagPageResponse): EDHRECTopCommander[] {
+  const lists = raw.container?.json_dict?.cardlists ?? [];
+  const list = lists.find(l => l.tag === 'topcommanders');
+  const out: EDHRECTopCommander[] = [];
+  let rank = 1;
+  for (const v of list?.cardviews ?? []) {
+    if (!v.name || v.name.includes('//')) continue;
+    out.push({
+      rank: rank++,
+      name: v.name,
+      sanitized: v.sanitized ?? '',
+      colorIdentity: [],
+      numDecks: v.num_decks ?? v.inclusion ?? 0,
+    });
+  }
+  return out;
+}
+
+const tagCommandersCache = new Map<string, { data: EDHRECTopCommander[]; timestamp: number }>();
+
+/**
+ * Fetch the top commanders for an EDHREC strategy tag, optionally narrowed to a color slug
+ * (produced by colorIdentityToSlug). Color identity is absent from tag payloads, so it's
+ * enriched from Scryfall. Returns [] on failure. Cached per slug+colorSlug for CACHE_TTL.
+ */
+export async function fetchTagCommanders(slug: string, colorSlug?: string): Promise<EDHRECTopCommander[]> {
+  const cacheKey = colorSlug ? `${slug}/${colorSlug}` : slug;
+  const cached = tagCommandersCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
+
+  try {
+    const endpoint = colorSlug
+      ? `/pages/tags/${slug}/${colorSlug}.json`
+      : `/pages/tags/${slug}.json`;
+    const response = await edhrecFetch<RawTagPageResponse>(endpoint);
+    let commanders = parseTagCommanders(response);
+
+    // Tag payloads omit color identity — enrich from Scryfall (same pattern as fetchTopCommanders).
+    if (commanders.length > 0) {
+      try {
+        const { getCardsByNames } = await import('@/services/scryfall/client');
+        const cardMap = await getCardsByNames(commanders.map(c => c.name));
+        commanders = commanders.map(c => ({
+          ...c,
+          colorIdentity: cardMap.get(c.name)?.color_identity ?? [],
+        }));
+      } catch {
+        // Scryfall enrichment failed — show commanders without color pips.
+      }
+    }
+
+    tagCommandersCache.set(cacheKey, { data: commanders, timestamp: Date.now() });
+    return commanders;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch tag commanders for "${slug}":`, error);
+    return [];
+  }
+}
