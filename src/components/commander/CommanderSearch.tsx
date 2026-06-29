@@ -83,7 +83,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   const [showResults, setShowResults] = useState(false);
   const [ownedOnly, setOwnedOnly] = useState(() => localStorage.getItem('ownedCommandersOnly') === 'true');
   const navigate = useNavigate();
-  const { setCommander } = useStore();
+  const { setCommander, setPendingStrategySlug } = useStore();
   const { cards: collectionCards, count: collectionCount } = useCollection();
   // All legendary creatures in the collection
   const collectionLegends = useMemo(
@@ -108,7 +108,15 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   }, [ownedOnly, query, collectionLegends]);
 
   // Suggestion tab: 'edhrec' or 'popular'
-  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular' | 'strategy'>('edhrec');
+  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular' | 'strategy'>(
+    () => (localStorage.getItem('mtg-discovery-tab') === 'strategy' ? 'strategy' : 'edhrec')
+  );
+  // Persist the active discovery tab (Top commanders vs By strategy) across sessions.
+  useEffect(() => {
+    if (suggestionTab === 'edhrec' || suggestionTab === 'strategy') {
+      localStorage.setItem('mtg-discovery-tab', suggestionTab);
+    }
+  }, [suggestionTab]);
   const [colorFilter, setColorFilterRaw] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('mtg-color-filter');
@@ -197,6 +205,9 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     setQuery('');
     setResults([]);
     setShowResults(false);
+    // Clear any stale strategy intent — a non-strategy pick must not inherit it.
+    // The strategy path re-sets the slug after this runs (see handleSelectStrategyCommander).
+    setPendingStrategySlug(null);
     trackEvent('commander_selected', {
       commanderName: card.name,
       colorIdentity: card.color_identity,
@@ -226,6 +237,13 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // Select a commander chosen via the "By strategy" tab — same as above, but stash the
+  // strategy slug (after handleSelectCommander clears it) so the builder pre-selects it.
+  const handleSelectStrategyCommander = async (name: string, strategySlug: string) => {
+    await handleSelectOwnedCommander(name);
+    setPendingStrategySlug(strategySlug);
   };
 
   const handleSurpriseMe = async () => {
@@ -485,7 +503,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               {suggestionTab !== 'popular' && colorFilterRow}
 
               {suggestionTab === 'strategy' ? (
-                <StrategyBrowser colorFilter={colorFilter} onSelectCommanderName={handleSelectOwnedCommander} />
+                <StrategyBrowser colorFilter={colorFilter} onSelectCommanderName={handleSelectStrategyCommander} />
               ) : suggestionTab === 'edhrec' ? (
                 <>
                   <p className="text-muted-foreground">

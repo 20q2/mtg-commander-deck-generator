@@ -275,6 +275,7 @@ export const useStore = create<AppState>((set, get) => ({
   themesError: null,
   themeSource: 'local',
   edhrecNumDecks: null,
+  pendingStrategySlug: null,
   edhrecLandSuggestion: null,
   edhrecStats: null,
   userEditedLands: false,
@@ -367,6 +368,8 @@ export const useStore = create<AppState>((set, get) => ({
   setEdhrecStats: (stats) => set({ edhrecStats: stats }),
 
   setSelectedThemes: (themes: ThemeResult[]) => set({ selectedThemes: themes }),
+
+  setPendingStrategySlug: (slug: string | null) => set({ pendingStrategySlug: slug }),
 
   toggleThemeSelection: (themeName: string) => set((state) => {
     const updated = state.selectedThemes.map((t) =>
@@ -760,6 +763,7 @@ export const useStore = create<AppState>((set, get) => ({
     themesError: null,
     themeSource: 'local',
     edhrecNumDecks: null,
+    pendingStrategySlug: null,
     userEditedLands: false,
     // Preserve all customization settings when switching commanders
     customization: state.customization,

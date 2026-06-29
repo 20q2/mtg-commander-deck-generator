@@ -577,6 +577,9 @@ export interface AppState {
   themesError: string | null;
   themeSource: 'edhrec' | 'local';
   edhrecNumDecks: number | null;
+  // Strategy slug chosen via the "By strategy" discovery tab, pending consumption by the
+  // builder to pre-select the matching archetype. Cleared once applied.
+  pendingStrategySlug: string | null;
 
   // EDHREC land suggestion (set when commander data is fetched)
   edhrecLandSuggestion: { landCount: number; nonBasicLandCount: number } | null;
@@ -616,6 +619,7 @@ export interface AppState {
   setEdhrecThemes: (themes: EDHRECTheme[]) => void;
   setEdhrecNumDecks: (count: number | null) => void;
   setSelectedThemes: (themes: ThemeResult[]) => void;
+  setPendingStrategySlug: (slug: string | null) => void;
   toggleThemeSelection: (themeName: string) => void;
   setThemesLoading: (loading: boolean) => void;
   setThemesError: (error: string | null) => void;

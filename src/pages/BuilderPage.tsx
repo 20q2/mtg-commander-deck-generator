@@ -18,13 +18,34 @@ import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/s
 import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
-import type { BracketLevel, BudgetOption, GeneratedDeck, ThemeResult } from '@/types';
+import type { BracketLevel, BudgetOption, EDHRECTheme, GeneratedDeck, ThemeResult } from '@/types';
 import { Loader2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, Library } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { useUserLists } from '@/hooks/useUserLists';
+
+/**
+ * Map EDHREC themes to selectable ThemeResults. If the user arrived via the "By strategy"
+ * discovery tab and that strategy matches one of this commander's themes, pre-select only
+ * that theme; otherwise fall back to auto-selecting the top two. Consumes (clears) the
+ * pending strategy so it never leaks into a later commander.
+ */
+function buildThemeResults(themes: EDHRECTheme[]): ThemeResult[] {
+  const { pendingStrategySlug, setPendingStrategySlug } = useStore.getState();
+  const hasMatch = !!pendingStrategySlug && themes.some(t => t.slug === pendingStrategySlug);
+  const results: ThemeResult[] = themes.map((t, index) => ({
+    name: t.name,
+    source: 'edhrec' as const,
+    slug: t.slug,
+    deckCount: t.count,
+    popularityPercent: t.popularityPercent,
+    isSelected: hasMatch ? t.slug === pendingStrategySlug : index < 2,
+  }));
+  if (pendingStrategySlug) setPendingStrategySlug(null);
+  return results;
+}
 
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
@@ -231,16 +252,7 @@ export function BuilderPage() {
         if (themes.length > 0) {
           setEdhrecThemes(themes);
 
-          const themeResults: ThemeResult[] = themes.map((t, index) => ({
-            name: t.name,
-            source: 'edhrec' as const,
-            slug: t.slug,
-            deckCount: t.count,
-            popularityPercent: t.popularityPercent,
-            isSelected: index < 2,
-          }));
-
-          setSelectedThemes(themeResults);
+          setSelectedThemes(buildThemeResults(themes));
         } else {
           setThemesError('No popular themes yet on EDHREC');
         }
@@ -381,16 +393,7 @@ export function BuilderPage() {
         if (themes.length > 0) {
           setEdhrecThemes(themes);
 
-          const themeResults: ThemeResult[] = themes.map((t, index) => ({
-            name: t.name,
-            source: 'edhrec' as const,
-            slug: t.slug,
-            deckCount: t.count,
-            popularityPercent: t.popularityPercent,
-            isSelected: index < 2,
-          }));
-
-          setSelectedThemes(themeResults);
+          setSelectedThemes(buildThemeResults(themes));
         } else {
           setThemesError('No popular themes yet on EDHREC');
         }

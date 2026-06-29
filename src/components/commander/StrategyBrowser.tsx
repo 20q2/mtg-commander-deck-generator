@@ -12,8 +12,11 @@ const DISPLAY_CAP = 48;
 export interface StrategyBrowserProps {
   /** The live color filter shared with CommanderSearch. Empty = no color narrowing. */
   colorFilter: Set<string>;
-  /** Invoked when a commander is chosen; CommanderSearch resolves the card and navigates to /build. */
-  onSelectCommanderName: (name: string) => void | Promise<void>;
+  /**
+   * Invoked when a commander is chosen; CommanderSearch resolves the card and navigates to /build.
+   * The strategy slug is passed so the builder can pre-select it as the archetype.
+   */
+  onSelectCommanderName: (name: string, strategySlug: string) => void | Promise<void>;
 }
 
 export function StrategyBrowser({ colorFilter, onSelectCommanderName }: StrategyBrowserProps) {
@@ -85,7 +88,7 @@ export function StrategyBrowser({ colorFilter, onSelectCommanderName }: Strategy
             {commanders.map((c, i) => (
               <button
                 key={c.sanitized || c.name}
-                onClick={() => onSelectCommanderName(c.name)}
+                onClick={() => onSelectCommanderName(c.name, selectedTag.slug)}
                 className="animate-chip-in flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer"
                 style={{ animationDelay: `${i * 40}ms` }}
               >
