@@ -36,7 +36,8 @@ export type AnalyticsEventType =
   | 'brew_started'
   | 'brew_finished'
   | 'brew_abandoned'
-  | 'rebrew_clicked';
+  | 'rebrew_clicked'
+  | 'strategy_selected';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -119,6 +120,8 @@ export interface AnalyticsEventMetadata {
   brew_finished: { commanderName: string; picks: number };
   brew_abandoned: { commanderName: string; picks: number };
   rebrew_clicked: { commanderName: string | null };
+  /** A strategy/archetype was opened from the "By strategy" commander-discovery tab. */
+  strategy_selected: { strategy: string };
   playtest_started: {
     /** Where the playtest was launched from. */
     source: 'list' | 'generated';
