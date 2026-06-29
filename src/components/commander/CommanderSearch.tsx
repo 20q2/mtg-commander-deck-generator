@@ -9,6 +9,7 @@ import {
   getCardImageUrl,
 } from '@/services/scryfall/client';
 import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl } from '@/services/edhrec/client';
+import { StrategyBrowser } from '@/components/commander/StrategyBrowser';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
@@ -107,7 +108,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   }, [ownedOnly, query, collectionLegends]);
 
   // Suggestion tab: 'edhrec' or 'popular'
-  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular'>('edhrec');
+  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular' | 'strategy'>('edhrec');
   const [colorFilter, setColorFilterRaw] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('mtg-color-filter');
@@ -269,6 +270,46 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     ? showResults && query.trim().length > 0 && localResults.length > 0
     : showResults && results.length > 0;
 
+  // Color-filter chips, shared by the "Top commanders" and "By strategy" tabs.
+  const colorFilterRow = (
+    <div className="flex justify-center gap-1.5 mb-1.5">
+      {(['W', 'U', 'B', 'R', 'G', 'C'] as const).map(color => (
+        <button
+          key={color}
+          onClick={() => setColorFilter(prev => {
+            const next = new Set(prev);
+            if (next.has(color)) {
+              next.delete(color);
+            } else {
+              next.add(color);
+              // Colorless and colors are mutually exclusive
+              if (color === 'C') {
+                next.forEach(c => { if (c !== 'C') next.delete(c); });
+              } else {
+                next.delete('C');
+              }
+            }
+            return next;
+          })}
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+            colorFilter.has(color)
+              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110'
+              : 'opacity-50 hover:opacity-80'
+          }`}
+          title={color === 'C' ? 'Colorless' : color}
+        >
+          <i className={`ms ms-${color.toLowerCase()} ms-cost text-lg`} />
+        </button>
+      ))}
+      <button
+        onClick={() => setColorFilter(new Set())}
+        className={`text-xs text-muted-foreground hover:text-foreground transition-all duration-200 self-center overflow-hidden whitespace-nowrap ${colorFilter.size > 0 ? 'opacity-100 max-w-[3rem] ml-1' : 'opacity-0 max-w-0 ml-0'}`}
+      >
+        Clear
+      </button>
+    </div>
+  );
+
   return (
     <div className="w-full max-w-lg mx-auto relative">
       <div className="relative">
@@ -418,51 +459,34 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               </p>
             )
           ) : (
-            // Show EDHREC or Popular commanders
+            // Show EDHREC top / By strategy / Popular
             <>
-              {suggestionTab === 'edhrec' ? (
+              {/* Discovery tab switcher */}
+              <div className="flex justify-center gap-2 mb-4">
+                <button
+                  onClick={() => setSuggestionTab('edhrec')}
+                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'edhrec' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Top commanders
+                </button>
+                <button
+                  onClick={() => setSuggestionTab('strategy')}
+                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'strategy' ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  By strategy
+                </button>
+              </div>
+
+              {/* Color filter — shared by the Top commanders and By strategy tabs */}
+              {suggestionTab !== 'popular' && colorFilterRow}
+
+              {suggestionTab === 'strategy' ? (
+                <StrategyBrowser colorFilter={colorFilter} onSelectCommanderName={handleSelectOwnedCommander} />
+              ) : suggestionTab === 'edhrec' ? (
                 <>
                   <p className="text-muted-foreground">
                     {getColorFilterLabel(colorFilter)} commanders on EDHREC:
                   </p>
-
-                  {/* Color filter */}
-                  <div className="flex justify-center gap-1.5 mb-1.5">
-                    {(['W', 'U', 'B', 'R', 'G', 'C'] as const).map(color => (
-                      <button
-                        key={color}
-                        onClick={() => setColorFilter(prev => {
-                          const next = new Set(prev);
-                          if (next.has(color)) {
-                            next.delete(color);
-                          } else {
-                            next.add(color);
-                            // Colorless and colors are mutually exclusive
-                            if (color === 'C') {
-                              next.forEach(c => { if (c !== 'C') next.delete(c); });
-                            } else {
-                              next.delete('C');
-                            }
-                          }
-                          return next;
-                        })}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                          colorFilter.has(color)
-                            ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110'
-                            : 'opacity-50 hover:opacity-80'
-                        }`}
-                        title={color === 'C' ? 'Colorless' : color}
-                      >
-                        <i className={`ms ms-${color.toLowerCase()} ms-cost text-lg`} />
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setColorFilter(new Set())}
-                      className={`text-xs text-muted-foreground hover:text-foreground transition-all duration-200 self-center overflow-hidden whitespace-nowrap ${colorFilter.size > 0 ? 'opacity-100 max-w-[3rem] ml-1' : 'opacity-0 max-w-0 ml-0'}`}
-                    >
-                      Clear
-                    </button>
-                  </div>
 
                   {edhrecCommanders.length > 0 ? (
                     <div className={`relative flex flex-wrap justify-center gap-2 transition-opacity ${edhrecLoading ? 'opacity-40' : ''}`}>
