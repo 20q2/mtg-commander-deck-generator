@@ -127,6 +127,13 @@ export interface EDHRECTheme {
   popularityPercent?: number;
 }
 
+// EDHREC strategy/archetype tag (from /pages/tags.json — browse by strategy)
+export interface EDHRECTag {
+  name: string;   // display name, e.g. "Aristocrats"
+  slug: string;   // EDHREC url slug, e.g. "aristocrats"
+  numDecks: number;
+}
+
 // EDHREC Card data (from cardlists)
 export interface EDHRECCard {
   name: string;

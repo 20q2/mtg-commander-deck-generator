@@ -6,6 +6,7 @@ import type {
   EDHRECCommanderStats,
   EDHRECSimilarCommander,
   EDHRECTopCommander,
+  EDHRECTag,
   BudgetOption,
   BracketLevel,
 } from '@/types';
@@ -1538,5 +1539,55 @@ export function colorIdentityToSlug(colorIdentity: string[]): string {
     case 'WUBG': return 'witch-maw';
     case 'WUBRG': return 'five-color';
     default: return 'colorless';
+  }
+}
+
+// --- Strategy tags (browse by strategy) ---
+// EDHREC's tag system, read directly so we never hardcode an archetype taxonomy.
+// Index: /pages/tags.json (popularity-ordered). Per-tag: /pages/tags/{slug}.json.
+
+interface RawTagEntry {
+  name?: string;
+  sanitized?: string;
+  url?: string;
+  inclusion?: number;
+  num_decks?: number;
+}
+
+interface RawTagsResponse {
+  container?: { json_dict?: { cardlists?: Array<{ tag?: string; cardviews?: RawTagEntry[] }> } };
+}
+
+/** Slug from an EDHREC tag url ("/tags/aristocrats" -> "aristocrats"). */
+function tagSlugFromUrl(url?: string): string {
+  return (url || '').split('/').filter(Boolean).pop() || '';
+}
+
+/** Pure: parse the tags index page into popularity-ordered tags. */
+export function parseTagsIndex(raw: RawTagsResponse): EDHRECTag[] {
+  const lists = raw.container?.json_dict?.cardlists ?? [];
+  const list = lists.find(l => l.tag === 'tagsbypopularitysort');
+  const out: EDHRECTag[] = [];
+  for (const v of list?.cardviews ?? []) {
+    const slug = tagSlugFromUrl(v.url);
+    if (!v.name || !slug) continue;
+    out.push({ name: v.name, slug, numDecks: v.num_decks ?? v.inclusion ?? 0 });
+  }
+  return out;
+}
+
+let allTagsCache: EDHRECTag[] | null = null;
+
+/** Fetch EDHREC's full strategy/tag list, popularity-ordered. [] on failure. Session-cached. */
+export async function fetchAllTags(): Promise<EDHRECTag[]> {
+  if (allTagsCache) return allTagsCache;
+  try {
+    const response = await edhrecFetch<RawTagsResponse>('/pages/tags.json');
+    const tags = parseTagsIndex(response);
+    allTagsCache = tags;
+    return tags;
+  } catch (error) {
+    console.warn('[EDHREC] Failed to fetch tags index:', error);
+    return [];
   }
 }
