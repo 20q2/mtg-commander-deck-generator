@@ -28,30 +28,28 @@ import { useUserLists } from '@/hooks/useUserLists';
 
 /**
  * Map EDHREC themes to selectable ThemeResults. If the user arrived via the "By strategy"
- * discovery tab and that strategy matches one of this commander's themes, pre-select only
- * that theme; otherwise fall back to auto-selecting the top two. Consumes (clears) the
- * pending strategy so it never leaks into a later commander.
+ * discovery tab (preferredSlug, from the `?strategy=` URL param) and it matches one of this
+ * commander's themes, pre-select only that theme; otherwise auto-select the top two.
  */
-function buildThemeResults(themes: EDHRECTheme[]): ThemeResult[] {
-  const { pendingStrategySlug, setPendingStrategySlug } = useStore.getState();
-  const hasMatch = !!pendingStrategySlug && themes.some(t => t.slug === pendingStrategySlug);
-  const results: ThemeResult[] = themes.map((t, index) => ({
+function buildThemeResults(themes: EDHRECTheme[], preferredSlug?: string | null): ThemeResult[] {
+  const hasMatch = !!preferredSlug && themes.some(t => t.slug === preferredSlug);
+  return themes.map((t, index) => ({
     name: t.name,
     source: 'edhrec' as const,
     slug: t.slug,
     deckCount: t.count,
     popularityPercent: t.popularityPercent,
-    isSelected: hasMatch ? t.slug === pendingStrategySlug : index < 2,
+    isSelected: hasMatch ? t.slug === preferredSlug : index < 2,
   }));
-  if (pendingStrategySlug) setPendingStrategySlug(null);
-  return results;
 }
 
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const genParam = searchParams.get('g');
+  // Strategy slug carried from the "By strategy" discovery tab; pre-selects the matching archetype.
+  const strategyParam = searchParams.get('strategy');
   const [progress, setProgress] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [isLoadingCommander, setIsLoadingCommander] = useState(false);
@@ -104,19 +102,6 @@ export function BuilderPage() {
   // Scroll to top on mount
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, []);
-
-  // Consume a `?strategy=<slug>` param (selection came via the "By strategy" tab) once on mount:
-  // stash it as the pending strategy for theme pre-selection, then strip it from the URL so a
-  // later reload or bracket change doesn't re-apply it over the user's manual theme edits.
-  useEffect(() => {
-    const slug = searchParams.get('strategy');
-    if (!slug) return;
-    useStore.getState().setPendingStrategySlug(slug);
-    const next = new URLSearchParams(searchParams);
-    next.delete('strategy');
-    setSearchParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Hydrate generated deck from sessionStorage on refresh — the ?g=<timestamp>
@@ -265,7 +250,7 @@ export function BuilderPage() {
         if (themes.length > 0) {
           setEdhrecThemes(themes);
 
-          setSelectedThemes(buildThemeResults(themes));
+          setSelectedThemes(buildThemeResults(themes, strategyParam));
         } else {
           setThemesError('No popular themes yet on EDHREC');
         }
@@ -406,7 +391,7 @@ export function BuilderPage() {
         if (themes.length > 0) {
           setEdhrecThemes(themes);
 
-          setSelectedThemes(buildThemeResults(themes));
+          setSelectedThemes(buildThemeResults(themes, strategyParam));
         } else {
           setThemesError('No popular themes yet on EDHREC');
         }
