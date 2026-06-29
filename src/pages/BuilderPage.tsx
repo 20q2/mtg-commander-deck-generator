@@ -50,7 +50,7 @@ function buildThemeResults(themes: EDHRECTheme[]): ThemeResult[] {
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const genParam = searchParams.get('g');
   const [progress, setProgress] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -104,6 +104,19 @@ export function BuilderPage() {
   // Scroll to top on mount
   useEffect(() => {
     window.scrollTo(0, 0);
+  }, []);
+
+  // Consume a `?strategy=<slug>` param (selection came via the "By strategy" tab) once on mount:
+  // stash it as the pending strategy for theme pre-selection, then strip it from the URL so a
+  // later reload or bracket change doesn't re-apply it over the user's manual theme edits.
+  useEffect(() => {
+    const slug = searchParams.get('strategy');
+    if (!slug) return;
+    useStore.getState().setPendingStrategySlug(slug);
+    const next = new URLSearchParams(searchParams);
+    next.delete('strategy');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Hydrate generated deck from sessionStorage on refresh — the ?g=<timestamp>

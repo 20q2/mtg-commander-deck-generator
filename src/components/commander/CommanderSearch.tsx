@@ -83,7 +83,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   const [showResults, setShowResults] = useState(false);
   const [ownedOnly, setOwnedOnly] = useState(() => localStorage.getItem('ownedCommandersOnly') === 'true');
   const navigate = useNavigate();
-  const { setCommander, setPendingStrategySlug } = useStore();
+  const { setCommander } = useStore();
   const { cards: collectionCards, count: collectionCount } = useCollection();
   // All legendary creatures in the collection
   const collectionLegends = useMemo(
@@ -201,13 +201,13 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     }
   }, [ownedOnly, query, localResults]);
 
-  const handleSelectCommander = (card: ScryfallCard) => {
+  // strategySlug, when present (selection came via the "By strategy" tab), is carried to the
+  // builder as a `?strategy=` URL param so it can pre-select that archetype — passed via URL
+  // rather than store state so the builder reads it synchronously on mount with no render race.
+  const handleSelectCommander = (card: ScryfallCard, strategySlug?: string) => {
     setQuery('');
     setResults([]);
     setShowResults(false);
-    // Clear any stale strategy intent — a non-strategy pick must not inherit it.
-    // The strategy path re-sets the slug after this runs (see handleSelectStrategyCommander).
-    setPendingStrategySlug(null);
     trackEvent('commander_selected', {
       commanderName: card.name,
       colorIdentity: card.color_identity,
@@ -221,9 +221,10 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
       return;
     }
     setCommander(card);
+    const strategyQuery = strategySlug ? `?strategy=${encodeURIComponent(strategySlug)}` : '';
     navigate(destination === 'brew'
       ? `/brew/${formatCommanderNameForUrl(card.name)}`
-      : `/build/${encodeURIComponent(card.name)}`);
+      : `/build/${encodeURIComponent(card.name)}${strategyQuery}`);
   };
 
   // Select a commander from the collection — fetch full ScryfallCard first
@@ -239,16 +240,13 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     }
   };
 
-  // Select a commander chosen via the "By strategy" tab. Stash the strategy slug in the SAME
-  // synchronous frame as the commander set + navigate (handleSelectCommander is sync and clears
-  // the slug first), so it's guaranteed in the store before the builder's theme effect reads it.
-  // Awaiting and setting it afterward races: React can flush the builder effect in the gap.
+  // Select a commander chosen via the "By strategy" tab — carries the strategy slug to the
+  // builder via the `?strategy=` URL param (see handleSelectCommander).
   const handleSelectStrategyCommander = async (name: string, strategySlug: string) => {
     setIsSearching(true);
     try {
       const card = await getCardByName(name);
-      handleSelectCommander(card);
-      setPendingStrategySlug(strategySlug);
+      handleSelectCommander(card, strategySlug);
     } catch (error) {
       console.error('Failed to fetch commander:', error);
     } finally {
