@@ -239,11 +239,21 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     }
   };
 
-  // Select a commander chosen via the "By strategy" tab — same as above, but stash the
-  // strategy slug (after handleSelectCommander clears it) so the builder pre-selects it.
+  // Select a commander chosen via the "By strategy" tab. Stash the strategy slug in the SAME
+  // synchronous frame as the commander set + navigate (handleSelectCommander is sync and clears
+  // the slug first), so it's guaranteed in the store before the builder's theme effect reads it.
+  // Awaiting and setting it afterward races: React can flush the builder effect in the gap.
   const handleSelectStrategyCommander = async (name: string, strategySlug: string) => {
-    await handleSelectOwnedCommander(name);
-    setPendingStrategySlug(strategySlug);
+    setIsSearching(true);
+    try {
+      const card = await getCardByName(name);
+      handleSelectCommander(card);
+      setPendingStrategySlug(strategySlug);
+    } catch (error) {
+      console.error('Failed to fetch commander:', error);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleSurpriseMe = async () => {
