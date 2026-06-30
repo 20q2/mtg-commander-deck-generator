@@ -280,6 +280,11 @@ export function buildCostPlan(
 
     const exclude = new Set<string>([
       card.name,
+      // The commander (+ partner) live outside `cards`, so they aren't in
+      // inDeckNames — exclude them explicitly or EDHREC "similar" data can
+      // surface our own commander as a swap target (which can't be played).
+      commanderName,
+      ...(partnerCommanderName ? [partnerCommanderName] : []),
       ...inDeckNames,
       ...opts.excludeFromSuggestions,
     ]);

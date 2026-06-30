@@ -363,6 +363,8 @@ export function MetricsPage() {
     { key: 'page_viewed', label: 'Page Views' },
     { key: 'commander_searched', label: 'Searches' },
     { key: 'list_created', label: 'Lists' },
+    { key: 'inspector_tab_viewed', label: 'Inspector' },
+    { key: 'spellchroma_viewed', label: 'SpellChroma' },
   ];
 
   const sortedSlots: [string, number][] = (() => {

@@ -1,14 +1,15 @@
-import { useState, useEffect, type MouseEvent } from 'react';
+import { useState, useEffect, useMemo, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
+import { detectNearMissCombos } from '@/services/brew/engine';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, Play, Star, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
-import { operationTheme, routeKey } from '@/components/brew/brewVisuals';
+import { operationTheme, routeKey, themeColor, legibleText } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
 import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import type { BrewOption, BrewCandidate, PickReason } from '@/services/brew/engine';
+import type { BrewOption, BrewCandidate, PickReason, ComboPiece } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
 
 /** How strongly a card synergizes with the deck you've built — drives the per-pack "best fit" spotlight.
@@ -57,7 +58,7 @@ const PACK_FLAVOR: Record<string, { color: string; Icon: LucideIcon; tag: string
 };
 
 export function BrewNode({ onFinish }: { onFinish: () => void }) {
-  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState } = useStore();
+  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState, brewContext } = useStore();
   const [chosenId, setChosenId] = useState<string | null>(null);
   // Headliner: multi-select. The set of option ids the player has toggled on, plus a commit flag
   // that fires the fly-to-deck animation once they lock in their picks.
@@ -67,6 +68,27 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   // A pack that secretly held a gold card flashes its windfall here before the pick commits.
   const [reveal, setReveal] = useState<BrewCandidate | null>(null);
+  // Hovering a "Finishes a combo" badge pops a tiny preview: the owned piece(s) + this card → payoff.
+  const [comboHover, setComboHover] = useState<{ finisher: BrewCandidate; have: ComboPiece[]; payoff: string; rect: DOMRect } | null>(null);
+  // Map a combo-finisher card name → the near-miss combo it completes (owned pieces resolved to art),
+  // so the badge can show what it goes off with. Memoized on the session so it's computed once.
+  const finisherCombos = useMemo(() => {
+    const map = new Map<string, { have: ComboPiece[]; payoff: string }>();
+    if (!brewContext || !brewState) return map;
+    const owned = new Map<string, ScryfallCard>();
+    owned.set(brewContext.commander.name, brewContext.commander);
+    if (brewContext.partnerCommander) owned.set(brewContext.partnerCommander.name, brewContext.partnerCommander);
+    for (const p of brewState.picks) owned.set(p.name, p.card);
+    for (const nm of detectNearMissCombos(brewContext, brewState)) {
+      if (nm.missing.length !== 1 || map.has(nm.missing[0])) continue;
+      const have = nm.have
+        .map(n => { const scryfall = owned.get(n); return scryfall ? { name: n, scryfall } : null; })
+        .filter((p): p is ComboPiece => !!p)
+        .slice(0, 2);
+      map.set(nm.missing[0], { have, payoff: nm.results[0] ?? 'Combo' });
+    }
+    return map;
+  }, [brewContext, brewState]);
   // Clear any headliner selection when the offered cards change (reroll, back, next node).
   const shownKey = brewNode ? `${brewNode.routeId}|${brewNode.options.flatMap(o => o.cards.map(c => c.name)).join(',')}` : '';
   useEffect(() => { setSelectedIds(new Set()); setCommitting(false); }, [shownKey]);
@@ -170,6 +192,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         >
           {brewNode.options.map((option, idx) => {
             const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
+            // Each theme pack wears its OWN colour (themeColor by slug), so a row of three theme packs
+            // reads as three distinct directions, not three identical green crates. Need/discovery/value
+            // packs keep their flavor colour.
+            const packColor = option.flavor === 'theme' ? themeColor(routeKey(option.id) ?? '') : fl.color;
             // Spotlight the single card with the strongest synergy to your build (if any clears the bar),
             // so a "really good" pick is obvious at a glance — the rest of the pack stays calm.
             const fits = option.cards.map((c, i) => synergyFit(c, option.reasons[i] ?? []));
@@ -181,10 +207,13 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 onClick={() => choose(option)}
                 disabled={exiting}
                 style={{
-                  ['--pk' as string]: `hsl(${fl.color})`,
-                  ['--pk-soft' as string]: `hsl(${fl.color} / 0.4)`,
+                  ['--pk' as string]: `hsl(${packColor})`,
+                  ['--pk-soft' as string]: `hsl(${packColor} / 0.4)`,
+                  // A brightened shade used only for colored TEXT, so labels read clearly on the dark
+                  // card regardless of the theme's hue (the structural --pk stays the subtler base).
+                  ['--pk-text' as string]: `hsl(${legibleText(packColor)})`,
                   // A faint flavor wash over the card base so each pack reads in its own colour.
-                  background: `linear-gradient(hsl(${fl.color} / 0.08), hsl(${fl.color} / 0.03)), hsl(var(--card) / 0.4)`,
+                  background: `linear-gradient(hsl(${packColor} / 0.08), hsl(${packColor} / 0.03)), hsl(var(--card) / 0.4)`,
                   ...(exiting ? {} : { animationDelay: `${idx * 70}ms` }),
                 }}
                 className={`group relative z-10 flex flex-col overflow-hidden rounded-2xl border border-[color:var(--pk)]/35 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-[box-shadow,border-color] duration-200 hover:border-[color:var(--pk)] hover:shadow-[0_18px_44px_-10px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
@@ -193,9 +222,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               >
                 {/* Header — the pack's direction, in its own colour. The icon + colour signal the
                     flavor; we drop the old "On theme / Fills a need" word-tag, which read as noise. */}
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--pk)]/20" style={{ background: `hsl(${fl.color} / 0.10)` }}>
-                  <fl.Icon className="w-4 h-4 shrink-0" style={{ color: `hsl(${fl.color})` }} />
-                  <span className="font-display text-sm font-semibold truncate text-left" style={{ color: `hsl(${fl.color})` }}>{option.label}</span>
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--pk)]/25" style={{ background: `hsl(${packColor} / 0.14)` }}>
+                  <fl.Icon className="w-4 h-4 shrink-0 text-[color:var(--pk-text)]" />
+                  <span className="font-display text-sm font-semibold truncate text-left text-[color:var(--pk-text)]">{option.label}</span>
                 </div>
                 {/* The cards inside the pack, stacked 2-over-1 so each is big enough to read. */}
                 <div className="grid grid-cols-2 gap-2 px-2.5 pt-4 pb-2 justify-items-center">
@@ -205,6 +234,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     const isGameChanger = rs.some(r => r.kind === 'gameChanger');
                     const isComboPiece = rs.some(r => r.kind === 'comboPiece');
                     const isBestFit = i === bestFitIdx;
+                    // The hallmark: the card that DEFINES this theme (its top signature). Marked so the
+                    // pack's name is anchored to a real payoff. Takes the top-center slot over best-fit.
+                    const isHallmark = !!option.hallmarkName && c.name === option.hallmarkName;
                     // A concise "why it's the standout" label for the best-fit badge.
                     const fitLabel = (c.connectionCount ?? 0) >= 2 ? `${c.connectionCount} synergies`
                       : finishesCombo ? 'Combo'
@@ -215,20 +247,39 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     return (
                       <div key={c.name} className={`relative min-w-0 flex flex-col items-center ${cardLastOdd ? 'col-span-2 w-[calc(50%-0.25rem)]' : 'w-full'}`}>
                         <RoleBadges cardName={c.name} size="sm" corner="bl" />
+                        {/* The theme hallmark — the card the pack is named for. Wears the pack's own
+                            colour + a star, so "Drain the Table" visibly points at its drain payoff. */}
+                        {isHallmark && (
+                          <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-[color:var(--pk-text)] bg-[#15131f]/95 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_0_14px_-2px_var(--pk-soft)]">
+                            <Star className="w-2.5 h-2.5" /> Signature
+                          </span>
+                        )}
                         {/* The synergy standout — obvious at a glance: a violet glow + a "why" badge. */}
-                        {isBestFit && (
+                        {isBestFit && !isHallmark && (
                           <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-violet-300/80 bg-[#1e1633]/90 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-violet-100 shadow-[0_0_14px_-2px_rgba(167,139,250,0.7)]">
                             <Sparkles className="w-2.5 h-2.5" /> {fitLabel}
                           </span>
                         )}
-                        {c.discoverySource === 'lift' && !isBestFit && (
+                        {c.discoverySource === 'lift' && !isBestFit && !isHallmark && (
                           <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-fuchsia-300/70 bg-[#2a0a2e]/90 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-fuchsia-100 shadow-[0_0_12px_-2px_rgba(232,121,249,0.6)]">
                             <Zap className="w-2.5 h-2.5" /> Lift
                           </span>
                         )}
                         {(finishesCombo || isGameChanger || isComboPiece) && (
                           <span className="absolute bottom-1 right-1 z-20 flex flex-col gap-1">
-                            {finishesCombo && <span title="Finishes a combo" className="grid place-items-center w-4 h-4 rounded-full bg-teal-500/90 text-white shadow ring-1 ring-black/40"><InfinityIcon className="w-2.5 h-2.5" /></span>}
+                            {finishesCombo && (() => {
+                              const info = finisherCombos.get(c.name);
+                              return (
+                                <span
+                                  title="Finishes a combo"
+                                  onMouseEnter={info ? (e) => setComboHover({ finisher: c, have: info.have, payoff: info.payoff, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
+                                  onMouseLeave={info ? () => setComboHover(null) : undefined}
+                                  className="grid place-items-center w-4 h-4 rounded-full bg-teal-500/90 text-white shadow ring-1 ring-black/40 cursor-help"
+                                >
+                                  <InfinityIcon className="w-2.5 h-2.5" />
+                                </span>
+                              );
+                            })()}
                             {isComboPiece && <span title="Combo piece — recurs across this commander's combos" className="grid place-items-center w-4 h-4 rounded-full bg-teal-500/30 text-teal-100 shadow ring-1 ring-teal-300/50"><Link2 className="w-2.5 h-2.5" /></span>}
                             {isGameChanger && <span title="Game Changer" className="grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40"><Crown className="w-2.5 h-2.5" /></span>}
                           </span>
@@ -238,14 +289,14 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                           alt={c.name}
                           loading="lazy"
                           {...hoverPreview(c.scryfall)}
-                          className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,outline-color] duration-150 ease-out outline outline-2 outline-transparent hover:outline-[color:var(--pk)] hover:shadow-[0_0_20px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)] ${isBestFit ? 'ring-2 ring-violet-300/80 shadow-[0_0_22px_-2px_rgba(167,139,250,0.6),0_4px_14px_rgba(0,0,0,0.5)]' : 'ring-1 ring-black/60 shadow-[0_4px_14px_rgba(0,0,0,0.5)]'}`}
+                          className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,outline-color] duration-150 ease-out outline outline-2 outline-transparent hover:outline-[color:var(--pk)] hover:shadow-[0_0_20px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)] ${isHallmark ? 'ring-2 ring-[color:var(--pk)] shadow-[0_0_22px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)]' : isBestFit ? 'ring-2 ring-violet-300/80 shadow-[0_0_22px_-2px_rgba(167,139,250,0.6),0_4px_14px_rgba(0,0,0,0.5)]' : 'ring-1 ring-black/60 shadow-[0_4px_14px_rgba(0,0,0,0.5)]'}`}
                         />
                       </div>
                     );
                   })}
                 </div>
                 {/* Footer — you're taking the whole pack, not one card. */}
-                <div className="mt-auto flex items-center justify-center gap-1 px-3 pb-2.5 pt-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: `hsl(${fl.color})` }}>
+                <div className="mt-auto flex items-center justify-center gap-1 px-3 pb-2.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--pk-text)]">
                   <Plus className="w-3 h-3" /> Take all {option.cards.length}
                 </div>
               </button>
@@ -448,6 +499,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         <span className="w-1 h-1 rotate-45 bg-border" />
         <Button variant="ghost" size="sm" disabled={exiting} onClick={rerollBrew}><RefreshCw className="w-4 h-4 mr-1.5" /> Show different</Button>
         {brewNode.canPass && (<><span className="w-1 h-1 rotate-45 bg-border" /><Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}>Pass</Button></>)}
+        {/* Always offer the bail-out from a pack too, not just the fork: build the deck now with a
+            sensible mana base. Mirrors the fork's "Finish for me". */}
+        <span className="w-1 h-1 rotate-45 bg-border" />
+        <Button variant="ghost" size="sm" className="text-violet-300 hover:text-violet-200" disabled={exiting} onClick={onFinish}><Play className="w-4 h-4 mr-1.5" /> Finish for me</Button>
       </div>
 
       {/* Floating full-size preview of the hovered card — anchored to its right, flipping left near
@@ -485,6 +540,42 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
             <span className={`rounded-md border bg-black/80 px-2.5 py-0.5 text-sm font-bold tabular-nums shadow-lg ${tone}`}>
               {Number.isFinite(n) ? `${sym}${n.toFixed(2)}` : 'No price'}
             </span>
+          </div>,
+          document.body,
+        );
+      })()}
+
+      {/* Tiny combo preview — hovering a "Finishes a combo" badge shows the owned piece(s) this card
+          goes off with, plus the payoff, so you know WHAT it completes without opening the combo node. */}
+      {comboHover && !exiting && (() => {
+        const W = 232, GAP = 10, PAD = 8, EST_H = 132;
+        const r = comboHover.rect;
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const left = Math.min(Math.max(PAD, r.left + r.width / 2 - W / 2), vw - W - PAD);
+        // Prefer above the badge; flip below if it would clip the top.
+        const above = r.top - EST_H - GAP;
+        const top = above >= PAD ? above : Math.min(r.bottom + GAP, vh - EST_H - PAD);
+        return createPortal(
+          <div className="fixed z-[125] pointer-events-none animate-fade-in" style={{ left, top, width: W }}>
+            <div className="rounded-xl border border-teal-400/50 bg-[#07211d]/95 backdrop-blur-md p-2.5 shadow-[0_12px_40px_-8px_rgba(0,0,0,0.8)]">
+              <div className="mb-1.5 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide text-teal-200">
+                <InfinityIcon className="w-3 h-3" /> Finishes a combo
+              </div>
+              <div className="flex items-end justify-center gap-1.5">
+                {comboHover.have.map(p => (
+                  <div key={p.name} className="flex w-[46px] flex-col items-center opacity-75">
+                    <img src={getCardImageUrl(p.scryfall, 'small')} alt={p.name} className="w-full rounded-[5%] grayscale-[0.3] ring-1 ring-black/60" />
+                    <span className="mt-0.5 text-[8px] font-semibold uppercase tracking-wide text-muted-foreground/70">Have</span>
+                  </div>
+                ))}
+                {comboHover.have.length > 0 && <span className="self-center pb-4 text-base font-light text-teal-300/70">+</span>}
+                <div className="flex w-[46px] flex-col items-center">
+                  <img src={getCardImageUrl(comboHover.finisher.scryfall, 'small')} alt={comboHover.finisher.name} className="w-full rounded-[5%] ring-1 ring-teal-300/70 shadow-[0_0_12px_-2px_rgba(45,212,191,0.6)]" />
+                  <span className="mt-0.5 text-[8px] font-semibold uppercase tracking-wide text-teal-200">Add</span>
+                </div>
+              </div>
+              <div className="mt-1.5 text-center text-[11px] font-medium leading-tight text-teal-50">{comboHover.payoff}</div>
+            </div>
           </div>,
           document.body,
         );

@@ -67,7 +67,7 @@ export function BrewDeckListButton() {
       </div>
 
       <Drawer open={open} onClose={() => setOpen(false)} position="right" onPositionChange={() => {}} defaultSizePercent={40} closeOnOutsideClick>
-        <div className="flex flex-col h-full min-w-0">
+        <div className="brew-foundry flex flex-col h-full min-w-0">
           <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-border/40 shrink-0">
             <span className="text-sm font-semibold">
               Your deck so far <span className="text-muted-foreground tabular-nums">· {total} {total === 1 ? 'card' : 'cards'}</span>

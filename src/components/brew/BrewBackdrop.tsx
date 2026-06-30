@@ -57,16 +57,26 @@ export function BrewBackdrop() {
 
   return (
     <>
+      {/* Industrial Foundry base: dark steel, a blueprint grid, and a molten ember glow rising from
+          the forge at the bottom. The colour-reactive aurora rides on top, dimmed to a faint heat-haze
+          so the steel + grid read as the dominant surface rather than a soft glow. */}
+      <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden="true"
+        style={{ background: 'linear-gradient(hsl(216 18% 9%), hsl(218 20% 6%))' }} />
+
       <div
         className="fixed inset-0 z-0 pointer-events-none"
         style={{
-          opacity: view.opacity,
+          opacity: view.opacity * 0.5,
           transform: view.transform,
           transition: 'opacity 900ms ease, transform 1400ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         <AuroraThemed colors={view.colors} />
       </div>
+
+      <div className="brew-grid fixed inset-0 z-0 pointer-events-none" aria-hidden="true" />
+      <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden="true"
+        style={{ background: 'radial-gradient(72% 42% at 50% 119%, hsl(22 92% 50% / 0.18), transparent 60%)' }} />
 
       {/* Operation complexion — fades in over the aurora while a move is in progress. */}
       <div

@@ -2,6 +2,7 @@
 .claude/
 .superpowers/
 docs/superpowers/
+.mcp.json
 
 # Dependencies
 node_modules

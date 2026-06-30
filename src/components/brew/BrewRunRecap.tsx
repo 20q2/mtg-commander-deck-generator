@@ -1,8 +1,8 @@
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { leaningThemes, generateRunTitle } from '@/services/brew/engine';
+import { leaningThemes, generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
 import {
-  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, type LucideIcon,
+  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, type LucideIcon,
 } from 'lucide-react';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import type { BrewMoment } from '@/services/brew/engine';
@@ -30,6 +30,8 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
 
   const identity = leaningThemes(brewContext, brewState);
   const title = generateRunTitle(brewContext, brewState);
+  const goal = brewGoal(brewContext);
+  const goalDone = goalProgress(brewContext, brewState).done;
   const philosophy = brewState.relics[0]?.name;
   const moments = brewState.moments;
   const secretTech = moments.filter(m => m.kind === 'strangeSignal' && m.label.startsWith('Trusted')).length;
@@ -63,10 +65,25 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
             {identity.join(' · ')}
           </p>
         )}
-        <p className="text-xs text-muted-foreground mb-6">
+        <p className="text-xs text-muted-foreground mb-4">
           {cardCount} cards drafted{secretTech > 0 ? ` · ${secretTech} secret-tech find${secretTech > 1 ? 's' : ''}` : ''}
           {philosophy ? ` · guided by ${philosophy}` : ''}
         </p>
+
+        {/* The run's Brewer's Goal — a satisfying ✓ when nailed, a quiet "left on the table" otherwise. */}
+        <div
+          className={`mx-auto mb-6 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
+            goalDone
+              ? 'border-emerald-400/50 bg-emerald-500/12 text-emerald-200'
+              : 'border-border/60 bg-card/50 text-muted-foreground'
+          }`}
+        >
+          <Target className="w-3.5 h-3.5" />
+          <span className="font-medium">{goal.label}</span>
+          <span className={goalDone ? 'text-emerald-300' : 'text-muted-foreground/70'}>
+            {goalDone ? '· nailed it' : '· next time'}
+          </span>
+        </div>
 
         {moments.length > 0 ? (
           <ol className="text-left space-y-2.5 mb-7">

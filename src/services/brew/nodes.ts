@@ -1,5 +1,5 @@
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
-import { hasTag, isExtraTurn, isMassLandDenial } from '@/services/tagger/client';
+import { hasTag, isExtraTurn, isMassLandDenial, type RoleKey } from '@/services/tagger/client';
 import { getCardPrice } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import type { BrewContext, BrewState, BrewRoute, BrewNode, BrewOption, BrewCandidate, ComboPiece, PickReason } from './brewTypes';
@@ -205,6 +205,24 @@ const BUNDLE_FLAVOR: Record<string, string> = {
 // needs stay plain ("Creatures") so the name never promises a strategy the cards don't actually share.
 const ROLE_NEED_SLUGS = new Set(['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection']);
 
+// Generic "answer" roles that read as off-strategy inside a THEME pack: a board wipe in a go-wide
+// "Raise an Army" pack, or ramp in a "+1/+1 Counters" pack, is jarring even when EDHREC's noisy theme
+// membership tags it under that theme. We let these in only when the card actually DEFINES the theme
+// (it's in themeSignatures) — otherwise they belong in their own need pack / the Headliner, not here.
+const OFF_THEME_ROLES = new Set<RoleKey>(['ramp', 'removal', 'boardwipe']);
+
+// A board wipe is the worst offender in a theme pack (you don't sweep your own go-wide board), and the
+// tagger doesn't catch every one — e.g. Sunfall ("Exile all creatures…") isn't role-tagged as a wipe.
+// Catch these by oracle text too, so a mass-removal card never fronts a "Raise an Army" pack.
+const MASS_REMOVAL_RE = /(?:destroy|exile) all (?:other )?(?:creatures|nonland permanents|permanents)|(?:all|each) creatures? gets? [-−]\d|destroy each creature/i;
+function oracleTextOf(card: ScryfallCard): string {
+  return card.oracle_text ?? (card.card_faces ?? []).map(f => f.oracle_text ?? '').join(' ');
+}
+/** A card that wipes the board, by role OR by oracle text (covers tagger gaps). */
+function isBoardWipeLike(c: BrewCandidate): boolean {
+  return c.role === 'boardwipe' || MASS_REMOVAL_RE.test(oracleTextOf(c.scryfall));
+}
+
 /** Cluster key like 'need:removal' | 'theme:tokens' | 'discovery' | 'pack:a' → its display title. */
 function bundleName(ctx: BrewContext, key: string, fallbackLabel: string): string {
   const [kind, slug] = key.split(':');
@@ -290,7 +308,14 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       key: `theme:${slug}`,
       label: ctx.themeNames[slug] ?? slug,
       flavor: 'theme',
-      match: c => c.themeTags.includes(slug),
+      // On-theme membership, minus generic answer cards that read as off-strategy in a theme pack:
+      //  - A board wipe NEVER fronts a theme pack (you don't sweep your own go-wide board) — excluded
+      //    unconditionally, even if EDHREC's noisy theme data lists it as a "signature" (it shows up on
+      //    a tokens page via co-occurrence, but a wipe is never a tokens payoff). Wipes live in the need pack.
+      //  - Ramp/removal are softer: allowed only when they're THIS theme's own signature (sigRankBySlug
+      //    [slug], not the global union — else a control-theme staple leaks into an unrelated pack).
+      match: c => c.themeTags.includes(slug) && !isBoardWipeLike(c)
+        && ((sigRankBySlug[slug]?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role))),
       priority: 1_000 + (leanWeights[slug] ?? 0),
       rank: themeRank(slug),
     });
@@ -320,6 +345,14 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   }
   clusters.sort((a, b) => b.priority - a.priority);
 
+  // Rotate packs across a 2-round window: clusters shown in either of the last two pack rounds
+  // (lastPackKeys + prevPackKeys) are held back, so a commander with many themes stops cycling the
+  // same 3 every round. They stay available as a last-resort fallback below, so avoiding repeats
+  // never dead-ends a thin pool (a focused commander with few themes just falls back to them).
+  const avoid = new Set([...(state.lastPackKeys ?? []), ...(state.prevPackKeys ?? [])]);
+  const fresh = clusters.filter(cl => !avoid.has(cl.key));
+  const stale = clusters.filter(cl => avoid.has(cl.key));
+
   const taken = new Set<string>();
   // Two distinct themes can share one flavor name (e.g. graveyard + reanimator both → "Raise the
   // Dead"). Track titles already used this round so a second collision falls back to the plain
@@ -330,13 +363,40 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   const built: { option: BrewOption; subject: string }[] = [];
   const tryBuild = (cl: Cluster) => {
     if (built.length >= BUNDLE_COUNT || built.some(b => b.option.id === cl.key)) return;
-    const cards = takeCards(scored, taken, BUNDLE_MAX, cl.match, cl.rank);
+    let cards = takeCards(scored, taken, BUNDLE_MAX, cl.match, cl.rank);
     if (cards.length < BUNDLE_MIN) return;
+
+    // A theme pack must SHOWCASE a hallmark — a card that defines the theme (its top EDHREC signature)
+    // — so a "Drain the Table" pack actually contains a drain payoff, not just incidental-tag filler
+    // that other (higher-priority) packs left behind. If greedy claiming left no signature in the pack,
+    // pull the theme's best still-available signature to the front; if none exists at all, the pack
+    // drops its evocative name (themedName=false) so it never promises a strategy its cards don't back.
+    let hallmarkName: string | undefined;
+    let themedName = true;
+    if (cl.flavor === 'theme') {
+      const slug = cl.key.slice('theme:'.length);
+      const sigRank = sigRankBySlug[slug];
+      if (sigRank) {
+        const present = cards.filter(c => sigRank.has(c.name)).sort((a, b) => sigRank.get(a.name)! - sigRank.get(b.name)!);
+        if (present.length > 0) {
+          hallmarkName = present[0].name;
+        } else {
+          const topSig = [...sigRank.keys()].find(n => !taken.has(n) && byName.has(n) && cl.match(byName.get(n)!));
+          if (topSig) {
+            cards = [byName.get(topSig)!, ...cards.slice(0, BUNDLE_MAX - 1)];
+            hallmarkName = topSig;
+          } else {
+            themedName = false;
+          }
+        }
+      }
+    }
+
     cards.forEach(c => taken.add(c.name));
-    const flavorTitle = bundleName(ctx, cl.key, cl.label);
+    const flavorTitle = themedName ? bundleName(ctx, cl.key, cl.label) : cl.label;
     const title = usedTitles.has(flavorTitle) ? cl.label : flavorTitle;
     usedTitles.add(title);
-    const option: BrewOption = { ...toOption(ctx, state, cards, cl.key, title, finishers), flavor: cl.flavor };
+    const option: BrewOption = { ...toOption(ctx, state, cards, cl.key, title, finishers), flavor: cl.flavor, hallmarkName };
     // Theme packs may secretly hide their defining payoff (see rollGoldCard) — a rare free windfall.
     if (cl.flavor === 'theme') {
       const slug = cl.key.slice('theme:'.length);
@@ -349,16 +409,18 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   // Reserve one slot for an under-shown theme (variety) — UNLESS a cluster pack is available, in which
   // case that synergy pack takes the back-half rotation slot (via its priority) and we skip exploration.
   // The reserved bundle is built LAST so it only claims cards the higher-priority bundles passed on.
-  const explore = hasClusterPack ? null : chooseExplorationCluster(clusters, ctx, state);
+  const explore = hasClusterPack ? null : chooseExplorationCluster(fresh, ctx, state);
   const priorityCap = explore ? BUNDLE_COUNT - 1 : BUNDLE_COUNT;
-  for (const cl of clusters) {
+  for (const cl of fresh) {
     if (built.length >= priorityCap) break;
     if (explore && cl.key === explore.key) continue;
     tryBuild(cl);
   }
   if (explore) tryBuild(explore);
-  // Top up to BUNDLE_COUNT in priority order if the reserved slot couldn't form a bundle.
-  for (const cl of clusters) tryBuild(cl);
+  // Top up to BUNDLE_COUNT in priority order (fresh clusters first), then fall back to last round's
+  // packs only if avoiding repeats would otherwise leave the round too thin.
+  for (const cl of fresh) tryBuild(cl);
+  for (const cl of stale) tryBuild(cl);
 
   // Thin-pool guarantee: if fewer than two coherent clusters formed (e.g. a pool dominated by one
   // role), split the top cards into two generic bundles so the player still chooses between packages.

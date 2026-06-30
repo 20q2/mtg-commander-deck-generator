@@ -19,7 +19,7 @@ import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, EDHRECTheme, GeneratedDeck, ThemeResult } from '@/types';
-import { Loader2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, Library } from 'lucide-react';
+import { Loader2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, Library, AlertTriangle } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { trackEvent } from '@/services/analytics';
@@ -98,6 +98,12 @@ export function BuilderPage() {
   // URL drives view visibility so back/forward both work: the deck stays in the store across
   // a back-to-settings, and forward re-shows it without regenerating.
   const showDeck = !!(generatedDeck && genParam);
+
+  // Mirrors the "Low deck count for selected themes" warning in ArchetypeDisplay: the
+  // assemble button surfaces the same caution by swapping its logo for a warning icon.
+  const lowThemeDeckCount =
+    selectedThemes.some(t => t.isSelected) &&
+    selectedThemes.filter(t => t.isSelected).reduce((sum, t) => sum + (t.deckCount ?? 0), 0) < 50;
 
   // Scroll to top on mount
   useEffect(() => {
@@ -1009,6 +1015,11 @@ export function BuilderPage() {
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   {progress || loadingMessage}
+                </>
+              ) : lowThemeDeckCount ? (
+                <>
+                  <AlertTriangle className="w-5 h-5 mr-2 text-amber-300" />
+                  Assemble a Deck
                 </>
               ) : (
                 <>

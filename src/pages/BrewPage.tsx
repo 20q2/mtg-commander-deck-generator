@@ -16,8 +16,9 @@ import { BrewHealthStrip } from '@/components/brew/BrewHealthStrip';
 import { BrewDeckListButton } from '@/components/brew/BrewDeckListButton';
 import { BrewTrack } from '@/components/brew/BrewTrack';
 import { BrewStatsPanel } from '@/components/brew/BrewStatsPanel';
-import { BrewIdentityMeter } from '@/components/brew/BrewIdentityMeter';
+import { BrewStatsButton } from '@/components/brew/BrewStatsButton';
 import { BrewCommitFlash } from '@/components/brew/BrewCommitFlash';
+import { BrewCelebration } from '@/components/brew/BrewCelebration';
 import { BrewPath } from '@/components/brew/BrewPath';
 import { BrewNode } from '@/components/brew/BrewNode';
 import { BrewQuestionScreen } from '@/components/brew/BrewQuestionScreen';
@@ -27,6 +28,9 @@ import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
+
+// One-time onboarding: the splash shows on the player's first brew, then never again (see showSplash).
+const BREW_SPLASH_SEEN_KEY = 'mtg-brew-splash-seen';
 
 export function BrewPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
@@ -52,8 +56,16 @@ export function BrewPage() {
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
-  // The "what is this?" splash plays before the setup form on every arrival (skippable in one tap).
-  const [showSplash, setShowSplash] = useState(true);
+  // The "what is this?" splash pitches the mode on a player's FIRST brew only — once they've seen it
+  // (and continued), later brews drop straight onto the setup form so repeat use stays fast. The
+  // one-tap continue persists the flag.
+  const [showSplash, setShowSplash] = useState(() => {
+    try { return localStorage.getItem(BREW_SPLASH_SEEN_KEY) !== 'true'; } catch { return true; }
+  });
+  function dismissSplash() {
+    try { localStorage.setItem(BREW_SPLASH_SEEN_KEY, 'true'); } catch { /* ignore */ }
+    setShowSplash(false);
+  }
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -139,8 +151,24 @@ export function BrewPage() {
     if (brewId && brewState) persistBrewSession(brewId);
   }, [brewId, brewState]);
 
-  // Replay the splash when arriving at a different commander's brew.
-  useEffect(() => { setShowSplash(true); }, [commanderName]);
+  // Each new brew screen (fresh pack, fork, event, question, relic) starts at the top. On mobile a
+  // pack round can be ~3 screens tall, so without this you land mid-card-list after every pick
+  // instead of at the prompt/HUD. Keyed on the same discriminator the rendered view uses, so it
+  // fires exactly once per screen change (a no-op on desktop where the content already fits).
+  const brewViewKey = brewRelicOffer ? 'relic'
+    : brewEvent ? `event:${brewEvent.id}`
+    : brewQuestion ? 'question'
+    : brewNode ? `node:${brewState?.history.length ?? 0}`
+    : `fork:${brewState?.history.length ?? 0}`;
+  useEffect(() => {
+    if (brewContext && brewState) window.scrollTo({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brewViewKey]);
+
+  // Re-arriving at a different commander only re-shows the splash if it's still never been seen.
+  useEffect(() => {
+    try { if (localStorage.getItem(BREW_SPLASH_SEEN_KEY) !== 'true') setShowSplash(true); } catch { /* ignore */ }
+  }, [commanderName]);
 
   async function handleStartBrew() {
     if (!commander) return;
@@ -203,6 +231,16 @@ export function BrewPage() {
     }
   }
 
+  // "Finish for me" is the bail-out: build the deck NOW with a sensible mana base, no extra prompt.
+  // We infer the land style from the up-front setup (a budget pool → budget fixing; otherwise the
+  // best available fixing) so the player who taps out early still gets a good base without a quiz.
+  // The deliberate "Build the Mana Base" route (onManaBase) still opens the capstone for players who
+  // play all the way to completion and want to make that final call themselves.
+  function quickFinish() {
+    const style: ManaPhilosophy = customization.budgetOption === 'budget' ? 'budget' : 'reliable';
+    void handleFinish(style);
+  }
+
   // Tear down the brew session and head to the finished deck once the player closes the recap.
   function handleViewDeck() {
     const listId = recap?.listId;
@@ -219,7 +257,7 @@ export function BrewPage() {
   return (
     // The live deck lives in a toggleable drawer (the "Deck list" button), so the choices keep a
     // single, centered column at every step.
-    <div ref={contentRef} className="max-w-5xl mx-auto px-4 py-6">
+    <div ref={contentRef} className="brew-foundry max-w-5xl mx-auto px-4 py-6">
       {/* The morph-and-fly intro plays over everything until it hands off to the first screen. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
       {/* The run recap overlays everything once the deck is finished. */}
@@ -228,9 +266,11 @@ export function BrewPage() {
       {capstone && <BrewManaCapstone onChoose={(s) => void handleFinish(s)} onSkip={() => void handleFinish()} />}
       {/* The commit consequence banner — overlays everything briefly after a Crossroads commit. */}
       <BrewCommitFlash />
+      {/* Earned-beat celebrations — goal complete / hot streak / combo online. */}
+      <BrewCelebration />
       {!sessionActive ? (
         showSplash ? (
-          <BrewSplash commanderName={commander?.name} onContinue={() => setShowSplash(false)} />
+          <BrewSplash commanderName={commander?.name} onContinue={dismissSplash} />
         ) : (
           <BrewSetup
             loadingCommander={loadingCommander}
@@ -248,6 +288,9 @@ export function BrewPage() {
               stays put across every fork/node/question/event, not only between rounds. Kept OUTSIDE
               the space-y wrapper so its row-spacing margin doesn't shove the fixed panel down. */}
           <BrewStatsPanel />
+          {/* Below 1560px the docked rail can't fit — this button opens the same stats in a drawer so
+              laptops/tablets see the living stats too. Hidden at ≥1560px (the rail takes over). */}
+          <BrewStatsButton />
           {/* Deck list is its own button now: pinned top-right on wide screens (mirroring the stats
               rail), a right-aligned row above the strip on narrower ones. Outside the space-y wrapper
               so its row-margin doesn't push the fixed/HUD layout around. */}
@@ -257,7 +300,6 @@ export function BrewPage() {
               along as a compact strip on narrow screens (the wide-screen rail carries it otherwise). */}
           <div className="space-y-2">
             <BrewHealthStrip />
-            <BrewIdentityMeter variant="strip" />
             <BrewTrack />
           </div>
           {/* Key the view on the active screen so each arrival fades in as one cohesive unit
@@ -274,8 +316,8 @@ export function BrewPage() {
                 : brewQuestion
                   ? <BrewQuestionScreen key={brewQuestion.id} />
                   : brewNode
-                    ? <BrewNode key={brewState?.history.length ?? 0} onFinish={() => setCapstone(true)} />
-                    : <BrewPath onFinish={() => setCapstone(true)} onManaBase={() => setCapstone(true)} />}
+                    ? <BrewNode key={brewState?.history.length ?? 0} onFinish={quickFinish} />
+                    : <BrewPath onFinish={quickFinish} onManaBase={() => setCapstone(true)} />}
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>

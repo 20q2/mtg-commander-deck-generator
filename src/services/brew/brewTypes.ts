@@ -96,6 +96,13 @@ export interface BrewOption {
   /** Subjects (theme/role names) of the OTHER bundles on screen — what taking this one walks away from. */
   closing?: string[];
   /**
+   * The card in this (theme) pack that DEFINES its theme — the top EDHREC signature present. Marked in
+   * the UI so the pack's name is anchored to a real payoff (a "Drain the Table" pack shows which card
+   * is the drain). Undefined when the theme had no draftable signature (the pack then drops its
+   * evocative name for the plain theme label, so it never promises a strategy its cards don't deliver).
+   */
+  hallmarkName?: string;
+  /**
    * A secret bonus card hidden in this (theme) pack: a small, seeded chance surfaces the theme's
    * defining payoff as a free windfall, revealed only after the player takes the pack. Theme packs
    * only; undefined on every other pack and on most theme packs.
@@ -155,12 +162,31 @@ export interface BrewState {
   committedTheme?: string;              // theme slug the player committed to at a Crossroads (Slice A: drives soft-remove + meter marker)
   pinnedNames?: string[];               // cards the player pinned "for later" — boosted so they resurface in future offers
   questionsAsked: number;               // personality questions answered/skipped so far (caps re-prompts)
+  lastPackKeys?: string[];              // option ids (cluster keys) of the previous pack round — held back so the same pack never shows twice in a row
+  prevPackKeys?: string[];              // the pack round before lastPackKeys — held back too, so packs rotate across a 2-round window (less "same 3 themes every time")
   // --- The "fun layer": events, relics & the run story ---
   relics: BrewRelic[];                  // acquired deckbuilding modifiers (bias future offers/scoring)
   comboWatch: string[];                 // missing combo-piece names to bias toward (set by "Investigate")
   firedEventIds: string[];              // event ids already surfaced this run (dedupe)
   lastMomentPick: number;               // picks.length at the last event/relic — enforces a min gap
   moments: BrewMoment[];                // story log for the end-of-run recap (decoupled from undo history)
+  synergyStreak?: number;               // consecutive synergy-positive decisions — drives the "on a roll" HUD chip + milestone celebrations
+  goalDone?: boolean;                   // the run's Brewer's Goal has been completed (latches, so we celebrate once)
+}
+
+/** The run's objective — a soft goal to chase, derived deterministically from the commander (see goals.ts). */
+export interface BrewGoal {
+  id: 'combo' | 'wide' | 'identity';
+  label: string;        // short HUD label, e.g. "Assemble a combo"
+  description: string;  // recap/tooltip line
+  target: number;       // completion threshold (combos completed / creatures drafted / theme affinity)
+}
+
+/** A brief celebratory toast fired at an earned beat (goal complete, hot streak, combo online). */
+export interface BrewCelebration {
+  kind: 'goal' | 'streak' | 'combo';
+  title: string;
+  subtitle?: string;
 }
 
 export interface BrewHealth {

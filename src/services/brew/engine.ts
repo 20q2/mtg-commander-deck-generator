@@ -8,6 +8,7 @@ export { leaningThemes, topIdentity, generateRunTitle, IDENTITY_COMMIT_THRESHOLD
 export { discoverFrom, discoverClustersFrom } from './discovery';
 export { computeDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';
 export { detectNearMissCombos, type NearMissCombo } from './combos';
+export { brewGoal, goalProgress } from './goals';
 export { advanceAfterPick, STEER_EVERY, isSteerIndex } from './flow';
 export {
   nextEvent, applyEvent, strangeSignalEvent, comboFragmentEvent, crossroadsEvent, signaturePickEvent, gambleEvent,

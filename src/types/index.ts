@@ -604,6 +604,7 @@ export interface AppState {
   brewEvent: import('@/services/brew/engine').BrewEvent | null;
   brewRelicOffer: import('@/services/brew/engine').BrewRelic[] | null;
   brewCommitFlash: import('@/services/brew/engine').BrewCommitFlash | null; // transient post-commit banner
+  brewCelebration: import('@/services/brew/engine').BrewCelebration | null; // transient earned-beat toast (goal/streak/combo)
   brewRerollExclusions: string[];
   brewStatsOpen: boolean; // whether the "Your deck so far" stats rail is shown (wide screens)
 
@@ -646,6 +647,7 @@ export interface AppState {
   gambleDiscover: (name: string) => Promise<void>;
   pinBrewCard: (name: string) => void;
   setBrewCommitFlash: (flash: import('@/services/brew/engine').BrewCommitFlash | null) => void;
+  setBrewCelebration: (celebration: import('@/services/brew/engine').BrewCelebration | null) => void;
   expandBrewDiscoveries: () => Promise<void>;
   expandBrewClusters: () => Promise<void>;
   backToBrewFork: () => void;

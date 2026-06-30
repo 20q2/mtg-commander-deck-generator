@@ -863,6 +863,74 @@
   }
 }
 
+/* ============================================================================
+   BREW — "Industrial Foundry" skin. Scoped to the .brew-foundry wrapper so it
+   only re-themes the brew flow, not the rest of the app. Most of the re-skin is
+   done by overriding the theme CSS variables (steel panels, molten-orange
+   primary, steel borders) so every bg-card / border / primary accent recolors
+   automatically; typography + gradient + the blueprint grid finish the look.
+   ============================================================================ */
+.brew-foundry {
+  --background: 216 18% 9%;       /* dark steel */
+  --card: 214 16% 13%;            /* panel steel */
+  --card-foreground: 213 16% 92%;
+  --popover: 214 16% 15%;
+  --popover-foreground: 213 16% 92%;
+  --primary: 22 92% 56%;          /* molten orange — actions, weld glow, the "you are here" ember */
+  --primary-foreground: 20 40% 8%;
+  --secondary: 214 14% 18%;
+  --secondary-foreground: 213 14% 90%;
+  --muted: 214 14% 18%;
+  --muted-foreground: 213 12% 60%;
+  --accent: 214 14% 22%;
+  --accent-foreground: 213 16% 95%;
+  --border: 214 13% 27%;
+  --input: 214 14% 18%;
+  --ring: 22 92% 56%;
+}
+
+/* Headings become condensed industrial caps; flavor text drops its serif for a clean technical voice. */
+.brew-foundry .font-display {
+  font-family: 'Saira Condensed', system-ui, sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+}
+.brew-foundry .font-flavor {
+  font-family: 'Saira', system-ui, sans-serif;
+  font-style: normal;
+  letter-spacing: 0.005em;
+}
+/* The purple→pink "AI" gradient becomes molten-orange → blueprint-cyan. */
+.brew-foundry .gradient-text {
+  background-image: linear-gradient(90deg, #ff8c3a, #56bcdb);
+}
+
+/* The brew is shot through with violet (the generic accent we're killing). Remap every violet
+   Tailwind utility — text, border, bg, ring, gradient stops — to the Foundry's blueprint-cyan
+   (structure) and molten-orange (the progress weld), via attribute selectors so all opacity
+   variants (violet-300/90 etc.) are caught in one place. Inline-style violets are handled in JS. */
+.brew-foundry [class*="text-violet-50"],
+.brew-foundry [class*="text-violet-100"] { color: #e6f5fb !important; }
+.brew-foundry [class*="text-violet-200"] { color: #abe0f1 !important; }
+.brew-foundry [class*="text-violet-300"],
+.brew-foundry [class*="text-violet-400"] { color: #58bedd !important; }
+.brew-foundry [class*="border-violet"] { border-color: rgb(86 188 219 / 0.5) !important; }
+.brew-foundry [class*="bg-violet"]      { background-color: rgb(86 188 219 / 0.14) !important; }
+.brew-foundry [class*="ring-violet"]    { --tw-ring-color: rgb(86 188 219 / 0.55) !important; }
+.brew-foundry [class*="from-violet"]    { --tw-gradient-from: #ff8c3a var(--tw-gradient-from-position) !important; }
+.brew-foundry [class*="to-violet"]      { --tw-gradient-to: #58bedd var(--tw-gradient-to-position) !important; }
+
+/* Blueprint grid for the brew backdrop — cyan hairlines on a mask that fades toward the edges. */
+.brew-grid {
+  background-image:
+    linear-gradient(hsl(196 62% 60% / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(196 62% 60% / 0.07) 1px, transparent 1px);
+  background-size: 30px 30px;
+  -webkit-mask-image: radial-gradient(125% 95% at 50% -5%, #000 45%, transparent 88%);
+  mask-image: radial-gradient(125% 95% at 50% -5%, #000 45%, transparent 88%);
+}
+
 /* Playtest loading: three card backs riffle-shuffle */
 .animate-shuffle {
   animation: shuffleLoop 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;

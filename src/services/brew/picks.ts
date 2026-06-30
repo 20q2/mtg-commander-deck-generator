@@ -3,6 +3,11 @@ import type { BrewState, BrewPick, RouteType, BrewHistoryEntry } from './brewTyp
 /** Weight added to themeAffinity per tag per pick that carries that tag. */
 export const AFFINITY_PER_PICK = 10;
 
+// A decision counts toward the "on a roll" streak when it lands a card that advances the plan — a
+// combo/lift/game-changer/role-fill, or an on-theme card. Pure filler (value packs with no such
+// reason) breaks the streak. Drives the escalating HUD chip + milestone celebrations.
+const STREAK_REASON_KINDS = new Set(['theme', 'role', 'combo', 'comboPiece', 'gameChanger', 'lift', 'discovery']);
+
 export interface ApplyPickMeta {
   routeType: RouteType;
   passed: string[];                    // names shown but not taken in this decision
@@ -20,11 +25,15 @@ export function applyPick(state: BrewState, picks: BrewPick[], meta: ApplyPickMe
     }
   }
   const pickNumber = state.history.length + 1;
+  // "On a roll": this decision extends the streak if any picked card advances the plan; pure filler resets it.
+  const synergyPositive = picks.some(p => (p.reasons ?? []).some(r => STREAK_REASON_KINDS.has(r.kind)));
+  const synergyStreak = synergyPositive ? (state.synergyStreak ?? 0) + 1 : 0;
   return {
     ...state,
     picks: [...state.picks, ...picks],
     usedNames: [...state.usedNames, ...addedNames],
     themeAffinity,
+    synergyStreak,
     history: [...state.history, {
       pickNumber,
       routeId: picks[0]?.viaRouteId ?? '',

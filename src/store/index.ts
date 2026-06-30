@@ -3,7 +3,7 @@ import type { AppState, Customization, BanList, AppliedList, ScryfallCard, Gener
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
-import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic } from '@/services/brew/engine';
+import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, brewGoal, goalProgress, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration } from '@/services/brew/engine';
 
 /** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
 const CLUSTER_PHASE_FILL = 0.4;
@@ -296,6 +296,7 @@ export const useStore = create<AppState>((set, get) => ({
   brewEvent: null,
   brewRelicOffer: null,
   brewCommitFlash: null,
+  brewCelebration: null,
   brewRerollExclusions: [],
   brewStatsOpen: loadBrewStatsOpen(),
 
@@ -482,6 +483,7 @@ export const useStore = create<AppState>((set, get) => ({
       picks: [], usedNames: [], themeAffinity: {}, rerollsUsed: {}, phase: 'nonland', history: [],
       discovered: [], seededNames: [], questionsAsked: 0,
       relics: [], comboWatch: [], firedEventIds: [], lastMomentPick: 0, moments: [],
+      synergyStreak: 0, goalDone: false,
       // Per-run jitter seed: minted once here, persisted with the session, so offers vary run-to-run
       // while a single run stays stable across resume/undo. (1..2^32 so it's always truthy.)
       seed: Math.floor(Math.random() * 0xfffffffe) + 1,
@@ -490,7 +492,7 @@ export const useStore = create<AppState>((set, get) => ({
     // identity emerge from what they actually pick.
     set({ brewContext: ctx, brewState: state, brewRoutes: nextRoutes(ctx, state),
       brewNode: buildPackNode(ctx, state), brewQuestion: null,
-      brewEvent: null, brewRelicOffer: null, brewCommitFlash: null, brewRerollExclusions: [] });
+      brewEvent: null, brewRelicOffer: null, brewCommitFlash: null, brewCelebration: null, brewRerollExclusions: [] });
   },
 
   openBrewRoute: (route: BrewRoute) => {
@@ -545,15 +547,44 @@ export const useStore = create<AppState>((set, get) => ({
       if (gold.subtype) t.push(gold.subtype);
       tags[gold.name] = t;
     }
+    // Rotate packs across a 2-round window: on a fresh pack round, shift the just-shown keys into
+    // lastPackKeys and the previous round's into prevPackKeys, so the next two rounds hold both back
+    // (less "same 3 themes every time"). A draft/combo pick isn't a pack round → leave the window be.
+    const wasBundle = brewNode.type === 'bundle';
+    const nextLastPackKeys = wasBundle ? brewNode.options.map(o => o.id) : brewState.lastPackKeys;
+    const nextPrevPackKeys = wasBundle ? brewState.lastPackKeys : brewState.prevPackKeys;
     let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags });
+    nextState = { ...nextState, lastPackKeys: nextLastPackKeys, prevPackKeys: nextPrevPackKeys };
     if (gold) {
       nextState = { ...nextState, moments: [...nextState.moments,
         { atPick: nextState.picks.length, kind: 'goldCard', label: `Struck gold — ${gold.name}`, detail: 'Hidden in the pack' }] };
     }
+    // Completing a combo via the Combos route is a story beat too (not just the Combo-Fragment event):
+    // log it so the recap reflects the kill you assembled, not only event-sourced moments.
+    if (brewNode.type === 'combo') {
+      const payoff = option.label ?? 'a combo';
+      const added = option.cards.map(c => c.name).join(' + ');
+      nextState = { ...nextState, moments: [...nextState.moments,
+        { atPick: nextState.picks.length, kind: 'comboFragment', label: `Completed ${payoff}`, detail: added || undefined }] };
+    }
+    // Earned-beat celebrations (the "juice"): one toast per decision, highest-priority beat wins.
+    //  1) the Brewer's Goal just completed (latches via goalDone so it fires once),
+    //  2) a combo just came online (the route pick), or
+    //  3) a synergy-streak milestone. The toast auto-dismisses; null leaves any prior one to fade.
+    let celebration: BrewCelebration | null = null;
+    if (!brewState.goalDone && !goalProgress(brewContext, brewState).done && goalProgress(brewContext, nextState).done) {
+      nextState = { ...nextState, goalDone: true };
+      celebration = { kind: 'goal', title: 'Goal complete!', subtitle: brewGoal(brewContext).label };
+    } else if (brewNode.type === 'combo') {
+      celebration = { kind: 'combo', title: 'Combo online!', subtitle: option.label };
+    } else if ([3, 6, 9, 12].includes(nextState.synergyStreak ?? 0)) {
+      celebration = { kind: 'streak', title: 'On a roll!', subtitle: `${nextState.synergyStreak} synergy picks in a row` };
+    }
+
     // You shouldn't have to choose a path after every pick: auto-advance to the next card screen,
     // surfacing the steering fork (and its relic/event/question moments) only at milestones.
     const patch = brewAdvancePatch(brewContext, nextState);
-    set(patch);
+    set(celebration ? { ...patch, brewCelebration: celebration } : patch);
     // At steering milestones (no auto-advance node) and while the deck is still building,
     // expand the pool from the player's recent threads. Fire-and-forget; UI never blocks.
     if (patch.brewNode === null && !isComplete(brewContext, nextState)) {
@@ -619,6 +650,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setBrewCommitFlash: (flash) => set({ brewCommitFlash: flash }),
+
+  setBrewCelebration: (celebration) => set({ brewCelebration: celebration }),
 
   pinBrewCard: (name: string) => {
     const { brewContext, brewState } = get();
@@ -736,7 +769,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  clearBrewSession: () => set({ brewContext: null, brewState: null, brewRoutes: [], brewNode: null, brewQuestion: null, brewEvent: null, brewRelicOffer: null, brewCommitFlash: null, brewRerollExclusions: [] }),
+  clearBrewSession: () => set({ brewContext: null, brewState: null, brewRoutes: [], brewNode: null, brewQuestion: null, brewEvent: null, brewRelicOffer: null, brewCommitFlash: null, brewCelebration: null, brewRerollExclusions: [] }),
 
   toggleBrewStats: (open) => set((s) => {
     const next = open ?? !s.brewStatsOpen;

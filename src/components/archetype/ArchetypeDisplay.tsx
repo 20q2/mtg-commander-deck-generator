@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useStore } from '@/store';
-import { ChevronDown, Crosshair, Zap } from 'lucide-react';
+import { ChevronDown, Crosshair, Zap, AlertTriangle } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
 interface ArchetypeDisplayProps {}
@@ -192,14 +192,12 @@ export function ArchetypeDisplay({}: ArchetypeDisplayProps) {
 
           {selectedThemes.some(t => t.isSelected) &&
             selectedThemes.filter(t => t.isSelected).reduce((sum, t) => sum + (t.deckCount ?? 0), 0) < 50 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-              <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                <path d="M12 9v4" />
-                <path d="M12 17h.01" />
-              </svg>
-              Low deck count for selected themes — results may be inconsistent
-            </p>
+            <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-200">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <p className="text-sm font-medium leading-snug">
+                Low deck count for selected themes — results may be inconsistent
+              </p>
+            </div>
           )}
 
         </div>

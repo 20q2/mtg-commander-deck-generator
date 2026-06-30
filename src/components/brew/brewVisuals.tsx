@@ -117,6 +117,46 @@ const KEY_THEME: Record<string, [string, string]> = {
   land: ['95 45% 48%', 'Lands'],            // earthy green
 };
 
+// Each commander THEME gets its own colour, so a row of theme packs reads as three distinct
+// directions instead of three identical green crates. Curated hues for the iconic archetypes (so
+// lifegain reads rose, tokens gold, infect sickly-green…); a stable string hash gives every other
+// slug — however obscure — its own consistent shade. Fixed S/L keeps the whole set harmonious.
+const THEME_HUE: Record<string, string> = {
+  tokens: '45 88% 58%', 'go-wide': '45 88% 58%',
+  sacrifice: '352 62% 55%', aristocrats: '352 60% 54%', lifegain: '335 68% 64%',
+  counters: '130 60% 52%', '+1-+1-counters': '130 60% 52%', '-1--1-counters': '282 48% 58%',
+  proliferate: '168 62% 52%', infect: '96 52% 46%', poison: '96 52% 46%',
+  'spells-matter': '212 80% 62%', spellslinger: '212 80% 62%',
+  reanimator: '270 46% 56%', graveyard: '268 40% 52%', mill: '232 62% 62%',
+  blink: '188 72% 58%', equipment: '32 58% 56%', auras: '300 46% 62%', voltron: '26 60% 56%',
+  landfall: '88 48% 50%', lands: '88 48% 50%', stax: '220 14% 62%', control: '215 40% 62%',
+};
+const THEME_SAT = 60;
+const THEME_LIGHT = 56;
+export function themeColor(slug: string): string {
+  const curated = THEME_HUE[slug];
+  if (curated) return curated;
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360;
+  return `${h} ${THEME_SAT}% ${THEME_LIGHT}%`;
+}
+
+/**
+ * A contrast-safe TEXT shade of a bare "H S% L%" triplet. The theme/pack colours look right as
+ * structural tint (borders, washes, rings) but a mid-lightness saturated colour reads dim as text on
+ * the dark UI — worst for low-luminance hues (blues/violets) and desaturated archetypes (control/stax).
+ * This floors lightness and saturation so colored labels stay legible whatever the hue, while the
+ * structural `--pk` keeps its subtler base shade.
+ */
+export function legibleText(hsl: string): string {
+  const m = /^\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)%\s*$/.exec(hsl);
+  if (!m) return hsl;
+  const h = +m[1];
+  const s = Math.max(+m[2], 62);
+  const l = Math.max(+m[3], 72);
+  return `${h} ${s}% ${l}%`;
+}
+
 /** Resolve the operation theme for a route/node from its type + key. */
 export function operationTheme(routeType: string, key: string | null): OperationTheme {
   const special = SPECIAL_THEME[routeType];

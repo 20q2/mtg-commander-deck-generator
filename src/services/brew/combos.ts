@@ -78,5 +78,18 @@ export function detectNearMissCombos(ctx: BrewContext, state: BrewState): NearMi
     (payoffRank(b.results) - payoffRank(a.results)) ||
     (a.missing.length - b.missing.length) ||
     (b.deckCount - a.deckCount));
-  return out;
+  // Collapse combos that ask for the SAME missing piece(s): from the player's seat those are one
+  // decision ("add Magistrate's Scepter") that happens to complete several listed lines, so showing
+  // each as a separate "combo within reach" inflates the count and reads as redundant. Keep the
+  // best-ranked representative per missing-set (the sort above already ordered them), so "3 combos"
+  // means three genuinely different next cards, not the same card three ways.
+  const seenMissing = new Set<string>();
+  const deduped: NearMissCombo[] = [];
+  for (const nm of out) {
+    const key = [...nm.missing].sort().join('|');
+    if (seenMissing.has(key)) continue;
+    seenMissing.add(key);
+    deduped.push(nm);
+  }
+  return deduped;
 }

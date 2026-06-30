@@ -10,11 +10,12 @@ import {
 } from '@/services/scryfall/client';
 import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { StrategyBrowser } from '@/components/commander/StrategyBrowser';
+import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
-import { Search, Loader2, Shuffle } from 'lucide-react';
+import { Search, Loader2, Shuffle, ChevronDown, Check } from 'lucide-react';
 import { trackEvent, fetchMetrics } from '@/services/analytics';
 
 function isLegendaryCreature(card: CollectionCard): boolean {
@@ -491,20 +492,40 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
           ) : (
             // Show EDHREC top / By strategy / Popular
             <>
-              {/* Discovery tab switcher */}
-              <div className="flex justify-center gap-2 mb-4">
-                <button
-                  onClick={() => setSuggestionTab('edhrec')}
-                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'edhrec' ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
-                >
-                  Top commanders
-                </button>
-                <button
-                  onClick={() => setSuggestionTab('strategy')}
-                  className={`text-xs px-3 py-1 rounded-full transition-colors ${suggestionTab === 'strategy' ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
-                >
-                  By strategy
-                </button>
+              {/* Discovery mode picker — the highlighted noun is a dropdown */}
+              <div className="flex justify-center mb-4">
+                <p className="text-foreground/90 flex items-center gap-1.5 text-sm">
+                  <span>{suggestionTab === 'strategy' ? 'Browse' : getColorFilterLabel(colorFilter)}</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button className="group inline-flex items-center gap-0.5 font-semibold text-violet-300 border-b border-dashed border-violet-400/70 hover:text-violet-200 hover:border-violet-300 transition-colors">
+                        {suggestionTab === 'strategy' ? 'Strategies' : 'Commanders'}
+                        <ChevronDown className="w-3.5 h-3.5 opacity-90 group-hover:opacity-100 transition-opacity" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="center" className="w-48 p-1">
+                      <PopoverClose asChild>
+                        <button
+                          onClick={() => setSuggestionTab('edhrec')}
+                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${suggestionTab !== 'strategy' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
+                        >
+                          Top Commanders
+                          {suggestionTab !== 'strategy' && <Check className="w-3.5 h-3.5" />}
+                        </button>
+                      </PopoverClose>
+                      <PopoverClose asChild>
+                        <button
+                          onClick={() => setSuggestionTab('strategy')}
+                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${suggestionTab === 'strategy' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
+                        >
+                          By Strategy
+                          {suggestionTab === 'strategy' && <Check className="w-3.5 h-3.5" />}
+                        </button>
+                      </PopoverClose>
+                    </PopoverContent>
+                  </Popover>
+                  {suggestionTab !== 'strategy' && <span>on EDHREC</span>}
+                </p>
               </div>
 
               {/* Color filter — shared by the Top commanders and By strategy tabs */}
@@ -514,10 +535,6 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
                 <StrategyBrowser colorFilter={colorFilter} onSelectCommanderName={handleSelectStrategyCommander} />
               ) : suggestionTab === 'edhrec' ? (
                 <>
-                  <p className="text-muted-foreground">
-                    {getColorFilterLabel(colorFilter)} commanders on EDHREC:
-                  </p>
-
                   {edhrecCommanders.length > 0 ? (
                     <div className={`relative flex flex-wrap justify-center gap-2 transition-opacity ${edhrecLoading ? 'opacity-40' : ''}`}>
                       {edhrecLoading && (

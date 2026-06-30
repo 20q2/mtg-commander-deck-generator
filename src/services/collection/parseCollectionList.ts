@@ -225,8 +225,12 @@ function stripSuffixes(cardName: string): string {
   cardName = cardName.replace(/\s*\/\/\s*.+$/, '').trim();
   // Strip tags like *f* (foil), *e* (etched), *s* (showcase), *F*, *Foil*, etc.
   cardName = cardName.replace(/\s*\*[a-zA-Z]+\*\s*/g, '').trim();
-  // Strip set/collector suffix: "(M21) 123", "(cmr) 45", or just "(JMP)"
-  cardName = cardName.replace(/\s*\([A-Za-z0-9]+\)\s*\d*\s*$/, '').trim();
+  // Strip trailing category annotations: "[Removal]", "[Ramp,Draw]", "[A] [B]" (Archidekt export).
+  // Must run before the $-anchored set/collector + number strippers below so those can match.
+  cardName = cardName.replace(/(?:\s*\[[^\]]*\])+\s*$/, '').trim();
+  // Strip set/collector suffix: "(M21) 123", "(cmr) 45", just "(JMP)", or promo/List
+  // collector numbers like "(plst) MH1-81", "(ust) 82b", "(sld) 1429★".
+  cardName = cardName.replace(/\s*\([A-Za-z0-9]+\)(?:\s+[A-Za-z0-9★-]+)?\s*$/, '').trim();
   // Strip trailing collector number alone: "Sol Ring 472"
   cardName = cardName.replace(/\s+#?\d{2,}$/, '').trim();
   return cardName;
