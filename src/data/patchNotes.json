@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.14",
+    "notes": [
+      "New \"By strategy\" browse on the home page — start from a play style (Aristocrats, Lifegain, Tokens, and more) and discover commanders that do it well",
+      "Clearer heads-up when your selected themes have very little deck data behind them, so you know results may be less consistent"
+    ]
+  },
+  {
     "version": "1.3.13",
     "notes": [
       "Fixed SpellChroma cards sometimes showing no tags when you explore without a deck or refresh the page",
