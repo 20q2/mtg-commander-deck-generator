@@ -8,7 +8,7 @@ import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, g
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
-import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase } from '@/types';
+import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase, UserCombo } from '@/types';
 import {
   Copy,
   Check,
@@ -47,6 +47,7 @@ import {
   Crosshair,
   Shield,
   Tag,
+  History,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -60,7 +61,7 @@ import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, type Repl
 import { HEALTH_GRADE_STYLES } from '@/components/deck/optimizer/constants';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
-import { useUserLists } from '@/hooks/useUserLists';
+import { useUserLists, useLastAddTarget } from '@/hooks/useUserLists';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { Select } from '@/components/ui/select';
 import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/grouping';
@@ -267,6 +268,7 @@ export type CardAction =
   | { type: 'maybeboard' }
   | { type: 'mustInclude' }
   | { type: 'exclude' }
+  | { type: 'createCombo' }
   | { type: 'addToList'; listId: string; board?: 'main' | 'sideboard' | 'maybeboard' }
   | { type: 'createListAndAdd'; listName: string };
 
@@ -286,13 +288,17 @@ export interface CardContextMenuProps {
   isInMaybeboard?: boolean;
   isMustInclude?: boolean;
   isBanned?: boolean;
+  /** Show a "Create combo" entry that seeds the custom-combo form with this card. */
+  hasCreateCombo?: boolean;
+  /** Commander row — hide deck-management actions (remove/board/must-include/exclude), keep Create combo + Add to list/deck. */
+  isCommander?: boolean;
   userLists: UserCardList[];
   forceOpen?: boolean;
   onForceClose?: () => void;
   onFocus?: () => void;   // optional "Focus on graph" action (Lift Web); shown at the top when provided
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, userLists, noun = 'deck', forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, isCommander, userLists, noun = 'deck', forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
   const workingNoun = noun === 'list' ? 'List' : 'Deck';
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
@@ -300,6 +306,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
   const [showNewList, setShowNewList] = React.useState(false);
   const [newListName, setNewListName] = React.useState('');
   const newListRef = React.useRef<HTMLInputElement>(null);
+  const { lastAddTarget, recordLastAddTarget } = useLastAddTarget();
   const open = forceOpen || internalOpen;
 
   const handleOpenChange = (v: boolean) => {
@@ -314,6 +321,10 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
   };
 
   const fire = (action: CardAction) => {
+    // Remember the destination so the ethereal quick-shortcut can re-target it.
+    if (action.type === 'addToList') {
+      recordLastAddTarget({ listId: action.listId, board: action.board });
+    }
     onAction(card, action);
     handleOpenChange(false);
   };
@@ -340,47 +351,61 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
             <div className="h-px bg-border my-1" />
           </>
         )}
-        {hasAddToDeck && (
-          <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
-            <Plus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-emerald-400 transition-colors" />
-            Add to {workingNoun}
-          </button>
+        {!isCommander && (
+          <>
+            {hasAddToDeck && (
+              <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
+                <Plus className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-emerald-400 transition-colors" />
+                Add to {workingNoun}
+              </button>
+            )}
+            {hasRemove && (
+              <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
+                <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
+                Remove from {workingNoun}
+              </button>
+            )}
+            {hasSideboard && (
+              <button className={menuBtn} onClick={() => fire({ type: 'sideboard' })}>
+                {addToBoard
+                  ? <Layers className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-amber-400 transition-colors" />
+                  : <ArrowUpDown className={`w-3.5 h-3.5 transition-colors ${isInSideboard ? 'text-amber-400' : 'text-muted-foreground group-hover/item:text-amber-400'}`} />}
+                {addToBoard ? 'Add to Sideboard' : isInSideboard ? 'Remove from Sideboard' : 'Move to Sideboard'}
+              </button>
+            )}
+            {hasMaybeboard && (
+              <button className={menuBtn} onClick={() => fire({ type: 'maybeboard' })}>
+                <Bookmark className={`w-3.5 h-3.5 transition-colors ${isInMaybeboard ? 'text-purple-400' : 'text-muted-foreground group-hover/item:text-purple-400'}`} />
+                {addToBoard ? 'Add to Maybeboard' : isInMaybeboard ? 'Remove from Maybeboard' : 'Move to Maybeboard'}
+              </button>
+            )}
+            {(hasRemove || hasAddToDeck || hasSideboard || hasMaybeboard) && (
+              <div className="h-px bg-border my-1" />
+            )}
+            <button className={menuBtn} onClick={() => fire({ type: 'mustInclude' })}>
+              <Pin className={`w-3.5 h-3.5 transition-colors ${isMustInclude ? 'text-emerald-400' : 'text-muted-foreground group-hover/item:text-emerald-400'}`} />
+              {isMustInclude ? 'Remove Must Include' : 'Must Include'}
+            </button>
+            <button className={menuBtn} onClick={() => fire({ type: 'exclude' })}>
+              <Ban className={`w-3.5 h-3.5 transition-colors ${isBanned ? 'text-red-400' : 'text-muted-foreground group-hover/item:text-red-400/70'}`} />
+              {isBanned ? 'Remove Exclude' : 'Exclude'}
+            </button>
+          </>
         )}
-        {hasRemove && (
-          <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
-            <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
-            Remove from {workingNoun}
-          </button>
+        {/* Create combo — isolated in its own section between dividers. */}
+        {hasCreateCombo && (
+          <>
+            {!isCommander && <div className="h-px bg-border my-1" />}
+            <button className={menuBtn} onClick={() => fire({ type: 'createCombo' })}>
+              <Sparkles className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-violet-400 transition-colors" />
+              Create combo
+            </button>
+          </>
         )}
-        {hasSideboard && (
-          <button className={menuBtn} onClick={() => fire({ type: 'sideboard' })}>
-            {addToBoard
-              ? <Layers className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-amber-400 transition-colors" />
-              : <ArrowUpDown className={`w-3.5 h-3.5 transition-colors ${isInSideboard ? 'text-amber-400' : 'text-muted-foreground group-hover/item:text-amber-400'}`} />}
-            {addToBoard ? 'Add to Sideboard' : isInSideboard ? 'Remove from Sideboard' : 'Move to Sideboard'}
-          </button>
-        )}
-        {hasMaybeboard && (
-          <button className={menuBtn} onClick={() => fire({ type: 'maybeboard' })}>
-            <Bookmark className={`w-3.5 h-3.5 transition-colors ${isInMaybeboard ? 'text-purple-400' : 'text-muted-foreground group-hover/item:text-purple-400'}`} />
-            {addToBoard ? 'Add to Maybeboard' : isInMaybeboard ? 'Remove from Maybeboard' : 'Move to Maybeboard'}
-          </button>
-        )}
-        {(hasRemove || hasAddToDeck || hasSideboard || hasMaybeboard) && (
-          <div className="h-px bg-border my-1" />
-        )}
-        <button className={menuBtn} onClick={() => fire({ type: 'mustInclude' })}>
-          <Pin className={`w-3.5 h-3.5 transition-colors ${isMustInclude ? 'text-emerald-400' : 'text-muted-foreground group-hover/item:text-emerald-400'}`} />
-          {isMustInclude ? 'Remove Must Include' : 'Must Include'}
-        </button>
-        <button className={menuBtn} onClick={() => fire({ type: 'exclude' })}>
-          <Ban className={`w-3.5 h-3.5 transition-colors ${isBanned ? 'text-red-400' : 'text-muted-foreground group-hover/item:text-red-400/70'}`} />
-          {isBanned ? 'Remove Exclude' : 'Exclude'}
-        </button>
         <div className="h-px bg-border my-1" />
         {!showLists && !showDecks && (() => {
-          const listCount = userLists.filter(l => !l.commanderName && l.cards.includes(card.name)).length;
-          const deckCount = userLists.filter(l => !!l.commanderName && (
+          const listCount = userLists.filter(l => l.type !== 'deck' && l.cards.includes(card.name)).length;
+          const deckCount = userLists.filter(l => l.type === 'deck' && (
             l.cards.includes(card.name) ||
             (l.sideboard?.includes(card.name) ?? false) ||
             (l.maybeboard?.includes(card.name) ?? false)
@@ -405,6 +430,33 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
                 </span>
               )}
             </button>
+            {/* ── Ethereal quick-shortcut: re-add to the last list/deck used ── */}
+            {(() => {
+              if (!lastAddTarget) return null;
+              const target = userLists.find(l => l.id === lastAddTarget.listId);
+              if (!target) return null;
+              const board = lastAddTarget.board ?? 'main';
+              const inTarget = board === 'sideboard'
+                ? (target.sideboard?.includes(card.name) ?? false)
+                : board === 'maybeboard'
+                ? (target.maybeboard?.includes(card.name) ?? false)
+                : target.cards.includes(card.name);
+              const boardSuffix = board === 'sideboard' ? ' · Sideboard' : board === 'maybeboard' ? ' · Maybeboard' : '';
+              return (
+                <button
+                  className={`${menuBtn} mt-0.5 text-muted-foreground/70 hover:text-foreground${inTarget ? ' opacity-50 pointer-events-none' : ''}`}
+                  onClick={() => fire({ type: 'addToList', listId: target.id, board: lastAddTarget.board })}
+                  disabled={inTarget}
+                  title={inTarget ? `Already in ${target.name}` : `Quick add to ${target.name}${boardSuffix}`}
+                >
+                  {inTarget
+                    ? <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    : <History className="w-3.5 h-3.5 shrink-0 group-hover/item:text-sky-300 transition-colors" />}
+                  <span className="truncate">Add to {target.name}</span>
+                  {boardSuffix && <span className="shrink-0 text-[10px] text-muted-foreground/60">{boardSuffix.replace(' · ', '')}</span>}
+                </button>
+              );
+            })()}
           </>
           );
         })()}
@@ -456,7 +508,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
               </form>
             )}
             {(() => {
-              const plainLists = userLists.filter(l => !l.commanderName);
+              const plainLists = userLists.filter(l => l.type !== 'deck');
               if (plainLists.length === 0) return null;
               return (
                 <div className="max-h-64 overflow-y-auto">
@@ -495,7 +547,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
               Add to Deck
             </button>
             {(() => {
-              const deckLists = userLists.filter(l => !!l.commanderName);
+              const deckLists = userLists.filter(l => l.type === 'deck');
               if (deckLists.length === 0) {
                 return <div className="px-3 py-1.5 text-xs text-muted-foreground/70">No decks yet</div>;
               }
@@ -651,7 +703,8 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
         'hover:bg-accent/50'
       }`}
       onContextMenu={(e) => {
-        if (showCardMenu && !isCommanderCard && onCardAction && cardMenuProps) {
+        // Commander rows only get the menu when there's a commander-relevant action (Create combo).
+        if (showCardMenu && onCardAction && cardMenuProps && (!isCommanderCard || cardMenuProps.hasCreateCombo)) {
           e.preventDefault();
           setContextMenuOpen(true);
         }
@@ -784,9 +837,9 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           #{card.edhrec_rank.toLocaleString()}
         </span>
       )}
-      {showCardMenu && !isCommanderCard && onCardAction && cardMenuProps && (
+      {showCardMenu && onCardAction && cardMenuProps && (!isCommanderCard || cardMenuProps.hasCreateCombo) && (
         <span className={`shrink-0 w-3 transition-opacity ${contextMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-          <CardContextMenu card={card} onAction={onCardAction} {...cardMenuProps} isMustInclude={isMustIncludeLive} isBanned={isBannedLive} forceOpen={contextMenuOpen} onForceClose={() => setContextMenuOpen(false)} />
+          <CardContextMenu card={card} onAction={onCardAction} {...cardMenuProps} isCommander={isCommanderCard} isMustInclude={isMustIncludeLive} isBanned={isBannedLive} forceOpen={contextMenuOpen} onForceClose={() => setContextMenuOpen(false)} />
         </span>
       )}
       {showPrice && (
@@ -2321,6 +2374,10 @@ interface DeckDisplayProps {
    * clear the store deck on unmount, so 'generated' would resolve to nothing.
    */
   spellChromaDeckRef?: string;
+  /** User-authored combos — their cards get the same "CB" combo badge as detected combos. */
+  customCombos?: UserCombo[];
+  /** Open the custom-combo authoring form seeded with this card (from the card menu). */
+  onCreateCombo?: (cardName: string) => void;
   children?: React.ReactNode;
 }
 
@@ -2334,7 +2391,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -2378,6 +2435,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       return next;
     });
   }, []);
+  // Clicking the deck total price sorts by price. If already sorting by price,
+  // clicking again flips the direction (expensive-first ⇄ cheapest-first).
+  const sortByPrice = useCallback(() => {
+    if (sortBy === 'price') {
+      toggleSortReversed();
+    } else {
+      setSortBy('price');
+      _setSortReversed(false);
+      localStorage.setItem('mtg-deck-sort-reversed', 'false');
+    }
+  }, [sortBy, setSortBy, toggleSortReversed]);
   const [gridAnimateRef] = useAutoAnimate({ duration: 250 });
   const [statsFilter, setStatsFilter] = useState<StatsFilter>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -3258,6 +3326,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         onAddCards?.([name], 'deck');
         pushDeckHistory({ action: 'add', cardName: name });
         break;
+      case 'createCombo':
+        onCreateCombo?.(name);
+        break;
       case 'addToList': {
         const list = userLists.find(l => l.id === action.listId);
         if (!list) break;
@@ -3300,14 +3371,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         break;
       }
     }
-  }, [onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList, createList, deleteList, pushDeckHistory]);
+  }, [onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, customization, updateCustomization, userLists, updateList, createList, deleteList, pushDeckHistory, onCreateCombo]);
 
   const cardMenuProps: Omit<CardContextMenuProps, 'card' | 'onAction'> = useMemo(() => ({
     hasRemove: !!onRemoveCards,
     hasSideboard: !!onMoveToSideboard,
     hasMaybeboard: !!onMoveToMaybeboard,
+    hasCreateCombo: !!onCreateCombo,
     userLists,
-  }), [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, userLists]);
+  }), [onRemoveCards, onMoveToSideboard, onMoveToMaybeboard, onCreateCombo, userLists]);
 
   // Close add-to dropdown on outside click
   useEffect(() => {
@@ -3340,22 +3412,34 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   // Build map of card name -> complete combos that include it
   const cardComboMap = useMemo(() => {
     const map = new Map<string, DetectedCombo[]>();
-    const combos = generatedDeck?.detectedCombos;
-    if (!combos) return map;
 
-    for (const combo of combos) {
-      if (!combo.isComplete) continue;
+    const add = (combo: DetectedCombo) => {
       for (const cardName of combo.cards) {
         const existing = map.get(cardName);
-        if (existing) {
-          existing.push(combo);
-        } else {
-          map.set(cardName, [combo]);
-        }
+        if (existing) existing.push(combo);
+        else map.set(cardName, [combo]);
       }
+    };
+
+    for (const combo of generatedDeck?.detectedCombos ?? []) {
+      if (!combo.isComplete) continue;
+      add(combo);
+    }
+    // User-authored combos are always complete — badge their cards too.
+    for (const uc of customCombos ?? []) {
+      add({
+        comboId: 'user:' + uc.id,
+        cards: uc.cards,
+        results: uc.result ? [uc.result] : [],
+        isComplete: true,
+        missingCards: [],
+        deckCount: 0,
+        bracket: '',
+        source: 'user',
+      });
     }
     return map;
-  }, [generatedDeck?.detectedCombos]);
+  }, [generatedDeck?.detectedCombos, customCombos]);
 
   // Build map of card name -> card type for combo popover icons
   const cardTypeMap = useMemo(() => {
@@ -3527,7 +3611,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           {renderHeaderActions ? (
             <>
               {showPrice && (
-                <span>{sym}{totalPrice.toFixed(2)}
+                <span>
+                  <button
+                    type="button"
+                    onClick={sortByPrice}
+                    title={sortBy === 'price' ? 'Sorting by price — click to flip order' : 'Sort deck by price'}
+                    className={`rounded transition-colors hover:text-foreground hover:underline underline-offset-2 ${sortBy === 'price' ? 'text-primary font-medium' : ''}`}
+                  >
+                    {sym}{totalPrice.toFixed(2)}
+                  </button>
                   {showCollectionChecks && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
                     <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
                   )}
@@ -3536,7 +3628,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             </>
           ) : (
             <>
-              {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
+              {totalCards} cards{showPrice ? ' · ' : ''}
+              {showPrice && (
+                <button
+                  type="button"
+                  onClick={sortByPrice}
+                  title={sortBy === 'price' ? 'Sorting by price — click to flip order' : 'Sort deck by price'}
+                  className={`rounded transition-colors hover:text-foreground hover:underline underline-offset-2 ${sortBy === 'price' ? 'text-primary font-medium' : ''}`}
+                >
+                  {sym}{totalPrice.toFixed(2)}
+                </button>
+              )}
               {showPrice && showCollectionChecks && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
                 <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
               )}
@@ -4084,7 +4186,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           /* Deckview / optimizer: card-count, price, and board counts get their own
              row above the Statistics dropdown (Export moves to the toolbar below). */
           <div className="px-4 py-2.5 text-sm text-muted-foreground">
-            {totalCards} cards{showPrice ? ` · ${sym}${totalPrice.toFixed(2)}` : ''}
+            {totalCards} cards{showPrice ? ' · ' : ''}
+            {showPrice && (
+              <button
+                type="button"
+                onClick={sortByPrice}
+                title={sortBy === 'price' ? 'Sorting by price — click to flip order' : 'Sort deck by price'}
+                className={`rounded transition-colors hover:text-foreground hover:underline underline-offset-2 ${sortBy === 'price' ? 'text-primary font-medium' : ''}`}
+              >
+                {sym}{totalPrice.toFixed(2)}
+              </button>
+            )}
             {showPrice && showCollectionChecks && nonOwnedPrice !== null && nonOwnedPrice < totalPrice && (
               <span className="ml-1 text-xs opacity-70">({sym}{nonOwnedPrice.toFixed(2)} new)</span>
             )}

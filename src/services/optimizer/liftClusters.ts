@@ -110,7 +110,46 @@ function buildDeckLinks(poolsBySeed: { seed: string; pool: CardLiftEntry[] }[], 
   return [...map.values()].sort((x, y) => score(y) - score(x)).slice(0, DECK_LINK_CAP);
 }
 
-export interface LiftScanResult { candidates: LiftCandidate[]; deckLinks: DeckLink[]; }
+// Above-baseline floor for connectivity. Lower than DECK_LINK_MIN_LIFT (the graph
+// wants only strong, legible ties) because connectivity wants to count every real
+// co-play so a card with none reads as a true outlier, not just "below the graph cut".
+const CONNECTIVITY_MIN_LIFT = 1.5;
+
+/**
+ * Per-deck-card synergy connectivity: the summed strength of lift ties from a card to the OTHER
+ * cards you run. Built from the same seed pools (no extra fetching). Every seed starts at 0, so a
+ * card with no meaningful co-play surfaces as a genuine outlier (connectivity 0) rather than
+ * `undefined`. Each unordered pair is counted once (it appears from both seeds) and its edgeScore
+ * is credited to both endpoints. This is the signal the trim drawer uses to spot cards that sit
+ * outside the deck's packages, independent of how popular they are with the commander.
+ */
+export function computeDeckConnectivity(
+  poolsBySeed: { seed: string; pool: CardLiftEntry[] }[],
+  seedNames: string[],
+): Record<string, number> {
+  const deckSet = new Set(seedNames);
+  // One tie per unordered pair, keeping the higher co-play % (the pair shows from both directions).
+  const pairs = new Map<string, { lift: number; coPct: number; numDecks: number }>();
+  for (const { seed, pool } of poolsBySeed) {
+    for (const e of pool) {
+      if (e.name === seed || !deckSet.has(e.name) || e.lift < CONNECTIVITY_MIN_LIFT) continue;
+      const key = seed < e.name ? `${seed}|${e.name}` : `${e.name}|${seed}`;
+      const prev = pairs.get(key);
+      if (!prev || e.coPct > prev.coPct) pairs.set(key, { lift: e.lift, coPct: e.coPct, numDecks: e.numDecks });
+    }
+  }
+  const conn: Record<string, number> = {};
+  for (const name of seedNames) conn[name] = 0;
+  for (const [key, e] of pairs) {
+    const [a, b] = key.split('|');
+    const s = edgeScore({ seed: a, lift: e.lift, coPct: e.coPct, numDecks: e.numDecks });
+    conn[a] = (conn[a] ?? 0) + s;
+    conn[b] = (conn[b] ?? 0) + s;
+  }
+  return conn;
+}
+
+export interface LiftScanResult { candidates: LiftCandidate[]; deckLinks: DeckLink[]; connectivity: Record<string, number>; }
 
 /**
  * Per-deck scan cache, shared between the Lift Web tab and the Overview bento so a background warm
@@ -188,21 +227,22 @@ export interface ScanArgs {
  * (which also caches them so the add flow resolves), and filter to in-identity, commander-legal,
  * non-land. Returns candidates with edges intact so the UI can re-rank by the slider with no re-fetch.
  */
-export async function scanLiftCandidates(args: ScanArgs): Promise<{ candidates: LiftCandidate[]; deckLinks: DeckLink[] }> {
+export async function scanLiftCandidates(args: ScanArgs): Promise<LiftScanResult> {
   const { seedNames, identity, excludeNames, onProgress, isCancelled, force } = args;
 
   const poolsBySeed: { seed: string; pool: CardLiftEntry[] }[] = [];
   for (let i = 0; i < seedNames.length; i++) {
-    if (isCancelled?.()) return { candidates: [], deckLinks: [] };
+    if (isCancelled?.()) return { candidates: [], deckLinks: [], connectivity: {} };
     const seed = seedNames[i];
     poolsBySeed.push({ seed, pool: await fetchCardLiftPool(seed, force) });
     onProgress?.(i + 1, seedNames.length);
   }
 
-  if (isCancelled?.()) return { candidates: [], deckLinks: [] };
+  if (isCancelled?.()) return { candidates: [], deckLinks: [], connectivity: {} };
   const candidates = await buildCandidates(poolsBySeed, excludeNames, identity, MIN_CONNECTIONS);
   const deckLinks = buildDeckLinks(poolsBySeed, seedNames);   // same pools, no extra fetching
-  return { candidates, deckLinks };
+  const connectivity = computeDeckConnectivity(poolsBySeed, seedNames);
+  return { candidates, deckLinks, connectivity };
 }
 
 /**

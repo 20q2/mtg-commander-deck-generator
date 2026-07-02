@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import type { UserCardList, ScryfallCard } from '@/types';
@@ -130,6 +130,7 @@ interface ListDetailViewProps {
   onDuplicate?: () => void;
   onExport?: () => void;
   onDelete?: () => void;
+  onRename?: (newName: string) => void;
   onRemoveCard?: (cardName: string) => void;
   onSwapCard?: (oldCardName: string, newCardName: string) => void;
   onAddCard?: (cardName: string) => void;
@@ -164,7 +165,7 @@ type DeckFilterMode = 'all' | 'in' | 'out';
 
 // --- Component ---
 
-export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange, onDerivedColorIdentityChange, compact, draggableCards, deckCardNames }: ListDetailViewProps) {
+export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, onDelete, onRename, onRemoveCard, onSwapCard, onAddCard, readOnly, onViewAsDeck, onConvertToDeck, onConvertToList, onColorFilterChange, onDerivedColorIdentityChange, compact, draggableCards, deckCardNames }: ListDetailViewProps) {
   const navigate = useNavigate();
 
   // Card data enrichment
@@ -177,6 +178,17 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
 
   // Delete confirmation
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Inline name rename
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(list.name);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const commitName = () => {
+    const trimmed = nameInput.trim();
+    if (trimmed && trimmed !== list.name) onRename?.(trimmed);
+    else setNameInput(list.name);
+    setEditingName(false);
+  };
 
   const handleDeleteClick = () => {
     if (confirmingDelete) {
@@ -389,7 +401,30 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
 
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold">{list.name}</h2>
+            {editingName && onRename && !readOnly ? (
+              <input
+                ref={nameInputRef}
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onBlur={commitName}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  if (e.key === 'Escape') { setNameInput(list.name); setEditingName(false); }
+                }}
+                className="text-xl font-bold bg-accent border border-border rounded px-2 py-0.5 min-w-0 w-full max-w-sm outline-none text-foreground"
+                autoFocus
+              />
+            ) : onRename && !readOnly ? (
+              <h2
+                className="text-xl font-bold cursor-pointer hover:text-muted-foreground transition-colors"
+                onClick={() => { setNameInput(list.name); setEditingName(true); }}
+                title="Click to rename"
+              >
+                {list.name}
+              </h2>
+            ) : (
+              <h2 className="text-xl font-bold">{list.name}</h2>
+            )}
             {list.commanderName && (
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-1">
                 <CommanderIcon size={14} className="shrink-0" />

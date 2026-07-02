@@ -921,6 +921,21 @@
 .brew-foundry [class*="from-violet"]    { --tw-gradient-from: #ff8c3a var(--tw-gradient-from-position) !important; }
 .brew-foundry [class*="to-violet"]      { --tw-gradient-to: #58bedd var(--tw-gradient-to-position) !important; }
 
+/* Matte, not glassy: fabricated steel doesn't blur. Drop the backdrop-blur across the brew so panels
+   read as solid plate over the blueprint grid rather than frosted glass. */
+.brew-foundry [class*="backdrop-blur"] { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* Numeric readouts go monospace — the "instrument panel" voice (Deck Score, cards/cost, %, streak). */
+.brew-foundry .tabular-nums { font-family: 'Space Mono', ui-monospace, monospace; letter-spacing: -0.03em; }
+
+/* A stencil "//" machine-marks the fork heading (scoped to the fork, not every heading). */
+.brew-foundry .brew-fork-h::before { content: '// '; color: hsl(var(--primary) / 0.9); }
+
+/* Fabricated-plate bevel: a bright top edge + dark bottom edge so HUD bars read as stamped steel. */
+.brew-foundry .foundry-bevel {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.5), 0 2px 12px rgba(0,0,0,0.5);
+}
+
 /* Blueprint grid for the brew backdrop — cyan hairlines on a mask that fades toward the edges. */
 .brew-grid {
   background-image:

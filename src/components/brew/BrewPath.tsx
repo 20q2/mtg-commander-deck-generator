@@ -67,7 +67,7 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
   return (
     <div className="text-center">
       {/* ── Heading: editorial kicker + engraved title ────────────────────── */}
-      <h2 className="font-display text-3xl sm:text-4xl font-semibold text-foreground/95 mb-2 drop-shadow-[0_2px_18px_hsl(var(--primary)/0.35)]">
+      <h2 className="brew-fork-h font-display text-3xl sm:text-4xl font-semibold text-foreground/95 mb-2 drop-shadow-[0_2px_18px_hsl(var(--primary)/0.35)]">
         Where to next?
       </h2>
       {leaning.length > 0 ? (

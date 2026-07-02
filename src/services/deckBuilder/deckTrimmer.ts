@@ -3,6 +3,7 @@ import { getFrontFaceTypeLine, isMdfcLand, isChannelLand } from '@/services/scry
 
 export type TrimReasonKey =
   | 'low-fit'
+  | 'isolated'
   | 'off-curve'
   | 'redundant-role'
   | 'type-overflow'
@@ -34,6 +35,12 @@ export interface TrimInput {
   roleTargets: Record<string, number>;
   edhrecCurve: Record<number, number>;
   edhrecTypes: Record<string, number>;
+  /** Per-card deck-internal synergy connectivity from the lift graph (see
+   *  computeDeckConnectivity). Optional — when present, spell cut-ranking is
+   *  re-weighted so cards weakly linked to the rest of the deck (synergy
+   *  outliers) sort toward the cut, not just cards the commander rarely runs.
+   *  Absent (scan not yet loaded) → falls back to pure relevancy ranking. */
+  connectivityMap?: Record<string, number>;
   /** Combos detected in the deck. Combo protection is now baked into relevancyMap
    *  (see scoreRecommendation Component 5) — this is kept only for the
    *  `combo-near-miss` reason label when a near-miss piece does still get cut. */
@@ -92,6 +99,7 @@ function clamp(n: number, min: number, max: number): number {
 
 const LABELS: Record<TrimReasonKey, string> = {
   'low-fit': 'Low fit',
+  'isolated': 'Off-package',
   'off-curve': 'Off-curve',
   'redundant-role': 'Redundant',
   'type-overflow': 'Type-heavy',
@@ -109,7 +117,16 @@ interface ReasonContext {
   roleTargets: Record<string, number>;
   inclusionMap: Record<string, number>;
   synergyMap: Record<string, number>;
+  /** Deck-relative connectivity percentile per spell (0 = least connected).
+   *  Only populated when a lift scan is available. */
+  connPercentile: Record<string, number>;
+  hasConnectivity: boolean;
 }
+
+// A spell whose connectivity sits in the bottom fifth of the deck is a genuine
+// synergy outlier — few of the cards you run co-play with it. Surfaced as its own
+// reason so the user sees *why* it's a cut beyond raw popularity.
+const ISOLATED_PERCENTILE = 0.2;
 
 function pickReason(
   card: ScryfallCard,
@@ -120,6 +137,15 @@ function pickReason(
 
   if (incl < 5 && syn <= 0) {
     return { key: 'low-fit', text: `Only ${incl.toFixed(0)}% of decks run this; no synergy bonus.` };
+  }
+
+  // Synergy-graph outlier: the card is played, but almost none of your other
+  // cards co-play with it — it sits outside the deck's packages.
+  if (ctx.hasConnectivity && (ctx.connPercentile[card.name] ?? 1) < ISOLATED_PERCENTILE) {
+    return {
+      key: 'isolated',
+      text: `Few of your cards synergize with this — it sits outside your deck's packages.`,
+    };
   }
 
   const cmcBucket = Math.min(Math.floor(card.cmc ?? 0), 7);
@@ -208,6 +234,32 @@ export function planTrim(input: TrimInput): TrimResult {
     if (t) typeCounts[t] = (typeCounts[t] || 0) + 1;
   }
 
+  // Deck-relative connectivity percentile per spell (0 = least connected). Built
+  // over the trimmable spell pool so "outlier" means outlier *within this deck*,
+  // not against some absolute scale. O(n²) but n ≈ 60 — negligible.
+  const hasConnectivity = !!input.connectivityMap && Object.keys(input.connectivityMap).length > 0;
+  const connPercentile: Record<string, number> = {};
+  if (hasConnectivity) {
+    const cm = input.connectivityMap!;
+    const vals = spells.map(c => cm[c.name] ?? 0);
+    for (const c of spells) {
+      const v = cm[c.name] ?? 0;
+      let below = 0, atOrBelow = 0;
+      for (const x of vals) { if (x < v) below++; if (x <= v) atOrBelow++; }
+      // Midrank handles ties (a cluster of zero-connectivity cards shares one percentile).
+      connPercentile[c.name] = vals.length ? ((below + atOrBelow) / 2) / vals.length : 0.5;
+    }
+  }
+
+  // Map a card's connectivity percentile to a relevancy-point adjustment in
+  // [-SYN_ADJ_MAX, +SYN_ADJ_MAX]. Least-connected (percentile 0) loses the most,
+  // pushing synergy outliers toward the cut; well-connected cards are protected.
+  // ±35 is meaningful next to typical relevancy gaps but stays below combo/role
+  // boosts (~80), so it re-ranks near-ties without overriding hard keeps.
+  const SYN_ADJ_MAX = 35;
+  const synergyAdj = (name: string) =>
+    hasConnectivity ? ((connPercentile[name] ?? 0.5) - 0.5) * 2 * SYN_ADJ_MAX : 0;
+
   const ctx: ReasonContext = {
     cmcBuckets,
     typeCounts: typeCounts as Record<TypeKey, number>,
@@ -217,6 +269,8 @@ export function planTrim(input: TrimInput): TrimResult {
     roleTargets,
     inclusionMap,
     synergyMap,
+    connPercentile,
+    hasConnectivity,
   };
 
   const byRelevancy = (a: ScryfallCard, b: ScryfallCard) => {
@@ -230,8 +284,18 @@ export function planTrim(input: TrimInput): TrimResult {
     return a.name.localeCompare(b.name);
   };
 
+  // Spells rank by a synergy-aware keep score: relevancy nudged by connectivity.
+  // Lands keep the pure-relevancy order (synergy connectivity is a spell signal;
+  // lands are chosen by the land-target math, not the graph).
+  const bySpellKeep = (a: ScryfallCard, b: ScryfallCard) => {
+    const ka = (relevancyMap[a.name] ?? 0) + synergyAdj(a.name);
+    const kb = (relevancyMap[b.name] ?? 0) + synergyAdj(b.name);
+    if (ka !== kb) return ka - kb;
+    return byRelevancy(a, b);
+  };
+
   const sortedLands = [...lands].sort(byRelevancy);
-  const sortedSpells = [...spells].sort(byRelevancy);
+  const sortedSpells = [...spells].sort(bySpellKeep);
 
   const toCandidate = (card: ScryfallCard, partition: 'land' | 'spell'): TrimCandidate => {
     // If the card is in a near-miss combo, surface that label — it's the most

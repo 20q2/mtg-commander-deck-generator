@@ -196,6 +196,11 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
             // reads as three distinct directions, not three identical green crates. Need/discovery/value
             // packs keep their flavor colour.
             const packColor = option.flavor === 'theme' ? themeColor(routeKey(option.id) ?? '') : fl.color;
+            // The pack's ambient backdrop: the art of its signature card (or its lead card), blurred to
+            // near-abstraction so the crate glows in that card's own colours without competing with the
+            // readable thumbnails on top.
+            const sigCard = option.cards.find(c => c.name === option.hallmarkName) ?? option.cards[0];
+            const sigArt = sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
             // Spotlight the single card with the strongest synergy to your build (if any clears the bar),
             // so a "really good" pick is obvious at a glance — the rest of the pack stays calm.
             const fits = option.cards.map((c, i) => synergyFit(c, option.reasons[i] ?? []));
@@ -220,6 +225,17 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   exiting ? (option.id === chosenId ? 'animate-brew-to-deck' : 'animate-brew-dismiss') : 'animate-brew-card-in'
                 }`}
               >
+                {/* Fabricated top-edge accent in the pack's own colour — reads as a stamped steel plate. */}
+                <span aria-hidden="true" className="absolute inset-x-0 top-0 z-10 h-[2px]" style={{ background: `hsl(${packColor})` }} />
+                {/* Ambient backdrop — the signature card's art, blurred to abstract colour, under a steel
+                    scrim that mutes it to a subtle glow so the card thumbnails stay the focus. */}
+                {sigArt && (
+                  <div aria-hidden="true" className="absolute inset-0 z-0"
+                    style={{ backgroundImage: `url(${sigArt})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(34px) saturate(1.35)', transform: 'scale(1.35)', opacity: 0.7 }} />
+                )}
+                <div aria-hidden="true" className="absolute inset-0 z-0"
+                  style={{ background: 'linear-gradient(180deg, hsl(var(--card) / 0.48), hsl(var(--card) / 0.78))' }} />
+                <div className="relative z-10 flex flex-1 flex-col">
                 {/* Header — the pack's direction, in its own colour. The icon + colour signal the
                     flavor; we drop the old "On theme / Fills a need" word-tag, which read as noise. */}
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-[color:var(--pk)]/25" style={{ background: `hsl(${packColor} / 0.14)` }}>
@@ -298,6 +314,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 {/* Footer — you're taking the whole pack, not one card. */}
                 <div className="mt-auto flex items-center justify-center gap-1 px-3 pb-2.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--pk-text)]">
                   <Plus className="w-3 h-3" /> Take all {option.cards.length}
+                </div>
                 </div>
               </button>
             );

@@ -1,12 +1,14 @@
 import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react';
-import type { DetectedCombo, ScryfallCard, LoadPhase } from '@/types';
+import type { DetectedCombo, ScryfallCard, LoadPhase, UserCombo } from '@/types';
 import { getCardByName, getCardsByNames, getCardImageUrl, useScryfallImage } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaText } from '@/components/ui/mtg-icons';
-import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -27,6 +29,20 @@ interface ComboDisplayProps {
   forceExpanded?: boolean;
   /** Progressive load phases — when 'combos' is missing, render skeleton. */
   phasesDone?: Set<LoadPhase>;
+  /** User-authored combos. Rendered alongside detected combos, marked "Yours". */
+  customCombos?: UserCombo[];
+  /** Deck card names — the pool the user picks from when authoring a combo. */
+  deckCardNames?: string[];
+  /** Persist a new user combo. When provided, the "Add combo" button is shown. */
+  onAddCombo?: (combo: { cards: string[]; result: string; details: string }) => void;
+  /** Persist edits to an existing user combo. */
+  onEditCombo?: (id: string, combo: { cards: string[]; result: string; details: string }) => void;
+  /** Delete a user combo. */
+  onDeleteCombo?: (id: string) => void;
+  /** When set, open the authoring form seeded with this card (from a card's "Create combo" menu). */
+  seedCard?: string | null;
+  /** Called once the seedCard has been consumed (form opened), so the parent can clear it. */
+  onSeedConsumed?: () => void;
 }
 
 // Cache fetched card data across renders
@@ -98,7 +114,7 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
   return out;
 }
 
-export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, phasesDone }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, phasesDone, customCombos, deckCardNames, onAddCombo, onEditCombo, onDeleteCombo, seedCard, onSeedConsumed }: ComboDisplayProps) {
   const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
@@ -138,6 +154,80 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [hoverPreview, setHoverPreview] = useState<{ name: string; top: number; left: number; placement: 'right' | 'left' } | null>(null);
   const hoverImage = useScryfallImage(hoverPreview?.name ?? null, 'normal');
   const { lists: userLists, updateList, createList } = useUserLists();
+
+  // Combo authoring form: null = closed; editingId = null means "new combo".
+  const [comboForm, setComboForm] = useState<{ editingId: string | null; cards: string[]; result: string; details: string } | null>(null);
+  const [comboCardQuery, setComboCardQuery] = useState('');
+
+  // Lookup for a user combo's free-form details, keyed by its mapped comboId ('user:<id>').
+  const userCombosById = useMemo(() => {
+    const map = new Map<string, UserCombo>();
+    for (const uc of customCombos ?? []) map.set('user:' + uc.id, uc);
+    return map;
+  }, [customCombos]);
+
+  // Map user-authored combos into the DetectedCombo shape so they render through
+  // the same path as EDHREC combos. They're always complete; missing cards are
+  // recomputed against the current deck so a later removal shows as MISSING.
+  const userDetectedCombos = useMemo<DetectedCombo[]>(() => {
+    const deckSet = new Set((deckCardNames ?? []).map(n => n.toLowerCase()));
+    return (customCombos ?? []).map(uc => ({
+      comboId: 'user:' + uc.id,
+      cards: uc.cards,
+      results: uc.result ? [uc.result] : [],
+      isComplete: true,
+      missingCards: deckCardNames ? uc.cards.filter(c => !deckSet.has(c.toLowerCase())) : [],
+      deckCount: 0,
+      bracket: '',
+      source: 'user' as const,
+    }));
+  }, [customCombos, deckCardNames]);
+
+  // User combos first so they lead the list; detected combos follow.
+  const allCombos = useMemo(() => [...userDetectedCombos, ...combos], [userDetectedCombos, combos]);
+
+  const userComboId = (comboId: string) => comboId.startsWith('user:') ? comboId.slice(5) : null;
+
+  // A card's "Create combo" menu entry seeds the authoring form with that card.
+  useEffect(() => {
+    if (!seedCard || !onAddCombo) return;
+    setExpanded(true);
+    setComboCardQuery('');
+    setComboForm({ editingId: null, cards: [seedCard], result: '', details: '' });
+    onSeedConsumed?.();
+  }, [seedCard, onAddCombo, onSeedConsumed]);
+
+  // Card data (for image previews) for the deck pool the authoring form searches.
+  // Prefetched once when the form opens so search results show thumbnails instantly.
+  const [deckCardData, setDeckCardData] = useState<Map<string, ScryfallCard>>(new Map());
+  const comboFormOpen = comboForm !== null;
+  useEffect(() => {
+    if (!comboFormOpen || !deckCardNames || deckCardNames.length === 0) return;
+    const seeded = new Map<string, ScryfallCard>();
+    const missing: string[] = [];
+    for (const name of deckCardNames) {
+      const cached = cardDataCache.get(name);
+      if (cached) seeded.set(name, cached);
+      else missing.push(name);
+    }
+    if (seeded.size > 0) setDeckCardData(prev => (prev.size >= seeded.size ? prev : seeded));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const map = await getCardsByNames(missing);
+        if (cancelled) return;
+        for (const [n, c] of map) cardDataCache.set(n, c);
+        setDeckCardData(prev => {
+          const next = new Map(prev);
+          for (const [n, c] of map) next.set(n, c);
+          for (const [n, c] of seeded) next.set(n, c);
+          return next;
+        });
+      } catch { /* ignore fetch failures — names still render without images */ }
+    })();
+    return () => { cancelled = true; };
+  }, [comboFormOpen, deckCardNames]);
 
   // When right-click sets contextMenuCard, click the trigger button after render
   useEffect(() => {
@@ -180,7 +270,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (!expanded) return;
 
-    const allNames = [...new Set(combos.flatMap(c => c.cards))];
+    const allNames = [...new Set(allCombos.flatMap(c => c.cards))];
     const missing = allNames.filter(n => !cardImages.has(n) && !cardDataCache.has(n));
     // Build images from already-cached cards first
     const newImages = new Map(cardImages);
@@ -211,7 +301,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     })();
 
     return () => { cancelled = true; };
-  }, [expanded, combos]);
+  }, [expanded, allCombos]);
 
   // Track the combo card list for the current preview so the modal's existing
   // deck-nav machinery (slide animations, peek images, position indicator) can
@@ -325,7 +415,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   // Build a map of card name → combos involving that card (for preview modal navigation)
   const cardComboMap = useMemo(() => {
     const map = new Map<string, DetectedCombo[]>();
-    for (const combo of combos) {
+    for (const combo of allCombos) {
       for (const name of combo.cards) {
         const frontName = name.includes(' // ') ? name.split(' // ')[0] : name;
         const existing = map.get(frontName);
@@ -334,7 +424,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       }
     }
     return map;
-  }, [combos]);
+  }, [allCombos]);
 
   if (!combosReady) {
     return (
@@ -351,27 +441,35 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       </div>
     );
   }
-  if (combos.length === 0) return null;
+  // Show the panel when there are combos of any kind, or when the user can author
+  // one (onAddCombo provided) — so the "Add combo" button is reachable on an
+  // otherwise combo-less saved deck.
+  if (allCombos.length === 0 && !onAddCombo) return null;
 
   // Apply the user's "show synergy combos" toggle before any other filtering.
   // Complete combos are always shown — the toggle only hides incomplete synergy
-  // combos, never a combo the deck already assembles.
-  const visibleCombos = showSynergy ? combos : combos.filter(c => c.source !== 'color-identity' || c.isComplete);
-  const hiddenSynergyCount = combos.length - visibleCombos.length;
+  // combos, never a combo the deck already assembles. User combos are never hidden.
+  const visibleCombos = showSynergy ? allCombos : allCombos.filter(c => c.source !== 'color-identity' || c.isComplete);
+  const hiddenSynergyCount = allCombos.length - visibleCombos.length;
 
   const bannedSet = new Set(bannedCards.map(n => n.toLowerCase()));
   const hasExcludedCard = (combo: DetectedCombo) => combo.cards.some(n => bannedSet.has(n.toLowerCase()));
 
   const sortCombos = (list: DetectedCombo[]) => {
+    // User-authored combos always lead — they're the ones the player deliberately built around.
+    const userFirst = (a: DetectedCombo, b: DetectedCombo) =>
+      (b.source === 'user' ? 1 : 0) - (a.source === 'user' ? 1 : 0);
     if (comboSort === 'relevance') {
       return [...list].sort((a, b) => {
+        const uf = userFirst(a, b);
+        if (uf !== 0) return uf;
         const aMissing = a.missingCards.length;
         const bMissing = b.missingCards.length;
         if (aMissing !== bMissing) return aMissing - bMissing;
         return b.deckCount - a.deckCount;
       });
     }
-    return [...list].sort((a, b) => b.deckCount - a.deckCount);
+    return [...list].sort((a, b) => userFirst(a, b) || b.deckCount - a.deckCount);
   };
 
   const matchesCardFilter = (combo: DetectedCombo) =>
@@ -380,6 +478,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const completeCombos = sortCombos(visibleCombos.filter(c => c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
   const nearMisses = sortCombos(visibleCombos.filter(c => !c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
   const excludedCombos = visibleCombos.filter(c => hasExcludedCard(c) && matchesCardFilter(c));
+  // Custom (user-authored) combos among the currently-visible set — reported separately
+  // in the summary even though they also count toward "complete".
+  const customCount = [...completeCombos, ...nearMisses, ...excludedCombos].filter(c => c.source === 'user').length;
 
   const toggleCardFilter = (name: string) => {
     const front = name.includes(' // ') ? name.split(' // ')[0] : name;
@@ -427,9 +528,18 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             Synergy
           </span>
         )}
+        {combo.source === 'user' && (
+          <span
+            className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium text-violet-300/80 bg-violet-500/10 border border-violet-500/20"
+            title="A combo you added by hand."
+          >
+            <Pin className="w-2.5 h-2.5" />
+            Yours
+          </span>
+        )}
 
         {/* Title + metadata */}
-        <div className={`mb-2 min-w-0 ${combo.source === 'color-identity' ? 'pr-20' : ''}`}>
+        <div className={`mb-2 min-w-0 ${combo.source === 'color-identity' || combo.source === 'user' ? 'pr-16' : ''}`}>
           {(() => {
             const tone = isExcluded ? 'text-red-400' : combo.isComplete ? 'text-green-500' : 'text-amber-500';
             const Icon = isExcluded ? Ban : combo.isComplete ? Check : AlertTriangle;
@@ -465,7 +575,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             );
           })()}
           <span className="text-[10px] text-muted-foreground mt-0.5 block">
-            {combo.deckCount.toLocaleString()} decks · Bracket {combo.bracket}
+            {combo.source === 'user'
+              ? (combo.results[0] || 'Custom combo')
+              : `${combo.deckCount.toLocaleString()} decks · Bracket ${combo.bracket}`}
           </span>
         </div>
 
@@ -665,6 +777,62 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           ))}
         </div>
 
+        {/* User combos: optional details expander + edit/delete controls in place of the EDHREC details toggle. */}
+        {combo.source === 'user' ? (
+          (() => {
+            const uc = userCombosById.get(combo.comboId);
+            const details = uc?.details?.trim();
+            return (
+              <>
+                <div className="flex items-center gap-3">
+                  {details && (
+                    <button
+                      onClick={() => setExpandedCombo(isComboExpanded ? null : combo.comboId)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <ChevronDown className={`w-3 h-3 transition-transform ${isComboExpanded ? 'rotate-180' : ''}`} />
+                      {isComboExpanded ? 'Hide details' : 'Show details'}
+                    </button>
+                  )}
+                  <div className="flex items-center gap-3 ml-auto">
+                    {onEditCombo && (
+                      <button
+                        onClick={() => {
+                          const id = userComboId(combo.comboId);
+                          if (id) setComboForm({ editingId: id, cards: combo.cards, result: combo.results[0] ?? '', details: uc?.details ?? '' });
+                        }}
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </button>
+                    )}
+                    {onDeleteCombo && (
+                      <button
+                        onClick={() => {
+                          const id = userComboId(combo.comboId);
+                          if (id) { onDeleteCombo(id); setToastMessage('Combo deleted'); }
+                        }}
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {details && (
+                  <div className={`overflow-hidden transition-all duration-300 ease-out ${isComboExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed mt-1.5 whitespace-pre-wrap">
+                      {details}
+                    </p>
+                  </div>
+                )}
+              </>
+            );
+          })()
+        ) : (
+        <>
         {/* Expandable details */}
         <button
           onClick={() => {
@@ -758,6 +926,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           ) : null;
         })()}
         </div>
+        </>
+        )}
       </div>
     );
   };
@@ -779,13 +949,28 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             });
           }
         }}
-        className={`flex items-center gap-2 w-full text-left p-4 ${forceExpanded ? '' : 'cursor-pointer'}`}
+        className={`flex flex-wrap items-center gap-2 w-full text-left p-4 ${forceExpanded ? '' : 'cursor-pointer'}`}
       >
         <Sparkles className="w-4 h-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold truncate">Combos in Your Deck</h3>
         <span className="text-xs text-muted-foreground ml-auto shrink-0 whitespace-nowrap">
-          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}
+          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{customCount > 0 ? ` · ${customCount} custom` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}
         </span>
+        {onAddCombo && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(true);
+              setComboCardQuery('');
+              setComboForm({ editingId: null, cards: [], result: '', details: '' });
+            }}
+            className="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md border border-violet-500/40 bg-violet-500/15 text-violet-200 hover:bg-violet-500/25 transition-colors shrink-0"
+            title="Add your own combo"
+          >
+            <Plus className="w-3 h-3" />
+            <span>Add</span>
+          </button>
+        )}
         {expanded && cardFilter && (
           <button
             onClick={(e) => { e.stopPropagation(); setCardFilter(null); }}
@@ -843,6 +1028,19 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       </div>
 
       <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[8000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+        {/* Empty state — no combos yet, but authoring is available. */}
+        {onAddCombo && completeCombos.length === 0 && nearMisses.length === 0 && excludedCombos.length === 0 && (
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <p className="text-xs text-muted-foreground">No combos found in this deck yet.</p>
+            <button
+              onClick={() => { setComboCardQuery(''); setComboForm({ editingId: null, cards: [], result: '', details: '' }); }}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-md border border-violet-500/40 bg-violet-500/15 text-violet-200 hover:bg-violet-500/25 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add your own combo
+            </button>
+          </div>
+        )}
         {/* Complete combos */}
         {completeCombos.length > 0 && (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
@@ -949,6 +1147,138 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             className="w-56 rounded-lg shadow-2xl border border-white/10"
           />
         </div>,
+        document.body
+      )}
+      {comboForm && createPortal(
+        (() => {
+          const selected = comboForm.cards;
+          const q = comboCardQuery.trim().toLowerCase();
+          // Results only appear once the user searches — no auto-populated list.
+          const candidates = q
+            ? (deckCardNames ?? [])
+                .filter(n => !selected.includes(n))
+                .filter(n => n.toLowerCase().includes(q))
+                .slice(0, 8)
+            : [];
+          const canSave = selected.length >= 2;
+          const closeForm = () => { setComboForm(null); setComboCardQuery(''); };
+          const toggleCard = (name: string) =>
+            setComboForm(f => f ? { ...f, cards: f.cards.includes(name) ? f.cards.filter(c => c !== name) : [...f.cards, name] } : f);
+          const save = () => {
+            if (!canSave) return;
+            const payload = { cards: selected, result: comboForm.result.trim(), details: comboForm.details.trim() };
+            if (comboForm.editingId && onEditCombo) {
+              onEditCombo(comboForm.editingId, payload);
+              setToastMessage('Combo updated');
+            } else if (onAddCombo) {
+              onAddCombo(payload);
+              setToastMessage('Combo added');
+            }
+            closeForm();
+          };
+          return (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 animate-fade-in" onClick={closeForm}>
+              <div
+                className="w-full max-w-lg rounded-xl border border-border bg-card shadow-2xl p-5 max-h-[85vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4 text-primary shrink-0" />
+                  <h3 className="text-sm font-semibold">{comboForm.editingId ? 'Edit combo' : 'Add a combo'}</h3>
+                  <button onClick={closeForm} className="ml-auto text-muted-foreground hover:text-foreground transition-colors" title="Close">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Selected cards */}
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Cards {selected.length > 0 && <span className="text-muted-foreground/70">({selected.length})</span>}
+                </label>
+                {selected.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {selected.map(name => (
+                      <span key={name} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/50 text-violet-100 text-[11px]">
+                        {name.includes(' // ') ? name.split(' // ')[0] : name}
+                        <button onClick={() => toggleCard(name)} className="rounded-full hover:bg-violet-500/30 p-0.5" title="Remove">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70 mb-2">Pick at least two cards from your deck.</p>
+                )}
+
+                {/* Card search — matching deck cards show in an image-preview popover, like modify-mode add-a-card. */}
+                <div className="relative mb-3">
+                  <Input
+                    value={comboCardQuery}
+                    onChange={(e) => setComboCardQuery(e.target.value)}
+                    placeholder="Search your deck…"
+                    className="h-9 text-xs border-border"
+                  />
+                  {q && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-10 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover shadow-2xl py-1">
+                      {candidates.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground px-3 py-2.5">No matching cards in your deck.</p>
+                      ) : candidates.map(name => {
+                        const card = deckCardData.get(name);
+                        const img = card ? getCardImageUrl(card, 'small') : cardImages.get(name);
+                        const front = name.includes(' // ') ? name.split(' // ')[0] : name;
+                        return (
+                          <button
+                            key={name}
+                            onClick={() => { toggleCard(name); setComboCardQuery(''); }}
+                            className="flex items-center gap-3 w-full text-left px-3 py-1.5 hover:bg-accent transition-colors group"
+                          >
+                            {img
+                              ? <img src={img} alt={front} className="w-8 h-auto rounded shadow shrink-0" loading="lazy" />
+                              : <div className="w-8 aspect-[488/680] rounded bg-accent/50 shrink-0" />}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium truncate">{front}</p>
+                              {card?.type_line && <p className="text-[10px] text-muted-foreground truncate">{card.type_line}</p>}
+                            </div>
+                            <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Result note */}
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  What does it do?
+                </label>
+                <Input
+                  value={comboForm.result}
+                  onChange={(e) => setComboForm(f => f ? { ...f, result: e.target.value } : f)}
+                  placeholder="e.g. Infinite mana"
+                  className="h-8 text-xs mb-3"
+                />
+
+                {/* Optional free-form details — shown under "Show details" in the viewer. */}
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Additional details <span className="text-muted-foreground/70 normal-case font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={comboForm.details}
+                  onChange={(e) => setComboForm(f => f ? { ...f, details: e.target.value } : f)}
+                  placeholder="How the combo works, prerequisites, steps…"
+                  rows={3}
+                  className="w-full rounded-md border border-border bg-transparent px-3 py-2 text-xs resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring mb-4"
+                />
+
+                <div className="flex items-center justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={closeForm}>Cancel</Button>
+                  <Button size="sm" onClick={save} disabled={!canSave}>
+                    {comboForm.editingId ? 'Save changes' : 'Add combo'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })(),
         document.body
       )}
       {toastMessage && createPortal(

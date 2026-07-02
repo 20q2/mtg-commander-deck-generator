@@ -98,3 +98,14 @@ export function cacheMatchesCommander(
   return row.commanderName === (commanderName ?? null)
     && row.partnerName === (partnerName ?? null);
 }
+
+// True when the cached payload was built from the same mainboard as `mainboard`.
+// Guards against hydrating stale categories after the card list changed elsewhere
+// (e.g. edited in another tab) — otherwise cards absent from the stale payload get
+// mislabeled as failed Scryfall lookups.
+export function cacheMatchesContent(
+  row: DeckEnrichmentCacheRow,
+  mainboard: string[],
+): boolean {
+  return row.contentHash === computeContentHash(mainboard);
+}

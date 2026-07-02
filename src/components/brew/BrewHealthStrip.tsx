@@ -46,7 +46,7 @@ export function BrewHealthStrip() {
     brewContext.commander.card_faces?.[0]?.image_uris?.art_crop;
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm px-4 py-2.5 flex items-center gap-3 flex-wrap text-xs">
+    <div className="foundry-bevel rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm px-4 py-2.5 flex items-center gap-3 flex-wrap text-xs">
       {/* Identity — who the brew is built around. The commander is stable, so it reads as a quiet
           label (not the hero); the avatar uses the art crop so it's a portrait, not a shrunk card. */}
       <span className="inline-flex items-center gap-2 min-w-0 max-w-[16rem]" title={commanderName}>

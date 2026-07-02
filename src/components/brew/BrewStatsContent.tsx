@@ -63,7 +63,7 @@ export function BrewStatsContent() {
             </div>
             <Radar
               data={roleRadarData(stats.radar)}
-              accent={stats.rounded ? '152 64% 56%' : '262 84% 72%'}
+              accent={stats.rounded ? '152 64% 56%' : '196 62% 56%'}
               glow={stats.rounded}
               gradientId="radarRole"
               scale={RAIL_RADAR_SCALE}
@@ -81,7 +81,7 @@ export function BrewStatsContent() {
           {stats.types.length >= 3 && (
             <div className="flex flex-col items-center gap-1">
               <div className={RAIL_TITLE_CLASS}>Card types</div>
-              <Radar data={typeRadarData(stats.types)} accent="262 84% 72%" glow={false} gradientId="radarTypes" scale={RAIL_RADAR_SCALE} />
+              <Radar data={typeRadarData(stats.types)} accent="196 62% 56%" glow={false} gradientId="radarTypes" scale={RAIL_RADAR_SCALE} />
             </div>
           )}
 

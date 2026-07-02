@@ -31,6 +31,21 @@ function freshCopy(card: ScryfallCard): ScryfallCard {
 }
 
 /**
+ * Diacritic/punctuation-insensitive card-name key, matching how Scryfall's
+ * name lookup normalizes ("Jötun Grunt" ≡ "Jotun Grunt", curly ≡ straight
+ * apostrophe). Used to alias a requested name onto its canonical card so
+ * getCardsByNames can be looked up by the exact string the caller passed —
+ * important for EDHREC-sourced names, which aren't always canonical.
+ */
+export function normalizeCardNameKey(s: string): string {
+  return s
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
  * Queue-based rate limiter that ensures requests are properly spaced.
  * All Scryfall requests MUST go through this to prevent 429 errors.
  *
@@ -320,6 +335,22 @@ export async function getCardByName(name: string, exact = true): Promise<Scryfal
   return freshCopy(card);
 }
 
+/**
+ * Fetch a card by its Scryfall UUID. Used when a dropped Scryfall card image URL
+ * yields an id (the image filename) rather than a name. Cached under both the id
+ * and the resolved name.
+ */
+export async function getCardById(id: string): Promise<ScryfallCard> {
+  const cached = cardCache.get(id);
+  if (cached) return freshCopy(cached);
+
+  const card = await scryfallFetch<ScryfallCard>(`/cards/${id}`);
+  cardCache.set(id, card);
+  cardCache.set(card.name, card);
+  void writePersisted(card.name, card);
+  return freshCopy(card);
+}
+
 // Rulings are shared across printings, so cache by oracle_id.
 const rulingsCache = new Map<string, CardRuling[]>();
 
@@ -489,18 +520,40 @@ export async function getCardsByNames(
 
       if (response.ok) {
         const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string; set?: string }> };
+        // Normalized index so we can alias each requested batch name back onto
+        // its canonical card, even when the requested spelling differs.
+        const byNorm = new Map<string, ScryfallCard>();
         for (const card of data.data) {
           const cacheKey = preferredSet ? `${card.name}|${preferredSet}` : card.name;
           cardCache.set(cacheKey, card);
           if (!preferredSet) cardCache.set(card.name, card); // also cache under plain name when no set preference
           const copy = freshCopy(card);
           result.set(card.name, copy);
+          byNorm.set(normalizeCardNameKey(card.name), card);
           // For DFCs, also store under front-face name so EDHREC lookups match
           if (card.name.includes(' // ')) {
             const frontFace = card.name.split(' // ')[0];
             result.set(frontFace, copy);
+            byNorm.set(normalizeCardNameKey(frontFace), card);
             if (preferredSet) cardCache.set(`${frontFace}|${preferredSet}`, card);
             else cardCache.set(frontFace, card);
+          }
+        }
+        // Honor getCardsByNames' contract: the result must be keyed by the exact
+        // string each caller passed. Scryfall returns cards under their canonical
+        // name (accents/punctuation may differ from the request — common with
+        // EDHREC-sourced names), so map any requested name that resolves via
+        // normalization onto its card. Without this, freshly-fetched non-canonical
+        // names silently fail to load (e.g. "1 card couldn't be loaded").
+        for (const reqName of batch) {
+          if (result.has(reqName)) continue;
+          const match = byNorm.get(normalizeCardNameKey(reqName));
+          if (match) {
+            result.set(reqName, freshCopy(match));
+            // Cache under the requested spelling too, so later getCachedCard(reqName)
+            // lookups hit (e.g. AnalyzePage's add flow reads the cache by exact name).
+            if (preferredSet) cardCache.set(`${reqName}|${preferredSet}`, match);
+            else cardCache.set(reqName, match);
           }
         }
         // Persist non-preferred-set batches. Skip for preferredSet because those
@@ -547,14 +600,26 @@ export async function getCardsByNames(
 
         if (response.ok) {
           const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string }> };
+          const byNorm = new Map<string, ScryfallCard>();
           for (const card of data.data) {
             cardCache.set(card.name, card);
             const copy = freshCopy(card);
             result.set(card.name, copy);
+            byNorm.set(normalizeCardNameKey(card.name), card);
             if (card.name.includes(' // ')) {
               const frontFace = card.name.split(' // ')[0];
               result.set(frontFace, copy);
+              byNorm.set(normalizeCardNameKey(frontFace), card);
               cardCache.set(frontFace, card);
+            }
+          }
+          // Alias requested names onto their canonical card (see main batch loop).
+          for (const reqName of batch) {
+            if (result.has(reqName)) continue;
+            const match = byNorm.get(normalizeCardNameKey(reqName));
+            if (match) {
+              result.set(reqName, freshCopy(match));
+              cardCache.set(reqName, match);
             }
           }
           if (data.data.length > 0) {

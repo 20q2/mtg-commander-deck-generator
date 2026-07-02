@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Scissors, Mountain, Minus, Plus } from 'lucide-react';
+import { X, Scissors, Mountain, Minus, Plus, Waypoints, Loader2 } from 'lucide-react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard, DetectedCombo, UserCardList } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
+import { useDeckConnectivity } from '@/hooks/useDeckConnectivity';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Drawer } from '@/components/ui/drawer';
@@ -60,6 +61,16 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
   // the user can still cut a weak card to open a slot (then Fill a better one).
   const fineTune = overage === 0;
 
+  // Lift-graph synergy connectivity — lets the plan spot cards weakly linked to
+  // the rest of the deck (outliers), not just cards the commander rarely runs.
+  // Additive: the plan ranks by relevancy alone until this resolves.
+  const { connectivity, loading: connectivityLoading } = useDeckConnectivity({
+    enabled: open,
+    commanderName,
+    partnerCommanderName,
+    cards,
+  });
+
   const plan: TrimResult = useMemo(() => planTrim({
     cards,
     commanderName,
@@ -75,7 +86,8 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
     edhrecTypes: props.edhrecTypes,
     detectedCombos: props.detectedCombos,
     mustIncludeNames: props.mustIncludeNames,
-  }), [cards, commanderName, partnerCommanderName, internalTarget, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes, props.detectedCombos, props.mustIncludeNames]);
+    connectivityMap: connectivity ?? undefined,
+  }), [cards, commanderName, partnerCommanderName, internalTarget, landTarget, props.relevancyMap, props.inclusionMap, props.synergyMap, props.roleCounts, props.roleTargets, props.edhrecCurve, props.edhrecTypes, props.detectedCombos, props.mustIncludeNames, connectivity]);
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
   // Cards the user explicitly unchecked. The auto-fill substitution must never
@@ -176,6 +188,26 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
           <span className="text-xs text-violet-300/80">
             → cut {plan.cutLands}
           </span>
+        </div>
+
+        {/* Synergy-graph status — the plan re-ranks once deck connectivity resolves. */}
+        <div className="flex items-center gap-1.5 px-5 py-1.5 text-[11px] text-muted-foreground border-b border-border/60">
+          {connectivityLoading ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin text-violet-400/80" />
+              <span>Refining cuts with your deck's synergy graph…</span>
+            </>
+          ) : connectivity ? (
+            <>
+              <Waypoints className="w-3 h-3 text-violet-400/80" />
+              <span>Synergy-aware — flags cards weakly linked to the rest of your deck</span>
+            </>
+          ) : (
+            <>
+              <Waypoints className="w-3 h-3 text-muted-foreground/50" />
+              <span>Ranked by relevancy</span>
+            </>
+          )}
         </div>
 
         {checked.size < overage && (
@@ -325,6 +357,7 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
                       <CardContextMenu
                         card={cand.card}
                         onAction={onCardAction}
+                        hasRemove
                         userLists={menuProps.userLists}
                         isMustInclude={menuProps.mustIncludeNames.has(cand.card.name)}
                         isBanned={menuProps.bannedNames.has(cand.card.name)}

@@ -19,9 +19,9 @@ interface Props {
 // The three demo "bundles" — abstract previews tinted with the real fork tones (need/theme/neutral),
 // labelled with example strategies so the player reads "coherent packages, pick one."
 const DEMO_BUNDLES = [
-  { label: 'Ramp', tone: '262 84% 72%' },     // neutral/violet
-  { label: 'Removal', tone: '0 72% 70%' },     // need/rose — this is the one that gets "picked"
-  { label: 'Tokens', tone: '152 62% 58%' },    // theme/emerald
+  { label: 'Ramp', tone: '196 62% 56%' },      // blueprint cyan
+  { label: 'Removal', tone: '22 92% 58%' },     // molten orange — this is the one that gets "picked"
+  { label: 'Tokens', tone: '38 85% 58%' },      // brass
 ];
 const PICKED = 1;            // index of the bundle that flies up to the deck
 // The demo plays through in ~1.9s, then holds its final frame; only after a long settle does it

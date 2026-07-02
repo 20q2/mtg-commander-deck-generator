@@ -279,7 +279,18 @@ export interface DetectedCombo {
   bracket: string;
   // Where this combo was sourced from. 'commander' combos use the existing ≤2 missing
   // threshold; 'color-identity' combos use a tighter ≤1 missing threshold.
-  source: 'commander' | 'color-identity';
+  // 'user' combos are hand-authored by the user (see UserCombo) — always complete,
+  // never fetched from EDHREC.
+  source: 'commander' | 'color-identity' | 'user';
+}
+
+// A combo the user defined by hand from their deck view. Persisted on UserCardList.
+export interface UserCombo {
+  id: string;
+  cards: string[];    // 2+ card names, chosen from the deck
+  result: string;     // short "what it does" note, e.g. "Infinite mana"
+  details?: string;   // optional free-form notes, shown in the "Show details" expander
+  createdAt: number;
 }
 
 export interface GapAnalysisCard {
@@ -482,6 +493,7 @@ export interface UserCardList {
   partnerCommanderName?: string;
   deckSize?: number; // Total intended deck size including commander(s)
   primer?: string; // Strategy notes / deck primer (deck type only)
+  customCombos?: UserCombo[]; // User-authored combos (see UserCombo)
   generationSummary?: string; // "Built with: X · Bracket 3 · Budget" — cleared on first edit
   createdAt: number;
   updatedAt: number;

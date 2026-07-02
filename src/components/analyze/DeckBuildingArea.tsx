@@ -14,6 +14,7 @@ import type { ThemeMembership } from './themeMembership';
 import { getColumns, type Column, type GroupKey, GROUP_OPTIONS, shouldCollapseRows } from './groupColumns';
 import { computeSpillover } from './columnSpillover';
 import { useStore } from '@/store';
+import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
@@ -543,9 +544,25 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   const landsGridTemplate = landsSpillover.gridTemplate;
   const landSubColumns = landsSpillover.subColumns;
 
+  // Drag a card link (EDHREC / Scryfall / Moxfield) onto the play area to add it.
+  // Routes through the same onCardAction 'addToDeck' the add-card controls use, so
+  // it only lights up on surfaces that support adding (Inspector, SpellChroma).
+  const { isDraggingCard, dropHandlers } = useCardLinkDrop({
+    enabled: !!onCardAction,
+    onCard: (card) => onCardAction?.(card, { type: 'addToDeck' }),
+  });
 
   return (
-    <div ref={rootRef} className="flex-1 min-h-0 flex flex-col overflow-hidden bg-background/85">
+    <div ref={rootRef} className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-background/85" {...dropHandlers}>
+      {isDraggingCard && (
+        <div className="absolute inset-0 z-[80] pointer-events-none flex items-center justify-center p-4">
+          <div className="absolute inset-2 rounded-2xl border-2 border-dashed border-violet-400/70 bg-violet-500/5 backdrop-blur-[1px]" />
+          <div className="relative rounded-xl bg-background/90 border border-violet-400/50 px-5 py-3 shadow-2xl text-center">
+            <p className="text-sm font-medium text-violet-200">Drop to add card</p>
+            <p className="text-xs text-violet-300/70 mt-0.5">Drag a card link from Scryfall, EDHREC, or Moxfield</p>
+          </div>
+        </div>
+      )}
       {/* Header — bigger, with sort selector */}
       <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
         <div className="flex items-center gap-2 min-w-0">

@@ -366,6 +366,7 @@ export function ListsPage() {
           }}
           onExport={() => handleExport(list.id)}
           onDelete={() => handleDelete(list.id)}
+          onRename={(newName) => updateList(list.id, { name: newName })}
           onRemoveCard={(name) => handleRemoveCard(list.id, name)}
           onAddCard={(name) => {
             const current = lists.find(l => l.id === list.id);

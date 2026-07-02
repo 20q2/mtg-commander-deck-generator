@@ -42,7 +42,7 @@ export function BrewTrack() {
   const streakHsl = streak >= 9 ? '0 80% 65%' : streak >= 6 ? '25 90% 60%' : '196 62% 56%';
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
+    <div className="foundry-bevel relative overflow-hidden rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
       {/* Brewer's Goal */}
       <span
         className="inline-flex min-w-0 items-center gap-1.5"

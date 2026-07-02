@@ -4,6 +4,7 @@ import { useStore } from '@/store';
 import type { UserCardList, ScryfallCard } from '@/types';
 
 const USER_LISTS_KEY = 'mtg-deck-builder-user-lists';
+const LAST_ADD_TARGET_KEY = 'mtg-deck-builder-last-add-target';
 const TYPES = ['Battle', 'Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'];
 const WUBRG = ['W', 'U', 'B', 'R', 'G'];
 
@@ -125,6 +126,55 @@ function updateShared(updater: (prev: UserCardList[]) => UserCardList[]) {
   broadcast(updater(sharedLists));
 }
 
+// ─── Last "Add to …" target: powers the ethereal quick-shortcut in the card
+// context menu. Persisted so the shortcut survives reloads, and shared across
+// all hook instances so recording an add in one menu updates every other. ──
+export interface LastAddTarget {
+  listId: string;
+  board?: 'main' | 'sideboard' | 'maybeboard';
+}
+
+function loadLastAddTarget(): LastAddTarget | null {
+  try {
+    const stored = localStorage.getItem(LAST_ADD_TARGET_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed.listId === 'string') return parsed;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+let sharedLastAddTarget: LastAddTarget | null = loadLastAddTarget();
+const lastAddListeners = new Set<(t: LastAddTarget | null) => void>();
+
+function setSharedLastAddTarget(next: LastAddTarget | null) {
+  sharedLastAddTarget = next;
+  try {
+    if (next) localStorage.setItem(LAST_ADD_TARGET_KEY, JSON.stringify(next));
+    else localStorage.removeItem(LAST_ADD_TARGET_KEY);
+  } catch { /* ignore */ }
+  for (const fn of lastAddListeners) fn(next);
+}
+
+/**
+ * Subscribes to the last "Add to …" target only — deliberately independent of
+ * the (much noisier) lists state so the many card-context menus don't re-render
+ * every time any list changes.
+ */
+export function useLastAddTarget() {
+  const [target, setTarget] = useState<LastAddTarget | null>(() => sharedLastAddTarget);
+  useEffect(() => {
+    const listener = (t: LastAddTarget | null) => setTarget(t);
+    lastAddListeners.add(listener);
+    if (sharedLastAddTarget !== target) setTarget(sharedLastAddTarget);
+    return () => { lastAddListeners.delete(listener); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const recordLastAddTarget = useCallback((t: LastAddTarget) => setSharedLastAddTarget(t), []);
+  return { lastAddTarget: target, recordLastAddTarget };
+}
+
 export function useUserLists() {
   const [lists, setLists] = useState<UserCardList[]>(() => sharedLists);
 
@@ -197,7 +247,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos'>>) => {
     updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
@@ -209,6 +259,8 @@ export function useUserLists() {
 
   const deleteList = useCallback((id: string) => {
     updateShared(prev => prev.filter(l => l.id !== id));
+    // Drop the quick-add shortcut if it pointed at the deleted list.
+    if (sharedLastAddTarget?.listId === id) setSharedLastAddTarget(null);
     // Clean up orphaned applied list references in the store
     const { customization, updateCustomization } = useStore.getState();
     const includes = customization.appliedIncludeLists || [];
@@ -240,6 +292,7 @@ export function useUserLists() {
         commanderName: src.commanderName,
         partnerCommanderName: src.partnerCommanderName,
         primer: src.primer,
+        customCombos: src.customCombos ? src.customCombos.map(c => ({ ...c })) : undefined,
         cachedTypeBreakdown: src.cachedTypeBreakdown,
         cachedColorIdentity: src.cachedColorIdentity,
         cachedCommanderArtUrl: src.cachedCommanderArtUrl,

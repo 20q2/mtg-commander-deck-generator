@@ -5,7 +5,7 @@ import { StatPop } from './StatPop';
 import { RAIL_TITLE_CLASS, RAIL_RADAR_SCALE } from '@/components/brew/brewVisuals';
 import { Radar, type RadarDatum } from '@/components/charts/Radar';
 
-const VIOLET = '262 84% 72%';
+const VIOLET = '196 62% 56%';  // (Foundry) blueprint cyan — the deck-identity accent
 const GOLD = '40 92% 60%';
 
 /** Up to this many of the commander's themes become the identity radar's (fixed) axes. */

@@ -6,7 +6,7 @@ import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { InspectorIcon } from '@/components/analyze/InspectorIcon';
 import { useStore } from '@/store';
-import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
+import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard, normalizeCardNameKey } from '@/services/scryfall/client';
 import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
@@ -30,6 +30,7 @@ import {
   computeContentHash,
   isCacheFresh,
   cacheMatchesCommander,
+  cacheMatchesContent,
 } from '@/services/deckBuilder/deckEnrichmentCache';
 import { CollectionImporter, type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -41,6 +42,7 @@ import { FillDeckDialog } from './FillDeckDialog';
 import { Drawer } from '@/components/ui/drawer';
 import { MustIncludeCards } from '@/components/customization/MustIncludeCards';
 import { getMaxCopies } from '@/lib/utils';
+import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 
 interface ListDeckViewProps {
   list: UserCardList;
@@ -661,6 +663,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
   const { lists: userLists, updateList, createList } = useUserLists();
+  // A card's "Create combo" menu entry sets this; ComboDisplay opens its form seeded with the card, then clears it.
+  const [comboSeedCard, setComboSeedCard] = useState<string | null>(null);
 
   const [phasesDone, setPhasesDone] = useState<Set<LoadPhase>>(new Set());
   const markPhaseDone = useCallback((p: LoadPhase) => {
@@ -699,10 +703,16 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   // Gated on phasesDone.has('cards') so we don't flag everything during loading.
   const unloadedCards = useMemo(() => {
     if (!phasesDone.has('cards')) return [];
+    // Compare on normalized keys so a card that loaded under its canonical
+    // Scryfall name isn't falsely flagged when list.cards holds a differently-
+    // spelled request (accents/punctuation — common with EDHREC/inspector names).
+    // A genuinely unresolvable name still fails to load, so it stays flagged.
     const loadedNames = new Set<string>();
     const addLoaded = (n: string) => {
-      loadedNames.add(n);
-      if (n.includes(' // ')) loadedNames.add(n.split(' // ')[0]);
+      loadedNames.add(normalizeCardNameKey(n));
+      if (n.includes(' // ')) {
+        for (const face of n.split(' // ')) loadedNames.add(normalizeCardNameKey(face));
+      }
     };
     if (generatedDeck) {
       for (const c of Object.values(generatedDeck.categories).flat()) {
@@ -716,7 +726,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     const seen = new Set<string>();
     const out: string[] = [];
     for (const name of list.cards) {
-      if (loadedNames.has(name)) continue;
+      if (loadedNames.has(normalizeCardNameKey(name))) continue;
       if (seen.has(name)) continue;
       seen.add(name);
       out.push(name);
@@ -1378,6 +1388,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         if (
           cached
           && cacheMatchesCommander(cached, list.commanderName, list.partnerCommanderName)
+          && cacheMatchesContent(cached, list.cards)
           && isCacheFresh(cached)
         ) {
           hydrateFromCache(cached.payload);
@@ -1649,6 +1660,25 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     showActionToast(`Added ${card.name}`, () => onRemoveCardsRef.current?.([card.name]), primaryTypeFromLine(card.type_line));
   }, [onAddCards, pushDeckHistory, showActionToast]);
 
+  // --- Drag a card link (EDHREC / Scryfall / Moxfield) onto the deck to add it ---
+  const { isDraggingCard, dropHandlers } = useCardLinkDrop({
+    enabled: !!onAddCards && phasesDone.has('cards'),
+    onCard: (card) => {
+      const present = new Set<string>();
+      for (const n of list.cards) {
+        present.add(n);
+        if (n.includes(' // ')) present.add(n.split(' // ')[0]);
+      }
+      const frontFace = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+      if (present.has(card.name) || present.has(frontFace)) {
+        showErrorToast(`${frontFace} is already in the deck`);
+        return;
+      }
+      handleAddToDeck(card);
+    },
+    onError: showErrorToast,
+  });
+
   // Enter-to-add: skip the dropdown and try to resolve+add the typed name directly.
   // Uses fuzzy lookup so minor capitalization/spelling slips still work.
   const handleSearchKeyDown = useCallback(async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1788,6 +1818,11 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const handleDialogCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
     const name = card.name;
     switch (action.type) {
+      case 'remove': {
+        pushDeckHistory({ action: 'remove', cardName: name });
+        handleRemoveCardsWithToast?.([name]);
+        break;
+      }
       case 'mustInclude': {
         const current = customization.mustIncludeCards;
         const has = current.includes(name);
@@ -1811,7 +1846,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         createList(action.listName, [name]);
         break;
     }
-  }, [customization, updateCustomization, userLists, updateList, createList]);
+  }, [customization, updateCustomization, userLists, updateList, createList, handleRemoveCardsWithToast, pushDeckHistory]);
 
   if (error) {
     return (
@@ -1851,7 +1886,16 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         </div>
       )}
 
-      <div className="relative z-10 space-y-4">
+      <div className="relative z-10 space-y-4" {...dropHandlers}>
+        {isDraggingCard && (
+          <div className="fixed inset-0 z-[90] pointer-events-none flex items-center justify-center p-4">
+            <div className="absolute inset-3 rounded-2xl border-2 border-dashed border-violet-400/70 bg-violet-500/5 backdrop-blur-[1px]" />
+            <div className="relative rounded-xl bg-background/90 border border-violet-400/50 px-5 py-3 shadow-2xl text-center">
+              <p className="text-sm font-medium text-violet-200">Drop to add card</p>
+              <p className="text-xs text-violet-300/70 mt-0.5">Drag a card link from Scryfall, EDHREC, or Moxfield</p>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={onBack}
@@ -2323,6 +2367,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         <DeckDisplay
           phasesDone={phasesDone}
           spellChromaDeckRef={list.id}
+          customCombos={list.customCombos}
+          onCreateCombo={setComboSeedCard}
           onRemoveCards={handleRemoveCardsWithToast}
           onAddCards={onAddCards ? (names, _dest) => onAddCards(names, 'deck') : undefined}
           onMoveToSideboard={onMoveToSideboard}
@@ -2552,10 +2598,28 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               )}
             </div>
           )}
-          {(!phasesDone.has('combos') || (generatedDeck?.detectedCombos?.length ?? 0) > 0) && (
+          {/* Always render — ComboDisplay owns its own skeleton/empty states, and the
+              "Add combo" button must stay reachable even on a combo-less deck. */}
+          {(
             <ComboDisplay
               combos={generatedDeck?.detectedCombos ?? []}
               hideMustInclude
+              customCombos={list.customCombos ?? []}
+              deckCardNames={[...new Set([list.commanderName, list.partnerCommanderName, ...list.cards].filter(Boolean) as string[])]}
+              seedCard={comboSeedCard}
+              onSeedConsumed={() => setComboSeedCard(null)}
+              onAddCombo={({ cards, result, details }) => {
+                const combo = { id: `uc-${Date.now()}-${Math.round(Math.random() * 1e6)}`, cards, result, details: details || undefined, createdAt: Date.now() };
+                updateList(list.id, { customCombos: [...(list.customCombos ?? []), combo] });
+              }}
+              onEditCombo={(id, { cards, result, details }) => {
+                updateList(list.id, {
+                  customCombos: (list.customCombos ?? []).map(c => c.id === id ? { ...c, cards, result, details: details || undefined } : c),
+                });
+              }}
+              onDeleteCombo={(id) => {
+                updateList(list.id, { customCombos: (list.customCombos ?? []).filter(c => c.id !== id) });
+              }}
               onAddToDeck={onAddCards ? (names) => {
                 onAddCards(names, 'deck');
                 for (const n of names) pushDeckHistory({ action: 'add', cardName: n });
