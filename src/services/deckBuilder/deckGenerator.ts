@@ -10,6 +10,7 @@ import type {
   DeckFormat,
   DeckDataSource,
   ThemeResult,
+  CardEdhrecMeta,
   EDHRECCard,
   EDHRECCombo,
   EDHRECCommanderData,
@@ -21,7 +22,8 @@ import type {
   CollectionStrategy,
 } from '@/types';
 import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
-import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData } from '@/services/edhrec/client';
+import { blendArchetypeData, buildArchetypeSourceLabel } from './archetypeBlend';
 import {
   calculateTypeTargets,
   calculateCurveTargets,
@@ -503,11 +505,15 @@ function calculateCardPriority(card: EDHRECCard): number {
   const synergy = card.synergy ?? 0;
   const inclusion = card.inclusion;
 
+  // Two independent data populations agreeing (commander-theme page + archetype
+  // tag page) is the strongest confirmation signal — modest tie-breaking bonus.
+  const archetypeBonus = card.archetypeOverlap ? 20 : 0;
+
   // Cards from theme synergy lists (highsynergycards, topcards, etc.) get top priority
   if (card.isThemeSynergyCard) {
     // Theme synergy cards get a big boost: 100 + synergy bonus + inclusion
     // This ensures they're prioritized over regular high-inclusion cards
-    return 100 + (synergy * 50) + inclusion;
+    return 100 + (synergy * 50) + inclusion + archetypeBonus;
   }
 
   // New cards get a small relevancy boost to compensate for having fewer total decks,
@@ -516,11 +522,11 @@ function calculateCardPriority(card: EDHRECCard): number {
 
   // If synergy score is high (> 0.3), boost the card
   if (synergy > 0.3) {
-    return (synergy * 100) + inclusion + newCardBoost;
+    return (synergy * 100) + inclusion + newCardBoost + archetypeBonus;
   }
 
   // For low/no synergy cards, just use inclusion
-  return inclusion + newCardBoost;
+  return inclusion + newCardBoost + archetypeBonus;
 }
 
 // Pick cards with curve awareness from pre-fetched map (no API calls)
@@ -1498,7 +1504,7 @@ export function calculateStats(categories: Record<DeckCategory, ScryfallCard[]>)
 }
 
 // Merge cardlists from multiple theme results
-function mergeThemeCardlists(
+export function mergeThemeCardlists(
   themeDataResults: EDHRECCommanderData[]
 ): { cardlists: EDHRECCommanderData['cardlists']; themeOverlapCounts: Map<string, number> } {
   // Track how many themes each card appears in (for hyper focus mode)
@@ -2083,6 +2089,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           : fetchCommanderThemeData(commander.name, theme.slug!, budgetOption, bracketLevel)
       );
 
+      // Archetype cross-reference: color-filtered tag page per theme (e.g. /tags/pillow-fort/golgari).
+      // Fetched in parallel; failures resolve to null and never block generation.
+      const tagDataPromises = selectedThemesWithSlugs.map(theme =>
+        fetchTagPageData(theme.slug!, colorIdentity).catch(() => null)
+      );
+
       // If hyper focus is on, also fetch base commander data in parallel to compare
       const baseDataPromise = customization.hyperFocus
         ? (partnerCommander
@@ -2091,8 +2103,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           ).catch(() => null)
         : Promise.resolve(null);
 
-      const [themeDataResults, fetchedBaseData] = await Promise.all([
+      const [themeDataResults, tagDataResults, fetchedBaseData] = await Promise.all([
         Promise.all(themeDataPromises),
+        Promise.all(tagDataPromises),
         baseDataPromise,
       ]);
       baseData = fetchedBaseData;
@@ -2130,6 +2143,22 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             console.warn('[DeckGen] FALLBACK: Base commander stats fetch failed — will use fallback type targets');
           }
         }
+      }
+
+      // Blend archetype aggregates into the merged commander-theme pool. Adaptive:
+      // thin commander-theme data (few decks) lets archetype staples in near full
+      // weight; healthy data discounts them heavily. Overlap cards get flagged.
+      const tagPools = tagDataResults.map((r, i) =>
+        r
+          ? {
+              pool: r.cardlists,
+              sourceLabel: buildArchetypeSourceLabel(colorIdentity, selectedThemesWithSlugs[i].name, r.potentialDecks),
+            }
+          : null
+      );
+      if (tagPools.some(Boolean)) {
+        const blend = blendArchetypeData(mergedCardlists, tagPools, representativeStats.numDecks || 0);
+        console.log(`[DeckGen] Archetype blend: ${blend.overlapCount} overlap, ${blend.injectedCount} injected (commander-theme decks: ${representativeStats.numDecks || 0})`);
       }
 
       edhrecData = {
@@ -4320,7 +4349,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
   // Build per-card relevancy scores (composite: synergy + inclusion + role deficit + curve fit + type balance)
   let cardRelevancyMap: Record<string, number> | undefined;
-  let cardEdhrecMetaMap: Record<string, { isThemeSynergyCard?: boolean; isNewCard?: boolean; primary_type?: string; cmc?: number }> | undefined;
+  let cardEdhrecMetaMap: Record<string, CardEdhrecMeta> | undefined;
   if (edhrecData) {
     // Index full EDHREC card objects for synergy/theme lookup
     const edhrecCardIndex = new Map<string, EDHRECCard>();
@@ -4377,7 +4406,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     };
 
     const relMap: Record<string, number> = {};
-    const metaMap: Record<string, { isThemeSynergyCard?: boolean; isNewCard?: boolean; primary_type?: string; cmc?: number }> = {};
+    const metaMap: Record<string, CardEdhrecMeta> = {};
     for (const cards of Object.values(categories)) {
       for (const card of cards) {
         if (BASIC_LAND_NAMES.has(card.name)) continue;
@@ -4389,6 +4418,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           isNewCard: ec.isNewCard,
           primary_type: ec.primary_type,
           cmc: ec.cmc,
+          fromArchetype: ec.fromArchetype,
+          archetypeOverlap: ec.archetypeOverlap,
+          archetypeSource: ec.archetypeSource,
         };
         const role = (card.deckRole as RoleKey) || null;
         const sub = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype || null;
