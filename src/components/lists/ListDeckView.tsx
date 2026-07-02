@@ -39,6 +39,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, LoadPhase, SerializedEnrichment } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
+import { ThemePickerPopover } from './ThemePickerPopover';
 import { TrimDeckDialog } from './TrimDeckDialog';
 import { FillDeckDialog } from './FillDeckDialog';
 import { Drawer } from '@/components/ui/drawer';
@@ -65,6 +66,12 @@ interface ListDeckViewProps {
   onUpdateDeckSize?: (newSize: number) => void;
   onSetSideboard?: (names: string[]) => void;
   onSetMaybeboard?: (names: string[]) => void;
+}
+
+/** Enrichment cache hash input: mainboard + assigned theme slugs, so toggling
+ *  themes invalidates the cached enrichment. */
+function listHashInput(list: UserCardList): string[] {
+  return [...list.cards, ...(list.themes ?? []).map(t => `theme:${t.slug}`)];
 }
 
 function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
@@ -933,6 +940,10 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     });
   }, [primerDraft]);
 
+  // Assigned theme slugs — re-runs the full build when the user changes themes
+  // (the theme-salted content hash makes it an enrichment-cache miss).
+  const themesKey = (list.themes ?? []).map(t => t.slug).join(',');
+
   // Track previous cards for incremental updates
   const prevCardsRef = useRef<string[]>(list.cards);
   const isInitialLoadDone = useRef(false);
@@ -993,7 +1004,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         listId: list.id,
         commanderName: list.commanderName ?? null,
         partnerName: list.partnerCommanderName ?? null,
-        contentHash: computeContentHash(list.cards),
+        contentHash: computeContentHash(listHashInput(list)),
         cachedAt: Date.now(),
         lastAccessed: Date.now(),
         payload,
@@ -1228,6 +1239,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         detectedFromCombos,
         commanderCard.name,
         partnerCard?.name,
+        list.themes,
       );
       if (cancelled) return;
       useStore.setState(state => ({
@@ -1357,6 +1369,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             detectedCombos,
             commanderCard.name,
             partnerCard?.name,
+            list.themes,
           );
           if (cancelled) return;
           swapsResult = await buildSwapCandidates(
@@ -1391,7 +1404,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         if (
           cached
           && cacheMatchesCommander(cached, list.commanderName, list.partnerCommanderName)
-          && cacheMatchesContent(cached, list.cards)
+          && cacheMatchesContent(cached, listHashInput(list))
           && isCacheFresh(cached)
         ) {
           hydrateFromCache(cached.payload);
@@ -1414,7 +1427,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       useStore.setState({ generatedDeck: null, deckHistory: [] });
       resetTheme();
     };
-  }, [list.id, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [list.id, refreshCounter, themesKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Incremental update — patch deck in-place when cards change (no full reload)
   useEffect(() => {
@@ -1564,7 +1577,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         listId: list.id,
         commanderName: list.commanderName ?? null,
         partnerName: list.partnerCommanderName ?? null,
-        contentHash: computeContentHash(list.cards),
+        contentHash: computeContentHash(listHashInput(list)),
         cachedAt: Date.now(),
         lastAccessed: Date.now(),
         payload,
@@ -2367,6 +2380,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             </div>
           </div>
         ) : (
+        <>
+          {list.type === 'deck' && list.commanderName && (
+            <div className="flex items-center gap-2 mb-2">
+              <ThemePickerPopover
+                themes={list.themes ?? []}
+                onChange={(themes) => updateList(list.id, { themes: themes.length > 0 ? themes : undefined })}
+                commanderName={list.commanderName}
+                partnerCommanderName={list.partnerCommanderName}
+                deckCards={allDeckCards}
+              />
+            </div>
+          )}
         <DeckDisplay
           phasesDone={phasesDone}
           spellChromaDeckRef={list.id}
@@ -2654,6 +2679,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             />
           )}
         </DeckDisplay>
+        </>
         )}
 
       </div>
