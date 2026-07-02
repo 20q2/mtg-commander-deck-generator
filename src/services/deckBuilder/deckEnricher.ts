@@ -1,8 +1,9 @@
-import type { ScryfallCard, DeckCategory, DetectedCombo, EDHRECCommanderData, EDHRECCard, GapAnalysisCard } from '@/types';
+import type { ScryfallCard, DeckCategory, DetectedCombo, EDHRECCommanderData, EDHRECCard, GapAnalysisCard, CardEdhrecMeta } from '@/types';
 import { loadTaggerData, getCardRole, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, getGameChangerNames, isChannelLand, isMdfcLand, getCardsByNames } from '@/services/scryfall/client';
-import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST, collectSwapCandidates } from './deckGenerator';
-import { fetchCommanderData, fetchPartnerCommanderData } from '@/services/edhrec/client';
+import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST, collectSwapCandidates, mergeThemeCardlists } from './deckGenerator';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData } from '@/services/edhrec/client';
+import { blendArchetypeData, buildArchetypeSourceLabel } from './archetypeBlend';
 import { getBaseRoleTargets, getDynamicRoleTargets } from './roleTargets';
 import { buildGapAnalysis } from './gapAnalysisBuilder';
 import { estimateBracket, type BracketEstimation } from './bracketEstimator';
@@ -29,7 +30,7 @@ export interface EnrichResult {
   cardInclusionMap?: Record<string, number>;
   cardSynergyMap?: Record<string, number>;
   cardRelevancyMap?: Record<string, number>;
-  cardEdhrecMetaMap?: Record<string, { isThemeSynergyCard?: boolean; isNewCard?: boolean; primary_type?: string; cmc?: number }>;
+  cardEdhrecMetaMap?: Record<string, CardEdhrecMeta>;
   deckScore?: number;
   gapAnalysis?: GapAnalysisCard[];
   swapCandidates?: Record<string, ScryfallCard[]>;
@@ -152,7 +153,7 @@ export interface EdhrecMapsResult {
   cardInclusionMap?: Record<string, number>;
   cardSynergyMap?: Record<string, number>;
   cardRelevancyMap?: Record<string, number>;
-  cardEdhrecMetaMap?: Record<string, { isThemeSynergyCard?: boolean; isNewCard?: boolean; primary_type?: string; cmc?: number }>;
+  cardEdhrecMetaMap?: Record<string, CardEdhrecMeta>;
   deckScore?: number;
   gapAnalysis?: GapAnalysisCard[];
   edhrecCurve?: Record<number, number>;
@@ -172,14 +173,46 @@ export async function buildEdhrecMaps(
   detectedCombos: DetectedCombo[] | undefined,
   commanderName: string,
   partnerCommanderName: string | undefined,
+  themes?: Array<{ name: string; slug: string }>,
 ): Promise<EdhrecMapsResult> {
   let roleTargets: Record<string, number> = getBaseRoleTargets(deckSize);
   const { categories, roleCounts, rampSubtypeCounts, removalSubtypeCounts, boardwipeSubtypeCounts, cardDrawSubtypeCounts, protectionSubtypeCounts } = taggerResult;
 
   try {
-    const edhrecData: EDHRECCommanderData = partnerCommanderName
+    let edhrecData: EDHRECCommanderData = partnerCommanderName
       ? await fetchPartnerCommanderData(commanderName, partnerCommanderName)
       : await fetchCommanderData(commanderName);
+
+    // Theme-aware enrichment: when the list has assigned themes, swap the card pool
+    // for the blended commander-theme + archetype pool. Stats and role targets keep
+    // coming from the base commander page (already fetched above). Fail-open: any
+    // fetch failure leaves base-page behavior untouched.
+    if (themes && themes.length > 0) {
+      const colorIdentity = [...new Set(
+        Object.values(taggerResult.categories).flat().flatMap(c => c.color_identity ?? [])
+      )];
+      const [themeResults, tagResults] = await Promise.all([
+        Promise.all(themes.map(t =>
+          (partnerCommanderName
+            ? fetchPartnerThemeData(commanderName, partnerCommanderName, t.slug)
+            : fetchCommanderThemeData(commanderName, t.slug)
+          ).catch(() => null)
+        )),
+        Promise.all(themes.map(t => fetchTagPageData(t.slug, colorIdentity).catch(() => null))),
+      ]);
+      const validThemes = themeResults.filter((r): r is EDHRECCommanderData => r !== null);
+      if (validThemes.length > 0) {
+        const merged = mergeThemeCardlists(validThemes);
+        const tagPools = tagResults.map((r, i) =>
+          r ? { pool: r.cardlists, sourceLabel: buildArchetypeSourceLabel(colorIdentity, themes[i].name, r.potentialDecks) } : null
+        );
+        if (tagPools.some(Boolean)) {
+          const blend = blendArchetypeData(merged.cardlists, tagPools, validThemes[0].stats.numDecks || 0);
+          console.log(`[Enricher] Archetype blend: ${blend.overlapCount} overlap, ${blend.injectedCount} injected`);
+        }
+        edhrecData = { ...edhrecData, cardlists: merged.cardlists };
+      }
+    }
 
     const dynamic = getDynamicRoleTargets(deckSize, undefined, edhrecData.stats, edhrecData);
     roleTargets = dynamic.targets;
@@ -284,7 +317,7 @@ export async function buildEdhrecMaps(
     };
 
     const relMap: Record<string, number> = {};
-    const metaMap: Record<string, { isThemeSynergyCard?: boolean; isNewCard?: boolean; primary_type?: string; cmc?: number }> = {};
+    const metaMap: Record<string, CardEdhrecMeta> = {};
     for (const cards of Object.values(categories)) {
       for (const card of cards) {
         if (BASIC_LAND_NAMES.has(card.name)) continue;
@@ -296,6 +329,9 @@ export async function buildEdhrecMaps(
           isNewCard: ec.isNewCard,
           primary_type: ec.primary_type,
           cmc: ec.cmc,
+          fromArchetype: ec.fromArchetype,
+          archetypeOverlap: ec.archetypeOverlap,
+          archetypeSource: ec.archetypeSource,
         };
         const role = (card.deckRole as RoleKey) || null;
         const sub = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype || null;
