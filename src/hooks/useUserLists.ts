@@ -249,7 +249,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos' | 'themes'>>) => {
     updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
