@@ -8,7 +8,8 @@ import {
 import { searchCards } from '@/services/scryfall/client';
 import type { EDHRECTheme } from '@/types';
 import {
-  liftFitScore,
+  deckLiftEdges,
+  liftEdgeScore,
   rankUpgradeCandidates,
   type RankedCard,
   type UpgradeCandidate,
@@ -94,6 +95,34 @@ function resolveThemeSlugs(themes: string[] | undefined, available: EDHRECTheme[
  * EDHREC-side dedupe; acceptable for now.
  */
 export async function getRelevantCards(args: RelevantCardsArgs): Promise<RankedCard[]> {
+  const details = await getUpgradeDetails(args);
+  return details.map(c => ({ name: c.name, inclusion: c.inclusion, synergy: c.synergy, isNew: true }));
+}
+
+/** Where a candidate was discovered. */
+export type UpgradeSource = 'commander' | 'theme' | 'recent-set';
+
+/** A fully-explained upgrade candidate — the "New Cards" inspector tab's row data. */
+export interface UpgradeDetail extends UpgradeCandidate {
+  sources: UpgradeSource[];
+  /** Intended theme names whose EDHREC page flagged this card as new. */
+  matchedThemes: string[];
+  /** Summed lift evidence against this deck (0 = no data). */
+  liftFit: number;
+  /** Strongest deck cards backing the recommendation, best first. */
+  topEdges: { deckCard: string; lift: number; coPct: number; numDecks: number }[];
+}
+
+const MAX_TOP_EDGES = 4;
+
+type DetailDraft = UpgradeCandidate & { sources: UpgradeSource[]; matchedThemes: string[] };
+
+/**
+ * The full ranked pipeline with its reasoning attached (sources, matched themes,
+ * lift edges). getRelevantCards is a thin wrapper over this; the "New Cards"
+ * inspector tab consumes it directly. Same caching + failure behavior.
+ */
+export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<UpgradeDetail[]> {
   const { commanderName, partnerName, deckCardNames, themes, colorIdentity } = args;
   try {
     const deckSet = new Set(deckCardNames);
@@ -107,7 +136,7 @@ export async function getRelevantCards(args: RelevantCardsArgs): Promise<RankedC
       : Promise.resolve([] as UpgradeCandidate[]);
 
     // 1. Commander-page new cards.
-    const byName = new Map<string, UpgradeCandidate>();
+    const byName = new Map<string, DetailDraft>();
     for (const c of data.cardlists.allNonLand) {
       if (!c.isNewCard) continue;
       byName.set(c.name, {
@@ -115,18 +144,22 @@ export async function getRelevantCards(args: RelevantCardsArgs): Promise<RankedC
         inclusion: c.inclusion,
         synergy: c.synergy,
         fromTheme: c.isThemeSynergyCard,
+        sources: ['commander'],
+        matchedThemes: [],
       });
     }
 
     // 2. Intended-theme pages' new cards (merged, deduped; failures skipped).
     const slugs = resolveThemeSlugs(themes, data.themes);
-    const themeDatas = await Promise.all(slugs.map(slug =>
-      (partnerName
+    const themeDatas = await Promise.all(slugs.map(async slug => {
+      const themeName = data.themes.find(t => t.slug === slug)?.name ?? slug;
+      const themeData = await (partnerName
         ? fetchPartnerThemeData(commanderName, partnerName, slug)
         : fetchCommanderThemeData(commanderName, slug)
-      ).catch(() => null)
-    ));
-    for (const themeData of themeDatas) {
+      ).catch(() => null);
+      return { themeName, themeData };
+    }));
+    for (const { themeName, themeData } of themeDatas) {
       if (!themeData) continue;
       for (const c of themeData.cardlists.allNonLand) {
         if (!c.isNewCard) continue;
@@ -134,8 +167,17 @@ export async function getRelevantCards(args: RelevantCardsArgs): Promise<RankedC
         if (prev) {
           prev.fromTheme = true;
           prev.synergy = Math.max(prev.synergy ?? 0, c.synergy ?? 0);
+          if (!prev.sources.includes('theme')) prev.sources.push('theme');
+          prev.matchedThemes.push(themeName);
         } else {
-          byName.set(c.name, { name: c.name, inclusion: c.inclusion, synergy: c.synergy, fromTheme: true });
+          byName.set(c.name, {
+            name: c.name,
+            inclusion: c.inclusion,
+            synergy: c.synergy,
+            fromTheme: true,
+            sources: ['theme'],
+            matchedThemes: [themeName],
+          });
         }
       }
     }
@@ -150,22 +192,29 @@ export async function getRelevantCards(args: RelevantCardsArgs): Promise<RankedC
 
     // 4. Merge the backfill (deduped against EDHREC's picks) and remember which
     // candidates carry no EDHREC signal — they must prove themselves via lift.
-    const backfill = (await backfillPromise).filter(c => !byName.has(c.name));
+    const backfill: DetailDraft[] = (await backfillPromise)
+      .filter(c => !byName.has(c.name))
+      .map(c => ({ ...c, sources: ['recent-set' as const], matchedThemes: [] }));
     const backfillNames = new Set(backfill.map(c => c.name));
     const candidates = [...edhrecCandidates, ...backfill];
 
     // 5. Deck-fit lift evidence per candidate.
-    const scored = await Promise.all(candidates.map(async candidate => ({
-      candidate,
-      liftFit: liftFitScore(await fetchCardLiftPool(candidate.name), deckSet),
-    })));
+    const scored = await Promise.all(candidates.map(async draft => {
+      const edges = deckLiftEdges(await fetchCardLiftPool(draft.name), deckSet);
+      const candidate: UpgradeDetail = {
+        ...draft,
+        liftFit: edges.reduce((s, e) => s + liftEdgeScore(e), 0),
+        topEdges: edges.slice(0, MAX_TOP_EDGES).map(e => ({
+          deckCard: e.name, lift: e.lift, coPct: e.coPct, numDecks: e.numDecks,
+        })),
+      };
+      return { candidate, liftFit: candidate.liftFit };
+    }));
 
     // Backfill cards with zero lift evidence have zero signal of any kind — cut them.
     const kept = scored.filter(s => !backfillNames.has(s.candidate.name) || s.liftFit > 0);
 
-    return rankUpgradeCandidates(kept)
-      .slice(0, MAX_RECOMMENDATIONS)
-      .map(c => ({ name: c.name, inclusion: c.inclusion, synergy: c.synergy, isNew: true }));
+    return rankUpgradeCandidates(kept).slice(0, MAX_RECOMMENDATIONS);
   } catch {
     return [];
   }

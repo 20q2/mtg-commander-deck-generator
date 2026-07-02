@@ -22,19 +22,26 @@ export interface LiftPoolEntry { name: string; lift: number; coPct: number; numD
 // damped by sample size, so a high-lift fluke with no adoption scores near zero.
 const CONFIDENCE_K = 50;
 
+/** Score of a single candidate→deck-card lift edge. */
+export function liftEdgeScore(e: LiftPoolEntry): number {
+  return e.lift * e.coPct * (e.numDecks / (e.numDecks + CONFIDENCE_K));
+}
+
 /**
- * Deck-fit evidence for one candidate: sum the lift edges from the candidate's own
- * card page to cards ALREADY in this deck. Direction matters — we fetch the
- * candidate's pool (one page per candidate, bounded) rather than scanning every
- * deck card's pool (a page per deck card, ~60 fetches).
+ * The lift edges from a candidate's own card page to cards ALREADY in this deck,
+ * strongest first. Direction matters — we fetch the candidate's pool (one page
+ * per candidate, bounded) rather than scanning every deck card's pool (a page
+ * per deck card, ~60 fetches).
  */
+export function deckLiftEdges(candidatePool: LiftPoolEntry[], deckNames: Set<string>): LiftPoolEntry[] {
+  return candidatePool
+    .filter(e => deckNames.has(e.name))
+    .sort((a, b) => liftEdgeScore(b) - liftEdgeScore(a));
+}
+
+/** Deck-fit evidence for one candidate: summed edge scores against the deck. */
 export function liftFitScore(candidatePool: LiftPoolEntry[], deckNames: Set<string>): number {
-  let score = 0;
-  for (const e of candidatePool) {
-    if (!deckNames.has(e.name)) continue;
-    score += e.lift * e.coPct * (e.numDecks / (e.numDecks + CONFIDENCE_K));
-  }
-  return score;
+  return deckLiftEdges(candidatePool, deckNames).reduce((s, e) => s + liftEdgeScore(e), 0);
 }
 
 // Deck-specific lift evidence dominates; commander-page synergy and intended-theme
@@ -44,11 +51,11 @@ const WEIGHT_LIFT = 2.0;
 const WEIGHT_THEME = 0.5;
 
 /** Rank candidates by blended deck fit. Pure; ties break by inclusion then name. */
-export function rankUpgradeCandidates(
-  scored: { candidate: UpgradeCandidate; liftFit: number }[],
-): UpgradeCandidate[] {
+export function rankUpgradeCandidates<T extends UpgradeCandidate>(
+  scored: { candidate: T; liftFit: number }[],
+): T[] {
   const maxFit = Math.max(0, ...scored.map(s => s.liftFit));
-  const composite = (s: { candidate: UpgradeCandidate; liftFit: number }) =>
+  const composite = (s: { candidate: T; liftFit: number }) =>
     (maxFit > 0 ? (s.liftFit / maxFit) * WEIGHT_LIFT : 0)
     + (s.candidate.synergy ?? 0)
     + (s.candidate.fromTheme ? WEIGHT_THEME : 0);

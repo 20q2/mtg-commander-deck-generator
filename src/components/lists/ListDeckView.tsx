@@ -2609,7 +2609,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 pushDeckHistory({ action: 'add', cardName: name });
               }}
               onMarkSeen={markUpgradesSeen}
-              onExplore={() => navigate(`/spellchroma?deck=${list.id}`)}
+              onExplore={() => navigate(`/analyze/${list.id}/new-cards`)}
             />
           )}
           {/* Always render — ComboDisplay owns its own skeleton/empty states, and the

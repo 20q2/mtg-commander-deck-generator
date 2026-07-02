@@ -33,6 +33,7 @@ import { BracketTabContent } from './BracketTab';
 import { CostTab } from './CostTab';
 import { OptimizeTabContent } from './optimize/OptimizeTabContent';
 import { LiftClustersTab } from './LiftClustersTab';
+import { NewCardsTab } from './NewCardsTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -66,6 +67,7 @@ export function DeckOptimizer({
   onFocusedMisfitChange,
   onSaveAsDeck,
   onOpenInDeckView,
+  intendedThemes,
 }: DeckOptimizerProps) {
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1642,6 +1644,20 @@ export function DeckOptimizer({
             onCardAction={handleCardAction}
             menuProps={menuProps}
             focusRequest={liftFocus}
+          />
+        )}
+
+        {/* ── NEW CARDS ── */}
+        {activeTab === 'newCards' && (
+          <NewCardsTab
+            currentCards={currentCards}
+            commanderName={commanderName}
+            partnerCommanderName={partnerCommanderName}
+            colorIdentity={colorIdentity}
+            intendedThemes={intendedThemes}
+            onAdd={handleAddCard}
+            addedCards={addedCards}
+            onPreview={handlePreview}
           />
         )}
 

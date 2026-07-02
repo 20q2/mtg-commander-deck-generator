@@ -58,9 +58,11 @@ export interface DeckOptimizerProps {
   onSaveAsDeck?: () => void;
   /** Open the saved deck in the deck view. Shown as a CTA in the Overview header when the deck originates from a saved list. */
   onOpenInDeckView?: () => void;
+  /** The deck's intended EDHREC theme names — steers the New Cards tab's sources. */
+  intendedThemes?: string[];
 }
 
-export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift';
+export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift' | 'newCards';
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -71,6 +73,7 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'cost',     label: 'Cost',     icon: DollarSign as typeof LayoutDashboard },
   { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
   { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
+  { key: 'newCards', label: 'New Cards', icon: Sparkles as typeof LayoutDashboard },
 ];
 
 // URL slug <-> TabKey mapping. Slugs follow the user-facing labels
@@ -84,6 +87,7 @@ export const TAB_SLUG_BY_KEY: Record<TabKey, string> = {
   bracket:  'bracket',
   cost:     'cost',
   lift:     'lift-web',
+  newCards: 'new-cards',
 };
 
 export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
@@ -96,6 +100,7 @@ export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
   bracket:    'bracket',
   cost:       'cost',
   'lift-web': 'lift',
+  'new-cards': 'newCards',
 };
 
 // ─── Utility Functions ───────────────────────────────────────────────

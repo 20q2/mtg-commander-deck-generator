@@ -16,6 +16,7 @@ import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getCachedCard, getCardByName, isBasicLand } from '@/services/scryfall/client';
 import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
+import { parseIntendedThemes } from '@/services/deckUpgrades/deckUpgrades';
 import { stampRoleSubtypes } from '@/services/deckBuilder/deckGenerator';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { trackEvent } from '@/services/analytics';
@@ -591,6 +592,12 @@ export function AnalyzePage() {
       ? 'Generated'
       : `From "${source.listName}"`;
 
+    // Intended themes for the New Cards tab: saved list first (persisted at save,
+    // or recovered from its summary), else whatever the generator ran with.
+    const intendedThemes = sourceList
+      ? (sourceList.usedThemes?.length ? sourceList.usedThemes : parseIntendedThemes(sourceList.generationSummary))
+      : generatedDeck.usedThemes;
+
     const handleSaveAsDeck = () => {
       const today = new Date().toISOString().slice(0, 10);
       const name = `${generatedDeck.commander?.name ?? 'Untitled'} — Inspected ${today}`;
@@ -642,6 +649,7 @@ export function AnalyzePage() {
                 onFocusedMisfitChange={setFocusedMisfitName}
                 onSaveAsDeck={source.kind === 'list' ? undefined : handleSaveAsDeck}
                 onOpenInDeckView={handleOpenInDeckView}
+                intendedThemes={intendedThemes}
               />
             }
             deck={
