@@ -45,6 +45,7 @@ export function useDeckUpgrades(list: UserCardList): DeckUpgradesResult {
       deckCardNames: [...new Set([list.commanderName, list.partnerCommanderName, ...list.cards].filter(Boolean) as string[])],
       // Intended themes: persisted at save time; older decks recover them from the summary text.
       themes: list.usedThemes?.length ? list.usedThemes : parseIntendedThemes(list.generationSummary),
+      colorIdentity: list.cachedColorIdentity,
     }).then(recs => {
       if (cancelled || recs.length === 0) return;
       const names = recs.map(r => r.name);
