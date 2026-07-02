@@ -105,6 +105,7 @@ interface CreateListOptions {
   deckSize?: number;
   primer?: string;
   generationSummary?: string;
+  usedThemes?: string[];
   heroCardName?: string;
 }
 
@@ -233,6 +234,7 @@ export function useUserLists() {
       deckSize: options?.deckSize,
       primer: options?.primer,
       generationSummary: options?.generationSummary,
+      usedThemes: options?.usedThemes,
       heroCardName: options?.heroCardName,
       createdAt: now,
       updatedAt: now,
@@ -318,7 +320,7 @@ export function useUserLists() {
 
   const convertToList = useCallback((id: string) => {
     updateShared(prev => prev.map(l =>
-      l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, cachedColorIdentity: undefined, cachedCommanderArtUrl: undefined, updatedAt: Date.now() } : l
+      l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, usedThemes: undefined, upgradeState: undefined, cachedColorIdentity: undefined, cachedCommanderArtUrl: undefined, updatedAt: Date.now() } : l
     ));
   }, []);
 

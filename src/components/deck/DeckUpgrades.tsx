@@ -56,7 +56,7 @@ export function DeckUpgrades({ newCards, onApply, onMarkSeen, onExplore }: DeckU
           </span>
           <div className="leading-tight">
             <p className="text-sm font-semibold text-violet-100/95">New cards for this deck</p>
-            <p className="text-[11px] text-violet-300/60">Recently printed for your commander</p>
+            <p className="text-[11px] text-violet-300/60">New printings, ranked by fit with your deck</p>
           </div>
         </div>
         <div className="flex items-center gap-1">

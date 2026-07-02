@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useUserLists } from '@/hooks/useUserLists';
 import { getRelevantCards } from '@/services/deckUpgrades/getRelevantCards';
-import { computeNewUpgrades } from '@/services/deckUpgrades/deckUpgrades';
+import { computeNewUpgrades, parseIntendedThemes } from '@/services/deckUpgrades/deckUpgrades';
 import type { UserCardList } from '@/types';
 
 /** Re-fetch recommendations if the snapshot is older than this. */
@@ -39,7 +39,13 @@ export function useDeckUpgrades(list: UserCardList): DeckUpgradesResult {
     if (fresh) return;
 
     let cancelled = false;
-    getRelevantCards(list.commanderName, list.partnerCommanderName).then(recs => {
+    getRelevantCards({
+      commanderName: list.commanderName,
+      partnerName: list.partnerCommanderName,
+      deckCardNames: [...new Set([list.commanderName, list.partnerCommanderName, ...list.cards].filter(Boolean) as string[])],
+      // Intended themes: persisted at save time; older decks recover them from the summary text.
+      themes: list.usedThemes?.length ? list.usedThemes : parseIntendedThemes(list.generationSummary),
+    }).then(recs => {
       if (cancelled || recs.length === 0) return;
       const names = recs.map(r => r.name);
       const next = existing

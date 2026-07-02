@@ -6,6 +6,69 @@ export interface RankedCard {
   isNew?: boolean;     // EDHREC "new cards" flag
 }
 
+/** A new-card candidate before deck-fit ranking. */
+export interface UpgradeCandidate {
+  name: string;
+  inclusion: number;
+  synergy?: number;
+  /** Came from an intended-theme new-cards pool (or EDHREC's theme-synergy flag). */
+  fromTheme?: boolean;
+}
+
+/** Minimal lift-pool row (structurally matches the EDHREC client's CardLiftEntry). */
+export interface LiftPoolEntry { name: string; lift: number; coPct: number; numDecks: number; }
+
+// Same composite as the Lift Web (see liftClusters.edgeScore): lift × co-occurrence,
+// damped by sample size, so a high-lift fluke with no adoption scores near zero.
+const CONFIDENCE_K = 50;
+
+/**
+ * Deck-fit evidence for one candidate: sum the lift edges from the candidate's own
+ * card page to cards ALREADY in this deck. Direction matters — we fetch the
+ * candidate's pool (one page per candidate, bounded) rather than scanning every
+ * deck card's pool (a page per deck card, ~60 fetches).
+ */
+export function liftFitScore(candidatePool: LiftPoolEntry[], deckNames: Set<string>): number {
+  let score = 0;
+  for (const e of candidatePool) {
+    if (!deckNames.has(e.name)) continue;
+    score += e.lift * e.coPct * (e.numDecks / (e.numDecks + CONFIDENCE_K));
+  }
+  return score;
+}
+
+// Deck-specific lift evidence dominates; commander-page synergy and intended-theme
+// membership refine. Lift fit is normalized against the round's best so the weights
+// stay meaningful whatever the deck's absolute lift magnitudes are.
+const WEIGHT_LIFT = 2.0;
+const WEIGHT_THEME = 0.5;
+
+/** Rank candidates by blended deck fit. Pure; ties break by inclusion then name. */
+export function rankUpgradeCandidates(
+  scored: { candidate: UpgradeCandidate; liftFit: number }[],
+): UpgradeCandidate[] {
+  const maxFit = Math.max(0, ...scored.map(s => s.liftFit));
+  const composite = (s: { candidate: UpgradeCandidate; liftFit: number }) =>
+    (maxFit > 0 ? (s.liftFit / maxFit) * WEIGHT_LIFT : 0)
+    + (s.candidate.synergy ?? 0)
+    + (s.candidate.fromTheme ? WEIGHT_THEME : 0);
+  return [...scored]
+    .sort((a, b) =>
+      composite(b) - composite(a)
+      || b.candidate.inclusion - a.candidate.inclusion
+      || a.candidate.name.localeCompare(b.candidate.name))
+    .map(s => s.candidate);
+}
+
+/**
+ * Intended themes for decks saved before `usedThemes` was persisted: recover them
+ * from the human-readable generation summary ("Built with: Tokens, Aristocrats · …").
+ */
+export function parseIntendedThemes(generationSummary?: string): string[] {
+  const m = generationSummary?.match(/Built with:\s*([^·]+)/);
+  return m ? m[1].split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
 /**
  * Cards that are recommended, not already in the deck, and not yet seen.
  * Preserves recommendation order (highest relevance first).

@@ -505,6 +505,7 @@ export interface UserCardList {
   primer?: string; // Strategy notes / deck primer (deck type only)
   customCombos?: UserCombo[]; // User-authored combos (see UserCombo)
   generationSummary?: string; // "Built with: X · Bracket 3 · Budget" — cleared on first edit
+  usedThemes?: string[]; // EDHREC theme names the deck was generated with (drives upgrade-trigger relevance)
   createdAt: number;
   updatedAt: number;
   pinnedAt?: number; // Timestamp when user pinned this list to the top; undefined = not pinned

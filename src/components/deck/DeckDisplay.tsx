@@ -4804,6 +4804,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             partnerCommanderName: generatedDeck?.partnerCommander?.name,
             deckSize: cards.length,
             generationSummary: summaryParts.length > 0 ? summaryParts.join(' · ') : undefined,
+            usedThemes: generatedDeck?.usedThemes?.length ? generatedDeck.usedThemes : undefined,
           });
           trackEvent('list_created', { listName: name, cardCount: cards.length });
           setSavedListId(newList.id);
