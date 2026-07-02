@@ -146,6 +146,12 @@ export interface EDHRECCard {
   isThemeSynergyCard?: boolean; // true if from highsynergycards, topcards, gamechangers
   isNewCard?: boolean; // true if from the newcards list (gets a small relevancy boost)
   isGameChanger?: boolean; // true if from the gamechangers list specifically
+  /** Injected from a color-filtered EDHREC archetype tag page (not on the commander's own pages). */
+  fromArchetype?: boolean;
+  /** Present on BOTH the commander-theme page and the archetype tag page — two independent data populations agree. */
+  archetypeOverlap?: boolean;
+  /** Human-readable data lineage, e.g. "Golgari · Pillow Fort (80 decks)". */
+  archetypeSource?: string;
   prices?: {
     tcgplayer?: { price: number };
     cardkingdom?: { price: number };
@@ -378,6 +384,17 @@ export type DeckDataSource =
   | 'base'            // Base commander data, no bracket
   | 'scryfall';       // No EDHREC data at all — pure Scryfall search
 
+/** Static per-card EDHREC metadata snapshot (see GeneratedDeck.cardEdhrecMetaMap). */
+export interface CardEdhrecMeta {
+  isThemeSynergyCard?: boolean;
+  isNewCard?: boolean;
+  primary_type?: string;
+  cmc?: number;
+  fromArchetype?: boolean;
+  archetypeOverlap?: boolean;
+  archetypeSource?: string;
+}
+
 export interface GeneratedDeck {
   commander: ScryfallCard | null;
   partnerCommander: ScryfallCard | null;
@@ -410,12 +427,7 @@ export interface GeneratedDeck {
   /** Snapshot of static EDHREC metadata per card (theme/new-card flags + primary type + cmc).
    *  Populated at deck generation/enrichment time. Used by rebuildRelevancyMap when the deck
    *  mutates (swap/trim/add) so we can reconstruct an EDHRECCard shape without re-fetching. */
-  cardEdhrecMetaMap?: Record<string, {
-    isThemeSynergyCard?: boolean;
-    isNewCard?: boolean;
-    primary_type?: string;
-    cmc?: number;
-  }>;
+  cardEdhrecMetaMap?: Record<string, CardEdhrecMeta>;
   edhrecCurve?: Record<number, number>; // EDHREC average curve, keyed by CMC bucket (0-7)
   edhrecTypes?: Record<string, number>; // EDHREC average type counts, keyed by type ('creature', 'instant', ...)
   detectedArchetype?: Archetype; // Archetype inferred from themes for dynamic role targeting
@@ -506,6 +518,9 @@ export interface UserCardList {
   customCombos?: UserCombo[]; // User-authored combos (see UserCombo)
   generationSummary?: string; // "Built with: X · Bracket 3 · Budget" — cleared on first edit
   usedThemes?: string[]; // EDHREC theme names the deck was generated with (drives upgrade-trigger relevance)
+  /** User-assigned EDHREC themes (max 2). Drives theme-aware enrichment + archetype cross-reference.
+   *  Distinct from usedThemes (names only, generation provenance): these carry slugs and are user-editable. */
+  themes?: Array<{ name: string; slug: string }>;
   createdAt: number;
   updatedAt: number;
   pinnedAt?: number; // Timestamp when user pinned this list to the top; undefined = not pinned
@@ -708,7 +723,7 @@ export interface SerializedEnrichment {
   cardInclusionMap?: Record<string, number>;
   cardSynergyMap?: Record<string, number>;
   cardRelevancyMap?: Record<string, number>;
-  cardEdhrecMetaMap?: Record<string, { isThemeSynergyCard?: boolean; isNewCard?: boolean; primary_type?: string; cmc?: number }>;
+  cardEdhrecMetaMap?: Record<string, CardEdhrecMeta>;
   deckScore?: number;
   edhrecCurve?: Record<number, number>;
   edhrecTypes?: Record<string, number>;
