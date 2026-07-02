@@ -480,6 +480,16 @@ export interface BanList {
   enabled: boolean;
 }
 
+/** Per-deck retention state for the "new since you last looked" upgrade trigger. */
+export interface DeckUpgradeState {
+  /** Ranked recommended card names from the last producer fetch (highest relevance first). */
+  recommendations: string[];
+  /** Card names already surfaced to the user (shown + dismissed). */
+  seen: string[];
+  /** ms epoch of the last producer fetch, used for the ~7-day refresh window. */
+  fetchedAt: number;
+}
+
 // User-created reusable card list or deck
 export interface UserCardList {
   id: string;
@@ -508,6 +518,8 @@ export interface UserCardList {
   /** Resolved art_crop URL derived in computeCachedFields. Only populated for
    *  non-commander lists (commander decks render cachedCommanderArtUrl). */
   cachedListArtUrl?: string;
+  /** Upgrade-trigger snapshot (commander decks only). Written by useDeckUpgrades. */
+  upgradeState?: DeckUpgradeState;
 }
 
 // Reference to a user list applied as exclude or include

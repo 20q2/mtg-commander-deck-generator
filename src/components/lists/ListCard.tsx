@@ -1,4 +1,5 @@
 import type { UserCardList } from '@/types';
+import { computeNewUpgrades } from '@/services/deckUpgrades/deckUpgrades';
 import { CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { stripMarkdown, formatRelativeTime } from '@/lib/utils';
 import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search, Pin, PinOff } from 'lucide-react';
@@ -59,6 +60,15 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
   const remainingCount = list.cards.length - previewCards.length;
 
   const isPinned = !!list.pinnedAt;
+  // "New since you last looked" count — pure read of the cached snapshot, no fetch.
+  const newUpgradeCount = list.type === 'deck' && list.upgradeState
+    ? computeNewUpgrades(list.upgradeState.recommendations, list.cards, list.upgradeState.seen).length
+    : 0;
+  const upgradeBadge = newUpgradeCount > 0 ? (
+    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/90 shrink-0">
+      ✨ {newUpgradeCount} new
+    </span>
+  ) : null;
   const dropdownPortal = menuOpen && menuPos && createPortal(
     <DropdownMenu
       ref={menuRef}
@@ -105,6 +115,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
           <div className="flex items-center gap-2">
             {isPinned && <Pin className="w-3 h-3 text-violet-300 shrink-0" aria-label="Pinned" />}
             <span className="text-sm font-medium group-hover:text-primary transition-colors truncate">{list.name}</span>
+            {upgradeBadge}
             {colorIdentity && (
               <span className="inline-flex items-center gap-0.5 shrink-0">
                 {colorIdentity.length > 0
@@ -195,6 +206,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate pr-2 flex items-center gap-1.5 min-w-0">
           {isPinned && <Pin className="w-3 h-3 text-violet-300 shrink-0" aria-label="Pinned" />}
           <span className="truncate">{list.name}</span>
+          {upgradeBadge}
         </h3>
         <div className="relative">
           <button

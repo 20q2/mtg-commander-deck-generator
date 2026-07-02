@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { useStore } from '@/store';
-import type { UserCardList, ScryfallCard } from '@/types';
+import type { UserCardList, ScryfallCard, DeckUpgradeState } from '@/types';
 
 const USER_LISTS_KEY = 'mtg-deck-builder-user-lists';
 const LAST_ADD_TARGET_KEY = 'mtg-deck-builder-last-add-target';
@@ -322,6 +322,15 @@ export function useUserLists() {
     ));
   }, []);
 
+  // Writes upgrade-trigger state without touching updatedAt — this is machine
+  // bookkeeping, not a user edit, so it must not reorder the "recently updated"
+  // library sort or trigger a Scryfall cache refresh.
+  const setUpgradeState = useCallback((id: string, upgradeState: DeckUpgradeState) => {
+    updateShared(prev => prev.map(l =>
+      l.id === id ? { ...l, upgradeState } : l
+    ));
+  }, []);
+
   const exportList = useCallback((id: string): string => {
     const list = sharedLists.find(l => l.id === id);
     if (!list) return '';
@@ -341,5 +350,5 @@ export function useUserLists() {
     return sharedLists.find(l => l.id === id) ?? null;
   }, []);
 
-  return { lists, createList, updateList, deleteList, duplicateList, togglePin, convertToDeck, convertToList, exportList, getListById };
+  return { lists, createList, updateList, deleteList, duplicateList, togglePin, convertToDeck, convertToList, exportList, getListById, setUpgradeState };
 }

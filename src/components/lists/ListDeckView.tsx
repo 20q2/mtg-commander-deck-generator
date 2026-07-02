@@ -12,6 +12,8 @@ import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForU
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
+import { DeckUpgrades } from '@/components/deck/DeckUpgrades';
+import { useDeckUpgrades } from '@/hooks/useDeckUpgrades';
 import {
   enrichDeckCards,
   stampTaggerAndGameChangers,
@@ -663,6 +665,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
   const { lists: userLists, updateList, createList } = useUserLists();
+  const { newCards: newUpgradeCards, markSeen: markUpgradesSeen } = useDeckUpgrades(list);
   // A card's "Create combo" menu entry sets this; ComboDisplay opens its form seeded with the card, then clears it.
   const [comboSeedCard, setComboSeedCard] = useState<string | null>(null);
 
@@ -2597,6 +2600,17 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 <p className="text-sm text-muted-foreground/50 italic">No primer written yet.</p>
               )}
             </div>
+          )}
+          {list.type === 'deck' && list.commanderName && (
+            <DeckUpgrades
+              newCards={newUpgradeCards}
+              onApply={(name) => {
+                onAddCards?.([name], 'deck');
+                pushDeckHistory({ action: 'add', cardName: name });
+              }}
+              onMarkSeen={markUpgradesSeen}
+              onExplore={() => navigate(`/spellchroma?deck=${list.id}`)}
+            />
           )}
           {/* Always render — ComboDisplay owns its own skeleton/empty states, and the
               "Add combo" button must stay reachable even on a combo-less deck. */}
