@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Sparkles, X, Loader2 } from 'lucide-react';
+import { Tags, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -88,7 +88,7 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-violet-300/80" />
+          <Tags className="w-3.5 h-3.5 text-violet-300/80" />
           {themes.length > 0
             ? <span className="text-xs">{themes.map(t => t.name).join(' + ')}</span>
             : <span className="text-xs hidden sm:inline">Theme</span>}

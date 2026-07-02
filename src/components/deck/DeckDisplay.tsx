@@ -48,6 +48,7 @@ import {
   Shield,
   Tag,
   History,
+  Telescope,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -649,7 +650,7 @@ interface CardRowProps {
   relevancyScore?: number | null;
   /** Set when the card was sourced from an archetype tag page — value is the lineage label. */
   archetypeSource?: string | null;
-  /** Render the icon column even without roles so ✦ badges stay aligned. */
+  /** Render the icon column even without roles so archetype badges stay aligned. */
   showArchetypeColumn?: boolean;
   showEdhRank?: boolean;
   showPrice?: boolean;
@@ -786,7 +787,9 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           <span className="text-violet-400/70" title="Utility Land">UL</span>
         ) : null;
         const archEl = showArchetypeColumn && archetypeSource != null ? (
-          <span className="text-teal-300/80" title={`From EDHREC ${archetypeSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>✦</span>
+          <span className="text-teal-300/80 inline-flex" title={`From EDHREC ${archetypeSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>
+            <Telescope className="w-3 h-3" />
+          </span>
         ) : null;
         return (roleEl || archEl) ? (
           <span className="w-5 text-center shrink-0 text-[10px] font-bold flex items-center justify-center gap-px">
@@ -2395,7 +2398,7 @@ interface DeckDisplayProps {
   spellChromaDeckRef?: string;
   /** User-authored combos — their cards get the same "CB" combo badge as detected combos. */
   customCombos?: UserCombo[];
-  /** Show ✦ badges on cards sourced from EDHREC archetype tag pages. Only meaningful
+  /** Show telescope badges on cards sourced from EDHREC archetype tag pages. Only meaningful
    *  for generated decks (BuilderPage) — on user-built decks the provenance says
    *  nothing about the user's own picks, so it stays off by default. */
   archetypeBadges?: boolean;
@@ -3908,8 +3911,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   title="Utility Land">UL</span>
               )}
               {gridArchSource != null && (
-                <span className="bg-teal-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] leading-none"
-                  title={`From EDHREC ${gridArchSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>✦</span>
+                <span className="bg-teal-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center"
+                  title={`From EDHREC ${gridArchSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>
+                  <Telescope className="w-2.5 h-2.5" />
+                </span>
               )}
             </span>
           );
@@ -4131,7 +4136,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                     { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                     { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
-                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: '✦ marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
+                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
                     { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }), infoText: "Scryfall's global EDHREC rank — the card's overall popularity across every commander deck. Lower number = more played." },
                     { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                   ].filter(o => !o.hide).map(opt => (
@@ -4389,7 +4394,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                   { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
-                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: '✦ marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
+                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
                   { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }), infoText: "Scryfall's global EDHREC rank — the card's overall popularity across every commander deck. Lower number = more played." },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                 ].filter(o => !o.hide).map(opt => (
