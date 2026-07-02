@@ -217,24 +217,51 @@ export function DeckOptimizer({
   const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
   const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
 
+  // Resolve a theme slug → {slug, name}. Falls back to the full theme list:
+  // the THEMES popover lets you pick themes beyond the auto-detected ones, so
+  // resolving only against evaluatedThemes silently dropped a manually-picked
+  // secondary theme (its chip lit up but stamped no cards). See buildThemeMembership.
+  const resolveThemeInfo = useCallback((slug: string | null) => {
+    if (!slug) return null;
+    const evaluated = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
+    if (evaluated) return { slug, name: evaluated.theme.name };
+    const all = cachedEdhrecDataRef.current?.themes?.find(t => t.slug === slug);
+    return all ? { slug, name: all.name } : null;
+  }, [themeDetection]);
+
+  const fetchThemeData = useCallback(async (slug: string) => {
+    let data = themeDataCacheRef.current.get(slug);
+    if (!data) {
+      data = partnerCommanderName
+        ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
+        : await fetchCommanderThemeData(commanderName, slug);
+      themeDataCacheRef.current.set(slug, data);
+    }
+    return data;
+  }, [commanderName, partnerCommanderName]);
+
   // Notify parent (AnalyzePage) when the user's selected themes change so it can
-  // tag cards with the matching theme chips in the visual stacks.
+  // tag cards with the matching theme chips in the visual stacks. Themes picked
+  // outside the auto-detected set aren't in the cache yet, so warm it first —
+  // otherwise the secondary chip stamps no cards.
   useEffect(() => {
     if (!onThemeMembershipChange) return;
-    const findTheme = (slug: string | null) => {
-      if (!slug) return null;
-      const match = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
-      return match ? { slug, name: match.theme.name } : null;
-    };
-    const primary = findTheme(primaryThemeSlug);
-    const secondary = findTheme(secondaryThemeSlug);
+    const primary = resolveThemeInfo(primaryThemeSlug);
+    const secondary = resolveThemeInfo(secondaryThemeSlug);
     if (!primary && !secondary) {
       onThemeMembershipChange(null);
       return;
     }
-    const membership = buildThemeMembership(primary, secondary, themeDataCacheRef.current);
-    onThemeMembershipChange(membership);
-  }, [primaryThemeSlug, secondaryThemeSlug, themeDetection, onThemeMembershipChange]);
+    let cancelled = false;
+    (async () => {
+      await Promise.all(
+        [primary, secondary].filter(Boolean).map(t => fetchThemeData(t!.slug).catch(() => null)),
+      );
+      if (cancelled) return;
+      onThemeMembershipChange(buildThemeMembership(primary, secondary, themeDataCacheRef.current));
+    })();
+    return () => { cancelled = true; };
+  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange, fetchThemeData]);
 
   // Emit the misfit name set so the deck-building area can highlight matching cards.
   useEffect(() => {
@@ -439,15 +466,31 @@ export function DeckOptimizer({
     if (!baseData) return null;
 
     const commanderNamesForAnalyze = partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName];
+
+    // Keep the plan/strategy score theme-aware on EVERY recompute. The strategy
+    // subscore needs themeMembership + primaryThemeData + planName; without them
+    // analyzeDeck returns strategy 0, so adding a card / changing pacing/land/size
+    // would collapse the Strategy tile to 0 until the user touched the theme again.
+    const themeData = themeEnhancedDataRef.current;
+    const primaryInfo = resolveThemeInfo(primaryThemeSlug);
+    const storedDeck = useStore.getState().generatedDeck;
+    const themeContext = {
+      themeMembership: primaryInfo ? buildThemeMembership(primaryInfo, null, themeDataCacheRef.current) : undefined,
+      primaryThemeData: themeData ?? undefined,
+      planName: primaryInfo?.name ?? undefined,
+      cardSynergyMap: storedDeck?.cardSynergyMap,
+      gapCandidates: storedDeck?.gapAnalysis,
+    };
+
     const baseInclusionMap = buildInclusionMap(baseData);
     const baseResult = analyzeDeck({
       edhrecData: baseData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
       cardInclusionMap: baseInclusionMap, colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
+      ...themeContext,
     });
 
-    const themeData = themeEnhancedDataRef.current;
     if (!themeData || opts.baseOnly) return baseResult;
 
     const themeInclusionMap = buildInclusionMap(themeData);
@@ -456,6 +499,7 @@ export function DeckOptimizer({
       cardInclusionMap: themeInclusionMap, colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
+      ...themeContext,
     });
     const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
     const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
@@ -465,7 +509,7 @@ export function DeckOptimizer({
     });
     const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
     return { ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs };
-  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity]);
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity, resolveThemeInfo, primaryThemeSlug, commanderName, partnerCommanderName]);
 
   // When user adjusts the intended deck size, re-run analysis. The new
   // deckSize takes effect on the next render via the `deckSize` derivation
@@ -640,10 +684,7 @@ export function DeckOptimizer({
         const bestSlug = detection.matchedThemes[0].theme.slug;
         const bestThemeData = themeDataMap.get(bestSlug);
         setPrimaryThemeSlug(bestSlug);
-        // If secondary theme detected, set it too
-        if (detection.hasSecondaryTheme && detection.matchedThemes.length >= 2) {
-          setSecondaryThemeSlug(detection.matchedThemes[1].theme.slug);
-        }
+        // Single-tag model — no secondary slot (see handleThemeSelect).
 
         if (bestThemeData) {
           themeEnhancedDataRef.current = bestThemeData;
@@ -783,28 +824,10 @@ export function DeckOptimizer({
   }, []);
 
   // Fetch theme data helper (cached)
-  const fetchThemeData = useCallback(async (slug: string) => {
-    let data = themeDataCacheRef.current.get(slug);
-    if (!data) {
-      data = partnerCommanderName
-        ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
-        : await fetchCommanderThemeData(commanderName, slug);
-      themeDataCacheRef.current.set(slug, data);
-    }
-    return data;
-  }, [commanderName, partnerCommanderName]);
-
   // Apply theme selection — uses theme data directly (base only when no themes selected)
   const applyThemeSelection = useCallback(async (primary: string | null, secondary: string | null) => {
     const cachedBase = cachedEdhrecDataRef.current;
     if (!cachedBase || !analysis) return;
-
-    // Helper to resolve slug → theme info (name) from evaluated themes
-    const findThemeInfo = (slug: string | null) => {
-      if (!slug) return null;
-      const match = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
-      return match ? { slug, name: match.theme.name } : null;
-    };
 
     // No themes → revert to base-only analysis
     if (!primary && !secondary) {
@@ -849,13 +872,21 @@ export function DeckOptimizer({
     // Primary theme → main data source, backfilled with base staples
     try {
       const primaryData = await fetchThemeData(primary!);
+      // Warm the secondary's data into the cache too, BEFORE building membership —
+      // otherwise the secondary theme stamps no cards and its chip is meaningless.
+      const secondaryData = secondary
+        ? await fetchThemeData(secondary).catch(err => {
+            console.error('[DeckOptimizer] Failed to fetch secondary theme data:', err);
+            return null;
+          })
+        : null;
       themeEnhancedDataRef.current = primaryData;
       const primaryIncMap = buildInclusionMap(primaryData);
       const storedDeckForTheme = useStore.getState().generatedDeck;
 
       // Resolve theme info (name) for plan scoring
-      const primaryThemeInfo = findThemeInfo(primary);
-      const secondaryThemeInfo = findThemeInfo(secondary);
+      const primaryThemeInfo = resolveThemeInfo(primary);
+      const secondaryThemeInfo = resolveThemeInfo(secondary);
       const themeMembershipForScore = buildThemeMembership(primaryThemeInfo, secondaryThemeInfo, themeDataCacheRef.current);
       const planNameForScore = primaryThemeInfo?.name ?? null;
 
@@ -880,27 +911,22 @@ export function DeckOptimizer({
       });
       let finalLandRecs = mergeThemeWithBaseStaples(primaryResult.landRecommendations, baseResult.landRecommendations, 15);
 
-      // Secondary theme supplements the primary
-      if (secondary) {
-        try {
-          const secondaryData = await fetchThemeData(secondary);
-          const secondaryIncMap = buildInclusionMap(secondaryData);
-          const secondaryResult = analyzeDeck({
-            edhrecData: secondaryData, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
-            cardInclusionMap: secondaryIncMap, colorIdentity,
-            overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
-          });
+      // Secondary theme supplements the primary (data already warmed above)
+      if (secondary && secondaryData) {
+        const secondaryIncMap = buildInclusionMap(secondaryData);
+        const secondaryResult = analyzeDeck({
+          edhrecData: secondaryData, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
+          cardInclusionMap: secondaryIncMap, colorIdentity,
+          overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
+        });
 
-          finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
-          finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
-            const themeRb = secondaryResult.roleBreakdowns[idx];
-            if (!themeRb) return rb;
-            return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements) };
-          });
-          finalLandRecs = mergeRecommendations(finalLandRecs, secondaryResult.landRecommendations, 15);
-        } catch (err) {
-          console.error('[DeckOptimizer] Failed to fetch secondary theme data:', err);
-        }
+        finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
+        finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
+          const themeRb = secondaryResult.roleBreakdowns[idx];
+          if (!themeRb) return rb;
+          return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements) };
+        });
+        finalLandRecs = mergeRecommendations(finalLandRecs, secondaryResult.landRecommendations, 15);
       }
 
       setAnalysis(prev => prev ? {
@@ -921,35 +947,19 @@ export function DeckOptimizer({
     rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, themeDetection]);
+  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
 
-  // Sequential-pick theme selection handler
+  // Single-tag selection: pick one theme, picking another replaces it, clicking
+  // the active one clears it. A 2nd "secondary" slot used to exist but was dead
+  // weight — runAnalysisFor (card adds, pacing/size/land changes) and auto-detect
+  // only ever applied the primary, so the secondary silently dropped on the next
+  // recompute. One slot is the honest model.
   const handleThemeSelect = useCallback(async (slug: string) => {
-    let newPrimary = primaryThemeSlug;
-    let newSecondary = secondaryThemeSlug;
-
-    if (slug === primaryThemeSlug) {
-      // Deselect primary → promote secondary
-      newPrimary = secondaryThemeSlug;
-      newSecondary = null;
-    } else if (slug === secondaryThemeSlug) {
-      // Deselect secondary
-      newSecondary = null;
-    } else if (!primaryThemeSlug) {
-      // No primary → set as primary
-      newPrimary = slug;
-    } else if (!secondaryThemeSlug) {
-      // Primary exists, no secondary → set as secondary
-      newSecondary = slug;
-    } else {
-      // Both exist → replace secondary
-      newSecondary = slug;
-    }
-
+    const newPrimary = slug === primaryThemeSlug ? null : slug;
     setPrimaryThemeSlug(newPrimary);
-    setSecondaryThemeSlug(newSecondary);
-    await applyThemeSelection(newPrimary, newSecondary);
-  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection]);
+    setSecondaryThemeSlug(null);
+    await applyThemeSelection(newPrimary, null);
+  }, [primaryThemeSlug, applyThemeSelection]);
 
   // Context menu support
   const customization = useStore(s => s.customization);
@@ -1235,14 +1245,9 @@ export function DeckOptimizer({
   // ═════════════════════════════════════════════════════════════════════
   // Derived values for DashboardSummary
   // ═════════════════════════════════════════════════════════════════════
-  const _findThemeInfo = (slug: string | null) => {
-    if (!slug) return null;
-    const match = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
-    return match ? { slug, name: match.theme.name } : null;
-  };
   const dashboardThemeMembership = buildThemeMembership(
-    _findThemeInfo(primaryThemeSlug),
-    _findThemeInfo(secondaryThemeSlug),
+    resolveThemeInfo(primaryThemeSlug),
+    resolveThemeInfo(secondaryThemeSlug),
     themeDataCacheRef.current,
   );
   const dashboardPrimaryThemeData = primaryThemeSlug
@@ -1281,7 +1286,6 @@ export function DeckOptimizer({
             detection={themeDetection}
             allThemes={cachedEdhrecDataRef.current?.themes || []}
             primaryThemeSlug={primaryThemeSlug}
-            secondaryThemeSlug={secondaryThemeSlug}
             onThemeSelect={handleThemeSelect}
             userLandTarget={userLandTarget}
             onLandTargetChange={handleLandTargetChange}
@@ -1449,7 +1453,6 @@ export function DeckOptimizer({
                   detection={themeDetection}
                   allThemes={cachedEdhrecDataRef.current?.themes ?? []}
                   primaryThemeSlug={primaryThemeSlug}
-                  secondaryThemeSlug={secondaryThemeSlug}
                   onThemeSelect={handleThemeSelect}
                   userLandTarget={userLandTarget}
                   onLandTargetChange={handleLandTargetChange}

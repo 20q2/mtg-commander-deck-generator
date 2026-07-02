@@ -513,7 +513,6 @@ export function AdjustPopoverContent({
   detection,
   allThemes,
   primaryThemeSlug,
-  secondaryThemeSlug,
   onThemeSelect,
   userLandTarget,
   onLandTargetChange,
@@ -528,7 +527,6 @@ export function AdjustPopoverContent({
   detection: DetectedThemeResult;
   allThemes: EDHRECTheme[];
   primaryThemeSlug?: string | null;
-  secondaryThemeSlug?: string | null;
   onThemeSelect: (slug: string) => void;
   userLandTarget?: number | null;
   onLandTargetChange?: (target: number | null) => void;
@@ -570,8 +568,7 @@ export function AdjustPopoverContent({
         </div>
         <div className="flex flex-wrap gap-1.5">
           {chipThemes.map(chip => {
-            const isPrimary = chip.slug === primaryThemeSlug;
-            const isSecondary = chip.slug === secondaryThemeSlug;
+            const isSelected = chip.slug === primaryThemeSlug;
             return (
               <button
                 key={chip.slug}
@@ -579,31 +576,22 @@ export function AdjustPopoverContent({
                 className={`
                   inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border
                   transition-all duration-200 cursor-pointer
-                  ${isPrimary
+                  ${isSelected
                     ? 'bg-primary/20 border-primary/50 text-violet-200 font-semibold'
-                    : isSecondary
-                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-400 font-medium'
-                      : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                    : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
                   }
                 `}
                 title={
-                  isPrimary ? 'Primary theme (click to deselect)'
-                    : isSecondary ? 'Secondary theme (click to deselect)'
-                      : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
-                        : 'Click to select as theme'
+                  isSelected ? 'Selected theme (click to deselect)'
+                    : chip.score != null ? `Match score: ${chip.score.toFixed(1)} / 100`
+                      : 'Click to select as theme'
                 }
               >
-                {isPrimary && (
-                  <span className="w-3.5 h-3.5 rounded-full bg-primary/30 text-[9px] font-bold flex items-center justify-center leading-none">1</span>
-                )}
-                {isSecondary && (
-                  <span className="w-3.5 h-3.5 rounded-full bg-amber-500/30 text-[9px] font-bold flex items-center justify-center leading-none">2</span>
-                )}
-                {!isPrimary && !isSecondary && <Tag className="w-2.5 h-2.5" />}
+                {isSelected ? <Check className="w-2.5 h-2.5" /> : <Tag className="w-2.5 h-2.5" />}
                 {chip.name}
                 {chip.score != null && chip.score >= 20 && (
                   <span className={`text-[10px] tabular-nums ml-0.5 ${
-                    isPrimary ? 'text-primary/70' : isSecondary ? 'text-amber-400/70' : 'text-muted-foreground/50'
+                    isSelected ? 'text-primary/70' : 'text-muted-foreground/50'
                   }`}>
                     {Math.round(chip.score)}
                   </span>
