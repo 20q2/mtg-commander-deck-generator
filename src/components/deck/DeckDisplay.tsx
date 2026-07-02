@@ -8,7 +8,7 @@ import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, g
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
-import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase, UserCombo } from '@/types';
+import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase, UserCombo, CardEdhrecMeta } from '@/types';
 import {
   Copy,
   Check,
@@ -647,6 +647,8 @@ interface CardRowProps {
   isBannedLive?: boolean;
   inclusionPercent?: number | null;
   relevancyScore?: number | null;
+  /** Set when the card was sourced from an archetype tag page — value is the lineage label. */
+  archetypeSource?: string | null;
   showEdhRank?: boolean;
   showPrice?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
@@ -656,7 +658,7 @@ interface CardRowProps {
   isSingleton?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, archetypeSource, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -829,6 +831,11 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           {relevancyScore}
         </span>
       )}
+      {archetypeSource != null && (
+        <span className="text-[10px] shrink-0 text-teal-300/80 border border-teal-400/30 rounded px-1 font-medium" title={`From EDHREC ${archetypeSource} archetype data — not yet common in this commander's own decks`}>
+          ARCH
+        </span>
+      )}
       {showEdhRank && card.edhrec_rank != null && (
         <span
           className="text-[10px] w-10 text-right shrink-0 text-sky-400/80 font-medium tabular-nums"
@@ -872,6 +879,7 @@ interface CategoryColumnProps {
   mustIncludeNames?: Set<string>;
   bannedNames?: Set<string>;
   cardInclusionMap?: Record<string, number> | null;
+  cardEdhrecMetaMap?: Record<string, CardEdhrecMeta> | null;
   cardRelevancyMap?: Record<string, number> | null;
   showEdhRank?: boolean;
   showPrice?: boolean;
@@ -884,7 +892,7 @@ interface CategoryColumnProps {
   mdfcLandCount?: number;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -966,6 +974,10 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               isMustIncludeLive={mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude}
               isBannedLive={bannedNames ? bannedNames.has(card.name) : false}
               inclusionPercent={cardInclusionMap ? (cardInclusionMap[card.name] ?? cardInclusionMap[normalizedName] ?? null) : null}
+              archetypeSource={(() => {
+                const meta = cardEdhrecMetaMap?.[card.name] ?? cardEdhrecMetaMap?.[normalizedName];
+                return meta?.fromArchetype ? (meta.archetypeSource ?? 'archetype') : null;
+              })()}
               relevancyScore={cardRelevancyMap ? (cardRelevancyMap[card.name] ?? cardRelevancyMap[normalizedName] ?? null) : null}
               showEdhRank={showEdhRank}
               showPrice={showPrice}
@@ -3793,7 +3805,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           const incl = showInclusion && inclMap ? (inclMap[card.name] ?? inclMap[normalizedName]) : null;
           const rel = showRelevancy && relMap ? (relMap[card.name] ?? relMap[normalizedName]) : null;
           const rank = showEdhRank && card.edhrec_rank != null ? card.edhrec_rank : null;
-          if (incl == null && rel == null && rank == null) return null;
+          const meta = generatedDeck?.cardEdhrecMetaMap?.[card.name] ?? generatedDeck?.cardEdhrecMetaMap?.[normalizedName];
+          const archetypeSource = meta?.fromArchetype ? (meta.archetypeSource ?? 'archetype') : null;
+          if (incl == null && rel == null && rank == null && archetypeSource == null) return null;
           const pct = incl != null ? Math.round(incl) : null;
           const hue = pct != null ? (pct / 100) * 120 : 0;
           return (
@@ -3811,6 +3825,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               {rank != null && (
                 <span className="bg-sky-500/90 text-white text-[10px] px-1 rounded font-medium" title={`EDHREC global rank: #${rank.toLocaleString()}`}>
                   #{rank.toLocaleString()}
+                </span>
+              )}
+              {archetypeSource != null && (
+                <span className="bg-black/80 text-[10px] px-1 rounded font-medium text-teal-300/80 border border-teal-400/30" title={`From EDHREC ${archetypeSource} archetype data — not yet common in this commander's own decks`}>
+                  ARCH
                 </span>
               )}
             </div>
@@ -4586,6 +4605,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     mustIncludeNames={mustIncludeNames}
                     bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
+                    cardEdhrecMetaMap={generatedDeck?.cardEdhrecMetaMap}
                     cardRelevancyMap={showRelevancy ? generatedDeck?.cardRelevancyMap : null}
                     showEdhRank={showEdhRank}
                     showPrice={showPrice}
