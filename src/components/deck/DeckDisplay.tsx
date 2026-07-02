@@ -649,6 +649,8 @@ interface CardRowProps {
   relevancyScore?: number | null;
   /** Set when the card was sourced from an archetype tag page — value is the lineage label. */
   archetypeSource?: string | null;
+  /** Render the icon column even without roles so ✦ badges stay aligned. */
+  showArchetypeColumn?: boolean;
   showEdhRank?: boolean;
   showPrice?: boolean;
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
@@ -658,7 +660,7 @@ interface CardRowProps {
   isSingleton?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, archetypeSource, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, archetypeSource, showArchetypeColumn, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -774,14 +776,22 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           {quantity}
         </span>
       )}
-      {showRoleColumn && (() => {
-        const badge = getRoleBadgeProps(card);
-        return badge ? (
-          <span className={`w-5 text-center shrink-0 text-[10px] font-bold ${card.multiRole ? 'text-purple-400/70' : badge.color}`} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage', protection: 'Protection' })[r]).join(' + ') : badge.title}>{
+      {(showRoleColumn || showArchetypeColumn) && (() => {
+        const badge = showRoleColumn ? getRoleBadgeProps(card) : null;
+        const roleEl = badge ? (
+          <span className={card.multiRole ? 'text-purple-400/70' : badge.color} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage', protection: 'Protection' })[r]).join(' + ') : badge.title}>{
             card.multiRole ? '*' : badge.label
           }</span>
-        ) : card.isUtilityLand ? (
-          <span className="w-5 text-center shrink-0 text-[10px] font-bold text-violet-400/70" title="Utility Land">UL</span>
+        ) : (showRoleColumn && card.isUtilityLand) ? (
+          <span className="text-violet-400/70" title="Utility Land">UL</span>
+        ) : null;
+        const archEl = showArchetypeColumn && archetypeSource != null ? (
+          <span className="text-teal-300/80" title={`From EDHREC ${archetypeSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>✦</span>
+        ) : null;
+        return (roleEl || archEl) ? (
+          <span className="w-5 text-center shrink-0 text-[10px] font-bold flex items-center justify-center gap-px">
+            {roleEl}{archEl}
+          </span>
         ) : (
           <span className="w-5 shrink-0" />
         );
@@ -831,11 +841,6 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           {relevancyScore}
         </span>
       )}
-      {archetypeSource != null && (
-        <span className="text-[10px] shrink-0 text-teal-300/80 border border-teal-400/30 rounded px-1 font-medium" title={`From EDHREC ${archetypeSource} archetype data — not yet common in this commander's own decks`}>
-          ARCH
-        </span>
-      )}
       {showEdhRank && card.edhrec_rank != null && (
         <span
           className="text-[10px] w-10 text-right shrink-0 text-sky-400/80 font-medium tabular-nums"
@@ -880,6 +885,7 @@ interface CategoryColumnProps {
   bannedNames?: Set<string>;
   cardInclusionMap?: Record<string, number> | null;
   cardEdhrecMetaMap?: Record<string, CardEdhrecMeta> | null;
+  showArchetypeColumn?: boolean;
   cardRelevancyMap?: Record<string, number> | null;
   showEdhRank?: boolean;
   showPrice?: boolean;
@@ -892,7 +898,7 @@ interface CategoryColumnProps {
   mdfcLandCount?: number;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, showArchetypeColumn, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -978,6 +984,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
                 const meta = cardEdhrecMetaMap?.[card.name] ?? cardEdhrecMetaMap?.[normalizedName];
                 return meta?.fromArchetype ? (meta.archetypeSource ?? 'archetype') : null;
               })()}
+              showArchetypeColumn={showArchetypeColumn}
               relevancyScore={cardRelevancyMap ? (cardRelevancyMap[card.name] ?? cardRelevancyMap[normalizedName] ?? null) : null}
               showEdhRank={showEdhRank}
               showPrice={showPrice}
@@ -2388,6 +2395,10 @@ interface DeckDisplayProps {
   spellChromaDeckRef?: string;
   /** User-authored combos — their cards get the same "CB" combo badge as detected combos. */
   customCombos?: UserCombo[];
+  /** Show ✦ badges on cards sourced from EDHREC archetype tag pages. Only meaningful
+   *  for generated decks (BuilderPage) — on user-built decks the provenance says
+   *  nothing about the user's own picks, so it stays off by default. */
+  archetypeBadges?: boolean;
   /** Open the custom-combo authoring form seeded with this card (from the card menu). */
   onCreateCombo?: (cardName: string) => void;
   children?: React.ReactNode;
@@ -2403,7 +2414,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -2472,6 +2483,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [showInclusion, setShowInclusion] = useState(() => localStorage.getItem('mtg-deck-show-inclusion') === 'true');
   const [showRelevancy, setShowRelevancy] = useState(() => localStorage.getItem('mtg-deck-show-relevancy') === 'true');
   const [showEdhRank, setShowEdhRank] = useState(() => localStorage.getItem('mtg-deck-show-edhrank') === 'true');
+  const [showArchetype, setShowArchetype] = useState(() => localStorage.getItem('mtg-deck-show-archetype') !== 'false');
+  // Whether this deck actually contains archetype-sourced cards (gates the Show-menu entry)
+  const hasArchetypeCards = useMemo(() => {
+    if (!archetypeBadges || !generatedDeck?.cardEdhrecMetaMap) return false;
+    return Object.values(generatedDeck.cardEdhrecMetaMap).some(m => m.fromArchetype);
+  }, [archetypeBadges, generatedDeck?.cardEdhrecMetaMap]);
+  const archetypeBadgesActive = archetypeBadges && showArchetype;
   const [showCollectionChecks, setShowCollectionChecks] = useState(
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
@@ -3805,9 +3823,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           const incl = showInclusion && inclMap ? (inclMap[card.name] ?? inclMap[normalizedName]) : null;
           const rel = showRelevancy && relMap ? (relMap[card.name] ?? relMap[normalizedName]) : null;
           const rank = showEdhRank && card.edhrec_rank != null ? card.edhrec_rank : null;
-          const meta = generatedDeck?.cardEdhrecMetaMap?.[card.name] ?? generatedDeck?.cardEdhrecMetaMap?.[normalizedName];
-          const archetypeSource = meta?.fromArchetype ? (meta.archetypeSource ?? 'archetype') : null;
-          if (incl == null && rel == null && rank == null && archetypeSource == null) return null;
+          if (incl == null && rel == null && rank == null) return null;
           const pct = incl != null ? Math.round(incl) : null;
           const hue = pct != null ? (pct / 100) * 120 : 0;
           return (
@@ -3825,11 +3841,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               {rank != null && (
                 <span className="bg-sky-500/90 text-white text-[10px] px-1 rounded font-medium" title={`EDHREC global rank: #${rank.toLocaleString()}`}>
                   #{rank.toLocaleString()}
-                </span>
-              )}
-              {archetypeSource != null && (
-                <span className="bg-black/80 text-[10px] px-1 rounded font-medium text-teal-300/80 border border-teal-400/30" title={`From EDHREC ${archetypeSource} archetype data — not yet common in this commander's own decks`}>
-                  ARCH
                 </span>
               )}
             </div>
@@ -3852,7 +3863,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             }
           }
           const hasLandTags = showRoles && card.isUtilityLand;
-          if (!hasGcOrPin && roleBadges.length === 0 && !hasLandTags) return null;
+          const gridMeta = archetypeBadgesActive ? (generatedDeck?.cardEdhrecMetaMap?.[card.name] ?? generatedDeck?.cardEdhrecMetaMap?.[normalizedName]) : undefined;
+          const gridArchSource = gridMeta?.fromArchetype ? (gridMeta.archetypeSource ?? 'archetype') : null;
+          if (!hasGcOrPin && roleBadges.length === 0 && !hasLandTags && gridArchSource == null) return null;
           return (
             <span className="absolute bottom-1 flex gap-0.5" style={{ right: isDoubleFacedCard(card) ? 28 : 4 }}>
               {card.isGameChanger && (
@@ -3893,6 +3906,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               {showRoles && card.isUtilityLand && (
                 <span className="text-white rounded-full px-1.5 py-0.5 text-[8px] font-bold leading-none flex items-center bg-violet-500/80"
                   title="Utility Land">UL</span>
+              )}
+              {gridArchSource != null && (
+                <span className="bg-teal-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] leading-none"
+                  title={`From EDHREC ${gridArchSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>✦</span>
               )}
             </span>
           );
@@ -4114,6 +4131,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                     { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                     { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
+                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: '✦ marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
                     { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }), infoText: "Scryfall's global EDHREC rank — the card's overall popularity across every commander deck. Lower number = more played." },
                     { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                   ].filter(o => !o.hide).map(opt => (
@@ -4371,6 +4389,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                   { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
+                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: '✦ marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
                   { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }), infoText: "Scryfall's global EDHREC rank — the card's overall popularity across every commander deck. Lower number = more played." },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                 ].filter(o => !o.hide).map(opt => (
@@ -4605,7 +4624,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     mustIncludeNames={mustIncludeNames}
                     bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
-                    cardEdhrecMetaMap={generatedDeck?.cardEdhrecMetaMap}
+                    cardEdhrecMetaMap={archetypeBadgesActive ? generatedDeck?.cardEdhrecMetaMap : null}
+                    showArchetypeColumn={archetypeBadgesActive && hasArchetypeCards}
                     cardRelevancyMap={showRelevancy ? generatedDeck?.cardRelevancyMap : null}
                     showEdhRank={showEdhRank}
                     showPrice={showPrice}
@@ -4931,6 +4951,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap },
                   { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap },
+                  { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards },
                   { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }) },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }), hide: !generatedDeck?.roleTargets },
                 ].filter(o => !o.hide).map(opt => (

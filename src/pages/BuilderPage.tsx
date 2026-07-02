@@ -1118,6 +1118,7 @@ export function BuilderPage() {
             onRegenerate={handleGenerate}
             onRemoveCards={handleRemoveCards}
             onAddCards={(names, _dest) => handleAddCards(names)}
+            archetypeBadges
             hideRegenerate
             regenerateProgress={isLoading ? progressPercent : undefined}
             regenerateMessage={isLoading ? progress : undefined}
