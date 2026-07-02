@@ -1662,3 +1662,63 @@ export async function fetchTagCommanders(slug: string, colorSlug?: string): Prom
     return [];
   }
 }
+
+// --- Archetype tag-page card pools (archetype cross-reference) ---
+// The same /pages/tags/{slug}[/{colorSlug}].json pages read by fetchTagCommanders also
+// carry full cardlists in the exact commander-page shape. This fetches them as a card
+// pool so the deck builder can cross-reference commander-theme data against the
+// color-filtered archetype aggregate (e.g. golgari + pillow-fort).
+
+export interface TagPageData {
+  cardlists: EDHRECCommanderData['cardlists'];
+  /** Deck count of the archetype population (max potential_decks across cardviews). */
+  potentialDecks: number;
+}
+
+function maxPotentialDecks(response: RawEDHRECResponse): number {
+  let max = 0;
+  for (const list of response.container?.json_dict?.cardlists ?? []) {
+    for (const v of list.cardviews ?? []) {
+      if ((v.potential_decks ?? 0) > max) max = v.potential_decks ?? 0;
+    }
+  }
+  return max;
+}
+
+const tagPageDataCache = new Map<string, { data: TagPageData | null; timestamp: number }>();
+
+/**
+ * Fetch the card pool of an EDHREC archetype tag page, color-filtered to the given
+ * identity. Falls back to the unfiltered tag page if the color page doesn't exist
+ * (this CDN 403s on missing pages). Returns null on total failure — the archetype
+ * layer is always optional and must never block generation.
+ */
+export async function fetchTagPageData(
+  tagSlug: string,
+  colorIdentity: string[]
+): Promise<TagPageData | null> {
+  const colorSlug = colorIdentityToSlug(colorIdentity);
+  const cacheKey = `tagpage-${tagSlug}/${colorSlug}`;
+  const cached = tagPageDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
+
+  const endpoints = [
+    `/pages/tags/${tagSlug}/${colorSlug}.json`,
+    `/pages/tags/${tagSlug}.json`, // color page missing → whole-archetype fallback (off-color cards filtered downstream)
+  ];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await edhrecFetch<RawEDHRECResponse>(endpoint);
+      const data: TagPageData = {
+        cardlists: parseCardlists(response),
+        potentialDecks: maxPotentialDecks(response),
+      };
+      tagPageDataCache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    } catch {
+      console.log(`[EDHREC] No tag page at ${endpoint} (expected for unknown slugs)`);
+    }
+  }
+  tagPageDataCache.set(cacheKey, { data: null, timestamp: Date.now() });
+  return null;
+}
