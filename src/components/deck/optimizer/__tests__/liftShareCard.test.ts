@@ -1,0 +1,61 @@
+import { describe, it, expect } from 'vitest';
+import { buildStatsLine, shareFilename, fitTransform, liftLabel } from '../liftShareCard';
+
+describe('liftLabel', () => {
+  it('formats one decimal with × prefix', () => expect(liftLabel(21.34)).toBe('×21.3'));
+  it('caps at 99+ like EDHREC', () => expect(liftLabel(1376)).toBe('×99+'));
+});
+
+describe('buildStatsLine', () => {
+  it('builds the deck-mode line with strongest pair and lineage note', () => {
+    expect(buildStatsLine({
+      mode: 'deck', cardCount: 99, tieCount: 47,
+      strongestPair: { a: 'Skullclamp', b: 'Pitiless Plunderer', lift: 21 },
+    })).toBe('99 cards · 47 synergy ties · strongest pair: Skullclamp + Pitiless Plunderer ×21.0 · lift from EDHREC co-play data');
+  });
+  it('omits the pair segment when there is none, and singularises one tie', () => {
+    expect(buildStatsLine({ mode: 'deck', cardCount: 100, tieCount: 1, strongestPair: null }))
+      .toBe('100 cards · 1 synergy tie · lift from EDHREC co-play data');
+  });
+  it('builds the candidate-mode line with the top hit', () => {
+    expect(buildStatsLine({
+      mode: 'candidates', bombCount: 23, clusterCount: 31,
+      topHit: { name: 'Nettlecyst', anchor: 'Puresteel Paladin', lift: 18.2 },
+    })).toBe('23 high-lift finds · 31 clusters · top: Nettlecyst ×18.2 with Puresteel Paladin · lift from EDHREC co-play data');
+  });
+  it('singularises one find / one cluster', () => {
+    expect(buildStatsLine({ mode: 'candidates', bombCount: 1, clusterCount: 1, topHit: null }))
+      .toBe('1 high-lift find · 1 cluster · lift from EDHREC co-play data');
+  });
+});
+
+describe('shareFilename', () => {
+  it('slugs the commander name', () => {
+    expect(shareFilename('Meren of Clan Nel Toth')).toBe('manafoundry-lift-web-meren-of-clan-nel-toth.png');
+  });
+  it('drops apostrophes and appends the partner', () => {
+    expect(shareFilename('Rograkh, Son of Rohgahh', 'Ardenn, Intrepid Archaeologist'))
+      .toBe('manafoundry-lift-web-rograkh-son-of-rohgahh-ardenn-intrepid-archaeologist.png');
+  });
+  it('uses only the front face of a DFC name', () => {
+    expect(shareFilename('Esika, God of the Tree // The Prismatic Bridge'))
+      .toBe('manafoundry-lift-web-esika-god-of-the-tree.png');
+  });
+});
+
+describe('fitTransform', () => {
+  it('centres the bounds in the rect at the limiting scale', () => {
+    const pts = [{ x: 0, y: 0, r: 10 }, { x: 100, y: 0, r: 10 }];        // bounds 120×20 around (50, 0)
+    const { k, tx, ty } = fitTransform(pts, { x: 0, y: 100, w: 200, h: 100 }, 10);
+    expect(k).toBeCloseTo(1.5);                                          // min(180/120, 80/20, 2)
+    expect(50 * k + tx).toBeCloseTo(100);                                // bounds centre → rect centre x
+    expect(0 * k + ty).toBeCloseTo(150);                                 // bounds centre → rect centre y
+  });
+  it('caps zoom at 2 for tiny graphs', () => {
+    const { k } = fitTransform([{ x: 0, y: 0, r: 5 }], { x: 0, y: 0, w: 1000, h: 1000 }, 50);
+    expect(k).toBe(2);
+  });
+  it('returns identity-ish transform for an empty node list', () => {
+    expect(fitTransform([], { x: 0, y: 0, w: 100, h: 100 }, 10)).toEqual({ k: 1, tx: 50, ty: 50 });
+  });
+});
