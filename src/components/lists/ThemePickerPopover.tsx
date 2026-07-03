@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react';
-import { Tags, X, Loader2 } from 'lucide-react';
+import { Tags, X, Loader2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import type { ScryfallCard, EDHRECTag } from '@/types';
+import type { ScryfallCard, EDHRECTag, EDHRECCommanderData } from '@/types';
 import { fetchAllTags, fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
-import { scoreThemeMatch, type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
+import { detectThemes, type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
+import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 
 export interface SelectedTheme { name: string; slug: string }
 
@@ -15,17 +16,18 @@ interface ThemePickerPopoverProps {
   onChange: (themes: SelectedTheme[]) => void;
   commanderName?: string;
   partnerCommanderName?: string;
-  /** Current mainboard cards — powers "N of your M cards match" inference. */
+  /** Current mainboard cards — powers the archetype-data theme detection. */
   deckCards: ScryfallCard[];
 }
 
 const MAX_THEMES = 2;            // matches the generator's theme limit
-const SUGGESTION_CANDIDATES = 5; // commander taglinks evaluated
-const SUGGESTIONS_SHOWN = 3;
+const DETECTION_CANDIDATES = 5;  // commander taglinks evaluated against the deck
 
-interface Suggestion {
-  theme: SelectedTheme;
-  match: ThemeMatchResult;
+interface Detection {
+  /** Confident best guess (1-2 themes) per the Inspector's thresholds, or null. */
+  guess: ThemeMatchResult[] | null;
+  /** All evaluated candidates, score-ordered. */
+  evaluated: ThemeMatchResult[];
   deckNonBasicCount: number;
 }
 
@@ -33,10 +35,10 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [allTags, setAllTags] = useState<EDHRECTag[]>([]);
-  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+  const [detection, setDetection] = useState<Detection | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Lazy: taxonomy + inference load on first open, both fail-open.
+  // Lazy: taxonomy + detection load on first open, both fail-open.
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
     if (!next || allTags.length > 0) return;
@@ -46,27 +48,34 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
         const tags = await fetchAllTags();
         setAllTags(tags);
 
-        if (commanderName) {
-          const commanderThemes = await fetchCommanderThemes(commanderName).catch(() => []);
-          const candidates = commanderThemes.slice(0, SUGGESTION_CANDIDATES);
-          const results: Suggestion[] = [];
-          const nonBasicCount = deckCards.length;
-          for (const theme of candidates) {
-            try {
-              const data = partnerCommanderName
-                ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug)
-                : await fetchCommanderThemeData(commanderName, theme.slug);
-              const match = scoreThemeMatch(theme, data, deckCards);
-              if (match.cardOverlap > 0) {
-                results.push({ theme: { name: theme.name, slug: theme.slug }, match, deckNonBasicCount: nonBasicCount });
-              }
-            } catch { /* single theme page failing shouldn't kill suggestions */ }
-          }
-          results.sort((a, b) => b.match.score - a.match.score);
-          setSuggestions(results.slice(0, SUGGESTIONS_SHOWN));
-        } else {
-          setSuggestions([]);
+        if (!commanderName) { setDetection(null); return; }
+
+        // Same interpretation the Inspector uses: score the commander's top themes
+        // against the actual deck list (card overlap + weighted inclusion + keywords),
+        // with confidence thresholds deciding whether we call it a "guess".
+        const commanderThemes = await fetchCommanderThemes(commanderName).catch(() => []);
+        const candidates = commanderThemes.slice(0, DETECTION_CANDIDATES);
+        const themeDataMap = new Map<string, EDHRECCommanderData>();
+        for (const theme of candidates) {
+          try {
+            const data = partnerCommanderName
+              ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug)
+              : await fetchCommanderThemeData(commanderName, theme.slug);
+            themeDataMap.set(theme.slug, data);
+          } catch { /* one theme page failing shouldn't kill detection */ }
         }
+        if (themeDataMap.size === 0) { setDetection(null); return; }
+
+        const result = detectThemes(candidates, themeDataMap, deckCards, [], commanderName);
+        const nonBasic = deckCards.filter(c => {
+          const tl = getFrontFaceTypeLine(c).toLowerCase();
+          return !(tl.includes('basic') && tl.includes('land'));
+        }).length;
+        setDetection({
+          guess: result.isConfident && result.matchedThemes.length > 0 ? result.matchedThemes : null,
+          evaluated: result.evaluatedThemes.filter(t => t.cardOverlap > 0),
+          deckNonBasicCount: nonBasic,
+        });
       } finally {
         setLoading(false);
       }
@@ -79,7 +88,13 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
   };
   const removeTheme = (slug: string) => onChange(themes.filter(t => t.slug !== slug));
 
+  const applyGuess = (guess: ThemeMatchResult[]) => {
+    onChange(guess.slice(0, MAX_THEMES).map(m => ({ name: m.theme.name, slug: m.theme.slug })));
+  };
+
   const selectedSlugs = new Set(themes.map(t => t.slug));
+  const guessSlugs = new Set((detection?.guess ?? []).map(m => m.theme.slug));
+  const guessApplied = detection?.guess != null && detection.guess.every(m => selectedSlugs.has(m.theme.slug));
   const filtered = query.trim()
     ? allTags.filter(t => t.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 30)
     : allTags.slice(0, 30);
@@ -112,24 +127,43 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
 
         {loading && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Reading EDHREC data…
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Interpreting your deck's EDHREC data…
           </div>
         )}
 
-        {!loading && suggestions && suggestions.length > 0 && (
+        {!loading && detection?.guess && !guessApplied && (
+          <button
+            onClick={() => applyGuess(detection.guess!)}
+            className="w-full text-left rounded-lg border border-violet-400/30 bg-violet-500/10 px-2.5 py-2 hover:bg-violet-500/20 transition-colors"
+          >
+            <div className="flex items-center gap-1.5 text-xs font-medium text-violet-300/90">
+              <Wand2 className="w-3.5 h-3.5" />
+              This looks like {detection.guess.map(m => m.theme.name).join(' + ')}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {detection.guess[0].cardOverlap} of your {detection.deckNonBasicCount} cards fit the archetype
+              {' '}· match score {Math.round(detection.guess[0].score)} — tap to apply
+            </div>
+          </button>
+        )}
+
+        {!loading && detection && detection.evaluated.length > 0 && (
           <div className="space-y-1">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">Suggested for this deck</div>
-            {suggestions.map(s => (
+            {detection.evaluated.slice(0, 4).map(m => (
               <button
-                key={s.theme.slug}
-                onClick={() => addTheme(s.theme)}
-                disabled={themes.length >= MAX_THEMES || selectedSlugs.has(s.theme.slug)}
-                className="w-full text-left rounded-md px-2 py-1.5 hover:bg-accent/40 disabled:opacity-50 disabled:pointer-events-none"
+                key={m.theme.slug}
+                onClick={() => addTheme({ name: m.theme.name, slug: m.theme.slug })}
+                disabled={themes.length >= MAX_THEMES || selectedSlugs.has(m.theme.slug)}
+                className="w-full flex items-center justify-between text-left rounded-md px-2 py-1.5 hover:bg-accent/40 disabled:opacity-50 disabled:pointer-events-none"
               >
-                <div className="text-xs font-medium">{s.theme.name}</div>
-                <div className="text-[11px] text-violet-300/80">
-                  {s.match.cardOverlap} of your {s.deckNonBasicCount} cards match this theme's EDHREC data
-                </div>
+                <span className="text-xs font-medium">
+                  {m.theme.name}
+                  {guessSlugs.has(m.theme.slug) && <span className="ml-1.5 text-[10px] text-violet-300/80">best guess</span>}
+                </span>
+                <span className="text-[11px] text-violet-300/80 tabular-nums shrink-0" title={`Match score ${Math.round(m.score)}/100 — card overlap, EDHREC inclusion weight, and keyword fit vs this commander's ${m.theme.name} decks`}>
+                  {Math.round(m.score)}
+                </span>
               </button>
             ))}
           </div>

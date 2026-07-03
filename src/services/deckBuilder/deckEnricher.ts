@@ -492,6 +492,7 @@ export async function enrichDeckCards(
   detectedCombos?: DetectedCombo[],
   commanderName?: string,
   partnerCommanderName?: string,
+  themes?: Array<{ name: string; slug: string }>,
 ): Promise<EnrichResult> {
   const tagger = await stampTaggerAndGameChangers(cards, detectedCombos);
 
@@ -499,7 +500,7 @@ export async function enrichDeckCards(
   let swaps: SwapCandidatesResult = {};
 
   if (commanderName) {
-    edhrec = await buildEdhrecMaps(tagger, deckSize, detectedCombos, commanderName, partnerCommanderName);
+    edhrec = await buildEdhrecMaps(tagger, deckSize, detectedCombos, commanderName, partnerCommanderName, themes);
     swaps = await buildSwapCandidates(cards, tagger, edhrec, commanderName, partnerCommanderName);
   }
 

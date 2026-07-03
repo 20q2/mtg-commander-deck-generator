@@ -1514,6 +1514,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         detectedCombos,
         currentDeck.commander?.name,
         currentDeck.partnerCommander?.name,
+        list.themes,
       );
 
       useStore.setState({
