@@ -10,6 +10,7 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import type { CardRowMenuProps } from './shared';
 import { edgeScore, type LiftCandidate, type DeckLink } from '@/services/optimizer/liftClusters';
+import { HUE, starPath, STAR_INNER } from './liftShareCard';
 
 /**
  * A force-directed "star-map" of the deck's lift relationships. Your cards are bright hub-stars;
@@ -56,18 +57,6 @@ interface GNode {
 }
 interface GLink { source: string | GNode; target: string | GNode; score: number; lift: number; coPct: number; w: number; cw: number; targetBomb: boolean; primary: boolean; }
 
-// Bare HSL triplets so they compose with `/ alpha`. Four maximally-separable families: your cards are
-// a neutral pale silver (the hub-stars everything orbits — so the coloured candidates pop against them),
-// commanders gold, bombs vivid fuchsia and clusters vivid sky (matching the list view's accents). Keeping
-// "your cards" out of the purple range is what stops them blurring into the fuchsia bombs.
-const HUE = {
-  deck: '212 22% 86%',
-  commander: '43 96% 60%',
-  bomb: '300 88% 64%',
-  cluster: '195 94% 56%',
-  focus: '152 72% 50%',  // the "pairs with" anchor — a vivid emerald, distinct from the gold commander
-  synergy: '262 83% 74%',// deck-mode edges — lavender, our synergy accent (deck↔deck ties)
-};
 function nodeHue(n: GNode): string {
   if (n.kind === 'deck') return n.focus ? HUE.focus : n.commander ? HUE.commander : HUE.deck;
   return n.kind === 'bomb' ? HUE.bomb : HUE.cluster;
@@ -82,19 +71,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const NO_ANCHORS: Set<string> = new Set();   // stable empty default so the graph memo doesn't thrash
 const NO_LINKS: DeckLink[] = [];             // stable empty default for the deck-mode link list
 
-/** SVG path for a 5-pointed star centred at the origin, first point up. Used for the focused anchor. */
-function starPath(rOuter: number, rInner: number): string {
-  let d = '';
-  for (let i = 0; i < 10; i++) {
-    const r = i % 2 === 0 ? rOuter : rInner;
-    const a = (Math.PI / 5) * i - Math.PI / 2;
-    d += `${i === 0 ? 'M' : 'L'}${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
-  }
-  return d + 'Z';
-}
 // Matching CSS clip for the art image — the same 5-point star as starPath(), expressed in % of the box.
 const STAR_CLIP = 'polygon(50% 0%, 63.2% 31.8%, 97.55% 34.55%, 71.4% 56.95%, 79.4% 90.45%, 50% 72.5%, 20.6% 90.45%, 28.6% 56.95%, 2.45% 34.55%, 36.8% 31.8%)';
-const STAR_INNER = 0.45;   // inner/outer radius ratio — must match the STAR_CLIP polygon above
 
 // Cap how many anchors a cluster ties to in the map — only its few strongest. Plotting every edge
 // makes each cluster bridge half the deck, fusing everything into one cross-linked hairball; capping
