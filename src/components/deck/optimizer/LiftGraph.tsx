@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, forceRadial, type Simulation } from 'd3-force';
-import { Check, Maximize2, HelpCircle, Expand, Shrink, Search } from 'lucide-react';
+import { Check, Maximize2, HelpCircle, Expand, Shrink, Search, Camera, Loader2 } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl, isAnyLand } from '@/services/scryfall/client';
 import { scryfallImg } from './constants';
@@ -10,7 +10,7 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import type { CardRowMenuProps } from './shared';
 import { edgeScore, type LiftCandidate, type DeckLink } from '@/services/optimizer/liftClusters';
-import { HUE, starPath, STAR_INNER } from './liftShareCard';
+import { HUE, starPath, STAR_INNER, exportLiftShareCard, type ShareStats } from './liftShareCard';
 
 /**
  * A force-directed "star-map" of the deck's lift relationships. Your cards are bright hub-stars;
@@ -392,6 +392,57 @@ export function LiftGraph(props: LiftGraphProps) {
     locateTimer.current = window.setTimeout(() => setLocated(null), 2600);
   }, [nodes, size.w, size.h, animateTo]);
 
+  // ── Share-card export: snapshot the plotted constellation into a branded PNG download. ──
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState(false);
+  const nameOf = (e: string | GNode) => (typeof e === 'object' ? e.id : e);
+  const onExport = useCallback(async () => {
+    if (exporting || !nodes.length) return;
+    setExporting(true);
+    setExportFailed(false);
+    try {
+      const shareNodes = nodes
+        .filter(n => n.x != null && n.y != null)
+        .map(n => ({
+          id: n.id, kind: n.kind, x: n.x!, y: n.y!, r: n.r,
+          hue: nodeHue(n), lowConf: n.lowConf, focus: n.focus, solo: n.solo,
+          artUrl: artUrl(n.card),
+        }));
+      const shareLinks = links.flatMap(l => {
+        const s = typeof l.source === 'object' ? l.source : nodes.find(n => n.id === l.source);
+        const t = typeof l.target === 'object' ? l.target : nodes.find(n => n.id === l.target);
+        if (!s || !t || s.x == null || t.x == null) return [];
+        const hue = deckMode ? HUE.synergy : bombNames.has(nameOf(l.target)) ? HUE.bomb : HUE.cluster;
+        return [{ x1: s.x!, y1: s.y!, x2: t.x!, y2: t.y!, hue, cw: l.cw }];
+      });
+      // The footer's headline numbers — strongest tie by the same composite score the layout uses.
+      let best: GLink | null = null;
+      for (const l of links) if (!best || l.score > best.score) best = l;
+      const stats: ShareStats = deckMode
+        ? {
+            mode: 'deck', cardCount: deckCardsByName.size, tieCount: links.length,
+            strongestPair: best ? { a: nameOf(best.source), b: nameOf(best.target), lift: best.lift } : null,
+          }
+        : {
+            mode: 'candidates',
+            bombCount: nodes.filter(n => n.kind === 'bomb').length,
+            clusterCount: nodes.filter(n => n.kind === 'cluster').length,
+            topHit: best ? { name: nameOf(best.target), anchor: nameOf(best.source), lift: best.lift } : null,
+          };
+      const cmdrs = [...commanderNames];   // Set preserves insertion order: commander first, partner second
+      await exportLiftShareCard({
+        nodes: shareNodes, links: shareLinks, mode,
+        commanderName: cmdrs[0] ?? 'Commander', partnerCommanderName: cmdrs[1], stats,
+      });
+    } catch {
+      setExportFailed(true);
+      window.setTimeout(() => setExportFailed(false), 3000);
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exporting, nodes, links, deckMode, bombNames, deckCardsByName, commanderNames, mode]);
+
   // Mirror size into a ref so the physics effect can read the latest dimensions
   // without listing them as deps (which would restart the sim on every resize).
   const sizeRef = useRef(size);
@@ -735,6 +786,11 @@ export function LiftGraph(props: LiftGraphProps) {
           <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: `hsl(${HUE.bomb})` }} /> high-lift</span>
           <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: `hsl(${HUE.cluster})` }} /> clusters</span>
         </div>
+        <button onClick={onExport} disabled={exporting}
+          title={exportFailed ? 'Export failed — try again' : 'Download share image'}
+          className={`grid place-items-center w-7 h-7 rounded-full border backdrop-blur transition-colors disabled:opacity-60 ${exportFailed ? 'border-red-400/60 bg-red-500/10 text-red-300' : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'}`}>
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+        </button>
         <button onClick={fitView} title="Fit to view"
           className="grid place-items-center w-7 h-7 rounded-full border border-border/60 bg-background/70 backdrop-blur text-muted-foreground hover:text-foreground transition-colors">
           <Maximize2 className="w-3.5 h-3.5" />
