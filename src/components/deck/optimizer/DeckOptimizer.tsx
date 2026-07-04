@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import type { ScryfallCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
+import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
@@ -69,6 +70,7 @@ export function DeckOptimizer({
   onSaveAsDeck,
   onOpenInDeckView,
   intendedThemes,
+  sourceListId,
 }: DeckOptimizerProps) {
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
@@ -220,24 +222,44 @@ export function DeckOptimizer({
   const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
   const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
 
+  // Lists are needed up here: saved themes must be readable before the theme
+  // effects/handlers below, and handleThemeSelect persists through updateList.
+  const { lists: userLists, updateList, createList } = useUserLists();
+  const sourceList = sourceListId ? userLists.find(l => l.id === sourceListId) : undefined;
+  const savedThemes = sourceList?.themes;
+
+  // Full EDHREC taxonomy — resolves names for themes outside the commander's
+  // taglinks (custom picks, saved off-list themes). One cached fetch.
+  const themeTaxonomy = useThemeTaxonomy(true);
+
+  /** Resolve a theme slug to {slug, name} from any known source:
+   *  detection results → commander taglinks → full taxonomy → saved list themes. */
+  const resolveThemeInfo = useCallback((slug: string | null): { slug: string; name: string } | null => {
+    if (!slug) return null;
+    const fromDetection = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
+    if (fromDetection) return { slug, name: fromDetection.theme.name };
+    const fromTaglinks = cachedEdhrecDataRef.current?.themes?.find(t => t.slug === slug);
+    if (fromTaglinks) return { slug, name: fromTaglinks.name };
+    const fromTaxonomy = themeTaxonomy.tags.find(t => t.slug === slug);
+    if (fromTaxonomy) return { slug, name: fromTaxonomy.name };
+    const fromSaved = savedThemes?.find(t => t.slug === slug);
+    if (fromSaved) return { slug, name: fromSaved.name };
+    return null;
+  }, [themeDetection, themeTaxonomy.tags, savedThemes]);
+
   // Notify parent (AnalyzePage) when the user's selected themes change so it can
   // tag cards with the matching theme chips in the visual stacks.
   useEffect(() => {
     if (!onThemeMembershipChange) return;
-    const findTheme = (slug: string | null) => {
-      if (!slug) return null;
-      const match = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
-      return match ? { slug, name: match.theme.name } : null;
-    };
-    const primary = findTheme(primaryThemeSlug);
-    const secondary = findTheme(secondaryThemeSlug);
+    const primary = resolveThemeInfo(primaryThemeSlug);
+    const secondary = resolveThemeInfo(secondaryThemeSlug);
     if (!primary && !secondary) {
       onThemeMembershipChange(null);
       return;
     }
     const membership = buildThemeMembership(primary, secondary, themeDataCacheRef.current);
     onThemeMembershipChange(membership);
-  }, [primaryThemeSlug, secondaryThemeSlug, themeDetection, onThemeMembershipChange]);
+  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange]);
 
   // Emit the misfit name set so the deck-building area can highlight matching cards.
   useEffect(() => {
@@ -802,13 +824,6 @@ export function DeckOptimizer({
     const cachedBase = cachedEdhrecDataRef.current;
     if (!cachedBase || !analysis) return;
 
-    // Helper to resolve slug → theme info (name) from evaluated themes
-    const findThemeInfo = (slug: string | null) => {
-      if (!slug) return null;
-      const match = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
-      return match ? { slug, name: match.theme.name } : null;
-    };
-
     // No themes → revert to base-only analysis
     if (!primary && !secondary) {
       themeEnhancedDataRef.current = null;
@@ -857,8 +872,8 @@ export function DeckOptimizer({
       const storedDeckForTheme = useStore.getState().generatedDeck;
 
       // Resolve theme info (name) for plan scoring
-      const primaryThemeInfo = findThemeInfo(primary);
-      const secondaryThemeInfo = findThemeInfo(secondary);
+      const primaryThemeInfo = resolveThemeInfo(primary);
+      const secondaryThemeInfo = resolveThemeInfo(secondary);
       const themeMembershipForScore = buildThemeMembership(primaryThemeInfo, secondaryThemeInfo, themeDataCacheRef.current);
       const planNameForScore = primaryThemeInfo?.name ?? null;
 
@@ -924,7 +939,7 @@ export function DeckOptimizer({
     rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, themeDetection]);
+  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
 
   // Sequential-pick theme selection handler
   const handleThemeSelect = useCallback(async (slug: string) => {
@@ -963,16 +978,9 @@ export function DeckOptimizer({
   const displayThemeNames = useMemo(() => {
     // 1. If user selected themes in the optimizer, show those
     if (primaryThemeSlug || secondaryThemeSlug) {
-      const allThemes = cachedEdhrecDataRef.current?.themes || [];
-      const names: string[] = [];
-      if (primaryThemeSlug) {
-        const match = allThemes.find(t => t.slug === primaryThemeSlug);
-        if (match) names.push(match.name);
-      }
-      if (secondaryThemeSlug) {
-        const match = allThemes.find(t => t.slug === secondaryThemeSlug);
-        if (match) names.push(match.name);
-      }
+      const names = [resolveThemeInfo(primaryThemeSlug), resolveThemeInfo(secondaryThemeSlug)]
+        .filter((t): t is { slug: string; name: string } => t !== null)
+        .map(t => t.name);
       if (names.length > 0) return names;
     }
     // 2. Store-selected themes from BuilderPage
@@ -983,9 +991,7 @@ export function DeckOptimizer({
     // 4. Auto-detected themes
     if (themeDetection?.matchedThemes?.length) return themeDetection.matchedThemes.map(t => t.theme.name);
     return undefined;
-  }, [primaryThemeSlug, secondaryThemeSlug, storeSelectedThemes, usedThemes, themeDetection]);
-  const { lists: userLists, updateList, createList } = useUserLists();
-
+  }, [primaryThemeSlug, secondaryThemeSlug, storeSelectedThemes, usedThemes, themeDetection, resolveThemeInfo]);
   const handleCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
     const name = card.name;
     switch (action.type) {
@@ -1238,14 +1244,9 @@ export function DeckOptimizer({
   // ═════════════════════════════════════════════════════════════════════
   // Derived values for DashboardSummary
   // ═════════════════════════════════════════════════════════════════════
-  const _findThemeInfo = (slug: string | null) => {
-    if (!slug) return null;
-    const match = themeDetection?.evaluatedThemes.find(t => t.theme.slug === slug);
-    return match ? { slug, name: match.theme.name } : null;
-  };
   const dashboardThemeMembership = buildThemeMembership(
-    _findThemeInfo(primaryThemeSlug),
-    _findThemeInfo(secondaryThemeSlug),
+    resolveThemeInfo(primaryThemeSlug),
+    resolveThemeInfo(secondaryThemeSlug),
     themeDataCacheRef.current,
   );
   const dashboardPrimaryThemeData = primaryThemeSlug

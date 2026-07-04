@@ -62,6 +62,9 @@ export interface DeckOptimizerProps {
   onOpenInDeckView?: () => void;
   /** The deck's intended EDHREC theme names — steers the New Cards tab's sources. */
   intendedThemes?: string[];
+  /** Saved list backing this analysis (source.kind === 'list' only). Enables
+   *  reading/persisting the list's declared themes from the Adjust popover. */
+  sourceListId?: string;
 }
 
 export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift' | 'newCards';

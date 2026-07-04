@@ -592,10 +592,12 @@ export function AnalyzePage() {
       ? 'Generated'
       : `From "${source.listName}"`;
 
-    // Intended themes for the New Cards tab: saved list first (persisted at save,
-    // or recovered from its summary), else whatever the generator ran with.
+    // Intended themes for the New Cards tab. Hierarchy: the user's explicit theme
+    // declaration → generation provenance → legacy summary parse → generator run.
     const intendedThemes = sourceList
-      ? (sourceList.usedThemes?.length ? sourceList.usedThemes : parseIntendedThemes(sourceList.generationSummary))
+      ? (sourceList.themes?.length ? sourceList.themes.map(t => t.name)
+        : sourceList.usedThemes?.length ? sourceList.usedThemes
+        : parseIntendedThemes(sourceList.generationSummary))
       : generatedDeck.usedThemes;
 
     const handleSaveAsDeck = () => {
@@ -651,6 +653,7 @@ export function AnalyzePage() {
                 onSaveAsDeck={source.kind === 'list' ? undefined : handleSaveAsDeck}
                 onOpenInDeckView={handleOpenInDeckView}
                 intendedThemes={intendedThemes}
+                sourceListId={source.kind === 'list' ? source.listId : undefined}
               />
             }
             deck={
