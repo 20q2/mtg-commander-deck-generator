@@ -643,6 +643,7 @@ export function AnalyzePage() {
                 partnerCommander={generatedDeck.partnerCommander ?? undefined}
                 colorIdentity={colorIdentityStore}
                 sourceLabel={sourceLabel}
+                deckName={source.kind === 'list' ? source.listName : undefined}
                 onChangeDeck={handleChangeDeck}
                 onThemeMembershipChange={setThemeMembership}
                 onMisfitNamesChange={setMisfitNames}

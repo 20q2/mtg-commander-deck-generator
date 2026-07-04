@@ -46,6 +46,8 @@ export interface DeckOptimizerProps {
   colorIdentity?: string[];
   /** Source label shown next to the commander name (e.g. From "My List"). */
   sourceLabel?: string;
+  /** Deck name (e.g. the saved list's name) — titles the Lift Web share-card export. */
+  deckName?: string;
   /** Click handler for the sidebar "back" button. When provided, renders the back button. */
   onChangeDeck?: () => void;
   /** Fired when theme membership for the currently selected themes is (re)computed. */

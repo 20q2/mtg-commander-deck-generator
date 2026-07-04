@@ -47,7 +47,7 @@ export interface ShareLink {
 }
 export type ShareStats =
   | { mode: 'deck'; cardCount: number; tieCount: number;
-      strongestPair: { a: string; b: string; lift: number } | null }
+      mostConnected: { name: string; ties: number } | null }
   | { mode: 'candidates'; bombCount: number; clusterCount: number;
       topHit: { name: string; anchor: string; lift: number } | null };
 
@@ -56,12 +56,12 @@ export type ShareStats =
 /** EDHREC caps lift display at 99+; mirror the list view's convention. */
 export const liftLabel = (l: number) => (l >= 99 ? '×99+' : `×${l.toFixed(1)}`);
 
-/** Footer line — the whole story in one row, ending with the data-lineage note. */
+/** Footer line — short and plain-language; no jargon (playtest feedback). */
 export function buildStatsLine(s: ShareStats): string {
   const parts: string[] = [];
   if (s.mode === 'deck') {
     parts.push(`${s.cardCount} cards`, `${s.tieCount} synergy ${s.tieCount === 1 ? 'tie' : 'ties'}`);
-    if (s.strongestPair) parts.push(`strongest pair: ${s.strongestPair.a} + ${s.strongestPair.b} ${liftLabel(s.strongestPair.lift)}`);
+    if (s.mostConnected) parts.push(`most connected: ${s.mostConnected.name} (${s.mostConnected.ties} ${s.mostConnected.ties === 1 ? 'tie' : 'ties'})`);
   } else {
     parts.push(
       `${s.bombCount} high-lift ${s.bombCount === 1 ? 'find' : 'finds'}`,
@@ -69,15 +69,14 @@ export function buildStatsLine(s: ShareStats): string {
     );
     if (s.topHit) parts.push(`top: ${s.topHit.name} ${liftLabel(s.topHit.lift)} with ${s.topHit.anchor}`);
   }
-  parts.push('lift from EDHREC co-play data');
   return parts.join(' · ');
 }
 
-/** manafoundry-lift-web-<commander>[-<partner>].png — same slug rules as our EDHREC links. */
+/** manafoundry-lift-web-<commander>[-<partner>].jpg — same slug rules as our EDHREC links. */
 export function shareFilename(commanderName: string, partnerName?: string): string {
   const slug = (n: string) => n.split(' // ')[0].toLowerCase()
     .replace(/'/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  return `manafoundry-lift-web-${slug(commanderName)}${partnerName ? `-${slug(partnerName)}` : ''}.png`;
+  return `manafoundry-lift-web-${slug(commanderName)}${partnerName ? `-${slug(partnerName)}` : ''}.jpg`;
 }
 
 /** Fit the node bounds into a target rect with padding: screen = sim × k + t. Zoom capped at 2. */
@@ -117,7 +116,11 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** Load one art crop with CORS so the canvas never taints; null on error/timeout → placeholder. */
+/** Load one art crop with CORS so the canvas never taints; null on error/timeout → placeholder.
+ *  The cache-busting param matters: the on-screen <img> loads cached these images WITHOUT CORS
+ *  approval, and the browser happily serves that non-CORS cache entry to a crossOrigin request —
+ *  which then fails and would leave every node a flat grey square. A distinct URL forces a fresh
+ *  fetch that carries Origin, so Scryfall's Access-Control-Allow-Origin actually arrives. */
 function loadArt(url: string): Promise<HTMLImageElement | null> {
   return new Promise(resolve => {
     const img = new Image();
@@ -125,8 +128,23 @@ function loadArt(url: string): Promise<HTMLImageElement | null> {
     const timer = window.setTimeout(() => resolve(null), ART_TIMEOUT_MS);
     img.onload = () => { window.clearTimeout(timer); resolve(img); };
     img.onerror = () => { window.clearTimeout(timer); resolve(null); };
-    img.src = url;
+    img.src = url + (url.includes('?') ? '&' : '?') + 'mfshare=1';
   });
+}
+
+/** The ManaFoundry logo silhouette, tinted to a solid colour via source-in compositing
+ *  (the canvas twin of LogoMark's CSS mask trick). Drawn oversized for a crisp downscale. */
+function tintLogo(img: HTMLImageElement, size: number, color: string): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d')!;
+  const s = Math.min(size / img.naturalWidth, size / img.naturalHeight);   // contain, centred
+  const w = img.naturalWidth * s, h = img.naturalHeight * s;
+  g.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+  g.globalCompositeOperation = 'source-in';
+  g.fillStyle = color;
+  g.fillRect(0, 0, size, size);
+  return c;
 }
 
 /** drawImage in "object-fit: cover" — centre-crop the source to fill the destination box. */
@@ -163,12 +181,13 @@ export interface ShareCardOptions {
   mode: 'candidates' | 'deck';
   commanderName: string;
   partnerCommanderName?: string;
+  deckName?: string;   // saved-list name — becomes the title when present (commander moves to the label line)
   stats: ShareStats;
 }
 
-/** Render the share card and trigger the PNG download. Rejects on render failure (no file). */
+/** Render the share card and trigger the JPEG download. Rejects on render failure (no file). */
 export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void> {
-  const { nodes, links, mode, commanderName, partnerCommanderName, stats } = opts;
+  const { nodes, links, mode, commanderName, partnerCommanderName, deckName, stats } = opts;
 
   // Fonts first (already loaded app-wide via Google Fonts; this just guarantees readiness),
   // then the art — usually instant, the browser HTTP cache already holds every visible crop.
@@ -178,10 +197,15 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
       .map(f => document.fonts.load(f)),
   ).catch(() => { /* a missing font falls back to sans-serif — not fatal */ });
   const arts = new Map<string, HTMLImageElement>();
-  await Promise.all(nodes.map(async n => {
-    const img = await loadArt(n.artUrl);
-    if (img) arts.set(n.id, img);
-  }));
+  let logo: HTMLImageElement | null = null;
+  await Promise.all([
+    ...nodes.map(async n => {
+      const img = await loadArt(n.artUrl);
+      if (img) arts.set(n.id, img);
+    }),
+    // Same-origin logo PNG (the LogoMark mask source) — tinted below; skipped silently if it fails.
+    loadArt(`${import.meta.env.BASE_URL}logo.png`).then(img => { logo = img; }),
+  ]);
 
   const canvas = document.createElement('canvas');
   canvas.width = W * SCALE;
@@ -214,16 +238,20 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
     ctx.fillRect(rand() * W, rand() * H, 1, 1);
   }
 
-  // ── Header: commander (+ partner) in Cinzel, small mode label underneath. ──
-  const title = partnerCommanderName ? `${commanderName} & ${partnerCommanderName}` : commanderName;
+  // ── Header: deck name (when saved) or commander in Cinzel; the label line carries the mode
+  // and — if the deck name took the title — the commander, so the image never loses either. ──
+  const cmdrTitle = partnerCommanderName ? `${commanderName} & ${partnerCommanderName}` : commanderName;
+  const title = deckName?.trim() || cmdrTitle;
+  const label = (mode === 'deck' ? 'SYNERGY WEB' : 'LIFT WEB')
+    + (deckName?.trim() ? ` · ${cmdrTitle.toUpperCase()}` : '');
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'hsl(212 22% 92%)';
   ctx.font = '700 40px Cinzel, serif';
-  ctx.fillText(title, 48, 58, W - 96);   // maxWidth squeezes long partner pairs instead of clipping
+  ctx.fillText(title, 48, 58, W - 96);   // maxWidth squeezes long names instead of clipping
   ctx.font = '600 14px "Saira Condensed", sans-serif';
   ctx.fillStyle = mode === 'deck' ? 'hsl(262 83% 74% / 0.9)' : 'hsl(300 88% 70% / 0.9)';
   (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '4px';
-  ctx.fillText(mode === 'deck' ? 'SYNERGY WEB' : 'LIFT WEB', 48, 84);
+  ctx.fillText(label, 48, 84, W - 96);
   (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0px';
 
   // ── Graph: auto-fit into the band between header and footer. Points are transformed by hand
@@ -279,19 +307,26 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
     ctx.restore();
   }
 
-  // ── Footer: stats line left, wordmark right (plain text — no reserved glyphs). ──
+  // ── Footer: stats line left; logo mark + wordmark right. ──
   ctx.fillStyle = 'hsl(215 20% 68%)';
   ctx.font = '500 15px Saira, sans-serif';
-  ctx.fillText(buildStatsLine(stats), 48, H - 30, W - 96 - 190);
+  ctx.fillText(buildStatsLine(stats), 48, H - 30, W - 96 - 220);
   ctx.textAlign = 'right';
   ctx.fillStyle = 'hsl(212 22% 86% / 0.85)';
   ctx.font = '700 20px Cinzel, serif';
   ctx.fillText('ManaFoundry', W - 48, H - 28);
+  if (logo) {
+    const markSize = 26;
+    const textW = ctx.measureText('ManaFoundry').width;
+    // Tint at 4× then downscale for a crisp silhouette; sit it just left of the wordmark.
+    ctx.drawImage(tintLogo(logo, markSize * 4, 'hsl(212 22% 86% / 0.9)'),
+      W - 48 - textW - markSize - 10, H - 28 - markSize + 5, markSize, markSize);
+  }
   ctx.textAlign = 'left';
 
-  // ── Encode + download. ──
-  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-  if (!blob) throw new Error('PNG encoding failed');
+  // ── Encode + download. JPEG keeps the file a few hundred KB instead of multi-MB PNG. ──
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  if (!blob) throw new Error('JPEG encoding failed');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

@@ -39,6 +39,7 @@ interface LiftGraphProps {
   hideLands?: boolean;              // (deck mode) drop land nodes — only offered while islands are shown
   onFocusCard?: (name: string) => void;  // right-click "Focus" — pin the graph to this deck card
   fullscreenRef?: { current: HTMLElement | null };  // element to full-screen (the panel incl. filter bar)
+  deckName?: string;                 // saved-list name — titles the share-card export when present
 }
 
 type NodeKind = 'deck' | 'bomb' | 'cluster';
@@ -238,7 +239,7 @@ function NodeFinder({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
 }
 
 export function LiftGraph(props: LiftGraphProps) {
-  const { candidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, onPreview, addedCards, matchedNames, focusAnchors = NO_ANCHORS, displayMode, onCardAction, menuProps, toolbar, mode = 'candidates', deckLinks = NO_LINKS, hideIslands = true, hideLands = false, onFocusCard, fullscreenRef } = props;
+  const { candidates, bombNames, deckCardsByName, commanderNames, confidenceFloor, onPreview, addedCards, matchedNames, focusAnchors = NO_ANCHORS, displayMode, onCardAction, menuProps, toolbar, mode = 'candidates', deckLinks = NO_LINKS, hideIslands = true, hideLands = false, onFocusCard, fullscreenRef, deckName } = props;
   const deckMode = mode === 'deck';
   // 'hide' rebuilds the graph to matches-only (re-lays-out); 'dim' plots everything and fades
   // non-matches in place (no resimulation — preserves the player's arrangement).
@@ -415,23 +416,31 @@ export function LiftGraph(props: LiftGraphProps) {
         const hue = deckMode ? HUE.synergy : bombNames.has(nameOf(l.target)) ? HUE.bomb : HUE.cluster;
         return [{ x1: s.x!, y1: s.y!, x2: t.x!, y2: t.y!, hue, cw: l.cw }];
       });
-      // The footer's headline numbers — strongest tie by the same composite score the layout uses.
-      let best: GLink | null = null;
-      for (const l of links) if (!best || l.score > best.score) best = l;
-      const stats: ShareStats = deckMode
-        ? {
-            mode: 'deck', cardCount: deckCardsByName.size, tieCount: links.length,
-            strongestPair: best ? { a: nameOf(best.source), b: nameOf(best.target), lift: best.lift } : null,
-          }
-        : {
-            mode: 'candidates',
-            bombCount: nodes.filter(n => n.kind === 'bomb').length,
-            clusterCount: nodes.filter(n => n.kind === 'cluster').length,
-            topHit: best ? { name: nameOf(best.target), anchor: nameOf(best.source), lift: best.lift } : null,
-          };
+      // The footer's headline: deck mode names the biggest hub (most ties); candidate mode names
+      // the single strongest find by the same composite score the layout uses.
+      let stats: ShareStats;
+      if (deckMode) {
+        const deg = new Map<string, number>();
+        for (const l of links) {
+          deg.set(nameOf(l.source), (deg.get(nameOf(l.source)) ?? 0) + 1);
+          deg.set(nameOf(l.target), (deg.get(nameOf(l.target)) ?? 0) + 1);
+        }
+        let top: { name: string; ties: number } | null = null;
+        for (const [name, ties] of deg) if (!top || ties > top.ties) top = { name, ties };
+        stats = { mode: 'deck', cardCount: deckCardsByName.size, tieCount: links.length, mostConnected: top };
+      } else {
+        let best: GLink | null = null;
+        for (const l of links) if (!best || l.score > best.score) best = l;
+        stats = {
+          mode: 'candidates',
+          bombCount: nodes.filter(n => n.kind === 'bomb').length,
+          clusterCount: nodes.filter(n => n.kind === 'cluster').length,
+          topHit: best ? { name: nameOf(best.target), anchor: nameOf(best.source), lift: best.lift } : null,
+        };
+      }
       const cmdrs = [...commanderNames];   // Set preserves insertion order: commander first, partner second
       await exportLiftShareCard({
-        nodes: shareNodes, links: shareLinks, mode,
+        nodes: shareNodes, links: shareLinks, mode, deckName,
         commanderName: cmdrs[0] ?? 'Commander', partnerCommanderName: cmdrs[1], stats,
       });
     } catch {
@@ -441,7 +450,7 @@ export function LiftGraph(props: LiftGraphProps) {
       setExporting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exporting, nodes, links, deckMode, bombNames, deckCardsByName, commanderNames, mode]);
+  }, [exporting, nodes, links, deckMode, bombNames, deckCardsByName, commanderNames, mode, deckName]);
 
   // Mirror size into a ref so the physics effect can read the latest dimensions
   // without listing them as deps (which would restart the sim on every resize).

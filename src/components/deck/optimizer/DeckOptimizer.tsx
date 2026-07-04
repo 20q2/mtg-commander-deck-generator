@@ -61,6 +61,7 @@ export function DeckOptimizer({
   partnerCommander,
   colorIdentity: commanderColorIdentity,
   sourceLabel,
+  deckName,
   onChangeDeck,
   onThemeMembershipChange,
   onMisfitNamesChange,
@@ -1644,6 +1645,7 @@ export function DeckOptimizer({
             onCardAction={handleCardAction}
             menuProps={menuProps}
             focusRequest={liftFocus}
+            deckName={deckName}
           />
         )}
 

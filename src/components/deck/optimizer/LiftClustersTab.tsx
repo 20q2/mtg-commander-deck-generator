@@ -32,6 +32,7 @@ interface LiftClustersTabProps {
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps: CardRowMenuProps;
   focusRequest?: { name: string; seq: number } | null;   // external "Focus on graph" (e.g. deck-building area)
+  deckName?: string;                                     // saved-list name — titles the share-card export
 }
 
 type ScanState =
@@ -326,6 +327,7 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
                 menuProps={props.menuProps}
                 onFocusCard={(name) => patchFilters({ anchors: new Set([name]) })}
                 fullscreenRef={fsRef}
+                deckName={props.deckName}
                 toolbar={
                   <button
                     onClick={() => runScan(true)}

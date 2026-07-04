@@ -7,39 +7,39 @@ describe('liftLabel', () => {
 });
 
 describe('buildStatsLine', () => {
-  it('builds the deck-mode line with strongest pair and lineage note', () => {
+  it('builds the deck-mode line with the most-connected hub', () => {
     expect(buildStatsLine({
       mode: 'deck', cardCount: 99, tieCount: 47,
-      strongestPair: { a: 'Skullclamp', b: 'Pitiless Plunderer', lift: 21 },
-    })).toBe('99 cards · 47 synergy ties · strongest pair: Skullclamp + Pitiless Plunderer ×21.0 · lift from EDHREC co-play data');
+      mostConnected: { name: 'Skullclamp', ties: 12 },
+    })).toBe('99 cards · 47 synergy ties · most connected: Skullclamp (12 ties)');
   });
-  it('omits the pair segment when there is none, and singularises one tie', () => {
-    expect(buildStatsLine({ mode: 'deck', cardCount: 100, tieCount: 1, strongestPair: null }))
-      .toBe('100 cards · 1 synergy tie · lift from EDHREC co-play data');
+  it('omits the hub segment when there is none, and singularises one tie', () => {
+    expect(buildStatsLine({ mode: 'deck', cardCount: 100, tieCount: 1, mostConnected: null }))
+      .toBe('100 cards · 1 synergy tie');
   });
   it('builds the candidate-mode line with the top hit', () => {
     expect(buildStatsLine({
       mode: 'candidates', bombCount: 23, clusterCount: 31,
       topHit: { name: 'Nettlecyst', anchor: 'Puresteel Paladin', lift: 18.2 },
-    })).toBe('23 high-lift finds · 31 clusters · top: Nettlecyst ×18.2 with Puresteel Paladin · lift from EDHREC co-play data');
+    })).toBe('23 high-lift finds · 31 clusters · top: Nettlecyst ×18.2 with Puresteel Paladin');
   });
   it('singularises one find / one cluster', () => {
     expect(buildStatsLine({ mode: 'candidates', bombCount: 1, clusterCount: 1, topHit: null }))
-      .toBe('1 high-lift find · 1 cluster · lift from EDHREC co-play data');
+      .toBe('1 high-lift find · 1 cluster');
   });
 });
 
 describe('shareFilename', () => {
   it('slugs the commander name', () => {
-    expect(shareFilename('Meren of Clan Nel Toth')).toBe('manafoundry-lift-web-meren-of-clan-nel-toth.png');
+    expect(shareFilename('Meren of Clan Nel Toth')).toBe('manafoundry-lift-web-meren-of-clan-nel-toth.jpg');
   });
   it('drops apostrophes and appends the partner', () => {
     expect(shareFilename('Rograkh, Son of Rohgahh', 'Ardenn, Intrepid Archaeologist'))
-      .toBe('manafoundry-lift-web-rograkh-son-of-rohgahh-ardenn-intrepid-archaeologist.png');
+      .toBe('manafoundry-lift-web-rograkh-son-of-rohgahh-ardenn-intrepid-archaeologist.jpg');
   });
   it('uses only the front face of a DFC name', () => {
     expect(shareFilename('Esika, God of the Tree // The Prismatic Bridge'))
-      .toBe('manafoundry-lift-web-esika-god-of-the-tree.png');
+      .toBe('manafoundry-lift-web-esika-god-of-the-tree.jpg');
   });
 });
 
