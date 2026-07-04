@@ -518,8 +518,10 @@ export interface UserCardList {
   customCombos?: UserCombo[]; // User-authored combos (see UserCombo)
   generationSummary?: string; // "Built with: X · Bracket 3 · Budget" — cleared on first edit
   usedThemes?: string[]; // EDHREC theme names the deck was generated with (drives upgrade-trigger relevance)
-  /** User-assigned EDHREC themes (max 2). Drives theme-aware enrichment + archetype cross-reference.
-   *  Distinct from usedThemes (names only, generation provenance): these carry slugs and are user-editable. */
+  /** User-assigned EDHREC themes. ORDER CARRIES MEANING: [0] = primary, [1] = secondary
+   *  (max 2). Written ONLY via persistListThemes (src/services/lists/listThemes.ts).
+   *  Drives theme-aware enrichment + archetype cross-reference in both the deck view
+   *  and the Inspector. Distinct from usedThemes (names only, generation provenance). */
   themes?: Array<{ name: string; slug: string }>;
   createdAt: number;
   updatedAt: number;
