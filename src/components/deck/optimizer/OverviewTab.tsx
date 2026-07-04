@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { ThemeSearchList } from '@/components/theme/ThemeSearchList';
 import {
   Sparkles, Plus, Minus, Check,
   Ban,
@@ -515,6 +516,7 @@ export function AdjustPopoverContent({
   primaryThemeSlug,
   secondaryThemeSlug,
   onThemeSelect,
+  resolveThemeName,
   userLandTarget,
   onLandTargetChange,
   deckSize,
@@ -530,6 +532,8 @@ export function AdjustPopoverContent({
   primaryThemeSlug?: string | null;
   secondaryThemeSlug?: string | null;
   onThemeSelect: (slug: string) => void;
+  /** Resolves names for slugs outside detection/taglinks (custom picks, saved themes). */
+  resolveThemeName?: (slug: string) => string | null;
   userLandTarget?: number | null;
   onLandTargetChange?: (target: number | null) => void;
   deckSize?: number;
@@ -539,6 +543,7 @@ export function AdjustPopoverContent({
   userPacing?: Pacing | null;
   onPacingChange: (pacing: Pacing | null) => void;
 }) {
+  const [showAllThemes, setShowAllThemes] = useState(false);
   const chipThemes = useMemo(() => {
     const evaluatedSlugs = new Set(detection.evaluatedThemes.map(t => t.theme.slug));
     const chips: Array<{ name: string; slug: string; score?: number }> = [];
@@ -550,8 +555,14 @@ export function AdjustPopoverContent({
       if (chips.length >= 8) break;
       chips.push({ name: theme.name, slug: theme.slug });
     }
+    // Selected slugs outside the evaluated/taglink set (custom or saved picks)
+    // must still render as chips.
+    for (const slug of [primaryThemeSlug, secondaryThemeSlug]) {
+      if (!slug || chips.some(c => c.slug === slug)) continue;
+      chips.push({ name: resolveThemeName?.(slug) ?? slug, slug });
+    }
     return chips;
-  }, [detection, allThemes]);
+  }, [detection, allThemes, primaryThemeSlug, secondaryThemeSlug, resolveThemeName]);
 
   const activePacing = userPacing ?? detectedPacing;
 
@@ -612,6 +623,23 @@ export function AdjustPopoverContent({
             );
           })}
         </div>
+        <button
+          type="button"
+          onClick={() => setShowAllThemes(v => !v)}
+          className="mt-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {showAllThemes ? 'Hide theme search' : 'More themes…'}
+        </button>
+        {showAllThemes && (
+          <div className="mt-2">
+            <ThemeSearchList
+              enabled={showAllThemes}
+              onPick={t => onThemeSelect(t.slug)}
+              disabledSlugs={new Set([primaryThemeSlug, secondaryThemeSlug].filter((s): s is string => !!s))}
+              maxHeightClass="max-h-40"
+            />
+          </div>
+        )}
       </div>
 
       {/* Deck Size override */}

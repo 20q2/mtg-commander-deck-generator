@@ -1330,6 +1330,7 @@ export function DeckOptimizer({
             primaryThemeSlug={primaryThemeSlug}
             secondaryThemeSlug={secondaryThemeSlug}
             onThemeSelect={handleThemeSelect}
+            resolveThemeName={(slug) => resolveThemeInfo(slug)?.name ?? null}
             userLandTarget={userLandTarget}
             onLandTargetChange={handleLandTargetChange}
             deckSize={deckSize}
@@ -1498,6 +1499,7 @@ export function DeckOptimizer({
                   primaryThemeSlug={primaryThemeSlug}
                   secondaryThemeSlug={secondaryThemeSlug}
                   onThemeSelect={handleThemeSelect}
+            resolveThemeName={(slug) => resolveThemeInfo(slug)?.name ?? null}
                   userLandTarget={userLandTarget}
                   onLandTargetChange={handleLandTargetChange}
                   deckSize={deckSize}
