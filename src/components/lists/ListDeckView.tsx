@@ -40,6 +40,7 @@ import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, LoadPhase, SerializedEnrichment } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
 import { ThemePickerPopover } from './ThemePickerPopover';
+import { persistListThemes } from '@/services/lists/listThemes';
 import { TrimDeckDialog } from './TrimDeckDialog';
 import { FillDeckDialog } from './FillDeckDialog';
 import { Drawer } from '@/components/ui/drawer';
@@ -1959,13 +1960,24 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             />
           ) : (
             <div className="min-w-0">
-              <h2
-                className="text-lg font-bold truncate min-w-0 cursor-pointer hover:text-muted-foreground transition-colors"
-                onClick={() => { setNameInput(list.name); setEditingName(true); }}
-                title="Click to rename"
-              >
-                {list.name}
-              </h2>
+              <div className="flex items-center gap-2 min-w-0">
+                <h2
+                  className="text-lg font-bold truncate min-w-0 cursor-pointer hover:text-muted-foreground transition-colors"
+                  onClick={() => { setNameInput(list.name); setEditingName(true); }}
+                  title="Click to rename"
+                >
+                  {list.name}
+                </h2>
+                {list.type === 'deck' && list.commanderName && (
+                  <ThemePickerPopover
+                    themes={list.themes ?? []}
+                    onChange={(themes) => persistListThemes(updateList, list.id, themes[0] ?? null, themes[1] ?? null)}
+                    commanderName={list.commanderName}
+                    partnerCommanderName={list.partnerCommanderName}
+                    deckCards={allDeckCards}
+                  />
+                )}
+              </div>
               {list.generationSummary && (
                 <p className="text-xs text-muted-foreground truncate">{list.generationSummary}</p>
               )}
@@ -2382,17 +2394,6 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           </div>
         ) : (
         <>
-          {list.type === 'deck' && list.commanderName && (
-            <div className="flex items-center gap-2 mb-2">
-              <ThemePickerPopover
-                themes={list.themes ?? []}
-                onChange={(themes) => updateList(list.id, { themes: themes.length > 0 ? themes : undefined })}
-                commanderName={list.commanderName}
-                partnerCommanderName={list.partnerCommanderName}
-                deckCards={allDeckCards}
-              />
-            </div>
-          )}
         <DeckDisplay
           phasesDone={phasesDone}
           spellChromaDeckRef={list.id}

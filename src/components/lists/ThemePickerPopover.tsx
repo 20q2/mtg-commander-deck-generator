@@ -1,13 +1,13 @@
 import { useState, useCallback } from 'react';
 import { Tags, X, Loader2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import type { ScryfallCard, EDHRECTag, EDHRECCommanderData } from '@/types';
-import { fetchAllTags, fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
+import type { ScryfallCard, EDHRECCommanderData } from '@/types';
+import { fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
 import { detectThemes, type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { ThemeSearchList } from '@/components/theme/ThemeSearchList';
 
 export interface SelectedTheme { name: string; slug: string }
 
@@ -33,21 +33,18 @@ interface Detection {
 
 export function ThemePickerPopover({ themes, onChange, commanderName, partnerCommanderName, deckCards }: ThemePickerPopoverProps) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [allTags, setAllTags] = useState<EDHRECTag[]>([]);
+  const [detectionStarted, setDetectionStarted] = useState(false);
   const [detection, setDetection] = useState<Detection | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Lazy: taxonomy + detection load on first open, both fail-open.
+  // Lazy: detection runs on first open, fail-open. (Taxonomy loads inside ThemeSearchList.)
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
-    if (!next || allTags.length > 0) return;
+    if (!next || detectionStarted) return;
+    setDetectionStarted(true);
     setLoading(true);
     void (async () => {
       try {
-        const tags = await fetchAllTags();
-        setAllTags(tags);
-
         if (!commanderName) { setDetection(null); return; }
 
         // Same interpretation the Inspector uses: score the commander's top themes
@@ -80,7 +77,7 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
         setLoading(false);
       }
     })();
-  }, [allTags.length, commanderName, partnerCommanderName, deckCards]);
+  }, [detectionStarted, commanderName, partnerCommanderName, deckCards]);
 
   const addTheme = (t: SelectedTheme) => {
     if (themes.length >= MAX_THEMES || themes.some(s => s.slug === t.slug)) return;
@@ -95,9 +92,6 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
   const selectedSlugs = new Set(themes.map(t => t.slug));
   const guessSlugs = new Set((detection?.guess ?? []).map(m => m.theme.slug));
   const guessApplied = detection?.guess != null && detection.guess.every(m => selectedSlugs.has(m.theme.slug));
-  const filtered = query.trim()
-    ? allTags.filter(t => t.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 30)
-    : allTags.slice(0, 30);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -169,30 +163,12 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <Input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Search all EDHREC themes…"
-            className="h-8 text-xs"
-          />
-          <div className="max-h-48 overflow-y-auto space-y-0.5">
-            {filtered.map(t => (
-              <button
-                key={t.slug}
-                onClick={() => addTheme({ name: t.name, slug: t.slug })}
-                disabled={themes.length >= MAX_THEMES || selectedSlugs.has(t.slug)}
-                className="w-full flex items-center justify-between text-left rounded-md px-2 py-1 text-xs hover:bg-accent/40 disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <span>{t.name}</span>
-                <span className="text-muted-foreground/70 text-[11px]">{t.numDecks.toLocaleString()} decks</span>
-              </button>
-            ))}
-            {!loading && filtered.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2 py-1">No themes match "{query}"</div>
-            )}
-          </div>
-        </div>
+        <ThemeSearchList
+          enabled={open}
+          onPick={addTheme}
+          disabledSlugs={selectedSlugs}
+          disableAll={themes.length >= MAX_THEMES}
+        />
       </PopoverContent>
     </Popover>
   );
