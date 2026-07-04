@@ -429,13 +429,10 @@ export function LiftGraph(props: LiftGraphProps) {
         for (const [name, ties] of deg) if (!top || ties > top.ties) top = { name, ties };
         stats = { mode: 'deck', cardCount: deckCardsByName.size, tieCount: links.length, mostConnected: top };
       } else {
-        let best: GLink | null = null;
-        for (const l of links) if (!best || l.score > best.score) best = l;
         stats = {
           mode: 'candidates',
           bombCount: nodes.filter(n => n.kind === 'bomb').length,
           clusterCount: nodes.filter(n => n.kind === 'cluster').length,
-          topHit: best ? { name: nameOf(best.target), anchor: nameOf(best.source), lift: best.lift } : null,
         };
       }
       const cmdrs = [...commanderNames];   // Set preserves insertion order: commander first, partner second

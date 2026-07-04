@@ -48,8 +48,7 @@ export interface ShareLink {
 export type ShareStats =
   | { mode: 'deck'; cardCount: number; tieCount: number;
       mostConnected: { name: string; ties: number } | null }
-  | { mode: 'candidates'; bombCount: number; clusterCount: number;
-      topHit: { name: string; anchor: string; lift: number } | null };
+  | { mode: 'candidates'; bombCount: number; clusterCount: number };
 
 // ── Pure helpers (unit-tested) ──────────────────────────────────────────
 
@@ -67,7 +66,6 @@ export function buildStatsLine(s: ShareStats): string {
       `${s.bombCount} high-lift ${s.bombCount === 1 ? 'find' : 'finds'}`,
       `${s.clusterCount} ${s.clusterCount === 1 ? 'cluster' : 'clusters'}`,
     );
-    if (s.topHit) parts.push(`top: ${s.topHit.name} ${liftLabel(s.topHit.lift)} with ${s.topHit.anchor}`);
   }
   return parts.join(' · ');
 }
@@ -325,7 +323,7 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
   ctx.textAlign = 'left';
 
   // ── Encode + download. JPEG keeps the file a few hundred KB instead of multi-MB PNG. ──
-  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
   if (!blob) throw new Error('JPEG encoding failed');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

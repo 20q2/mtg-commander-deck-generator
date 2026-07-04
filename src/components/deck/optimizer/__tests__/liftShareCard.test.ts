@@ -17,14 +17,12 @@ describe('buildStatsLine', () => {
     expect(buildStatsLine({ mode: 'deck', cardCount: 100, tieCount: 1, mostConnected: null }))
       .toBe('100 cards · 1 synergy tie');
   });
-  it('builds the candidate-mode line with the top hit', () => {
-    expect(buildStatsLine({
-      mode: 'candidates', bombCount: 23, clusterCount: 31,
-      topHit: { name: 'Nettlecyst', anchor: 'Puresteel Paladin', lift: 18.2 },
-    })).toBe('23 high-lift finds · 31 clusters · top: Nettlecyst ×18.2 with Puresteel Paladin');
+  it('builds the candidate-mode line', () => {
+    expect(buildStatsLine({ mode: 'candidates', bombCount: 23, clusterCount: 31 }))
+      .toBe('23 high-lift finds · 31 clusters');
   });
   it('singularises one find / one cluster', () => {
-    expect(buildStatsLine({ mode: 'candidates', bombCount: 1, clusterCount: 1, topHit: null }))
+    expect(buildStatsLine({ mode: 'candidates', bombCount: 1, clusterCount: 1 }))
       .toBe('1 high-lift find · 1 cluster');
   });
 });
