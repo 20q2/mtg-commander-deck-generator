@@ -9,6 +9,7 @@ import type { ScryfallCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
+import { persistListThemes } from '@/services/lists/listThemes';
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
@@ -660,27 +661,43 @@ export function DeckOptimizer({
       );
       setThemeDetection(detection);
 
-      // If confident, enhance recommendations with theme data
-      if (detection.isConfident && detection.matchedThemes.length > 0) {
-        const bestSlug = detection.matchedThemes[0].theme.slug;
-        const bestThemeData = themeDataMap.get(bestSlug);
-        setPrimaryThemeSlug(bestSlug);
-        // If secondary theme detected, set it too
-        if (detection.hasSecondaryTheme && detection.matchedThemes.length >= 2) {
-          setSecondaryThemeSlug(detection.matchedThemes[1].theme.slug);
+      // Applied themes: the list's saved declaration wins; detection auto-applies
+      // only when nothing is saved. handleOptimize is reassigned to a ref every
+      // render, so savedThemes here is current at call time.
+      let appliedPrimary: string | null = null;
+      let appliedSecondary: string | null = null;
+      if (savedThemes && savedThemes.length > 0) {
+        appliedPrimary = savedThemes[0]?.slug ?? null;
+        appliedSecondary = savedThemes[1]?.slug ?? null;
+      } else if (detection.isConfident && detection.matchedThemes.length > 0) {
+        appliedPrimary = detection.matchedThemes[0].theme.slug;
+        appliedSecondary = detection.hasSecondaryTheme && detection.matchedThemes.length >= 2
+          ? detection.matchedThemes[1].theme.slug
+          : null;
+      }
+
+      if (appliedPrimary) {
+        setPrimaryThemeSlug(appliedPrimary);
+        if (appliedSecondary) setSecondaryThemeSlug(appliedSecondary);
+
+        // Saved themes may sit outside the detected top-8 — fetch on demand
+        // (fetchThemeData falls back to the archetype tag page).
+        let bestThemeData = themeDataMap.get(appliedPrimary);
+        if (!bestThemeData) {
+          try { bestThemeData = await fetchThemeData(appliedPrimary); } catch { /* both sources missing */ }
+        }
+        if (appliedSecondary && !themeDataCacheRef.current.has(appliedSecondary)) {
+          try { await fetchThemeData(appliedSecondary); } catch { /* membership just skips it */ }
         }
 
         if (bestThemeData) {
+          themeDataCacheRef.current.set(appliedPrimary, bestThemeData);
           themeEnhancedDataRef.current = bestThemeData;
 
-          // Build theme membership for plan score computation
-          const secondarySlugForMembership = detection.hasSecondaryTheme && detection.matchedThemes.length >= 2
-            ? detection.matchedThemes[1].theme.slug
-            : null;
-          const primaryThemeInfo = { slug: bestSlug, name: detection.matchedThemes[0].theme.name };
-          const secondaryThemeInfo = secondarySlugForMembership
-            ? { slug: secondarySlugForMembership, name: detection.matchedThemes[1].theme.name }
-            : null;
+          // Build theme membership for plan score computation. Name resolution
+          // must work for off-detection slugs, hence resolveThemeInfo.
+          const primaryThemeInfo = resolveThemeInfo(appliedPrimary) ?? { slug: appliedPrimary, name: appliedPrimary };
+          const secondaryThemeInfo = resolveThemeInfo(appliedSecondary);
           const themeMembershipForScore = buildThemeMembership(primaryThemeInfo, secondaryThemeInfo, themeDataCacheRef.current);
           const storedDeckForTheme = useStore.getState().generatedDeck;
 
@@ -987,7 +1004,13 @@ export function DeckOptimizer({
     setPrimaryThemeSlug(newPrimary);
     setSecondaryThemeSlug(newSecondary);
     await applyThemeSelection(newPrimary, newSecondary);
-  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection]);
+
+    // Persist the declaration to the saved list so the deck view (and the next
+    // analyze) share the same themes. No-op for pasted/generated sources.
+    if (sourceListId) {
+      persistListThemes(updateList, sourceListId, resolveThemeInfo(newPrimary), resolveThemeInfo(newSecondary));
+    }
+  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection, sourceListId, updateList, resolveThemeInfo]);
 
   // Context menu support
   const customization = useStore(s => s.customization);
