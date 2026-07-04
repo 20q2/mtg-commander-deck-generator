@@ -6,7 +6,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { loadTaggerData } from '@/services/tagger/client';
@@ -807,17 +807,37 @@ export function DeckOptimizer({
     } catch { /* silently fail */ }
   }, []);
 
-  // Fetch theme data helper (cached)
+  // Fetch theme data helper (cached). Commander+theme page first; when the commander
+  // has no EDHREC page for the theme (403 = not found), fall back to the color-filtered
+  // archetype tag page so ANY theme is pickable. Fallback inclusion percentages come
+  // from the archetype-wide population (systematically higher than commander-specific
+  // numbers) — the base-staple merge in the callers dampens the skew.
   const fetchThemeData = useCallback(async (slug: string) => {
     let data = themeDataCacheRef.current.get(slug);
     if (!data) {
-      data = partnerCommanderName
-        ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
-        : await fetchCommanderThemeData(commanderName, slug);
+      try {
+        data = partnerCommanderName
+          ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
+          : await fetchCommanderThemeData(commanderName, slug);
+      } catch {
+        const tagData = await fetchTagPageData(slug, colorIdentity ?? []);
+        if (!tagData) throw new Error(`No EDHREC data for theme "${slug}"`);
+        const baseStats = cachedEdhrecDataRef.current?.stats;
+        data = {
+          themes: [],
+          stats: baseStats ?? {
+            avgPrice: 0, numDecks: 0, deckSize: 81, manaCurve: {},
+            typeDistribution: { creature: 0, instant: 0, sorcery: 0, artifact: 0, enchantment: 0, land: 0, planeswalker: 0, battle: 0 },
+            landDistribution: { basic: 0, nonbasic: 0, total: 0 },
+          },
+          cardlists: tagData.cardlists,
+          similarCommanders: [],
+        };
+      }
       themeDataCacheRef.current.set(slug, data);
     }
     return data;
-  }, [commanderName, partnerCommanderName]);
+  }, [commanderName, partnerCommanderName, colorIdentity]);
 
   // Apply theme selection — uses theme data directly (base only when no themes selected)
   const applyThemeSelection = useCallback(async (primary: string | null, secondary: string | null) => {
