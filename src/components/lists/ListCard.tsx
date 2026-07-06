@@ -222,15 +222,16 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
         </div>
       )}
 
+      {/* Always-rendered one-line slot so every card in a row has the same height */}
+      <p className="text-xs text-muted-foreground/80 mb-1.5 truncate min-h-4">
+        {list.description || (list.primer ? stripMarkdown(list.primer) : ' ')}
+      </p>
+
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
         <span>{list.cards.length} cards</span>
         <span className="text-border">·</span>
         <span>{formatRelativeTime(list.updatedAt)}</span>
       </div>
-
-      {(list.description || list.primer) && (
-        <p className="text-xs text-muted-foreground/80 mb-3 line-clamp-2">{list.description || stripMarkdown(list.primer!)}</p>
-      )}
 
       {(() => {
         const themes = list.themes ?? [];
@@ -238,7 +239,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
         const isDeck = list.type === 'deck';
         if (themes.length === 0 && !hasTypeChips && previewCards.length === 0 && !isDeck) return null;
         return (
-          <div className="mt-auto -mx-4 -mb-3 px-4 py-2 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/40 flex flex-wrap items-center gap-1.5 min-h-[34px]">
+          <div className="mt-auto -mx-4 -mb-3 px-4 py-2 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/40 flex flex-nowrap items-center gap-1 min-h-[34px] overflow-hidden">
             {themes.length > 0 ? (
               themes.map(t => (
                 <span key={t.slug} className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 border border-violet-500/25 px-2.5 py-0.5 text-[11px] text-violet-300/90">
@@ -252,9 +253,9 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
                 .map(([type, count]) => (
                   <span
                     key={type}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30"
+                    className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] shrink-0 bg-accent/50 text-muted-foreground rounded border border-border/30"
                   >
-                    <CardTypeIcon type={type} size="sm" className="opacity-60 text-[10px]" />
+                    <CardTypeIcon type={type} size="sm" className="opacity-60 text-[9px]" />
                     {count}
                   </span>
                 ))
