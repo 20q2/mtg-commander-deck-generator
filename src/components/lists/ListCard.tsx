@@ -222,12 +222,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
         </div>
       )}
 
-      {/* Always-rendered one-line slot so every card in a row has the same height */}
-      <p className="text-xs text-muted-foreground/80 mb-1.5 truncate min-h-4">
-        {list.description || (list.primer ? stripMarkdown(list.primer) : ' ')}
-      </p>
-
-      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
         <span>{list.cards.length} cards</span>
         <span className="text-border">·</span>
         <span>{formatRelativeTime(list.updatedAt)}</span>
