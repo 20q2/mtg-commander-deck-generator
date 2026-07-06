@@ -186,14 +186,18 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
       className="rounded-xl border border-border/50 bg-card/70 hover:border-border transition-colors cursor-pointer group relative overflow-hidden flex flex-col"
       onClick={onClick}
     >
+      {/* One top-aligned art layer for the whole card: full strength in the banner
+          zone, washed down to a faint ghost behind the text/description area. */}
       {commanderArtUrl && (
-        <div className="relative aspect-[16/7] overflow-hidden shrink-0">
-          <img src={commanderArtUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-card/55 to-transparent to-45%" />
+        <div className="absolute inset-0 pointer-events-none">
+          <img src={commanderArtUrl} alt="" className="w-full h-full object-cover object-top" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent from-[30%] via-card/90 via-[52%] to-card/95" />
         </div>
       )}
+      <div className="relative flex flex-col flex-1">
+      {commanderArtUrl && <div className="aspect-[16/7] shrink-0" />}
       {colorIdentity && <ColorIdentityBar colorIdentity={colorIdentity} colorBreakdown={colorBreakdown} />}
-      <div className="relative flex flex-col flex-1 p-4 pb-3">
+      <div className="flex flex-col flex-1 p-4 pb-3">
       <div className="flex items-start justify-between mb-1">
         <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate pr-2 flex items-center gap-1.5 min-w-0">
           {isPinned && <Pin className="w-3 h-3 text-violet-300 shrink-0" aria-label="Pinned" />}
@@ -292,6 +296,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
           </div>
         </div>
       )}
+      </div>
       </div>
     </div>
   );
