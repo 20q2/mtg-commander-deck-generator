@@ -191,7 +191,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
       {commanderArtUrl && (
         <div className="absolute inset-0 pointer-events-none">
           <img src={commanderArtUrl} alt="" className="w-full h-full object-cover object-top" />
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent from-[30%] via-card/90 via-[52%] to-card/95" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent from-[30%] via-card/95 via-[52%] to-card" />
         </div>
       )}
       <div className="relative flex flex-col flex-1">
@@ -238,7 +238,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
         const isDeck = list.type === 'deck';
         if (themes.length === 0 && !hasTypeChips && previewCards.length === 0 && !isDeck) return null;
         return (
-          <div className="mt-auto -mx-4 -mb-3 px-4 py-2 bg-black/20 border-t border-border/40 flex flex-wrap items-center gap-1.5 min-h-[34px]">
+          <div className="mt-auto -mx-4 -mb-3 px-4 py-2 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/40 flex flex-wrap items-center gap-1.5 min-h-[34px]">
             {themes.length > 0 ? (
               themes.map(t => (
                 <span key={t.slug} className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 border border-violet-500/25 px-2.5 py-0.5 text-[11px] text-violet-300/90">
@@ -277,7 +277,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
       })()}
 
       {matchingCards && matchingCards.length > 0 && (
-        <div className="mt-2 -mx-4 -mb-3 px-4 py-2.5 bg-black/20 border-t border-border/60 rounded-b-xl">
+        <div className="mt-2 -mx-4 -mb-3 px-4 py-2.5 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/60 rounded-b-xl">
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
             <Search className="w-3 h-3" />
             <span>{matchingCards.length} matching card{matchingCards.length !== 1 ? 's' : ''}</span>
