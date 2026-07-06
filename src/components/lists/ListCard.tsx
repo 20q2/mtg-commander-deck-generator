@@ -197,8 +197,8 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
       <div className="relative flex flex-col flex-1">
       {commanderArtUrl && <div className="aspect-[16/7] shrink-0" />}
       {colorIdentity && <ColorIdentityBar colorIdentity={colorIdentity} colorBreakdown={colorBreakdown} />}
-      <div className="flex flex-col flex-1 p-4 pb-3">
-      <div className="flex items-start justify-between mb-1">
+      <div className="flex flex-col flex-1 px-4 pt-2.5 pb-2">
+      <div className="flex items-start justify-between mb-0.5">
         <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate pr-2 flex items-center gap-1.5 min-w-0">
           {isPinned && <Pin className="w-3 h-3 text-violet-300 shrink-0" aria-label="Pinned" />}
           <span className="truncate">{list.name}</span>
@@ -216,13 +216,13 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
       </div>
 
       {list.commanderName && (
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
           <CommanderIcon size={11} className="shrink-0" />
           <span className="truncate">{list.commanderName}{list.partnerCommanderName ? ` & ${list.partnerCommanderName}` : ''}</span>
         </div>
       )}
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1.5">
         <span>{list.cards.length} cards</span>
         <span className="text-border">·</span>
         <span>{formatRelativeTime(list.updatedAt)}</span>
@@ -234,7 +234,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
         const isDeck = list.type === 'deck';
         if (themes.length === 0 && !hasTypeChips && previewCards.length === 0 && !isDeck) return null;
         return (
-          <div className="mt-auto -mx-4 -mb-3 px-4 py-2 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/40 flex flex-nowrap items-center gap-1 min-h-[34px] overflow-hidden">
+          <div className="mt-auto -mx-4 -mb-2 px-4 py-2 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/40 flex flex-nowrap items-center gap-1 min-h-[34px] overflow-hidden">
             {themes.length > 0 ? (
               themes.map(t => (
                 <span key={t.slug} className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 border border-violet-500/25 px-2.5 py-0.5 text-[11px] text-violet-300/90">
@@ -273,7 +273,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
       })()}
 
       {matchingCards && matchingCards.length > 0 && (
-        <div className="mt-2 -mx-4 -mb-3 px-4 py-2.5 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/60 rounded-b-xl">
+        <div className="mt-2 -mx-4 -mb-2 px-4 py-2.5 bg-card bg-[linear-gradient(rgba(0,0,0,0.2),rgba(0,0,0,0.2))] border-t border-border/60 rounded-b-xl">
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
             <Search className="w-3 h-3" />
             <span>{matchingCards.length} matching card{matchingCards.length !== 1 ? 's' : ''}</span>
