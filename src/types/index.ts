@@ -529,6 +529,9 @@ export interface UserCardList {
   // Cached display data (computed on save to avoid Scryfall fetches on browse)
   cachedTypeBreakdown?: Record<string, number>;
   cachedColorIdentity?: string[];
+  /** Cards-per-color counts (multicolor cards count once per color) — drives the
+   *  proportional segment widths of the deck card's color identity bar. */
+  cachedColorBreakdown?: Record<string, number>;
   cachedCommanderArtUrl?: string;
   /** User-selected card name from list.cards to use as the backdrop art on
    *  the overview card. When unset, falls back to the first card with art. */

@@ -839,6 +839,7 @@ export function ListsPage() {
                 viewMode="grid"
                 typeBreakdown={list.cachedTypeBreakdown}
                 colorIdentity={list.cachedColorIdentity}
+                colorBreakdown={list.cachedColorBreakdown}
                 commanderArtUrl={list.cachedCommanderArtUrl ?? list.cachedListArtUrl}
                 matchingCards={matchingCardsMap[list.id]}
                 onClick={() => navigate(list.type === 'deck' ? `/decks/${list.id}` : `/lists/${list.id}`)}

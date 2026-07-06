@@ -34,7 +34,7 @@ async function computeCachedFields(
   cards: string[],
   commanderName?: string,
   heroCardName?: string,
-): Promise<Pick<UserCardList, 'cachedTypeBreakdown' | 'cachedColorIdentity' | 'cachedCommanderArtUrl' | 'cachedListArtUrl'>> {
+): Promise<Pick<UserCardList, 'cachedTypeBreakdown' | 'cachedColorIdentity' | 'cachedColorBreakdown' | 'cachedCommanderArtUrl' | 'cachedListArtUrl'>> {
   if (cards.length === 0) return {};
   try {
     const cardMap = await getCardsByNames(cards);
@@ -56,6 +56,17 @@ async function computeCachedFields(
       for (const c of card.color_identity ?? []) colors.add(c);
     }
     const colorIdentity: string[] = WUBRG.filter(c => colors.has(c));
+
+    // Cards-per-color counts (duplicates respected; multicolor counts once per
+    // color) — the identity bar sizes its segments proportionally from this.
+    const colorBreakdown: Record<string, number> = {};
+    for (const name of cards) {
+      const card = cardMap.get(name);
+      for (const c of card?.color_identity ?? []) {
+        const key = c.toUpperCase();
+        colorBreakdown[key] = (colorBreakdown[key] ?? 0) + 1;
+      }
+    }
 
     // Helper: extract art_crop with DFC fallback
     const artOf = (card: ScryfallCard | undefined): string | undefined => {
@@ -90,6 +101,7 @@ async function computeCachedFields(
     return {
       cachedTypeBreakdown: Object.keys(typeBreakdown).length > 0 ? typeBreakdown : undefined,
       cachedColorIdentity: colorIdentity,
+      cachedColorBreakdown: Object.keys(colorBreakdown).length > 0 ? colorBreakdown : undefined,
       cachedCommanderArtUrl: commanderArtUrl,
       cachedListArtUrl: listArtUrl,
     };
@@ -210,6 +222,7 @@ export function useUserLists() {
     const stale = sharedLists.filter(l =>
       l.cards.length > 0 && (
         l.cachedColorIdentity === undefined ||
+        l.cachedColorBreakdown === undefined ||
         (!l.commanderName && l.cachedListArtUrl === undefined)
       )
     );

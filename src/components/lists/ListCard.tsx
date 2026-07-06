@@ -13,6 +13,7 @@ interface ListCardProps {
   viewMode: 'grid' | 'list';
   typeBreakdown?: Record<string, number>;
   colorIdentity?: string[];
+  colorBreakdown?: Record<string, number>;
   commanderArtUrl?: string;
   matchingCards?: string[];
   onClick: () => void;
@@ -23,7 +24,7 @@ interface ListCardProps {
   onTogglePin?: () => void;
 }
 
-export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, commanderArtUrl, matchingCards, onClick, onEdit, onDuplicate, onExport, onDelete, onTogglePin }: ListCardProps) {
+export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBreakdown, commanderArtUrl, matchingCards, onClick, onEdit, onDuplicate, onExport, onDelete, onTogglePin }: ListCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -191,7 +192,7 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
           <div className="absolute inset-0 bg-gradient-to-t from-card/55 to-transparent to-45%" />
         </div>
       )}
-      {colorIdentity && <ColorIdentityBar colorIdentity={colorIdentity} />}
+      {colorIdentity && <ColorIdentityBar colorIdentity={colorIdentity} colorBreakdown={colorBreakdown} />}
       <div className="relative flex flex-col flex-1 p-4 pb-3">
       <div className="flex items-start justify-between mb-1">
         <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate pr-2 flex items-center gap-1.5 min-w-0">
