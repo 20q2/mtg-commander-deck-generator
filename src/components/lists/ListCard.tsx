@@ -1,7 +1,8 @@
 import type { UserCardList } from '@/types';
 import { CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { stripMarkdown, formatRelativeTime } from '@/lib/utils';
-import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search, Pin, PinOff } from 'lucide-react';
+import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search, Pin, PinOff, Tags } from 'lucide-react';
+import { ColorIdentityBar } from '@/components/theme/ColorIdentityBar';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -181,16 +182,17 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
 
   return (
     <div
-      className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 hover:border-border transition-colors cursor-pointer group relative overflow-hidden flex flex-col"
+      className="rounded-xl border border-border/50 bg-card/70 hover:border-border transition-colors cursor-pointer group relative overflow-hidden flex flex-col"
       onClick={onClick}
     >
       {commanderArtUrl && (
-        <div className="absolute inset-0 pointer-events-none">
-          <img src={commanderArtUrl} alt="" className="w-full h-full object-cover opacity-[0.24]" />
-          <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-transparent" />
+        <div className="relative aspect-[16/7] overflow-hidden shrink-0">
+          <img src={commanderArtUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-card/55 to-transparent to-45%" />
         </div>
       )}
-      <div className="relative flex flex-col flex-1">
+      {colorIdentity && <ColorIdentityBar colorIdentity={colorIdentity} />}
+      <div className="relative flex flex-col flex-1 p-4 pb-3">
       <div className="flex items-start justify-between mb-1">
         <h3 className="text-sm font-medium group-hover:text-primary transition-colors truncate pr-2 flex items-center gap-1.5 min-w-0">
           {isPinned && <Pin className="w-3 h-3 text-violet-300 shrink-0" aria-label="Pinned" />}
@@ -219,56 +221,58 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, command
         <span>{list.cards.length} cards</span>
         <span className="text-border">·</span>
         <span>{formatRelativeTime(list.updatedAt)}</span>
-        {colorIdentity && (
-          <>
-            <span className="text-border">·</span>
-            <span className="inline-flex items-center gap-0.5">
-              {colorIdentity.length > 0
-                ? colorIdentity.map(c => (
-                    <i key={c} className={`ms ms-${c.toLowerCase()} ms-cost text-xs`} />
-                  ))
-                : <i className="ms ms-c ms-cost text-xs" />
-              }
-            </span>
-          </>
-        )}
       </div>
 
       {(list.description || list.primer) && (
         <p className="text-xs text-muted-foreground/80 mb-3 line-clamp-2">{list.description || stripMarkdown(list.primer!)}</p>
       )}
 
-      {typeBreakdown && Object.keys(typeBreakdown).length > 0 ? (
-        <div className="flex flex-wrap gap-1 mt-auto">
-          {Object.entries(typeBreakdown)
-            .sort((a, b) => { const ai = TYPE_ORDER.indexOf(a[0]); const bi = TYPE_ORDER.indexOf(b[0]); return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi); })
-            .map(([type, count]) => (
-              <span
-                key={type}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30"
-              >
-                <CardTypeIcon type={type} size="sm" className="opacity-60 text-[10px]" />
-                {count}
-              </span>
-            ))}
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-1 mt-auto">
-          {previewCards.map(name => (
-            <span key={name} className="px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30 truncate max-w-[120px]">
-              {name}
-            </span>
-          ))}
-          {remainingCount > 0 && (
-            <span className="px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
-              +{remainingCount} more
-            </span>
-          )}
-        </div>
-      )}
+      {(() => {
+        const themes = list.themes ?? [];
+        const hasTypeChips = typeBreakdown && Object.keys(typeBreakdown).length > 0;
+        const isDeck = list.type === 'deck';
+        if (themes.length === 0 && !hasTypeChips && previewCards.length === 0 && !isDeck) return null;
+        return (
+          <div className="mt-auto -mx-4 -mb-3 px-4 py-2 bg-black/20 border-t border-border/40 flex flex-wrap items-center gap-1.5 min-h-[34px]">
+            {themes.length > 0 ? (
+              themes.map(t => (
+                <span key={t.slug} className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 border border-violet-500/25 px-2.5 py-0.5 text-[11px] text-violet-300/90">
+                  <Tags className="w-2.5 h-2.5" />
+                  {t.name}
+                </span>
+              ))
+            ) : hasTypeChips ? (
+              Object.entries(typeBreakdown)
+                .sort((a, b) => { const ai = TYPE_ORDER.indexOf(a[0]); const bi = TYPE_ORDER.indexOf(b[0]); return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi); })
+                .map(([type, count]) => (
+                  <span
+                    key={type}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30"
+                  >
+                    <CardTypeIcon type={type} size="sm" className="opacity-60 text-[10px]" />
+                    {count}
+                  </span>
+                ))
+            ) : previewCards.length > 0 ? (
+              <>
+                {previewCards.map(name => (
+                  <span key={name} className="px-1.5 py-0.5 text-[10px] bg-accent/50 text-muted-foreground rounded border border-border/30 truncate max-w-[120px]">
+                    {name}
+                  </span>
+                ))}
+                {remainingCount > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] text-muted-foreground/60">+{remainingCount} more</span>
+                )}
+              </>
+            ) : (
+              <span className="text-[11px] text-muted-foreground/60">No themes yet — pick one in the deck view</span>
+            )}
+          </div>
+        );
+      })()}
 
       {matchingCards && matchingCards.length > 0 && (
-        <div className="mt-2 -mx-4 -mb-4 px-4 py-2.5 bg-black/20 border-t border-border/60 rounded-b-xl">
+        <div className="mt-2 -mx-4 -mb-3 px-4 py-2.5 bg-black/20 border-t border-border/60 rounded-b-xl">
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
             <Search className="w-3 h-3" />
             <span>{matchingCards.length} matching card{matchingCards.length !== 1 ? 's' : ''}</span>
