@@ -101,6 +101,7 @@ export function fitTransform(
 
 const W = 1600, H = 1000, SCALE = 2;          // logical size; drawn at 2× → 3200×2000 px
 const HEADER_H = 100, FOOTER_H = 72, GRAPH_PAD = 56;
+const MARGIN = 30;                            // header/footer text inset — hug the corners, not float
 const ART_TIMEOUT_MS = 4000;
 
 /** Deterministic PRNG for the star grain — a fixed seed keeps every export identical. */
@@ -245,11 +246,11 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'hsl(212 22% 92%)';
   ctx.font = '700 40px Cinzel, serif';
-  ctx.fillText(title, 48, 58, W - 96);   // maxWidth squeezes long names instead of clipping
+  ctx.fillText(title, MARGIN, 52, W - MARGIN * 2);   // maxWidth squeezes long names instead of clipping
   ctx.font = '600 14px "Saira Condensed", sans-serif';
   ctx.fillStyle = mode === 'deck' ? 'hsl(262 83% 74% / 0.9)' : 'hsl(300 88% 70% / 0.9)';
   (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '4px';
-  ctx.fillText(label, 48, 84, W - 96);
+  ctx.fillText(label, MARGIN, 78, W - MARGIN * 2);
   (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0px';
 
   // ── Graph: auto-fit into the band between header and footer. Points are transformed by hand
@@ -305,20 +306,20 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
     ctx.restore();
   }
 
-  // ── Footer: stats line left; logo mark + wordmark right. ──
+  // ── Footer: stats line left; logo mark + wordmark right. Both hug their corners. ──
   ctx.fillStyle = 'hsl(215 20% 68%)';
   ctx.font = '500 15px Saira, sans-serif';
-  ctx.fillText(buildStatsLine(stats), 48, H - 30, W - 96 - 220);
+  ctx.fillText(buildStatsLine(stats), MARGIN, H - 26, W - MARGIN * 2 - 220);
   ctx.textAlign = 'right';
-  ctx.fillStyle = 'hsl(212 22% 86% / 0.85)';
+  ctx.fillStyle = 'hsl(212 22% 86% / 0.55)';
   ctx.font = '700 20px Cinzel, serif';
-  ctx.fillText('ManaFoundry', W - 48, H - 28);
+  ctx.fillText('ManaFoundry', W - MARGIN, H - 24);
   if (logo) {
     const markSize = 26;
     const textW = ctx.measureText('ManaFoundry').width;
     // Tint at 4× then downscale for a crisp silhouette; sit it just left of the wordmark.
-    ctx.drawImage(tintLogo(logo, markSize * 4, 'hsl(212 22% 86% / 0.9)'),
-      W - 48 - textW - markSize - 10, H - 28 - markSize + 5, markSize, markSize);
+    ctx.drawImage(tintLogo(logo, markSize * 4, 'hsl(212 22% 86% / 0.55)'),
+      W - MARGIN - textW - markSize - 10, H - 24 - markSize + 5, markSize, markSize);
   }
   ctx.textAlign = 'left';
 
