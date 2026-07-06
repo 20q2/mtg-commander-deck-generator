@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Plus, Check, CalendarDays, Crown, Tags } from 'lucide-react';
+import { Sparkles, Plus, Check, CalendarDays, Crown, Tags, List, LayoutGrid } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,13 @@ export function NewCardsTab({
 }: NewCardsTabProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [images, setImages] = useState<Map<string, ScryfallCard>>(new Map());
+  const [viewMode, _setViewMode] = useState<'list' | 'grid'>(
+    () => (localStorage.getItem('mtg-newcards-view-mode') as 'list' | 'grid') || 'list'
+  );
+  const setViewMode = (v: 'list' | 'grid') => {
+    localStorage.setItem('mtg-newcards-view-mode', v);
+    _setViewMode(v);
+  };
 
   const deckCardNames = useMemo(
     () => [...new Set([commanderName, partnerCommanderName, ...currentCards.map(c => c.name)].filter(Boolean) as string[])],
@@ -79,13 +86,33 @@ export function NewCardsTab({
           <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/25 shrink-0">
             <Sparkles className="w-4 h-4" />
           </span>
-          <div className="leading-tight min-w-0">
+          <div className="leading-tight min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-foreground">New cards for this deck</h3>
             <p className="text-xs text-muted-foreground/80">
               EDHREC's new-card lists for {commanderName}
               {intendedThemes && intendedThemes.length > 0 && <> and its {intendedThemes.join(' + ')} theme page{intendedThemes.length > 1 ? 's' : ''}</>}
               , plus recent sets — ranked by how strongly they play alongside the cards already in your deck.
             </p>
+          </div>
+          <div className="flex items-center gap-0.5 shrink-0 self-start rounded-lg border border-border/40 p-0.5">
+            <Button
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-7 w-7"
+              title="List view"
+              onClick={() => setViewMode('list')}
+            >
+              <List className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-7 w-7"
+              title="Grid view"
+              onClick={() => setViewMode('grid')}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </Button>
           </div>
         </div>
       </div>
@@ -112,7 +139,68 @@ export function NewCardsTab({
         </div>
       )}
 
-      {state.phase === 'done' && state.details.map(d => {
+      {/* Grid view: art-first tiles; the list view's reasoning lives in tooltips here */}
+      {state.phase === 'done' && viewMode === 'grid' && state.details.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {state.details.map(d => {
+            const card = images.get(d.name);
+            const img = card ? getCardImageUrl(card, 'normal') : null;
+            const added = addedCards.has(d.name);
+            const fitPct = maxFit > 0 ? Math.round((d.liftFit / maxFit) * 100) : 0;
+            return (
+              <div key={d.name} className="bg-card/60 border border-border/30 rounded-lg p-2 flex flex-col gap-2 group">
+                <button
+                  type="button"
+                  onClick={() => onPreview(d.name)}
+                  title={d.name}
+                  className="relative w-full aspect-[5/7] rounded-md overflow-hidden bg-violet-500/10 border border-border/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+                >
+                  {img
+                    ? <img src={img} alt={d.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                    : <div className="absolute inset-0 animate-pulse bg-violet-500/10" />}
+                  {/* Source badges, icon-only */}
+                  <span className="absolute top-1 left-1 flex gap-1">
+                    {d.sources.includes('commander') && (
+                      <span className="bg-violet-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title={`New for ${commanderName.split(',')[0]}`}>
+                        <Crown className="w-2.5 h-2.5" />
+                      </span>
+                    )}
+                    {d.matchedThemes.length > 0 && (
+                      <span className="bg-violet-500/60 text-white rounded-full w-5 h-5 flex items-center justify-center" title={d.matchedThemes.join(' + ')}>
+                        <Tags className="w-2.5 h-2.5" />
+                      </span>
+                    )}
+                    {d.sources.includes('recent-set') && (
+                      <span className="bg-amber-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Recent set">
+                        <CalendarDays className="w-2.5 h-2.5" />
+                      </span>
+                    )}
+                  </span>
+                </button>
+                <div
+                  className="flex items-center gap-1.5"
+                  title={`Deck fit ${fitPct}%${typeof d.synergy === 'number' ? ` · ${d.synergy >= 0 ? '+' : ''}${Math.round(d.synergy * 100)}% synergy` : ''}${d.inclusion > 0 ? ` · in ${Math.round(d.inclusion)}% of decks` : ''}${d.topEdges.length > 0 ? ` · plays with ${d.topEdges.map(e => e.deckCard).join(', ')}` : ''}`}
+                >
+                  <div className="h-1.5 flex-1 rounded-full bg-border/40 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-violet-500/60 to-violet-400" style={{ width: `${fitPct}%` }} />
+                  </div>
+                </div>
+                <Button
+                  variant={added ? 'ghost' : 'outline'}
+                  size="sm"
+                  disabled={added}
+                  className="w-full h-7"
+                  onClick={() => onAdd(d.name)}
+                >
+                  {added ? <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Added</> : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {state.phase === 'done' && viewMode === 'list' && state.details.map(d => {
         const card = images.get(d.name);
         const img = card ? getCardImageUrl(card, 'small') : null;
         const added = addedCards.has(d.name);
