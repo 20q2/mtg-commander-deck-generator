@@ -77,7 +77,9 @@ export function shareFilename(commanderName: string, partnerName?: string): stri
   return `manafoundry-lift-web-${slug(commanderName)}${partnerName ? `-${slug(partnerName)}` : ''}.jpg`;
 }
 
-/** Fit the node bounds into a target rect with padding: screen = sim × k + t. Zoom capped at 2. */
+/** Fit the node bounds into a target rect with padding: screen = sim × k + t. Zoom capped so a
+ *  compact web fills the card instead of floating small in the middle (was 2, felt too zoomed-out). */
+const MAX_FIT_ZOOM = 3.4;
 export function fitTransform(
   pts: { x: number; y: number; r: number }[],
   rect: { x: number; y: number; w: number; h: number },
@@ -89,7 +91,7 @@ export function fitTransform(
     minX = Math.min(minX, p.x - p.r); maxX = Math.max(maxX, p.x + p.r);
     minY = Math.min(minY, p.y - p.r); maxY = Math.max(maxY, p.y + p.r);
   }
-  const k = Math.min(2, (rect.w - pad * 2) / (maxX - minX || 1), (rect.h - pad * 2) / (maxY - minY || 1));
+  const k = Math.min(MAX_FIT_ZOOM, (rect.w - pad * 2) / (maxX - minX || 1), (rect.h - pad * 2) / (maxY - minY || 1));
   return {
     k,
     tx: rect.x + rect.w / 2 - ((minX + maxX) / 2) * k,
@@ -100,7 +102,7 @@ export function fitTransform(
 // ── Canvas renderer ─────────────────────────────────────────────────────
 
 const W = 1600, H = 1000, SCALE = 2;          // logical size; drawn at 2× → 3200×2000 px
-const HEADER_H = 100, FOOTER_H = 72, GRAPH_PAD = 56;
+const HEADER_H = 100, FOOTER_H = 72, GRAPH_PAD = 32;
 const MARGIN = 30;                            // header/footer text inset — hug the corners, not float
 const ART_TIMEOUT_MS = 4000;
 

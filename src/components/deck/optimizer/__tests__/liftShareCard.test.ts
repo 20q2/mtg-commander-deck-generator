@@ -49,9 +49,9 @@ describe('fitTransform', () => {
     expect(50 * k + tx).toBeCloseTo(100);                                // bounds centre → rect centre x
     expect(0 * k + ty).toBeCloseTo(150);                                 // bounds centre → rect centre y
   });
-  it('caps zoom at 2 for tiny graphs', () => {
+  it('caps zoom at the max for tiny graphs', () => {
     const { k } = fitTransform([{ x: 0, y: 0, r: 5 }], { x: 0, y: 0, w: 1000, h: 1000 }, 50);
-    expect(k).toBe(2);
+    expect(k).toBe(3.4);
   });
   it('returns identity-ish transform for an empty node list', () => {
     expect(fitTransform([], { x: 0, y: 0, w: 100, h: 100 }, 10)).toEqual({ k: 1, tx: 50, ty: 50 });
