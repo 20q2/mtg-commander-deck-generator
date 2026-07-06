@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Plus, Check, CalendarDays, Crown, Tags, List, LayoutGrid } from 'lucide-react';
+import { Newspaper, Plus, Check, CalendarDays, Crown, Tags, List, LayoutGrid } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { Button } from '@/components/ui/button';
@@ -84,7 +84,7 @@ export function NewCardsTab({
       <div className="bg-card/60 border border-border/30 rounded-lg p-4 sm:p-5">
         <div className="flex items-center gap-2.5">
           <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/25 shrink-0">
-            <Sparkles className="w-4 h-4" />
+            <Newspaper className="w-4 h-4" />
           </span>
           <div className="leading-tight min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-foreground">New cards for this deck</h3>
@@ -133,7 +133,7 @@ export function NewCardsTab({
 
       {state.phase === 'done' && state.details.length === 0 && (
         <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
-          <Sparkles className="w-6 h-6 text-violet-300/60 mx-auto mb-2" />
+          <Newspaper className="w-6 h-6 text-violet-300/60 mx-auto mb-2" />
           <p className="text-sm text-foreground/90">Nothing new for this deck right now.</p>
           <p className="text-xs text-muted-foreground/80 mt-1">Check back after the next set drops — this list tracks EDHREC's new-card data as it moves.</p>
         </div>

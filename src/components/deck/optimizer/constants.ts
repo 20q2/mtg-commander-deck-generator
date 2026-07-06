@@ -1,7 +1,7 @@
 import {
   Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
   LayoutDashboard, Mountain, BarChart3, Zap, Target, Crown,
-  MapPin, Clock, Gauge, DollarSign, Wand2, ChartNetwork,
+  MapPin, Clock, Gauge, DollarSign, Wand2, ChartNetwork, Newspaper,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import type { CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
@@ -78,7 +78,7 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'cost',     label: 'Cost',     icon: DollarSign as typeof LayoutDashboard },
   { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
   { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
-  { key: 'newCards', label: 'New Cards', icon: Sparkles as typeof LayoutDashboard },
+  { key: 'newCards', label: 'New Cards', icon: Newspaper as typeof LayoutDashboard },
 ];
 
 // URL slug <-> TabKey mapping. Slugs follow the user-facing labels

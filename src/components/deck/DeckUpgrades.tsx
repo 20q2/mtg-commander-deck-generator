@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, Plus, ArrowRight, X } from 'lucide-react';
+import { Newspaper, Plus, ArrowRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
@@ -52,7 +52,7 @@ export function DeckUpgrades({ newCards, onApply, onMarkSeen, onExplore }: DeckU
       <div className="relative flex items-center justify-between mb-3.5">
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/25">
-            <Sparkles className="w-4 h-4" />
+            <Newspaper className="w-4 h-4" />
           </span>
           <div className="leading-tight">
             <p className="text-sm font-semibold text-violet-100/95">New cards for this deck</p>
