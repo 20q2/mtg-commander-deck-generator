@@ -102,7 +102,7 @@ export function fitTransform(
 // ── Canvas renderer ─────────────────────────────────────────────────────
 
 const W = 1600, H = 1000, SCALE = 2;          // logical size; drawn at 2× → 3200×2000 px
-const HEADER_H = 100, FOOTER_H = 72, GRAPH_PAD = 32;
+const GRAPH_PAD = 40;   // inset from the card edge — the graph fills the whole canvas behind the corner text
 const MARGIN = 30;                            // header/footer text inset — hug the corners, not float
 const ART_TIMEOUT_MS = 4000;
 
@@ -255,9 +255,11 @@ export async function exportLiftShareCard(opts: ShareCardOptions): Promise<void>
   ctx.fillText(label, MARGIN, 78, W - MARGIN * 2);
   (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0px';
 
-  // ── Graph: auto-fit into the band between header and footer. Points are transformed by hand
+  // ── Graph: auto-fit over the WHOLE canvas, not the band between header and footer — the title
+  // and footer are just text in the corners, so the constellation floats behind them and fills the
+  // card instead of being squished into the middle third. Points are transformed by hand
   // (screen = sim×k + t) so line widths and glow sizes stay screen-constant like the live SVG. ──
-  const rect = { x: 0, y: HEADER_H, w: W, h: H - HEADER_H - FOOTER_H };
+  const rect = { x: 0, y: 0, w: W, h: H };
   const { k, tx, ty } = fitTransform(nodes, rect, GRAPH_PAD);
   const px = (x: number) => x * k + tx;
   const py = (y: number) => y * k + ty;
