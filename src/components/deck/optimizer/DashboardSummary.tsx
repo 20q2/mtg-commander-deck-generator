@@ -1,9 +1,12 @@
 // src/components/deck/optimizer/DashboardSummary.tsx
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { HeroScore } from './dashboard/HeroScore';
 import { SubScoreTile } from './dashboard/SubScoreTile';
+import { SynergyWebTile } from './dashboard/SynergyWebTile';
 import { StrategyDrillIn } from './dashboard/StrategyDrillIn';
 import { NextBestMove } from './dashboard/NextBestMove';
+import { useDeckConnectivity } from '@/hooks/useDeckConnectivity';
+import { buildMiniSynergyGraph } from '@/components/charts/MiniSynergyWeb';
 import type {
   ScryfallCard, EDHRECCommanderData, DashboardWarning, SubScoreKey, DetectedCombo,
 } from '@/types';
@@ -12,7 +15,7 @@ import type { ThemeMembership } from '@/components/analyze/themeMembership';
 import type { TabKey } from './constants';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Target, Shield, BarChart3, Wand2 } from 'lucide-react';
+import { Target, Shield, BarChart3 } from 'lucide-react';
 import { isAnyLand } from '@/services/scryfall/client';
 import { Radar, type RadarDatum } from '@/components/charts/Radar';
 import { MiniCurve } from '@/components/charts/MiniCurve';
@@ -111,7 +114,10 @@ export interface DashboardSummaryProps {
   bentoSlot?: ReactNode;
 }
 
-const SUBSCORE_META: Record<SubScoreKey, {
+// The Card Fit subscore still computes and feeds the overall score, but its dashboard slot is now
+// the Synergy Web tile (rendered separately) — so it's omitted from the scored-tile map here.
+type ScoredKey = Exclude<SubScoreKey, 'cardFit'>;
+const SUBSCORE_META: Record<ScoredKey, {
   label: string;
   navigateTo: TabKey | null; // null = inline expand (Strategy)
   Icon: LucideIcon;
@@ -119,7 +125,6 @@ const SUBSCORE_META: Record<SubScoreKey, {
   strategy: { label: 'Strategy', navigateTo: null, Icon: Target },
   roles: { label: 'Roles', navigateTo: 'roles', Icon: Shield },
   tempo: { label: 'Tempo', navigateTo: 'curve', Icon: BarChart3 },
-  cardFit: { label: 'Card Fit', navigateTo: 'optimize', Icon: Wand2 },
 };
 
 export function DashboardSummary(props: DashboardSummaryProps) {
@@ -184,18 +189,10 @@ export function DashboardSummary(props: DashboardSummaryProps) {
       ? `Lightest: ${weakestPhaseEntry.p.phase} game (${weakestPhaseEntry.p.current} vs ${weakestPhaseEntry.p.target})`
       : undefined;
 
-  // Card Fit hint: worst misfit or top gap
-  const cardFitHint = misfits[0]
-    ? `Worst fit: ${misfits[0].card.name}`
-    : gapAnalysis[0]
-    ? `Top miss: ${gapAnalysis[0].name}`
-    : undefined;
-
-  const hints: Record<SubScoreKey, string | undefined> = {
+  const hints: Record<ScoredKey, string | undefined> = {
     strategy: strategyHint,
     roles: rolesHint,
     tempo: tempoHint,
-    cardFit: cardFitHint,
   };
 
   // ── Tile visuals ──────────────────────────────────────────────────────
@@ -209,12 +206,27 @@ export function DashboardSummary(props: DashboardSummaryProps) {
   const tempoVisual = curveData.length > 0
     ? <MiniCurve curve={curveData} barHeight={64} variant="line" />
     : undefined;
-  const visuals: Record<SubScoreKey, React.ReactNode> = {
+  const visuals: Record<ScoredKey, React.ReactNode> = {
     strategy: themeVisual,
     roles: roleVisual,
     tempo: tempoVisual,
-    cardFit: undefined,
   };
+
+  // ── Synergy Web tile (4th slot) ───────────────────────────────────────
+  const { deckLinks, loading: synergyLoading } = useDeckConnectivity({
+    enabled: true,
+    commanderName: commander.name,
+    partnerCommanderName: partnerCommander?.name,
+    cards,
+  });
+  const commanderNames = useMemo(
+    () => new Set([commander.name, partnerCommander?.name].filter(Boolean) as string[]),
+    [commander, partnerCommander],
+  );
+  const synergyGraph = useMemo(
+    () => (deckLinks ? buildMiniSynergyGraph(cards, deckLinks, commanderNames) : null),
+    [cards, deckLinks, commanderNames],
+  );
 
   const deckExcess = deckTarget != null ? cards.length - deckTarget : 0;
 
@@ -250,7 +262,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         fallback={bentoSlot}
       />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-stretch">
-        {(Object.keys(SUBSCORE_META) as SubScoreKey[]).map((key, i) => {
+        {(Object.keys(SUBSCORE_META) as ScoredKey[]).map((key, i) => {
           const meta = SUBSCORE_META[key];
           return (
             <div key={key} className="cascade-in flex" style={{ '--cascade-i': i } as React.CSSProperties}>
@@ -268,6 +280,13 @@ export function DashboardSummary(props: DashboardSummaryProps) {
             </div>
           );
         })}
+        <div className="cascade-in flex" style={{ '--cascade-i': 3 } as React.CSSProperties}>
+          <SynergyWebTile
+            graph={synergyGraph}
+            loading={synergyLoading}
+            onClick={() => onNavigate('lift')}
+          />
+        </div>
       </div>
       {strategyOpen && (
         <StrategyDrillIn
