@@ -225,24 +225,36 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSeq]);
 
+  // Cards on the exclude list ("banned") never belong in the lab — drop them from the pool entirely
+  // (graph + list) and count how many we hid, to note in the "X of Y" readout.
+  const bannedNames = props.menuProps.bannedNames;
+  const excludedCount = useMemo(
+    () => graphCandidates.reduce((n, c) => n + (bannedNames.has(c.card.name) ? 1 : 0), 0),
+    [graphCandidates, bannedNames],
+  );
+  const visibleCandidates = useMemo(
+    () => (excludedCount ? graphCandidates.filter(c => !bannedNames.has(c.card.name)) : graphCandidates),
+    [graphCandidates, bannedNames, excludedCount],
+  );
+
   // Deck cards that anchor at least one hit — the pool for the "pairs with" picker.
   const anchorNames = useMemo(() => {
     const s = new Set<string>();
-    for (const c of graphCandidates) for (const e of c.edges) if (graph.deckCardsByName.has(e.seed)) s.add(e.seed);
+    for (const c of visibleCandidates) for (const e of c.edges) if (graph.deckCardsByName.has(e.seed)) s.add(e.seed);
     return [...s].sort((a, b) => a.localeCompare(b));
-  }, [graphCandidates, graph.deckCardsByName]);
+  }, [visibleCandidates, graph.deckCardsByName]);
 
   // Only surface the "Hide thin data" toggle when the scan actually contains low-confidence hits —
   // computed over the full candidate pool (not the filtered one) so the toggle doesn't vanish on use.
   const hasThinData = useMemo(
-    () => graphCandidates.some(c => c.bestNumDecks < CONFIDENCE_FLOOR),
-    [graphCandidates],
+    () => visibleCandidates.some(c => c.bestNumDecks < CONFIDENCE_FLOOR),
+    [visibleCandidates],
   );
 
   // Hard filters drop candidates from the lab outright, so the graph never plots them (even while dimming).
   const keptCandidates = useMemo(
-    () => graphCandidates.filter(c => passesHardFilters(c, filters, collectionNames)),
-    [graphCandidates, bombNameSet, filters, collectionNames],
+    () => visibleCandidates.filter(c => passesHardFilters(c, filters, collectionNames)),
+    [visibleCandidates, bombNameSet, filters, collectionNames],
   );
   // Soft-filter matches among what survives — drives the graph's dim/hide and slices the list.
   const matchedNames = useMemo(() => {
@@ -317,7 +329,8 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
               anchorNames={anchorNames}
               deckCardsByName={graph.deckCardsByName}
               matched={matchedNames.size}
-              total={graphCandidates.length}
+              total={visibleCandidates.length}
+              excluded={excludedCount}
               showThin={hasThinData}
               hasCollection={collectionNames.size > 0}
               viewMode={viewMode}
@@ -404,7 +417,7 @@ const TYPE_OPTS: { key: TypeFilter; label: string; Icon?: typeof Zap }[] = [
 
 /** The Lift Web filter bar — type/deck view picker, pairs-with anchors, quality toggles, graph/list. */
 function LiftFilterBar({
-  filters, patch, anchorNames, deckCardsByName, matched, total,
+  filters, patch, anchorNames, deckCardsByName, matched, total, excluded,
   showThin, hasCollection, viewMode, setViewMode,
 }: {
   filters: LiftFilters;
@@ -413,6 +426,7 @@ function LiftFilterBar({
   deckCardsByName: Map<string, ScryfallCard>;
   matched: number;
   total: number;
+  excluded: number;        // cards hidden because they're on the exclude list — noted beside the count
   showThin: boolean;       // only render "Hide thin data" when the scan actually has thin hits
   hasCollection: boolean;  // only render "In collection" when the user has a collection imported
   viewMode: 'list' | 'graph';
@@ -525,7 +539,10 @@ function LiftFilterBar({
           equivalent), so it drops the count and the toggle rather than offering a dead-end List view. */}
       {filters.type !== 'deck' && (
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          <span className="text-[11px] text-muted-foreground tabular-nums">{matched} of {total}</span>
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {matched} of {total}
+            {excluded > 0 && <span className="text-muted-foreground/70"> · {excluded} excluded</span>}
+          </span>
           <div className="inline-flex items-center rounded-full border border-border/60 bg-card/40 p-0.5 text-[11px]">
             <button onClick={() => setViewMode('graph')} className={seg(viewMode === 'graph')} title="Star-map view">
               <Share2 className="w-3 h-3" /> Graph
