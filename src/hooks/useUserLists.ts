@@ -118,6 +118,7 @@ interface CreateListOptions {
   primer?: string;
   generationSummary?: string;
   usedThemes?: string[];
+  themes?: Array<{ name: string; slug: string }>;
   heroCardName?: string;
 }
 
@@ -248,6 +249,7 @@ export function useUserLists() {
       primer: options?.primer,
       generationSummary: options?.generationSummary,
       usedThemes: options?.usedThemes,
+      themes: options?.themes,
       heroCardName: options?.heroCardName,
       createdAt: now,
       updatedAt: now,

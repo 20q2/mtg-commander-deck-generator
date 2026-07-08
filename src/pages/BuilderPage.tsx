@@ -1196,12 +1196,22 @@ export function BuilderPage() {
                         if (customization.scryfallQuery) summaryParts.push(`Query: ${customization.scryfallQuery}`);
                         const generationSummary = summaryParts.length > 0 ? summaryParts.join(' · ') : undefined;
 
+                        // Tag the saved deck with the themes it was generated with
+                        // (name + slug) so its card shows them and they drive
+                        // theme-aware enrichment. Capped at 2, matching the picker.
+                        const savedThemes = selectedThemes
+                          .filter(t => t.isSelected && t.slug)
+                          .map(t => ({ name: t.name, slug: t.slug! }))
+                          .slice(0, 2);
+
                         const newList = createList(deckName, allCards, '', {
                           type: 'deck',
                           commanderName: commander?.name,
                           partnerCommanderName: partnerCommander?.name,
                           deckSize: allCards.length,
                           generationSummary,
+                          usedThemes: generatedDeck.usedThemes?.length ? generatedDeck.usedThemes : undefined,
+                          themes: savedThemes.length > 0 ? savedThemes : undefined,
                         });
                         trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
                         setSavedListId(newList.id);

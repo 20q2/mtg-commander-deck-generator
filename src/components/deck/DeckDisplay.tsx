@@ -4843,6 +4843,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           if (customization.comboCount === 3) summaryParts.push('Combo-heavy');
           if (customization.scryfallQuery) summaryParts.push(`Query: ${customization.scryfallQuery}`);
 
+          // Tag the saved deck with the themes it was generated with, so its deck
+          // card shows them and they drive theme-aware enrichment. usedThemes is
+          // names only; slugs come from the store's selected themes (what
+          // generation actually ran with). Resolvable names only, capped at 2.
+          const storeThemes = useStore.getState().selectedThemes;
+          const themes = (generatedDeck?.usedThemes ?? [])
+            .map(themeName => {
+              const match = storeThemes.find(t => t.name === themeName && t.slug);
+              return match?.slug ? { name: themeName, slug: match.slug } : null;
+            })
+            .filter((t): t is { name: string; slug: string } => t !== null)
+            .slice(0, 2);
+
           const newList = createList(name, cards, '', {
             type: 'deck',
             commanderName: commander?.name,
@@ -4850,6 +4863,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             deckSize: cards.length,
             generationSummary: summaryParts.length > 0 ? summaryParts.join(' · ') : undefined,
             usedThemes: generatedDeck?.usedThemes?.length ? generatedDeck.usedThemes : undefined,
+            themes: themes.length > 0 ? themes : undefined,
           });
           trackEvent('list_created', { listName: name, cardCount: cards.length });
           setSavedListId(newList.id);
