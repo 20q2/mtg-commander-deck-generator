@@ -613,6 +613,9 @@ interface BombGroupData { anchor: string; anchorCard?: ScryfallCard; items: Lift
  *  so you can fold a whole anchor away and skim past it. */
 function BombGroup({ group, tabProps }: { group: BombGroupData; tabProps: LiftClustersTabProps }) {
   const [collapsed, setCollapsed] = useState(false);
+  // Hover the anchor thumbnail → magnified preview of the card you're pairing against.
+  const anchorImgRef = useRef<HTMLImageElement | null>(null);
+  const [anchorHovered, setAnchorHovered] = useState(false);
   return (
     <div className="rounded-xl border border-border/50 bg-card/20 overflow-hidden">
       <button
@@ -623,10 +626,13 @@ function BombGroup({ group, tabProps }: { group: BombGroupData; tabProps: LiftCl
       >
         <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />
         <img
+          ref={anchorImgRef}
           src={(group.anchorCard && getCardImageUrl(group.anchorCard, 'small')) || scryfallImg(group.anchor)}
           alt={group.anchor}
           className="w-6 h-auto rounded shadow-sm shrink-0"
           loading="lazy"
+          onMouseEnter={() => setAnchorHovered(true)}
+          onMouseLeave={() => setAnchorHovered(false)}
           onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(group.anchor); }}
         />
         <span className="text-xs text-muted-foreground truncate">
@@ -636,6 +642,7 @@ function BombGroup({ group, tabProps }: { group: BombGroupData; tabProps: LiftCl
           {group.items.length} {group.items.length === 1 ? 'hit' : 'hits'}
         </span>
       </button>
+      {anchorHovered && group.anchorCard && <MagnifiedPreview card={group.anchorCard} anchorRef={anchorImgRef} />}
       {!collapsed && (
         <div className="grid gap-2.5 p-2.5 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
           {group.items.map(c => <LiftCandidateTile key={c.card.name} candidate={c} mode="bomb" {...tabProps} />)}
@@ -651,20 +658,10 @@ function LiftCandidateTile({
   candidate, mode, onAdd, addedCards, onPreview, onCardAction, menuProps,
 }: { candidate: LiftCandidate; mode: 'bomb' | 'cluster' } & LiftClustersTabProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  // Hover → an even larger magnified preview, anchored to the tile's image. A short delay keeps it
-  // from flickering while the cursor scans across the grid.
+  // Hover → an even larger magnified preview, anchored to the tile's image. Fires immediately —
+  // the tile already shows the full card, so there's nothing to protect against with a delay.
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [hovered, setHovered] = useState(false);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startHover = () => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => setHovered(true), 220);
-  };
-  const endHover = () => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    setHovered(false);
-  };
-  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
   const { card, connectionCount, bestNumDecks, edges } = candidate;
   const added = addedCards.has(card.name);
   const lowConf = bestNumDecks < CONFIDENCE_FLOOR;
@@ -687,8 +684,8 @@ function LiftCandidateTile({
         type="button"
         className="relative block cursor-pointer"
         onClick={() => onPreview(card.name)}
-        onMouseEnter={startHover}
-        onMouseLeave={endHover}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         title={card.name}
       >
         <img
