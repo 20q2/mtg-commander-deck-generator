@@ -1428,7 +1428,125 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       useStore.setState({ generatedDeck: null, deckHistory: [] });
       resetTheme();
     };
-  }, [list.id, refreshCounter, themesKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    // themesKey is deliberately NOT a dep: a themes-only change re-enriches in
+    // place (see the themes effect above) instead of triggering a full rebuild.
+  }, [list.id, refreshCounter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-enrich the already-loaded deck cards in place (no skeleton, no Scryfall
+  // refetch, no tagger/combo rebuild) and patch the store + cache. Shared by the
+  // incremental card-change path and the themes-only path.
+  const reEnrichInPlace = useCallback(async (allDeckCards: ScryfallCard[]) => {
+    const currentDeck = useStore.getState().generatedDeck;
+    if (!currentDeck) return;
+
+    const stats = computeStatsFromCards(allDeckCards);
+
+    // Re-evaluate combo completeness
+    const allDeckNames = new Set<string>();
+    if (currentDeck.commander) {
+      allDeckNames.add(currentDeck.commander.name);
+      if (currentDeck.commander.name.includes(' // ')) allDeckNames.add(currentDeck.commander.name.split(' // ')[0]);
+    }
+    if (currentDeck.partnerCommander) {
+      allDeckNames.add(currentDeck.partnerCommander.name);
+      if (currentDeck.partnerCommander.name.includes(' // ')) allDeckNames.add(currentDeck.partnerCommander.name.split(' // ')[0]);
+    }
+    for (const c of allDeckCards) {
+      allDeckNames.add(c.name);
+      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
+    }
+    const detectedCombos = rawCombosRef.current.length > 0
+      ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
+      : currentDeck.detectedCombos;
+
+    const enrichResult = await enrichDeckCards(
+      allDeckCards,
+      list.deckSize || list.cards.length,
+      detectedCombos,
+      currentDeck.commander?.name,
+      currentDeck.partnerCommander?.name,
+      list.themes,
+    );
+
+    useStore.setState({
+      generatedDeck: {
+        ...currentDeck,
+        categories: enrichResult.categories,
+        stats,
+        detectedCombos,
+        roleCounts: enrichResult.roleCounts,
+        roleTargets: enrichResult.roleTargets,
+        rampSubtypeCounts: enrichResult.rampSubtypeCounts,
+        removalSubtypeCounts: enrichResult.removalSubtypeCounts,
+        boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
+        cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+        protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
+        bracketEstimation: enrichResult.bracketEstimation,
+        gameChangerNames: enrichResult.gameChangerNames,
+        cardInclusionMap: enrichResult.cardInclusionMap,
+        cardSynergyMap: enrichResult.cardSynergyMap,
+        cardRelevancyMap: enrichResult.cardRelevancyMap,
+        cardEdhrecMetaMap: enrichResult.cardEdhrecMetaMap,
+        deckScore: enrichResult.deckScore,
+        swapCandidates: enrichResult.swapCandidates,
+        gapAnalysis: enrichResult.gapAnalysis,
+        edhrecCurve: enrichResult.edhrecCurve,
+        edhrecTypes: enrichResult.edhrecTypes,
+      },
+    });
+
+    // Persist the freshly-enriched payload so next open is instant.
+    const payload: SerializedEnrichment = {
+      commanderCard: currentDeck.commander,
+      partnerCard: currentDeck.partnerCommander,
+      deckCards: allDeckCards,
+      sideboardCards,
+      maybeboardCards,
+      stats,
+      categories: enrichResult.categories,
+      roleCounts: enrichResult.roleCounts,
+      roleTargets: enrichResult.roleTargets,
+      rampSubtypeCounts: enrichResult.rampSubtypeCounts,
+      removalSubtypeCounts: enrichResult.removalSubtypeCounts,
+      boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
+      cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
+      protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
+      bracketEstimation: enrichResult.bracketEstimation,
+      gameChangerNames: enrichResult.gameChangerNames,
+      cardInclusionMap: enrichResult.cardInclusionMap,
+      cardSynergyMap: enrichResult.cardSynergyMap,
+      cardRelevancyMap: enrichResult.cardRelevancyMap,
+      cardEdhrecMetaMap: enrichResult.cardEdhrecMetaMap,
+      deckScore: enrichResult.deckScore,
+      gapAnalysis: enrichResult.gapAnalysis,
+      swapCandidates: enrichResult.swapCandidates,
+      edhrecCurve: enrichResult.edhrecCurve,
+      edhrecTypes: enrichResult.edhrecTypes,
+      detectedCombos,
+      rawCombos: rawCombosRef.current,
+    };
+    await writeEnrichmentCache({
+      listId: list.id,
+      commanderName: list.commanderName ?? null,
+      partnerName: list.partnerCommanderName ?? null,
+      contentHash: computeContentHash(listHashInput(list)),
+      cachedAt: Date.now(),
+      lastAccessed: Date.now(),
+      payload,
+    });
+  }, [list, sideboardCards, maybeboardCards]);
+
+  // Themes-only change — re-run enrichment (EDHREC maps + swaps + archetype
+  // blend) against the cards already in the store. No skeleton, no refetch.
+  const prevThemesKeyRef = useRef(themesKey);
+  useEffect(() => {
+    if (!isInitialLoadDone.current) return;
+    if (themesKey === prevThemesKeyRef.current) return;
+    prevThemesKeyRef.current = themesKey;
+    const deck = useStore.getState().generatedDeck;
+    if (!deck) return;
+    void reEnrichInPlace(Object.values(deck.categories).flat());
+  }, [themesKey, reEnrichInPlace]);
 
   // Incremental update — patch deck in-place when cards change (no full reload)
   useEffect(() => {
@@ -1484,119 +1602,17 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       return result;
     };
 
-    // Helper: re-enrich all cards and update store
-    const reEnrich = async (allDeckCards: ScryfallCard[]) => {
-      const currentDeck = useStore.getState().generatedDeck;
-      if (!currentDeck) return;
-
-      const stats = computeStatsFromCards(allDeckCards);
-
-      // Re-evaluate combo completeness
-      const allDeckNames = new Set<string>();
-      if (currentDeck.commander) {
-        allDeckNames.add(currentDeck.commander.name);
-        if (currentDeck.commander.name.includes(' // ')) allDeckNames.add(currentDeck.commander.name.split(' // ')[0]);
-      }
-      if (currentDeck.partnerCommander) {
-        allDeckNames.add(currentDeck.partnerCommander.name);
-        if (currentDeck.partnerCommander.name.includes(' // ')) allDeckNames.add(currentDeck.partnerCommander.name.split(' // ')[0]);
-      }
-      for (const c of allDeckCards) {
-        allDeckNames.add(c.name);
-        if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-      }
-      const detectedCombos = rawCombosRef.current.length > 0
-        ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
-        : currentDeck.detectedCombos;
-
-      const enrichResult = await enrichDeckCards(
-        allDeckCards,
-        list.deckSize || list.cards.length,
-        detectedCombos,
-        currentDeck.commander?.name,
-        currentDeck.partnerCommander?.name,
-        list.themes,
-      );
-
-      useStore.setState({
-        generatedDeck: {
-          ...currentDeck,
-          categories: enrichResult.categories,
-          stats,
-          detectedCombos,
-          roleCounts: enrichResult.roleCounts,
-          roleTargets: enrichResult.roleTargets,
-          rampSubtypeCounts: enrichResult.rampSubtypeCounts,
-          removalSubtypeCounts: enrichResult.removalSubtypeCounts,
-          boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
-          cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
-          protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
-          bracketEstimation: enrichResult.bracketEstimation,
-          gameChangerNames: enrichResult.gameChangerNames,
-          cardInclusionMap: enrichResult.cardInclusionMap,
-          cardSynergyMap: enrichResult.cardSynergyMap,
-          cardRelevancyMap: enrichResult.cardRelevancyMap,
-          cardEdhrecMetaMap: enrichResult.cardEdhrecMetaMap,
-          deckScore: enrichResult.deckScore,
-          swapCandidates: enrichResult.swapCandidates,
-          gapAnalysis: enrichResult.gapAnalysis,
-          edhrecCurve: enrichResult.edhrecCurve,
-          edhrecTypes: enrichResult.edhrecTypes,
-        },
-      });
-
-      // Persist the freshly-enriched payload so next open is instant.
-      const payload: SerializedEnrichment = {
-        commanderCard: currentDeck.commander,
-        partnerCard: currentDeck.partnerCommander,
-        deckCards: allDeckCards,
-        sideboardCards,
-        maybeboardCards,
-        stats,
-        categories: enrichResult.categories,
-        roleCounts: enrichResult.roleCounts,
-        roleTargets: enrichResult.roleTargets,
-        rampSubtypeCounts: enrichResult.rampSubtypeCounts,
-        removalSubtypeCounts: enrichResult.removalSubtypeCounts,
-        boardwipeSubtypeCounts: enrichResult.boardwipeSubtypeCounts,
-        cardDrawSubtypeCounts: enrichResult.cardDrawSubtypeCounts,
-        protectionSubtypeCounts: enrichResult.protectionSubtypeCounts,
-        bracketEstimation: enrichResult.bracketEstimation,
-        gameChangerNames: enrichResult.gameChangerNames,
-        cardInclusionMap: enrichResult.cardInclusionMap,
-        cardSynergyMap: enrichResult.cardSynergyMap,
-        cardRelevancyMap: enrichResult.cardRelevancyMap,
-        cardEdhrecMetaMap: enrichResult.cardEdhrecMetaMap,
-        deckScore: enrichResult.deckScore,
-        gapAnalysis: enrichResult.gapAnalysis,
-        swapCandidates: enrichResult.swapCandidates,
-        edhrecCurve: enrichResult.edhrecCurve,
-        edhrecTypes: enrichResult.edhrecTypes,
-        detectedCombos,
-        rawCombos: rawCombosRef.current,
-      };
-      await writeEnrichmentCache({
-        listId: list.id,
-        commanderName: list.commanderName ?? null,
-        partnerName: list.partnerCommanderName ?? null,
-        contentHash: computeContentHash(listHashInput(list)),
-        cachedAt: Date.now(),
-        lastAccessed: Date.now(),
-        payload,
-      });
-    };
-
     if (newlyAdded.length > 0) {
       const uniqueNew = [...new Set(newlyAdded)];
       getCardsByNames(uniqueNew).then(cardMap => {
-        reEnrich(buildDeckCards(cardMap));
+        reEnrichInPlace(buildDeckCards(cardMap));
       });
       return;
     }
 
     // Removals or quantity changes only — no fetch needed
-    reEnrich(buildDeckCards());
-  }, [list.cards]);
+    reEnrichInPlace(buildDeckCards());
+  }, [list.cards]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Separate effect for board-only changes (lighter than full rebuild)
   useEffect(() => {
