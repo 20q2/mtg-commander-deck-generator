@@ -96,10 +96,14 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
-          <Tags className="w-3.5 h-3.5 text-violet-300/80" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 h-7 px-2 text-muted-foreground hover:text-foreground hover:bg-accent/40 border border-transparent hover:border-border/40"
+        >
+          <Tags className="w-3.5 h-3.5 text-violet-300/70" />
           {themes.length > 0
-            ? <span className="text-xs">{themes.map(t => t.name).join(' + ')}</span>
+            ? <span className="text-xs text-violet-200/90">{themes.map(t => t.name).join(' + ')}</span>
             : <span className="text-xs hidden sm:inline">Theme</span>}
         </Button>
       </PopoverTrigger>
