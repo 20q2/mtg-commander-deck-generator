@@ -10,7 +10,7 @@ import { ListCreateEditForm } from '@/components/lists/ListCreateEditForm';
 import { PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info, Pin, Ban } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info, Pin, Ban, Tags } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
@@ -73,7 +73,10 @@ export function ListsPage() {
   const setViewModePersisted = useCallback((mode: 'grid' | 'list') => { setViewMode(mode); localStorage.setItem('mtg-lists-view-mode', mode); }, []);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [tagFilter, setTagFilter] = useState<string>('');
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const toggleTag = useCallback((tag: string) => {
+    setTagFilters(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
   // Debug override — driven by the in-detail-view color filter so we can
@@ -130,8 +133,9 @@ export function ListsPage() {
         l.cards.some(c => c.toLowerCase().includes(q))
       );
     }
-    if (tagFilter) {
-      filtered = filtered.filter(l => (l.themes ?? []).some(t => t.name === tagFilter));
+    if (tagFilters.length > 0) {
+      // OR semantics — a deck shows if it carries any selected tag.
+      filtered = filtered.filter(l => (l.themes ?? []).some(t => tagFilters.includes(t.name)));
     }
     // First theme name, lowercased, for tag sort. Untagged → '' (sinks to bottom).
     const firstTag = (l: UserCardList) => (l.themes?.[0]?.name ?? '').toLowerCase();
@@ -154,7 +158,7 @@ export function ListsPage() {
       else cmp = a.updatedAt - b.updatedAt;
       return sortDir === 'desc' ? -cmp : cmp;
     });
-  }, [lists, searchQuery, tagFilter, currentView.kind, sortKey, sortDir]);
+  }, [lists, searchQuery, tagFilters, currentView.kind, sortKey, sortDir]);
 
   // Distinct theme names across the current view's decks, alphabetized — powers
   // the tag filter dropdown. Empty when nothing in view is tagged.
@@ -167,11 +171,14 @@ export function ListsPage() {
     return [...names].sort((a, b) => a.localeCompare(b));
   }, [lists, currentView.kind]);
 
-  // A tag filter that no longer matches anything in view (deck deleted, retagged,
-  // switched deck/list tabs) would silently hide everything — clear it.
+  // Drop any selected tags that no longer exist in view (deck deleted, retagged,
+  // switched deck/list tabs) so a stale filter can't silently hide everything.
   useEffect(() => {
-    if (tagFilter && !availableTags.includes(tagFilter)) setTagFilter('');
-  }, [availableTags, tagFilter]);
+    setTagFilters(prev => {
+      const next = prev.filter(t => availableTags.includes(t));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [availableTags]);
 
   const matchingCardsMap = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -805,17 +812,6 @@ export function ListsPage() {
               ] : []),
             ]}
           />
-          {availableTags.length > 0 && (
-            <Select
-              value={tagFilter}
-              onChange={(e) => setTagFilter(e.target.value)}
-              className="h-9 text-sm w-40"
-              options={[
-                { value: '', label: 'All tags' },
-                ...availableTags.map(t => ({ value: t, label: t })),
-              ]}
-            />
-          )}
           <div className="flex items-center gap-1 border border-border/50 rounded-lg p-0.5">
             <button
               onClick={() => setViewModePersisted('grid')}
@@ -832,6 +828,40 @@ export function ListsPage() {
               <List className="w-4 h-4" />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Tag toggles — pick any combination to narrow the grid (OR) */}
+      {availableTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-5">
+          <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70 mr-1">
+            <Tags className="w-3.5 h-3.5" /> Tags
+          </span>
+          {availableTags.map(tag => {
+            const active = tagFilters.includes(tag);
+            return (
+              <button
+                key={tag}
+                onClick={() => toggleTag(tag)}
+                aria-pressed={active}
+                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs border transition-colors ${
+                  active
+                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-200'
+                    : 'bg-card/60 border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
+                }`}
+              >
+                {tag}
+              </button>
+            );
+          })}
+          {tagFilters.length > 0 && (
+            <button
+              onClick={() => setTagFilters([])}
+              className="text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors ml-1"
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
 
