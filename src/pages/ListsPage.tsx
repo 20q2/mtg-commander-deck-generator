@@ -16,7 +16,7 @@ import { getAuroraColors } from '@/lib/commanderTheme';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
 import type { BanList, UserCardList } from '@/types';
 
-type SortKey = 'updatedAt' | 'name' | 'size';
+type SortKey = 'updatedAt' | 'name' | 'size' | 'tag';
 type SortDir = 'asc' | 'desc';
 
 // Reserved IDs for pseudo-lists backed by Zustand customization (not useUserLists).
@@ -73,6 +73,7 @@ export function ListsPage() {
   const setViewModePersisted = useCallback((mode: 'grid' | 'list') => { setViewMode(mode); localStorage.setItem('mtg-lists-view-mode', mode); }, []);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [tagFilter, setTagFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCount, setCopiedCount] = useState<number | null>(null);
   // Debug override — driven by the in-detail-view color filter so we can
@@ -125,9 +126,15 @@ export function ListsPage() {
       filtered = filtered.filter(l =>
         l.name.toLowerCase().includes(q) ||
         l.description.toLowerCase().includes(q) ||
+        (l.themes ?? []).some(t => t.name.toLowerCase().includes(q)) ||
         l.cards.some(c => c.toLowerCase().includes(q))
       );
     }
+    if (tagFilter) {
+      filtered = filtered.filter(l => (l.themes ?? []).some(t => t.name === tagFilter));
+    }
+    // First theme name, lowercased, for tag sort. Untagged → '' (sinks to bottom).
+    const firstTag = (l: UserCardList) => (l.themes?.[0]?.name ?? '').toLowerCase();
     return [...filtered].sort((a, b) => {
       // Pinned items always come first, ordered by most-recently-pinned
       if (a.pinnedAt && !b.pinnedAt) return -1;
@@ -136,10 +143,35 @@ export function ListsPage() {
       let cmp = 0;
       if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
       else if (sortKey === 'size') cmp = a.cards.length - b.cards.length;
+      else if (sortKey === 'tag') {
+        // Untagged decks always sort last regardless of direction.
+        const ta = firstTag(a), tb = firstTag(b);
+        if (!ta && !tb) cmp = 0;
+        else if (!ta) return 1;
+        else if (!tb) return -1;
+        else cmp = ta.localeCompare(tb);
+      }
       else cmp = a.updatedAt - b.updatedAt;
       return sortDir === 'desc' ? -cmp : cmp;
     });
-  }, [lists, searchQuery, currentView.kind, sortKey, sortDir]);
+  }, [lists, searchQuery, tagFilter, currentView.kind, sortKey, sortDir]);
+
+  // Distinct theme names across the current view's decks, alphabetized — powers
+  // the tag filter dropdown. Empty when nothing in view is tagged.
+  const availableTags = useMemo(() => {
+    const base = currentView.kind === 'deck'
+      ? lists.filter(l => l.type === 'deck')
+      : lists.filter(l => l.type !== 'deck');
+    const names = new Set<string>();
+    for (const l of base) for (const t of l.themes ?? []) names.add(t.name);
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [lists, currentView.kind]);
+
+  // A tag filter that no longer matches anything in view (deck deleted, retagged,
+  // switched deck/list tabs) would silently hide everything — clear it.
+  useEffect(() => {
+    if (tagFilter && !availableTags.includes(tagFilter)) setTagFilter('');
+  }, [availableTags, tagFilter]);
 
   const matchingCardsMap = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -767,8 +799,23 @@ export function ListsPage() {
               { value: 'name-desc', label: 'Name Z-A' },
               { value: 'size-desc', label: 'Most cards' },
               { value: 'size-asc', label: 'Fewest cards' },
+              ...(availableTags.length > 0 ? [
+                { value: 'tag-asc', label: 'Tag A-Z' },
+                { value: 'tag-desc', label: 'Tag Z-A' },
+              ] : []),
             ]}
           />
+          {availableTags.length > 0 && (
+            <Select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              className="h-9 text-sm w-40"
+              options={[
+                { value: '', label: 'All tags' },
+                ...availableTags.map(t => ({ value: t, label: t })),
+              ]}
+            />
+          )}
           <div className="flex items-center gap-1 border border-border/50 rounded-lg p-0.5">
             <button
               onClick={() => setViewModePersisted('grid')}
