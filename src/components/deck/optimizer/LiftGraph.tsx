@@ -473,9 +473,19 @@ export function LiftGraph(props: LiftGraphProps) {
     const idKey = nodes.map(n => n.id).sort().join('');
     const sameSet = idKey === prevIdsRef.current;
     prevIdsRef.current = idKey;
+    // Seed positions. Known cards restore to where they settled; genuinely NEW cards drop near the
+    // canvas centre (with a little jitter) rather than d3's default origin (0,0 — the top-left corner),
+    // so they ease into the existing cloud instead of flying in from the corner and shredding the
+    // layout. `newCount` then tells us how hard to reheat below.
+    let newCount = 0;
     for (const n of nodes) {
       const p = posRef.current.get(n.id);
       if (p) { n.x = p.x; n.y = p.y; }
+      else {
+        n.x = w / 2 + (Math.random() - 0.5) * 80;
+        n.y = h / 2 + (Math.random() - 0.5) * 80;
+        newCount++;
+      }
     }
     // Big decks need more shove to break the central blob into islands — scale repulsion with size.
     const spread = clamp(nodes.length / 80, 1, 1.7);
@@ -512,10 +522,19 @@ export function LiftGraph(props: LiftGraphProps) {
     } else {
       sim.force('center', forceCenter(w / 2, h / 2));
     }
-    if (sameSet) sim.alpha(0.4);   // recheck: gentle re-settle from the prior layout, not a cold start
+    // Reheat proportional to what actually changed, so re-entering a filter doesn't scatter the map:
+    //  • identical id set (re-click / recheck) → FREEZE at the restored layout (no perturbation — this
+    //    is what stops the "click All again → everything drifts apart" ratchet).
+    //  • same cards, just re-entered → a tiny nudge.
+    //  • a few new cards joining a known layout → moderate, mostly-local settle.
+    //  • brand-new layout (first load, nothing restored) → leave alpha at its default 1 (cold start).
+    const fresh = newCount === nodes.length;
+    if (sameSet) sim.alpha(0);
+    else if (newCount === 0) sim.alpha(0.3);
+    else if (!fresh) sim.alpha(0.6);
     simRef.current = sim;
-    // Only auto-fit a fresh layout; on a recheck keep the player's current camera/zoom.
-    const fitTimer = sameSet ? null : window.setTimeout(fitView, 900);
+    // Only auto-fit a genuinely fresh layout; re-entering/refining keeps the player's camera/zoom.
+    const fitTimer = fresh ? window.setTimeout(fitView, 900) : null;
     return () => {
       sim.stop();
       if (fitTimer) window.clearTimeout(fitTimer);
