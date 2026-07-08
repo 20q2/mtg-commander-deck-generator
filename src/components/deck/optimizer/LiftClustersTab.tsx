@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChartNetwork, Plus, Check, Zap, Network, List, Share2, Anchor, Search, X, Link2, Flame, Layers, Unlink, Mountain, Loader2 } from 'lucide-react';
+import { ChartNetwork, Plus, Check, Zap, Network, List, Share2, Anchor, Search, X, Link2, Flame, Layers, Unlink, Mountain, Loader2, Package } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl } from '@/services/scryfall/client';
+import { useCollection } from '@/hooks/useCollection';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
@@ -69,19 +70,21 @@ interface LiftFilters {
   type: TypeFilter;        // bombs / clusters / both / deck
   hideStaples: boolean;    // drop broadly-played good-stuff (bombs only)
   hideThin: boolean;       // drop low-confidence "thin data" hits
+  collectionOnly: boolean; // keep only cards you own in your collection
   hideIslands: boolean;    // (deck mode) drop "islands" — cards with no synergy tie to anything (default on)
   hideLands: boolean;      // (deck mode) drop lands — only offered once islands are shown
 }
-const EMPTY_FILTERS: LiftFilters = { anchors: new Set(), type: 'all', hideStaples: false, hideThin: false, hideIslands: true, hideLands: false };
+const EMPTY_FILTERS: LiftFilters = { anchors: new Set(), type: 'all', hideStaples: false, hideThin: false, collectionOnly: false, hideIslands: true, hideLands: false };
 
 // Hard filters — "Spice only" / "Hide thin data" / "Pairs with" REMOVE a candidate from the lab entirely
 // (out of both the list and the graph, regardless of the graph's dim/hide mode). "Pairs with" is a
 // focusing action — pick a deck card and the lab narrows to just the tech tied to it — so it belongs here
 // rather than merely dimming everything else (which, since each bomb has one anchor, fades nearly all of them).
-function passesHardFilters(c: LiftCandidate, f: LiftFilters): boolean {
+function passesHardFilters(c: LiftCandidate, f: LiftFilters, collectionNames?: Set<string>): boolean {
   if (f.hideThin && c.bestNumDecks < CONFIDENCE_FLOOR) return false;
   if (f.hideStaples && isStaple(c.edges)) return false;  // drop broadly-played good-stuff (any card, not just bombs)
   if (f.anchors.size && !c.edges.some(e => f.anchors.has(e.seed))) return false;
+  if (f.collectionOnly && !collectionNames?.has(c.card.name)) return false;  // only cards you own
   return true;
 }
 
@@ -95,6 +98,17 @@ function candidateMatches(_c: LiftCandidate, isBomb: boolean, f: LiftFilters): b
 export function LiftClustersTab(props: LiftClustersTabProps) {
   const { currentCards, commander, partnerCommander, commanderName, partnerCommanderName, colorIdentity } = props;
   const [state, setState] = useState<ScanState>({ phase: 'idle' });
+  // Owned-card names for the "In collection" filter. Mirror getCollectionNameSet: include the
+  // front-face name of DFCs too, since EDHREC-sourced candidates often carry the front face only.
+  const { cards: collectionCards } = useCollection();
+  const collectionNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of collectionCards) {
+      s.add(c.name);
+      if (c.name.includes(' // ')) s.add(c.name.split(' // ')[0]);
+    }
+    return s;
+  }, [collectionCards]);
   // A re-scan when results are already on screen: keep the graph up (don't blank to the progress bar,
   // which would unmount the canvas and drop fullscreen). Just spin the Recheck button.
   const [rechecking, setRechecking] = useState(false);
@@ -227,8 +241,8 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
 
   // Hard filters drop candidates from the lab outright, so the graph never plots them (even while dimming).
   const keptCandidates = useMemo(
-    () => graphCandidates.filter(c => passesHardFilters(c, filters)),
-    [graphCandidates, bombNameSet, filters],
+    () => graphCandidates.filter(c => passesHardFilters(c, filters, collectionNames)),
+    [graphCandidates, bombNameSet, filters, collectionNames],
   );
   // Soft-filter matches among what survives — drives the graph's dim/hide and slices the list.
   const matchedNames = useMemo(() => {
@@ -304,6 +318,7 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
               matched={matchedNames.size}
               total={graphCandidates.length}
               showThin={hasThinData}
+              hasCollection={collectionNames.size > 0}
               viewMode={viewMode}
               setViewMode={setViewMode}
             />
@@ -410,7 +425,7 @@ const TYPE_OPTS: { key: TypeFilter; label: string; Icon?: typeof Zap }[] = [
 /** The Lift Web filter bar — type/deck view picker, pairs-with anchors, quality toggles, graph/list. */
 function LiftFilterBar({
   filters, patch, anchorNames, deckCardsByName, matched, total,
-  showThin, viewMode, setViewMode,
+  showThin, hasCollection, viewMode, setViewMode,
 }: {
   filters: LiftFilters;
   patch: (p: Partial<LiftFilters>) => void;
@@ -419,6 +434,7 @@ function LiftFilterBar({
   matched: number;
   total: number;
   showThin: boolean;       // only render "Hide thin data" when the scan actually has thin hits
+  hasCollection: boolean;  // only render "In collection" when the user has a collection imported
   viewMode: 'list' | 'graph';
   setViewMode: (m: 'list' | 'graph') => void;
 }) {
@@ -500,6 +516,12 @@ function LiftFilterBar({
             <button onClick={() => patch({ hideThin: !filters.hideThin })} className={chip(filters.hideThin)}
               title="Hide low-confidence hits based on only a few shared decks">
               Hide thin data
+            </button>
+          )}
+          {hasCollection && (
+            <button onClick={() => patch({ collectionOnly: !filters.collectionOnly })} className={chip(filters.collectionOnly)}
+              title="Show only cards you own in your collection">
+              <Package className="w-3 h-3" /> In collection
             </button>
           )}
         </>
