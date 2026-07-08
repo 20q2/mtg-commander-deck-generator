@@ -5,6 +5,7 @@ import {
   LIFT_SCAN_CACHE,
   liftDeckKey,
   buildLiftScanInputs,
+  type DeckLink,
 } from '@/services/optimizer/liftClusters';
 
 interface UseDeckConnectivityOpts {
@@ -19,6 +20,8 @@ interface UseDeckConnectivityOpts {
 interface UseDeckConnectivityResult {
   /** Per-card deck-internal synergy connectivity, or null until a scan resolves. */
   connectivity: Record<string, number> | null;
+  /** Deck↔deck ties from the same scan (used to draw the synergy web), or null until resolved. */
+  deckLinks: DeckLink[] | null;
   loading: boolean;
 }
 
@@ -35,7 +38,7 @@ export function useDeckConnectivity(opts: UseDeckConnectivityOpts): UseDeckConne
     () => liftDeckKey(commanderName, partnerCommanderName, cards),
     [commanderName, partnerCommanderName, cards],
   );
-  const [state, setState] = useState<UseDeckConnectivityResult>({ connectivity: null, loading: false });
+  const [state, setState] = useState<UseDeckConnectivityResult>({ connectivity: null, deckLinks: null, loading: false });
 
   useEffect(() => {
     if (!enabled) return;
@@ -43,23 +46,23 @@ export function useDeckConnectivity(opts: UseDeckConnectivityOpts): UseDeckConne
 
     const cached = LIFT_SCAN_CACHE.get(deckKey);
     if (cached?.connectivity) {
-      setState({ connectivity: cached.connectivity, loading: false });
+      setState({ connectivity: cached.connectivity, deckLinks: cached.deckLinks, loading: false });
       return;
     }
     if (cards.length === 0) {
-      setState({ connectivity: null, loading: false });
+      setState({ connectivity: null, deckLinks: null, loading: false });
       return;
     }
 
-    setState(s => ({ connectivity: s.connectivity, loading: true }));
+    setState(s => ({ connectivity: s.connectivity, deckLinks: s.deckLinks, loading: true }));
     const inputs = buildLiftScanInputs({ commanderName, partnerCommanderName, currentCards: cards });
     scanLiftCandidates({ ...inputs, isCancelled: () => cancelled })
       .then(result => {
         if (cancelled) return;
         LIFT_SCAN_CACHE.set(deckKey, result);
-        setState({ connectivity: result.connectivity, loading: false });
+        setState({ connectivity: result.connectivity, deckLinks: result.deckLinks, loading: false });
       })
-      .catch(() => { if (!cancelled) setState({ connectivity: null, loading: false }); });
+      .catch(() => { if (!cancelled) setState({ connectivity: null, deckLinks: null, loading: false }); });
 
     return () => { cancelled = true; };
     // deckKey captures commander/partner/cards; the rest are stable for a given key.
