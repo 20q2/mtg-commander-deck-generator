@@ -211,6 +211,11 @@ export function DeckOptimizer({
   // each render to surface a "dirty" indicator on the Re-analyze button
   // when the deck has changed since the last analysis snapshot.
   const [analyzedCardKey, setAnalyzedCardKey] = useState<string>('');
+  // Card key of the last FULL analysis (handleOptimize with theme merge).
+  // Unlike analyzedCardKey this is NOT refreshed by the baseOnly re-runs
+  // that fire on card add/remove, so it tracks how stale the theme-merged
+  // overview really is.
+  const fullAnalyzedCardKeyRef = useRef<string>('');
   // Auto-trigger the initial analysis once on mount so users don't have to
   // click "Analyze Deck" every time the page loads.
   const hasAutoAnalyzedRef = useRef(false);
@@ -616,6 +621,7 @@ export function DeckOptimizer({
       }
 
       detectedPacingRef.current = baseResult.pacing;
+      fullAnalyzedCardKeyRef.current = currentCards.map(c => c.name).join('\0');
       setAnalysis(baseResult);
       setAddedCards(new Set());
       setLoading(false); // Dashboard visible NOW
@@ -780,6 +786,22 @@ export function DeckOptimizer({
     hasAutoAnalyzedRef.current = true;
     handleOptimizeRef.current?.();
   }, [commanderName, analysis, loading]);
+
+  // Coming (back) to the Overview tab re-runs the full analysis when the deck
+  // has changed since the last full pass. Card edits made from other tabs only
+  // trigger the baseOnly re-run below (no theme merge), so the overview's
+  // grade and theme-biased numbers go stale. EDHREC data is already cached at
+  // this point, so the refresh is near-instant.
+  useEffect(() => {
+    if (activeTab !== 'overview') return;
+    if (!analysis || loading) return;
+    const cardKey = currentCards.map(c => c.name).join('\0');
+    if (cardKey === fullAnalyzedCardKeyRef.current) return;
+    handleOptimizeRef.current?.();
+  // Fire only on tab switches — card edits made while ON overview are already
+  // reflected instantly by the baseOnly effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // Re-run analysis when cards change (add/remove). Runs synchronously on
   // each card-key change so the role panel updates instantly. Skips theme
@@ -1712,7 +1734,7 @@ export function DeckOptimizer({
         </div>
       </div>
 
-      <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
+      <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} spellChromaDeckRef={sourceListId ?? 'generated'} />
     </div>
   );
 }

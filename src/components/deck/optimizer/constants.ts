@@ -232,6 +232,16 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   'Tapland': Clock as typeof Sparkles,
 };
 
+// Keyed by the exact bucket labels produced by grouping.ts's roleBucket()
+// (Ramp / Removal / Boardwipe / Card Draw / Protection). 'Other' has no icon.
+export const ROLE_GROUP_ICONS: Record<string, { icon: typeof Sparkles }> = {
+  Ramp:        { icon: Sprout as typeof Sparkles },
+  Removal:     { icon: Swords as typeof Sparkles },
+  Boardwipe:   { icon: Flame as typeof Sparkles },
+  'Card Draw': { icon: BookOpen as typeof Sparkles },
+  Protection:  { icon: Shield as typeof Sparkles },
+};
+
 // ─── Suggestion Sort ─────────────────────────────────────────────────
 
 export type SuggestionSortMode = 'relevance' | 'popularity' | 'cmc' | 'none';

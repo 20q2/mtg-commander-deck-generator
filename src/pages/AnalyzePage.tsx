@@ -474,6 +474,17 @@ export function AnalyzePage() {
     }
   }, [source, lists, updateList]);
 
+  // Swap/add from the card preview modal's "Similar Cards" panel (EDHREC-powered),
+  // mirroring the deck-view preview. Swap = remove the previewed card, add the pick.
+  const handleAnalyzerSwapCard = useCallback((oldCard: ScryfallCard, newCard: ScryfallCard) => {
+    handleRemoveCardsFromAnalyzerDeck([oldCard.name]);
+    handleAddCardsToAnalyzerDeck([newCard.name], 'deck');
+  }, [handleRemoveCardsFromAnalyzerDeck, handleAddCardsToAnalyzerDeck]);
+
+  const handleAnalyzerAddCard = useCallback((newCard: ScryfallCard) => {
+    handleAddCardsToAnalyzerDeck([newCard.name], 'deck');
+  }, [handleAddCardsToAnalyzerDeck]);
+
   const handleAnalyzerCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
     const name = card.name;
     switch (action.type) {
@@ -658,6 +669,7 @@ export function AnalyzePage() {
             }
             deck={
               <DeckBuildingArea
+                spellChromaDeckRef={source.kind === 'list' ? source.listId : 'generated'}
                 currentCards={Object.values(generatedDeck.categories).flat()}
                 excludeNames={(() => {
                   const s = new Set<string>();
@@ -676,6 +688,10 @@ export function AnalyzePage() {
                 onCardAction={handleAnalyzerCardAction}
                 menuProps={analyzerMenuProps}
                 themeMembership={themeMembership}
+                onSwapCard={handleAnalyzerSwapCard}
+                onAddCard={handleAnalyzerAddCard}
+                cardInclusionMap={generatedDeck.cardInclusionMap}
+                cardRelevancyMap={generatedDeck.cardRelevancyMap}
               />
             }
           />
@@ -696,7 +712,7 @@ export function AnalyzePage() {
           animation: 'fadeIn 1200ms ease-out both',
         }}
       />
-      <div className="relative text-center py-6 max-w-2xl mx-auto animate-fade-in">
+      <div className="relative text-center py-6 max-w-2xl mx-auto animate-enter-up">
         <img
           src={`${import.meta.env.BASE_URL}inspector-logo.png`}
           alt="Inspector"
@@ -711,7 +727,10 @@ export function AnalyzePage() {
         </p>
       </div>
 
-      <div className="fixed top-[96px] right-2 sm:right-4 z-30 max-w-[320px] rounded-lg border border-violet-400/20 bg-card/85 backdrop-blur-md px-3 py-2 shadow-lg shadow-black/20">
+      <div
+        className="fixed top-[96px] right-2 sm:right-4 z-30 max-w-[320px] rounded-lg border border-violet-400/20 bg-card/85 backdrop-blur-md px-3 py-2 shadow-lg shadow-black/20 animate-fade-in"
+        style={{ animationDelay: '360ms', animationFillMode: 'backwards' }}
+      >
         <p className="inline-flex items-center gap-1.5 text-[11px] leading-snug text-violet-300/70">
           <FlaskConical className="w-4 h-4 shrink-0" aria-hidden="true" />
           <span>
@@ -721,7 +740,9 @@ export function AnalyzePage() {
       </div>
 
       <div className="relative">
-        <LaneTabs active={activeLane} onChange={setActiveLane} />
+        <div className="animate-enter-up" style={{ animationDelay: '90ms' }}>
+          <LaneTabs active={activeLane} onChange={setActiveLane} />
+        </div>
 
         {error && (
           <div className="max-w-3xl mx-auto mb-3 px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-400">
@@ -733,7 +754,8 @@ export function AnalyzePage() {
           id={`lane-panel-${activeLane}`}
           role="tabpanel"
           aria-labelledby={`lane-tab-${activeLane}`}
-          className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[280px] overflow-hidden"
+          className="max-w-3xl mx-auto rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm p-3 sm:p-6 min-h-[280px] overflow-hidden animate-enter-up"
+          style={{ animationDelay: '170ms' }}
         >
           {activeLane === 'paste' && (
             <PasteLane onAnalyze={handlePasteAnalyze} loading={loading} />
@@ -744,7 +766,9 @@ export function AnalyzePage() {
           {activeLane === 'generate' && <GenerateLane />}
         </div>
 
-        <WhatYoullSeeStrip />
+        <div className="animate-enter-up" style={{ animationDelay: '250ms' }}>
+          <WhatYoullSeeStrip />
+        </div>
       </div>
     </main>
   );

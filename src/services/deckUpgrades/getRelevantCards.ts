@@ -5,7 +5,8 @@ import {
   fetchPartnerThemeData,
   fetchCardLiftPool,
 } from '@/services/edhrec/client';
-import { searchCards } from '@/services/scryfall/client';
+import { searchCards, getCardsByNames, isAnyLand } from '@/services/scryfall/client';
+import { isFormatStaple } from '@/lib/constants/staples';
 import type { EDHRECTheme } from '@/types';
 import {
   deckLiftEdges,
@@ -126,6 +127,11 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
   const { commanderName, partnerName, deckCardNames, themes, colorIdentity } = args;
   try {
     const deckSet = new Set(deckCardNames);
+    // Deck card types (cached from the deck view) — used only to strip lands from
+    // the lift-evidence set below. Kicked off in parallel; failures fall back to
+    // "no lands identified" (names-only), which is safe — worst case a land or two
+    // slips back into the evidence set.
+    const deckTypesPromise = getCardsByNames(deckCardNames).catch(() => new Map());
     const data = partnerName
       ? await fetchPartnerCommanderData(commanderName, partnerName)
       : await fetchCommanderData(commanderName);
@@ -199,8 +205,22 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     const candidates = [...edhrecCandidates, ...backfill];
 
     // 5. Deck-fit lift evidence per candidate.
+    // Two kinds of card are mana-base/universal noise as lift evidence rather than
+    // deck-specific fit, so they're excluded from the evidence set (but kept in
+    // deckSet, so they're still deduped out of the recommendations themselves):
+    //   - Format staples (Sol Ring, Arcane Signet, …) — sit in nearly every deck.
+    //   - Lands — co-occur with nearly everything in the color identity, so they
+    //     dominated the "plays with" evidence with pure mana-base overlap.
+    const deckTypes = await deckTypesPromise;
+    const liftDeckSet = new Set(
+      [...deckSet].filter(n => {
+        if (isFormatStaple(n)) return false;
+        const card = deckTypes.get(n);
+        return !(card && isAnyLand(card));
+      }),
+    );
     const scored = await Promise.all(candidates.map(async draft => {
-      const edges = deckLiftEdges(await fetchCardLiftPool(draft.name), deckSet);
+      const edges = deckLiftEdges(await fetchCardLiftPool(draft.name), liftDeckSet);
       const candidate: UpgradeDetail = {
         ...draft,
         liftFit: edges.reduce((s, e) => s + liftEdgeScore(e), 0),

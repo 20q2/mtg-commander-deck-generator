@@ -328,7 +328,7 @@ function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {/* Commander Art Background (hidden on collection page) */}
-      {!isCollectionPage && !isAnalyzeHub && (!isAnalyzePage || !!generatedDeck) && (!isListsPage || !!generatedDeck) && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
+      {!isCollectionPage && !isAnalyzeHub && (!isAnalyzePage || !!generatedDeck) && !isListsPage && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
 
       {/* Brew-reactive aurora — shifts with the game plan (over the commander art, under content). */}
       {location.pathname.startsWith('/brew/') && <BrewBackdrop />}

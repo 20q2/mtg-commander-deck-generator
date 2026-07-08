@@ -38,6 +38,7 @@ Thumbs.db
 
 # Testing
 coverage
+.playwright-mcp/
 
 # TypeScript
 *.tsbuildinfo

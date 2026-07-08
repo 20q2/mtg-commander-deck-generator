@@ -246,6 +246,15 @@ export function buildCostPlan(
   const similarRows: SwapRow[] = [];
   const roleRows: SwapRow[] = [];
   const protectedList: CostPlan['protected'] = [];
+  // Rows awaiting a default pick — resolved after the loop so defaults can be
+  // assigned distinctly across rows (singleton format: the same cheap card
+  // can't replace seven different lands at once).
+  const pending: {
+    card: ScryfallCard;
+    price: number;
+    currentInclusion: number;
+    alternatives: SwapSuggestion[];
+  }[] = [];
 
   let currentTotal = 0;
 
@@ -311,8 +320,20 @@ export function buildCostPlan(
 
     alternatives = alternatives.slice(0, MAX_ALTERNATIVES);
     const currentInclusion = analysis.recommendations.find(r => r.name === card.name)?.inclusion ?? 0;
-    // Default pick = cheapest; the user can choose another in the UI.
-    const row = buildSwapRow(card, price, currentInclusion, alternatives[0], alternatives);
+    pending.push({ card, price, currentInclusion, alternatives });
+  }
+
+  // Assign default picks distinctly: rows sharing a pool (all lands, spells in
+  // the same role) would otherwise every one default to the same cheapest card.
+  // Priciest current card first, each row takes its best not-yet-claimed
+  // alternative; a row whose alternatives are all claimed is dropped.
+  const claimed = new Set<string>();
+  pending.sort((a, b) => b.price - a.price);
+  for (const p of pending) {
+    const pick = p.alternatives.find(a => !claimed.has(a.name));
+    if (!pick) continue;
+    claimed.add(pick.name);
+    const row = buildSwapRow(p.card, p.price, p.currentInclusion, pick, p.alternatives);
 
     if (row.suggestion.source === 'similar') similarRows.push(row);
     else roleRows.push(row);

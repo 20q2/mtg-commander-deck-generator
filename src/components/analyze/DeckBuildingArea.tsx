@@ -34,6 +34,18 @@ interface DeckBuildingAreaProps {
   themeMembership?: ThemeMembership | null;
   /** Optional control rendered at the start of the header row (e.g. SpellChroma's "Change deck"). */
   headerExtra?: React.ReactNode;
+  /** Enables the EDHREC "Similar Cards" panel in the card preview modal.
+   *  Called when the user swaps the previewed card for a suggestion. */
+  onSwapCard?: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
+  /** Called when the user adds a similar-card suggestion without swapping. */
+  onAddCard?: (newCard: ScryfallCard) => void;
+  /** EDHREC inclusion % map — score badges + rerank for similar-card suggestions. */
+  cardInclusionMap?: Record<string, number> | null;
+  /** Composite relevancy map — preferred rerank key for similar-card suggestions. */
+  cardRelevancyMap?: Record<string, number> | null;
+  /** ?deck= reference so a card-preview tag click carries the whole deck into SpellChroma
+   *  (a saved list id, or 'generated' for the ephemeral deck). Omit to seed just the card. */
+  spellChromaDeckRef?: string;
 }
 
 // Per-theme chip color, matching the THEMES popover (violet = #1, amber = #2).
@@ -278,7 +290,7 @@ const GROUP_STORAGE_KEY = 'analyze-play-area-group';
 const SORT_DIR_STORAGE_KEY = 'analyze-play-area-sort-dir';
 const DIM_ROLES_KEY = 'analyze-play-area-dim-roles';
 
-export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra }: DeckBuildingAreaProps) {
+export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra, onSwapCard, onAddCard, cardInclusionMap, cardRelevancyMap, spellChromaDeckRef }: DeckBuildingAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -466,6 +478,14 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
 
   const [hover, setHover] = useState<HoverState | null>(null);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
+
+  // Names to exclude from the preview modal's similar-card suggestions:
+  // everything in the deck plus the commander(s) carried in excludeNames.
+  const inDeckNames = useMemo(() => {
+    const names = currentCards.map(c => c.name);
+    if (excludeNames) names.push(...excludeNames);
+    return names;
+  }, [currentCards, excludeNames]);
 
   const handleHover = (card: ScryfallCard | null, e?: React.MouseEvent) => {
     if (card && e) {
@@ -861,7 +881,19 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
         );
       })()}
 
-      <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
+      <CardPreviewModal
+        card={previewCard}
+        onClose={() => setPreviewCard(null)}
+        onSwapCard={onSwapCard ? (oldCard, newCard) => {
+          onSwapCard(oldCard, newCard);
+          setPreviewCard(null);
+        } : undefined}
+        onAddCard={onAddCard}
+        cardInclusionMap={cardInclusionMap}
+        cardRelevancyMap={cardRelevancyMap}
+        inDeckNames={inDeckNames}
+        spellChromaDeckRef={spellChromaDeckRef}
+      />
     </div>
   );
 }

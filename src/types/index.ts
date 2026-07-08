@@ -500,6 +500,9 @@ export interface DeckUpgradeState {
   seen: string[];
   /** ms epoch of the last producer fetch, used for the ~7-day refresh window. */
   fetchedAt: number;
+  /** Normalized key of the theme names the fetch used — a mismatch with the deck's
+   *  current themes forces a refetch (theme edits re-rank the recommendations). */
+  themesKey?: string;
 }
 
 // User-created reusable card list or deck

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { getCardByName } from '@/services/scryfall/client';
 import {
   Search, Trash2, Minus, Plus, Download, AlertTriangle,
   Grid3X3, List, ChevronDown, RefreshCw, Loader2,
-  ChevronLeft, ChevronRight, X,
+  ChevronLeft, ChevronRight, X, Check,
 } from 'lucide-react';
 import type { CollectionCard } from '@/services/collection/db';
 import type { ScryfallCard } from '@/types';
@@ -107,21 +107,21 @@ interface CollectionManagerProps {
   /** Controlled color filter set (WUBRG/C codes). */
   selectedColors: Set<string>;
   onSelectedColorsChange: (next: Set<string>) => void;
-  /** Controlled type filter ('' = all). */
-  selectedType: string;
-  onSelectedTypeChange: (next: string) => void;
-  /** Controlled rarity filter ('' = all). */
-  selectedRarity: string;
-  onSelectedRarityChange: (next: string) => void;
+  /** Controlled type filter set (empty = all). */
+  selectedTypes: Set<string>;
+  onSelectedTypesChange: (next: Set<string>) => void;
+  /** Controlled rarity filter set (empty = all). */
+  selectedRarities: Set<string>;
+  onSelectedRaritiesChange: (next: Set<string>) => void;
 }
 
 export function CollectionManager({
   selectedColors,
   onSelectedColorsChange,
-  selectedType,
-  onSelectedTypeChange,
-  selectedRarity,
-  onSelectedRarityChange,
+  selectedTypes,
+  onSelectedTypesChange,
+  selectedRarities,
+  onSelectedRaritiesChange,
 }: CollectionManagerProps) {
   const navigate = useNavigate();
   const {
@@ -135,6 +135,7 @@ export function CollectionManager({
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [colorFilterMode, setColorFilterMode] = useState<ColorFilterMode>('at-least');
   const [commandersOnly, setCommandersOnly] = useState(false);
+  const [multicolorOnly, setMulticolorOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
@@ -143,7 +144,7 @@ export function CollectionManager({
   // Reset to first page whenever an external filter request lands.
   useEffect(() => {
     setPage(1);
-  }, [selectedColors, selectedType, selectedRarity]);
+  }, [selectedColors, selectedTypes, selectedRarities]);
 
   // Filter & sort
   const filteredCards = useMemo(() => {
@@ -163,18 +164,18 @@ export function CollectionManager({
       result = result.filter(c => matchesColor(c, selectedColors, colorFilterMode));
     }
 
-    // Type filter
-    if (selectedType) {
-      if (selectedType === 'Other') {
-        result = result.filter(c => !TYPES.some(t => matchesType(c, t)));
-      } else {
-        result = result.filter(c => matchesType(c, selectedType));
-      }
+    // Type filter — card matches if it satisfies ANY selected type
+    if (selectedTypes.size > 0) {
+      result = result.filter(c =>
+        [...selectedTypes].some(t =>
+          t === 'Other' ? !TYPES.some(tt => matchesType(c, tt)) : matchesType(c, t)
+        )
+      );
     }
 
-    // Rarity filter
-    if (selectedRarity) {
-      result = result.filter(c => c.rarity === selectedRarity);
+    // Rarity filter — card matches if its rarity is among the selected set
+    if (selectedRarities.size > 0) {
+      result = result.filter(c => c.rarity != null && selectedRarities.has(c.rarity));
     }
 
     // Commanders only
@@ -185,8 +186,13 @@ export function CollectionManager({
       });
     }
 
+    // Multicolor only (2+ colors in identity)
+    if (multicolorOnly) {
+      result = result.filter(c => (c.colorIdentity?.length ?? 0) >= 2);
+    }
+
     return sortCards(result, sortKey, sortDir);
-  }, [cards, searchQuery, selectedColors, colorFilterMode, selectedType, selectedRarity, commandersOnly, sortKey, sortDir]);
+  }, [cards, searchQuery, selectedColors, colorFilterMode, selectedTypes, selectedRarities, commandersOnly, multicolorOnly, sortKey, sortDir]);
 
   // Pagination
   const itemsPerPage = viewMode === 'grid' ? ITEMS_PER_PAGE_GRID : ITEMS_PER_PAGE_LIST;
@@ -208,7 +214,7 @@ export function CollectionManager({
     return { totalQuantity, typeBreakdown };
   }, [cards]);
 
-  const activeFilters = (selectedColors.size > 0 ? 1 : 0) + (selectedType ? 1 : 0) + (selectedRarity ? 1 : 0) + (commandersOnly ? 1 : 0);
+  const activeFilters = (selectedColors.size > 0 ? 1 : 0) + (selectedTypes.size > 0 ? 1 : 0) + (selectedRarities.size > 0 ? 1 : 0) + (commandersOnly ? 1 : 0) + (multicolorOnly ? 1 : 0);
 
   const toggleColor = (code: string) => {
     const next = new Set(selectedColors);
@@ -218,11 +224,28 @@ export function CollectionManager({
     setPage(1);
   };
 
+  const toggleType = (type: string) => {
+    const next = new Set(selectedTypes);
+    if (next.has(type)) next.delete(type);
+    else next.add(type);
+    onSelectedTypesChange(next);
+    setPage(1);
+  };
+
+  const toggleRarity = (code: string) => {
+    const next = new Set(selectedRarities);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    onSelectedRaritiesChange(next);
+    setPage(1);
+  };
+
   const clearFilters = () => {
     onSelectedColorsChange(new Set());
-    onSelectedTypeChange('');
-    onSelectedRarityChange('');
+    onSelectedTypesChange(new Set());
+    onSelectedRaritiesChange(new Set());
     setCommandersOnly(false);
+    setMulticolorOnly(false);
     setSearchQuery('');
     setPage(1);
   };
@@ -366,9 +389,9 @@ export function CollectionManager({
           .map(([type, num]) => (
             <button
               key={type}
-              onClick={() => { onSelectedTypeChange(selectedType === type ? '' : type); setPage(1); }}
+              onClick={() => toggleType(type)}
               className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full transition-colors cursor-pointer ${
-                selectedType === type
+                selectedTypes.has(type)
                   ? 'bg-primary/20 text-primary ring-1 ring-primary/40'
                   : 'bg-accent/60 text-muted-foreground hover:bg-accent'
               }`}
@@ -463,34 +486,24 @@ export function CollectionManager({
         <span className="text-border">|</span>
 
         {/* Type filter */}
-        <div className="relative">
-          <select
-            value={selectedType}
-            onChange={(e) => { onSelectedTypeChange(e.target.value); setPage(1); }}
-            className="appearance-none pl-2.5 pr-7 py-1 text-xs rounded-md bg-background border border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
-          >
-            <option value="">All Types</option>
-            {TYPES.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-        </div>
+        <CheckboxDropdown
+          allLabel="All Types"
+          noun="type"
+          options={[...TYPES.map(t => ({ value: t, label: t })), { value: 'Other', label: 'Other' }]}
+          selected={selectedTypes}
+          onToggle={toggleType}
+          onClear={() => { onSelectedTypesChange(new Set()); setPage(1); }}
+        />
 
         {/* Rarity filter */}
-        <div className="relative">
-          <select
-            value={selectedRarity}
-            onChange={(e) => { onSelectedRarityChange(e.target.value); setPage(1); }}
-            className="appearance-none pl-2.5 pr-7 py-1 text-xs rounded-md bg-background border border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
-          >
-            <option value="">All Rarities</option>
-            {RARITIES.map(r => (
-              <option key={r.code} value={r.code}>{r.label}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-        </div>
+        <CheckboxDropdown
+          allLabel="All Rarities"
+          noun="rarity"
+          options={RARITIES.map(r => ({ value: r.code, label: r.label, className: r.color }))}
+          selected={selectedRarities}
+          onToggle={toggleRarity}
+          onClear={() => { onSelectedRaritiesChange(new Set()); setPage(1); }}
+        />
 
         {/* Commanders only */}
         <button
@@ -502,6 +515,18 @@ export function CollectionManager({
           }`}
         >
           Commanders
+        </button>
+
+        {/* Multicolor only */}
+        <button
+          onClick={() => { setMulticolorOnly(v => !v); setPage(1); }}
+          className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+            multicolorOnly
+              ? 'border-primary bg-primary/10 text-violet-200'
+              : 'border-border text-muted-foreground hover:border-primary/50'
+          }`}
+        >
+          Multicolor
         </button>
 
         {/* Sort */}
@@ -850,6 +875,84 @@ function ListView({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// --- Multi-select checkbox dropdown ---
+
+interface CheckboxDropdownProps {
+  /** Label shown on the trigger when nothing is selected. */
+  allLabel: string;
+  /** Singular noun for the "N types"/"N rarities" summary. */
+  noun: string;
+  options: { value: string; label: string; className?: string }[];
+  selected: Set<string>;
+  onToggle: (value: string) => void;
+  onClear: () => void;
+}
+
+function CheckboxDropdown({ allLabel, noun, options, selected, onToggle, onClear }: CheckboxDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const count = selected.size;
+  const summary = count === 0 ? allLabel : `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1 pl-2.5 pr-2 py-1 text-xs rounded-md bg-background border cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-primary ${
+          count > 0 ? 'border-primary/60 text-violet-200' : 'border-border text-foreground hover:border-primary/50'
+        }`}
+      >
+        <span>{summary}</span>
+        <ChevronDown className={`w-3 h-3 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-40 min-w-[10rem] rounded-md border border-border bg-popover shadow-lg py-1">
+          {options.map(opt => {
+            const checked = selected.has(opt.value);
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onToggle(opt.value)}
+                className="flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-left hover:bg-accent transition-colors"
+              >
+                <span
+                  className={`flex items-center justify-center w-3.5 h-3.5 rounded-sm border transition-colors ${
+                    checked ? 'bg-primary border-primary text-primary-foreground' : 'border-border'
+                  }`}
+                >
+                  {checked && <Check className="w-2.5 h-2.5" strokeWidth={3} />}
+                </span>
+                <span className={opt.className}>{opt.label}</span>
+              </button>
+            );
+          })}
+          {count > 0 && (
+            <button
+              type="button"
+              onClick={onClear}
+              className="w-full px-2.5 py-1.5 mt-1 text-[11px] text-left text-muted-foreground hover:bg-accent border-t border-border/50 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

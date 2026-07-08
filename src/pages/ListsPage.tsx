@@ -10,7 +10,8 @@ import { ListCreateEditForm } from '@/components/lists/ListCreateEditForm';
 import { PRESET_BAN_LISTS } from '@/components/lists/UserListChips';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info, Pin, Ban, Tags } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X, Grid3X3, List, BookOpen, Shield, Loader2, Info, Pin, Ban } from 'lucide-react';
+import { TagFilterStrip } from '@/components/lists/TagFilterStrip';
 import { trackEvent } from '@/services/analytics';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
@@ -160,16 +161,21 @@ export function ListsPage() {
     });
   }, [lists, searchQuery, tagFilters, currentView.kind, sortKey, sortDir]);
 
-  // Distinct theme names across the current view's decks, alphabetized — powers
-  // the tag filter dropdown. Empty when nothing in view is tagged.
-  const availableTags = useMemo(() => {
+  // Theme names across the current view's decks with how many decks carry each,
+  // sorted by popularity (most decks first, alpha tie-break) — powers the tag
+  // filter strip. Empty when nothing in view is tagged.
+  const tagCounts = useMemo(() => {
     const base = currentView.kind === 'deck'
       ? lists.filter(l => l.type === 'deck')
       : lists.filter(l => l.type !== 'deck');
-    const names = new Set<string>();
-    for (const l of base) for (const t of l.themes ?? []) names.add(t.name);
-    return [...names].sort((a, b) => a.localeCompare(b));
+    const counts = new Map<string, number>();
+    for (const l of base) for (const t of l.themes ?? []) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [lists, currentView.kind]);
+
+  const availableTags = useMemo(() => tagCounts.map(t => t.name), [tagCounts]);
 
   // Drop any selected tags that no longer exist in view (deck deleted, retagged,
   // switched deck/list tabs) so a stale filter can't silently hide everything.
@@ -831,39 +837,14 @@ export function ListsPage() {
         </div>
       )}
 
-      {/* Tag toggles — pick any combination to narrow the grid (OR) */}
-      {availableTags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 mb-5">
-          <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground/70 mr-1">
-            <Tags className="w-3.5 h-3.5" /> Tags
-          </span>
-          {availableTags.map(tag => {
-            const active = tagFilters.includes(tag);
-            return (
-              <button
-                key={tag}
-                onClick={() => toggleTag(tag)}
-                aria-pressed={active}
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs border transition-colors ${
-                  active
-                    ? 'bg-violet-500/20 border-violet-500/50 text-violet-200'
-                    : 'bg-card/60 border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
-                }`}
-              >
-                {tag}
-              </button>
-            );
-          })}
-          {tagFilters.length > 0 && (
-            <button
-              onClick={() => setTagFilters([])}
-              className="text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors ml-1"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
+      {/* One-row tag filter — most popular tags fill the row, the rest collapse
+          into a searchable "+N more" popover (OR filter, any combination). */}
+      <TagFilterStrip
+        tags={tagCounts}
+        selected={tagFilters}
+        onToggle={toggleTag}
+        onClear={() => setTagFilters([])}
+      />
 
       {toasts}
 

@@ -59,7 +59,7 @@ import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/clien
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, type ReplaceMode } from '@/services/deckBuilder/cardSwap';
-import { HEALTH_GRADE_STYLES } from '@/components/deck/optimizer/constants';
+import { HEALTH_GRADE_STYLES, ROLE_GROUP_ICONS } from '@/components/deck/optimizer/constants';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists, useLastAddTarget } from '@/hooks/useUserLists';
@@ -748,7 +748,12 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
             card.mustIncludeSource === 'combo' ? <span title="Added by user"><Sparkles className="w-3 h-3 text-violet-500/70" /></span> :
             <span title="Must include" className="animate-pop-in"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
           ) : card.isReplacement ? <span title="Replacement" className="animate-pop-in"><Replace className="w-3 h-3 text-blue-400/80" /></span>
-          : isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span> : null}
+          : isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span>
+          : showArchetypeColumn && archetypeSource != null ? (
+            <span className="text-teal-300/80 inline-flex" title={`From EDHREC ${archetypeSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>
+              <Telescope className="w-3 h-3" />
+            </span>
+          ) : null}
         </span>
       )}
       {editingQuantity ? (
@@ -777,23 +782,18 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
           {quantity}
         </span>
       )}
-      {(showRoleColumn || showArchetypeColumn) && (() => {
-        const badge = showRoleColumn ? getRoleBadgeProps(card) : null;
+      {showRoleColumn && (() => {
+        const badge = getRoleBadgeProps(card);
         const roleEl = badge ? (
           <span className={card.multiRole ? 'text-purple-400/70' : badge.color} title={card.multiRole ? (['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection'] as RoleKey[]).filter(r => cardMatchesRole(card.name, r)).map(r => ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipe', cardDraw: 'Card Advantage', protection: 'Protection' })[r]).join(' + ') : badge.title}>{
             card.multiRole ? '*' : badge.label
           }</span>
-        ) : (showRoleColumn && card.isUtilityLand) ? (
+        ) : card.isUtilityLand ? (
           <span className="text-violet-400/70" title="Utility Land">UL</span>
         ) : null;
-        const archEl = showArchetypeColumn && archetypeSource != null ? (
-          <span className="text-teal-300/80 inline-flex" title={`From EDHREC ${archetypeSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>
-            <Telescope className="w-3 h-3" />
-          </span>
-        ) : null;
-        return (roleEl || archEl) ? (
+        return roleEl ? (
           <span className="w-5 text-center shrink-0 text-[10px] font-bold flex items-center justify-center gap-px">
-            {roleEl}{archEl}
+            {roleEl}
           </span>
         ) : (
           <span className="w-5 shrink-0" />
@@ -916,6 +916,10 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
   const hasMustInclude = cards.some(({ card }) => mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude);
   const hasBanned = bannedNames ? cards.some(({ card }) => bannedNames.has(card.name)) : false;
   const hasOwnedCard = collectionNames ? cards.some(({ card }) => isCardOwned(card.name, collectionNames)) : false;
+  const hasArchetypeCard = showArchetypeColumn && cardEdhrecMetaMap ? cards.some(({ card }) => {
+    const meta = cardEdhrecMetaMap[card.name] ?? cardEdhrecMetaMap[card.name.split(' // ')[0]];
+    return meta?.fromArchetype;
+  }) : false;
 
   return (
     <div className="break-inside-avoid-column mb-4">
@@ -972,7 +976,7 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               combosForCard={cardComboMap?.get(normalizedName)}
               cardTypeMap={cardTypeMap}
               showRoleColumn={showRoleColumn}
-              showPinColumn={(showPinBan && (hasMustInclude || hasBanned)) || hasOwnedCard}
+              showPinColumn={(showPinBan && (hasMustInclude || hasBanned)) || hasOwnedCard || hasArchetypeCard}
               showPinBanIcons={showPinBan !== false}
               isRemoved={removedCards?.has(card.id)}
               isEditMode={isEditMode}
@@ -4136,7 +4140,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                     { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                     { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
-                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
                     { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }), infoText: "Scryfall's global EDHREC rank — the card's overall popularity across every commander deck. Lower number = more played." },
                     { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                   ].filter(o => !o.hide).map(opt => (
@@ -4173,6 +4176,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     {showIcons && [
                       ...(!showOwnedIndicators ? [] : [{ key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }) }]),
                       { key: 'pinban', label: 'Pin / Ban', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
+                      ...(!hasArchetypeCards ? [] : [{ key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' }]),
                     ].map(opt => (
                       <div key={opt.key} className="relative flex items-center">
                         <button
@@ -4184,6 +4188,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           </span>
                           {opt.label}
                         </button>
+                        {'infoText' in opt && opt.infoText && (
+                          <InfoTooltip text={opt.infoText}>
+                            <Info className="w-3 h-3" />
+                          </InfoTooltip>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -4394,7 +4403,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap, infoText: "Each card's percentage shows how many EDHREC decks with this commander include that card. Higher % = more popular, proven pick." },
                   { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap, infoText: 'Composite score combining EDHREC synergy, inclusion %, role fit, curve fit, and type balance. Higher = stronger fit for this deck.' },
-                    { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards, infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' },
                   { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }), infoText: "Scryfall's global EDHREC rank — the card's overall popularity across every commander deck. Lower number = more played." },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => { setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }); }, hide: !generatedDeck?.roleTargets },
                 ].filter(o => !o.hide).map(opt => (
@@ -4431,6 +4439,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   {showIcons && [
                     ...(!showOwnedIndicators ? [] : [{ key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }) }]),
                     { key: 'pinban', label: 'Pin / Ban', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
+                    ...(!hasArchetypeCards ? [] : [{ key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' }]),
                   ].map(opt => (
                     <div key={opt.key} className="relative flex items-center">
                       <button
@@ -4442,6 +4451,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                         </span>
                         {opt.label}
                       </button>
+                      {'infoText' in opt && opt.infoText && (
+                        <InfoTooltip text={opt.infoText}>
+                          <Info className="w-3 h-3" />
+                        </InfoTooltip>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -4629,8 +4643,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     mustIncludeNames={mustIncludeNames}
                     bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
-                    cardEdhrecMetaMap={archetypeBadgesActive ? generatedDeck?.cardEdhrecMetaMap : null}
-                    showArchetypeColumn={archetypeBadgesActive && hasArchetypeCards}
+                    cardEdhrecMetaMap={showIcons && archetypeBadgesActive ? generatedDeck?.cardEdhrecMetaMap : null}
+                    showArchetypeColumn={showIcons && archetypeBadgesActive && hasArchetypeCards}
                     cardRelevancyMap={showRelevancy ? generatedDeck?.cardRelevancyMap : null}
                     showEdhRank={showEdhRank}
                     showPrice={showPrice}
@@ -4676,6 +4690,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                               >
                                 <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
                                 {(isTypeGroup || isCommanderGroup) && <CardTypeIcon type={label as CardType} size="sm" className="opacity-60" />}
+                                {groupBy === 'role' && ROLE_GROUP_ICONS[label] && (() => {
+                                  const RoleIcon = ROLE_GROUP_ICONS[label].icon;
+                                  return <RoleIcon className="w-3.5 h-3.5 text-muted-foreground/60" />;
+                                })()}
                                 <span className="text-xs font-medium text-muted-foreground">{groupBy === 'cmc' && label !== 'Lands' ? `CMC ${label}` : label}</span>
                                 <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
                               </button>
@@ -4713,6 +4731,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                         >
                           <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${collapsedGridCategories.has(label) ? '-rotate-90' : ''}`} />
                           {(isTypeGroup || isCommanderGroup) && <CardTypeIcon type={label as CardType} size="sm" className="opacity-60" />}
+                          {groupBy === 'role' && ROLE_GROUP_ICONS[label] && (() => {
+                            const RoleIcon = ROLE_GROUP_ICONS[label].icon;
+                            return <RoleIcon className="w-3.5 h-3.5 text-muted-foreground/60" />;
+                          })()}
                           <span className="text-xs font-medium text-muted-foreground">{label}</span>
                           <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
                         </button>
@@ -4763,6 +4785,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         combos={previewCard ? cardComboMap.get(previewCard.name.includes(' // ') ? previewCard.name.split(' // ')[0] : previewCard.name) : undefined}
         cardTypeMap={cardTypeMap}
         cardComboMap={cardComboMap}
+        spellChromaDeckRef={spellChromaDeckRef}
         deckOnly
         hideMustInclude={readOnly}
         phasesDone={phasesDone}
@@ -4970,9 +4993,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   { key: 'price', label: 'Price', value: showPrice, toggle: () => setShowPrice(v => { const next = !v; localStorage.setItem('mtg-deck-show-price', String(next)); return next; }) },
                   { key: 'inclusion', label: 'Inclusion %', value: showInclusion, toggle: () => setShowInclusion(v => { const next = !v; localStorage.setItem('mtg-deck-show-inclusion', String(next)); if (!next && sortBy === 'score') setSortBy('name'); return next; }), hide: !generatedDeck?.cardInclusionMap },
                   { key: 'relevancy', label: 'Relevancy', value: showRelevancy, toggle: () => setShowRelevancy(v => { const next = !v; localStorage.setItem('mtg-deck-show-relevancy', String(next)); if (!next && sortBy === 'relevancy') setSortBy('name'); return next; }), hide: !generatedDeck?.cardRelevancyMap },
-                  { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards },
                   { key: 'edhrank', label: 'EDH Rank', value: showEdhRank, toggle: () => setShowEdhRank(v => { const next = !v; localStorage.setItem('mtg-deck-show-edhrank', String(next)); if (!next && sortBy === 'edhrank') setSortBy('name'); return next; }) },
                   { key: 'roles', label: 'Roles', value: showRoles, toggle: () => setShowRoles(v => { const next = !v; localStorage.setItem('deckRolesOpen', String(next)); return next; }), hide: !generatedDeck?.roleTargets },
+                  { key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), hide: !hasArchetypeCards },
                 ].filter(o => !o.hide).map(opt => (
                   <button
                     key={opt.key}
@@ -5109,7 +5132,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           {/* Desktop toolbar */}
           <div className="hidden sm:block max-w-4xl mx-auto px-4 pb-4">
             {/* Selection count tab — sticks up off the toolbar */}
-            <div className="flex justify-start pl-4">
+            <div className="flex items-end justify-between gap-2 px-4">
               <div className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-t-md bg-card/95 backdrop-blur-md border border-b-0 border-border text-xs font-medium">
                 {selectedCards.size > 0 ? (
                   <>
@@ -5127,6 +5150,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                   <span className="text-muted-foreground">Select cards</span>
                 )}
               </div>
+              {/* Generated decks regenerate around your edits; saving unlocks direct, card-by-card control. */}
+              {onRegenerate && (
+                <div className="pointer-events-auto flex items-center gap-1.5 mb-1 px-2.5 py-1 rounded-md bg-card/95 backdrop-blur-md border border-primary/25 text-[11px] leading-tight text-muted-foreground max-w-md">
+                  <Info className="w-3.5 h-3.5 shrink-0 text-primary/70" />
+                  <span>Use the <Bookmark className="inline-block w-3 h-3 -mt-0.5 text-purple-400" /> button to save your deck and unlock enhanced editing.</span>
+                </div>
+              )}
             </div>
             <div ref={editToolbarRef} className="pointer-events-auto flex items-center gap-3 bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-2xl px-5 py-3">
               {toolbarExtra}
@@ -5350,6 +5380,14 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     Cancel
                   </button>
                 </div>
+
+                {/* Generated decks regenerate around your edits; saving unlocks direct, card-by-card control. */}
+                {onRegenerate && (
+                  <div className="flex items-center gap-1.5 mx-4 mb-2 px-2.5 py-1.5 rounded-md bg-primary/5 border border-primary/20 text-[11px] leading-tight text-muted-foreground">
+                    <Info className="w-3.5 h-3.5 shrink-0 text-primary/70" />
+                    <span>Use the <Bookmark className="inline-block w-3 h-3 -mt-0.5 text-purple-400" /> button to save your deck and unlock enhanced editing — no regenerating.</span>
+                  </div>
+                )}
 
                 {/* Tab bar */}
                 <div className="flex border-b border-border/50 px-4 gap-1">

@@ -248,9 +248,9 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
                 .map(([type, count]) => (
                   <span
                     key={type}
-                    className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] shrink-0 bg-accent/50 text-muted-foreground rounded border border-border/30"
+                    className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[8px] shrink-0 bg-accent/50 text-muted-foreground rounded border border-border/30"
                   >
-                    <CardTypeIcon type={type} size="sm" className="opacity-60 text-[9px]" />
+                    <CardTypeIcon type={type} size="sm" className="opacity-60 text-[8px]" />
                     {count}
                   </span>
                 ))

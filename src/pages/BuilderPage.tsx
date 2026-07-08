@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArchetypeDisplay } from '@/components/archetype/ArchetypeDisplay';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
@@ -59,8 +58,6 @@ export function BuilderPage() {
   const [noDataForSettings, setNoDataForSettings] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [previewCard, setPreviewCard] = useState<import('@/types').ScryfallCard | null>(null);
-  const [savedToList, setSavedToList] = useState(false);
-  const [savedListId, setSavedListId] = useState<string | null>(null);
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [saveListName, setSaveListName] = useState('');
   const saveInputRef = useRef<HTMLInputElement>(null);
@@ -623,8 +620,6 @@ export function BuilderPage() {
       }
       // Scroll to top after view swaps from settings to deck display
       requestAnimationFrame(() => window.scrollTo({ top: 0 }));
-      setSavedToList(false);
-      setSavedListId(null);
       trackEvent('deck_generated', {
         commanderName: cmd.name,
         partnerName: partner?.name,
@@ -1135,25 +1130,19 @@ export function BuilderPage() {
             }}
             sidebarHeader={
               <div className="flex items-center justify-end gap-2">
-                <Popover open={showSaveInput && !savedToList} onOpenChange={(open) => { if (!open) { setShowSaveInput(false); setSaveListName(''); } }}>
+                <Popover open={showSaveInput} onOpenChange={(open) => { if (!open) { setShowSaveInput(false); setSaveListName(''); } }}>
                   <PopoverTrigger asChild>
                     <button
-                      disabled={savedToList}
                       onClick={() => {
-                        if (savedToList) return;
                         const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
                         setSaveListName(defaultName);
                         setShowSaveInput(true);
                         setTimeout(() => saveInputRef.current?.select(), 0);
                       }}
-                      className={`p-1.5 rounded-md border transition-colors ${
-                        savedToList
-                          ? 'border-green-500/50 bg-green-500/10 text-green-500'
-                          : 'bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent'
-                      } disabled:cursor-default`}
-                      title={savedToList ? 'Saved!' : 'Save deck'}
+                      className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                      title="Save deck"
                     >
-                      {savedToList ? <Check className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                      <Bookmark className="w-4 h-4" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="left" className="w-auto p-2">
@@ -1214,9 +1203,9 @@ export function BuilderPage() {
                           themes: savedThemes.length > 0 ? savedThemes : undefined,
                         });
                         trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
-                        setSavedListId(newList.id);
-                        setSavedToList(true);
                         setShowSaveInput(false);
+                        // Skip the "saved!" toast — take the user straight to their new deck's page.
+                        navigate(`/decks/${newList.id}`);
                       }}
                     >
                       <input
@@ -1268,22 +1257,6 @@ export function BuilderPage() {
         </div>
       )}
       <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} />
-      {savedToList && createPortal(
-        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">
-          <Check className="w-4 h-4 shrink-0" />
-          <span>Deck saved!</span>
-          <button
-            onClick={() => {
-              setSavedToList(false);
-              navigate(savedListId ? `/decks/${savedListId}` : '/decks');
-            }}
-            className="underline underline-offset-2 hover:text-white/80 transition-colors font-medium"
-          >
-            View Deck
-          </button>
-        </div>,
-        document.body
-      )}
       <FloatingListPanel
         open={listsPanelOpen}
         onClose={() => setListsPanelOpen(false)}

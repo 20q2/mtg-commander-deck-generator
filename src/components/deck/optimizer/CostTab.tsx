@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
@@ -46,6 +47,12 @@ export function CostTab({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   // Per-row override: deck card name → chosen alternative name (defaults to cheapest).
   const [chosen, setChosen] = useState<Map<string, string>>(new Map());
+  // Deck-card names we just applied a swap for. Applying mutates the deck, which kicks off a
+  // full async plan rebuild (EDHREC + Scryfall) that only replaces `plan` at the very end — so
+  // without this the applied rows keep rendering stale until the rebuild lands and everything
+  // jumps at once. Hiding them optimistically makes the swap feel instant; cleared when the
+  // fresh plan arrives (the [plan] effect below).
+  const [appliedNames, setAppliedNames] = useState<Set<string>>(new Set());
 
   // When the plan rebuilds (deck/currency/exclude change re-fetches new alternatives), drop stale
   // selections. Otherwise a `chosen` pick whose alternative no longer exists silently falls back to the
@@ -54,7 +61,12 @@ export function CostTab({
   useEffect(() => {
     setChecked(new Set());
     setChosen(new Map());
+    setAppliedNames(new Set());
   }, [plan]);
+
+  // The plan is refreshing in the background (e.g. right after applying a swap): a plan is on
+  // screen but a rebuild is in flight.
+  const refreshing = loading && !!plan;
 
   // Apply the user's alternative pick to a row (recomputes savings/confidence).
   const overrideRow = useCallback((row: SwapRowData): SwapRowData => {
@@ -65,8 +77,14 @@ export function CostTab({
     return buildSwapRow(row.current, row.currentPrice, row.currentInclusion, alt, row.alternatives);
   }, [chosen]);
 
-  const similarRows = useMemo(() => plan ? plan.similarRows.map(overrideRow) : [], [plan, overrideRow]);
-  const roleRows = useMemo(() => plan ? plan.roleRows.map(overrideRow) : [], [plan, overrideRow]);
+  const similarRows = useMemo(
+    () => plan ? plan.similarRows.map(overrideRow).filter(r => !appliedNames.has(r.current.name)) : [],
+    [plan, overrideRow, appliedNames],
+  );
+  const roleRows = useMemo(
+    () => plan ? plan.roleRows.map(overrideRow).filter(r => !appliedNames.has(r.current.name)) : [],
+    [plan, overrideRow, appliedNames],
+  );
   const allRows = useMemo(() => [...similarRows, ...roleRows], [similarRows, roleRows]);
   const maxSavings = useMemo(() => allRows.reduce((m, r) => Math.max(m, r.savings), 0), [allRows]);
 
@@ -106,8 +124,14 @@ export function CostTab({
     if (!plan || !onApplyPlan) return;
     const removeNames: string[] = [];
     const addNames: string[] = [];
+    const seen = new Set<string>();
     for (const row of allRows) {
       if (!checked.has(row.id)) continue;
+      // Two checked rows can point at the same card via manual alternative
+      // picks — singleton format, so skip the later row entirely (keep its
+      // current card rather than shrink the deck).
+      if (seen.has(row.suggestion.name)) continue;
+      seen.add(row.suggestion.name);
       removeNames.push(row.current.name);
       addNames.push(row.suggestion.name);
     }
@@ -115,6 +139,9 @@ export function CostTab({
     onApplyPlan(removeNames, addNames);
     setChecked(new Set());
     setChosen(new Map());
+    // Optimistically hide the rows we just swapped so they vanish immediately instead of
+    // lingering with stale data until the background rebuild lands.
+    setAppliedNames(new Set(removeNames));
   }, [plan, onApplyPlan, allRows, checked]);
 
   if (!analysis) {
@@ -124,7 +151,9 @@ export function CostTab({
     return <div className="p-6 text-sm text-zinc-400">Finding cheaper similar cards…</div>;
   }
 
-  const hasAnyRows = plan.similarRows.length > 0 || plan.roleRows.length > 0;
+  // Drive the layout off the rows actually on screen (applied rows are filtered out), so the
+  // apply UI and empty-state track what the user can see rather than the raw, pre-swap plan.
+  const hasVisibleRows = similarRows.length > 0 || roleRows.length > 0;
   const totalSavings = Math.max(0, plan.currentTotal - projectedTotal);
 
   return (
@@ -142,7 +171,13 @@ export function CostTab({
             <span className="text-xs text-violet-300/70 tabular-nums">(save {formatPrice(totalSavings, currency)})</span>
           </div>
 
-          {hasAnyRows ? (
+          {refreshing && (
+            <span className="flex items-center gap-1.5 text-xs text-zinc-500 flex-shrink-0">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating plan…
+            </span>
+          )}
+
+          {hasVisibleRows ? (
             <>
               <p className="text-sm text-zinc-400 flex-1 min-w-[180px]">
                 Apply every suggestion to save up to{' '}
@@ -157,18 +192,20 @@ export function CostTab({
                 Apply plan ({checked.size} swap{checked.size === 1 ? '' : 's'}, save {formatPrice(totalSavings, currency)})
               </Button>
             </>
-          ) : (
+          ) : refreshing ? null : (
             <span className="text-sm text-zinc-400 ml-auto">No cheaper alternatives found for any card in this deck.</span>
           )}
         </section>
         </div>
 
-        {!hasAnyRows && loading && (
-          <div className="text-sm text-zinc-400 px-1">Finding cheaper similar cards…</div>
+        {!hasVisibleRows && refreshing && (
+          <div className="flex items-center gap-2 text-sm text-zinc-400 px-1">
+            <Loader2 className="h-4 w-4 animate-spin" /> Updating cost plan…
+          </div>
         )}
 
-        {hasAnyRows && (
-          <>
+        {hasVisibleRows && (
+          <div className={`flex flex-col gap-4 transition-opacity ${refreshing ? 'opacity-50 pointer-events-none' : ''}`}>
             {/* ── Similar alternatives (trustworthy) ── */}
             <Section
               title="Similar alternatives"
@@ -212,7 +249,7 @@ export function CostTab({
                 ))}
               </Section>
             )}
-          </>
+          </div>
         )}
       </div>
     </TooltipProvider>

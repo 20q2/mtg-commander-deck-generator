@@ -338,6 +338,13 @@
     animation: slideUp 0.4s ease-out;
   }
 
+  /* Splash entrance — same rise+fade as slideUp but with `backwards` fill so a
+     per-element inline animation-delay holds the hidden state through the delay
+     instead of flashing in first. Used to stagger the /analyze hub on mount. */
+  .animate-enter-up {
+    animation: slideUp 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) backwards;
+  }
+
   @keyframes slideUp {
     from {
       opacity: 0;

@@ -252,11 +252,16 @@ export function DeckContextPanel({
   // selected tag filters correctly. Feeds every reference view except the builder
   // playmat, which always shows the whole deck for editing.
   const filterActive = tagFilter && selectedTags.length > 0;
-  const visibleCards = useMemo(() => {
-    if (!filterActive) return boardCards;
+  // Cards on the current board that share at least one selected tag. Computed
+  // regardless of the filter toggle so the top-tags strip can always report how
+  // much of the deck the selected tags cover.
+  const matchedCards = useMemo(() => {
+    if (selectedTags.length === 0) return boardCards;
     const wanted = new Set(selectedTags);
     return boardCards.filter(card => tagsForOracleId(card.oracle_id ?? '').some(t => wanted.has(t)));
-  }, [boardCards, filterActive, selectedTags]);
+  }, [boardCards, selectedTags]);
+  const matchedCount = selectedTags.length > 0 ? matchedCards.length : undefined;
+  const visibleCards = filterActive ? matchedCards : boardCards;
 
   const groups = useMemo(() => {
     const byGroup = new Map<string, Map<string, CardStack>>();
@@ -383,7 +388,7 @@ export function DeckContextPanel({
         <div className="flex-1 min-h-0 flex flex-col">
           {displayTags.length > 0 && (
             <div className="px-3 pt-3">
-              <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} />
+              <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} matchedCount={matchedCount} />
             </div>
           )}
           <DeckBuildingArea currentCards={boardCards} onCardAction={boardCardAction} menuProps={builderMenuProps} />
@@ -397,7 +402,7 @@ export function DeckContextPanel({
       ) : view === 'table' ? (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
-            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} />
+            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} matchedCount={matchedCount} />
           )}
           <DeckTableView
             cards={visibleCards}
@@ -414,7 +419,7 @@ export function DeckContextPanel({
       ) : (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
-            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} />
+            <TopTagsStrip tags={displayTags} selected={selectedTags} onTagClick={onTagClick} onRemoveTag={onRemoveTag} heading={topTagsHeading} deckName={deckName} onOpenDeck={onOpenDeck} matchedCount={matchedCount} />
           )}
           {groups.map(group => (
             <DeckSection

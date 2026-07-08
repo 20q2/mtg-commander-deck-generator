@@ -22,8 +22,8 @@ export function CollectionPage() {
 
   // Filter state, lifted from CollectionManager so the Statistics tab can drive it.
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
-  const [selectedType, setSelectedType] = useState<string>('');
-  const [selectedRarity, setSelectedRarity] = useState<string>('');
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [selectedRarities, setSelectedRarities] = useState<Set<string>>(new Set());
 
   const auroraColors = useMemo(
     () => getAuroraColors([...selectedColors]),
@@ -50,11 +50,22 @@ export function CollectionPage() {
     scrollToManager();
   };
   const handleTypeClick = (type: string) => {
-    setSelectedType(prev => (prev === type ? '' : type));
+    setSelectedTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
     scrollToManager();
   };
   const handleRarityClick = (rarity: string) => {
-    setSelectedRarity(prev => (prev === rarity ? '' : RARITY_TO_PRETTY[rarity] ?? rarity));
+    const code = RARITY_TO_PRETTY[rarity] ?? rarity;
+    setSelectedRarities(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
     scrollToManager();
   };
 
@@ -150,10 +161,10 @@ export function CollectionPage() {
               <CollectionManager
                 selectedColors={selectedColors}
                 onSelectedColorsChange={setSelectedColors}
-                selectedType={selectedType}
-                onSelectedTypeChange={setSelectedType}
-                selectedRarity={selectedRarity}
-                onSelectedRarityChange={setSelectedRarity}
+                selectedTypes={selectedTypes}
+                onSelectedTypesChange={setSelectedTypes}
+                selectedRarities={selectedRarities}
+                onSelectedRaritiesChange={setSelectedRarities}
               />
             </section>
           )}

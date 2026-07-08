@@ -85,6 +85,10 @@ interface CardPreviewModalProps {
   /** SpellChroma: called with a tag slug when a tag chip is clicked in the Tags tab (modal then closes).
    *  When provided, the Tags-tab chips become clickable filters; otherwise they're static. */
   onTagClick?: (slug: string) => void;
+  /** ?deck= reference used when a Tags-tab chip opens SpellChroma from a deck context (a saved
+   *  list id, or 'generated' for the builder deck). When set, the tag click carries the whole
+   *  deck into SpellChroma instead of just this card. Ignored when onTagClick handles the click. */
+  spellChromaDeckRef?: string;
 }
 
 function ComboEntry({
@@ -238,7 +242,7 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone, onTagClick }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone, onTagClick, spellChromaDeckRef }: CardPreviewModalProps) {
   const swapsReady = !phasesDone || phasesDone.has('swaps');
   const navigate = useNavigate();
   const commander = useStore((s) => s.commander);
@@ -1032,9 +1036,14 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                         type="button"
                         onClick={() => {
                           if (onTagClick) onTagClick(slug);
-                          else {
-                            // Carry the previewed card along so SpellChroma opens with
-                            // it already loaded in the deck area (the card we came from).
+                          else if (spellChromaDeckRef) {
+                            // In a deck context: carry the whole deck along so SpellChroma
+                            // opens with the full deck in its panel (edited in place, and the
+                            // back button returns here) — mirrors the Statistics Top Tags chips.
+                            navigate(`/spellchroma?deck=${encodeURIComponent(spellChromaDeckRef)}&tags=${encodeURIComponent(slug)}`);
+                          } else {
+                            // No deck context — carry just the previewed card so SpellChroma
+                            // opens with it loaded in the deck area (the card we came from).
                             const params = new URLSearchParams({ tags: slug, card: rulingsTarget.name });
                             navigate(`/spellchroma?${params.toString()}`);
                           }

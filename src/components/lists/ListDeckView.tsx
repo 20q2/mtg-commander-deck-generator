@@ -673,7 +673,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
   const { lists: userLists, updateList, createList } = useUserLists();
-  const { newCards: newUpgradeCards, markSeen: markUpgradesSeen } = useDeckUpgrades(list);
+  const { newCards: newUpgradeCards, fillCards: upgradeFillCards, markSeen: markUpgradesSeen } = useDeckUpgrades(list);
   // A card's "Create combo" menu entry sets this; ComboDisplay opens its form seeded with the card, then clears it.
   const [comboSeedCard, setComboSeedCard] = useState<string | null>(null);
 
@@ -1846,6 +1846,60 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     bannedNames: new Set(customization.bannedCards),
   }), [userLists, customization.mustIncludeCards, customization.bannedCards]);
 
+  // Context-menu handler for the "New cards for this deck" grid. These cards aren't
+  // in the deck yet, so the board actions ADD (not move) and Create combo seeds the
+  // custom-combo form. Mirrors handleBoardCardAction's must-include/exclude/list logic.
+  const handleNewCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
+    const name = card.name;
+    switch (action.type) {
+      case 'addToDeck':
+        onAddCards?.([name], 'deck');
+        pushDeckHistory({ action: 'add', cardName: name });
+        break;
+      case 'sideboard':
+        onAddCards?.([name], 'sideboard');
+        pushDeckHistory({ action: 'sideboard', cardName: name });
+        break;
+      case 'maybeboard':
+        onAddCards?.([name], 'maybeboard');
+        pushDeckHistory({ action: 'maybeboard', cardName: name });
+        break;
+      case 'mustInclude': {
+        const current = customization.mustIncludeCards;
+        const has = current.includes(name);
+        updateCustomization({ mustIncludeCards: has ? current.filter(n => n !== name) : [...current, name] });
+        break;
+      }
+      case 'exclude': {
+        const currentBanned = customization.bannedCards;
+        const hasBan = currentBanned.includes(name);
+        updateCustomization({ bannedCards: hasBan ? currentBanned.filter(n => n !== name) : [...currentBanned, name] });
+        break;
+      }
+      case 'createCombo':
+        setComboSeedCard(name);
+        break;
+      case 'addToList': {
+        const targetList = userLists.find(l => l.id === action.listId);
+        if (targetList && !targetList.cards.includes(name)) {
+          updateList(action.listId, { cards: [...targetList.cards, name] });
+        }
+        break;
+      }
+      case 'createListAndAdd':
+        createList(action.listName, [name]);
+        break;
+    }
+  }, [onAddCards, pushDeckHistory, customization, updateCustomization, userLists, updateList, createList]);
+
+  const newCardMenuProps = useMemo(() => ({
+    userLists,
+    mustIncludeNames: new Set(customization.mustIncludeCards),
+    bannedNames: new Set(customization.bannedCards),
+    sideboardNames: new Set(list.sideboard || []),
+    maybeboardNames: new Set(list.maybeboard || []),
+  }), [userLists, customization.mustIncludeCards, customization.bannedCards, list.sideboard, list.maybeboard]);
+
   // Context-menu handler for the Trim / Fill drawers. Scoped to the non-mutating
   // actions (must-include, exclude, add-to-list) so the open dialog's plan, which
   // is computed from a fixed card array, doesn't desync mid-review.
@@ -2647,12 +2701,15 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           {list.type === 'deck' && list.commanderName && (
             <DeckUpgrades
               newCards={newUpgradeCards}
+              fillCards={upgradeFillCards}
               onApply={(name) => {
                 onAddCards?.([name], 'deck');
                 pushDeckHistory({ action: 'add', cardName: name });
               }}
               onMarkSeen={markUpgradesSeen}
               onExplore={() => navigate(`/analyze/${list.id}/new-cards`)}
+              onCardAction={onAddCards ? handleNewCardAction : undefined}
+              menuProps={newCardMenuProps}
             />
           )}
           {/* Always render — ComboDisplay owns its own skeleton/empty states, and the

@@ -1,5 +1,19 @@
 [
   {
+    "version": "1.3.16",
+    "notes": [
+      "New tool: New Cards - quickly see some (hopefully) relevant cards to your deck's gameplan. Also includes a full tab in the Inspector dedicated to showing a larger set.",      
+      "Set the theme of your deck using the new theme picker, affecting what kinds of cards surface as suggestions (hello new cards section)",
+      "Filter and sort My Decks by theme, with search that matches theme names",      
+      "Redesigned the /decks page to make better room for the tag changes",
+      "When assembling a deck that has low data (like for an unpopular commander or theme), cards that get slotted in from the archtype's card pool rather than your commanders card pool get marked with a little icon",
+      "Save a snapshot of a card's web — a camera button downloads a shareable image of the connections graph",
+      "Multiple minor improvements within spellchroma, the lift web, and the cost optimizer",
+      "Excluded cards are now hidden from the lift web",
+      "Added a note when trying to edit a generated deck that saving it opens up much better editing options"
+    ]
+  },
+  {
     "version": "1.3.15",
     "notes": [
       "Add your own combos to a deck — create, edit, or delete custom combos (even straight from a card's menu), shown right alongside the combos we detect for you",

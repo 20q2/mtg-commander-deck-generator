@@ -16,9 +16,11 @@ interface TopTagsStripProps {
   deckName?: string;
   /** Open the loaded deck/list's page (only set for saved library items). */
   onOpenDeck?: () => void;
+  /** How many deck cards share at least one selected tag — drives the summary line. */
+  matchedCount?: number;
 }
 
-export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15, heading = 'Your deck’s top tags', deckName, onOpenDeck }: TopTagsStripProps) {
+export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 15, heading = 'Your deck’s top tags', deckName, onOpenDeck, matchedCount }: TopTagsStripProps) {
   const [showAll, setShowAll] = useState(false);
   // Persist collapse state so it survives switching SpellChroma views (the strip
   // remounts on view change and would otherwise default back to open).
@@ -73,6 +75,18 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
           <ChevronDown className={`ml-auto w-3.5 h-3.5 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
         </button>
       </div>
+      {selected.length > 0 && matchedCount !== undefined && (
+        <div className="mt-1 text-[11px] font-normal text-muted-foreground">
+          <span className="tabular-nums font-semibold text-violet-300/90">{matchedCount}</span>
+          {' '}{matchedCount === 1 ? 'card falls' : 'cards fall'} under{' '}
+          {selected.map((slug, i) => (
+            <span key={slug}>
+              {i > 0 && (i === selected.length - 1 ? ' and ' : ', ')}
+              <span className="text-violet-300/90">{slug}</span>
+            </span>
+          ))}
+        </div>
+      )}
       <div ref={bodyRef}>
       {!collapsed && (
       <div ref={stripRef} className="flex flex-wrap items-center gap-1.5 mt-2">
