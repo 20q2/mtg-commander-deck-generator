@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Tags, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { ScryfallCard, EDHRECCommanderData } from '@/types';
 import { fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
@@ -113,13 +112,19 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
         {themes.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {themes.map(t => (
-              <Badge key={t.slug} variant="secondary" className="gap-1 pr-1">
+              <span
+                key={t.slug}
+                className="inline-flex items-center gap-1 rounded-full bg-violet-500/25 border border-violet-400/60 pl-2.5 pr-1.5 py-0.5 text-xs font-medium text-violet-100"
+              >
                 {t.name}
-                <button onClick={() => removeTheme(t.slug)} aria-label={`Remove ${t.name}`} className="hover:text-foreground">
+                <button onClick={() => removeTheme(t.slug)} aria-label={`Remove ${t.name}`} className="text-violet-200/70 hover:text-white">
                   <X className="w-3 h-3" />
                 </button>
-              </Badge>
+              </span>
             ))}
+            {themes.length >= MAX_THEMES && (
+              <span className="text-[11px] text-muted-foreground/70 self-center">Max {MAX_THEMES} — remove one to swap</span>
+            )}
           </div>
         )}
 
@@ -150,30 +155,13 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
           onPick={addTheme}
           disabledSlugs={selectedSlugs}
           disableAll={themes.length >= MAX_THEMES}
+          suggestions={detection?.evaluated.slice(0, 4).map(m => ({
+            name: m.theme.name,
+            slug: m.theme.slug,
+            score: m.score,
+            isBestGuess: guessSlugs.has(m.theme.slug),
+          }))}
         />
-
-        {!loading && detection && detection.evaluated.length > 0 && (
-          <div className="space-y-1">
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70">Suggested for this deck</div>
-            {detection.evaluated.slice(0, 4).map(m => (
-              <button
-                key={m.theme.slug}
-                onClick={() => addTheme({ name: m.theme.name, slug: m.theme.slug })}
-                disabled={themes.length >= MAX_THEMES || selectedSlugs.has(m.theme.slug)}
-                className="w-full flex items-center justify-between text-left rounded-md px-2 py-1.5 hover:bg-accent/40 disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <span className="text-xs font-medium flex items-center gap-1.5 min-w-0">
-                  <Tags className="w-3 h-3 text-violet-300/70 shrink-0" />
-                  <span className="truncate">{m.theme.name}</span>
-                  {guessSlugs.has(m.theme.slug) && <span className="text-[10px] text-violet-300/80 shrink-0">best guess</span>}
-                </span>
-                <span className="text-[11px] text-violet-300/80 tabular-nums shrink-0" title={`Match score ${Math.round(m.score)}/100 — card overlap, EDHREC inclusion weight, and keyword fit vs this commander's ${m.theme.name} decks`}>
-                  {Math.round(m.score)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
       </PopoverContent>
     </Popover>
   );
