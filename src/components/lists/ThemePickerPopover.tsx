@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Tags, X, Loader2, Wand2 } from 'lucide-react';
+import { Tags, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -135,7 +135,7 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
             className="w-full text-left rounded-lg border border-violet-400/30 bg-violet-500/10 px-2.5 py-2 hover:bg-violet-500/20 transition-colors"
           >
             <div className="flex items-center gap-1.5 text-xs font-medium text-violet-300/90">
-              <Wand2 className="w-3.5 h-3.5" />
+              <Tags className="w-3.5 h-3.5" />
               This looks like {detection.guess.map(m => m.theme.name).join(' + ')}
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -144,6 +144,13 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
             </div>
           </button>
         )}
+
+        <ThemeSearchList
+          enabled={open}
+          onPick={addTheme}
+          disabledSlugs={selectedSlugs}
+          disableAll={themes.length >= MAX_THEMES}
+        />
 
         {!loading && detection && detection.evaluated.length > 0 && (
           <div className="space-y-1">
@@ -155,9 +162,10 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
                 disabled={themes.length >= MAX_THEMES || selectedSlugs.has(m.theme.slug)}
                 className="w-full flex items-center justify-between text-left rounded-md px-2 py-1.5 hover:bg-accent/40 disabled:opacity-50 disabled:pointer-events-none"
               >
-                <span className="text-xs font-medium">
-                  {m.theme.name}
-                  {guessSlugs.has(m.theme.slug) && <span className="ml-1.5 text-[10px] text-violet-300/80">best guess</span>}
+                <span className="text-xs font-medium flex items-center gap-1.5 min-w-0">
+                  <Tags className="w-3 h-3 text-violet-300/70 shrink-0" />
+                  <span className="truncate">{m.theme.name}</span>
+                  {guessSlugs.has(m.theme.slug) && <span className="text-[10px] text-violet-300/80 shrink-0">best guess</span>}
                 </span>
                 <span className="text-[11px] text-violet-300/80 tabular-nums shrink-0" title={`Match score ${Math.round(m.score)}/100 — card overlap, EDHREC inclusion weight, and keyword fit vs this commander's ${m.theme.name} decks`}>
                   {Math.round(m.score)}
@@ -166,13 +174,6 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
             ))}
           </div>
         )}
-
-        <ThemeSearchList
-          enabled={open}
-          onPick={addTheme}
-          disabledSlugs={selectedSlugs}
-          disableAll={themes.length >= MAX_THEMES}
-        />
       </PopoverContent>
     </Popover>
   );
