@@ -276,8 +276,9 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
   const hasResults = state.phase === 'done' && (bombs.length > 0 || clusters.length > 0 || deckLinks.length > 0);
 
   return (
-    // Graph view spans the full optimizer pane; list/text stay in a readable column.
-    <div className={`space-y-4 ${viewMode === 'graph' && state.phase === 'done' ? '' : 'max-w-3xl'}`}>
+    // Once results are in, both graph and list span the full optimizer pane; only the pre-results
+    // states (progress bar / messages) stay in a readable narrow column.
+    <div className={`space-y-4 ${state.phase === 'done' ? '' : 'max-w-3xl'}`}>
       {scanning && (
         <div>
           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -389,8 +390,8 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
                           {g.items.length} {g.items.length === 1 ? 'hit' : 'hits'}
                         </span>
                       </div>
-                      <div className="divide-y divide-border/30">
-                        {g.items.map(c => <LiftCandidateRow key={c.card.name} candidate={c} mode="bomb" {...props} />)}
+                      <div className="grid gap-2.5 p-2.5 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
+                        {g.items.map(c => <LiftCandidateTile key={c.card.name} candidate={c} mode="bomb" {...props} />)}
                       </div>
                     </div>
                   ))}
@@ -402,8 +403,8 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
               <section className="space-y-2.5">
                 <SectionHeading Icon={Network} tone="sky" title="Clusters"
                   hint="cards pulled by several of your cards at once" />
-                <div className="rounded-xl border border-border/50 bg-card/20 overflow-hidden divide-y divide-border/30">
-                  {visibleClusters.map(c => <LiftCandidateRow key={c.card.name} candidate={c} mode="cluster" {...props} />)}
+                <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
+                  {visibleClusters.map(c => <LiftCandidateTile key={c.card.name} candidate={c} mode="cluster" {...props} />)}
                 </div>
               </section>
             )}
@@ -627,18 +628,20 @@ function SectionHeading({ Icon, tone, title, hint }:
   );
 }
 
-function LiftCandidateRow({
+/** A grid tile: the full card image (readable text, big enough to scan the rules), with the lift
+ *  info — co-play %, lift, and staple/thin/cluster chips — laid out below it. */
+function LiftCandidateTile({
   candidate, mode, onAdd, addedCards, onPreview, onCardAction, menuProps,
 }: { candidate: LiftCandidate; mode: 'bomb' | 'cluster' } & LiftClustersTabProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  // Hover → larger card preview, anchored to the row's thumbnail. A short delay keeps
-  // the preview from flickering while the cursor scans down a list of hits.
+  // Hover → an even larger magnified preview, anchored to the tile's image. A short delay keeps it
+  // from flickering while the cursor scans across the grid.
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startHover = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => setHovered(true), 140);
+    hoverTimer.current = setTimeout(() => setHovered(true), 220);
   };
   const endHover = () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
@@ -648,7 +651,7 @@ function LiftCandidateRow({
   const { card, connectionCount, bestNumDecks, edges } = candidate;
   const added = addedCards.has(card.name);
   const lowConf = bestNumDecks < CONFIDENCE_FLOOR;
-  // Strongest edge drives the ranking; for bombs the anchor lives in the group header, so the row
+  // Strongest edge drives the ranking; for bombs the anchor lives in the group header, so the tile
   // need only carry the relationship's strength (co-play % leads — it's the trustworthy number).
   const byScore = [...edges].sort((a, b) => edgeScore(b) - edgeScore(a));
   const top = byScore[0];
@@ -659,79 +662,96 @@ function LiftCandidateRow({
 
   return (
     <div
-      className={`group flex items-center gap-3 py-2 px-2.5 hover:bg-accent/40 cursor-pointer transition-all ${staple ? 'opacity-60 hover:opacity-100' : ''}`}
-      onClick={() => onPreview(card.name)}
+      className={`group relative flex flex-col rounded-xl border border-border/50 bg-card/20 overflow-hidden transition-all hover:border-fuchsia-400/40 ${staple ? 'opacity-60 hover:opacity-100' : ''}`}
       onContextMenu={(e) => { if (onCardAction) { e.preventDefault(); setMenuOpen(true); } }}
-      onMouseEnter={startHover}
-      onMouseLeave={endHover}
     >
-      <img
-        ref={imgRef}
-        src={getCardImageUrl(card, 'small') || scryfallImg(card.name)}
-        alt={card.name}
-        className="w-10 h-auto rounded shadow-md shrink-0"
-        loading="lazy"
-        onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name); }}
-      />
+      {/* full card image — click to preview, hover to magnify for a proper read of the rules text */}
+      <button
+        type="button"
+        className="relative block cursor-pointer"
+        onClick={() => onPreview(card.name)}
+        onMouseEnter={startHover}
+        onMouseLeave={endHover}
+        title={card.name}
+      >
+        <img
+          ref={imgRef}
+          src={getCardImageUrl(card, 'normal') || scryfallImg(card.name, 'normal')}
+          alt={card.name}
+          className="w-full h-auto"
+          loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(card.name, 'normal'); }}
+        />
+      </button>
       {hovered && <MagnifiedPreview card={card} anchorRef={imgRef} />}
-      <div className="flex-1 min-w-0">
+
+      {/* add / added — overlaid in the image's top-right so the footer stays for stats */}
+      <div className="absolute top-1.5 right-1.5 z-10">
+        {!added ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAdd(card.name); }}
+            className="grid place-items-center w-7 h-7 rounded-md border border-border/60 bg-background/80 backdrop-blur text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/40 hover:bg-emerald-500/20 transition-colors"
+            title="Add to deck"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        ) : (
+          <span className="grid place-items-center w-7 h-7 rounded-md bg-background/80 backdrop-blur text-emerald-400" title="Added">
+            <Check className="w-4 h-4" />
+          </span>
+        )}
+      </div>
+
+      {/* footer: name + lift stats + flag chips */}
+      <div className="flex flex-col gap-1 p-2 border-t border-border/40">
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-medium truncate">{card.name}</span>
+          <span className="text-xs font-medium truncate flex-1" title={card.name}>{card.name}</span>
           {mode === 'cluster' && (
             <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-px rounded-full shrink-0 bg-sky-500/15 text-sky-300"
               title={`Pulled by ${connectionCount} of your cards`}>
               <Network className="w-2.5 h-2.5" /> {connectionCount}
             </span>
           )}
-          {staple && (
-            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-px rounded-full shrink-0 bg-foreground/[0.06] text-muted-foreground border border-border/50"
-              title={`A broadly-played staple — in roughly ${base!.toFixed(1)}% of all decks. Strong, but good-stuff rather than deck-specific tech.`}>
-              <Anchor className="w-2.5 h-2.5" /> staple
-            </span>
-          )}
-          {lowConf && (
-            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-px rounded-full shrink-0 bg-amber-500/15 text-amber-300/90"
-              title={`Based on only ${bestNumDecks} shared decks — treat as a hunch, not a stat.`}>
-              thin data
+          {onCardAction && (
+            <span className={`shrink-0 transition-opacity ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
+              <CardContextMenu
+                card={card}
+                onAction={onCardAction}
+                hasAddToDeck
+                hasSideboard
+                hasMaybeboard
+                isInSideboard={menuProps.sideboardNames.has(card.name)}
+                isInMaybeboard={menuProps.maybeboardNames.has(card.name)}
+                userLists={menuProps.userLists}
+                isMustInclude={menuProps.mustIncludeNames.has(card.name)}
+                isBanned={menuProps.bannedNames.has(card.name)}
+                forceOpen={menuOpen}
+                onForceClose={() => setMenuOpen(false)}
+              />
             </span>
           )}
         </div>
-        <p className="text-[11px] text-muted-foreground truncate"
+        <p className="text-[11px] text-muted-foreground"
           title={byScore.map(e => `${e.seed}: ${e.coPct}% play it too, ${liftLabel(e.lift)} lift`).join(' · ')}>
           {mode === 'bomb'
             ? <><span className="font-medium text-foreground/80 tabular-nums">{top?.coPct ?? 0}%</span> play it too · <span className={staple ? 'text-muted-foreground' : 'text-fuchsia-300/80'}>{top ? liftLabel(top.lift) : ''} lift</span></>
-            : <>pulled by {byScore.slice(0, 2).map(e => e.seed).join(', ')}{connectionCount > 2 ? ` +${connectionCount - 2}` : ''} · <span className="text-sky-300/80">best {top ? liftLabel(top.lift) : ''}</span></>}
+            : <span className="line-clamp-2">pulled by {byScore.slice(0, 2).map(e => e.seed).join(', ')}{connectionCount > 2 ? ` +${connectionCount - 2}` : ''} · <span className="text-sky-300/80">best {top ? liftLabel(top.lift) : ''}</span></span>}
         </p>
-      </div>
-      <div className="flex items-center gap-1 shrink-0 ml-auto">
-        {!added ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAdd(card.name); }}
-            className="grid place-items-center w-7 h-7 rounded-md border border-border/50 text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/40 hover:bg-emerald-500/10 transition-colors"
-            title="Add to deck"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        ) : (
-          <span className="grid place-items-center w-7 h-7 text-emerald-400"><Check className="w-4 h-4" /></span>
-        )}
-        {onCardAction && (
-          <span className={`transition-opacity ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} onClick={(e) => e.stopPropagation()}>
-            <CardContextMenu
-              card={card}
-              onAction={onCardAction}
-              hasAddToDeck
-              hasSideboard
-              hasMaybeboard
-              isInSideboard={menuProps.sideboardNames.has(card.name)}
-              isInMaybeboard={menuProps.maybeboardNames.has(card.name)}
-              userLists={menuProps.userLists}
-              isMustInclude={menuProps.mustIncludeNames.has(card.name)}
-              isBanned={menuProps.bannedNames.has(card.name)}
-              forceOpen={menuOpen}
-              onForceClose={() => setMenuOpen(false)}
-            />
-          </span>
+        {(staple || lowConf) && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {staple && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-px rounded-full bg-foreground/[0.06] text-muted-foreground border border-border/50"
+                title={`A broadly-played staple — in roughly ${base!.toFixed(1)}% of all decks. Strong, but good-stuff rather than deck-specific tech.`}>
+                <Anchor className="w-2.5 h-2.5" /> staple
+              </span>
+            )}
+            {lowConf && (
+              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-px rounded-full bg-amber-500/15 text-amber-300/90"
+                title={`Based on only ${bestNumDecks} shared decks — treat as a hunch, not a stat.`}>
+                thin data
+              </span>
+            )}
+          </div>
         )}
       </div>
     </div>
