@@ -699,22 +699,20 @@ function LiftCandidateTile({
       </button>
       {hovered && <MagnifiedPreview card={card} anchorRef={imgRef} />}
 
-      {/* add / added — overlaid in the image's top-right so the footer stays for stats */}
-      <div className="absolute top-1.5 right-1.5 z-10">
-        {!added ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAdd(card.name); }}
-            className="grid place-items-center w-7 h-7 rounded-md border border-border/60 bg-background/80 backdrop-blur text-muted-foreground hover:text-emerald-400 hover:border-emerald-400/40 hover:bg-emerald-500/20 transition-colors"
-            title="Add to deck"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        ) : (
-          <span className="grid place-items-center w-7 h-7 rounded-md bg-background/80 backdrop-blur text-emerald-400" title="Added">
-            <Check className="w-4 h-4" />
-          </span>
-        )}
-      </div>
+      {/* add / added — top-left overlay that fades in on hover, matching the other inspector grids */}
+      {!added ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); onAdd(card.name); }}
+          className="absolute top-0 left-0 rounded-tl-xl rounded-br-lg bg-black/60 hover:bg-black/80 text-white p-2 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+          title="Add to deck"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+      ) : (
+        <span className="absolute top-0 left-0 rounded-tl-xl rounded-br-lg bg-black/60 text-white p-2 animate-pop-in" title="Added">
+          <Check className="w-5 h-5" />
+        </span>
+      )}
 
       {/* footer: name + lift stats + flag chips */}
       <div className="flex flex-col gap-1 p-2 border-t border-border/40">
