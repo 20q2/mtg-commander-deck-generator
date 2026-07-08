@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChartNetwork, Plus, Check, Zap, Network, List, Share2, Anchor, Search, X, Link2, Flame, Layers, Unlink, Mountain, Loader2, Package } from 'lucide-react';
+import { ChartNetwork, Plus, Check, Zap, Network, List, Share2, Anchor, Search, X, Link2, Flame, Layers, Unlink, Mountain, Loader2, Package, ChevronDown } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { useCollection } from '@/hooks/useCollection';
@@ -373,28 +373,7 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
                 <SectionHeading Icon={Zap} tone="fuchsia" title="High-lift hits"
                   hint="cards that spike in play rate beside a single one of yours" />
                 <div className="space-y-2.5">
-                  {bombGroups.map(g => (
-                    <div key={g.anchor} className="rounded-xl border border-border/50 bg-card/20 overflow-hidden">
-                      <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/40 bg-fuchsia-500/[0.05]">
-                        <img
-                          src={(g.anchorCard && getCardImageUrl(g.anchorCard, 'small')) || scryfallImg(g.anchor)}
-                          alt={g.anchor}
-                          className="w-6 h-auto rounded shadow-sm shrink-0"
-                          loading="lazy"
-                          onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(g.anchor); }}
-                        />
-                        <span className="text-xs text-muted-foreground truncate">
-                          pairs with <span className="font-semibold text-foreground">{g.anchor}</span>
-                        </span>
-                        <span className="ml-auto shrink-0 text-[10px] font-medium text-fuchsia-300/80 tabular-nums">
-                          {g.items.length} {g.items.length === 1 ? 'hit' : 'hits'}
-                        </span>
-                      </div>
-                      <div className="grid gap-2.5 p-2.5 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
-                        {g.items.map(c => <LiftCandidateTile key={c.card.name} candidate={c} mode="bomb" {...props} />)}
-                      </div>
-                    </div>
-                  ))}
+                  {bombGroups.map(g => <BombGroup key={g.anchor} group={g} tabProps={props} />)}
                 </div>
               </section>
             )}
@@ -624,6 +603,44 @@ function SectionHeading({ Icon, tone, title, hint }:
       <Icon className={`w-3.5 h-3.5 shrink-0 ${icon}`} />
       <h4 className={`text-xs font-semibold uppercase tracking-wider ${text}`}>{title}</h4>
       <span className="text-[11px] text-muted-foreground truncate">— {hint}</span>
+    </div>
+  );
+}
+
+interface BombGroupData { anchor: string; anchorCard?: ScryfallCard; items: LiftCandidate[]; }
+
+/** A "pairs with <anchor>" group — a collapsible header over the grid of hits tied to that card,
+ *  so you can fold a whole anchor away and skim past it. */
+function BombGroup({ group, tabProps }: { group: BombGroupData; tabProps: LiftClustersTabProps }) {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <div className="rounded-xl border border-border/50 bg-card/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setCollapsed(c => !c)}
+        aria-expanded={!collapsed}
+        className={`flex items-center gap-2 w-full px-2.5 py-1.5 text-left bg-fuchsia-500/[0.05] hover:bg-fuchsia-500/[0.1] transition-colors ${collapsed ? '' : 'border-b border-border/40'}`}
+      >
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+        <img
+          src={(group.anchorCard && getCardImageUrl(group.anchorCard, 'small')) || scryfallImg(group.anchor)}
+          alt={group.anchor}
+          className="w-6 h-auto rounded shadow-sm shrink-0"
+          loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(group.anchor); }}
+        />
+        <span className="text-xs text-muted-foreground truncate">
+          pairs with <span className="font-semibold text-foreground">{group.anchor}</span>
+        </span>
+        <span className="ml-auto shrink-0 text-[10px] font-medium text-fuchsia-300/80 tabular-nums">
+          {group.items.length} {group.items.length === 1 ? 'hit' : 'hits'}
+        </span>
+      </button>
+      {!collapsed && (
+        <div className="grid gap-2.5 p-2.5 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
+          {group.items.map(c => <LiftCandidateTile key={c.card.name} candidate={c} mode="bomb" {...tabProps} />)}
+        </div>
+      )}
     </div>
   );
 }
