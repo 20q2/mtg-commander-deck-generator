@@ -112,15 +112,16 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
         {themes.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {themes.map(t => (
-              <span
+              <button
                 key={t.slug}
-                className="inline-flex items-center gap-1 rounded-full bg-violet-500/25 border border-violet-400/60 pl-2.5 pr-1.5 py-0.5 text-xs font-medium text-violet-100"
+                onClick={() => removeTheme(t.slug)}
+                aria-label={`Remove ${t.name}`}
+                title="Click to remove"
+                className="inline-flex items-center gap-1 rounded-full bg-violet-500/25 border border-violet-400/60 pl-2.5 pr-1.5 py-0.5 text-xs font-medium text-violet-100 hover:bg-violet-500/40 transition-colors"
               >
                 {t.name}
-                <button onClick={() => removeTheme(t.slug)} aria-label={`Remove ${t.name}`} className="text-violet-200/70 hover:text-white">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
+                <X className="w-3 h-3 text-violet-200/70" />
+              </button>
             ))}
             {themes.length >= MAX_THEMES && (
               <span className="text-[11px] text-muted-foreground/70 self-center">Max {MAX_THEMES} — remove one to swap</span>
