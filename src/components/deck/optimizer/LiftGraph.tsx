@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, forceRadial, type Simulation } from 'd3-force';
-import { Check, Maximize2, HelpCircle, Expand, Shrink, Search, Camera, Loader2, Crown } from 'lucide-react';
+import { Check, Maximize2, HelpCircle, Expand, Shrink, Search, Camera, Loader2 } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardImageUrl, isAnyLand } from '@/services/scryfall/client';
 import { scryfallImg } from './constants';
@@ -271,8 +271,6 @@ export function LiftGraph(props: LiftGraphProps) {
   const [, setTick] = useState(0);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [hover, setHover] = useState<string | null>(null);
-  // Pin the commander(s) to the canvas centre so the web arranges around them (toggle).
-  const [centerCommander, setCenterCommander] = useState(false);
   // Right-click context menu: which card, where (relative to the canvas), and whether it's a deck card.
   const [menuFor, setMenuFor] = useState<{ card: ScryfallCard; x: number; y: number; isDeck: boolean } | null>(null);
 
@@ -535,39 +533,6 @@ export function LiftGraph(props: LiftGraphProps) {
     sim.force('center', forceCenter(size.w / 2, size.h / 2));
   }, [size.w, size.h, ready]);
 
-  // Whether any commander is actually plotted — gates the "center commander" toggle button.
-  const hasCommanderNode = useMemo(() => nodes.some(n => n.commander), [nodes]);
-
-  // ── Center-commander toggle. Pins the commander(s) to the canvas centre (fx/fy) so the web
-  // settles radially around them; clearing the pin lets the forces reclaim their natural layout.
-  // Runs on toggle AND on node rebuilds (buildGraph makes fresh node objects) so the pin re-applies
-  // to the new commander node. Reheats gently and re-fits once settled so the commander lands centred. ──
-  const prevCenterRef = useRef(false);
-  useEffect(() => {
-    const sim = simRef.current;
-    if (!sim || !ready) return;
-    const toggled = prevCenterRef.current !== centerCommander;
-    prevCenterRef.current = centerCommander;
-    const cmdrs = nodes.filter(n => n.commander);
-    if (centerCommander && cmdrs.length) {
-      // One commander → dead centre; a partner pair → sat symmetrically either side so collision
-      // (which fx/fy would otherwise override into an exact overlap) doesn't fight them.
-      const { w, h } = sizeRef.current;
-      cmdrs.forEach((n, i) => {
-        const off = cmdrs.length > 1 ? (i - (cmdrs.length - 1) / 2) * (n.r * 2 + 24) : 0;
-        n.fx = w / 2 + off; n.fy = h / 2;
-      });
-    } else if (toggled) {
-      for (const n of cmdrs) { n.fx = null; n.fy = null; }
-    } else {
-      return;   // off, and not a toggle (e.g. first mount / unrelated rebuild) → don't reheat
-    }
-    sim.alpha(0.5).restart();
-    const t = window.setTimeout(() => fitRef.current(), 700);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerCommander, nodes, ready]);
-
   // ── Pointer interaction (pan / node drag / zoom) ────────────────────
   const drag = useRef<{ mode: 'none' | 'pan' | 'node'; node?: GNode; moved: boolean; sx: number; sy: number; ox: number; oy: number }>(
     { mode: 'none', moved: false, sx: 0, sy: 0, ox: 0, oy: 0 },
@@ -827,14 +792,6 @@ export function LiftGraph(props: LiftGraphProps) {
           <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: `hsl(${HUE.bomb})` }} /> high-lift</span>
           <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: `hsl(${HUE.cluster})` }} /> clusters</span>
         </div>
-        {hasCommanderNode && (
-          <button onClick={() => setCenterCommander(v => !v)}
-            title={centerCommander ? 'Commander centred — click to release' : 'Center your commander in the web'}
-            aria-pressed={centerCommander}
-            className={`grid place-items-center w-7 h-7 rounded-full border backdrop-blur transition-colors ${centerCommander ? 'border-amber-400/60 bg-amber-500/15 text-amber-200' : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'}`}>
-            <Crown className="w-3.5 h-3.5" />
-          </button>
-        )}
         <button onClick={onExport} disabled={exporting}
           title={exportFailed ? 'Export failed — try again' : 'Download share image'}
           className={`grid place-items-center w-7 h-7 rounded-full border backdrop-blur transition-colors disabled:opacity-60 ${exportFailed ? 'border-red-400/60 bg-red-500/10 text-red-300' : 'border-border/60 bg-background/70 text-muted-foreground hover:text-foreground'}`}>
