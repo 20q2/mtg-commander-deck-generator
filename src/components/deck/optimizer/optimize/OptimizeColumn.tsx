@@ -90,6 +90,8 @@ export interface OptimizeColumnProps {
   onDeselectAll: () => void;
   onSelectGroup: (names: string[]) => void;
   onDeselectGroup: (names: string[]) => void;
+  /** Optional control rendered in the column header, right-aligned before the select-all checkbox. */
+  headerExtra?: ReactNode;
   /** Optional renderer for the inline drill-down panel inserted below the active tile's group. */
   renderDrilldown: (card: OptimizeCard) => ReactNode;
 }
@@ -120,7 +122,7 @@ const SIDE_HEADER: Record<TileSide, {
 export function OptimizeColumn({
   side, cards, uncheckedNames, activeName, totalCount,
   onTileClick, onToggleChecked, onSelectAll, onDeselectAll,
-  onSelectGroup, onDeselectGroup, renderDrilldown,
+  onSelectGroup, onDeselectGroup, headerExtra, renderDrilldown,
 }: OptimizeColumnProps) {
   const labelFn = side === 'remove' ? getRemovalCategoryLabel : getAdditionCategoryLabel;
   const groups = useMemo(() => groupByCategory(cards, labelFn), [cards, labelFn]);
@@ -141,13 +143,15 @@ export function OptimizeColumn({
         <span className={`text-xs font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
           {headerMeta.label} ({totalCount})
         </span>
-        <Checkbox
-          checked={columnState}
-          onCheckedChange={() => (columnState === true ? onDeselectAll() : onSelectAll())}
-          aria-label={columnAriaLabel}
-          title={columnAriaLabel}
-          className="ml-auto"
-        />
+        <div className="ml-auto flex items-center gap-2">
+          {headerExtra}
+          <Checkbox
+            checked={columnState}
+            onCheckedChange={() => (columnState === true ? onDeselectAll() : onSelectAll())}
+            aria-label={columnAriaLabel}
+            title={columnAriaLabel}
+          />
+        </div>
       </div>
 
       {/* Each group is its own glassy card — no border. */}

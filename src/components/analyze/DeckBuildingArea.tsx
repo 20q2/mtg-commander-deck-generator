@@ -15,6 +15,7 @@ import { getColumns, type Column, type GroupKey, GROUP_OPTIONS, shouldCollapseRo
 import { computeSpillover } from './columnSpillover';
 import { useStore } from '@/store';
 import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
+import { AddCardPopover } from '@/components/spellchroma/AddCardPopover';
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
@@ -295,6 +296,9 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
   );
+  // Names already in the deck — feeds the manual add-card popover so it can
+  // filter out cards that are already present.
+  const deckNames = useMemo(() => new Set(currentCards.map(c => c.name)), [currentCards]);
   const deckFormat = useStore(s => s.customization.deckFormat);
   const partnerCommander = useStore(s => s.partnerCommander);
   const targetDeckSize = deckFormat - (partnerCommander ? 1 : 0);
@@ -597,6 +601,11 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
               </span>
             );
           })()}
+          {/* Manual add-a-card: shared popover with a `+` trigger, routed through
+              the same onCardAction the rest of the panel uses. */}
+          {onCardAction && (
+            <AddCardPopover deckNames={deckNames} onCardAction={onCardAction} />
+          )}
           {/* View toggle — Non-lands / Lands. Replaces the side drawer. */}
           <div
             className="flex items-center border border-border/50 rounded-md overflow-hidden"

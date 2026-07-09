@@ -28,6 +28,10 @@ export interface UseOptimizePlanOptions {
    * the same source. If omitted, the hook computes its own (legacy fallback).
    */
   baseSwaps?: OptimizeSwaps;
+  /** When true, the additions list is limited to cards in `collectionNames`. */
+  collectionOnly?: boolean;
+  /** Owned-card names — required for `collectionOnly` to filter anything. */
+  collectionNames?: Set<string>;
 }
 
 export interface OptimizePlanTotals {
@@ -55,6 +59,7 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
     mustIncludeNames, bannedNames, detectedCombos,
     onApply, highlightRemovals = true,
     baseSwaps: sharedSwaps,
+    collectionOnly = false, collectionNames,
   } = opts;
 
   const [extraAdditions, setExtraAdditions] = useState<OptimizeCard[]>([]);
@@ -78,11 +83,16 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
   const baseSwaps = localSwaps;
 
   const additions = useMemo(() => {
-    if (extraAdditions.length === 0) return baseSwaps.additions;
-    const existingNames = new Set(baseSwaps.additions.map(c => c.name));
+    // "In collection" limits the suggested adds to cards the user owns. It never
+    // touches extras — those are cards the user explicitly opted into.
+    const suggested = collectionOnly && collectionNames
+      ? baseSwaps.additions.filter(c => collectionNames.has(c.name))
+      : baseSwaps.additions;
+    if (extraAdditions.length === 0) return suggested;
+    const existingNames = new Set(suggested.map(c => c.name));
     const novel = extraAdditions.filter(c => !existingNames.has(c.name));
-    return [...baseSwaps.additions, ...novel];
-  }, [baseSwaps.additions, extraAdditions]);
+    return [...suggested, ...novel];
+  }, [baseSwaps.additions, extraAdditions, collectionOnly, collectionNames]);
 
   const removals = baseSwaps.removals;
 

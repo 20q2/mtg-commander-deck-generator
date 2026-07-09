@@ -253,8 +253,47 @@ export function DeckOptimizer({
     return null;
   }, [themeDetection, themeTaxonomy.tags, savedThemes]);
 
+  // Store subscriptions used inside the analysis handlers below — declared
+  // here so handlers (and fetchThemeData) can reference them in dep arrays.
+  const colorIdentity = useStore(s => s.colorIdentity);
+  const pushDeckHistory = useStore(s => s.pushDeckHistory);
+
+  // Fetch theme data helper (cached). Commander+theme page first; when the commander
+  // has no EDHREC page for the theme (403 = not found), fall back to the color-filtered
+  // archetype tag page so ANY theme is pickable. Fallback inclusion percentages come
+  // from the archetype-wide population (systematically higher than commander-specific
+  // numbers) — the base-staple merge in the callers dampens the skew.
+  const fetchThemeData = useCallback(async (slug: string) => {
+    let data = themeDataCacheRef.current.get(slug);
+    if (!data) {
+      try {
+        data = partnerCommanderName
+          ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
+          : await fetchCommanderThemeData(commanderName, slug);
+      } catch {
+        const tagData = await fetchTagPageData(slug, colorIdentity ?? []);
+        if (!tagData) throw new Error(`No EDHREC data for theme "${slug}"`);
+        const baseStats = cachedEdhrecDataRef.current?.stats;
+        data = {
+          themes: [],
+          stats: baseStats ?? {
+            avgPrice: 0, numDecks: 0, deckSize: 81, manaCurve: {},
+            typeDistribution: { creature: 0, instant: 0, sorcery: 0, artifact: 0, enchantment: 0, land: 0, planeswalker: 0, battle: 0 },
+            landDistribution: { basic: 0, nonbasic: 0, total: 0 },
+          },
+          cardlists: tagData.cardlists,
+          similarCommanders: [],
+        };
+      }
+      themeDataCacheRef.current.set(slug, data);
+    }
+    return data;
+  }, [commanderName, partnerCommanderName, colorIdentity]);
+
   // Notify parent (AnalyzePage) when the user's selected themes change so it can
-  // tag cards with the matching theme chips in the visual stacks.
+  // tag cards with the matching theme chips in the visual stacks. BOTH themes'
+  // data must be in the cache first — a freshly picked secondary isn't warmed
+  // yet, so without this its chip would stamp no cards until a later re-render.
   useEffect(() => {
     if (!onThemeMembershipChange) return;
     const primary = resolveThemeInfo(primaryThemeSlug);
@@ -263,9 +302,16 @@ export function DeckOptimizer({
       onThemeMembershipChange(null);
       return;
     }
-    const membership = buildThemeMembership(primary, secondary, themeDataCacheRef.current);
-    onThemeMembershipChange(membership);
-  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange]);
+    let cancelled = false;
+    (async () => {
+      await Promise.all(
+        [primary, secondary].filter(Boolean).map(t => fetchThemeData(t!.slug).catch(() => null)),
+      );
+      if (cancelled) return;
+      onThemeMembershipChange(buildThemeMembership(primary, secondary, themeDataCacheRef.current));
+    })();
+    return () => { cancelled = true; };
+  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange, fetchThemeData]);
 
   // Emit the misfit name set so the deck-building area can highlight matching cards.
   useEffect(() => {
@@ -285,11 +331,6 @@ export function DeckOptimizer({
   // User-overridable intended deck size (null = use loaded deck's actual size)
   const [userDeckSize, setUserDeckSize] = useState<number | null>(null);
   const deckSize = userDeckSize ?? propDeckSize;
-
-  // Store subscriptions used inside the analysis handlers below — declared
-  // here so handlers can reference them in their dep arrays.
-  const colorIdentity = useStore(s => s.colorIdentity);
-  const pushDeckHistory = useStore(s => s.pushDeckHistory);
 
   // The effective pacing: user override > theme-detected > base analysis
   const effectivePacing: Pacing | undefined = userPacing ?? themeDetection?.pacing ?? analysis?.pacing ?? undefined;
@@ -453,6 +494,37 @@ export function DeckOptimizer({
       .slice(0, limit);
   }, []);
 
+  /** Supplement an existing theme rec-set with a SECOND theme's card pool —
+   *  the same "secondary supplements primary" merge the theme-picker uses.
+   *  Centralizing it means the auto-detect path and every runAnalysisFor
+   *  recompute reflect BOTH selected themes' pools, not just the primary.
+   *  Callers pass secondary data already in hand (warmed into the cache). */
+  const mergeSecondaryTheme = useCallback((
+    current: {
+      recommendations: RecommendedCard[];
+      roleBreakdowns: DeckAnalysis['roleBreakdowns'];
+      landRecommendations: RecommendedCard[];
+    },
+    secondaryData: import('@/types').EDHRECCommanderData,
+    opts: { targets: Parameters<typeof analyzeDeck>[0]['roleTargets']; pacing?: Pacing; landTarget?: number },
+  ) => {
+    const secondaryResult = analyzeDeck({
+      edhrecData: secondaryData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
+      cardInclusionMap: buildInclusionMap(secondaryData), colorIdentity,
+      overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
+      commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
+    });
+    return {
+      recommendations: mergeRecommendations(current.recommendations, secondaryResult.recommendations),
+      roleBreakdowns: current.roleBreakdowns.map((rb, idx) => {
+        const themeRb = secondaryResult.roleBreakdowns[idx];
+        if (!themeRb) return rb;
+        return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements) };
+      }),
+      landRecommendations: mergeRecommendations(current.landRecommendations, secondaryResult.landRecommendations, 15),
+    };
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity, commanderName, partnerCommanderName]);
+
   /** Run base + (optional) theme analysis and merge results.
    *  Returns null when no cached EDHREC data is available.
    *
@@ -470,12 +542,31 @@ export function DeckOptimizer({
     if (!baseData) return null;
 
     const commanderNamesForAnalyze = partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName];
+
+    // Keep plan/strategy scoring theme-aware on EVERY recompute. Without the
+    // theme context (membership + primaryThemeData + planName) analyzeDeck
+    // returns strategy 0, so adding a card / changing pacing/land/size would
+    // collapse the Strategy tile to 0 until the user re-touched the theme.
+    const primaryInfo = resolveThemeInfo(primaryThemeSlug);
+    const secondaryInfo = resolveThemeInfo(secondaryThemeSlug);
+    const storedDeck = useStore.getState().generatedDeck;
+    const themeContext = {
+      themeMembership: (primaryInfo || secondaryInfo)
+        ? buildThemeMembership(primaryInfo, secondaryInfo, themeDataCacheRef.current)
+        : undefined,
+      primaryThemeData: themeEnhancedDataRef.current ?? undefined,
+      planName: primaryInfo?.name ?? undefined,
+      cardSynergyMap: storedDeck?.cardSynergyMap,
+      gapCandidates: storedDeck?.gapAnalysis,
+    };
+
     const baseInclusionMap = buildInclusionMap(baseData);
     const baseResult = analyzeDeck({
       edhrecData: baseData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
       cardInclusionMap: baseInclusionMap, colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
+      ...themeContext,
     });
 
     const themeData = themeEnhancedDataRef.current;
@@ -487,16 +578,30 @@ export function DeckOptimizer({
       cardInclusionMap: themeInclusionMap, colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
+      ...themeContext,
     });
-    const mergedRecs = mergeRecommendations(baseResult.recommendations, themeResult.recommendations);
-    const mergedRoleBreakdowns = baseResult.roleBreakdowns.map((baseRb, idx) => {
-      const themeRb = themeResult.roleBreakdowns[idx];
-      if (!themeRb) return baseRb;
-      return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
-    });
-    const mergedLandRecs = mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15);
-    return { ...baseResult, recommendations: mergedRecs, roleBreakdowns: mergedRoleBreakdowns, landRecommendations: mergedLandRecs };
-  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity]);
+    let merged = {
+      recommendations: mergeRecommendations(baseResult.recommendations, themeResult.recommendations),
+      roleBreakdowns: baseResult.roleBreakdowns.map((baseRb, idx) => {
+        const themeRb = themeResult.roleBreakdowns[idx];
+        if (!themeRb) return baseRb;
+        return { ...baseRb, suggestedReplacements: mergeRecommendations(baseRb.suggestedReplacements, themeRb.suggestedReplacements) };
+      }),
+      landRecommendations: mergeRecommendations(baseResult.landRecommendations, themeResult.landRecommendations, 15),
+    };
+
+    // The secondary theme contributes to the pool too. Read its data straight
+    // from the warmed cache so this recompute stays synchronous — the cache is
+    // populated by applyThemeSelection / auto-detect before this path runs.
+    const secondaryData = secondaryThemeSlug ? themeDataCacheRef.current.get(secondaryThemeSlug) : undefined;
+    if (secondaryData) {
+      merged = mergeSecondaryTheme(merged, secondaryData, {
+        targets: opts.targets, pacing: opts.pacing, landTarget: opts.landTarget,
+      });
+    }
+
+    return { ...baseResult, recommendations: merged.recommendations, roleBreakdowns: merged.roleBreakdowns, landRecommendations: merged.landRecommendations };
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug, commanderName, partnerCommanderName, mergeSecondaryTheme]);
 
   // When user adjusts the intended deck size, re-run analysis. The new
   // deckSize takes effect on the next render via the `deckSize` derivation
@@ -726,13 +831,27 @@ export function DeckOptimizer({
           });
 
           // Theme drives; base staples (50%+ inclusion) backfill
-          const finalRecs = mergeThemeWithBaseStaples(themeResult.recommendations, baseResult.recommendations);
-          const finalRoleBreakdowns = themeResult.roleBreakdowns.map((themeRb, idx) => {
+          let finalRecs = mergeThemeWithBaseStaples(themeResult.recommendations, baseResult.recommendations);
+          let finalRoleBreakdowns = themeResult.roleBreakdowns.map((themeRb, idx) => {
             const baseRb = baseResult.roleBreakdowns[idx];
             if (!baseRb) return themeRb;
             return { ...themeRb, suggestedReplacements: mergeThemeWithBaseStaples(themeRb.suggestedReplacements, baseRb.suggestedReplacements) };
           });
-          const finalLandRecs = mergeThemeWithBaseStaples(themeResult.landRecommendations, baseResult.landRecommendations, 15);
+          let finalLandRecs = mergeThemeWithBaseStaples(themeResult.landRecommendations, baseResult.landRecommendations, 15);
+
+          // A detected secondary supplements the auto-applied primary, so the
+          // initial pool reflects BOTH themes (its data was warmed above).
+          const secondaryData = appliedSecondary ? themeDataCacheRef.current.get(appliedSecondary) : undefined;
+          if (secondaryData) {
+            const merged = mergeSecondaryTheme(
+              { recommendations: finalRecs, roleBreakdowns: finalRoleBreakdowns, landRecommendations: finalLandRecs },
+              secondaryData,
+              { targets: roleTargets, landTarget: userLandTarget ?? undefined },
+            );
+            finalRecs = merged.recommendations;
+            finalRoleBreakdowns = merged.roleBreakdowns;
+            finalLandRecs = merged.landRecommendations;
+          }
 
           // Enrich theme-only recs with prices BEFORE committing the analysis.
           // Rows are React.memo'd, so mutating rec.price after setAnalysis
@@ -846,38 +965,6 @@ export function DeckOptimizer({
     } catch { /* silently fail */ }
   }, []);
 
-  // Fetch theme data helper (cached). Commander+theme page first; when the commander
-  // has no EDHREC page for the theme (403 = not found), fall back to the color-filtered
-  // archetype tag page so ANY theme is pickable. Fallback inclusion percentages come
-  // from the archetype-wide population (systematically higher than commander-specific
-  // numbers) — the base-staple merge in the callers dampens the skew.
-  const fetchThemeData = useCallback(async (slug: string) => {
-    let data = themeDataCacheRef.current.get(slug);
-    if (!data) {
-      try {
-        data = partnerCommanderName
-          ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
-          : await fetchCommanderThemeData(commanderName, slug);
-      } catch {
-        const tagData = await fetchTagPageData(slug, colorIdentity ?? []);
-        if (!tagData) throw new Error(`No EDHREC data for theme "${slug}"`);
-        const baseStats = cachedEdhrecDataRef.current?.stats;
-        data = {
-          themes: [],
-          stats: baseStats ?? {
-            avgPrice: 0, numDecks: 0, deckSize: 81, manaCurve: {},
-            typeDistribution: { creature: 0, instant: 0, sorcery: 0, artifact: 0, enchantment: 0, land: 0, planeswalker: 0, battle: 0 },
-            landDistribution: { basic: 0, nonbasic: 0, total: 0 },
-          },
-          cardlists: tagData.cardlists,
-          similarCommanders: [],
-        };
-      }
-      themeDataCacheRef.current.set(slug, data);
-    }
-    return data;
-  }, [commanderName, partnerCommanderName, colorIdentity]);
-
   // Apply theme selection — uses theme data directly (base only when no themes selected)
   const applyThemeSelection = useCallback(async (primary: string | null, secondary: string | null) => {
     const cachedBase = cachedEdhrecDataRef.current;
@@ -926,6 +1013,14 @@ export function DeckOptimizer({
     // Primary theme → main data source, backfilled with base staples
     try {
       const primaryData = await fetchThemeData(primary!);
+      // Warm the secondary's data BEFORE building membership so its chip stamps
+      // cards immediately (membership + the parent's visual stacks read the cache).
+      const secondaryData = secondary
+        ? await fetchThemeData(secondary).catch(err => {
+            console.error('[DeckOptimizer] Failed to fetch secondary theme data:', err);
+            return null;
+          })
+        : null;
       themeEnhancedDataRef.current = primaryData;
       const primaryIncMap = buildInclusionMap(primaryData);
       const storedDeckForTheme = useStore.getState().generatedDeck;
@@ -957,27 +1052,16 @@ export function DeckOptimizer({
       });
       let finalLandRecs = mergeThemeWithBaseStaples(primaryResult.landRecommendations, baseResult.landRecommendations, 15);
 
-      // Secondary theme supplements the primary
-      if (secondary) {
-        try {
-          const secondaryData = await fetchThemeData(secondary);
-          const secondaryIncMap = buildInclusionMap(secondaryData);
-          const secondaryResult = analyzeDeck({
-            edhrecData: secondaryData, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
-            cardInclusionMap: secondaryIncMap, colorIdentity,
-            overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
-          });
-
-          finalRecs = mergeRecommendations(finalRecs, secondaryResult.recommendations);
-          finalRoleBreakdowns = finalRoleBreakdowns.map((rb, idx) => {
-            const themeRb = secondaryResult.roleBreakdowns[idx];
-            if (!themeRb) return rb;
-            return { ...rb, suggestedReplacements: mergeRecommendations(rb.suggestedReplacements, themeRb.suggestedReplacements) };
-          });
-          finalLandRecs = mergeRecommendations(finalLandRecs, secondaryResult.landRecommendations, 15);
-        } catch (err) {
-          console.error('[DeckOptimizer] Failed to fetch secondary theme data:', err);
-        }
+      // Secondary theme supplements the primary (data warmed above)
+      if (secondaryData) {
+        const merged = mergeSecondaryTheme(
+          { recommendations: finalRecs, roleBreakdowns: finalRoleBreakdowns, landRecommendations: finalLandRecs },
+          secondaryData,
+          { targets: effectiveRoleTargets, pacing: userPacing ?? undefined, landTarget: userLandTarget ?? undefined },
+        );
+        finalRecs = merged.recommendations;
+        finalRoleBreakdowns = merged.roleBreakdowns;
+        finalLandRecs = merged.landRecommendations;
       }
 
       setAnalysis(prev => prev ? {
@@ -998,7 +1082,7 @@ export function DeckOptimizer({
     rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeRecommendations, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
+  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeSecondaryTheme, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
 
   // Sequential-pick theme selection handler
   const handleThemeSelect = useCallback(async (slug: string) => {
@@ -1665,6 +1749,7 @@ export function DeckOptimizer({
             preSelect={pendingOptimizeSelection}
             onPreSelectConsumed={() => setPendingOptimizeSelection(null)}
             baseSwaps={baseSwaps ?? undefined}
+            collectionNames={collectionNames}
           />
         )}
 

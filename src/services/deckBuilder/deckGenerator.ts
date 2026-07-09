@@ -55,6 +55,19 @@ function fitsColorIdentity(card: ScryfallCard, commanderColors: string[]): boole
   return cardColors.every(color => commanderColors.includes(color));
 }
 
+// Rainbow / near-rainbow fixing lands (Mana Confluence, City of Brass, Command Tower, etc.)
+// have an empty color identity, so fitsColorIdentity() waves them through every deck. They
+// earn their slot only by fixing several colors — in a mono-colored (or colorless) deck that
+// fixing is wasted and the land is strictly worse than a basic. Exclude them there.
+// A land producing 2 colors (duals) or one used in a ≥2-color deck keeps ≥2 useful colors and
+// is never flagged.
+function isWastedFixingLand(card: ScryfallCard, colorIdentity: string[]): boolean {
+  const produced = new Set((card.produced_mana ?? []).filter(c => 'WUBRG'.includes(c)));
+  if (produced.size < 3) return false;
+  const useful = [...produced].filter(c => colorIdentity.includes(c)).length;
+  return useful <= 1;
+}
+
 // Return type for calculateTargetCounts
 interface TargetCountsResult {
   composition: DeckComposition;
@@ -1292,6 +1305,12 @@ async function generateLands(
       }
     }
     await upgradeCardPrintings(landCardMap, scryfallQuery, true);
+
+    // Drop rainbow fixing lands whose color fixing is wasted in this deck (mono-colored or
+    // colorless) — e.g. Mana Confluence in a mono deck adds nothing but a life-loss drawback.
+    for (const [name, card] of landCardMap) {
+      if (isWastedFixingLand(card, colorIdentity)) landCardMap.delete(name);
+    }
 
     // Build priority boost / penalty map for pacing-aware land selection
     const landPenalties = new Map<string, number>();

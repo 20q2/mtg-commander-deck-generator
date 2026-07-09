@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
+import { Package } from 'lucide-react';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import type { DeckAnalysis, OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
@@ -41,7 +42,12 @@ export interface OptimizeTabContentProps {
   onPreSelectConsumed?: () => void;
   /** Shared swap list lifted to DeckOptimizer so dashboard + optimize tab stay in sync. */
   baseSwaps?: OptimizeSwaps;
+  /** Owned-card names — powers the "In collection" toggle on the ADD column. */
+  collectionNames?: Set<string>;
 }
+
+// Persist the "limit adds to my collection" preference across sessions.
+const COLLECTION_ONLY_KEY = 'mtg-optimize-adds-collection-only';
 
 export function OptimizeTabContent({
   analysis, currentCards, commanderName, partnerCommanderName,
@@ -50,7 +56,7 @@ export function OptimizeTabContent({
   onFocusedMisfitChange,
   onAddCards, onRemoveCards,
   preSelect, onPreSelectConsumed,
-  baseSwaps,
+  baseSwaps, collectionNames,
 }: OptimizeTabContentProps) {
   // Subscribe to store directly so we get a stable reference for the combos
   // array (Zustand returns the same slice instance until it actually changes).
@@ -62,6 +68,18 @@ export function OptimizeTabContent({
   const [, setHighlightedComboId] = useState<string | null>(null);
   const [view, setView] = useState<OptimizeView>('swaps');
 
+  const hasCollection = !!collectionNames && collectionNames.size > 0;
+  const [collectionOnly, setCollectionOnly] = useState(
+    () => localStorage.getItem(COLLECTION_ONLY_KEY) === 'true',
+  );
+  const toggleCollectionOnly = useCallback(() => {
+    setCollectionOnly(prev => {
+      const next = !prev;
+      localStorage.setItem(COLLECTION_ONLY_KEY, String(next));
+      return next;
+    });
+  }, []);
+
   const plan = useOptimizePlan({
     analysis, currentCards, cardInclusionMap,
     commanderName, partnerCommanderName,
@@ -69,6 +87,8 @@ export function OptimizeTabContent({
     onApply,
     highlightRemovals: view === 'swaps',
     baseSwaps,
+    collectionOnly: hasCollection && collectionOnly,
+    collectionNames,
   });
   const highlightTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
@@ -183,6 +203,21 @@ export function OptimizeTabContent({
             uncheckedNames={plan.uncheckedAdditions}
             activeName={activeAddName}
             totalCount={plan.additions.length}
+            headerExtra={hasCollection ? (
+              <button
+                type="button"
+                onClick={toggleCollectionOnly}
+                aria-pressed={collectionOnly}
+                title="Show only cards you own in your collection"
+                className={`inline-flex items-center gap-1 h-6 px-2 rounded-full border text-[11px] transition-colors ${
+                  collectionOnly
+                    ? 'border-emerald-400/50 bg-emerald-500/15 text-emerald-100'
+                    : 'border-border/60 bg-card/40 text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Package className="w-3 h-3" /> In collection
+              </button>
+            ) : undefined}
             onTileClick={handleToggleAdd}
             onToggleChecked={plan.toggleAddition}
             onSelectAll={plan.selectAllAdditions}
