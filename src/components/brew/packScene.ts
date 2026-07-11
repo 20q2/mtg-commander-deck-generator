@@ -158,6 +158,32 @@ function paintWrapper(spec: PackSpec, art: HTMLImageElement | null, logo: HTMLIm
       g.fillRect(x + 3, y0, 3, y1 - y0);
     }
   }
+  // The reference's BAKED gloss: soft diagonal light bands sweeping the top crimp, and the
+  // faintest full-face sheen — the shine is printed on the product shot, not blasted by lights.
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, W, crimpH);
+  g.clip();
+  g.translate(W / 2, crimpH / 2);
+  g.rotate(-0.45);
+  for (const [off, w2, a] of [[-150, 46, 0.2], [-64, 20, 0.12], [120, 60, 0.16]] as const) {
+    g.fillStyle = `rgba(255,255,255,${a})`;
+    g.fillRect(off, -crimpH * 1.5, w2, crimpH * 3);
+  }
+  g.restore();
+  if (!back) {
+    g.save();
+    g.translate(W / 2, H / 2);
+    g.rotate(-0.35);
+    const sheen = g.createLinearGradient(-W * 0.5, 0, W * 0.6, 0);
+    sheen.addColorStop(0, 'rgba(255,255,255,0)');
+    sheen.addColorStop(0.48, 'rgba(255,255,255,0.07)');
+    sheen.addColorStop(0.55, 'rgba(255,255,255,0.03)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = sheen;
+    g.fillRect(-W, -H, W * 2, H * 2);
+    g.restore();
+  }
   // The brand on the top crimp (front only): the logo, then MANAFOUNDRY — no plate, no subtitle,
   // printed straight on the foil like the reference.
   if (!back) {
@@ -217,7 +243,9 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // Neutral keeps the print's saturation honest — ACES desaturates exactly the vivid hues the
+  // wrappers live on (the Pokémon product-shot look is bright, punchy, uncompressed color).
+  renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
@@ -229,10 +257,12 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   scene.environment = envTex;
   // A faint key from the TOP LEFT — enough to catch the stack's top edge and the crimp folds,
   // never enough to wash the print. Ambient carries most of the art's brightness (no specular).
-  const key = new THREE.DirectionalLight(0xffffff, 0.22);
-  key.position.set(-4, 6, 4);
+  // High and far to the LEFT, like the reference's studio light: highlights rake the top-left
+  // edges and the crimp folds, and the stack's upper-left edge catches its line.
+  const key = new THREE.DirectionalLight(0xffffff, 0.3);
+  key.position.set(-8, 11, 4);
   scene.add(key);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.35));
 
   const [logo, ...arts] = await Promise.all([
     loadImage(`${import.meta.env.BASE_URL}logo.png`, false),
@@ -240,6 +270,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   ]);
 
   const groups: THREE.Group[] = [];
+  const meshes: THREE.Mesh[] = [];
   const springs: { rx: Spring; ry: Spring }[] = [];
   const disposables: { dispose(): void }[] = [pmrem, envTex, renderer];
 
@@ -249,8 +280,13 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       const tex = new THREE.CanvasTexture(paintWrapper(spec, arts[i], logo, back));
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      // Product-shot lighting: the print carries HALF its own brightness (emissive map), so the
+      // art stays vivid regardless of scene light — the lights only add shading and edge life.
       const mat = new THREE.MeshPhysicalMaterial({
         map: tex,
+        emissive: 0xffffff,
+        emissiveMap: tex,
+        emissiveIntensity: 0.5,
         metalness: 0.1,
         roughness: 0.55,
         clearcoat: 0.25,
@@ -274,6 +310,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
     group.add(mesh);
     scene.add(group);
     groups.push(group);
+    meshes.push(mesh);
     springs.push({ rx: { cur: 0, vel: 0, target: 0 }, ry: { cur: 0, vel: 0, target: 0 } });
   });
 
@@ -327,6 +364,9 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       // environment's dark floor instead of its bright ceiling — no glare in your eyes.
       g.rotation.x = 0.07 + s.rx.cur;
       g.rotation.y = s.ry.cur;
+      // The idle hover: a very subtle, slow bob (staggered per pack). Lives on the MESH inside
+      // the group, so it never fights the tilt springs or the ceremony tweens on the group.
+      meshes[i].position.y = 0.018 * Math.sin(now * 0.0014 + i * 2.1);
     });
     tweens = tweens.filter(t => {
       const k = Math.min(1, (now - t.t0) / t.dur);
