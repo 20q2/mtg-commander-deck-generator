@@ -461,6 +461,19 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
         if (!godPack && seededChance(state.seed, `tease:${slug}:${state.picks.length}`, TEASE_SHARE)) {
           option.windfallTease = true;
         }
+        // Double-or-nothing stakes: once per run, a GOLD reveal may be traded sight-unseen for the
+        // theme's next two signatures. Attach them here (seeded pool, stable across re-render) and
+        // claim them so no other crate on screen shows the face-down trade. Rainbows are exempt.
+        if (wf.tier === 'gold' && !state.wagerResolved) {
+          const trades = (ctx.themeSignatures[slug] ?? [])
+            .filter(n => n !== wf.card.name && !taken.has(n) && byName.has(n))
+            .slice(0, 2)
+            .map(n => byName.get(n)!);
+          if (trades.length === 2) {
+            option.wagerTrade = trades;
+            for (const t of trades) taken.add(t.name);
+          }
+        }
       }
     }
     built.push({ option, subject: cl.label });

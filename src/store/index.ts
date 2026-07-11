@@ -522,7 +522,7 @@ export const useStore = create<AppState>((set, get) => ({
       brewQuestion: null, brewNode: null, brewEvent: null, brewRelicOffer: null, brewRerollExclusions: [] });
   },
 
-  applyBrewOption: (option: BrewOption, passedNames: string[]) => {
+  applyBrewOption: (option: BrewOption, passedNames: string[], wagerChoice?: 'kept' | 'traded') => {
     const { brewContext, brewState, brewNode } = get();
     if (!brewContext || !brewState || !brewNode) return;
     const picks: BrewPick[] = option.cards.map((c, i) => ({
@@ -539,13 +539,17 @@ export const useStore = create<AppState>((set, get) => ({
     }
     // A secret gold card (rare, theme packs only) rides along as a free extra pick — committed in the
     // same (undoable) decision, with its own affinity, plus a story moment for the end-run recap.
+    // Double or nothing: a traded gold is REPLACED by the two face-down signatures — the wager
+    // stakes the reveal, never the pack itself, so deck-quality honesty holds either way.
     const gold = option.goldCard;
-    if (gold) {
-      picks.push({ name: gold.name, card: gold.scryfall, role: gold.role, subtype: gold.subtype,
-        inclusion: gold.inclusion, viaRouteId: brewNode.routeId, reasons: [] });
-      const t = [...gold.themeTags];
-      if (gold.subtype) t.push(gold.subtype);
-      tags[gold.name] = t;
+    const traded = wagerChoice === 'traded' && !!gold && (option.wagerTrade?.length ?? 0) === 2;
+    const windfallCards = traded ? option.wagerTrade! : gold ? [gold] : [];
+    for (const w of windfallCards) {
+      picks.push({ name: w.name, card: w.scryfall, role: w.role, subtype: w.subtype,
+        inclusion: w.inclusion, viaRouteId: brewNode.routeId, reasons: [] });
+      const t = [...w.themeTags];
+      if (w.subtype) t.push(w.subtype);
+      tags[w.name] = t;
     }
     // Rotate packs across a 2-round window: on a fresh pack round, shift the just-shown keys into
     // lastPackKeys and the previous round's into prevPackKeys, so the next two rounds hold both back
@@ -573,7 +577,15 @@ export const useStore = create<AppState>((set, get) => ({
     }
     let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags, rival });
     nextState = { ...nextState, lastPackKeys: nextLastPackKeys, prevPackKeys: nextPrevPackKeys, lastPackCardNames: nextLastPackCardNames };
-    if (gold) {
+    if (gold && traded) {
+      // The wager beat: what was given up and what came back — a gamble moment, not a windfall
+      // (the Treasury records pulls you kept, not trades).
+      nextState = { ...nextState, moments: [...nextState.moments, {
+        atPick: nextState.picks.length, kind: 'gamble',
+        label: `Double or nothing — traded ${gold.name}`,
+        detail: `Won ${option.wagerTrade!.map(c => c.name).join(' + ')}`,
+      }] };
+    } else if (gold) {
       const tier = option.windfallTier ?? 'gold';
       const label = tier === 'rainbow' ? `Rainbow rare — ${gold.name}` : `Struck gold — ${gold.name}`;
       const detail = brewNode.godPack ? 'From a god pack' : tier === 'rainbow' ? 'A prismatic windfall' : 'Hidden in the pack';
@@ -582,6 +594,8 @@ export const useStore = create<AppState>((set, get) => ({
         // The structured fields feed the Treasury (the cross-run binder) at run end.
         { atPick: nextState.picks.length, kind: 'goldCard', label, detail, cardName: gold.name, windfallTier: tier, art }] };
     }
+    // The double-or-nothing is once per run: shown at all (kept OR traded) marks it spent.
+    if (wagerChoice) nextState = { ...nextState, wagerResolved: true };
     // Completing a combo via the Combos route is a story beat too (not just the Combo-Fragment event):
     // log it so the recap reflects the kill you assembled, not only event-sourced moments.
     if (brewNode.type === 'combo') {

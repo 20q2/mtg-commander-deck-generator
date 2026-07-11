@@ -4,7 +4,7 @@ import { useStore } from '@/store';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { detectNearMissCombos, philosophyPromoted } from '@/services/brew/engine';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, Play, Star, Gem, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, Play, Star, Gem, Dices, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey, themeColor, legibleText } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
@@ -75,13 +75,15 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   // A pack that secretly held a windfall reveals it here before the pick commits: a face-down card
   // slides from the crate, shimmers, then flips to the real card (gold, or the rarer rainbow).
-  const [reveal, setReveal] = useState<{ card: BrewCandidate; tier: 'gold' | 'rainbow' } | null>(null);
+  const [reveal, setReveal] = useState<{ card: BrewCandidate; tier: 'gold' | 'rainbow'; wager?: BrewCandidate[]; traded?: boolean } | null>(null);
   const [flipped, setFlipped] = useState(false);
   // The gem plays a fly-to-deck exit before the pick commits and the screen transitions.
   const [revealExiting, setRevealExiting] = useState(false);
   // Pending windfall commit + its timers, so a tap can flip early / skip the hold and commit now.
   const revealTimers = useRef<number[]>([]);
   const pendingCommit = useRef<null | (() => void)>(null);
+  // The double-or-nothing trade, armed in choose() when this reveal carries wager stakes.
+  const pendingTrade = useRef<null | (() => void)>(null);
   const revealExitingRef = useRef(false); // synchronous guard so auto-commit + a tap can't double-fire
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   // Hovering a "Finishes a combo" badge pops a tiny preview: the owned piece(s) + this card → payoff.
@@ -107,7 +109,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   }, [brewContext, brewState]);
   // Clear any headliner selection when the offered cards change (reroll, back, next node).
   const shownKey = brewNode ? `${brewNode.routeId}|${brewNode.options.flatMap(o => o.cards.map(c => c.name)).join(',')}` : '';
-  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); setReveal(null); setFlipped(false); setRevealExiting(false); revealExitingRef.current = false; }, [shownKey]);
+  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); setReveal(null); setFlipped(false); setRevealExiting(false); revealExitingRef.current = false; pendingTrade.current = null; }, [shownKey]);
   // Cancel any pending windfall timers if the screen unmounts mid-reveal.
   useEffect(() => () => { revealTimers.current.forEach(t => window.clearTimeout(t)); }, []);
   if (!brewNode) return null;
@@ -169,20 +171,32 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
       // shimmers, flips to the real card, holds, then commits. Tap to flip early / skip the hold.
       const gold = option.goldCard;
       const tier = option.windfallTier ?? 'gold';
+      // Double-or-nothing stakes ride on some gold reveals (once per run): keeping is the default
+      // (a tap anywhere keeps); trading re-aims the commit at the two face-down signatures.
+      const wager = tier === 'gold' ? option.wagerTrade : undefined;
       revealExitingRef.current = false;
-      pendingCommit.current = () => applyBrewOption(option, passed);
+      pendingCommit.current = () => applyBrewOption(option, passed, wager ? 'kept' : undefined);
+      pendingTrade.current = wager
+        ? () => {
+            if (revealExitingRef.current) return;
+            clearRevealTimers();
+            pendingCommit.current = () => applyBrewOption(option, passed, 'traded');
+            setReveal(r => (r ? { ...r, traded: true } : r));
+            revealTimers.current.push(window.setTimeout(() => finishReveal(), reduceMotion ? 1600 : 2600));
+          }
+        : null;
       const push = (fn: () => void, ms: number) => revealTimers.current.push(window.setTimeout(fn, ms));
       if (reduceMotion) {
         // No ramp: show the card already flipped, hold briefly so it registers, then exit + commit.
-        push(() => { setReveal({ card: gold, tier }); setFlipped(true); }, 360);
-        push(() => finishReveal(), 1700);
+        push(() => { setReveal({ card: gold, tier, wager }); setFlipped(true); }, 360);
+        if (!wager) push(() => finishReveal(), 1700);   // a wager holds for the player's call
       } else {
         // Slide out (520) → shimmer builds → flip at 1500 (720ms flip lands ~2220) → hold, then the
         // gem flies to the deck (finishReveal) before committing and transitioning to the next screen.
         const hold = tier === 'rainbow' ? 3600 : 2950;
-        push(() => setReveal({ card: gold, tier }), 520);
+        push(() => setReveal({ card: gold, tier, wager }), 520);
         push(() => setFlipped(true), 1500);
-        push(() => finishReveal(), hold);
+        if (!wager) push(() => finishReveal(), hold);   // a wager holds for the player's call
       }
     } else {
       window.setTimeout(() => applyBrewOption(option, passed), 380); // …then commit the pick
@@ -752,7 +766,21 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 {isRainbow ? <Sparkles className="w-3.5 h-3.5" /> : <Crown className="w-3.5 h-3.5" />}
                 {isRainbow ? 'Rainbow rare' : 'Hidden gem'}
               </span>
-              {/* The flip scene: card-back (face-up until the flip) over the real card (pre-rotated). */}
+              {/* The trade resolved: the two won signatures land face-up — the wager's payoff beat. */}
+              {reveal.traded && reveal.wager ? (
+                <div className="flex items-center gap-3">
+                  {reveal.wager.map(c => (
+                    <img
+                      key={c.name}
+                      src={getCardImageUrl(c.scryfall, 'normal') ?? ''}
+                      alt={c.name}
+                      className="w-[176px] rounded-[4.8%] animate-brew-reveal-in"
+                      style={{ outline: `3px solid ${ring}`, outlineOffset: '-1px', boxShadow: cardShadow }}
+                    />
+                  ))}
+                </div>
+              ) : (
+              /* The flip scene: card-back (face-up until the flip) over the real card (pre-rotated). */
               <div style={{ perspective: '1400px', width: 260, height: 363 }}>
                 <div className={`brew-flip relative w-full h-full ${flipped ? 'is-flipped' : ''}`}>
                   {/* Face-down: a treasure-backed card that shimmers while anticipation builds. */}
@@ -779,12 +807,45 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   />
                 </div>
               </div>
-              <div className="flex flex-col items-center gap-0.5" style={{ opacity: flipped ? 1 : 0, transition: 'opacity 300ms' }}>
-                <span className="font-display text-lg font-semibold" style={{ color: isRainbow ? 'hsl(280 90% 88%)' : 'hsl(45 90% 82%)', textShadow: '0 2px 18px rgba(0,0,0,0.6)' }}>{reveal.card.name}</span>
-                <span className="inline-flex items-center gap-1 text-xs" style={{ color: isRainbow ? 'hsl(280 60% 82%)' : 'hsl(45 70% 78%)' }}>
-                  <Sparkles className="w-3 h-3" /> Added to your deck, on the house
-                </span>
-              </div>
+              )}
+              {reveal.traded && reveal.wager ? (
+                <div className="flex flex-col items-center gap-0.5 animate-fade-in">
+                  <span className="font-display text-lg font-semibold" style={{ color: 'hsl(45 90% 82%)', textShadow: '0 2px 18px rgba(0,0,0,0.6)' }}>
+                    {reveal.wager.map(c => c.name).join(' + ')}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-xs" style={{ color: 'hsl(45 70% 78%)' }}>
+                    <Dices className="w-3 h-3" /> Double or nothing — both added to your deck
+                  </span>
+                </div>
+              ) : reveal.wager ? (
+                /* The wager: keeping is the default (a tap anywhere keeps); the trade is explicit. */
+                <div className="flex flex-col items-center gap-2" style={{ opacity: flipped ? 1 : 0, transition: 'opacity 300ms' }}>
+                  <span className="font-display text-lg font-semibold" style={{ color: 'hsl(45 90% 82%)', textShadow: '0 2px 18px rgba(0,0,0,0.6)' }}>{reveal.card.name}</span>
+                  <span className="text-xs" style={{ color: 'hsl(45 70% 78%)' }}>
+                    Keep it — or trade it, sight unseen, for TWO of this theme's signatures?
+                  </span>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Button size="sm" className="btn-shimmer" onClick={(e) => { e.stopPropagation(); finishReveal(); }}>
+                      Keep it
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-400/60 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100"
+                      onClick={(e) => { e.stopPropagation(); pendingTrade.current?.(); }}
+                    >
+                      <Dices className="w-3.5 h-3.5 mr-1" /> Double or nothing
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-0.5" style={{ opacity: flipped ? 1 : 0, transition: 'opacity 300ms' }}>
+                  <span className="font-display text-lg font-semibold" style={{ color: isRainbow ? 'hsl(280 90% 88%)' : 'hsl(45 90% 82%)', textShadow: '0 2px 18px rgba(0,0,0,0.6)' }}>{reveal.card.name}</span>
+                  <span className="inline-flex items-center gap-1 text-xs" style={{ color: isRainbow ? 'hsl(280 60% 82%)' : 'hsl(45 70% 78%)' }}>
+                    <Sparkles className="w-3 h-3" /> Added to your deck, on the house
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         );

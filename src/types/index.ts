@@ -687,7 +687,7 @@ export interface AppState {
   reset: () => void;
   startBrewSession: (ctx: import('@/services/brew/engine').BrewContext) => void;
   openBrewRoute: (route: import('@/services/brew/engine').BrewRoute) => void;
-  applyBrewOption: (option: import('@/services/brew/engine').BrewOption, passedNames: string[]) => void;
+  applyBrewOption: (option: import('@/services/brew/engine').BrewOption, passedNames: string[], wagerChoice?: 'kept' | 'traded') => void;
   answerBrewQuestion: (answer: import('@/services/brew/engine').BrewAnswer | null) => void;
   chooseBrewEvent: (choiceId: string) => void;
   chooseBrewRelic: (relic: import('@/services/brew/engine').BrewRelic) => void;

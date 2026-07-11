@@ -126,6 +126,13 @@ export interface BrewOption {
    * number and never fed back into scoring.
    */
   engineScore?: number;
+  /**
+   * Double-or-nothing stakes: two face-down signature cards (the theme's next-best after the gold)
+   * the player may trade the revealed gold card for, sight unseen. Attached to at most one gold
+   * windfall per run (never rainbow — you don't gamble away the jackpot). Both outcomes are real
+   * signatures, so the wager stakes opportunity, never deck quality.
+   */
+  wagerTrade?: BrewCandidate[];
 }
 
 export interface BrewNode {
@@ -195,6 +202,7 @@ export interface BrewState {
   lastPackKeys?: string[];              // option ids (cluster keys) of the previous pack round — held back so the same pack never shows twice in a row
   prevPackKeys?: string[];              // the pack round before lastPackKeys — held back too, so packs rotate across a 2-round window (less "same 3 themes every time")
   lastPackCardNames?: string[];         // every card shown in the previous pack round — held out of the next round so a passed card never reappears back-to-back (even under a different pack theme)
+  wagerResolved?: boolean;              // the once-per-run double-or-nothing has been offered (kept OR traded) — never offered again this run
   // --- The "fun layer": events, relics & the run story ---
   relics: BrewRelic[];                  // acquired deckbuilding modifiers (bias future offers/scoring)
   comboWatch: string[];                 // missing combo-piece names to bias toward (set by "Investigate")
