@@ -1,5 +1,11 @@
 [
   {
+    "version": "1.3.18",
+    "notes": [
+      "Generated decks now better respect your Bracket setting when adding combos — building at Bracket 3 will no longer intentially put Bracket 4-5 combos into the deck (some combos might naturally appear in the deck however)"
+    ]
+  },
+  {
     "version": "1.3.17",
     "notes": [
       "Replaced the Card Fit card on the Inspector Overview with a Lift Web card",
@@ -7,7 +13,7 @@
       "Add cards to your deck directly from the Inspector view (look for the + button)",
       "Picking two themes in the Inspector now shapes suggestions from both (Thank you LuisMiguelMedina for the code contribution)",
       "The Strategy score now stays accurate while you tweak a themed deck instead of dropping to zero after edits (Thank you LuisMiguelMedina for the code contribution)",
-      "Fixed the Inspector sometimes resetting your chosen theme or double-loading on wider screens (Thank you LuisMiguelMedina for the code contribution)",      
+      "Fixed the Inspector sometimes resetting your chosen theme or double-loading on wider screens (Thank you LuisMiguelMedina for the code contribution)"
     ]
   },
   {

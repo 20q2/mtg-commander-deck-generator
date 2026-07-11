@@ -30,7 +30,7 @@ import {
   hasCurveRoom,
 } from './curveUtils';
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
-import { estimateBracket } from './bracketEstimator';
+import { estimateBracket, comboFitsBracket } from './bracketEstimator';
 import { rarityAllowed, buildRarityQueryFragment } from './rarityFilter';
 import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringContext } from './deckAnalyzer';
 import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
@@ -1259,6 +1259,7 @@ async function generateLands(
   pacing: Pacing = 'balanced',
   priorityBoosts?: Map<string, number>,
   manaPhilosophy?: ManaPhilosophy,
+  landSwapPool?: ScryfallCard[],
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1356,6 +1357,29 @@ async function generateLands(
     const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, allowedRarities, maxCmc, budgetTracker, collectionNames, landPenalties.size > 0 ? landPenalties : undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget, ignoreOwnedRarity);
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
+
+    // Collect leftover fetched lands as swap candidates for the type:land bucket —
+    // reuses the batch fetch above, so quick-replace on lands costs no extra requests
+    if (landSwapPool) {
+      const seen = new Set<string>();
+      for (const edhrecCard of nonBasicEdhrecLands) {
+        if (landSwapPool.length >= 15) break;
+        if (seen.has(edhrecCard.name)) continue;
+        seen.add(edhrecCard.name);
+        if (usedNames.has(edhrecCard.name) || bannedCards.has(edhrecCard.name)) continue;
+        const card = landCardMap.get(edhrecCard.name);
+        if (!card) continue;
+        if (collectionStrategy === 'full' && notInCollection(card.name, collectionNames)) continue;
+        if (!fitsColorIdentity(card, colorIdentity)) continue;
+        if (exceedsMaxPrice(card, maxCardPrice, currency)) continue;
+        if (!isOwnedRarityExempt(card.name, collectionNames, ignoreOwnedRarity)) {
+          if (!rarityAllowed(card.rarity, allowedRarities)) continue;
+        }
+        if (exceedsCmcCap(card, maxCmc)) continue;
+        if (notOnArena(card, arenaOnly)) continue;
+        landSwapPool.push(card);
+      }
+    }
   }
 
   // If we didn't get enough from EDHREC, search Scryfall for more
@@ -1368,13 +1392,21 @@ async function generateLands(
     lands.push(...moreLands);
   }
 
-  // Add Command Tower for multicolor Commander decks (unless banned or not on Arena)
-  if (format === 99 && colorIdentity.length >= 2 && !usedNames.has('Command Tower') && !bannedCards.has('Command Tower')) {
+  // Add Command Tower for multicolor Commander decks — same constraint gates as
+  // the staple-rock auto-includes (collection / budget / rarity / arena).
+  if (format === 99 && colorIdentity.length >= 2 && !usedNames.has('Command Tower') && !bannedCards.has('Command Tower')
+    && !(collectionStrategy === 'full' && notInCollection('Command Tower', collectionNames))) {
     try {
       const commandTower = await getCardByName('Command Tower', true);
-      if (!notOnArena(commandTower, arenaOnly)) {
+      const budgetExempt = isOwnedBudgetExempt('Command Tower', collectionNames, ignoreOwnedBudget);
+      const rarityOk = isOwnedRarityExempt('Command Tower', collectionNames, ignoreOwnedRarity)
+        || rarityAllowed(commandTower.rarity, allowedRarities);
+      if (rarityOk
+        && (budgetExempt || !exceedsMaxPrice(commandTower, maxCardPrice, currency))
+        && !notOnArena(commandTower, arenaOnly)) {
         lands.push(commandTower);
         usedNames.add('Command Tower');
+        if (!budgetExempt) budgetTracker?.deductCard(commandTower);
       }
     } catch {
       // Ignore if not found
@@ -1800,67 +1832,14 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     console.log(`[DeckGen] Tagger data: ${hasTaggerData() ? 'loaded' : 'unavailable (role detection disabled)'}`);
   }
 
-  // Build combo priority boost map + combo membership index for dynamic boosting
+  // Combo priority boost map + combo membership index for dynamic boosting.
+  // Declared here (the hyper-focus block and getComboBoosts close over these maps),
+  // but POPULATED after Phase A resolves edhrecData — combo scoring needs the
+  // commander's inclusion index, which doesn't exist yet on the uncached path.
   const comboCountSetting = customization.comboCount ?? 0;
   const staticComboBoosts = new Map<string, number>();
   const comboCardNames = new Set<string>();
   const comboCards = new Map<string, Set<string>>(); // comboId -> card names
-  if (comboCountSetting > 0 && combos.length > 0) {
-    // Scale combo attempts by deck size (baseline: 99 cards → 1→2, 2→4, 3→7)
-    const sizeScale = Math.max(0.5, format / 99);
-    const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 2.33 * sizeScale));
-
-    // Build inclusion index for this commander so we can prefer combos whose pieces
-    // actually appear in this commander's typical builds over globally-popular combos.
-    const comboInclusionIndex = new Map<string, number>();
-    if (edhrecData) {
-      for (const c of edhrecData.cardlists.allNonLand) comboInclusionIndex.set(c.name, c.inclusion);
-    }
-
-    // Score each combo by: EDHREC rank (already sorted) + relevance to this commander.
-    // A combo where all pieces have 0% inclusion is deprioritized vs one with pieces
-    // that players of this commander actually run.
-    // At lower combo settings, require pieces to actually fit this commander's builds
-    // so we don't pull in random 2-card combos that aren't thematically relevant.
-    const comboInclusionFloor = comboCountSetting === 1 ? 25 : comboCountSetting === 2 ? 10 : 0;
-    const scoredCombos = combos
-      .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)))
-      .map(combo => {
-        const avgInclusion = combo.cards.reduce((sum, c) => sum + (comboInclusionIndex.get(c.name) ?? 0), 0) / combo.cards.length;
-        // Rank score: lower rank = better (invert so higher is better)
-        const rankScore = Math.max(0, 100 - combo.rank);
-        // Relevance score: average inclusion % of combo pieces for this commander
-        const relevanceScore = avgInclusion * 2;
-        // Fewer pieces = easier to assemble
-        const pieceBonus = combo.cards.length <= 2 ? 10 : 0;
-        return { combo, score: rankScore + relevanceScore + pieceBonus, avgInclusion };
-      })
-      .filter(s => s.avgInclusion >= comboInclusionFloor)
-      .sort((a, b) => b.score - a.score);
-
-    const combosToAttempt = scoredCombos.slice(0, comboSliceCount).map(s => s.combo);
-    console.log(`[DeckGen] Combo selection (top ${comboSliceCount} of ${scoredCombos.length}):`,
-      scoredCombos.slice(0, comboSliceCount).map(s => {
-        const avgIncl = s.combo.cards.reduce((sum, c) => sum + (comboInclusionIndex.get(c.name) ?? 0), 0) / s.combo.cards.length;
-        return `${s.combo.cards.map(c => c.name).join(' + ')} (score=${s.score.toFixed(0)}, avgIncl=${avgIncl.toFixed(0)}%)`;
-      }));
-    const staticBoost = 75 * comboCountSetting; // 1→75, 2→150, 3→225
-    for (const combo of combosToAttempt) {
-      const cardSet = new Set(combo.cards.map(c => c.name));
-      comboCards.set(combo.comboId, cardSet);
-      for (const card of combo.cards) {
-        comboCardNames.add(card.name);
-        const existing = staticComboBoosts.get(card.name) ?? 0;
-        staticComboBoosts.set(card.name, existing + staticBoost);
-      }
-    }
-    // Log multi-combo enablers (cards in 2+ combos get disproportionately high boosts)
-    const multiComboCards = [...staticComboBoosts.entries()].filter(([, boost]) => boost > staticBoost);
-    if (multiComboCards.length > 0) {
-      console.log(`[DeckGen] Multi-combo enablers: ${multiComboCards.map(([name, boost]) => `${name} (${boost / staticBoost} combos, ${boost}pts)`).join(', ')}`);
-    }
-    console.log(`[DeckGen] Combo priority boost applied to ${staticComboBoosts.size} unique cards from top ${combosToAttempt.length} combos (static boost: ${staticBoost}pts)`);
-  }
 
   // Dynamic combo boosts: recalculates each phase to boost remaining pieces of partially-assembled combos
   const getComboBoosts = (): Map<string, number> => {
@@ -1972,7 +1951,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     onProgress?.('Checking Arena availability...', 4);
     const names = new Set<string>();
     const addName = (n?: string) => { if (n) names.add(n); };
-    for (const n of comboCardNames) addName(n);
+    // (Combo piece names are covered in phase 2 — combo selection now runs after
+    // Phase A, so comboCardNames is still empty here.)
     for (const n of mustIncludeNames) addName(n);
     for (const n of Object.keys(CHANNEL_LANDS)) addName(n);
     // Auto-included staples (Sol Ring / Arcane Signet / Command Tower) and commanders
@@ -2251,6 +2231,73 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
   }
 
+  // Score and select combos now that edhrecData is resolved (both cached and
+  // uncached paths). Populates staticComboBoosts / comboCardNames / comboCards.
+  if (comboCountSetting > 0 && combos.length > 0) {
+    // Scale combo attempts by deck size (baseline: 99 cards → 1→2, 2→4, 3→7)
+    const sizeScale = Math.max(0.5, format / 99);
+    const comboSliceCount = Math.max(1, Math.round(comboCountSetting * 2.33 * sizeScale));
+
+    // Build inclusion index for this commander so we can prefer combos whose pieces
+    // actually appear in this commander's typical builds over globally-popular combos.
+    const comboInclusionIndex = new Map<string, number>();
+    if (edhrecData) {
+      for (const c of edhrecData.cardlists.allNonLand) comboInclusionIndex.set(c.name, c.inclusion);
+    }
+
+    // Score each combo by: EDHREC rank (already sorted) + relevance to this commander.
+    // A combo where all pieces have 0% inclusion is deprioritized vs one with pieces
+    // that players of this commander actually run.
+    // At lower combo settings, require pieces to actually fit this commander's builds
+    // so we don't pull in random 2-card combos that aren't thematically relevant.
+    // When there's no inclusion data at all (EDHREC fetch failed), skip the floor —
+    // otherwise every combo reads as 0% and gets filtered out.
+    const comboInclusionFloor = comboInclusionIndex.size === 0 ? 0
+      : comboCountSetting === 1 ? 25 : comboCountSetting === 2 ? 10 : 0;
+    // Respect the user's bracket: never seed combos EDHREC rates above it (see comboFitsBracket).
+    const bracketEligible = combos.filter(combo => comboFitsBracket(combo.bracket, bracketLevel));
+    if (bracketEligible.length < combos.length) {
+      console.log(`[DeckGen] Combo bracket filter: ${combos.length - bracketEligible.length} of ${combos.length} combos excluded for bracket ${bracketLevel}`);
+    }
+    const scoredCombos = bracketEligible
+      .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)))
+      .map(combo => {
+        const avgInclusion = combo.cards.reduce((sum, c) => sum + (comboInclusionIndex.get(c.name) ?? 0), 0) / combo.cards.length;
+        // Rank score: lower rank = better (invert so higher is better)
+        const rankScore = Math.max(0, 100 - combo.rank);
+        // Relevance score: average inclusion % of combo pieces for this commander
+        const relevanceScore = avgInclusion * 2;
+        // Fewer pieces = easier to assemble
+        const pieceBonus = combo.cards.length <= 2 ? 10 : 0;
+        return { combo, score: rankScore + relevanceScore + pieceBonus, avgInclusion };
+      })
+      .filter(s => s.avgInclusion >= comboInclusionFloor)
+      .sort((a, b) => b.score - a.score);
+
+    const combosToAttempt = scoredCombos.slice(0, comboSliceCount).map(s => s.combo);
+    console.log(`[DeckGen] Combo selection (top ${comboSliceCount} of ${scoredCombos.length}):`,
+      scoredCombos.slice(0, comboSliceCount).map(s => {
+        const avgIncl = s.combo.cards.reduce((sum, c) => sum + (comboInclusionIndex.get(c.name) ?? 0), 0) / s.combo.cards.length;
+        return `${s.combo.cards.map(c => c.name).join(' + ')} (score=${s.score.toFixed(0)}, avgIncl=${avgIncl.toFixed(0)}%)`;
+      }));
+    const staticBoost = 75 * comboCountSetting; // 1→75, 2→150, 3→225
+    for (const combo of combosToAttempt) {
+      const cardSet = new Set(combo.cards.map(c => c.name));
+      comboCards.set(combo.comboId, cardSet);
+      for (const card of combo.cards) {
+        comboCardNames.add(card.name);
+        const existing = staticComboBoosts.get(card.name) ?? 0;
+        staticComboBoosts.set(card.name, existing + staticBoost);
+      }
+    }
+    // Log multi-combo enablers (cards in 2+ combos get disproportionately high boosts)
+    const multiComboCards = [...staticComboBoosts.entries()].filter(([, boost]) => boost > staticBoost);
+    if (multiComboCards.length > 0) {
+      console.log(`[DeckGen] Multi-combo enablers: ${multiComboCards.map(([name, boost]) => `${name} (${boost / staticBoost} combos, ${boost}pts)`).join(', ')}`);
+    }
+    console.log(`[DeckGen] Combo priority boost applied to ${staticComboBoosts.size} unique cards from top ${combosToAttempt.length} combos (static boost: ${staticBoost}pts)`);
+  }
+
   // Build hyper focus boost map if enabled (runs with cached or fresh data)
   if (edhrecData && customization.hyperFocus && selectedThemesWithSlugs.length >= 1) {
     const baseCardNames = new Set<string>();
@@ -2335,11 +2382,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // names (which feed nearly every card slot) are resolved here — once edhrecData is
   // populated and before any pool/multi-copy Arena check. getArenaLegalNames is
   // per-name cached, so this only issues requests for names phase 1 didn't cover.
-  if (arenaOnly && arenaLegalNameSet && edhrecData) {
+  if (arenaOnly && arenaLegalNameSet && (edhrecData || comboCardNames.size > 0)) {
     onProgress?.('Checking Arena availability...', 13);
     const poolNames = [
-      ...edhrecData.cardlists.allNonLand.map(c => c.name),
-      ...edhrecData.cardlists.lands.map(c => c.name),
+      ...(edhrecData?.cardlists.allNonLand.map(c => c.name) ?? []),
+      ...(edhrecData?.cardlists.lands.map(c => c.name) ?? []),
+      ...comboCardNames,
     ];
     for (const n of await getArenaLegalNames(poolNames)) arenaLegalNameSet.add(n);
   }
@@ -2999,6 +3047,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...categories.synergy,
     ];
 
+    const landSwapPool: ScryfallCard[] = [];
     categories.lands = [
       ...mustIncludeLands,
       ...await generateLands(
@@ -3027,6 +3076,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         resolvedPacing,
         undefined,
         customization.manaPhilosophy,
+        landSwapPool,
       ),
     ];
 
@@ -3060,6 +3110,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       15,
       ignoreOwnedRarity,
     );
+    if (landSwapPool.length > 0) swapCandidates['type:land'] = landSwapPool;
     console.log(`[DeckGen] Swap candidates: ${Object.entries(swapCandidates).filter(([, v]) => v.length > 0).map(([k, v]) => `${k}=${v.length}`).join(', ')}`);
 
   } else {
@@ -3906,7 +3957,10 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     const rarityExempt = isOwnedRarityExempt(card.name, context.collectionNames, ignoreOwnedRarity);
     if (!rarityExempt && !rarityAllowed(card.rarity, allowedRarities)) return false;
     const budgetExempt = isOwnedBudgetExempt(card.name, context.collectionNames, ignoreOwnedBudget);
-    if (!budgetExempt && exceedsMaxPrice(card, maxCardPrice, currency)) return false;
+    // Respect the deck budget too, not just the static per-card cap — otherwise
+    // audit/fixup swaps can inject expensive cards into a budget-capped deck.
+    const effectiveCap = budgetTracker?.getEffectiveCap(maxCardPrice) ?? maxCardPrice;
+    if (!budgetExempt && exceedsMaxPrice(card, effectiveCap, currency)) return false;
     if (collectionStrategy === 'full' && notInCollection(card.name, context.collectionNames)) return false;
     return true;
   }
@@ -3979,6 +4033,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       else if (role === 'cardDraw') categories.cardDraw.push(card);
       else categories.synergy.push(card);
       usedNames.add(card.name);
+      if (!isOwnedBudgetExempt(card.name, context.collectionNames, ignoreOwnedBudget)) {
+        budgetTracker?.deductCard(card);
+      }
       return true;
     }
 
@@ -3994,6 +4051,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
       for (const dc of detectedCombos) {
         if (dc.isComplete) continue;
+        // Never complete a combo rated above the user's bracket
+        if (!comboFitsBracket(dc.bracket, bracketLevel)) continue;
         const trulyMissing = dc.missingCards.filter(n => !usedNames.has(n));
         // Only count combos where this card is the sole missing piece
         if (trulyMissing.length !== 1) continue;
@@ -4071,7 +4130,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         continue;
       }
 
-      const canComplete = missingResolved.length === trulyMissing.length
+      // Over-bracket combos are never completed — their orphaned pieces get evicted below instead.
+      const canComplete = comboFitsBracket(dc.bracket, bracketLevel)
+        && missingResolved.length === trulyMissing.length
         && auditSwaps + trulyMissing.length <= MAX_AUDIT_SWAPS;
 
       if (canComplete) {
@@ -4206,6 +4267,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       }
       usedNames.add(card.name);
       if (role) currentRoleCounts[role] = (currentRoleCounts[role] || 0) + 1;
+      if (!isOwnedBudgetExempt(card.name, context.collectionNames, ignoreOwnedBudget)) {
+        budgetTracker?.deductCard(card);
+      }
     }
 
     // Helper: find best EDHREC candidate for a role that's already fetched

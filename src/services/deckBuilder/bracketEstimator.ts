@@ -65,6 +65,21 @@ const FAST_MANA = new Set([
   'Jeweled Lotus',
 ]);
 
+// ── Bracket fit ────────────────────────────────────────────────────────────
+
+/**
+ * Whether a combo's EDHREC bracket vote ("1"–"5", or "unknown" when unrated)
+ * is acceptable at the user's selected generation bracket. Unrated combos are
+ * only trusted at bracket 4+ — seeding an unknown infinite into a B3-or-lower
+ * deck risks the exact over-bracket decks the setting exists to prevent.
+ */
+export function comboFitsBracket(comboBracket: string, bracketLevel: number | undefined): boolean {
+  if (!bracketLevel) return true;
+  const rated = parseInt(comboBracket, 10);
+  if (isNaN(rated)) return bracketLevel >= 4;
+  return rated <= bracketLevel;
+}
+
 // ── Estimation ─────────────────────────────────────────────────────────────
 
 export function estimateBracket(

@@ -6,7 +6,7 @@ import { PieChart } from '@/components/ui/pie-chart';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
 import { calculateCurvePercentages, calculateTypePercentages } from '@/services/deckBuilder/curveUtils';
-import { EDHREC_BLEND_WEIGHT, ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
+import { EDHREC_BLEND_WEIGHT, ROLE_LABELS, getBaseRoleTargets } from '@/services/deckBuilder/roleTargets';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import type { AdvancedTargets } from '@/types';
 
@@ -33,7 +33,8 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  ramp: '#10b981', removal: '#ef4444', boardwipe: '#f97316', cardDraw: '#3b82f6', other: '#6b7280',
+  ramp: '#10b981', removal: '#ef4444', boardwipe: '#f97316', cardDraw: '#3b82f6',
+  protection: '#eab308', other: '#6b7280',
 };
 
 const FALLBACK_CURVE: Record<number, number> = {
@@ -43,19 +44,6 @@ const FALLBACK_CURVE: Record<number, number> = {
 const FALLBACK_TYPES: Record<string, number> = {
   creature: 45, instant: 12, sorcery: 12, artifact: 12, enchantment: 12, planeswalker: 3,
 };
-
-function getDefaultRoleTargets(format: number): Record<string, number> {
-  if (format >= 99) return { ramp: 10, removal: 8, boardwipe: 3, cardDraw: 10 };
-  if (format >= 60) return { ramp: 4, removal: 5, boardwipe: 2, cardDraw: 4 };
-  if (format >= 40) return { ramp: 2, removal: 3, boardwipe: 1, cardDraw: 2 };
-  const ratio = format / 99;
-  return {
-    ramp: Math.max(1, Math.round(10 * ratio)),
-    removal: Math.max(1, Math.round(8 * ratio)),
-    boardwipe: Math.max(0, Math.round(3 * ratio)),
-    cardDraw: Math.max(1, Math.round(10 * ratio)),
-  };
-}
 
 // --- Sub-components ---
 
@@ -253,7 +241,7 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
     return result;
   }, [edhrecStats]);
 
-  const roleDefaults = useMemo(() => getDefaultRoleTargets(deckFormat), [deckFormat]);
+  const roleDefaults = useMemo<Record<string, number>>(() => getBaseRoleTargets(deckFormat), [deckFormat]);
 
   // Derive displayed values: store overrides > EDHREC defaults > hardcoded fallback
   // No local state needed — sliders commit to store immediately

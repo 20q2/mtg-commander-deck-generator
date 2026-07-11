@@ -779,7 +779,9 @@ export function getManaTrajectory(
 
     // Expected lands in hand/play by this turn (E[X] for hypergeometric)
     // E[X] = n * K / N for hypergeometric
-    const expectedLandsRaw = Math.min(cardsSeen * landCount / deckSize, turn + 2);
+    // Cap at `turn`: only one land drop per turn, so lands *in play* can never
+    // exceed the turn number no matter how many were drawn.
+    const expectedLandsRaw = Math.min(cardsSeen * landCount / deckSize, turn);
 
     // Tapland tempo penalty: the land played THIS turn has a taplandRatio chance
     // of entering tapped, costing ~taplandRatio mana this turn.

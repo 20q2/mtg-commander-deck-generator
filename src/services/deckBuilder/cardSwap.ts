@@ -581,7 +581,7 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
 /** Map a card to its type-based swap bucket key. */
 function getPrimaryTypeKey(card: ScryfallCard): string | null {
   const t = getFrontFaceTypeLine(card).toLowerCase();
-  if (t.includes('land')) return null;
+  if (t.includes('land')) return 'type:land';
   if (t.includes('creature')) return 'type:creature';
   if (t.includes('instant')) return 'type:instant';
   if (t.includes('sorcery')) return 'type:sorcery';
@@ -614,12 +614,16 @@ export function getSwapCandidatesForCard(
   }
 
   const isExcluded = (c: ScryfallCard) => excludeNames.has(c.name);
-  const roleCandidates = card.deckRole
-    ? (deck.swapCandidates[card.deckRole] ?? []).filter(c => !isExcluded(c))
-    : [];
   const typeKey = getPrimaryTypeKey(card);
   const typeCandidates = typeKey
     ? (deck.swapCandidates[typeKey] ?? []).filter(c => !isExcluded(c))
+    : [];
+
+  // Lands only ever swap land-for-land — never pull from role buckets (which hold nonlands)
+  if (typeKey === 'type:land') return typeCandidates;
+
+  const roleCandidates = card.deckRole
+    ? (deck.swapCandidates[card.deckRole] ?? []).filter(c => !isExcluded(c))
     : [];
 
   // If role bucket has enough candidates, use it
@@ -687,7 +691,10 @@ export function pickReplacementCandidate(
   if (!deck.swapCandidates) return null;
 
   let pool: ScryfallCard[];
-  if (mode === 'similar') {
+  if (getFrontFaceTypeLine(oldCard).toLowerCase().includes('land')) {
+    // Lands replace land-for-land regardless of mode, keeping the land count stable
+    pool = deck.swapCandidates['type:land'] ?? [];
+  } else if (mode === 'similar') {
     pool = getSwapCandidatesForCard(deck, oldCard);
   } else if (mode === 'synergy') {
     pool = getSynergyPool(deck);

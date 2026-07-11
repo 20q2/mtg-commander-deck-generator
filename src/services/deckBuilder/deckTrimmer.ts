@@ -216,8 +216,12 @@ export function planTrim(input: TrimInput): TrimResult {
 
   // User-facing land count includes basics (the user thinks "I have 36 lands").
   // Cuts can only come from the trimmable land pool (non-basics).
-  const totalLandsIncludingBasics = cards.filter(c => !protectedNames.has(c.name) && isLand(c)).length;
-  const currentSize = cards.filter(c => !protectedNames.has(c.name)).length;
+  // Size/land totals exclude commanders (targetSize is commander-exclusive) but
+  // MUST count must-includes — pinned cards can't be cut, yet they occupy slots;
+  // filtering them here understated the overage by the pinned count.
+  const commanderNames = new Set([commanderName, ...(partnerCommanderName ? [partnerCommanderName] : [])]);
+  const totalLandsIncludingBasics = cards.filter(c => !commanderNames.has(c.name) && isLand(c)).length;
+  const currentSize = cards.filter(c => !commanderNames.has(c.name)).length;
   const overage = Math.max(0, currentSize - targetSize);
 
   const effectiveLandTarget = clamp(targetLandCount, 0, totalLandsIncludingBasics);
