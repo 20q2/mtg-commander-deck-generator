@@ -1,6 +1,6 @@
 export * from './brewTypes';
 export { buildHealth, isComplete, NONLAND_COMPLETE_RATIO, pool } from './health';
-export { buildScoringContext, scoreCandidate, affinityWeight, isUrgentFill } from './scoring';
+export { buildScoringContext, scoreCandidate, affinityWeight, isUrgentFill, philosophyPromoted } from './scoring';
 export { applyPick, undoLast, isLastPickLocked, AFFINITY_PER_PICK, type ApplyPickMeta } from './picks';
 export { nextRoutes, computeDeficits, matchesDeficit, type Deficit } from './routes';
 export { openNode, deriveReasons, buildPackNode } from './nodes';

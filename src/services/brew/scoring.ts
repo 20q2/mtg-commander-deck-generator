@@ -126,6 +126,27 @@ const DEEP_CUT_FADE_FILL = 0.5;     // bias is gone once the deck is this full
 const DEEP_CUT_SYNERGY_W = 140;     // reward per unit of synergy (synergy is -1..1)
 const DEEP_CUT_STAPLE_W = 90;       // dampening per unit of (inclusion × non-synergy)
 
+/** An inclusion at/above this counts as a "proven staple" the Efficient Brew visibly promotes. */
+const EFFICIENT_PROMOTE_INCLUSION = 50;
+
+/**
+ * Did the chosen philosophy actively promote this candidate — the boolean behind the tiny
+ * philosophy glyph on offered cards ("The Spicy Brew found this"), so the pick-6 choice keeps
+ * visibly paying dividends instead of vanishing into an invisible multiplier. Mirrors where
+ * scoreCandidate/discovery actually apply each philosophy's lever:
+ *  - Efficient  → proven staples (the inclusion-weighted bonus above);
+ *  - Spicy      → cards the discovery graph surfaced (its lever is the discovery RATE);
+ *  - Combo Brew → pieces the player is chasing (the comboWatch bonus it amplifies).
+ */
+export function philosophyPromoted(state: BrewState, c: BrewCandidate): boolean {
+  const p = state.relics[0];
+  if (!p) return false;
+  if (p.effect.type === 'efficiency') return (c.inclusion ?? 0) >= EFFICIENT_PROMOTE_INCLUSION;
+  if (p.effect.type === 'discoveryRate') return !!c.discoveredVia;
+  if (p.effect.type === 'comboBias') return state.comboWatch.includes(c.name);
+  return false;
+}
+
 /**
  * Composite score for a candidate given current state.
  * Reuses scoreRecommendation (role/curve/type/combo/scarcity) and layers theme-affinity on top.

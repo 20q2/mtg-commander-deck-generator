@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { detectNearMissCombos } from '@/services/brew/engine';
+import { detectNearMissCombos, philosophyPromoted } from '@/services/brew/engine';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, Play, Star, Gem, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
@@ -338,6 +338,12 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     const priceN = priceRaw != null ? Number(priceRaw) : NaN;
                     const isTreasure = Number.isFinite(priceN) && priceN >= TREASURE_PRICE;
                     const sym = customization.currency === 'EUR' ? '€' : '$';
+                    // The philosophy stays on stage: cards its multiplier actually promoted wear its
+                    // glyph, so the pick-6 choice keeps visibly paying dividends all run.
+                    const philosophy = brewState?.relics[0];
+                    const isPromoted = !!philosophy && !!brewState && philosophyPromoted(brewState, c);
+                    const PhilosophyIcon: LucideIcon = philosophy?.glyph === 'flame' ? Flame
+                      : philosophy?.glyph === 'book-open' ? BookOpen : Gem;
                     return (
                       <div key={c.name} className="relative min-w-0 flex w-full flex-col items-center">
                         <RoleBadges cardName={c.name} size={hero ? 'md' : 'sm'} corner="bl" />
@@ -365,7 +371,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                             <Zap className="w-2.5 h-2.5" /> Lift
                           </span>
                         )}
-                        {(finishesCombo || isGameChanger || isComboPiece) && (
+                        {(finishesCombo || isGameChanger || isComboPiece || isPromoted) && (
                           <span className="absolute bottom-1 right-1 z-20 flex flex-col gap-1">
                             {finishesCombo && (() => {
                               const info = finisherCombos.get(c.name);
@@ -382,6 +388,11 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                             })()}
                             {isComboPiece && <span title="Combo piece — recurs across this commander's combos" className="grid place-items-center w-4 h-4 rounded-full bg-teal-500/30 text-teal-100 shadow ring-1 ring-teal-300/50"><Link2 className="w-2.5 h-2.5" /></span>}
                             {isGameChanger && <span title="Game Changer" className="grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40"><Crown className="w-2.5 h-2.5" /></span>}
+                            {isPromoted && (
+                              <span title={`${philosophy!.name} promoted this`} className="grid place-items-center w-4 h-4 rounded-full border border-amber-400/60 bg-amber-500/20 text-amber-200 shadow ring-1 ring-black/40">
+                                <PhilosophyIcon className="w-2.5 h-2.5" />
+                              </span>
+                            )}
                           </span>
                         )}
                         <img
