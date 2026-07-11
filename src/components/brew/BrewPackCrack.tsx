@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { getCardImageUrl } from '@/services/scryfall/client';
+import { playPackCrack } from '@/services/brew/brewSound';
 import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey } from '@/components/brew/brewVisuals';
 import { Check, Crown, Sparkles, Package } from 'lucide-react';
@@ -17,25 +19,35 @@ import { Check, Crown, Sparkles, Package } from 'lucide-react';
  */
 
 const COMMIT_MS = 380;   // matches the fly-to-deck / melt-away animations used across brew
+const CRACK_MS = 880;    // grip-shake (340) → seam tears (340-640) → burst (620-880) → the fan
 
 export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) => void }) {
   const { brewNode, applyBrewOption } = useStore();
+  // The opening in progress (option id): the chosen pack shakes, tears, and bursts while the
+  // other two melt away — then `cracked` takes over and the fan deals in.
+  const [cracking, setCracking] = useState<string | null>(null);
   // Which pack was cracked (option id) — null while the three sealed packs are on offer.
   const [cracked, setCracked] = useState<string | null>(null);
   // Names the player is keeping from the fan (the foil pre-selects — it's the pull).
   const [keep, setKeep] = useState<Set<string>>(new Set());
   const [committing, setCommitting] = useState(false);
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const crackTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (crackTimer.current) window.clearTimeout(crackTimer.current); }, []);
 
   if (!brewNode) return null;
   const options = brewNode.options;
   const crackedOption = cracked ? options.find(o => o.id === cracked) ?? null : null;
 
   function crack(option: BrewOption) {
-    if (committing || cracked) return;
-    setCracked(option.id);
+    if (committing || cracked || cracking) return;
     onCracked?.(true);   // the crack is the commitment — the parent hides Back/reroll
     // The foil starts selected — you pulled it; passing it back is the deliberate act.
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
+    if (reduceMotion) { setCracked(option.id); return; }   // no ceremony — straight to the fan
+    playPackCrack();
+    setCracking(option.id);
+    crackTimer.current = window.setTimeout(() => { setCracked(option.id); setCracking(null); }, CRACK_MS);
   }
 
   function toggleKeep(name: string) {
@@ -154,21 +166,23 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
         const sigCard = option.cards.find(c => c.name === option.hallmarkName) ?? option.cards[0];
         const packArt = sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
         const count = option.cards.length + (option.goldCard ? 1 : 0);
+        const opening = cracking === option.id;
+        const dismissed = cracking !== null && !opening;
         return (
           <button
             key={option.id}
             onClick={() => crack(option)}
-            disabled={committing || !!cracked}
+            disabled={committing || !!cracked || !!cracking}
             style={{
               ['--pk' as string]: `hsl(${packColor})`,
               ['--pk-hsl' as string]: packColor,
               ['--pk-soft' as string]: `hsl(${packColor} / 0.4)`,
               ['--pk-text' as string]: `hsl(${legibleText(packColor)})`,
-              animationDelay: `${idx * 70}ms`,
+              ...(cracking ? {} : { animationDelay: `${idx * 70}ms` }),
             }}
-            className={`group relative w-[190px] sm:w-[210px] overflow-hidden rounded-lg text-left shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] transition-[transform,box-shadow] duration-200 hover:-translate-y-2 hover:shadow-[0_26px_56px_-12px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] animate-brew-card-in ${
-              brewNode.godPack ? 'brew-godpack-glow' : ''
-            }`}
+            className={`group relative w-[190px] sm:w-[210px] overflow-hidden rounded-lg text-left shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] transition-[transform,box-shadow] duration-200 hover:-translate-y-2 hover:shadow-[0_26px_56px_-12px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
+              opening ? 'brew-pack-opening z-10' : dismissed ? 'animate-brew-dismiss' : 'animate-brew-card-in'
+            } ${brewNode.godPack ? 'brew-godpack-glow' : ''}`}
           >
             {/* The wrapper body — foil in the pack's own hue, darker at the seams. */}
             <div aria-hidden="true" className="absolute inset-0"
@@ -186,8 +200,10 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
               style={{ background: `linear-gradient(180deg, hsl(${packColor} / 0.5) 0%, transparent 20%, transparent 68%, hsl(${packColor} / 0.55) 84%)` }} />
             {/* The holo sheen — a slow glossy sweep + faint iridescence over the whole wrapper. */}
             <div aria-hidden="true" className="brew-pack-foil absolute inset-0" />
-            {/* Crimped seams top + bottom — the "factory sealed" read. */}
-            <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 top-0 h-[18px]" />
+            {/* Crimped seams top + bottom — the "factory sealed" read. The top one rips away when
+                this pack is being opened, with a bright tear-line flashing along the seam. */}
+            <div aria-hidden="true" className={`brew-pack-crimp absolute inset-x-0 top-0 z-20 h-[18px] ${opening ? 'brew-pack-tear-top' : ''}`} />
+            {opening && <span aria-hidden="true" className="brew-pack-tear-flash absolute inset-x-0 top-[16px] z-20 block h-[3px]" />}
             <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 bottom-0 h-[18px]" />
             {/* Glimmer tease — honest twice over now: you can't see inside, and teased ⇒ a windfall
                 really is in there. A gold thread glinting just under the seam. */}

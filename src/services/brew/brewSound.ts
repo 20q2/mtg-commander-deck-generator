@@ -54,6 +54,34 @@ function tone(ac: AudioContext, freq: number, startAt: number, dur: number): voi
   osc.stop(startAt + dur + 0.02);
 }
 
+/** The pack-opening cue: a short foil-tear (a filtered noise sweep) + a low pop as it gives way. */
+export function playPackCrack(): void {
+  if (!enabled) return;
+  try { navigator.vibrate?.([12, 30, 10]); } catch { /* ignore */ }
+  const ac = ctx();
+  if (!ac) return;
+  const now = ac.currentTime;
+  const dur = 0.3;
+  // The tear: a decaying white-noise burst through a bandpass sweeping down — ripping foil.
+  const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(3200, now);
+  bp.frequency.exponentialRampToValueAtTime(900, now + dur);
+  bp.Q.value = 0.9;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.09, now);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+  src.connect(bp).connect(g).connect(ac.destination);
+  src.start(now);
+  // The pop as the wrapper gives way, just before the cards fan out.
+  tone(ac, 220, now + 0.3, 0.12);
+}
+
 /** Play the celebration cue (sound + haptic) for an earned beat. No-op when muted or unsupported. */
 export function playCelebration(kind: 'goal' | 'combo' | 'streak'): void {
   if (!enabled) return;

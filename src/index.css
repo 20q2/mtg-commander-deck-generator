@@ -614,6 +614,40 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.6);
   }
 
+  /* ---- The opening: grip-shake → the top seam tears off → the wrapper bursts → the fan. ---- */
+  .brew-pack-opening {
+    animation: brewPackShake 340ms ease-in-out, brewPackBurst 260ms ease-in 620ms both;
+    transform-origin: 50% 72%;
+  }
+  @keyframes brewPackShake {
+    0%, 100% { transform: rotate(0deg); }
+    22%      { transform: rotate(-1.7deg) translateX(-2px); }
+    48%      { transform: rotate(1.9deg) translateX(2px); }
+    74%      { transform: rotate(-1.2deg); }
+  }
+  @keyframes brewPackBurst {
+    0%   { transform: scale(1); opacity: 1; filter: brightness(1); }
+    55%  { transform: scale(1.07); opacity: 1; filter: brightness(1.7); }
+    100% { transform: scale(1.18); opacity: 0; filter: brightness(2.3); }
+  }
+  /* The top crimp rips away along the seam. */
+  .brew-pack-tear-top { animation: brewPackTearTop 300ms cubic-bezier(0.3, 0.8, 0.4, 1) 340ms both; }
+  @keyframes brewPackTearTop {
+    0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(-36px) rotate(-8deg); opacity: 0; }
+  }
+  /* A bright tear-line flashes across where the seam gives way. */
+  .brew-pack-tear-flash {
+    transform-origin: left center;
+    animation: brewPackTearFlash 260ms ease-out 320ms both;
+    background: linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0.55) 70%, transparent);
+  }
+  @keyframes brewPackTearFlash {
+    0%   { transform: scaleX(0); opacity: 0.95; }
+    70%  { transform: scaleX(1); opacity: 1; }
+    100% { transform: scaleX(1); opacity: 0; }
+  }
+
   /* Glimmer tease — the golden seam on a crate that advertises its hidden windfall. A slow light
      sweeps along the seam; the card and tier stay secret until the reveal. */
   .brew-tease-seam {
@@ -653,6 +687,7 @@
     .brew-godpack-glow { animation: none; box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.6); }
     .brew-tease-seam { animation: none; opacity: 0.9; }
     .brew-pack-foil { animation: none; background-position: 40% 0, 0 0; }
+    .brew-pack-opening, .brew-pack-tear-top, .brew-pack-tear-flash { animation: none; }
     .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
   }
 
