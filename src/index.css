@@ -591,20 +591,12 @@
     50%      { box-shadow: 0 0 0 1px hsl(45 95% 66% / 0.8), 0 0 40px -2px hsl(45 95% 60% / 0.75); }
   }
   /* ---- Sealed booster wrapper (crack-a-pack) ---- */
-  /* The holo sheen: a slow glossy sweep + a faint fixed iridescence, screened over the wrapper so
-     the pack reads as foil. GPU-cheap (two gradients, one background-position animation). */
+  /* The foil finish: a faint STATIC iridescence only — the light moves when YOU move (the glare
+     layer tracks the pointer). No idle animation; a shelf of packs should sit still. */
   .brew-pack-foil {
     background:
-      linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.28) 43%, rgba(255,255,255,0.07) 51%, transparent 66%),
-      linear-gradient(160deg, hsl(300 85% 72% / 0.10), hsl(190 85% 70% / 0.12) 38%, hsl(55 85% 70% / 0.09) 68%, transparent 88%);
-    background-size: 260% 100%, 100% 100%;
-    background-position: -80% 0, 0 0;
-    animation: brewPackSheen 4.2s ease-in-out infinite;
+      linear-gradient(160deg, hsl(300 85% 72% / 0.08), hsl(190 85% 70% / 0.10) 38%, hsl(55 85% 70% / 0.07) 68%, transparent 88%);
     mix-blend-mode: screen;
-  }
-  @keyframes brewPackSheen {
-    0%, 100% { background-position: -80% 0, 0 0; }
-    55%      { background-position: 180% 0, 0 0; }
   }
   /* The crimped seam: fine vertical foil ridges in the pack's own hue (reads --pk-hsl set inline). */
   .brew-pack-crimp {
@@ -616,11 +608,32 @@
 
   /* ---- Pack physicality: pointer-driven 3D tilt + a glare hotspot tracking the cursor.
           (The poke-holo technique: JS writes --rx/--ry/--mx/--my; CSS does everything else.) ---- */
+  /* Tilt is spring-driven from JS (lag, overshoot, wobble-back) — no CSS transition, the spring
+     IS the easing. preserve-3d so the pack's face/back/edge planes read as a solid object. */
   .brew-pack3d {
     transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-    transition: transform 90ms ease-out;
     transform-style: preserve-3d;
     will-change: transform;
+  }
+  /* The pack's physical depth: the front face floats forward, the back slab sits behind, and
+     thin edge planes close the sides — tilting reveals a real edge, not a flat sticker. */
+  .brew-pack-face { transform: translateZ(5px); transform-style: preserve-3d; }
+  .brew-pack-back {
+    transform: translateZ(-5px);
+    background: linear-gradient(180deg, hsl(var(--pk-hsl) / 0.5), hsl(var(--pk-hsl) / 0.25));
+    filter: brightness(0.5);
+  }
+  .brew-pack-edge {
+    background: hsl(var(--pk-hsl) / 0.55);
+    filter: brightness(0.6);
+  }
+  .brew-pack-edge-l { transform: rotateY(90deg); transform-origin: left center; }
+  .brew-pack-edge-r { transform: rotateY(-90deg); transform-origin: right center; }
+  /* The staged pack breathes — a slow idle float so it reads as held, not pinned. */
+  .brew-pack-float { animation: brewPackFloat 3.4s ease-in-out infinite; }
+  @keyframes brewPackFloat {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(-7px) rotate(0.5deg); }
   }
   .brew-pack-glare {
     background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%),
@@ -634,13 +647,14 @@
   /* ---- The tear: drag across the seam ("trace to open"). --tear (0..1) is driven by the
           pointer; the strip peels as it goes, then rips off and the wrapper drops away. ---- */
   .brew-pack-strip {
+    /* --strip-rot carries drag VELOCITY from JS: pull fast and the foil curls harder. */
     transform: translate(calc(var(--tear, 0) * 6px), calc(var(--tear, 0) * -12px))
-               rotate(calc(var(--tear, 0) * -4deg));
+               rotate(var(--strip-rot, 0deg));
     filter: brightness(calc(1 + var(--tear, 0) * 0.5));
   }
   .brew-pack-strip-off { animation: brewStripOff 460ms cubic-bezier(0.3, 0.7, 0.4, 1) both; }
   @keyframes brewStripOff {
-    0%   { transform: translate(6px, -12px) rotate(-4deg); opacity: 1; }
+    0%   { transform: translate(6px, -12px) rotate(var(--strip-rot, -6deg)); opacity: 1; }
     100% { transform: translate(90px, -110px) rotate(22deg); opacity: 0; }
   }
   /* The glowing tear line grows with the drag; the tip burns where the foil is giving way. */
@@ -724,7 +738,7 @@
     .brew-tease-seam { animation: none; opacity: 0.9; }
     .brew-pack-foil { animation: none; background-position: 40% 0, 0 0; }
     .brew-pack3d { transform: none; transition: none; }
-    .brew-pack-strip-off, .brew-pack-open-shake, .brew-pack-body-drop, .brew-tear-hint, .animate-brew-fan-rise { animation: none; }
+    .brew-pack-strip-off, .brew-pack-open-shake, .brew-pack-body-drop, .brew-tear-hint, .animate-brew-fan-rise, .brew-pack-float { animation: none; }
     .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
   }
 

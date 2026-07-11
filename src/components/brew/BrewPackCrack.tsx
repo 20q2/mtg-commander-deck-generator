@@ -24,10 +24,42 @@ import { Check, Crown, Sparkles, Package, MoveRight } from 'lucide-react';
  */
 
 const COMMIT_MS = 380;    // matches the fly-to-deck / melt-away animations used across brew
-const AUTO_TEAR_MS = 420; // a tap (no drag) tears the seam itself over this long
 const OFF_MS = 780;       // strip-off + wrapper-drop, then the fan rises
 
-/** Pointer-tracked tilt + glare: writes CSS vars straight onto the element (no re-renders). */
+// --- Spring-driven tilt: the pack has mass. It lags the pointer, overshoots, and wobbles back
+//     to rest instead of snapping — the difference between a sticker and an object. Springs run
+//     per-element on rAF and write CSS vars directly; React never re-renders for motion. ---
+const TILT_RANGE = 16;    // degrees of rotation at the pack's edges
+const SPRING_K = 0.16;    // stiffness — how eagerly the pack chases the pointer
+const SPRING_D = 0.78;    // damping — how quickly the wobble dies out
+
+type Spring = { cur: number; vel: number; target: number };
+type TiltState = { rx: Spring; ry: Spring; raf: number | null };
+const tiltStates = new WeakMap<HTMLElement, TiltState>();
+
+function tiltStep(el: HTMLElement, s: TiltState): void {
+  let live = false;
+  for (const sp of [s.rx, s.ry]) {
+    sp.vel = sp.vel * SPRING_D + (sp.target - sp.cur) * SPRING_K;
+    sp.cur += sp.vel;
+    if (Math.abs(sp.vel) > 0.005 || Math.abs(sp.target - sp.cur) > 0.005) live = true;
+  }
+  el.style.setProperty('--rx', `${s.rx.cur.toFixed(3)}deg`);
+  el.style.setProperty('--ry', `${s.ry.cur.toFixed(3)}deg`);
+  s.raf = live ? requestAnimationFrame(() => tiltStep(el, s)) : null;
+}
+function setTiltTarget(el: HTMLElement, rx: number, ry: number): void {
+  let s = tiltStates.get(el);
+  if (!s) {
+    s = { rx: { cur: 0, vel: 0, target: 0 }, ry: { cur: 0, vel: 0, target: 0 }, raf: null };
+    tiltStates.set(el, s);
+  }
+  s.rx.target = rx;
+  s.ry.target = ry;
+  if (s.raf == null) s.raf = requestAnimationFrame(() => tiltStep(el, s!));
+}
+
+/** Pointer over the pack: glare follows instantly (light is massless); tilt springs after it. */
 function trackTilt(e: ReactPointerEvent<HTMLElement>): void {
   const el = e.currentTarget;
   const r = el.getBoundingClientRect();
@@ -35,15 +67,24 @@ function trackTilt(e: ReactPointerEvent<HTMLElement>): void {
   const py = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
   el.style.setProperty('--mx', `${px * 100}%`);
   el.style.setProperty('--my', `${py * 100}%`);
-  el.style.setProperty('--rx', `${(py - 0.5) * -12}deg`);
-  el.style.setProperty('--ry', `${(px - 0.5) * 12}deg`);
+  setTiltTarget(el, (py - 0.5) * -TILT_RANGE, (px - 0.5) * TILT_RANGE);
 }
 function resetTilt(e: ReactPointerEvent<HTMLElement>): void {
   const el = e.currentTarget;
-  el.style.setProperty('--rx', '0deg');
-  el.style.setProperty('--ry', '0deg');
   el.style.setProperty('--mx', '50%');
   el.style.setProperty('--my', '50%');
+  setTiltTarget(el, 0, 0);   // springs home with a wobble instead of snapping
+}
+
+/** The pack's physical depth: back slab + side edges, revealed as the front face tilts. */
+function PackDepth() {
+  return (
+    <>
+      <div aria-hidden="true" className="brew-pack-back absolute inset-0 rounded-lg" />
+      <span aria-hidden="true" className="brew-pack-edge brew-pack-edge-l absolute inset-y-1 left-0 w-[10px]" />
+      <span aria-hidden="true" className="brew-pack-edge brew-pack-edge-r absolute inset-y-1 right-0 w-[10px]" />
+    </>
+  );
 }
 
 /** The booster wrapper visuals, shared by the grid packs and the center-stage tear. */
@@ -132,6 +173,8 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
     if (reduceMotion) { setCracked(option.id); return; }   // no ceremony — straight to the fan
     drag.current = { startX: 0, progress: 0, active: false, done: false };
+    if (tearSpring.current.raf != null) cancelAnimationFrame(tearSpring.current.raf);
+    tearSpring.current = { cur: 0, vel: 0, target: 0, raf: null };
     setStage('tear');
     setOpening(option);
   }
@@ -148,41 +191,48 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     }, OFF_MS));
   }
 
-  /** A tap (or an abandoned drag past halfway) finishes the tear on its own. */
-  function autoTear(option: BrewOption) {
-    const el = tearEl.current;
-    if (!el || drag.current.done) return;
-    const from = drag.current.progress;
-    const t0 = performance.now();
-    const step = (t: number) => {
-      if (drag.current.done) return;
-      const p = Math.min(1, from + (1 - from) * ((t - t0) / AUTO_TEAR_MS));
-      el.style.setProperty('--tear', String(p));
-      if (p < 1) requestAnimationFrame(step);
-      else completeTear(option);
+  // The tear is a spring too: the rip lags your drag and the strip's curl follows the VELOCITY —
+  // yank it and the foil peels harder. Written straight to CSS vars on rAF, no re-renders.
+  const tearSpring = useRef<{ cur: number; vel: number; target: number; raf: number | null }>({ cur: 0, vel: 0, target: 0, raf: null });
+
+  function ensureTearLoop(option: BrewOption) {
+    const s = tearSpring.current;
+    if (s.raf != null) return;
+    const step = () => {
+      const el = tearEl.current;
+      if (!el || drag.current.done) { s.raf = null; return; }
+      s.vel = s.vel * 0.72 + (s.target - s.cur) * 0.22;
+      s.cur += s.vel;
+      if (s.cur < 0) { s.cur = 0; s.vel = 0; }
+      el.style.setProperty('--tear', s.cur.toFixed(4));
+      const curl = Math.min(30, s.cur * 6 + Math.max(0, s.vel) * 300);
+      el.style.setProperty('--strip-rot', `${(-curl).toFixed(2)}deg`);
+      if (s.cur >= 0.99 && s.target >= 1) { s.raf = null; completeTear(option); return; }
+      const settled = Math.abs(s.vel) < 0.0005 && Math.abs(s.target - s.cur) < 0.001;
+      s.raf = settled ? null : requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    s.raf = requestAnimationFrame(step);
   }
 
   function onTearDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (drag.current.done) return;
     drag.current.active = true;
-    drag.current.startX = e.clientX - drag.current.progress * (e.currentTarget.getBoundingClientRect().width * 0.8);
+    drag.current.startX = e.clientX - tearSpring.current.target * (e.currentTarget.getBoundingClientRect().width * 0.8);
     e.currentTarget.setPointerCapture(e.pointerId);
   }
   function onTearMove(e: ReactPointerEvent<HTMLDivElement>, option: BrewOption) {
     if (!drag.current.active || drag.current.done) return;
     const w = e.currentTarget.getBoundingClientRect().width * 0.8;
-    const p = Math.min(1, Math.max(0, (e.clientX - drag.current.startX) / w));
-    drag.current.progress = p;
-    tearEl.current?.style.setProperty('--tear', String(p));
-    if (p >= 1) completeTear(option);
+    tearSpring.current.target = Math.min(1, Math.max(0, (e.clientX - drag.current.startX) / w));
+    ensureTearLoop(option);
   }
   function onTearUp(option: BrewOption) {
     if (!drag.current.active || drag.current.done) return;
     drag.current.active = false;
-    // A tap or a half-tear both finish the job — the ritual invites the gesture, never demands it.
-    autoTear(option);
+    // A tap or a half-tear both finish the job — the ritual invites the gesture, never demands
+    // it. Springing the target to 1 finishes the rip with the same physics as a real drag.
+    tearSpring.current.target = 1;
+    ensureTearLoop(option);
   }
 
   function toggleKeep(name: string) {
@@ -298,6 +348,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     return createPortal(
       <div className="fixed inset-0 z-[130] grid place-items-center bg-black/75 backdrop-blur-sm animate-fade-in">
         <div className="flex flex-col items-center gap-6" style={{ perspective: '900px' }}>
+          <div className={stage === 'tear' ? 'brew-pack-float' : undefined}>
           <div
             ref={tearEl}
             onPointerDown={onTearDown}
@@ -315,6 +366,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
               stage === 'off' ? 'brew-pack-open-shake' : ''
             }`}
           >
+            <PackDepth />
             {/* The tearable strip: the top crimp + a sliver of wrapper. Follows the tear progress
                 (lifting and peeling as you drag), then rips away when the seam gives. */}
             <div
@@ -334,11 +386,12 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
               </>
             )}
             {/* The wrapper body below the seam — drops away once the strip is off. */}
-            <div className={`relative min-h-[430px] overflow-hidden rounded-b-lg rounded-t-sm shadow-[0_24px_60px_-16px_rgba(0,0,0,0.85)] ${stage === 'off' ? 'brew-pack-body-drop' : ''}`}
+            <div className={`brew-pack-face relative min-h-[430px] overflow-hidden rounded-b-lg rounded-t-sm shadow-[0_24px_60px_-16px_rgba(0,0,0,0.85)] ${stage === 'off' ? 'brew-pack-body-drop' : ''}`}
               style={{ marginTop: 26 }}
             >
               <PackBody option={opening} packColor={packColor} brand={false} />
             </div>
+          </div>
           </div>
           {/* The invitation — fades once the tearing starts. */}
           <p
@@ -382,16 +435,19 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                   ['--pk-text' as string]: `hsl(${legibleText(packColor)})`,
                   ...(dimmed || staged ? {} : { animationDelay: `${idx * 70}ms` }),
                 }}
-                className={`brew-pack3d relative min-h-[340px] w-[190px] overflow-hidden rounded-lg text-left shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] group-focus-visible:ring-2 group-focus-visible:ring-[color:var(--pk)] sm:w-[210px] ${
-                  brewNode.godPack ? 'brew-godpack-glow' : ''
-                }`}
+                className={`brew-pack3d relative min-h-[340px] w-[190px] text-left sm:w-[210px]`}
               >
-                {/* Top crimp + tease seam (the tear itself happens on the staged copy). */}
-                <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 top-0 z-20 h-[18px]" />
-                {option.windfallTease && (
-                  <span aria-hidden="true" className="brew-tease-seam absolute inset-x-0 top-[18px] z-10 block h-[2px]" />
-                )}
-                <PackBody option={option} packColor={packColor} />
+                <PackDepth />
+                <div className={`brew-pack-face relative min-h-[340px] overflow-hidden rounded-lg shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] group-focus-visible:ring-2 group-focus-visible:ring-[color:var(--pk)] ${
+                  brewNode.godPack ? 'brew-godpack-glow' : ''
+                }`}>
+                  {/* Top crimp + tease seam (the tear itself happens on the staged copy). */}
+                  <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 top-0 z-20 h-[18px]" />
+                  {option.windfallTease && (
+                    <span aria-hidden="true" className="brew-tease-seam absolute inset-x-0 top-[18px] z-10 block h-[2px]" />
+                  )}
+                  <PackBody option={option} packColor={packColor} />
+                </div>
               </div>
             </button>
           );
