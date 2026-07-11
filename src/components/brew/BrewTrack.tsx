@@ -1,5 +1,5 @@
 import { useStore } from '@/store';
-import { isComplete, NONLAND_COMPLETE_RATIO, brewGoal, goalProgress, peekHorizon, type HorizonSlot } from '@/services/brew/engine';
+import { isComplete, NONLAND_COMPLETE_RATIO, brewGoal, goalProgress, peekHorizon, currentAct, type HorizonSlot } from '@/services/brew/engine';
 import { Layers, Check, Target, Flame, Gem, Infinity as InfinityIcon, MessageCircleQuestion, Mountain, type LucideIcon } from 'lucide-react';
 
 /**
@@ -35,6 +35,8 @@ export function BrewTrack() {
   // it's stable (philosophy due / combo in reach / question due), a "?" rune when the path genuinely
   // depends on future picks — see peekHorizon's honesty rules.
   const horizon = peekHorizon(brewContext, brewState);
+  // The run's act — quiet structure labeling on the rail (the interstitial does the punctuation).
+  const act = currentAct(brewContext, brewState);
 
   // Overall progress toward the finish line — where the engine calls the nonland deck done and hands
   // the rest to the generator. Rendered as a quiet fill along the bar's bottom edge (+ a small %),
@@ -69,6 +71,12 @@ export function BrewTrack() {
 
       {/* Cycle track — full-width on its own line on mobile (wraps below), flex-1 inline on desktop. */}
       <div className="order-last w-full sm:order-none sm:w-auto sm:flex-1 flex items-center gap-2 min-w-0">
+        <span
+          className="hidden sm:inline shrink-0 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55"
+          title={`${act.numeral} · ${act.title}`}
+        >
+          {act.numeral}
+        </span>
         <span className="shrink-0 tabular-nums text-[10px] font-medium text-violet-200/60">{pct}%</span>
         <div className="relative flex-1 flex items-center justify-between min-w-0">
           {/* The rail the upcoming nodes sit along — the horizon rolls forward with every node. */}

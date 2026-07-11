@@ -29,7 +29,8 @@ import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
 import { BrewGauntlet } from '@/components/brew/BrewGauntlet';
 import { runGauntlet, type GauntletTrial } from '@/services/brew/gauntlet';
 import { recordRun, buildJournalRun } from '@/services/brew/journal';
-import { generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
+import { generateRunTitle, brewGoal, goalProgress, currentAct, leaningThemes, type BrewAct } from '@/services/brew/engine';
+import { BrewActCard } from '@/components/brew/BrewActCard';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
@@ -61,6 +62,17 @@ export function BrewPage() {
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
   // The Gauntlet — the climax between the built deck and the recap: three trials, then the story.
   const [gauntlet, setGauntlet] = useState<{ listId: string; trials: GauntletTrial[] } | null>(null);
+  // Act interstitials: fire only when the act INCREASES mid-session. The ref seeds on first sight
+  // of a session (a resume never replays a card) and follows down silently on undo.
+  const [actCard, setActCard] = useState<BrewAct | null>(null);
+  const prevActRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!brewContext || !brewState) { prevActRef.current = null; return; }
+    const act = currentAct(brewContext, brewState);
+    const prev = prevActRef.current;
+    prevActRef.current = act.act;
+    if (prev !== null && act.act > prev) setActCard(act);
+  }, [brewContext, brewState]);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
   // The "what is this?" splash pitches the mode on a player's FIRST brew only — once they've seen it
@@ -305,6 +317,15 @@ export function BrewPage() {
     >
       {/* The morph-and-fly intro plays over everything until it hands off to the first screen. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
+      {/* Act boundary title card — 2–3s of punctuation when the run changes character. */}
+      {actCard && brewContext && brewState && (
+        <BrewActCard
+          act={actCard}
+          leaning={leaningThemes(brewContext, brewState)}
+          picks={brewState.picks.length}
+          onDone={() => setActCard(null)}
+        />
+      )}
       {/* The Gauntlet — the finished deck faces three trials before its story is told. */}
       {gauntlet && (
         <BrewGauntlet

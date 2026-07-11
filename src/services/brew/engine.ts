@@ -10,8 +10,8 @@ export { computeDeckStats, type DeckStats, type RadarAxis, type CurveBar, type T
 export { detectNearMissCombos, type NearMissCombo } from './combos';
 export { brewGoal, goalProgress } from './goals';
 export {
-  advanceAfterPick, STEER_EVERY, isSteerIndex, peekHorizon, HORIZON_LENGTH,
-  type HorizonSlot, type HorizonMomentCategory,
+  advanceAfterPick, STEER_EVERY, isSteerIndex, peekHorizon, HORIZON_LENGTH, currentAct,
+  type HorizonSlot, type HorizonMomentCategory, type BrewAct,
 } from './flow';
 export {
   nextEvent, applyEvent, strangeSignalEvent, comboFragmentEvent, crossroadsEvent, signaturePickEvent, gambleEvent,
