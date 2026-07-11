@@ -509,6 +509,29 @@ export const useStore = create<AppState>((set, get) => ({
       set({ brewNode: buildPackNode(brewContext, brewState), brewRerollExclusions: [] });
       return;
     }
+    // Seal the Pack: the wager where the stake is tempo — skip this round entirely (an empty,
+    // event-locked history entry so the run advances past it) and in exchange every theme pack
+    // rolls a guaranteed windfall until one fires. Streak is deliberately untouched: the cost is
+    // the skipped round, not a scoring penalty.
+    if (route.type === 'seal') {
+      const entry: BrewHistoryEntry = {
+        pickNumber: brewState.history.length + 1, routeId: 'seal', routeType: 'seal',
+        added: [], passed: [], tags: {},
+        moment: { kind: 'gamble', label: 'Sealed the pack' },
+      };
+      const nextState: BrewState = {
+        ...brewState,
+        history: [...brewState.history, entry],
+        sealedGold: true,
+        sealUsed: true,
+        moments: [...brewState.moments, {
+          atPick: brewState.picks.length, kind: 'gamble', label: 'Sealed the pack',
+          detail: 'Skipped the round — the next theme pack is guaranteed to carry gold',
+        }],
+      };
+      set(brewAdvancePatch(brewContext, nextState));
+      return;
+    }
     const node = openNode(brewContext, brewState, route);
     set({ brewNode: node, brewRerollExclusions: [] });
   },
@@ -596,6 +619,8 @@ export const useStore = create<AppState>((set, get) => ({
     }
     // The double-or-nothing is once per run: shown at all (kept OR traded) marks it spent.
     if (wagerChoice) nextState = { ...nextState, wagerResolved: true };
+    // A fired windfall pays off "Seal the Pack" — the guarantee is spent the moment it delivers.
+    if (gold && nextState.sealedGold) nextState = { ...nextState, sealedGold: false };
     // Completing a combo via the Combos route is a story beat too (not just the Combo-Fragment event):
     // log it so the recap reflects the kill you assembled, not only event-sourced moments.
     if (brewNode.type === 'combo') {

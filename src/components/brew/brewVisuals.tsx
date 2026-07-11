@@ -1,6 +1,6 @@
 import {
   Infinity as InfinityIcon, Zap, Dices, Sprout, Swords, Bomb, BookOpen, Package, Layers,
-  Search, Shield, Sparkles, Star,
+  Search, Shield, Sparkles, Star, Lock,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -56,6 +56,7 @@ export function symbolFor(type: string, key: string | null): RouteSymbol {
   if (type === 'combo') return { Icon: InfinityIcon };
   if (type === 'lightning') return { Icon: Zap };
   if (type === 'gamble') return { Icon: Dices };
+  if (type === 'seal') return { Icon: Lock };
   if (type === 'manabase') return { ms: 'ms-land' };
   if (key === 'synergy') return { Icon: Sparkles };   // Hidden Synergy (lift) route
   if (key === 'elite') return { Icon: Star };          // Headliner (pick 1 of 4) route

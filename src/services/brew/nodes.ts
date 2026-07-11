@@ -47,6 +47,9 @@ export function isGodPackRound(state: BrewState): boolean {
 
 /** The current per-theme-pack windfall probability, pity-ramped when a run has gone dry (see above). */
 function windfallChance(state: BrewState): number {
+  // "Seal the Pack" armed: the skipped round bought a guarantee — every theme pack rolls a
+  // windfall until one actually fires (the store clears the flag when the gold moment lands).
+  if (state.sealedGold) return 1;
   const everHad = state.moments.some(m => m.kind === 'goldCard');
   if (everHad || state.picks.length < PITY_START_PICK) return WINDFALL_CHANCE;
   const over = state.picks.length - PITY_START_PICK;

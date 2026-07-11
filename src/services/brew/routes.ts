@@ -2,6 +2,7 @@ import type { RoleKey } from '@/services/tagger/client';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 import type { BrewContext, BrewState, BrewRoute } from './brewTypes';
 import { buildHealth, isComplete, typeKey, pool } from './health';
+import { seededChance } from './jitter';
 import { detectNearMissCombos } from './combos';
 import { leaningThemes } from './identity';
 import { deckFill, IDENTITY_PHASE_FILL } from './scoring';
@@ -10,6 +11,8 @@ const ROLE_KEYS: RoleKey[] = ['ramp', 'removal', 'boardwipe', 'cardDraw', 'prote
 
 /** Picks before a Gamble route may appear (mirrors events.GAMBLE_MIN_PICKS; kept local to avoid an import cycle). */
 const GAMBLE_FORK_MIN = 8;
+/** Seeded chance a fork offers "Seal the Pack" (~one sighting per run at ~6 forks); once taken, never again. */
+const SEAL_OFFER_CHANCE = 0.1;
 
 /** Rotate an array left by `by` (stable, wraps). Used to vary which "extra" routes lead each fork. */
 function rotate<T>(arr: T[], by: number): T[] {
@@ -189,7 +192,21 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     extras.push({
       id: 'gamble', type: 'gamble', title: 'Take a Gamble',
       description: 'A deep cut almost no one runs in decks like yours — take the leap and see what it pulls in.',
-      targetRole: null, targetType: null, tone: 'neutral', tag: 'Risk', fills: 1,
+      targetRole: null, targetType: null, tone: 'neutral', tag: 'Wager', fills: 1,
+    });
+  }
+  // Seal the Pack — the tempo-for-treasure wager: give up this round entirely to guarantee the
+  // next theme pack hides gold. Rare (seeded per fork), once per run, and only while there are
+  // still packs to come; the stake is opportunity, never deck quality.
+  if (
+    state.picks.length >= GAMBLE_FORK_MIN && draftableLeft && fillRatio < 0.85
+    && !state.sealUsed && !state.sealedGold
+    && seededChance(state.seed, `seal:${state.history.length}`, SEAL_OFFER_CHANCE)
+  ) {
+    extras.push({
+      id: 'seal', type: 'seal', title: 'Seal the Pack',
+      description: 'Skip this round — take nothing now, and the next theme pack is guaranteed to hide gold.',
+      targetRole: null, targetType: null, tone: 'neutral', tag: 'Wager', fills: 0,
     });
   }
   routes.push(...rotate(extras, (state.seed ?? 0) + state.history.length));
