@@ -148,8 +148,8 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = envTex;
-  const key = new THREE.DirectionalLight(0xffffff, 0.4);
-  key.position.set(3, 5, 4);
+  const key = new THREE.DirectionalLight(0xffffff, 0.25);
+  key.position.set(4, 5, 3);
   scene.add(key);
 
   // Load the art images with CORS so the texture canvas never taints. The cache-busting param
@@ -185,7 +185,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
         roughness: 0.55,
         clearcoat: 0.25,
         clearcoatRoughness: 0.45,
-        envMapIntensity: 0.45,
+        envMapIntensity: 0.3,
         side: THREE.FrontSide,
       });
       disposables.push(tex, mat);
@@ -245,8 +245,9 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
         sp.vel = sp.vel * SPRING_D + (sp.target - sp.cur) * SPRING_K;
         sp.cur += sp.vel;
       }
-      // A slight resting pitch keeps the flat face from mirroring the light source dead-on.
-      g.rotation.x = -0.06 + s.rx.cur;
+      // A slight resting pitch (top toward the camera) aims the flat face's reflection at the
+      // environment's dark floor instead of its bright ceiling — no more glare in your eyes.
+      g.rotation.x = 0.07 + s.rx.cur;
       g.rotation.y = s.ry.cur;
     });
     // Tweens: the ceremony.
@@ -266,7 +267,9 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
     pointer(idx, px = 0.5, py = 0.5) {
       springs.forEach((s, i) => {
         const active = idx === i;
-        s.rx.target = active ? (py - 0.5) * -TILT_RANGE : 0;
+        // "Press where you touch": pointer at the top tips the top AWAY. Note three's rotation.x
+        // sign is the OPPOSITE of CSS rotateX — positive tips the top toward the camera.
+        s.rx.target = active ? (py - 0.5) * TILT_RANGE : 0;
         s.ry.target = active ? (px - 0.5) * TILT_RANGE : 0;
       });
     },
