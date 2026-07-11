@@ -33,7 +33,7 @@ export interface PackSceneAPI {
 
 const PACK_W = 1.4;
 const PACK_H = 2.1;
-const BULGE = 0.24;
+const BULGE = 0.15;
 const TILT_RANGE = 0.34;   // radians of spring tilt at the pack's edges
 const SPRING_K = 0.16;
 const SPRING_D = 0.78;
@@ -106,15 +106,20 @@ function paintWrapper(spec: PackSpec, art: HTMLImageElement | null, back: boolea
   return c;
 }
 
-// --- Pillow geometry: a plane whose middle bulges and whose ends pinch flat (the crimps). ---
+// --- Pack geometry: foil stretched over a rigid card stack — a flat plateau across most of the
+//     face (the cards inside), falling away at the wrapper's edges and pinching at the crimps,
+//     with only a faint breath of dome. Not a balloon. ---
 function pillowGeometry(sign: 1 | -1): THREE.PlaneGeometry {
   const geo = new THREE.PlaneGeometry(PACK_W, PACK_H, 28, 40);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const nx = pos.getX(i) / (PACK_W / 2);
-    const ny = pos.getY(i) / (PACK_H / 2);
-    const crimp = THREE.MathUtils.smoothstep(Math.abs(ny), 0.78, 0.97);
-    const f = Math.pow(Math.max(0, 1 - nx * nx), 0.55) * Math.pow(Math.cos((ny * Math.PI) / 2.15), 0.7) * (1 - crimp * 0.96);
+    const nx = Math.abs(pos.getX(i) / (PACK_W / 2));
+    const ny = Math.abs(pos.getY(i) / (PACK_H / 2));
+    const plateauX = 1 - THREE.MathUtils.smoothstep(nx, 0.68, 1.0);
+    const plateauY = 1 - THREE.MathUtils.smoothstep(ny, 0.55, 0.92);
+    const crimp = THREE.MathUtils.smoothstep(ny, 0.78, 0.97);
+    const dome = Math.cos((nx * Math.PI) / 2) * Math.cos((ny * Math.PI) / 2);
+    const f = (0.85 * plateauX * plateauY + 0.15 * dome) * (1 - crimp * 0.97);
     pos.setZ(i, sign * BULGE * f);
   }
   geo.computeVertexNormals();
@@ -133,7 +138,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
@@ -171,12 +176,13 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       const tex = new THREE.CanvasTexture(paintWrapper(spec, arts[i], back));
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      // Matte foil, not chrome: the art should read first, the sheen second.
       const mat = new THREE.MeshPhysicalMaterial({
         map: tex,
-        metalness: 0.55,
-        roughness: 0.38,
-        clearcoat: 1,
-        clearcoatRoughness: 0.28,
+        metalness: 0.28,
+        roughness: 0.52,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.42,
         side: THREE.FrontSide,
       });
       disposables.push(tex, mat);
