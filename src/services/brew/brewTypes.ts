@@ -120,6 +120,12 @@ export interface BrewOption {
    * The card and tier stay hidden until the reveal. Undefined = secret (today's behavior).
    */
   windfallTease?: boolean;
+  /**
+   * The engine's mean offerScore for this option — the Rival's private ranking of the same choice
+   * you're making. Display-only bookkeeping for the recap's divergence readout; never shown as a
+   * number and never fed back into scoring.
+   */
+  engineScore?: number;
 }
 
 export interface BrewNode {
@@ -163,6 +169,12 @@ export interface BrewHistoryEntry {
   passed: string[];           // names shown-but-not-taken (for Plan 3 Build History)
   tags?: Record<string, string[]>; // picked card name -> synergy tags (lets undo subtract affinity precisely)
   moment?: { kind: BrewEventKind; label: string }; // set when this pick came from an event → locked from undo
+  /**
+   * The Rival's ledger: set when the player took an option the engine ranked BELOW its top pick
+   * (by engineScore). Logged, never judged — the recap turns the diffs into "you built this deck,
+   * YOUR way". Lives on the history entry so undo reverts it for free.
+   */
+  rival?: { chosen: string; top: string; gap: number };
 }
 
 /** Mutable session progress. */

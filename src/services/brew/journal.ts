@@ -27,6 +27,7 @@ export interface JournalRun {
   goalDone: boolean;
   picks: number;
   treasury: TreasuryEntry[];   // windfalls this run revealed
+  divergences?: number;        // times the player left the engine's top-ranked line (the Rival diff)
 }
 
 export function loadJournal(): JournalRun[] {
@@ -76,5 +77,6 @@ export function buildJournalRun(
     goalDone: extras.goalDone,
     picks: state.picks.length,
     treasury: treasuryFromState(state),
+    divergences: state.history.filter(h => h.rival).length,
   };
 }

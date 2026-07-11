@@ -3,7 +3,7 @@ import type { AppState, Customization, BanList, AppliedList, ScryfallCard, Gener
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
-import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, brewGoal, goalProgress, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration } from '@/services/brew/engine';
+import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, brewGoal, goalProgress, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
 
 /** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
 const CLUSTER_PHASE_FILL = 0.4;
@@ -558,7 +558,20 @@ export const useStore = create<AppState>((set, get) => ({
     const nextLastPackCardNames = wasBundle
       ? brewNode.options.flatMap(o => o.cards.map(c => c.name))
       : brewState.lastPackCardNames;
-    let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags });
+    // The Rival's ledger: when this node's options carry engine rankings and the player took one
+    // ranked below the engine's top pick, log the diff on the history entry (undo reverts it for
+    // free). Logged, never judged — the recap turns divergence into "I built this, MY way".
+    let rival: BrewHistoryEntry['rival'];
+    const ranked = brewNode.options.filter(o => o.engineScore !== undefined);
+    if (ranked.length > 1 && option.engineScore !== undefined) {
+      const top = ranked.reduce((a, b) => ((b.engineScore ?? 0) > (a.engineScore ?? 0) ? b : a));
+      const gap = (top.engineScore ?? 0) - option.engineScore;
+      if (top.id !== option.id && gap > 0) {
+        const nameOf = (o: BrewOption) => o.label ?? o.cards[0]?.name ?? 'the other pick';
+        rival = { chosen: nameOf(option), top: nameOf(top), gap };
+      }
+    }
+    let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags, rival });
     nextState = { ...nextState, lastPackKeys: nextLastPackKeys, prevPackKeys: nextPrevPackKeys, lastPackCardNames: nextLastPackCardNames };
     if (gold) {
       const tier = option.windfallTier ?? 'gold';

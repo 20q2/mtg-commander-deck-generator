@@ -182,7 +182,12 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
 }
 
 function toOption(ctx: BrewContext, state: BrewState, cards: BrewCandidate[], id: string, label: string | undefined, comboFinishers: Set<string>): BrewOption {
-  return { id, label, cards, reasons: cards.map(c => deriveReasons(ctx, state, c, comboFinishers)) };
+  // engineScore is the Rival's ranking of this option (mean of its cards' offer scores) — the
+  // store diffs it against the player's actual take to build the recap's divergence readout.
+  const engineScore = cards.length
+    ? cards.reduce((s, c) => s + offerScore(ctx, state, c), 0) / cards.length
+    : 0;
+  return { id, label, cards, reasons: cards.map(c => deriveReasons(ctx, state, c, comboFinishers)), engineScore };
 }
 
 /** Cards draftable right now (unused, non-land, in budget), best-scored first. */

@@ -13,6 +13,7 @@ export interface ApplyPickMeta {
   passed: string[];                    // names shown but not taken in this decision
   tags: Record<string, string[]>;      // pickedCardName -> synergy tags (drives affinity)
   moment?: BrewHistoryEntry['moment']; // set when this pick came from an event → locks it from undo
+  rival?: BrewHistoryEntry['rival'];   // set when the player diverged from the engine's top-ranked option
 }
 
 /** Pure state transition: add one decision's worth of picks. Bundles/lightning pass multiple picks. */
@@ -42,6 +43,7 @@ export function applyPick(state: BrewState, picks: BrewPick[], meta: ApplyPickMe
       passed: meta.passed,
       tags: meta.tags,
       ...(meta.moment ? { moment: meta.moment } : {}),
+      ...(meta.rival ? { rival: meta.rival } : {}),
     }],
   };
 }

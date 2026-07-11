@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { leaningThemes, generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
 import { treasuryFromState } from '@/services/brew/journal';
 import {
-  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, type LucideIcon,
+  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, Bot, type LucideIcon,
 } from 'lucide-react';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import type { BrewMoment } from '@/services/brew/engine';
@@ -39,6 +39,11 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
   const cardCount = brewState.picks.length;
   // The windfalls this run revealed — now recorded forever in the Treasury (the cross-run binder).
   const treasury = treasuryFromState(brewState);
+  // The Rival: every decision where the player took an option the engine ranked below its top
+  // pick. Divergence is the point — "I built this deck, MY way" — so the boldest call leads.
+  const divergences = brewState.history.map(h => h.rival).filter((r): r is NonNullable<typeof r> => !!r);
+  const boldest = divergences.reduce<typeof divergences[number] | null>(
+    (best, r) => (best === null || r.gap > best.gap ? r : best), null);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/85 backdrop-blur-md p-4 animate-brew-view-in">
@@ -109,6 +114,22 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* The Rival reveal — the ghost of the data. Diverging from the engine's line is celebrated,
+            not corrected: the whole point of brewing is that this deck is YOURS. */}
+        {divergences.length > 0 && boldest && (
+          <div className="mx-auto mb-6 max-w-md rounded-xl border border-border/60 bg-card/50 px-4 py-3 text-center">
+            <p className="flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-[0.24em] text-muted-foreground/70 mb-1">
+              <Bot className="w-3.5 h-3.5" /> The Rival
+            </p>
+            <p className="text-sm text-foreground/90">
+              You diverged from the engine's top pick <span className="font-semibold tabular-nums">{divergences.length}</span> time{divergences.length === 1 ? '' : 's'}.
+            </p>
+            <p className="mt-0.5 font-flavor text-[13px] italic text-muted-foreground">
+              Boldest call: taking <span className="text-foreground/90">{boldest.chosen}</span> over <span className="text-foreground/90">{boldest.top}</span>.
+            </p>
           </div>
         )}
 
