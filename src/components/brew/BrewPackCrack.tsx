@@ -1,10 +1,13 @@
-import { useState, useLayoutEffect, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useState, useLayoutEffect, useEffect, useRef, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { playPackCrack } from '@/services/brew/brewSound';
 import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
+import type { ScryfallCard } from '@/types';
+import type { PackSceneAPI } from '@/components/brew/packScene';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey } from '@/components/brew/brewVisuals';
 import { Check, Crown, Sparkles, Package } from 'lucide-react';
 
@@ -137,7 +140,7 @@ function PackBody({ option, packColor, brand = true }: { option: BrewOption; pac
 }
 
 export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) => void }) {
-  const { brewNode, applyBrewOption } = useStore();
+  const { brewNode, applyBrewOption, customization } = useStore();
   // The staged pack (option id): others are falling, this one is flying to center and looming.
   const [staged, setStaged] = useState<string | null>(null);
   // Which pack was cracked — drives the fan phase.
@@ -146,6 +149,8 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
   const [ghost, setGhost] = useState<BrewOption | null>(null);
   const [keep, setKeep] = useState<Set<string>>(new Set());
   const [committing, setCommitting] = useState(false);
+  // Hovering a fan card pops a full, readable preview beside it (mirrors the old pack behavior).
+  const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -154,6 +159,65 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(t => window.clearTimeout(t)), []);
 
+  // --- The real 3D packs (lazy WebGL; the CSS wrappers below stay as the automatic fallback).
+  const [scene, setScene] = useState<PackSceneAPI | null>(null);
+  const sceneRef = useRef<PackSceneAPI | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const zoneEls = useRef<Map<string, HTMLElement>>(new Map());
+  const nodeKey = brewNode ? brewNode.routeId + brewNode.options.map(o => o.id).join('|') : '';
+  useEffect(() => {
+    if (reduceMotion || !brewNode || brewNode.options.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { createPackScene } = await import('@/components/brew/packScene');
+        const canvas = canvasRef.current;
+        if (!canvas || cancelled) return;
+        const specs = brewNode.options.map(o => {
+          const fl = (o.flavor && PACK_FLAVOR[o.flavor]) || PACK_FLAVOR.value;
+          const sig = o.cards.find(c => c.name === o.hallmarkName) ?? o.cards[0];
+          return {
+            color: o.flavor === 'theme' ? themeColor(routeKey(o.id) ?? '') : fl.color,
+            artUrl: sig?.scryfall.image_uris?.art_crop ?? sig?.scryfall.card_faces?.[0]?.image_uris?.art_crop,
+          };
+        });
+        const api = await createPackScene(canvas, specs);
+        if (cancelled) { api.dispose(); return; }
+        sceneRef.current = api;
+        setScene(api);
+      } catch {
+        /* no WebGL / load failure → the CSS packs render instead */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      sceneRef.current?.dispose();
+      sceneRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodeKey, reduceMotion]);
+
+  // Align the 3D packs with their DOM label zones (and re-align on resize).
+  useLayoutEffect(() => {
+    if (!scene || !canvasRef.current || !brewNode) return;
+    const align = () => {
+      if (!canvasRef.current) return;
+      const canvasBox = canvasRef.current.getBoundingClientRect();
+      const zones = brewNode.options.map(o => {
+        const el = zoneEls.current.get(o.id);
+        if (!el) return { cx: canvasBox.width / 2, cy: canvasBox.height / 2, w: 200 };
+        const r = el.getBoundingClientRect();
+        return { cx: r.left - canvasBox.left + r.width / 2, cy: r.top - canvasBox.top + r.height / 2 - 16, w: r.width - 10 };
+      });
+      scene.layout(zones);
+    };
+    align();
+    const ro = new ResizeObserver(align);
+    ro.observe(canvasRef.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene]);
+
   // The shoot-out: once the fan mounts behind a burst, aim every card FROM the pack's mouth
   // (the container center, where the staged pack ends up) TO its own resting slot. Measured and
   // written as per-card CSS vars before paint, so the eruption starts exactly inside the pack.
@@ -161,7 +225,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     if (!ghost || !fanRef.current || !containerRef.current) return;
     const box = containerRef.current.getBoundingClientRect();
     const originX = box.left + box.width / 2;
-    const originY = box.top + Math.min(box.height / 2, 260);
+    const originY = box.top + (scene ? 220 : Math.min(box.height / 2, 260));
     const cards = fanRef.current.querySelectorAll<HTMLElement>('[data-fan-card]');
     cards.forEach((el, i) => {
       const r = el.getBoundingClientRect();
@@ -181,8 +245,24 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     onCracked?.(true);   // the pick is the commitment — the parent hides Back/reroll
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
     if (reduceMotion) { setCracked(option.id); return; }
-    // FLIP: measure the chosen pack against the container center, then let the keyframes fly it
-    // there (and grow it toward the viewer) while the others drop off the bottom of the screen.
+    if (scene && brewNode) {
+      // 3D ceremony: the scene owns the fall / fly / loom / burst; DOM handles the card eruption.
+      const idx = brewNode.options.findIndex(o => o.id === option.id);
+      scene.pointer(null);
+      scene.stage(idx);
+      setStaged(option.id);
+      timers.current.push(window.setTimeout(() => playPackCrack(), STAGE_MS - SOUND_LEAD_MS));
+      timers.current.push(window.setTimeout(() => {
+        void scene.burst(idx);
+        setGhost(option);
+        setCracked(option.id);
+        setStaged(null);
+      }, STAGE_MS));
+      timers.current.push(window.setTimeout(() => setGhost(null), STAGE_MS + GHOST_MS));
+      return;
+    }
+    // CSS ceremony (no WebGL): FLIP the chosen pack to the container center via keyframes while
+    // the others drop off the bottom of the screen.
     const el = packEls.current.get(option.id);
     const box = containerRef.current?.getBoundingClientRect();
     if (el && box) {
@@ -243,7 +323,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     ];
     const isRainbow = crackedOption.windfallTier === 'rainbow';
     return (
-      <div ref={fanRef} className="text-center" style={{ ['--pk' as string]: `hsl(${packColor})`, ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}>
+      <div ref={fanRef} className="relative z-10 text-center" style={{ ['--pk' as string]: `hsl(${packColor})`, ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}>
         <div className={`mb-5 inline-flex items-center gap-2 font-display text-lg font-semibold text-[color:var(--pk-text)] ${ghost ? 'animate-fade-in' : ''}`}>
           <fl.Icon className="w-4 h-4" /> {crackedOption.label}
         </div>
@@ -258,6 +338,8 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 key={card.name}
                 data-fan-card
                 onClick={() => toggleKeep(card.name)}
+                onMouseEnter={(e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() })}
+                onMouseLeave={() => setHover(null)}
                 disabled={committing}
                 aria-pressed={kept}
                 style={committing ? undefined : { animationDelay: `${120 + i * 65}ms` }}
@@ -306,8 +388,31 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     );
   })();
 
-  // ── The burst ghost: the emptied wrapper at center — strip pops off, body tumbles away. ──
-  const ghostView = ghost && (() => {
+  // ── The hover preview: a full, readable copy of the fan card, anchored beside it. ──
+  const hoverView = hover && !committing && (() => {
+    const W = 268, IMG_H = Math.round(W * 1.4), GAP = 14, PAD = 8;
+    const r = hover.rect;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    // Prefer the card's right side; flip left near the edge; clamp vertically to the viewport.
+    const left = r.right + GAP + W <= vw - PAD ? r.right + GAP : Math.max(PAD, r.left - GAP - W);
+    const top = Math.min(Math.max(PAD, r.top + r.height / 2 - IMG_H / 2), vh - IMG_H - PAD - 40);
+    const priceRaw = getCardPrice(hover.card, customization.currency);
+    const n = priceRaw != null ? Number(priceRaw) : NaN;
+    const sym = customization.currency === 'EUR' ? '€' : '$';
+    return createPortal(
+      <div className="pointer-events-none fixed z-[120] flex flex-col items-center gap-1.5 animate-fade-in" style={{ left, top, width: W }}>
+        <img src={getCardImageUrl(hover.card, 'normal')} alt={hover.card.name} className="w-full rounded-[4.8%] shadow-2xl ring-1 ring-black/70" />
+        <span className="rounded-md border border-border/70 bg-black/80 px-2.5 py-0.5 text-sm font-bold tabular-nums text-foreground/90 shadow-lg">
+          {Number.isFinite(n) ? `${sym}${n.toFixed(2)}` : 'No price'}
+        </span>
+      </div>,
+      document.body,
+    );
+  })();
+
+  // ── The burst ghost: the emptied wrapper at center — strip pops off, body tumbles away.
+  //    (CSS fallback only: with WebGL the scene's own pack tumbles instead.) ──
+  const ghostView = ghost && !scene && (() => {
     const fl = (ghost.flavor && PACK_FLAVOR[ghost.flavor]) || PACK_FLAVOR.value;
     const packColor = ghost.flavor === 'theme' ? themeColor(routeKey(ghost.id) ?? '') : fl.color;
     return (
@@ -381,12 +486,70 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     </div>
   );
 
+  // ── The 3D stage: real booster meshes aligned under DOM label zones. Stays mounted through
+  //    the burst (the emptied wrapper tumbles in-scene, under the erupting DOM cards). ──
+  const webglView = !reduceMotion && (!crackedOption || ghost) && (
+    <div
+      className={crackedOption
+        ? 'pointer-events-none absolute inset-x-0 top-0 h-[440px]'
+        : `relative h-[440px] ${scene ? '' : 'hidden'}`}
+    >
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+      {!crackedOption && scene && (
+        <div className="relative flex h-full items-stretch justify-center gap-6 py-2 sm:gap-9">
+          {options.map((option, idx) => {
+            const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
+            const packColor = option.flavor === 'theme' ? themeColor(routeKey(option.id) ?? '') : fl.color;
+            const count = option.cards.length + (option.goldCard ? 1 : 0);
+            return (
+              <button
+                key={option.id}
+                ref={el => { if (el) zoneEls.current.set(option.id, el); else zoneEls.current.delete(option.id); }}
+                onClick={() => pick(option)}
+                disabled={committing || !!cracked || !!staged}
+                onPointerMove={e => {
+                  if (staged) return;
+                  const r = e.currentTarget.getBoundingClientRect();
+                  scene.pointer(idx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+                }}
+                onPointerLeave={() => { if (!staged) scene.pointer(null); }}
+                style={{ ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}
+                className="group relative w-[190px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[210px]"
+              >
+                {/* The set plate floats over the mesh; it fades out once the ceremony starts. */}
+                <div className={`absolute inset-x-0 bottom-6 flex flex-col items-center gap-1 px-2 transition-opacity duration-200 ${staged ? 'opacity-0' : ''}`}>
+                  {option.windfallTease && (
+                    <span className="font-flavor text-[11px] italic text-amber-200 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">something glints inside…</span>
+                  )}
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/25 bg-black/55 px-3 py-1 font-display text-sm font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_3px_12px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+                    <fl.Icon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{option.label}</span>
+                  </span>
+                  {option.hallmarkName && (
+                    <span className="max-w-full truncate text-[11px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                      feat. <span className="font-semibold">{option.hallmarkName}</span>
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.2em] text-white/65 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                    <Package className="w-3 h-3" /> {count} cards
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   // One continuous stage for all three beats — nothing fades in over anything else.
   return (
     <div ref={containerRef} className="relative min-h-[420px]">
-      {gridView}
+      {webglView}
+      {!scene && gridView}
       {fanView}
       {ghostView}
+      {hoverView}
     </div>
   );
 }
