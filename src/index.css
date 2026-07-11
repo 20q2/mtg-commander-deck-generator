@@ -629,12 +629,6 @@
   }
   .brew-pack-edge-l { transform: rotateY(90deg); transform-origin: left center; }
   .brew-pack-edge-r { transform: rotateY(-90deg); transform-origin: right center; }
-  /* The staged pack breathes — a slow idle float so it reads as held, not pinned. */
-  .brew-pack-float { animation: brewPackFloat 3.4s ease-in-out infinite; }
-  @keyframes brewPackFloat {
-    0%, 100% { transform: translateY(0) rotate(0deg); }
-    50%      { transform: translateY(-7px) rotate(0.5deg); }
-  }
   .brew-pack-glare {
     background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%),
       hsl(0 0% 100% / 0.5), hsl(0 0% 100% / 0.1) 32%, transparent 62%);
@@ -644,58 +638,52 @@
   }
   .brew-pack3d:hover .brew-pack-glare { opacity: 1; }
 
-  /* ---- The tear: drag across the seam ("trace to open"). --tear (0..1) is driven by the
-          pointer; the strip peels as it goes, then rips off and the wrapper drops away. ---- */
-  .brew-pack-strip {
-    /* --strip-rot carries drag VELOCITY from JS: pull fast and the foil curls harder. */
-    transform: translate(calc(var(--tear, 0) * 6px), calc(var(--tear, 0) * -12px))
-               rotate(var(--strip-rot, 0deg));
-    filter: brightness(calc(1 + var(--tear, 0) * 0.5));
+  /* ---- The ceremony, in one continuous space: the unpicked packs FALL away, the chosen pack
+          flies to center and looms closer… then bursts, cards shooting out of the wrapper. ---- */
+  /* The two unpicked packs hop slightly, then drop off the bottom of the screen, tumbling. */
+  .brew-pack-fall {
+    animation: brewPackFall 750ms cubic-bezier(0.45, 0.02, 0.9, 0.5) var(--fall-delay, 0ms) both;
+    pointer-events: none;
   }
-  .brew-pack-strip-off { animation: brewStripOff 460ms cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+  @keyframes brewPackFall {
+    0%   { transform: translateY(0) rotate(0deg); }
+    14%  { transform: translateY(-12px) rotate(calc(var(--fall-rot, -16deg) * 0.2)); }
+    100% { transform: translateY(115vh) rotate(var(--fall-rot, -16deg)); }
+  }
+  /* The chosen pack flies to center (--fly-x/y measured via FLIP), lands with a small
+     overshoot, then keeps creeping toward the viewer — the anticipation beat. */
+  .brew-pack-stage {
+    animation: brewPackStage 1250ms cubic-bezier(0.22, 0.9, 0.32, 1) both;
+    position: relative;
+    z-index: 40;
+    pointer-events: none;
+  }
+  @keyframes brewPackStage {
+    0%   { transform: translate(0, 0) scale(1); }
+    42%  { transform: translate(var(--fly-x, 0px), var(--fly-y, 0px)) scale(1.5); }
+    56%  { transform: translate(var(--fly-x, 0px), var(--fly-y, 0px)) scale(1.42); }
+    100% { transform: translate(var(--fly-x, 0px), var(--fly-y, 0px)) scale(1.58); }
+  }
+  /* The burst: the seam strip pops off… */
+  .brew-pack-strip-off { animation: brewStripOff 420ms cubic-bezier(0.3, 0.7, 0.4, 1) both; }
   @keyframes brewStripOff {
-    0%   { transform: translate(6px, -12px) rotate(var(--strip-rot, -6deg)); opacity: 1; }
-    100% { transform: translate(90px, -110px) rotate(22deg); opacity: 0; }
+    0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+    100% { transform: translate(110px, -130px) rotate(26deg); opacity: 0; }
   }
-  /* The glowing tear line grows with the drag; the tip burns where the foil is giving way. */
-  .brew-tear-edge {
-    transform: scaleX(var(--tear, 0));
-    transform-origin: left center;
-    opacity: min(calc(var(--tear, 0) * 8), 0.95);
-    background: linear-gradient(90deg, hsl(45 95% 75%), hsl(45 100% 88%) 70%, hsl(0 0% 100%));
-    box-shadow: 0 0 12px 2px hsl(45 95% 65% / 0.7);
+  /* …and the emptied wrapper tumbles off the bottom, out from under the erupting cards. */
+  .brew-pack-shed { animation: brewPackShed 620ms cubic-bezier(0.5, 0.05, 0.85, 0.4) 90ms both; }
+  @keyframes brewPackShed {
+    0%   { transform: translateY(0) rotate(0deg); }
+    18%  { transform: translateY(8px) rotate(2deg); }
+    100% { transform: translateY(85vh) rotate(14deg); }
   }
-  .brew-tear-tip {
-    left: calc(var(--tear, 0) * 100% - 8px);
-    opacity: min(calc(var(--tear, 0) * 8), 1);
-    background: radial-gradient(circle, hsl(0 0% 100%) 15%, hsl(45 100% 70% / 0.9) 40%, transparent 70%);
-    filter: blur(0.5px);
-  }
-  /* The seam gives: the whole pack jolts, then the wrapper body drops away under the fan. */
-  .brew-pack-open-shake { animation: brewPackShake 300ms ease-in-out; }
-  @keyframes brewPackShake {
-    0%, 100% { transform: rotate(0deg); }
-    25%      { transform: rotate(-1.8deg) translateX(-2px); }
-    55%      { transform: rotate(2deg) translateX(2px); }
-    80%      { transform: rotate(-1.2deg); }
-  }
-  .brew-pack-body-drop { animation: brewPackBodyDrop 460ms ease-in 220ms both; }
-  @keyframes brewPackBodyDrop {
-    0%   { transform: translateY(0); opacity: 1; }
-    25%  { transform: translateY(6px); opacity: 1; }
-    100% { transform: translateY(52%); opacity: 0; }
-  }
-  /* The invitation chevron slides along the seam direction. */
-  .brew-tear-hint { animation: brewTearHint 1.4s ease-in-out infinite; }
-  @keyframes brewTearHint {
-    0%, 100% { transform: translateX(0); opacity: 0.7; }
-    55%      { transform: translateX(8px); opacity: 1; }
-  }
-  /* The fan rises out of the opened wrapper. */
-  .animate-brew-fan-rise { animation: brewFanRise 480ms cubic-bezier(0.22, 0.9, 0.32, 1) both; }
-  @keyframes brewFanRise {
-    0%   { opacity: 0; transform: translateY(64px) scale(0.9); }
-    100% { opacity: 1; transform: translateY(0) scale(1); }
+  /* Each card shoots OUT of the pack mouth (--fx/--fy aim it back at the pack, measured per
+     card) and flies to its resting slot in the fan, spinning as it goes. */
+  .brew-card-shoot { animation: brewCardShoot 560ms cubic-bezier(0.16, 0.85, 0.28, 1.06) both; }
+  @keyframes brewCardShoot {
+    0%   { transform: translate(var(--fx, 0px), var(--fy, 0px)) rotate(var(--fr, 0deg)) scale(0.36); opacity: 0; }
+    12%  { opacity: 1; }
+    100% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
   }
 
   /* Glimmer tease — the golden seam on a crate that advertises its hidden windfall. A slow light
@@ -738,7 +726,7 @@
     .brew-tease-seam { animation: none; opacity: 0.9; }
     .brew-pack-foil { animation: none; background-position: 40% 0, 0 0; }
     .brew-pack3d { transform: none; transition: none; }
-    .brew-pack-strip-off, .brew-pack-open-shake, .brew-pack-body-drop, .brew-tear-hint, .animate-brew-fan-rise, .brew-pack-float { animation: none; }
+    .brew-pack-fall, .brew-pack-stage, .brew-pack-strip-off, .brew-pack-shed, .brew-card-shoot { animation: none; }
     .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
   }
 
