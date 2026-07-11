@@ -514,7 +514,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 }}
                 onPointerLeave={() => { if (!staged) scene.pointer(null); }}
                 style={{ ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}
-                className="group relative w-[190px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[210px]"
+                className="group relative w-[170px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[190px]"
               >
                 {/* The set plate floats over the mesh; it fades out once the ceremony starts. */}
                 <div className={`absolute inset-x-0 bottom-6 flex flex-col items-center gap-1 px-2 transition-opacity duration-200 ${staged ? 'opacity-0' : ''}`}>

@@ -34,11 +34,11 @@ export interface PackSceneAPI {
 }
 
 const PACK_W = 1.4;
-const PACK_H = 2.24;
-const PACK_T = 0.085;      // the slab's base thickness — the "never paper-thin" guarantee
-const BULGE = 0.13;        // how far the card stack proud-faces above the slab
-const TOP_CRIMP = 0.14;    // share of height: the branded top tab
-const BOT_CRIMP = 0.045;   // the small bottom tab (~1/3 the top's size)
+const PACK_H = 2.66;       // the reference wrapper is ~1:1.9 — tall and narrow
+const PACK_T = 0.06;       // the slab's base thickness — the "never paper-thin" guarantee
+const BULGE = 0.06;        // TOTAL relief — a pack of cards, not a blister of air
+const TOP_CRIMP = 0.12;    // share of height: the branded top tab
+const BOT_CRIMP = 0.02;    // the sliver of fold at the bottom
 const TILT_RANGE = 0.34;
 const SPRING_K = 0.16;
 const SPRING_D = 0.78;
@@ -54,21 +54,22 @@ function packProfile(nx: number, u: number): number {
     * (1 - smoothstep(u, 1 - BOT_CRIMP - 0.02, 1 - BOT_CRIMP + 0.01));
   if (body <= 0) return 0;
   const t = Math.min(1, Math.max(0, (u - TOP_CRIMP) / (1 - TOP_CRIMP - BOT_CRIMP)));
-  // The loose-foil pouch: waists in a touch at mid-height, bows back out near the bottom.
-  const pouch = 0.46 - 0.13 * bell(t, 0.48, 0.22) + 0.2 * bell(t, 0.86, 0.11);
-  const pouchX = 1 - smoothstep(nx, 0.72, 1.0);
-  // The card stack: a hard-edged plateau inset from the sides and from both crimps.
-  const stackX = 1 - smoothstep(nx, 0.87, 0.94);
-  const stackY = smoothstep(u, 0.195, 0.225) * (1 - smoothstep(u, 0.845, 0.875));
-  const stack = stackX * stackY;
-  // Stack wins where present; everything fades to 0 at the true boundary (weld to the sides).
+  // The foil BOWS INWARD at mid-height: the cards have a little wiggle room, and the wrapper is
+  // held taut only at the crimps — so it sags gently between them.
+  const sag = 0.66 - 0.3 * bell(t, 0.5, 0.34);
+  const sagX = 1 - smoothstep(nx, 0.72, 1.0);
+  // The card stack: a card-proportioned (≈1:1.4) HINT under the foil, not a blister.
+  const stackX = 1 - smoothstep(nx, 0.86, 0.94);
+  const stackY = smoothstep(u, 0.15, 0.18) * (1 - smoothstep(u, 0.79, 0.82));
+  const stack = 0.34 * stackX * stackY;
+  // Everything fades to 0 at the true boundary (weld to the sides).
   const edge = (1 - smoothstep(nx, 0.94, 1.0)) * (1 - smoothstep(u, 0.985, 1.0)) * (1 - smoothstep(1 - u, 0.985, 1.0));
-  return Math.max(stack, pouch * pouchX) * body * edge;
+  return Math.min(1, sag * sagX + stack) * body * edge;
 }
 
 // --- Geometry: a subdivided box, its ±z faces displaced by the profile. Side-wall vertices sit
 //     on the boundary where the profile is 0, so the skin stays welded — a true solid. ---
-const CORNER_R = 0.1;   // rounded wrapper corners
+const CORNER_R = 0.05;   // rounded wrapper corners — subtle, not pill-shaped
 
 function packGeometry(): THREE.BoxGeometry {
   const geo = new THREE.BoxGeometry(PACK_W, PACK_H, PACK_T, 30, 46, 1);
@@ -99,7 +100,7 @@ function packGeometry(): THREE.BoxGeometry {
 
 // --- Wrapper texture (front): crimp ridges + brand label up top, seam line, full-bleed art. ---
 function paintWrapper(spec: PackSpec, art: HTMLImageElement | null, logo: HTMLImageElement | null, back: boolean): HTMLCanvasElement {
-  const W = 512, H = 820;
+  const W = 512, H = 973;   // matches the wrapper's 1:1.9
   const crimpH = H * TOP_CRIMP;
   const botCrimpY = H * (1 - BOT_CRIMP);
   const c = document.createElement('canvas');
@@ -157,31 +158,27 @@ function paintWrapper(spec: PackSpec, art: HTMLImageElement | null, logo: HTMLIm
       g.fillRect(x + 3, y0, 3, y1 - y0);
     }
   }
-  // The brand label on the top crimp (front only): logo + wordmark on a quiet plate.
+  // The brand on the top crimp (front only): the logo, then MANAFOUNDRY — no plate, no subtitle,
+  // printed straight on the foil like the reference.
   if (!back) {
-    const plateW = 320, plateH = crimpH * 0.62, px = (W - plateW) / 2, py = crimpH * 0.19;
-    g.fillStyle = 'rgba(10,10,16,0.55)';
-    g.beginPath();
-    g.roundRect(px, py, plateW, plateH, 14);
-    g.fill();
-    g.strokeStyle = 'rgba(255,255,255,0.25)';
-    g.lineWidth = 2;
-    g.stroke();
-    const logoSize = plateH * 0.72;
-    let textX = W / 2;
-    if (logo) {
-      const lx = px + 18;
-      g.drawImage(logo, lx, py + (plateH - logoSize) / 2, logoSize, logoSize);
-      textX = lx + logoSize + (plateW - logoSize - 36) / 2;
-    }
-    g.textAlign = 'center';
+    g.textAlign = 'left';
     g.textBaseline = 'middle';
-    g.fillStyle = 'rgba(255,255,255,0.95)';
-    g.font = '800 34px system-ui, sans-serif';
-    g.fillText('MANAFOUNDRY', textX, py + plateH * 0.4);
-    g.fillStyle = 'rgba(255,255,255,0.7)';
-    g.font = '600 19px system-ui, sans-serif';
-    g.fillText('B R E W', textX, py + plateH * 0.76);
+    g.font = '800 44px system-ui, sans-serif';
+    const wordW = g.measureText('MANAFOUNDRY').width;
+    const logoSize = crimpH * 0.52;
+    const gap = 14;
+    const total = (logo ? logoSize + gap : 0) + wordW;
+    let x = (W - total) / 2;
+    const midY = crimpH * 0.5;
+    if (logo) {
+      g.drawImage(logo, x, midY - logoSize / 2, logoSize, logoSize);
+      x += logoSize + gap;
+    }
+    g.shadowColor = 'rgba(0,0,0,0.5)';
+    g.shadowBlur = 6;
+    g.fillStyle = 'rgba(255,255,255,0.96)';
+    g.fillText('MANAFOUNDRY', x, midY);
+    g.shadowBlur = 0;
     // The seam line where the crimp meets the body — the tear strip, with a cool glow.
     g.fillStyle = 'rgba(140,235,255,0.5)';
     g.fillRect(0, crimpH - 3, W, 10);
@@ -226,13 +223,12 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = envTex;
-  // The key light sits high so the card stack's TOP EDGE catches a bright line while the flat
-  // face (normals straight at the camera) stays glare-free.
-  const key = new THREE.DirectionalLight(0xffffff, 0.35);
-  key.position.set(1.5, 6, 3.5);
+  // A faint key from the TOP LEFT — enough to catch the stack's top edge and the crimp folds,
+  // never enough to wash the print. Ambient carries most of the art's brightness (no specular).
+  const key = new THREE.DirectionalLight(0xffffff, 0.22);
+  key.position.set(-4, 6, 4);
   scene.add(key);
-  // Ambient lifts the art's diffuse brightness without adding any specular glare.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
   const [logo, ...arts] = await Promise.all([
     loadImage(`${import.meta.env.BASE_URL}logo.png`, false),
@@ -251,11 +247,11 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
       const mat = new THREE.MeshPhysicalMaterial({
         map: tex,
-        metalness: 0.15,
+        metalness: 0.1,
         roughness: 0.55,
         clearcoat: 0.25,
         clearcoatRoughness: 0.45,
-        envMapIntensity: 0.3,
+        envMapIntensity: 0.22,
       });
       disposables.push(tex, mat);
       return mat;
