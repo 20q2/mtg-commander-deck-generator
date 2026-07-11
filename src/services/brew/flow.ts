@@ -1,6 +1,9 @@
 import type { BrewContext, BrewState, BrewNode } from './brewTypes';
 import { buildPackNode } from './nodes';
 import { isComplete } from './health';
+import { nextEvent, comboFragmentEvent, MIN_MOMENT_GAP } from './events';
+import { FIRST_PHILOSOPHY_AT } from './relics';
+import { nextQuestion } from './questions';
 
 /**
  * Run cadence: the player opens a pack at each node, and every STEER_EVERY-th node is a "moment"
@@ -32,4 +35,48 @@ export function advanceAfterPick(ctx: BrewContext, state: BrewState): BrewNode |
   // Between moments, keep the player opening packs. Combos and elite drafts are deliberate moves
   // elected at the fork, so they never auto-open. An empty pool returns null → mana base.
   return buildPackNode(ctx, state);
+}
+
+/** How many upcoming nodes the fate-map forecasts. */
+export const HORIZON_LENGTH = 5;
+/** Mirrors the store's SECOND_QUESTION_AT (kept local so the engine never imports the store). */
+const QUESTION_AT = 8;
+
+export type HorizonMomentCategory = 'philosophy' | 'combo' | 'question' | 'unknown';
+export type HorizonSlot =
+  | { kind: 'pack' }
+  | { kind: 'moment'; category: HorizonMomentCategory }
+  | { kind: 'manabase' };
+
+/**
+ * The fate-map: a forecast of the next HORIZON_LENGTH nodes, dry-running the same priority chain
+ * the store resolves at steer time (relic → event → question → fork). Honest by construction — a
+ * moment only names its category when the prediction is stable under future picks:
+ *  - philosophy: the relic check is FIRST in the chain and its two conditions (no relic yet, pick
+ *    threshold met) are monotone in picks, so once due it stays due;
+ *  - combo: the moment gap already passes NOW (monotone — picks only grow, lastMomentPick is fixed
+ *    until the moment itself) and a near-miss combo exists, the top of the event chain;
+ *  - question: due and nothing currently eligible to preempt it.
+ * Anything genuinely dependent on future picks is 'unknown' — the "?" rune (a wrong icon is worse
+ * than a rune). Only the NEAREST steer slot is forecast; later steers are always 'unknown'.
+ * Pure: derived entirely from (ctx, state).
+ */
+export function peekHorizon(ctx: BrewContext, state: BrewState): HorizonSlot[] {
+  if (isComplete(ctx, state)) return [{ kind: 'manabase' }];
+  const slots: HorizonSlot[] = [];
+  let firstSteerSeen = false;
+  for (let i = state.history.length; slots.length < HORIZON_LENGTH; i++) {
+    if (!isSteerIndex(i)) { slots.push({ kind: 'pack' }); continue; }
+    slots.push({ kind: 'moment', category: firstSteerSeen ? 'unknown' : forecastMoment(ctx, state) });
+    firstSteerSeen = true;
+  }
+  return slots;
+}
+
+function forecastMoment(ctx: BrewContext, state: BrewState): HorizonMomentCategory {
+  if (state.relics.length === 0 && state.picks.length >= FIRST_PHILOSOPHY_AT) return 'philosophy';
+  const gapOkNow = state.picks.length - state.lastMomentPick >= MIN_MOMENT_GAP;
+  if (gapOkNow && comboFragmentEvent(ctx, state)) return 'combo';
+  if (state.picks.length >= QUESTION_AT && !nextEvent(ctx, state) && nextQuestion(ctx, state)) return 'question';
+  return 'unknown';
 }

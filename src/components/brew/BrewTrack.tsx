@@ -1,6 +1,6 @@
 import { useStore } from '@/store';
-import { isComplete, STEER_EVERY, isSteerIndex, NONLAND_COMPLETE_RATIO, brewGoal, goalProgress } from '@/services/brew/engine';
-import { Layers, Sparkles, Check, Target, Flame } from 'lucide-react';
+import { isComplete, NONLAND_COMPLETE_RATIO, brewGoal, goalProgress, peekHorizon, type HorizonSlot } from '@/services/brew/engine';
+import { Layers, Check, Target, Flame, Gem, Infinity as InfinityIcon, MessageCircleQuestion, Mountain, type LucideIcon } from 'lucide-react';
 
 /**
  * The "Run" bar — one line that carries everything about where you are in the run, so the HUD stays
@@ -12,19 +12,29 @@ import { Layers, Sparkles, Check, Target, Flame } from 'lucide-react';
  */
 const PACK_HSL = '196 62% 56%';   // blueprint cyan — the Foundry's structural line
 const EVENT_HSL = '33 92% 56%';   // molten brass — the moment stands out
+const COMBO_HSL = '172 70% 50%';  // combo teal — matches the recap's combo moments
+
+/** How each fate-map slot renders: icon (or the "?" rune), colour, and its honest tooltip. */
+function slotVisual(slot: HorizonSlot): { Icon: LucideIcon | null; hsl: string; title: string } {
+  if (slot.kind === 'pack') return { Icon: Layers, hsl: PACK_HSL, title: 'Open a pack' };
+  if (slot.kind === 'manabase') return { Icon: Mountain, hsl: PACK_HSL, title: 'Build the mana base' };
+  switch (slot.category) {
+    case 'philosophy': return { Icon: Gem, hsl: EVENT_HSL, title: 'A philosophy choice is due' };
+    case 'combo': return { Icon: InfinityIcon, hsl: COMBO_HSL, title: 'A combo fragment is within reach' };
+    case 'question': return { Icon: MessageCircleQuestion, hsl: EVENT_HSL, title: 'A question about your playstyle' };
+    default: return { Icon: null, hsl: EVENT_HSL, title: 'A moment — the path shifts with your picks' };
+  }
+}
 
 export function BrewTrack() {
   const { brewContext, brewState } = useStore();
   if (!brewContext || !brewState) return null;
   if (isComplete(brewContext, brewState)) return null;   // deck's done — only the mana base remains
 
-  const pos = brewState.history.length % STEER_EVERY;     // where we are in this cycle
-  const slots = Array.from({ length: STEER_EVERY }, (_, i) => ({
-    i,
-    event: isSteerIndex(i),       // the last node of each cycle is the moment
-    current: i === pos,
-    done: i < pos,
-  }));
+  // The fate-map: this node first, then what's coming. Moments show their forecast category when
+  // it's stable (philosophy due / combo in reach / question due), a "?" rune when the path genuinely
+  // depends on future picks — see peekHorizon's honesty rules.
+  const horizon = peekHorizon(brewContext, brewState);
 
   // Overall progress toward the finish line — where the engine calls the nonland deck done and hands
   // the rest to the generator. Rendered as a quiet fill along the bar's bottom edge (+ a small %),
@@ -61,30 +71,27 @@ export function BrewTrack() {
       <div className="order-last w-full sm:order-none sm:w-auto sm:flex-1 flex items-center gap-2 min-w-0">
         <span className="shrink-0 tabular-nums text-[10px] font-medium text-violet-200/60">{pct}%</span>
         <div className="relative flex-1 flex items-center justify-between min-w-0">
-          {/* The rail the nodes sit along, filling to the current node as you advance the cycle. */}
-          <span className="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-0.5 rounded-full bg-border/40">
-            <span
-              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out"
-              style={{ width: `${(pos / Math.max(1, STEER_EVERY - 1)) * 100}%`, background: 'hsl(0 0% 72% / 0.55)' }}
-            />
-          </span>
-          {slots.map((s) => {
-            const hsl = s.event ? EVENT_HSL : PACK_HSL;
-            const Icon = s.event ? Sparkles : Layers;
-            const tint = s.current ? 0.22 : 0.12;
+          {/* The rail the upcoming nodes sit along — the horizon rolls forward with every node. */}
+          <span className="pointer-events-none absolute inset-x-1 top-1/2 -translate-y-1/2 h-0.5 rounded-full bg-border/40" />
+          {horizon.map((slot, i) => {
+            const { Icon, hsl, title } = slotVisual(slot);
+            const current = i === 0;   // slot 0 is the node being played right now
+            const tint = current ? 0.22 : 0.12;
             return (
               <span
-                key={s.i}
-                className={`relative grid place-items-center rounded-full border transition-all duration-200 ${s.current ? 'w-7 h-7' : 'w-6 h-6'} ${s.done ? 'opacity-45' : ''}`}
+                key={i}
+                className={`relative grid place-items-center rounded-full border transition-all duration-200 ${current ? 'w-7 h-7' : 'w-6 h-6'} ${i > 0 ? 'opacity-80' : ''}`}
                 style={{
                   color: `hsl(${hsl})`,
-                  borderColor: `hsl(${hsl} / ${s.current ? 0.85 : 0.4})`,
+                  borderColor: `hsl(${hsl} / ${current ? 0.85 : 0.4})`,
                   background: `linear-gradient(hsl(${hsl} / ${tint}), hsl(${hsl} / ${tint})), hsl(var(--card))`,
-                  boxShadow: s.current ? `0 0 14px hsl(${hsl} / 0.45)` : undefined,
+                  boxShadow: current ? `0 0 14px hsl(${hsl} / 0.45)` : undefined,
                 }}
-                title={s.event ? 'A moment — a fork, an event, or a relic' : 'Open a pack'}
+                title={title}
               >
-                {s.done ? <Check className="w-3 h-3" /> : <Icon className={s.current ? 'w-3.5 h-3.5' : 'w-3 h-3'} />}
+                {Icon
+                  ? <Icon className={current ? 'w-3.5 h-3.5' : 'w-3 h-3'} />
+                  : <span className="font-display text-[11px] font-bold leading-none opacity-80">?</span>}
               </span>
             );
           })}

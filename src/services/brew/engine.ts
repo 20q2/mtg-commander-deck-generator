@@ -9,7 +9,10 @@ export { discoverFrom, discoverClustersFrom } from './discovery';
 export { computeDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';
 export { detectNearMissCombos, type NearMissCombo } from './combos';
 export { brewGoal, goalProgress } from './goals';
-export { advanceAfterPick, STEER_EVERY, isSteerIndex } from './flow';
+export {
+  advanceAfterPick, STEER_EVERY, isSteerIndex, peekHorizon, HORIZON_LENGTH,
+  type HorizonSlot, type HorizonMomentCategory,
+} from './flow';
 export {
   nextEvent, applyEvent, strangeSignalEvent, comboFragmentEvent, crossroadsEvent, signaturePickEvent, gambleEvent,
   PASS_CHOICE, MIN_MOMENT_GAP, SIGNAL_MIN_CO, CROSSROADS_NOTICE, CROSSROADS_COMMIT, SIGNATURE_MIN_PICKS, GAMBLE_MIN_PICKS,
