@@ -614,38 +614,74 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.6);
   }
 
-  /* ---- The opening: grip-shake → the top seam tears off → the wrapper bursts → the fan. ---- */
-  .brew-pack-opening {
-    animation: brewPackShake 340ms ease-in-out, brewPackBurst 260ms ease-in 620ms both;
-    transform-origin: 50% 72%;
+  /* ---- Pack physicality: pointer-driven 3D tilt + a glare hotspot tracking the cursor.
+          (The poke-holo technique: JS writes --rx/--ry/--mx/--my; CSS does everything else.) ---- */
+  .brew-pack3d {
+    transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition: transform 90ms ease-out;
+    transform-style: preserve-3d;
+    will-change: transform;
   }
+  .brew-pack-glare {
+    background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%),
+      hsl(0 0% 100% / 0.5), hsl(0 0% 100% / 0.1) 32%, transparent 62%);
+    mix-blend-mode: overlay;
+    opacity: 0;
+    transition: opacity 220ms;
+  }
+  .brew-pack3d:hover .brew-pack-glare { opacity: 1; }
+
+  /* ---- The tear: drag across the seam ("trace to open"). --tear (0..1) is driven by the
+          pointer; the strip peels as it goes, then rips off and the wrapper drops away. ---- */
+  .brew-pack-strip {
+    transform: translate(calc(var(--tear, 0) * 6px), calc(var(--tear, 0) * -12px))
+               rotate(calc(var(--tear, 0) * -4deg));
+    filter: brightness(calc(1 + var(--tear, 0) * 0.5));
+  }
+  .brew-pack-strip-off { animation: brewStripOff 460ms cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+  @keyframes brewStripOff {
+    0%   { transform: translate(6px, -12px) rotate(-4deg); opacity: 1; }
+    100% { transform: translate(90px, -110px) rotate(22deg); opacity: 0; }
+  }
+  /* The glowing tear line grows with the drag; the tip burns where the foil is giving way. */
+  .brew-tear-edge {
+    transform: scaleX(var(--tear, 0));
+    transform-origin: left center;
+    opacity: min(calc(var(--tear, 0) * 8), 0.95);
+    background: linear-gradient(90deg, hsl(45 95% 75%), hsl(45 100% 88%) 70%, hsl(0 0% 100%));
+    box-shadow: 0 0 12px 2px hsl(45 95% 65% / 0.7);
+  }
+  .brew-tear-tip {
+    left: calc(var(--tear, 0) * 100% - 8px);
+    opacity: min(calc(var(--tear, 0) * 8), 1);
+    background: radial-gradient(circle, hsl(0 0% 100%) 15%, hsl(45 100% 70% / 0.9) 40%, transparent 70%);
+    filter: blur(0.5px);
+  }
+  /* The seam gives: the whole pack jolts, then the wrapper body drops away under the fan. */
+  .brew-pack-open-shake { animation: brewPackShake 300ms ease-in-out; }
   @keyframes brewPackShake {
     0%, 100% { transform: rotate(0deg); }
-    22%      { transform: rotate(-1.7deg) translateX(-2px); }
-    48%      { transform: rotate(1.9deg) translateX(2px); }
-    74%      { transform: rotate(-1.2deg); }
+    25%      { transform: rotate(-1.8deg) translateX(-2px); }
+    55%      { transform: rotate(2deg) translateX(2px); }
+    80%      { transform: rotate(-1.2deg); }
   }
-  @keyframes brewPackBurst {
-    0%   { transform: scale(1); opacity: 1; filter: brightness(1); }
-    55%  { transform: scale(1.07); opacity: 1; filter: brightness(1.7); }
-    100% { transform: scale(1.18); opacity: 0; filter: brightness(2.3); }
+  .brew-pack-body-drop { animation: brewPackBodyDrop 460ms ease-in 220ms both; }
+  @keyframes brewPackBodyDrop {
+    0%   { transform: translateY(0); opacity: 1; }
+    25%  { transform: translateY(6px); opacity: 1; }
+    100% { transform: translateY(52%); opacity: 0; }
   }
-  /* The top crimp rips away along the seam. */
-  .brew-pack-tear-top { animation: brewPackTearTop 300ms cubic-bezier(0.3, 0.8, 0.4, 1) 340ms both; }
-  @keyframes brewPackTearTop {
-    0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
-    100% { transform: translateY(-36px) rotate(-8deg); opacity: 0; }
+  /* The invitation chevron slides along the seam direction. */
+  .brew-tear-hint { animation: brewTearHint 1.4s ease-in-out infinite; }
+  @keyframes brewTearHint {
+    0%, 100% { transform: translateX(0); opacity: 0.7; }
+    55%      { transform: translateX(8px); opacity: 1; }
   }
-  /* A bright tear-line flashes across where the seam gives way. */
-  .brew-pack-tear-flash {
-    transform-origin: left center;
-    animation: brewPackTearFlash 260ms ease-out 320ms both;
-    background: linear-gradient(90deg, rgba(255,255,255,0.95), rgba(255,255,255,0.55) 70%, transparent);
-  }
-  @keyframes brewPackTearFlash {
-    0%   { transform: scaleX(0); opacity: 0.95; }
-    70%  { transform: scaleX(1); opacity: 1; }
-    100% { transform: scaleX(1); opacity: 0; }
+  /* The fan rises out of the opened wrapper. */
+  .animate-brew-fan-rise { animation: brewFanRise 480ms cubic-bezier(0.22, 0.9, 0.32, 1) both; }
+  @keyframes brewFanRise {
+    0%   { opacity: 0; transform: translateY(64px) scale(0.9); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
   }
 
   /* Glimmer tease — the golden seam on a crate that advertises its hidden windfall. A slow light
@@ -687,7 +723,8 @@
     .brew-godpack-glow { animation: none; box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.6); }
     .brew-tease-seam { animation: none; opacity: 0.9; }
     .brew-pack-foil { animation: none; background-position: 40% 0, 0 0; }
-    .brew-pack-opening, .brew-pack-tear-top, .brew-pack-tear-flash { animation: none; }
+    .brew-pack3d { transform: none; transition: none; }
+    .brew-pack-strip-off, .brew-pack-open-shake, .brew-pack-body-drop, .brew-tear-hint, .animate-brew-fan-rise { animation: none; }
     .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
   }
 

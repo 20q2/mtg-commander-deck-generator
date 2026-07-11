@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -6,48 +7,182 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { playPackCrack } from '@/services/brew/brewSound';
 import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey } from '@/components/brew/brewVisuals';
-import { Check, Crown, Sparkles, Package } from 'lucide-react';
+import { Check, Crown, Sparkles, Package, MoveRight } from 'lucide-react';
 
 /**
- * The crack-a-pack loop (2026-07-11 redesign): a pack round offers three SEALED packs — theme +
- * headline card showing, contents hidden. Cracking one is the strategic decision (the others are
- * gone); the fan of ~5 cards inside is the curation decision (keep any you like, min 1, pass the
- * rest). Guided drafting: pick the direction blind, pick the cards informed.
+ * The crack-a-pack loop (2026-07-11 redesign): a pack round offers three SEALED boosters — theme +
+ * headline card showing, contents hidden. Picking one stages it center-screen, where you TEAR the
+ * seam yourself (drag across it, Pocket's "trace to open"; a tap auto-tears). The strip rips off,
+ * the wrapper drops away, and the fan of ~5 cards rises out of it — keep any you like (min 1).
  *
- * A windfall rides in the fan as a FOIL — the gold/rainbow card is simply *in the pack* when you
- * crack it, Pokémon-style, replacing the old full-screen reveal ceremony for pack rounds.
+ * Physicality: sealed packs tilt in 3D toward the pointer with a foil glare hotspot tracking it
+ * (the poke-holo technique: pointer position drives CSS custom properties; gradients + blend modes
+ * do the rest). All effects are CSS/DOM — no canvas, no asset files.
+ *
+ * A windfall rides the fan as a FOIL — the gold/rainbow card is simply *in the pack* when you
+ * crack it, replacing the old full-screen reveal ceremony for pack rounds.
  */
 
-const COMMIT_MS = 380;   // matches the fly-to-deck / melt-away animations used across brew
-const CRACK_MS = 880;    // grip-shake (340) → seam tears (340-640) → burst (620-880) → the fan
+const COMMIT_MS = 380;    // matches the fly-to-deck / melt-away animations used across brew
+const AUTO_TEAR_MS = 420; // a tap (no drag) tears the seam itself over this long
+const OFF_MS = 780;       // strip-off + wrapper-drop, then the fan rises
+
+/** Pointer-tracked tilt + glare: writes CSS vars straight onto the element (no re-renders). */
+function trackTilt(e: ReactPointerEvent<HTMLElement>): void {
+  const el = e.currentTarget;
+  const r = el.getBoundingClientRect();
+  const px = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  const py = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+  el.style.setProperty('--mx', `${px * 100}%`);
+  el.style.setProperty('--my', `${py * 100}%`);
+  el.style.setProperty('--rx', `${(py - 0.5) * -12}deg`);
+  el.style.setProperty('--ry', `${(px - 0.5) * 12}deg`);
+}
+function resetTilt(e: ReactPointerEvent<HTMLElement>): void {
+  const el = e.currentTarget;
+  el.style.setProperty('--rx', '0deg');
+  el.style.setProperty('--ry', '0deg');
+  el.style.setProperty('--mx', '50%');
+  el.style.setProperty('--my', '50%');
+}
+
+/** The booster wrapper visuals, shared by the grid packs and the center-stage tear. */
+function PackBody({ option, packColor, brand = true }: { option: BrewOption; packColor: string; brand?: boolean }) {
+  const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
+  const sigCard = option.cards.find(c => c.name === option.hallmarkName) ?? option.cards[0];
+  const packArt = sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
+  const count = option.cards.length + (option.goldCard ? 1 : 0);
+  return (
+    <>
+      {/* The wrapper body — foil in the pack's own hue, darker at the seams. */}
+      <div aria-hidden="true" className="absolute inset-0"
+        style={{ background: `linear-gradient(180deg, hsl(${packColor} / 0.55), hsl(${packColor} / 0.28) 18%, hsl(${packColor} / 0.2) 82%, hsl(${packColor} / 0.6))` }} />
+      {/* Pack art: the headline card's art, the wrapper's centerpiece. */}
+      {packArt && (
+        <div aria-hidden="true" className="absolute inset-x-0 top-[13%] bottom-[24%]"
+          style={{
+            backgroundImage: `url(${packArt})`, backgroundSize: 'cover', backgroundPosition: 'center 30%',
+            boxShadow: 'inset 0 0 34px rgba(0,0,0,0.55)',
+          }} />
+      )}
+      {/* Art fade into the wrapper above and below, so it reads as printed, not pasted. */}
+      <div aria-hidden="true" className="absolute inset-0"
+        style={{ background: `linear-gradient(180deg, hsl(${packColor} / 0.5) 0%, transparent 20%, transparent 68%, hsl(${packColor} / 0.55) 84%)` }} />
+      {/* The holo sheen — a slow glossy sweep + faint iridescence — and the pointer-tracked glare. */}
+      <div aria-hidden="true" className="brew-pack-foil absolute inset-0" />
+      <div aria-hidden="true" className="brew-pack-glare absolute inset-0 z-10" />
+      {/* Bottom crimp (the top one is the tearable strip, rendered by the caller). */}
+      <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 bottom-0 h-[18px]" />
+      <div className="absolute inset-0 z-10 flex flex-col items-center">
+        {brand && (
+          <span className="mt-[26px] text-[8px] font-bold uppercase tracking-[0.34em] text-white/75 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+            ManaFoundry · Brew
+          </span>
+        )}
+        <div className="flex-1" />
+        {/* The set plate — theme name big, headline card beneath. */}
+        <div className="mb-[30px] flex w-full flex-col items-center gap-1 px-3">
+          {option.windfallTease && (
+            <span className="font-flavor text-[11px] italic text-amber-200 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">something glints inside…</span>
+          )}
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/25 bg-black/55 px-3 py-1 font-display text-sm font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_3px_12px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+            <fl.Icon className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{option.label}</span>
+          </span>
+          {option.hallmarkName && (
+            <span className="max-w-full truncate text-[11px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+              feat. <span className="font-semibold">{option.hallmarkName}</span>
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.2em] text-white/65 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+            <Package className="w-3 h-3" /> {count} cards
+          </span>
+        </div>
+      </div>
+    </>
+  );
+}
 
 export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) => void }) {
   const { brewNode, applyBrewOption } = useStore();
-  // The opening in progress (option id): the chosen pack shakes, tears, and bursts while the
-  // other two melt away — then `cracked` takes over and the fan deals in.
-  const [cracking, setCracking] = useState<string | null>(null);
-  // Which pack was cracked (option id) — null while the three sealed packs are on offer.
+  // The pack staged center-screen for the tear — the pick is committed, the seam awaits.
+  const [opening, setOpening] = useState<BrewOption | null>(null);
+  // 'tear' = seam intact, drag across it; 'off' = strip ripped, wrapper dropping, fan incoming.
+  const [stage, setStage] = useState<'tear' | 'off'>('tear');
+  // Which pack was cracked (option id) — drives the fan phase.
   const [cracked, setCracked] = useState<string | null>(null);
   // Names the player is keeping from the fan (the foil pre-selects — it's the pull).
   const [keep, setKeep] = useState<Set<string>>(new Set());
   const [committing, setCommitting] = useState(false);
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const crackTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (crackTimer.current) window.clearTimeout(crackTimer.current); }, []);
+
+  const timers = useRef<number[]>([]);
+  const tearEl = useRef<HTMLDivElement | null>(null);
+  const drag = useRef<{ startX: number; progress: number; active: boolean; done: boolean }>({ startX: 0, progress: 0, active: false, done: false });
+  useEffect(() => () => timers.current.forEach(t => window.clearTimeout(t)), []);
 
   if (!brewNode) return null;
   const options = brewNode.options;
   const crackedOption = cracked ? options.find(o => o.id === cracked) ?? null : null;
 
-  function crack(option: BrewOption) {
-    if (committing || cracked || cracking) return;
-    onCracked?.(true);   // the crack is the commitment — the parent hides Back/reroll
+  function pick(option: BrewOption) {
+    if (committing || cracked || opening) return;
+    onCracked?.(true);   // the pick is the commitment — the parent hides Back/reroll
     // The foil starts selected — you pulled it; passing it back is the deliberate act.
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
     if (reduceMotion) { setCracked(option.id); return; }   // no ceremony — straight to the fan
+    drag.current = { startX: 0, progress: 0, active: false, done: false };
+    setStage('tear');
+    setOpening(option);
+  }
+
+  /** The seam gave way: strip flies off, wrapper drops, then the fan rises out of it. */
+  function completeTear(option: BrewOption) {
+    if (drag.current.done) return;
+    drag.current.done = true;
     playPackCrack();
-    setCracking(option.id);
-    crackTimer.current = window.setTimeout(() => { setCracked(option.id); setCracking(null); }, CRACK_MS);
+    setStage('off');
+    timers.current.push(window.setTimeout(() => {
+      setCracked(option.id);
+      setOpening(null);
+    }, OFF_MS));
+  }
+
+  /** A tap (or an abandoned drag past halfway) finishes the tear on its own. */
+  function autoTear(option: BrewOption) {
+    const el = tearEl.current;
+    if (!el || drag.current.done) return;
+    const from = drag.current.progress;
+    const t0 = performance.now();
+    const step = (t: number) => {
+      if (drag.current.done) return;
+      const p = Math.min(1, from + (1 - from) * ((t - t0) / AUTO_TEAR_MS));
+      el.style.setProperty('--tear', String(p));
+      if (p < 1) requestAnimationFrame(step);
+      else completeTear(option);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function onTearDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (drag.current.done) return;
+    drag.current.active = true;
+    drag.current.startX = e.clientX - drag.current.progress * (e.currentTarget.getBoundingClientRect().width * 0.8);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onTearMove(e: ReactPointerEvent<HTMLDivElement>, option: BrewOption) {
+    if (!drag.current.active || drag.current.done) return;
+    const w = e.currentTarget.getBoundingClientRect().width * 0.8;
+    const p = Math.min(1, Math.max(0, (e.clientX - drag.current.startX) / w));
+    drag.current.progress = p;
+    tearEl.current?.style.setProperty('--tear', String(p));
+    if (p >= 1) completeTear(option);
+  }
+  function onTearUp(option: BrewOption) {
+    if (!drag.current.active || drag.current.done) return;
+    drag.current.active = false;
+    // A tap or a half-tear both finish the job — the ritual invites the gesture, never demands it.
+    autoTear(option);
   }
 
   function toggleKeep(name: string) {
@@ -82,7 +217,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     window.setTimeout(() => applyBrewOption(synthetic, passed), COMMIT_MS);
   }
 
-  // ── Phase 2: the fan — the cracked pack's cards, keep what you like. ──
+  // ── Phase 3: the fan — the cracked pack's cards rise out of the wrapper; keep what you like. ──
   if (crackedOption) {
     const fl = (crackedOption.flavor && PACK_FLAVOR[crackedOption.flavor]) || PACK_FLAVOR.value;
     const packColor = crackedOption.flavor === 'theme' ? themeColor(routeKey(crackedOption.id) ?? '') : fl.color;
@@ -109,11 +244,11 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 onClick={() => toggleKeep(card.name)}
                 disabled={committing}
                 aria-pressed={kept}
-                style={committing ? undefined : { animationDelay: `${i * 90}ms` }}
+                style={committing ? undefined : { animationDelay: `${i * 80}ms` }}
                 className={`relative w-[150px] sm:w-[176px] rounded-[4.8%] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   committing
                     ? (kept ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
-                    : 'animate-brew-card-in'
+                    : 'animate-brew-fan-rise'
                 }`}
               >
                 {/* The foil — the windfall, sitting IN the pack like a real pull. */}
@@ -156,88 +291,112 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     );
   }
 
-  // ── Phase 1: three sealed booster packs — foil wrapper in the pack's hue, crimped seams,
-  //    the headline card's art full-bleed under a sweeping holo sheen. Contents hidden. ──
-  return (
-    <div className="flex flex-wrap items-stretch justify-center gap-6 sm:gap-9" style={{ perspective: '1200px' }}>
-      {options.map((option, idx) => {
-        const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
-        const packColor = option.flavor === 'theme' ? themeColor(routeKey(option.id) ?? '') : fl.color;
-        const sigCard = option.cards.find(c => c.name === option.hallmarkName) ?? option.cards[0];
-        const packArt = sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
-        const count = option.cards.length + (option.goldCard ? 1 : 0);
-        const opening = cracking === option.id;
-        const dismissed = cracking !== null && !opening;
-        return (
-          <button
-            key={option.id}
-            onClick={() => crack(option)}
-            disabled={committing || !!cracked || !!cracking}
+  // ── Phase 2: the tear — the chosen pack center-stage; drag across the seam to rip it open. ──
+  const tearOverlay = opening && (() => {
+    const fl = (opening.flavor && PACK_FLAVOR[opening.flavor]) || PACK_FLAVOR.value;
+    const packColor = opening.flavor === 'theme' ? themeColor(routeKey(opening.id) ?? '') : fl.color;
+    return createPortal(
+      <div className="fixed inset-0 z-[130] grid place-items-center bg-black/75 backdrop-blur-sm animate-fade-in">
+        <div className="flex flex-col items-center gap-6" style={{ perspective: '900px' }}>
+          <div
+            ref={tearEl}
+            onPointerDown={onTearDown}
+            onPointerMove={(e) => { onTearMove(e, opening); if (!drag.current.active) trackTilt(e); }}
+            onPointerUp={() => onTearUp(opening)}
+            onPointerLeave={resetTilt}
             style={{
               ['--pk' as string]: `hsl(${packColor})`,
               ['--pk-hsl' as string]: packColor,
-              ['--pk-soft' as string]: `hsl(${packColor} / 0.4)`,
               ['--pk-text' as string]: `hsl(${legibleText(packColor)})`,
-              ...(cracking ? {} : { animationDelay: `${idx * 70}ms` }),
+              ['--tear' as string]: 0,
+              touchAction: 'none',
             }}
-            className={`group relative w-[190px] sm:w-[210px] overflow-hidden rounded-lg text-left shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] transition-[transform,box-shadow] duration-200 hover:-translate-y-2 hover:shadow-[0_26px_56px_-12px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
-              opening ? 'brew-pack-opening z-10' : dismissed ? 'animate-brew-dismiss' : 'animate-brew-card-in'
-            } ${brewNode.godPack ? 'brew-godpack-glow' : ''}`}
+            className={`brew-pack3d relative w-[250px] sm:w-[280px] min-h-[430px] cursor-grab select-none overflow-visible active:cursor-grabbing ${
+              stage === 'off' ? 'brew-pack-open-shake' : ''
+            }`}
           >
-            {/* The wrapper body — foil in the pack's own hue, darker at the seams. */}
-            <div aria-hidden="true" className="absolute inset-0"
-              style={{ background: `linear-gradient(180deg, hsl(${packColor} / 0.55), hsl(${packColor} / 0.28) 18%, hsl(${packColor} / 0.2) 82%, hsl(${packColor} / 0.6))` }} />
-            {/* Pack art: the headline card's art, the wrapper's centerpiece. */}
-            {packArt && (
-              <div aria-hidden="true" className="absolute inset-x-0 top-[13%] bottom-[24%]"
-                style={{
-                  backgroundImage: `url(${packArt})`, backgroundSize: 'cover', backgroundPosition: 'center 30%',
-                  boxShadow: 'inset 0 0 34px rgba(0,0,0,0.55)',
-                }} />
-            )}
-            {/* Art fade into the wrapper above and below, so it reads as printed, not pasted. */}
-            <div aria-hidden="true" className="absolute inset-0"
-              style={{ background: `linear-gradient(180deg, hsl(${packColor} / 0.5) 0%, transparent 20%, transparent 68%, hsl(${packColor} / 0.55) 84%)` }} />
-            {/* The holo sheen — a slow glossy sweep + faint iridescence over the whole wrapper. */}
-            <div aria-hidden="true" className="brew-pack-foil absolute inset-0" />
-            {/* Crimped seams top + bottom — the "factory sealed" read. The top one rips away when
-                this pack is being opened, with a bright tear-line flashing along the seam. */}
-            <div aria-hidden="true" className={`brew-pack-crimp absolute inset-x-0 top-0 z-20 h-[18px] ${opening ? 'brew-pack-tear-top' : ''}`} />
-            {opening && <span aria-hidden="true" className="brew-pack-tear-flash absolute inset-x-0 top-[16px] z-20 block h-[3px]" />}
-            <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 bottom-0 h-[18px]" />
-            {/* Glimmer tease — honest twice over now: you can't see inside, and teased ⇒ a windfall
-                really is in there. A gold thread glinting just under the seam. */}
-            {option.windfallTease && (
-              <span aria-hidden="true" className="brew-tease-seam absolute inset-x-0 top-[18px] z-10 block h-[2px]" />
-            )}
-            <div className="relative z-10 flex h-full min-h-[340px] flex-col items-center">
-              {/* Brand line under the top crimp, like a set stamp. */}
-              <span className="mt-[26px] text-[8px] font-bold uppercase tracking-[0.34em] text-white/75 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                ManaFoundry · Brew
-              </span>
-              <div className="flex-1" />
-              {/* The set plate — theme name big, headline card beneath. */}
-              <div className="mb-[30px] flex w-full flex-col items-center gap-1 px-3">
-                {option.windfallTease && (
-                  <span className="font-flavor text-[11px] italic text-amber-200 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">something glints inside…</span>
-                )}
-                <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/25 bg-black/55 px-3 py-1 font-display text-sm font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_3px_12px_rgba(0,0,0,0.6)] backdrop-blur-sm">
-                  <fl.Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{option.label}</span>
-                </span>
-                {option.hallmarkName && (
-                  <span className="max-w-full truncate text-[11px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                    feat. <span className="font-semibold">{option.hallmarkName}</span>
-                  </span>
-                )}
-                <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.2em] text-white/65 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                  <Package className="w-3 h-3" /> {count} cards · crack it
-                </span>
-              </div>
+            {/* The tearable strip: the top crimp + a sliver of wrapper. Follows the tear progress
+                (lifting and peeling as you drag), then rips away when the seam gives. */}
+            <div
+              aria-hidden="true"
+              className={`brew-pack-strip absolute inset-x-0 top-0 z-30 h-[26px] overflow-hidden rounded-t-lg ${stage === 'off' ? 'brew-pack-strip-off' : ''}`}
+            >
+              <div className="brew-pack-crimp absolute inset-x-0 top-0 h-[18px]" />
+              <div aria-hidden="true" className="absolute inset-x-0 top-[18px] h-[8px]"
+                style={{ background: `linear-gradient(180deg, hsl(${packColor} / 0.55), hsl(${packColor} / 0.35))` }} />
             </div>
-          </button>
-        );
-      })}
-    </div>
+            {/* The tear edge: a glowing line that grows across the seam with your drag, with a
+                bright tip where the foil is currently giving way. */}
+            {stage === 'tear' && (
+              <>
+                <span aria-hidden="true" className="brew-tear-edge absolute left-0 top-[25px] z-40 block h-[3px] w-full" />
+                <span aria-hidden="true" className="brew-tear-tip absolute top-[19px] z-40 block h-[15px] w-[15px]" />
+              </>
+            )}
+            {/* The wrapper body below the seam — drops away once the strip is off. */}
+            <div className={`relative min-h-[430px] overflow-hidden rounded-b-lg rounded-t-sm shadow-[0_24px_60px_-16px_rgba(0,0,0,0.85)] ${stage === 'off' ? 'brew-pack-body-drop' : ''}`}
+              style={{ marginTop: 26 }}
+            >
+              <PackBody option={opening} packColor={packColor} brand={false} />
+            </div>
+          </div>
+          {/* The invitation — fades once the tearing starts. */}
+          <p
+            className="flex items-center gap-2 text-sm text-white/85 transition-opacity duration-300"
+            style={{ opacity: stage === 'off' ? 0 : undefined }}
+          >
+            <MoveRight className="brew-tear-hint w-5 h-5 text-amber-200" />
+            Tear across the seam — drag, or tap
+          </p>
+        </div>
+      </div>,
+      document.body,
+    );
+  })();
+
+  // ── Phase 1: three sealed booster packs — foil wrappers that tilt and glare toward the pointer. ──
+  return (
+    <>
+      {tearOverlay}
+      <div className="flex flex-wrap items-stretch justify-center gap-6 sm:gap-9">
+        {options.map((option, idx) => {
+          const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
+          const packColor = option.flavor === 'theme' ? themeColor(routeKey(option.id) ?? '') : fl.color;
+          const staged = opening?.id === option.id;
+          const dimmed = (opening !== null || cracked !== null) && !staged;
+          return (
+            <button
+              key={option.id}
+              onClick={() => pick(option)}
+              disabled={committing || !!cracked || !!opening}
+              style={{ perspective: '600px' }}
+              className={`group relative focus:outline-none ${dimmed || staged ? 'animate-brew-dismiss' : 'animate-brew-card-in'}`}
+            >
+              <div
+                onPointerMove={trackTilt}
+                onPointerLeave={resetTilt}
+                style={{
+                  ['--pk' as string]: `hsl(${packColor})`,
+                  ['--pk-hsl' as string]: packColor,
+                  ['--pk-soft' as string]: `hsl(${packColor} / 0.4)`,
+                  ['--pk-text' as string]: `hsl(${legibleText(packColor)})`,
+                  ...(dimmed || staged ? {} : { animationDelay: `${idx * 70}ms` }),
+                }}
+                className={`brew-pack3d relative min-h-[340px] w-[190px] overflow-hidden rounded-lg text-left shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] group-focus-visible:ring-2 group-focus-visible:ring-[color:var(--pk)] sm:w-[210px] ${
+                  brewNode.godPack ? 'brew-godpack-glow' : ''
+                }`}
+              >
+                {/* Top crimp + tease seam (the tear itself happens on the staged copy). */}
+                <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 top-0 z-20 h-[18px]" />
+                {option.windfallTease && (
+                  <span aria-hidden="true" className="brew-tease-seam absolute inset-x-0 top-[18px] z-10 block h-[2px]" />
+                )}
+                <PackBody option={option} packColor={packColor} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }
