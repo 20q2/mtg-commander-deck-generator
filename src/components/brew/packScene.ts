@@ -148,8 +148,8 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   const pmrem = new THREE.PMREMGenerator(renderer);
   const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = envTex;
-  const key = new THREE.DirectionalLight(0xffffff, 0.7);
-  key.position.set(2, 4, 6);
+  const key = new THREE.DirectionalLight(0xffffff, 0.4);
+  key.position.set(3, 5, 4);
   scene.add(key);
 
   // Load the art images with CORS so the texture canvas never taints. The cache-busting param
@@ -176,13 +176,16 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       const tex = new THREE.CanvasTexture(paintWrapper(spec, arts[i], back));
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      // Matte foil, not chrome: the art should read first, the sheen second.
+      // Matte foil, not chrome: the art should read first, the sheen second. envMapIntensity is
+      // the key dial — the flat card-stack face reflects the whole room straight back at the
+      // camera, so the environment must whisper, not glare.
       const mat = new THREE.MeshPhysicalMaterial({
         map: tex,
-        metalness: 0.28,
-        roughness: 0.52,
-        clearcoat: 0.5,
-        clearcoatRoughness: 0.42,
+        metalness: 0.15,
+        roughness: 0.55,
+        clearcoat: 0.25,
+        clearcoatRoughness: 0.45,
+        envMapIntensity: 0.45,
         side: THREE.FrontSide,
       });
       disposables.push(tex, mat);
@@ -242,7 +245,8 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
         sp.vel = sp.vel * SPRING_D + (sp.target - sp.cur) * SPRING_K;
         sp.cur += sp.vel;
       }
-      g.rotation.x = s.rx.cur;
+      // A slight resting pitch keeps the flat face from mirroring the light source dead-on.
+      g.rotation.x = -0.06 + s.rx.cur;
       g.rotation.y = s.ry.cur;
     });
     // Tweens: the ceremony.
