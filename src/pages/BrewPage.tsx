@@ -29,8 +29,9 @@ import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
 import { BrewGauntlet } from '@/components/brew/BrewGauntlet';
 import { runGauntlet, type GauntletTrial } from '@/services/brew/gauntlet';
 import { recordRun, buildJournalRun } from '@/services/brew/journal';
-import { generateRunTitle, brewGoal, goalProgress, currentAct, leaningThemes, type BrewAct } from '@/services/brew/engine';
+import { generateRunTitle, brewGoal, goalProgress, currentAct, leaningThemes, type BrewAct, type BrewMoment } from '@/services/brew/engine';
 import { BrewActCard } from '@/components/brew/BrewActCard';
+import { BrewPreviously } from '@/components/brew/BrewPreviously';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
@@ -163,9 +164,19 @@ export function BrewPage() {
     loadPartnerFromUrl();
   }, [partnerName, commander?.name]);
 
+  // "Previously, on your brew…" — the last moments of a resumed run, shown once as a cliffhanger.
+  const [previously, setPreviously] = useState<BrewMoment[] | null>(null);
+
   // 2) Hydrate an in-progress brew from sessionStorage when ?b=<id> matches.
   useEffect(() => {
-    if (brewId && !brewContext && commander) hydrateBrewSession(brewId);
+    if (brewId && !brewContext && commander) {
+      if (hydrateBrewSession(brewId)) {
+        const resumed = useStore.getState().brewState;
+        if (resumed && resumed.picks.length > 0 && resumed.moments.length > 0) {
+          setPreviously(resumed.moments.slice(-2));
+        }
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brewId, commander?.name]);
 
@@ -317,6 +328,8 @@ export function BrewPage() {
     >
       {/* The morph-and-fly intro plays over everything until it hands off to the first screen. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
+      {/* Resume cliffhanger — the last moments of a rejoined run, then straight back in. */}
+      {previously && <BrewPreviously moments={previously} onDone={() => setPreviously(null)} />}
       {/* Act boundary title card — 2–3s of punctuation when the run changes character. */}
       {actCard && brewContext && brewState && (
         <BrewActCard
