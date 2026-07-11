@@ -552,6 +552,73 @@
     100% { opacity: 0; transform: translateY(-66px) translateX(var(--drift, 0)) scale(0.8) rotate(var(--rot, 16deg)); }
   }
 
+  /* ---- Windfall reveal: a face-down card slides from the crate, shimmers, then flips ---- */
+  /* The card sits in a 3D scene; its two faces (back + front) stack and we rotate the wrapper. */
+  .brew-flip { transform-style: preserve-3d; transition: transform 720ms cubic-bezier(0.4, 0.1, 0.2, 1); }
+  .brew-flip.is-flipped { transform: rotateY(180deg); }
+  .brew-flip-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+  .brew-flip-back { transform: rotateY(180deg); }
+  /* The face-down card slides up out of the crate and holds while anticipation builds. */
+  .animate-brew-reveal-in { animation: brewRevealIn 520ms cubic-bezier(0.22, 0.9, 0.32, 1) both; }
+  @keyframes brewRevealIn {
+    0%   { opacity: 0; transform: translateY(64px) scale(0.82); }
+    60%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  /* A sweeping band of light travels across the face-down card while we wait for the flip — the
+     "something's coming" tell. Rainbow windfalls swap the band for a prismatic hue cycle. */
+  .brew-shimmer { position: relative; overflow: hidden; }
+  .brew-shimmer::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%);
+    background-size: 260% 100%;
+    animation: brewShimmerSweep 1400ms ease-in-out infinite;
+  }
+  @keyframes brewShimmerSweep {
+    0%   { background-position: 150% 0; }
+    100% { background-position: -150% 0; }
+  }
+  .brew-shimmer-rainbow::after {
+    background: linear-gradient(115deg, transparent 22%, hsla(0,90%,70%,0.5) 38%, hsla(52,95%,68%,0.5) 46%,
+      hsla(140,80%,62%,0.5) 54%, hsla(200,90%,66%,0.5) 62%, hsla(280,80%,72%,0.5) 70%, transparent 84%);
+    background-size: 260% 100%;
+    animation: brewShimmerSweep 1100ms linear infinite;
+  }
+  /* A god-pack crate breathes a warm gold aura — every crate wears it, so the whole round glows. */
+  .brew-godpack-glow { animation: brewGodpackGlow 2.4s ease-in-out infinite; }
+  @keyframes brewGodpackGlow {
+    0%, 100% { box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.5), 0 0 22px -4px hsl(45 90% 55% / 0.45); }
+    50%      { box-shadow: 0 0 0 1px hsl(45 95% 66% / 0.8), 0 0 40px -2px hsl(45 95% 60% / 0.75); }
+  }
+
+  /* ---- Combo online: the pieces fly to center, a line draws, they lock with a punch ---- */
+  .animate-brew-combo-piece { animation: brewComboPiece 520ms cubic-bezier(0.22, 0.9, 0.32, 1) both; }
+  @keyframes brewComboPiece {
+    0%   { opacity: 0; transform: translateY(30px) scale(0.7) rotate(-4deg); }
+    100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); }
+  }
+  /* The connective spark between the pieces draws outward once they've landed. */
+  .animate-brew-combo-line { transform-origin: center; animation: brewComboLine 420ms 360ms ease-out both; }
+  @keyframes brewComboLine {
+    from { transform: scaleX(0); opacity: 0; }
+    to   { transform: scaleX(1); opacity: 1; }
+  }
+  /* The lock-in punch: the whole spread kicks once the line connects them. */
+  .animate-brew-combo-lock { animation: brewComboLock 520ms 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  @keyframes brewComboLock {
+    0%   { transform: scale(1); }
+    40%  { transform: scale(1.09); filter: brightness(1.35); }
+    100% { transform: scale(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* Ceremony degrades to an instant state change — the info still lands, no motion. */
+    .brew-flip { transition: none; }
+    .brew-shimmer::after, .brew-shimmer-rainbow::after { animation: none; opacity: 0; }
+    .brew-godpack-glow { animation: none; box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.6); }
+    .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
+  }
+
   /* Damage-number style stat pops on the health strip: a delta rises off the counter and fades. */
   .animate-damage-float { animation: damageFloat 1000ms cubic-bezier(0.22, 0.9, 0.32, 1) forwards; }
   @keyframes damageFloat {

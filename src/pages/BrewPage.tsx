@@ -13,7 +13,8 @@ import type { ThemeResult } from '@/types';
 import { BrewSetup } from '@/components/brew/BrewSetup';
 import { BrewSplash } from '@/components/brew/BrewSplash';
 import { BrewHealthStrip } from '@/components/brew/BrewHealthStrip';
-import { BrewDeckListButton } from '@/components/brew/BrewDeckListButton';
+import { BrewDeckListButton, BrewDeckListColumn } from '@/components/brew/BrewDeckListButton';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { BrewTrack } from '@/components/brew/BrewTrack';
 import { BrewStatsPanel } from '@/components/brew/BrewStatsPanel';
 import { BrewStatsButton } from '@/components/brew/BrewStatsButton';
@@ -68,6 +69,10 @@ export function BrewPage() {
   }
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // The live deck-so-far. On screens wide enough (≥1024px) it opens as its own COLUMN beside the
+  // game (~25% of the page) instead of an overlay drawer; narrower screens keep the drawer.
+  const [deckListOpen, setDeckListOpen] = useState(false);
+  const deckColumnFits = useMediaQuery('(min-width: 1024px)');
 
   // 1) Load commander + EDHREC themes/stats from the URL (mirror of BuilderPage).
   useEffect(() => {
@@ -253,11 +258,28 @@ export function BrewPage() {
   if (error) return <div className="p-8 text-center text-destructive">{error}</div>;
 
   const sessionActive = !!brewContext && !!brewState;
+  // The deck list renders as a real side column only when open, wide enough, and mid-session.
+  const deckColumn = sessionActive && deckListOpen && deckColumnFits;
+
+  // Keep the column mounted through its close so the slide-out actually plays before unmounting
+  // (mirrors BrewStatsPanel's show/closing pattern). 250ms matches animate-slide-out-right.
+  const [deckPanel, setDeckPanel] = useState<{ closing: boolean } | null>(null);
+  useEffect(() => {
+    if (deckColumn) { setDeckPanel({ closing: false }); return; }
+    setDeckPanel(p => (p ? { closing: true } : p));
+    const t = window.setTimeout(() => setDeckPanel(null), 250);
+    return () => window.clearTimeout(t);
+  }, [deckColumn]);
 
   return (
-    // The live deck lives in a toggleable drawer (the "Deck list" button), so the choices keep a
-    // single, centered column at every step.
-    <div ref={contentRef} className="brew-foundry max-w-5xl mx-auto px-4 py-6">
+    // The choices keep a single, centered column at every step. Opening the deck list on a wide
+    // screen slides in a fixed ~25% column flush with the viewport's right edge; the page reserves
+    // matching right padding so the game recenters beside it (and ≥1560px left padding keeps the
+    // widened layout clear of the fixed stats rail).
+    <div
+      ref={contentRef}
+      className={`brew-foundry px-4 py-6 ${deckColumn ? 'max-w-none min-[1560px]:pl-[288px] pr-[25vw]' : 'max-w-5xl mx-auto'}`}
+    >
       {/* The morph-and-fly intro plays over everything until it hands off to the first screen. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
       {/* The run recap overlays everything once the deck is finished. */}
@@ -294,8 +316,8 @@ export function BrewPage() {
           {/* Deck list is its own button now: pinned top-right on wide screens (mirroring the stats
               rail), a right-aligned row above the strip on narrower ones. Outside the space-y wrapper
               so its row-margin doesn't push the fixed/HUD layout around. */}
-          <BrewDeckListButton />
-          <div className="space-y-5 min-w-0">
+          <BrewDeckListButton open={deckListOpen} onToggle={setDeckListOpen} asColumn={deckColumnFits} />
+          <div className={`space-y-5 min-w-0 ${deckColumn ? 'max-w-5xl mx-auto' : ''}`}>
           {/* Health strip + the "up next" track read as one stacked unit. The identity meter rides
               along as a compact strip on narrow screens (the wide-screen rail carries it otherwise). */}
           <div className="space-y-2">
@@ -321,6 +343,11 @@ export function BrewPage() {
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>
+          {/* The deck-so-far side column — fixed flush to the right edge, sliding in/out on toggle.
+              Mounted through the close (deckPanel lags deckColumn) so the exit animation plays. */}
+          {deckPanel && (
+            <BrewDeckListColumn closing={deckPanel.closing} onClose={() => setDeckListOpen(false)} />
+          )}
         </>
       )}
     </div>

@@ -19,24 +19,55 @@ const REASON_CAP = 5;
 // genuinely worse card never leapfrogs a clearly better one. Inert when state.seed is falsy.
 const JITTER_AMPLITUDE = 15;
 
-// ~1-in-8 theme packs secretly hides a "gold card": the theme's defining payoff, revealed as a
-// free windfall after the player takes the pack. Seeded (see rollGoldCard) so a given pack
-// presentation always either has it or doesn't — stable across undo/re-render, no save-scumming.
-const GOLD_CARD_CHANCE = 0.12;
+// The windfall rarity ladder. ~1-in-8 theme packs secretly hide a windfall — the theme's defining
+// payoff, revealed as a free bonus after the player takes the pack. Of those hits, ~1-in-6 upgrade
+// to a RAINBOW (a Game Changer / the theme's very top signature) for a rarer, prismatic reveal.
+// Everything is seeded (see rollWindfall) so a given pack presentation always either has it or
+// doesn't — stable across undo/re-render, no save-scumming.
+const WINDFALL_CHANCE = 0.12;
+const RAINBOW_SHARE = 0.16;    // of windfall hits (≈2% absolute) → the theme's Game Changer / top payoff
+// Pity timer: if a run reaches this pick with NO windfall yet, gold odds climb per theme pack so
+// every run gets at least one treasure moment. Resets (back to base) the instant a windfall fires.
+const PITY_START_PICK = 15;
+const PITY_STEP = 0.06;        // +6% per theme pack past the threshold
+const PITY_CAP = 0.6;
+// A rare "god pack" round: every theme pack is guaranteed to hide a windfall (whichever you take
+// pays out). ~1-in-140 pack rounds ≈ once every several runs — a legend, not a routine.
+const GODPACK_CHANCE = 0.007;
+
+/** Whether THIS pack round is a god pack — a pure seeded roll, so it's identical wherever it's read. */
+export function isGodPackRound(state: BrewState): boolean {
+  return seededChance(state.seed, `godpack:${state.picks.length}`, GODPACK_CHANCE);
+}
+
+/** The current per-theme-pack windfall probability, pity-ramped when a run has gone dry (see above). */
+function windfallChance(state: BrewState): number {
+  const everHad = state.moments.some(m => m.kind === 'goldCard');
+  if (everHad || state.picks.length < PITY_START_PICK) return WINDFALL_CHANCE;
+  const over = state.picks.length - PITY_START_PICK;
+  return Math.min(PITY_CAP, WINDFALL_CHANCE + PITY_STEP * over);
+}
 
 /**
- * Roll the secret gold card for a theme pack. On a seeded hit, returns that theme's highest-ranked
- * signature card (its defining payoff) that's still draftable (`byName`) and not already shown on
- * screen (`excluded`); undefined when the roll misses or no eligible signature card remains.
+ * Roll the secret windfall for a theme pack. On a seeded hit (probability `chance`; pass 1 to force
+ * one on a god-pack round), returns the windfall card + its rarity tier. `rainbow` prefers a Game
+ * Changer among the theme's signatures (else its very top payoff); `gold` is the next-best signature.
+ * Only cards still draftable (`byName`) and not already on screen (`excluded`) are eligible;
+ * undefined when the roll misses or the theme has no eligible signature left.
  */
-function rollGoldCard(state: BrewState, slug: string, signatures: string[], byName: Map<string, BrewCandidate>, excluded: Set<string>): BrewCandidate | undefined {
-  if (!seededChance(state.seed, `gold:${slug}:${state.picks.length}`, GOLD_CARD_CHANCE)) return undefined;
-  for (const name of signatures) {
-    if (excluded.has(name)) continue;
-    const c = byName.get(name);
-    if (c) return c;
+function rollWindfall(
+  ctx: BrewContext, state: BrewState, slug: string, signatures: string[],
+  byName: Map<string, BrewCandidate>, excluded: Set<string>, chance: number,
+): { card: BrewCandidate; tier: 'gold' | 'rainbow' } | undefined {
+  if (chance < 1 && !seededChance(state.seed, `gold:${slug}:${state.picks.length}`, chance)) return undefined;
+  const eligible = signatures.filter(n => !excluded.has(n) && byName.has(n));
+  if (eligible.length === 0) return undefined;
+  const rainbow = seededChance(state.seed, `rainbow:${slug}:${state.picks.length}`, RAINBOW_SHARE);
+  if (rainbow) {
+    const gc = eligible.find(n => ctx.gameChangerNames?.has(n)) ?? eligible[0];
+    return { card: byName.get(gc)!, tier: 'rainbow' };
   }
-  return undefined;
+  return { card: byName.get(eligible[0])!, tier: 'gold' };
 }
 
 /** A card's score for ORDERING OFFERS — base score + a stable per-run nudge. */
@@ -265,10 +296,20 @@ function chooseExplorationCluster(clusters: Cluster[], ctx: BrewContext, state: 
  * are claimed greedily so no card appears in two bundles (the sacrifice is real).
  */
 function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
-  const scored = scoredPool(ctx, state);
-  if (scored.length === 0) return [];
+  const allScored = scoredPool(ctx, state);
+  if (allScored.length === 0) return [];
+  // No instant repeats: every card shown in the PREVIOUS pack round (taken cards are already gone
+  // via usedNames; this catches the passed ones) is held out of this round entirely, even under a
+  // different pack theme. Falls back to the full pool when holding them back would leave too few
+  // cards to form a real round — a thin late-game pool may repeat rather than dead-end.
+  const recentNames = new Set(state.lastPackCardNames ?? []);
+  const unseen = allScored.filter(c => !recentNames.has(c.name));
+  const scored = unseen.length >= BUNDLE_MIN * 2 ? unseen : allScored;
   const byName = new Map(scored.map(c => [c.name, c]));
   const finishers = comboFinishersFor(ctx, state);
+  // A god-pack round forces a windfall onto every theme pack (see rollWindfall). Computed here and,
+  // identically, in buildPackNode — a pure seeded roll, so both reads agree.
+  const godPack = isGodPackRound(state);
   const deficits = computeDeficits(ctx, state);
   const topDeficit = deficits[0];
   const leanWeights = state.themeAffinity;
@@ -397,11 +438,13 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
     const title = usedTitles.has(flavorTitle) ? cl.label : flavorTitle;
     usedTitles.add(title);
     const option: BrewOption = { ...toOption(ctx, state, cards, cl.key, title, finishers), flavor: cl.flavor, hallmarkName };
-    // Theme packs may secretly hide their defining payoff (see rollGoldCard) — a rare free windfall.
+    // Theme packs may secretly hide their defining payoff (see rollWindfall) — a free windfall on a
+    // rarity ladder (gold / rainbow). On a god-pack round every theme pack is forced to carry one.
     if (cl.flavor === 'theme') {
       const slug = cl.key.slice('theme:'.length);
-      const gold = rollGoldCard(state, slug, ctx.themeSignatures[slug] ?? [], byName, taken);
-      if (gold) { option.goldCard = gold; taken.add(gold.name); }
+      const chance = godPack ? 1 : windfallChance(state);
+      const wf = rollWindfall(ctx, state, slug, ctx.themeSignatures[slug] ?? [], byName, taken, chance);
+      if (wf) { option.goldCard = wf.card; option.windfallTier = wf.tier; taken.add(wf.card.name); }
     }
     built.push({ option, subject: cl.label });
   };
@@ -456,7 +499,11 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
 export function buildPackNode(ctx: BrewContext, state: BrewState): BrewNode | null {
   const options = clusterBundles(ctx, state);
   if (options.length === 0) return null;
-  return { routeId: 'bundle:pack', type: 'bundle', prompt: 'Pick a Pack', options, canPass: false };
+  // A god pack only reads as one if at least one theme pack actually carries the forced windfall
+  // (a thin, theme-less round can't). Gate the node flag on a windfall being present so the UI's
+  // all-crates-gold treatment never fires on a round that didn't pay out.
+  const godPack = isGodPackRound(state) && options.some(o => o.goldCard);
+  return { routeId: 'bundle:pack', type: 'bundle', prompt: 'Pick a Pack', options, canPass: false, godPack };
 }
 
 export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): BrewNode {

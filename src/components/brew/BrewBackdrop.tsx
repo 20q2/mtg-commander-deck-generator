@@ -53,7 +53,9 @@ export function BrewBackdrop() {
   if (op) lastOp.current = op;
   const shownOp = op ?? lastOp.current;
 
-  if (!view) return null;
+  // The static Foundry base renders on every brew screen — including the landing page, before any
+  // session exists — so the whole flow (pick a commander → brew → finish) reads as one place. The
+  // colour-reactive aurora + operation layers only join in once a run is underway (`view`).
 
   return (
     <>
@@ -63,16 +65,18 @@ export function BrewBackdrop() {
       <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden="true"
         style={{ background: 'linear-gradient(hsl(216 18% 9%), hsl(218 20% 6%))' }} />
 
-      <div
-        className="fixed inset-0 z-0 pointer-events-none"
-        style={{
-          opacity: view.opacity * 0.5,
-          transform: view.transform,
-          transition: 'opacity 900ms ease, transform 1400ms cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-      >
-        <AuroraThemed colors={view.colors} />
-      </div>
+      {view && (
+        <div
+          className="fixed inset-0 z-0 pointer-events-none"
+          style={{
+            opacity: view.opacity * 0.5,
+            transform: view.transform,
+            transition: 'opacity 900ms ease, transform 1400ms cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
+          <AuroraThemed colors={view.colors} />
+        </div>
+      )}
 
       <div className="brew-grid fixed inset-0 z-0 pointer-events-none" aria-hidden="true" />
       <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden="true"

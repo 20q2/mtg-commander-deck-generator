@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '@/store';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Infinity as InfinityIcon, GitFork, Crown, Dices, SkipForward, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl } from '@/services/scryfall/client';
@@ -36,6 +37,17 @@ const TREASURE_BITS: { left: string; size: string; delay: string; drift: string;
 export function BrewEventScreen() {
   const { brewEvent, chooseBrewEvent } = useStore();
   const [chosen, setChosen] = useState<string | null>(null);
+  // Strange Signal inherits the windfall reveal ritual: the card arrives face-down ("the data found
+  // something…") and flips to reveal itself a beat later, so trusting it feels like uncovering a find.
+  const [signalRevealed, setSignalRevealed] = useState(false);
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const isSignal = brewEvent?.kind === 'strangeSignal';
+  useEffect(() => {
+    if (!isSignal) return;
+    if (reduceMotion) { setSignalRevealed(true); return; }
+    const t = window.setTimeout(() => setSignalRevealed(true), 900);
+    return () => window.clearTimeout(t);
+  }, [isSignal, reduceMotion]);
   if (!brewEvent) return null;
 
   const mood = MOMENT[brewEvent.kind];
@@ -86,14 +98,38 @@ export function BrewEventScreen() {
       <p className="font-flavor text-[15px] italic leading-snug text-muted-foreground max-w-xl mx-auto mb-7">{brewEvent.flavor}</p>
 
       <div className={exiting ? 'animate-brew-dismiss' : 'animate-brew-card-in'}>
-        {(brewEvent.kind === 'strangeSignal' || brewEvent.kind === 'signaturePick' || brewEvent.kind === 'gamble') && brewEvent.card && (
+        {/* Strange Signal: a face-down card that shimmers, then flips to reveal the find. */}
+        {brewEvent.kind === 'strangeSignal' && brewEvent.card && (
+          <div className="flex justify-center" style={{ perspective: '1300px' }}>
+            <div
+              className={`brew-flip relative ${signalRevealed ? 'is-flipped' : ''} ${chosen === 'trust' ? 'animate-brew-to-deck' : ''}`}
+              style={{ width: 210, height: 293 }}
+            >
+              <div
+                className="brew-flip-face brew-shimmer absolute inset-0 grid place-items-center rounded-[4.8%]"
+                style={{ background: `radial-gradient(circle at 50% 38%, hsl(${mood.color} / 0.5), #180a20 72%, #0b0511)`, outline: `2px solid hsl(${mood.color} / 0.7)`, outlineOffset: '-1px', boxShadow: `0 10px 40px hsl(${mood.color} / 0.5)` }}
+              >
+                <mood.Icon className="w-12 h-12" style={{ color: `hsl(${mood.color})`, filter: `drop-shadow(0 0 12px hsl(${mood.color} / 0.8))` }} />
+              </div>
+              <img
+                src={getCardImageUrl(brewEvent.card.scryfall, 'normal')}
+                alt={brewEvent.card.name}
+                loading="lazy"
+                className="brew-flip-face brew-flip-back absolute inset-0 w-full h-full object-cover rounded-[4.8%] ring-1 ring-black/60"
+                style={{ boxShadow: `0 10px 40px hsl(${mood.color} / 0.5)` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {(brewEvent.kind === 'signaturePick' || brewEvent.kind === 'gamble') && brewEvent.card && (
           <div className="flex justify-center" style={{ perspective: '1200px' }}>
             <img
               src={getCardImageUrl(brewEvent.card.scryfall, 'normal')}
               alt={brewEvent.card.name}
               loading="lazy"
               className={`block w-[210px] h-auto rounded-[4.8%] shadow-[0_10px_40px_var(--op-soft)] ring-1 ring-black/60 ${
-                chosen === 'trust' || chosen === 'build' || chosen === 'leap' ? 'animate-brew-to-deck' : ''
+                chosen === 'build' || chosen === 'leap' ? 'animate-brew-to-deck' : ''
               }`}
             />
           </div>

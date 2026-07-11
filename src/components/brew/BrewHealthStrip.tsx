@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
+import { getCardImageUrl } from '@/services/scryfall/client';
 import { buildHealth, leaningThemes } from '@/services/brew/engine';
 import {
   Sparkles, Gem, Flame, PiggyBank, Sprout, Crosshair, Bomb, BookOpen, Volume2, VolumeX,
@@ -18,6 +20,8 @@ export function BrewHealthStrip() {
   const { brewContext, brewState } = useStore();
   // Celebration sound/haptic toggle (persisted). Hook stays above the early return per Rules of Hooks.
   const [soundOn, setSoundOn] = useState(isBrewSoundEnabled);
+  // Hovering the commander portrait pops the full card(s) so the avatar is inspectable, not just decor.
+  const [portraitRect, setPortraitRect] = useState<DOMRect | null>(null);
   if (!brewContext || !brewState) return null;
   const h = buildHealth(brewContext, brewState);
   const totalSlots = brewContext.nonLandTarget + brewContext.landTarget;
@@ -54,7 +58,9 @@ export function BrewHealthStrip() {
           <img
             src={commanderArt}
             alt={brewContext.commander.name}
-            className="w-6 h-6 shrink-0 rounded-full object-cover ring-1 ring-violet-300/40"
+            className="w-6 h-6 shrink-0 rounded-full object-cover ring-1 ring-violet-300/40 cursor-zoom-in"
+            onMouseEnter={e => setPortraitRect(e.currentTarget.getBoundingClientRect())}
+            onMouseLeave={() => setPortraitRect(null)}
           />
         )}
         <span className="font-display text-sm font-semibold tracking-tight text-foreground/90 truncate">
@@ -136,6 +142,32 @@ export function BrewHealthStrip() {
           {soundOn ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
         </button>
       </span>
+
+      {/* Full-card preview on portrait hover — dropped below the strip and clamped to the viewport.
+          Partner pairs show both cards side by side. Portaled to <body> (see BrewNode) so no
+          transformed ancestor can hijack the fixed positioning. */}
+      {portraitRect && (() => {
+        const cards = [brewContext.commander, brewContext.partnerCommander]
+          .filter((c): c is NonNullable<typeof c> => !!c);
+        const urls = cards.map(c => getCardImageUrl(c, 'normal')).filter((u): u is string => !!u);
+        if (urls.length === 0) return null;
+        const CARD_W = urls.length > 1 ? 220 : 268;
+        const GAP = 10, PAD = 8;
+        const W = CARD_W * urls.length + GAP * (urls.length - 1);
+        const H = Math.round(CARD_W * 1.4);
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const left = Math.min(Math.max(PAD, portraitRect.left), vw - W - PAD);
+        const top = Math.min(portraitRect.bottom + GAP, vh - H - PAD);
+        return createPortal(
+          <div className="fixed z-[120] pointer-events-none animate-fade-in flex gap-2.5" style={{ left, top }}>
+            {urls.map((url, i) => (
+              <img key={i} src={url} alt={cards[i].name} style={{ width: CARD_W }}
+                className="rounded-[4.8%] shadow-2xl ring-1 ring-black/70" />
+            ))}
+          </div>,
+          document.body,
+        );
+      })()}
     </div>
   );
 }

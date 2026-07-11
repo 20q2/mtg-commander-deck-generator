@@ -553,11 +553,19 @@ export const useStore = create<AppState>((set, get) => ({
     const wasBundle = brewNode.type === 'bundle';
     const nextLastPackKeys = wasBundle ? brewNode.options.map(o => o.id) : brewState.lastPackKeys;
     const nextPrevPackKeys = wasBundle ? brewState.lastPackKeys : brewState.prevPackKeys;
+    // Every card shown this pack round (taken or passed) is held out of the NEXT pack round, so a
+    // passed card never reappears back-to-back under a different pack theme (see clusterBundles).
+    const nextLastPackCardNames = wasBundle
+      ? brewNode.options.flatMap(o => o.cards.map(c => c.name))
+      : brewState.lastPackCardNames;
     let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags });
-    nextState = { ...nextState, lastPackKeys: nextLastPackKeys, prevPackKeys: nextPrevPackKeys };
+    nextState = { ...nextState, lastPackKeys: nextLastPackKeys, prevPackKeys: nextPrevPackKeys, lastPackCardNames: nextLastPackCardNames };
     if (gold) {
+      const tier = option.windfallTier ?? 'gold';
+      const label = tier === 'rainbow' ? `Rainbow rare — ${gold.name}` : `Struck gold — ${gold.name}`;
+      const detail = brewNode.godPack ? 'From a god pack' : tier === 'rainbow' ? 'A prismatic windfall' : 'Hidden in the pack';
       nextState = { ...nextState, moments: [...nextState.moments,
-        { atPick: nextState.picks.length, kind: 'goldCard', label: `Struck gold — ${gold.name}`, detail: 'Hidden in the pack' }] };
+        { atPick: nextState.picks.length, kind: 'goldCard', label, detail }] };
     }
     // Completing a combo via the Combos route is a story beat too (not just the Combo-Fragment event):
     // log it so the recap reflects the kill you assembled, not only event-sourced moments.
@@ -576,7 +584,14 @@ export const useStore = create<AppState>((set, get) => ({
       nextState = { ...nextState, goalDone: true };
       celebration = { kind: 'goal', title: 'Goal complete!', subtitle: brewGoal(brewContext).label };
     } else if (brewNode.type === 'combo') {
-      celebration = { kind: 'combo', title: 'Combo online!', subtitle: option.label };
+      // The engine coming online is the run's high — give the celebration the pieces so it can play
+      // as a centered "they click together" spectacle (owned pieces first, then the ones just added).
+      const artOf = (c: ScryfallCard) => c.image_uris?.art_crop ?? c.card_faces?.[0]?.image_uris?.art_crop;
+      const comboCards = [
+        ...(option.comboHave ?? []).map(p => ({ name: p.name, art: artOf(p.scryfall) })),
+        ...option.cards.map(c => ({ name: c.name, art: artOf(c.scryfall) })),
+      ];
+      celebration = { kind: 'combo', title: 'Combo online!', subtitle: option.label, cards: comboCards };
     } else if ([3, 6, 9, 12].includes(nextState.synergyStreak ?? 0)) {
       celebration = { kind: 'streak', title: 'On a roll!', subtitle: `${nextState.synergyStreak} synergy picks in a row` };
     }

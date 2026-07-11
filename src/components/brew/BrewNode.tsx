@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, type MouseEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { detectNearMissCombos } from '@/services/brew/engine';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, Play, Star, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Layers, Package, Infinity as InfinityIcon, Crown, Plus, Pin, Info, Check, Link2, Play, Star, Gem, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey, themeColor, legibleText } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
@@ -16,6 +17,12 @@ import type { ScryfallCard } from '@/types';
  *  Only genuine deck-synergy signals count (whole-deck cluster, a combo finisher, a Game Changer, a
  *  high-co lift find) — NOT a plain on-theme tag, which is too common to be a standout. */
 const FIT_THRESHOLD = 50;
+// Cards at/above this price wear a "treasure" chip in-pack — a pack-opening tell that a bomb is
+// inside, independent of synergy. Tuned to the price where a card reads as a genuine chase.
+const TREASURE_PRICE = 20;
+// How long the Hidden Gem's fly-to-deck exit plays before the pick commits and the screen changes.
+// Matches the brew-to-deck keyframe so the card finishes its flight just as the next screen mounts.
+const REVEAL_EXIT_MS = 420;
 function synergyFit(c: BrewCandidate, reasons: PickReason[]): number {
   let s = 0;
   if ((c.connectionCount ?? 0) >= 2) s = Math.max(s, 100 + c.connectionCount!);          // lifted by many of your cards
@@ -26,9 +33,9 @@ function synergyFit(c: BrewCandidate, reasons: PickReason[]): number {
 }
 
 // Each reason kind gets its own quiet colour so the badge row reads at a glance.
-// gameChanger + combo are the headline call-outs and read brighter/bolder than the rest.
+// combo is the headline call-out and reads brighter/bolder than the rest. Game Changers don't get
+// a chip at all — they wear the small corner crown instead.
 const REASON_CHIP: Record<string, string> = {
-  gameChanger: 'border-amber-300/70 bg-gradient-to-r from-amber-400/25 to-yellow-500/15 text-amber-100 font-semibold shadow-[0_0_12px_-2px_rgba(251,191,36,0.4)]',
   combo: 'border-teal-300/60 bg-teal-500/20 text-teal-100 font-semibold',
   // Combo glue: related to combos (teal family) but quieter than the "Finishes a combo" call-out.
   comboPiece: 'border-teal-400/40 bg-teal-500/12 text-teal-200',
@@ -66,8 +73,17 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const [committing, setCommitting] = useState(false);
   // Hovering a (small) card pops a full, readable preview anchored beside it.
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
-  // A pack that secretly held a gold card flashes its windfall here before the pick commits.
-  const [reveal, setReveal] = useState<BrewCandidate | null>(null);
+  // A pack that secretly held a windfall reveals it here before the pick commits: a face-down card
+  // slides from the crate, shimmers, then flips to the real card (gold, or the rarer rainbow).
+  const [reveal, setReveal] = useState<{ card: BrewCandidate; tier: 'gold' | 'rainbow' } | null>(null);
+  const [flipped, setFlipped] = useState(false);
+  // The gem plays a fly-to-deck exit before the pick commits and the screen transitions.
+  const [revealExiting, setRevealExiting] = useState(false);
+  // Pending windfall commit + its timers, so a tap can flip early / skip the hold and commit now.
+  const revealTimers = useRef<number[]>([]);
+  const pendingCommit = useRef<null | (() => void)>(null);
+  const revealExitingRef = useRef(false); // synchronous guard so auto-commit + a tap can't double-fire
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   // Hovering a "Finishes a combo" badge pops a tiny preview: the owned piece(s) + this card → payoff.
   const [comboHover, setComboHover] = useState<{ finisher: BrewCandidate; have: ComboPiece[]; payoff: string; rect: DOMRect } | null>(null);
   // Map a combo-finisher card name → the near-miss combo it completes (owned pieces resolved to art),
@@ -91,8 +107,28 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   }, [brewContext, brewState]);
   // Clear any headliner selection when the offered cards change (reroll, back, next node).
   const shownKey = brewNode ? `${brewNode.routeId}|${brewNode.options.flatMap(o => o.cards.map(c => c.name)).join(',')}` : '';
-  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); }, [shownKey]);
+  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); setReveal(null); setFlipped(false); setRevealExiting(false); revealExitingRef.current = false; }, [shownKey]);
+  // Cancel any pending windfall timers if the screen unmounts mid-reveal.
+  useEffect(() => () => { revealTimers.current.forEach(t => window.clearTimeout(t)); }, []);
   if (!brewNode) return null;
+
+  const clearRevealTimers = () => { revealTimers.current.forEach(t => window.clearTimeout(t)); revealTimers.current = []; };
+  // Play the gem's fly-to-deck exit, then commit the pick (which transitions to the next screen).
+  // Guarded by a ref so the auto-commit timer and a manual tap can't both trigger it.
+  function finishReveal() {
+    if (revealExitingRef.current) return;
+    revealExitingRef.current = true;
+    clearRevealTimers();
+    setRevealExiting(true);
+    const run = pendingCommit.current;
+    pendingCommit.current = null;
+    revealTimers.current.push(window.setTimeout(() => run?.(), reduceMotion ? 0 : REVEAL_EXIT_MS));
+  }
+  // A tap on the windfall overlay: first flips the card early, then (once flipped) begins the exit.
+  function advanceReveal() {
+    if (!flipped) { setFlipped(true); return; }
+    finishReveal();
+  }
 
   const hoverPreview = (card: ScryfallCard) => ({
     onMouseEnter: (e: MouseEvent<HTMLElement>) => setHover({ card, rect: e.currentTarget.getBoundingClientRect() }),
@@ -129,10 +165,25 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     setChosenId(option.id);                        // play the fly-to-deck / melt-away animation…
     setHover(null);
     if (option.goldCard) {
-      // The lucky case: after the pack flies out, reveal the secret gold card, let it land, then commit.
+      // The lucky case: after the pack flies out, a face-down windfall slides from the crate,
+      // shimmers, flips to the real card, holds, then commits. Tap to flip early / skip the hold.
       const gold = option.goldCard;
-      window.setTimeout(() => setReveal(gold), 520);
-      window.setTimeout(() => applyBrewOption(option, passed), 2200);
+      const tier = option.windfallTier ?? 'gold';
+      revealExitingRef.current = false;
+      pendingCommit.current = () => applyBrewOption(option, passed);
+      const push = (fn: () => void, ms: number) => revealTimers.current.push(window.setTimeout(fn, ms));
+      if (reduceMotion) {
+        // No ramp: show the card already flipped, hold briefly so it registers, then exit + commit.
+        push(() => { setReveal({ card: gold, tier }); setFlipped(true); }, 360);
+        push(() => finishReveal(), 1700);
+      } else {
+        // Slide out (520) → shimmer builds → flip at 1500 (720ms flip lands ~2220) → hold, then the
+        // gem flies to the deck (finishReveal) before committing and transitioning to the next screen.
+        const hold = tier === 'rainbow' ? 3600 : 2950;
+        push(() => setReveal({ card: gold, tier }), 520);
+        push(() => setFlipped(true), 1500);
+        push(() => finishReveal(), hold);
+      }
     } else {
       window.setTimeout(() => applyBrewOption(option, passed), 380); // …then commit the pick
     }
@@ -185,6 +236,13 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
       ) : isPack ? (
         /* ── Pack picker: three flavor-tinted crates in a row; inside each, the cards stack
               2-over-1 so they're big enough to read. Pick one whole package. ── */
+        <>
+        {/* God pack: a rare round where every crate hides a windfall — whichever you take pays out. */}
+        {brewNode.godPack && (
+          <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-amber-300/70 bg-[#241803]/85 px-4 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-amber-200 shadow-[0_0_24px_-4px_rgba(251,191,36,0.6)] animate-brew-view-in">
+            <Crown className="w-4 h-4" /> God pack — treasure guaranteed this round
+          </div>
+        )}
         <div
           key={`${brewNode.routeId}|${allShown.join(',')}`}
           className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-7 items-stretch"
@@ -222,6 +280,8 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   ...(exiting ? {} : { animationDelay: `${idx * 70}ms` }),
                 }}
                 className={`group relative z-10 flex flex-col overflow-hidden rounded-2xl border border-[color:var(--pk)]/35 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-[box-shadow,border-color] duration-200 hover:border-[color:var(--pk)] hover:shadow-[0_18px_44px_-10px_var(--pk-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
+                  brewNode.godPack ? 'brew-godpack-glow' : ''
+                } ${
                   exiting ? (option.id === chosenId ? 'animate-brew-to-deck' : 'animate-brew-dismiss') : 'animate-brew-card-in'
                 }`}
               >
@@ -242,32 +302,45 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   <fl.Icon className="w-4 h-4 shrink-0 text-[color:var(--pk-text)]" />
                   <span className="font-display text-sm font-semibold truncate text-left text-[color:var(--pk-text)]">{option.label}</span>
                 </div>
-                {/* The cards inside the pack, stacked 2-over-1 so each is big enough to read. */}
-                <div className="grid grid-cols-2 gap-2 px-2.5 pt-4 pb-2 justify-items-center">
-                  {option.cards.map((c, i) => {
+                {/* The signature (hallmark) card leads on top, a little larger for emphasis; the other
+                    cards sit in a row beneath it. Falls back to the best-fit, then the first card, when a
+                    pack has no signature — so every crate has one clear hero. */}
+                {(() => {
+                  const renderCard = (c: BrewCandidate, i: number, hero: boolean) => {
                     const rs = option.reasons[i] ?? [];
                     const finishesCombo = rs.some(r => r.kind === 'combo');
                     const isGameChanger = rs.some(r => r.kind === 'gameChanger');
                     const isComboPiece = rs.some(r => r.kind === 'comboPiece');
                     const isBestFit = i === bestFitIdx;
                     // The hallmark: the card that DEFINES this theme (its top signature). Marked so the
-                    // pack's name is anchored to a real payoff. Takes the top-center slot over best-fit.
+                    // pack's name is anchored to a real payoff.
                     const isHallmark = !!option.hallmarkName && c.name === option.hallmarkName;
                     // A concise "why it's the standout" label for the best-fit badge.
+                    // Game Changers keep the quiet corner crown; a loud ribbon here read as noise.
                     const fitLabel = (c.connectionCount ?? 0) >= 2 ? `${c.connectionCount} synergies`
                       : finishesCombo ? 'Combo'
-                      : isGameChanger ? 'Game Changer'
                       : 'Best fit';
-                    // A lone final card (odd count) spans both columns and centers on the bottom row.
-                    const cardLastOdd = option.cards.length % 2 === 1 && i === option.cards.length - 1;
+                    // Rarity you can see: a mythic card gets a warm ring; a high-value card wears a
+                    // treasure chip — a pack-opening tell that something worth chasing is in this crate.
+                    const isMythic = c.scryfall.rarity === 'mythic';
+                    const priceRaw = getCardPrice(c.scryfall, customization.currency);
+                    const priceN = priceRaw != null ? Number(priceRaw) : NaN;
+                    const isTreasure = Number.isFinite(priceN) && priceN >= TREASURE_PRICE;
+                    const sym = customization.currency === 'EUR' ? '€' : '$';
                     return (
-                      <div key={c.name} className={`relative min-w-0 flex flex-col items-center ${cardLastOdd ? 'col-span-2 w-[calc(50%-0.25rem)]' : 'w-full'}`}>
-                        <RoleBadges cardName={c.name} size="sm" corner="bl" />
+                      <div key={c.name} className="relative min-w-0 flex w-full flex-col items-center">
+                        <RoleBadges cardName={c.name} size={hero ? 'md' : 'sm'} corner="bl" />
+                        {/* Treasure chip — a high-value card, flagged so a bomb in the pack is obvious. */}
+                        {isTreasure && (
+                          <span title={`High-value card — ${sym}${priceN.toFixed(2)}`} className="absolute -top-2 left-1 z-20 inline-flex items-center gap-0.5 rounded-full border border-amber-300/70 bg-[#241803]/90 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold tabular-nums text-amber-200 shadow-[0_0_12px_-2px_rgba(251,191,36,0.6)]">
+                            <Gem className="w-2.5 h-2.5" /> {sym}{Math.round(priceN)}
+                          </span>
+                        )}
                         {/* The theme hallmark — the card the pack is named for. Wears the pack's own
                             colour + a star, so "Drain the Table" visibly points at its drain payoff. */}
                         {isHallmark && (
-                          <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-[color:var(--pk-text)] bg-[#15131f]/95 backdrop-blur-sm px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_0_14px_-2px_var(--pk-soft)]">
-                            <Star className="w-2.5 h-2.5" /> Signature
+                          <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-0.5 rounded-full border border-[color:var(--pk-text)] bg-[#15131f]/95 backdrop-blur-sm px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_0_14px_-2px_var(--pk-soft)]">
+                            <Star className="w-3 h-3" /> Signature
                           </span>
                         )}
                         {/* The synergy standout — obvious at a glance: a violet glow + a "why" badge. */}
@@ -301,16 +374,32 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                           </span>
                         )}
                         <img
-                          src={getCardImageUrl(c.scryfall, 'small')}
+                          src={getCardImageUrl(c.scryfall, hero ? 'normal' : 'small')}
                           alt={c.name}
                           loading="lazy"
                           {...hoverPreview(c.scryfall)}
-                          className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,outline-color] duration-150 ease-out outline outline-2 outline-transparent hover:outline-[color:var(--pk)] hover:shadow-[0_0_20px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)] ${isHallmark ? 'ring-2 ring-[color:var(--pk)] shadow-[0_0_22px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)]' : isBestFit ? 'ring-2 ring-violet-300/80 shadow-[0_0_22px_-2px_rgba(167,139,250,0.6),0_4px_14px_rgba(0,0,0,0.5)]' : 'ring-1 ring-black/60 shadow-[0_4px_14px_rgba(0,0,0,0.5)]'}`}
+                          className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,outline-color] duration-150 ease-out outline outline-2 outline-transparent hover:outline-[color:var(--pk)] hover:shadow-[0_0_20px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)] ${isHallmark ? 'ring-2 ring-[color:var(--pk)] shadow-[0_0_22px_-2px_var(--pk-soft),0_4px_14px_rgba(0,0,0,0.5)]' : isBestFit ? 'ring-2 ring-violet-300/80 shadow-[0_0_22px_-2px_rgba(167,139,250,0.6),0_4px_14px_rgba(0,0,0,0.5)]' : isMythic ? 'ring-2 ring-amber-300/55 shadow-[0_0_18px_-3px_rgba(251,191,36,0.5),0_4px_14px_rgba(0,0,0,0.5)]' : 'ring-1 ring-black/60 shadow-[0_4px_14px_rgba(0,0,0,0.5)]'}`}
                         />
                       </div>
                     );
-                  })}
-                </div>
+                  };
+                  const heroIdx = option.hallmarkName
+                    ? Math.max(0, option.cards.findIndex(cc => cc.name === option.hallmarkName))
+                    : bestFitIdx >= 0 ? bestFitIdx : 0;
+                  const restIdx = option.cards.map((_, idx) => idx).filter(idx => idx !== heroIdx);
+                  return (
+                    <div className="flex flex-col items-center gap-3 px-2.5 pt-6 pb-2">
+                      <div className="w-[60%]">{renderCard(option.cards[heroIdx], heroIdx, true)}</div>
+                      {restIdx.length > 0 && (
+                        <div className="flex w-full justify-center gap-2">
+                          {restIdx.map(idx => (
+                            <div key={option.cards[idx].name} className="w-[47%]">{renderCard(option.cards[idx], idx, false)}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 {/* Footer — you're taking the whole pack, not one card. */}
                 <div className="mt-auto flex items-center justify-center gap-1 px-3 pb-2.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--pk-text)]">
                   <Plus className="w-3 h-3" /> Take all {option.cards.length}
@@ -320,6 +409,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
             );
           })}
         </div>
+        </>
       ) : (
       /* ── Single-card / lightning / combo layout. Remount on open AND reroll so deal-in replays. ── */
       <div
@@ -415,7 +505,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               )}
               {option.cards.map((c, i) => {
                 // Drop the "On-theme" chip here — the leaning readout already lives on the fork.
-                const reasons = (option.reasons[i] ?? []).filter(r => r.kind !== 'theme');
+                // Game Changers get the small corner crown on the card instead of a loud chip.
+                const reasons = (option.reasons[i] ?? []).filter(r => r.kind !== 'theme' && r.kind !== 'gameChanger');
+                const isGameChanger = (option.reasons[i] ?? []).some(r => r.kind === 'gameChanger');
                 return (
                   <div key={c.name} className={`${cardW} relative flex flex-col items-center`}>
                     <RoleBadges cardName={c.name} size={packaged ? 'sm' : 'md'} />
@@ -459,13 +551,21 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                         <Zap className="w-2.5 h-2.5" /> Lift
                       </span>
                     )}
-                    <img
-                      src={getCardImageUrl(c.scryfall, imgSize)}
-                      alt={c.name}
-                      loading="lazy"
-                      {...hoverPreview(c.scryfall)}
-                      className="block w-full h-auto rounded-[4.8%] shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 ring-black/60 transition-transform duration-150 ease-out group-hover:-translate-y-2.5 group-hover:scale-[1.07] group-hover:shadow-[0_18px_44px_var(--op-soft)] group-hover:ring-[color:var(--op)]"
-                    />
+                    {/* Wrapped so the corner crown rides the card through the hover lift. */}
+                    <div className="relative w-full transition-transform duration-150 ease-out group-hover:-translate-y-2.5 group-hover:scale-[1.07]">
+                      <img
+                        src={getCardImageUrl(c.scryfall, imgSize)}
+                        alt={c.name}
+                        loading="lazy"
+                        {...hoverPreview(c.scryfall)}
+                        className="block w-full h-auto rounded-[4.8%] shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 ring-black/60 group-hover:shadow-[0_18px_44px_var(--op-soft)] group-hover:ring-[color:var(--op)]"
+                      />
+                      {isGameChanger && (
+                        <span title="Game Changer" className="absolute bottom-1 right-1 z-20 grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40">
+                          <Crown className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </div>
                     {isCombo && (
                       <span className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--op)]">Add</span>
                     )}
@@ -598,31 +698,75 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         );
       })()}
 
-      {/* The secret gold card: a rare windfall hidden in a theme pack. Revealed full-screen after the
-          pack flies to the deck — a golden-bordered hero card the player wasn't promised. */}
-      {reveal && createPortal(
-        <div className="fixed inset-0 z-[130] grid place-items-center bg-black/75 backdrop-blur-sm animate-fade-in" aria-live="polite">
-          {/* Warm radial glow behind the card so it reads as treasure, not just another pick. */}
-          <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] blur-3xl"
-            style={{ background: 'radial-gradient(circle, hsl(45 90% 55% / 0.35), transparent 65%)' }} />
-          <div className="relative z-10 flex flex-col items-center gap-3 animate-brew-card-in">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/70 bg-[#241803]/85 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-amber-200 shadow-[0_0_18px_-2px_rgba(251,191,36,0.55)]">
-              <Crown className="w-3.5 h-3.5" /> Hidden gem
-            </span>
-            <img
-              src={getCardImageUrl(reveal.scryfall, 'normal') ?? ''}
-              alt={reveal.name}
-              className="w-[260px] rounded-[4.8%] shadow-[0_0_60px_-6px_rgba(251,191,36,0.7),0_18px_50px_rgba(0,0,0,0.7)]"
-              style={{ outline: '3px solid hsl(45 90% 60%)', outlineOffset: '-1px' }}
-            />
-            <div className="flex flex-col items-center gap-0.5">
-              <span className="font-display text-lg font-semibold text-amber-100" style={{ textShadow: '0 2px 18px rgba(251,191,36,0.5)' }}>{reveal.name}</span>
-              <span className="inline-flex items-center gap-1 text-xs text-amber-200/80"><Sparkles className="w-3 h-3" /> Added to your deck, on the house</span>
+      {/* The secret windfall hidden in a theme pack. After the pack flies to the deck, a face-down
+          card slides out of the crate, shimmers, then flips to the real card — gold (common) or the
+          rarer prismatic rainbow. Tap to flip early / skip the hold. */}
+      {reveal && createPortal((() => {
+        const isRainbow = reveal.tier === 'rainbow';
+        // Rainbow reads as spectrum-cyan; gold reads warm-amber. Everything downstream keys off this.
+        const glow = isRainbow ? 'hsl(190 90% 60% / 0.4)' : 'hsl(45 90% 55% / 0.35)';
+        const ring = isRainbow ? 'hsl(280 85% 72%)' : 'hsl(45 90% 60%)';
+        const cardShadow = isRainbow
+          ? '0 0 62px -6px rgba(129,140,248,0.75),0 18px 50px rgba(0,0,0,0.72)'
+          : '0 0 60px -6px rgba(251,191,36,0.7),0 18px 50px rgba(0,0,0,0.7)';
+        return (
+          <div
+            className={`fixed inset-0 z-[130] grid place-items-center bg-black/75 backdrop-blur-sm animate-fade-in ${revealExiting ? 'pointer-events-none opacity-0 transition-opacity duration-300' : 'cursor-pointer'}`}
+            aria-live="polite"
+            onClick={advanceReveal}
+            title={flipped ? 'Continue' : 'Reveal'}
+          >
+            {/* A wash of light behind the card so it reads as treasure, not just another pick. */}
+            <div aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[540px] h-[540px] blur-3xl"
+              style={{ background: `radial-gradient(circle, ${glow}, transparent 65%)` }} />
+            {/* On exit the gem flies up toward the deck (matching a normal pick) before the transition. */}
+            <div className={`relative z-10 flex flex-col items-center gap-3 ${revealExiting ? 'animate-brew-to-deck' : 'animate-brew-reveal-in'}`}>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] shadow-[0_0_18px_-2px_rgba(0,0,0,0.5)]"
+                style={isRainbow
+                  ? { borderColor: 'hsl(280 85% 78% / 0.75)', background: '#160a2a', color: 'hsl(280 90% 86%)' }
+                  : { borderColor: 'hsl(45 90% 66% / 0.75)', background: '#241803', color: 'hsl(45 90% 80%)' }}
+              >
+                {isRainbow ? <Sparkles className="w-3.5 h-3.5" /> : <Crown className="w-3.5 h-3.5" />}
+                {isRainbow ? 'Rainbow rare' : 'Hidden gem'}
+              </span>
+              {/* The flip scene: card-back (face-up until the flip) over the real card (pre-rotated). */}
+              <div style={{ perspective: '1400px', width: 260, height: 363 }}>
+                <div className={`brew-flip relative w-full h-full ${flipped ? 'is-flipped' : ''}`}>
+                  {/* Face-down: a treasure-backed card that shimmers while anticipation builds. */}
+                  <div
+                    className={`brew-flip-face absolute inset-0 grid place-items-center rounded-[4.8%] brew-shimmer ${isRainbow ? 'brew-shimmer-rainbow' : ''}`}
+                    style={{
+                      background: isRainbow
+                        ? 'radial-gradient(circle at 50% 38%, #2a1350, #150a2c 70%, #0b0620)'
+                        : 'radial-gradient(circle at 50% 38%, #4a3208, #241803 70%, #140d02)',
+                      outline: `3px solid ${ring}`, outlineOffset: '-1px',
+                      boxShadow: cardShadow,
+                    }}
+                  >
+                    {isRainbow
+                      ? <Sparkles className="w-14 h-14" style={{ color: 'hsl(280 90% 82%)', filter: 'drop-shadow(0 0 14px rgba(196,181,253,0.8))' }} />
+                      : <Crown className="w-14 h-14" style={{ color: 'hsl(45 92% 70%)', filter: 'drop-shadow(0 0 14px rgba(251,191,36,0.8))' }} />}
+                  </div>
+                  {/* The real card. */}
+                  <img
+                    src={getCardImageUrl(reveal.card.scryfall, 'normal') ?? ''}
+                    alt={reveal.card.name}
+                    className="brew-flip-face brew-flip-back absolute inset-0 w-full h-full object-cover rounded-[4.8%]"
+                    style={{ outline: `3px solid ${ring}`, outlineOffset: '-1px', boxShadow: cardShadow }}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-0.5" style={{ opacity: flipped ? 1 : 0, transition: 'opacity 300ms' }}>
+                <span className="font-display text-lg font-semibold" style={{ color: isRainbow ? 'hsl(280 90% 88%)' : 'hsl(45 90% 82%)', textShadow: '0 2px 18px rgba(0,0,0,0.6)' }}>{reveal.card.name}</span>
+                <span className="inline-flex items-center gap-1 text-xs" style={{ color: isRainbow ? 'hsl(280 60% 82%)' : 'hsl(45 70% 78%)' }}>
+                  <Sparkles className="w-3 h-3" /> Added to your deck, on the house
+                </span>
+              </div>
             </div>
           </div>
-        </div>,
-        document.body,
-      )}
+        );
+      })(), document.body)}
     </div>
   );
 }

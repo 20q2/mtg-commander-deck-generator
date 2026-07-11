@@ -330,8 +330,9 @@ function Layout({ children }: { children: React.ReactNode }) {
       {/* Commander Art Background (hidden on collection page) */}
       {!isCollectionPage && !isAnalyzeHub && (!isAnalyzePage || !!generatedDeck) && !isListsPage && <CommanderBackground commander={commander} deckGenerated={!!generatedDeck} />}
 
-      {/* Brew-reactive aurora — shifts with the game plan (over the commander art, under content). */}
-      {location.pathname.startsWith('/brew/') && <BrewBackdrop />}
+      {/* Foundry backdrop — the static steel/blueprint/ember base on the landing, plus the reactive
+          aurora once a run is underway. Mounts across the whole brew flow so it reads as one place. */}
+      {(location.pathname === '/brew' || location.pathname.startsWith('/brew/')) && <BrewBackdrop />}
 
       {/* Content wrapper with relative positioning */}
       <div className="relative z-10 flex flex-col min-h-screen pb-16 sm:pb-0">

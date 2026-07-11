@@ -108,6 +108,12 @@ export interface BrewOption {
    * only; undefined on every other pack and on most theme packs.
    */
   goldCard?: BrewCandidate;
+  /**
+   * The rarity tier of `goldCard` — drives the reveal ceremony. `gold` is the common windfall (the
+   * theme's next-best signature); `rainbow` is the rare upgrade (a Game Changer / the theme's very
+   * top payoff) that earns a longer, prismatic reveal. Undefined when there's no windfall.
+   */
+  windfallTier?: 'gold' | 'rainbow';
 }
 
 export interface BrewNode {
@@ -116,6 +122,12 @@ export interface BrewNode {
   prompt: string;             // node heading
   options: BrewOption[];      // pick one option; lightning/combo/bundle options can hold several cards
   canPass: boolean;           // gamble allows passing
+  /**
+   * A rare "god pack" round (seeded, ~1-in-140 pack rounds): every theme pack is guaranteed to hide a
+   * windfall, so whichever pack the player takes pays out. The UI glows all crates gold. A pool
+   * upgrade — never a power grant — so deck-quality honesty holds.
+   */
+  godPack?: boolean;
 }
 
 /** One answer to a personality question — a playstyle that leans the named theme(s). */
@@ -164,6 +176,7 @@ export interface BrewState {
   questionsAsked: number;               // personality questions answered/skipped so far (caps re-prompts)
   lastPackKeys?: string[];              // option ids (cluster keys) of the previous pack round — held back so the same pack never shows twice in a row
   prevPackKeys?: string[];              // the pack round before lastPackKeys — held back too, so packs rotate across a 2-round window (less "same 3 themes every time")
+  lastPackCardNames?: string[];         // every card shown in the previous pack round — held out of the next round so a passed card never reappears back-to-back (even under a different pack theme)
   // --- The "fun layer": events, relics & the run story ---
   relics: BrewRelic[];                  // acquired deckbuilding modifiers (bias future offers/scoring)
   comboWatch: string[];                 // missing combo-piece names to bias toward (set by "Investigate")
@@ -187,6 +200,12 @@ export interface BrewCelebration {
   kind: 'goal' | 'streak' | 'combo';
   title: string;
   subtitle?: string;
+  /**
+   * Combo takeover only: the pieces that just clicked (owned pieces first, then the ones you added),
+   * as art-crop URLs. When present, the combo celebration graduates from a corner toast to a centered
+   * "the engine comes online" spectacle — the run's high, given the spotlight it earns.
+   */
+  cards?: { name: string; art?: string }[];
 }
 
 export interface BrewHealth {
