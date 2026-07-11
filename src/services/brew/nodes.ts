@@ -222,8 +222,11 @@ function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[]): string[
   return Object.entries(counts).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([s]) => s);
 }
 
-const BUNDLE_MIN = 2;          // a bundle needs at least this many cards to "feel like" a strategy
-const BUNDLE_MAX = 3;          // cap so one decision doesn't fill too many slots at once
+// Crack-a-pack loop (2026-07-11 redesign): packs are SEALED on offer (theme + headline showing,
+// contents hidden), crack open into a fan of ~5, and the player keeps any they like (min 1).
+// Bigger packs are what make the keep/pass curation inside a crack a real decision.
+const BUNDLE_MIN = 3;          // a pack needs at least this many cards to be worth cracking
+const BUNDLE_MAX = 5;          // the fan size a crack reveals
 const BUNDLE_COUNT = 3;        // packs offered per node
 
 /**

@@ -1,6 +1,6 @@
 import {
   Infinity as InfinityIcon, Zap, Dices, Sprout, Swords, Bomb, BookOpen, Package, Layers,
-  Search, Shield, Sparkles, Star, Lock,
+  Search, Shield, Sparkles, Star, Lock, Crosshair,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -12,6 +12,15 @@ import {
  * node screen, and the reactive backdrop all pull from here so a "ramp" step feels green and
  * growth-y everywhere, a "removal" step burns red, and so on.
  */
+
+// Each pack in a multi-pack round wears its direction: a need it fills, your theme, or a lift find.
+export const PACK_FLAVOR: Record<string, { color: string; Icon: LucideIcon; tag: string }> = {
+  need: { color: '205 82% 60%', Icon: Crosshair, tag: 'Fills a need' },
+  theme: { color: '152 60% 50%', Icon: Layers, tag: 'On theme' },
+  discovery: { color: '292 76% 64%', Icon: Sparkles, tag: 'Hidden synergy' },
+  combo: { color: '172 70% 50%', Icon: InfinityIcon, tag: 'Combo pieces' },
+  value: { color: '230 12% 70%', Icon: Package, tag: '' }, // label carries the meaning (Wildcards / Top End / Cheap & Early)
+};
 
 // Official MTG card-type glyphs (mana-font) — the right symbols for card-type routes.
 export const CARD_TYPE_MS: Record<string, string> = {

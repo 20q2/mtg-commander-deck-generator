@@ -590,6 +590,30 @@
     0%, 100% { box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.5), 0 0 22px -4px hsl(45 90% 55% / 0.45); }
     50%      { box-shadow: 0 0 0 1px hsl(45 95% 66% / 0.8), 0 0 40px -2px hsl(45 95% 60% / 0.75); }
   }
+  /* ---- Sealed booster wrapper (crack-a-pack) ---- */
+  /* The holo sheen: a slow glossy sweep + a faint fixed iridescence, screened over the wrapper so
+     the pack reads as foil. GPU-cheap (two gradients, one background-position animation). */
+  .brew-pack-foil {
+    background:
+      linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.28) 43%, rgba(255,255,255,0.07) 51%, transparent 66%),
+      linear-gradient(160deg, hsl(300 85% 72% / 0.10), hsl(190 85% 70% / 0.12) 38%, hsl(55 85% 70% / 0.09) 68%, transparent 88%);
+    background-size: 260% 100%, 100% 100%;
+    background-position: -80% 0, 0 0;
+    animation: brewPackSheen 4.2s ease-in-out infinite;
+    mix-blend-mode: screen;
+  }
+  @keyframes brewPackSheen {
+    0%, 100% { background-position: -80% 0, 0 0; }
+    55%      { background-position: 180% 0, 0 0; }
+  }
+  /* The crimped seam: fine vertical foil ridges in the pack's own hue (reads --pk-hsl set inline). */
+  .brew-pack-crimp {
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.30) 0 2px, rgba(0,0,0,0.38) 2px 5px),
+      linear-gradient(180deg, hsl(var(--pk-hsl) / 0.95), hsl(var(--pk-hsl) / 0.55));
+    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
   /* Glimmer tease — the golden seam on a crate that advertises its hidden windfall. A slow light
      sweeps along the seam; the card and tier stay secret until the reveal. */
   .brew-tease-seam {
@@ -628,6 +652,7 @@
     .brew-shimmer::after, .brew-shimmer-rainbow::after { animation: none; opacity: 0; }
     .brew-godpack-glow { animation: none; box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.6); }
     .brew-tease-seam { animation: none; opacity: 0.9; }
+    .brew-pack-foil { animation: none; background-position: 40% 0, 0 0; }
     .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
   }
 
