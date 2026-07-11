@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { leaningThemes, generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
 import { treasuryFromState } from '@/services/brew/journal';
 import {
-  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, Bot, type LucideIcon,
+  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, Bot, Medal, type LucideIcon,
 } from 'lucide-react';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import type { BrewMoment } from '@/services/brew/engine';
@@ -86,7 +86,7 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
               : 'border-border/60 bg-card/50 text-muted-foreground'
           }`}
         >
-          <Target className="w-3.5 h-3.5" />
+          {goalDone ? <Medal className="w-3.5 h-3.5" /> : <Target className="w-3.5 h-3.5" />}
           <span className="font-medium">{goal.label}</span>
           <span className={goalDone ? 'text-emerald-300' : 'text-muted-foreground/70'}>
             {goalDone ? '· nailed it' : '· next time'}
@@ -136,7 +136,12 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
         {moments.length > 0 ? (
           <ol className="text-left space-y-2.5 mb-7">
             {moments.map((m, i) => {
-              const { Icon, color } = MOMENT_ICON[m.kind];
+              // Windfall moments carry their tier into the timeline: a rainbow pull keeps its
+              // prismatic tint here too, so the rarity ladder reads all the way to the story.
+              const base = MOMENT_ICON[m.kind];
+              const { Icon, color } = m.kind === 'goldCard' && m.windfallTier === 'rainbow'
+                ? { Icon: base.Icon, color: '285 85% 70%' }
+                : base;
               return (
                 <li key={i} className="flex items-start gap-3">
                   <span
