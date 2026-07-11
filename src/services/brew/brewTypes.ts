@@ -114,6 +114,12 @@ export interface BrewOption {
    * top payoff) that earns a longer, prismatic reveal. Undefined when there's no windfall.
    */
   windfallTier?: 'gold' | 'rainbow';
+  /**
+   * The crate visibly glints (a golden seam + "something glints inside") — a seeded ~50/50 coin on
+   * windfall packs turns the secret into a temptation. Never lies: teased ⇒ a windfall is present.
+   * The card and tier stay hidden until the reveal. Undefined = secret (today's behavior).
+   */
+  windfallTease?: boolean;
 }
 
 export interface BrewNode {

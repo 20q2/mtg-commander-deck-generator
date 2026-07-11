@@ -34,6 +34,11 @@ const PITY_CAP = 0.6;
 // A rare "god pack" round: every theme pack is guaranteed to hide a windfall (whichever you take
 // pays out). ~1-in-140 pack rounds ≈ once every several runs — a legend, not a routine.
 const GODPACK_CHANCE = 0.007;
+// Half of windfall packs ADVERTISE themselves — a glinting seam on the crate, card and tier still
+// hidden — so temptation (the pack that glitters) competes with need (the pack you should take).
+// Tune DOWN if analytics show teased packs dominating take-rate: the secret path must stay common
+// enough that plain packs still carry hope.
+const TEASE_SHARE = 0.5;
 
 /** Whether THIS pack round is a god pack — a pure seeded roll, so it's identical wherever it's read. */
 export function isGodPackRound(state: BrewState): boolean {
@@ -444,7 +449,14 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       const slug = cl.key.slice('theme:'.length);
       const chance = godPack ? 1 : windfallChance(state);
       const wf = rollWindfall(ctx, state, slug, ctx.themeSignatures[slug] ?? [], byName, taken, chance);
-      if (wf) { option.goldCard = wf.card; option.windfallTier = wf.tier; taken.add(wf.card.name); }
+      if (wf) {
+        option.goldCard = wf.card; option.windfallTier = wf.tier; taken.add(wf.card.name);
+        // Half of windfall packs advertise themselves (a glinting seam) — temptation vs. the pack
+        // you need. God-pack rounds skip the per-crate tease; the whole node already glows.
+        if (!godPack && seededChance(state.seed, `tease:${slug}:${state.picks.length}`, TEASE_SHARE)) {
+          option.windfallTease = true;
+        }
+      }
     }
     built.push({ option, subject: cl.label });
   };

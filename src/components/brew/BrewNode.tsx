@@ -302,6 +302,17 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                   <fl.Icon className="w-4 h-4 shrink-0 text-[color:var(--pk-text)]" />
                   <span className="font-display text-sm font-semibold truncate text-left text-[color:var(--pk-text)]">{option.label}</span>
                 </div>
+                {/* Glimmer tease — this crate rolled a windfall AND advertises it: a golden seam under
+                    the lid. The tell never lies (teased ⇒ windfall present), but the card and its tier
+                    stay hidden until the reveal. */}
+                {option.windfallTease && (
+                  <div title="This pack is hiding something.">
+                    <span aria-hidden="true" className="brew-tease-seam block h-[2px] w-full" />
+                    <span className="block px-3 pt-1 font-flavor text-[11px] italic text-left text-amber-200/90">
+                      something glints inside…
+                    </span>
+                  </div>
+                )}
                 {/* The signature (hallmark) card leads on top, a little larger for emphasis; the other
                     cards sit in a row beneath it. Falls back to the best-fit, then the first card, when a
                     pack has no signature — so every crate has one clear hero. */}

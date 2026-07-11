@@ -590,6 +590,17 @@
     0%, 100% { box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.5), 0 0 22px -4px hsl(45 90% 55% / 0.45); }
     50%      { box-shadow: 0 0 0 1px hsl(45 95% 66% / 0.8), 0 0 40px -2px hsl(45 95% 60% / 0.75); }
   }
+  /* Glimmer tease — the golden seam on a crate that advertises its hidden windfall. A slow light
+     sweeps along the seam; the card and tier stay secret until the reveal. */
+  .brew-tease-seam {
+    background: linear-gradient(90deg, transparent, hsl(45 90% 60% / 0.9) 30%, hsl(48 96% 76%) 50%, hsl(45 90% 60% / 0.9) 70%, transparent);
+    background-size: 200% 100%;
+    animation: brewTeaseShimmer 2.4s ease-in-out infinite;
+  }
+  @keyframes brewTeaseShimmer {
+    0%, 100% { background-position: 0% 0; opacity: 0.6; }
+    50%      { background-position: 100% 0; opacity: 1; }
+  }
 
   /* ---- Combo online: the pieces fly to center, a line draws, they lock with a punch ---- */
   .animate-brew-combo-piece { animation: brewComboPiece 520ms cubic-bezier(0.22, 0.9, 0.32, 1) both; }
@@ -616,6 +627,7 @@
     .brew-flip { transition: none; }
     .brew-shimmer::after, .brew-shimmer-rainbow::after { animation: none; opacity: 0; }
     .brew-godpack-glow { animation: none; box-shadow: 0 0 0 1px hsl(45 90% 60% / 0.6); }
+    .brew-tease-seam { animation: none; opacity: 0.9; }
     .animate-brew-reveal-in, .animate-brew-combo-piece, .animate-brew-combo-line, .animate-brew-combo-lock { animation: none; }
   }
 
