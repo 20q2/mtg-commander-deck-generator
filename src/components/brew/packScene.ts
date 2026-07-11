@@ -174,9 +174,13 @@ function paintWrapper(spec: PackSpec, art: HTMLImageElement | null, logo: HTMLIm
       g.drawImage(logo, x, midY - logoSize / 2, logoSize, logoSize);
       x += logoSize + gap;
     }
-    g.shadowColor = 'rgba(0,0,0,0.5)';
+    // Contrast-aware wordmark: light hues (yellow/green crimps) get near-black ink, dark hues
+    // keep white — the brand must read on every pack color.
+    const lightness = parseFloat(spec.color.split(' ')[2] ?? '50');
+    const lightBand = lightness >= 48;
+    g.shadowColor = lightBand ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.5)';
     g.shadowBlur = 6;
-    g.fillStyle = 'rgba(255,255,255,0.96)';
+    g.fillStyle = lightBand ? 'rgba(18,18,28,0.92)' : 'rgba(255,255,255,0.96)';
     g.fillText('MANAFOUNDRY', x, midY);
     g.shadowBlur = 0;
     // The seam line where the crimp meets the body — the tear strip, with a cool glow.
@@ -275,6 +279,11 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
 
   let worldPerPx = 0.01;
   let canvasH = 1;
+  // The world y of the VISUAL focus (220px down) — the canvas extends far below the pack shelf
+  // so falling packs exit the screen instead of clipping at an invisible edge, which means the
+  // canvas center is NOT where the ceremony should happen.
+  let focusY = 0;
+  const FOCUS_PX = 220;
   const basePos: THREE.Vector3[] = specs.map(() => new THREE.Vector3());
   const baseScale: number[] = specs.map(() => 1);
 
@@ -287,6 +296,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
     camera.updateProjectionMatrix();
     const visibleH = 2 * camera.position.z * Math.tan((camera.fov * Math.PI) / 360);
     worldPerPx = visibleH / h;
+    focusY = (h / 2 - FOCUS_PX) * worldPerPx;
     zones.forEach((z, i) => {
       if (!groups[i]) return;
       basePos[i].set((z.cx - w / 2) * worldPerPx, (h / 2 - z.cy) * worldPerPx, 0);
@@ -357,7 +367,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       const fromScale = g.scale.x;
       tween(560, easeOutBack, k => {
         g.position.x = from.x * (1 - k);
-        g.position.y = from.y * (1 - k);
+        g.position.y = from.y + (focusY - from.y) * k;
         g.position.z = 1.6 * k;
         g.scale.setScalar(fromScale * (1 + 0.12 * k));
       }, () => {

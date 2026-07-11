@@ -161,6 +161,14 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
 
   // --- The real 3D packs (lazy WebGL; the CSS wrappers below stay as the automatic fallback).
   const [scene, setScene] = useState<PackSceneAPI | null>(null);
+  // The CSS packs render instantly and CROSSFADE out once the 3D scene is ready — a new round
+  // never hard-swaps styles in front of the player.
+  const [cssFaded, setCssFaded] = useState(false);
+  useEffect(() => {
+    if (!scene) { setCssFaded(false); return; }
+    const t = window.setTimeout(() => setCssFaded(true), 350);
+    return () => window.clearTimeout(t);
+  }, [scene]);
   const sceneRef = useRef<PackSceneAPI | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const zoneEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -492,9 +500,15 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     <div
       className={crackedOption
         ? 'pointer-events-none absolute inset-x-0 top-0 h-[440px]'
-        : `relative h-[440px] ${scene ? '' : 'hidden'}`}
+        : 'relative h-[440px]'}
     >
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+      {/* The canvas extends far below the visible shelf so falling/tumbling packs exit the
+          screen instead of clipping at an invisible edge. It never takes pointer events (the
+          zone buttons do), and it fades in over the CSS packs once the scene is ready. */}
+      <canvas
+        ref={canvasRef}
+        className={`pointer-events-none absolute inset-x-0 top-0 h-[900px] w-full transition-opacity duration-300 ${scene ? 'opacity-100' : 'opacity-0'}`}
+      />
       {!crackedOption && scene && (
         <div className="relative flex h-full items-stretch justify-center gap-6 py-2 sm:gap-9">
           {options.map((option, idx) => {
@@ -516,8 +530,9 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 style={{ ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}
                 className="group relative w-[170px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[190px]"
               >
-                {/* The set plate floats over the mesh; it fades out once the ceremony starts. */}
-                <div className={`absolute inset-x-0 bottom-6 flex flex-col items-center gap-1 px-2 transition-opacity duration-200 ${staged ? 'opacity-0' : ''}`}>
+                {/* The set plate floats over the mesh's lower third (like the reference's title
+                    block); it fades out once the ceremony starts. */}
+                <div className={`absolute inset-x-0 bottom-[64px] flex flex-col items-center gap-1 px-2 transition-opacity duration-200 ${staged ? 'opacity-0' : ''}`}>
                   {option.windfallTease && (
                     <span className="font-flavor text-[11px] italic text-amber-200 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">something glints inside…</span>
                   )}
@@ -546,7 +561,11 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
   return (
     <div ref={containerRef} className="relative min-h-[420px]">
       {webglView}
-      {!scene && gridView}
+      {(!scene || !cssFaded) && (
+        <div className={scene ? 'pointer-events-none absolute inset-x-0 top-0 z-10 opacity-0 transition-opacity duration-300' : ''}>
+          {gridView}
+        </div>
+      )}
       {fanView}
       {ghostView}
       {hoverView}
