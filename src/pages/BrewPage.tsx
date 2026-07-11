@@ -26,6 +26,8 @@ import { BrewQuestionScreen } from '@/components/brew/BrewQuestionScreen';
 import { BrewEventScreen } from '@/components/brew/BrewEventScreen';
 import { BrewRelicScreen } from '@/components/brew/BrewRelicScreen';
 import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
+import { BrewGauntlet } from '@/components/brew/BrewGauntlet';
+import { runGauntlet, type GauntletTrial } from '@/services/brew/gauntlet';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
@@ -55,6 +57,8 @@ export function BrewPage() {
   const [intro, setIntro] = useState<{ startRect: DOMRect; target: { x: number; y: number } } | null>(null);
   // The end-of-run story: once the deck is finished, hold here until the player taps through.
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
+  // The Gauntlet — the climax between the built deck and the recap: three trials, then the story.
+  const [gauntlet, setGauntlet] = useState<{ listId: string; trials: GauntletTrial[] } | null>(null);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
   // The "what is this?" splash pitches the mode on a player's FIRST brew only — once they've seen it
@@ -227,8 +231,9 @@ export function BrewPage() {
       });
       trackEvent('brew_finished', { commanderName: brewContext.commander.name, picks: brewState.picks.length });
       trackEvent('list_created', { listName: payload.name, cardCount: payload.cards.length });
-      // Show the run story before handing off — the session stays live so the recap can read it.
-      setRecap({ listId: list.id });
+      // The Gauntlet first (the deck faces the table), then the recap — the session stays live so
+      // both can read the run's state.
+      setGauntlet({ listId: list.id, trials: runGauntlet(brewContext, brewState) });
     } catch (e) {
       console.error(e); setError(e instanceof Error ? e.message : 'Failed to finish');
     } finally {
@@ -253,6 +258,15 @@ export function BrewPage() {
     clearBrewSession();
     setRecap(null);
     if (listId) navigate(`/decks/${listId}`);
+  }
+
+  // The Gauntlet's shaky-verdict bridge: same teardown as handleViewDeck, but land in the
+  // Inspector — "shore this up" is the one-click-fix thesis pointed at the finished deck.
+  function handleInspector(listId: string) {
+    if (brewId) clearPersistedBrew(brewId);
+    clearBrewSession();
+    setGauntlet(null);
+    navigate(`/analyze/${listId}`);
   }
 
   if (error) return <div className="p-8 text-center text-destructive">{error}</div>;
@@ -282,6 +296,14 @@ export function BrewPage() {
     >
       {/* The morph-and-fly intro plays over everything until it hands off to the first screen. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
+      {/* The Gauntlet — the finished deck faces three trials before its story is told. */}
+      {gauntlet && (
+        <BrewGauntlet
+          trials={gauntlet.trials}
+          onContinue={() => { setRecap({ listId: gauntlet.listId }); setGauntlet(null); }}
+          onInspector={() => handleInspector(gauntlet.listId)}
+        />
+      )}
       {/* The run recap overlays everything once the deck is finished. */}
       {recap && <BrewRunRecap onContinue={handleViewDeck} />}
       {/* The mana-base capstone — the final land-style choice, before the deck is built. */}
