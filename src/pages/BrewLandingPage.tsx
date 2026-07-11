@@ -1,5 +1,6 @@
 import { Sparkles, MapPin, Star, Route, Hammer } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
+import { BrewTreasuryShelf } from '@/components/brew/BrewTreasuryShelf';
 
 /**
  * Landing for the interactive brewing flow (bare `/brew`). Pick a commander and we drop you into
@@ -64,6 +65,9 @@ export function BrewLandingPage() {
           </div>
         ))}
       </div>
+
+      {/* The Treasury & Journal — cross-run memory. Hidden until a first run is recorded. */}
+      <BrewTreasuryShelf />
     </main>
   );
 }
