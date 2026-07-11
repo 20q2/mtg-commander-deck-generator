@@ -28,6 +28,8 @@ import { BrewRelicScreen } from '@/components/brew/BrewRelicScreen';
 import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
 import { BrewGauntlet } from '@/components/brew/BrewGauntlet';
 import { runGauntlet, type GauntletTrial } from '@/services/brew/gauntlet';
+import { recordRun, buildJournalRun } from '@/services/brew/journal';
+import { generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
@@ -231,6 +233,13 @@ export function BrewPage() {
       });
       trackEvent('brew_finished', { commanderName: brewContext.commander.name, picks: brewState.picks.length });
       trackEvent('list_created', { listName: payload.name, cardCount: payload.cards.length });
+      // Cross-run memory: record the run in the Journal & Treasury (localStorage; never blocks).
+      recordRun(buildJournalRun(brewContext, brewState, {
+        id: brewId ?? `${Date.now()}`,
+        title: generateRunTitle(brewContext, brewState),
+        goalLabel: brewGoal(brewContext).label,
+        goalDone: goalProgress(brewContext, brewState).done,
+      }));
       // The Gauntlet first (the deck faces the table), then the recap — the session stays live so
       // both can read the run's state.
       setGauntlet({ listId: list.id, trials: runGauntlet(brewContext, brewState) });

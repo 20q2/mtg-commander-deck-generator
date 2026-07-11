@@ -564,8 +564,10 @@ export const useStore = create<AppState>((set, get) => ({
       const tier = option.windfallTier ?? 'gold';
       const label = tier === 'rainbow' ? `Rainbow rare — ${gold.name}` : `Struck gold — ${gold.name}`;
       const detail = brewNode.godPack ? 'From a god pack' : tier === 'rainbow' ? 'A prismatic windfall' : 'Hidden in the pack';
+      const art = gold.scryfall.image_uris?.art_crop ?? gold.scryfall.card_faces?.[0]?.image_uris?.art_crop;
       nextState = { ...nextState, moments: [...nextState.moments,
-        { atPick: nextState.picks.length, kind: 'goldCard', label, detail }] };
+        // The structured fields feed the Treasury (the cross-run binder) at run end.
+        { atPick: nextState.picks.length, kind: 'goldCard', label, detail, cardName: gold.name, windfallTier: tier, art }] };
     }
     // Completing a combo via the Combos route is a story beat too (not just the Combo-Fragment event):
     // log it so the recap reflects the kill you assembled, not only event-sourced moments.

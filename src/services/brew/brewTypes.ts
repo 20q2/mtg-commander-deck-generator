@@ -304,4 +304,9 @@ export interface BrewMoment {
   kind: BrewEventKind | 'relic' | 'opening' | 'goldCard';
   label: string;                               // short headline
   detail?: string;                             // optional secondary line
+  // goldCard moments only — the structured windfall, so the Treasury (the cross-run binder) can
+  // record the actual card rather than parse the headline. Meta-MEMORY, never meta-power.
+  cardName?: string;
+  windfallTier?: 'gold' | 'rainbow';
+  art?: string;                                // art-crop URL for the Treasury/recap render
 }

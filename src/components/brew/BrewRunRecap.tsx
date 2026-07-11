@@ -1,6 +1,7 @@
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { leaningThemes, generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
+import { treasuryFromState } from '@/services/brew/journal';
 import {
   Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, type LucideIcon,
 } from 'lucide-react';
@@ -36,6 +37,8 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
   const moments = brewState.moments;
   const secretTech = moments.filter(m => m.kind === 'strangeSignal' && m.label.startsWith('Trusted')).length;
   const cardCount = brewState.picks.length;
+  // The windfalls this run revealed — now recorded forever in the Treasury (the cross-run binder).
+  const treasury = treasuryFromState(brewState);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/85 backdrop-blur-md p-4 animate-brew-view-in">
@@ -84,6 +87,30 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
             {goalDone ? '· nailed it' : '· next time'}
           </span>
         </div>
+
+        {/* The Treasury beat — the run's windfalls, now recorded forever in the cross-run binder.
+            One quiet line per pull; the full binder UI lives on the landing page (follow-up). */}
+        {treasury.length > 0 && (
+          <div className="mb-6">
+            <p className="text-[10px] uppercase tracking-[0.24em] text-amber-200/70 mb-2">Added to your Treasury</p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {treasury.map((t, i) => (
+                <span
+                  key={i}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                    t.tier === 'rainbow'
+                      ? 'border-fuchsia-300/50 bg-gradient-to-r from-fuchsia-500/15 via-amber-400/15 to-cyan-400/15 text-fuchsia-100'
+                      : 'border-amber-300/50 bg-amber-500/12 text-amber-100'
+                  }`}
+                >
+                  <Crown className="w-3 h-3" />
+                  {t.cardName}
+                  {t.tier === 'rainbow' && <span className="text-[9px] uppercase tracking-wider text-fuchsia-200/80">rainbow</span>}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {moments.length > 0 ? (
           <ol className="text-left space-y-2.5 mb-7">
