@@ -34,6 +34,11 @@ const PITY_CAP = 0.6;
 // A rare "god pack" round: every theme pack is guaranteed to hide a windfall (whichever you take
 // pays out). ~1-in-140 pack rounds ≈ once every several runs — a legend, not a routine.
 const GODPACK_CHANCE = 0.007;
+// A rare "Game Changers" pack: when enough of WotC's game-changer list is draftable, a seeded roll
+// may replace one slot with a gold pack of pure power. Rarer than a Good Stuff pack, a treat — but far
+// more common than a god pack (which pays a windfall on EVERY pack). Skipped on god-pack rounds.
+const GC_PACK_CHANCE = 0.04;
+const GC_PACK_MIN_CARDS = 3;
 // Half of windfall packs ADVERTISE themselves — a glinting seam on the crate, card and tier still
 // hidden — so temptation (the pack that glitters) competes with need (the pack you should take).
 // Tune DOWN if analytics show teased packs dominating take-rate: the secret path must stay common
@@ -427,6 +432,20 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       flavor: 'value',
       match: c => isThemeAgnostic(ctx, c),
       priority: 800,     // below theme packs (1_000+), above the exploration slot
+    });
+  }
+  // Game Changers: a rare, gold power pack. Forms only when enough game changers are draftable and a
+  // seeded per-round roll hits — and never on a god-pack round (one spectacle at a time). High priority
+  // so when it rolls it claims a slot; the rotation window keeps it from repeating back-to-back.
+  const gcDraftable = scored.filter(c => ctx.gameChangerNames?.has(c.name));
+  if (!godPack && gcDraftable.length >= GC_PACK_MIN_CARDS
+      && seededChance(state.seed, `gcpack:${state.picks.length}`, GC_PACK_CHANCE)) {
+    clusters.push({
+      key: 'gamechangers',
+      label: 'Game Changers',
+      flavor: 'power',
+      match: c => ctx.gameChangerNames?.has(c.name) ?? false,
+      priority: 900_000,     // below the need pack (1_000_000+), above themes — claims a slot when it rolls
     });
   }
   // 3. A discovery bundle if lift/co-play finds are present (kept as its own coherent "hidden synergy").

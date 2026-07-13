@@ -1,6 +1,6 @@
 import {
   Infinity as InfinityIcon, Zap, Dices, Sprout, Swords, Bomb, BookOpen, Package, Layers,
-  Search, Shield, Sparkles, Star, Lock, Crosshair,
+  Search, Shield, Sparkles, Star, Lock, Crosshair, Crown,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -20,6 +20,7 @@ export const PACK_FLAVOR: Record<string, { color: string; Icon: LucideIcon; tag:
   discovery: { color: '292 76% 64%', Icon: Sparkles, tag: 'Hidden synergy' },
   combo: { color: '172 70% 50%', Icon: InfinityIcon, tag: 'Combo pieces' },
   value: { color: '230 12% 70%', Icon: Package, tag: '' }, // label carries the meaning (Wildcards / Top End / Cheap & Early)
+  power: { color: '43 96% 56%', Icon: Crown, tag: 'Game Changers' }, // gold — the rare power pack
 };
 
 // Official MTG card-type glyphs (mana-font) — the right symbols for card-type routes.
