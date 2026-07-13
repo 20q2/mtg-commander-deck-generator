@@ -118,9 +118,10 @@ export interface BrewOption {
    */
   windfallTier?: 'gold' | 'rainbow';
   /**
-   * The crate visibly glints (a golden seam + "something glints inside") — a seeded ~50/50 coin on
-   * windfall packs turns the secret into a temptation. Never lies: teased ⇒ a windfall is present.
-   * The card and tier stay hidden until the reveal. Undefined = secret (today's behavior).
+   * DEPRECATED / no longer set (2026-07-13). Windfalls are now a BLIND surprise: a sealed pack never
+   * advertises that it hides a bonus (the old glinting-seam "something glints inside" tease was
+   * removed as off-key). The reward reveals only after the crack, as a sunburst bonus card. Field kept
+   * for back-compat with persisted sessions; nothing sets it and no surface reads it as true.
    */
   windfallTease?: boolean;
   /**

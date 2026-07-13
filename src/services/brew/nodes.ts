@@ -39,11 +39,6 @@ const GODPACK_CHANCE = 0.007;
 // more common than a god pack (which pays a windfall on EVERY pack). Skipped on god-pack rounds.
 const GC_PACK_CHANCE = 0.04;
 const GC_PACK_MIN_CARDS = 3;
-// Half of windfall packs ADVERTISE themselves — a glinting seam on the crate, card and tier still
-// hidden — so temptation (the pack that glitters) competes with need (the pack you should take).
-// Tune DOWN if analytics show teased packs dominating take-rate: the secret path must stay common
-// enough that plain packs still carry hope.
-const TEASE_SHARE = 0.5;
 
 /** Whether THIS pack round is a god pack — a pure seeded roll, so it's identical wherever it's read. */
 export function isGodPackRound(state: BrewState): boolean {
@@ -553,11 +548,8 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       const wf = rollWindfall(ctx, state, slug, ctx.themeSignatures[slug] ?? [], byName, taken, chance);
       if (wf) {
         option.goldCard = wf.card; option.windfallTier = wf.tier; taken.add(wf.card.name);
-        // Half of windfall packs advertise themselves (a glinting seam) — temptation vs. the pack
-        // you need. God-pack rounds skip the per-crate tease; the whole node already glows.
-        if (!godPack && seededChance(state.seed, `tease:${slug}:${state.picks.length}`, TEASE_SHARE)) {
-          option.windfallTease = true;
-        }
+        // The windfall stays a BLIND surprise — a sealed pack never advertises it (no "something
+        // glints inside" tease). The reward reveals as a sunburst bonus card only after the crack.
         // Double-or-nothing stakes: once per run, a GOLD reveal may be traded sight-unseen for the
         // theme's next two signatures. Attach them here (seeded pool, stable across re-render) and
         // claim them so no other crate on screen shows the face-down trade. Rainbows are exempt.

@@ -10,7 +10,7 @@ import type { ScryfallCard } from '@/types';
 import type { PackSceneAPI } from '@/components/brew/packScene';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
-import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb } from 'lucide-react';
+import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb, ArrowLeft } from 'lucide-react';
 
 /**
  * The crack-a-pack loop: a pack round offers three SEALED boosters — theme + headline showing,
@@ -144,9 +144,6 @@ export function PackBody({ option, packColor, brand = true, artOverride }: { opt
         )}
         <div className="flex-1" />
         <div className="mb-[30px] flex w-full flex-col items-center gap-1 px-3">
-          {option.windfallTease && (
-            <span className="font-flavor text-[11px] italic text-amber-200 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">something glints inside…</span>
-          )}
           <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/25 bg-black/55 px-3 py-1 font-display text-sm font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_3px_12px_rgba(0,0,0,0.6)] backdrop-blur-sm">
             <fl.Icon className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">{option.label}</span>
@@ -165,7 +162,7 @@ export function PackBody({ option, packColor, brand = true, artOverride }: { opt
   );
 }
 
-export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) => void }) {
+export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boolean) => void; onBack?: () => void }) {
   const { brewNode, applyBrewOption, customization } = useStore();
   // The staged pack (option id): others are falling, this one is flying to center and looming.
   const [staged, setStaged] = useState<string | null>(null);
@@ -404,7 +401,9 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
             // The wrapper promised "feat. <card>" — once the pack is open, point at that card.
             const isHallmark = !isFoil && card.name === crackedOption.hallmarkName;
             const isSuggested = !isFoil && suggested.has(card.name);
-            const foilRing = isRainbow
+            // The surprise bonus card: a warm glow ring + a sunburst behind it (below). Not "foil" —
+            // it's a free extra card, so it reads as a reward, not a print treatment.
+            const bonusRing = isRainbow
               ? 'ring-2 ring-fuchsia-300/80 shadow-[0_0_26px_-4px_rgba(232,121,249,0.7),0_6px_18px_rgba(0,0,0,0.55)]'
               : 'ring-2 ring-amber-300/80 shadow-[0_0_26px_-4px_rgba(251,191,36,0.7),0_6px_18px_rgba(0,0,0,0.55)]';
             return (
@@ -425,13 +424,20 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 }`}
               >
                 {isFoil && (
+                  <span
+                    aria-hidden="true"
+                    className={`brew-bonus-burst pointer-events-none absolute left-1/2 top-[42%] ${isRainbow ? 'brew-bonus-burst--rainbow' : ''}`}
+                    style={{ ['--burst' as string]: isRainbow ? '292 80% 62%' : '43 96% 56%' }}
+                  />
+                )}
+                {isFoil && (
                   <span className={`absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide backdrop-blur-sm ${
                     isRainbow
                       ? 'border-fuchsia-300/80 bg-[#160a2a]/90 text-fuchsia-100'
                       : 'border-amber-300/80 bg-[#241803]/90 text-amber-100'
                   }`}>
                     {isRainbow ? <Sparkles className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
-                    {isRainbow ? 'Rainbow foil' : 'Foil'}
+                    {isRainbow ? 'Rare Bonus' : 'Bonus'}
                   </span>
                 )}
                 {/* One badge per card: the actionable "Suggested" wins over the informational
@@ -456,7 +462,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                   src={getCardImageUrl(card.scryfall, 'normal')}
                   alt={card.name}
                   className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${
-                    isFoil ? foilRing
+                    isFoil ? bonusRing
                       : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
                       : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
                       : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
@@ -579,16 +585,13 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 ['--pk-text' as string]: `hsl(${legibleText(packColor)})`,
                 ...(staged ? {} : { animationDelay: `${idx * 70}ms` }),
               }}
-              className="brew-pack3d relative min-h-[340px] w-[190px] text-left sm:w-[210px]"
+              className="brew-pack3d relative min-h-[340px] w-[212px] text-left sm:w-[232px]"
             >
               <PackDepth />
               <div className={`brew-pack-face relative min-h-[340px] overflow-hidden rounded-lg shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] group-focus-visible:ring-2 group-focus-visible:ring-[color:var(--pk)] ${
                 brewNode.godPack ? 'brew-godpack-glow' : ''
               }`}>
                 <div aria-hidden="true" className="brew-pack-crimp absolute inset-x-0 top-0 z-20 h-[18px]" />
-                {option.windfallTease && (
-                  <span aria-hidden="true" className="brew-tease-seam absolute inset-x-0 top-[18px] z-10 block h-[2px]" />
-                )}
                 <PackBody option={option} packColor={packColor} />
               </div>
             </div>
@@ -637,7 +640,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 // texture — nothing floats over the mesh, so the zone button is invisible and
                 // needs its accessible name spelled out.
                 aria-label={`${option.label}${option.hallmarkName ? ` — feat. ${option.hallmarkName}` : ''}, ${count} cards`}
-                className="group relative w-[170px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[190px]"
+                className="group relative w-[190px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[212px]"
               />
             );
           })}
@@ -663,6 +666,17 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
         <Lightbulb className="w-3.5 h-3.5" />
         Suggestions {suggestOn ? 'on' : 'off'}
       </button>
+      {/* A quiet way out once a pack is open: no store mutation has happened yet (that waits for
+          commit), so this just re-seals the shelf to crack a different pack. Deliberately understated
+          — the crack is still meant to feel like the commitment. */}
+      {crackedOption && !committing && onBack && (
+        <button
+          onClick={() => onBack()}
+          className="absolute -top-7 left-0 z-30 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60 transition-colors hover:text-foreground/80"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back
+        </button>
+      )}
       {webglView}
       {/* The CSS packs render ONLY when 3D genuinely can't (reduced motion / no WebGL / scene
           failure) — never as a loading stand-in. While the scene loads, the shelf stays empty
