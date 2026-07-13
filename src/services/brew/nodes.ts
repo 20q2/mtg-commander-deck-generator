@@ -183,6 +183,26 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
   } else if (c.edhrec.isThemeSynergyCard) {
     reasons.push({ kind: 'theme', label: 'On-theme', value: 1 });
   }
+  // On-mechanic call-out: name the theme's CHARACTERISTIC tags this card carries (e.g. "Infect ·
+  // Proliferate") for the themes the deck is leaning into. This is why the card earned a theme-pack
+  // slot — honest lineage. Uses the tag dictionary labels; silent when tag data is absent.
+  if (ctx.themeCharTags && ctx.chromaTagLabels && c.chromaTags?.length) {
+    const leaning = c.themeTags
+      .filter(t => (state.themeAffinity[t] ?? 0) > 0)
+      .sort((a, b) => (state.themeAffinity[b] ?? 0) - (state.themeAffinity[a] ?? 0));
+    const slugs = leaning.length > 0 ? leaning : c.themeTags;
+    const matched: string[] = [];
+    for (const slug of slugs) {
+      for (const tag of ctx.themeCharTags[slug] ?? []) {
+        if (c.chromaTags.includes(tag) && !matched.includes(tag)) matched.push(tag);
+      }
+      if (matched.length >= 2) break;
+    }
+    if (matched.length > 0) {
+      const label = matched.slice(0, 2).map(t => ctx.chromaTagLabels![t] ?? t).join(' · ');
+      reasons.push({ kind: 'tag', label, value: 40 });
+    }
+  }
   // Extra utility flags last — they fill out the picture when there's room.
   reasons.push(...flagReasons(c));
   // Loudest reason first (by magnitude) so the headline "why" leads and the cap drops the weakest.
