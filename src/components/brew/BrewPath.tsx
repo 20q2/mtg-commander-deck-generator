@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { Undo2, RefreshCw, Play, MapPin } from 'lucide-react';
+import { Undo2, RefreshCw, Play, MapPin, Layers } from 'lucide-react';
 import { openNode, leaningThemes, isLastPickLocked, type BrewRoute } from '@/services/brew/engine';
 import { symbolFor, SymbolGlyph, routeKey } from '@/components/brew/brewVisuals';
 import type { ScryfallCard } from '@/types';
@@ -43,17 +43,24 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
   const { brewContext, brewState, brewRoutes, openBrewRoute, undoBrewPick, rerollBrew } = useStore();
   const [hovered, setHovered] = useState<number | null>(null);
 
+  // The fork's CARDS are the specials; opening a pack is normal fare, so the pack route renders as
+  // the quiet default action under them instead of competing as a peer card. If a fork ever has
+  // nothing special to offer, the pack is promoted back to the lone card so the screen never empties.
+  const packDefault = brewRoutes.length > 1 ? brewRoutes.find(r => r.type === 'bundle') ?? null : null;
+  const cardRoutes = packDefault ? brewRoutes.filter(r => r !== packDefault) : brewRoutes;
+
   // A representative card per route — exactly the top card that route would present (so the combo
   // route wears its missing piece's art, "Add Creatures" the top creature, etc.). Reuses openNode.
   const repArt = useMemo(() => {
     const map: Record<string, string | undefined> = {};
     if (brewContext && brewState) {
-      for (const r of brewRoutes) {
+      for (const r of cardRoutes) {
         if (r.type === 'manabase') continue;
         map[r.id] = artUrl(openNode(brewContext, brewState, r).options[0]?.cards[0]?.scryfall);
       }
     }
     return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brewRoutes, brewContext, brewState]);
 
   if (!brewState) return null;
@@ -62,7 +69,7 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
   // A committed (event-sourced) last pick locks undo — the "accept fate" beat.
   const locked = isLastPickLocked(brewState);
   const canUndo = brewState.history.length > 0 && !locked;
-  const n = brewRoutes.length;
+  const n = cardRoutes.length;
 
   return (
     <div className="text-center">
@@ -92,13 +99,13 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
         </span>
         {n > 1 && (
           <svg
-            key={brewRoutes.map((r) => r.id).join('|')}
+            key={cardRoutes.map((r) => r.id).join('|')}
             viewBox="0 0 100 40"
             preserveAspectRatio="none"
             aria-hidden="true"
             className="hidden sm:block w-full h-10 -mt-1 mb-1"
           >
-            {brewRoutes.map((_, i) => {
+            {cardRoutes.map((_, i) => {
               const x = ((i + 0.5) / n) * 100;
               // Axis-aligned "circuit" route: down the trunk, across the bus, down to the card.
               // Only horizontal/vertical segments → no warping under the non-uniform stretch.
@@ -120,7 +127,7 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
 
       {/* ── The routes, dealt like a hand of cards ────────────────────────── */}
       <div className={`grid grid-cols-1 gap-4 ${n === 1 ? 'sm:grid-cols-1' : n === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
-        {brewRoutes.map((route: BrewRoute, i: number) => {
+        {cardRoutes.map((route: BrewRoute, i: number) => {
           const sym = symbolFor(route.type, route.targetRole ?? route.targetType ?? routeKey(route.id));
           const art = repArt[route.id];
           const tone = toneOf(route.tone);
@@ -196,6 +203,27 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
         })}
       </div>
       </div>
+
+      {/* ── The quiet default: opening a pack is normal fare, so it sits under the specials as a
+            low-key action instead of a peer card. Carries the deficit/theme tag so the steer
+            ("Removal 1/6") still reads at a glance. ── */}
+      {packDefault && (
+        <button
+          onClick={() => openBrewRoute(packDefault)}
+          title={packDefault.description}
+          className="group mt-8 inline-flex items-center gap-2.5 rounded-full border border-border/60 bg-card/50 px-5 py-2 text-sm text-muted-foreground transition-colors hover:border-sky-400/50 hover:bg-card/80 hover:text-foreground/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60"
+        >
+          <Layers className="w-4 h-4 text-sky-300/80" />
+          <span>
+            …or just <span className="font-semibold text-foreground/90">open a pack</span>
+          </span>
+          {packDefault.tag && (
+            <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${toneOf(packDefault.tone).tag}`}>
+              {packDefault.tag}
+            </span>
+          )}
+        </button>
+      )}
 
       {/* ── Wayfinding controls ───────────────────────────────────────────── */}
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">

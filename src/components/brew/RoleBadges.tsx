@@ -26,21 +26,21 @@ const SIZE = {
 } as const;
 
 /**
- * The little corner badges on a brew pick card: a vertical stack in the top-left (the only free
- * corner — top-right holds combo/Game-Changer markers, top-centre holds Lift/Spicy ribbons). Each
- * chip is a dark backdrop + a ring and icon tinted in the role's hue, so it reads over any card art
- * while colour-matching its radar spoke. Capped at 4 (real cards rarely fill more).
+ * The little role badges on a brew pick card. Overlay corners ('tl'/'bl') sit on the art — 'tl' is
+ * the free corner on node picks (top-right holds combo/Game-Changer markers, top-centre holds
+ * Lift/Spicy ribbons). 'inline' renders the same chips in normal flow for caption rows below a
+ * card. Each chip is a dark backdrop + a ring and icon tinted in the role's hue, so it reads over
+ * any card art while colour-matching its radar spoke. Capped at 4 (real cards rarely fill more).
  */
-export function RoleBadges({ cardName, size = 'sm', corner = 'tl' }: { cardName: string; size?: 'sm' | 'md'; corner?: 'tl' | 'bl' }) {
+export function RoleBadges({ cardName, size = 'sm', corner = 'tl' }: { cardName: string; size?: 'sm' | 'md'; corner?: 'tl' | 'bl' | 'inline' }) {
   const axes = cardRoleAxes(cardName).slice(0, 4);
   if (axes.length === 0) return null;
   const sz = SIZE[size];
-  // Anchored to the left of its corner and laid out in a horizontal row, the chips grow rightward
-  // along the card edge rather than stacking up the side.
-  const pos = corner === 'bl' ? 'bottom-1 left-1' : 'top-1 left-1';
+  // Overlay chips anchor to the left of their corner and grow rightward along the card edge.
+  const pos = corner === 'inline' ? '' : `absolute z-20 ${corner === 'bl' ? 'bottom-1 left-1' : 'top-1 left-1'}`;
 
   return (
-    <span className={`absolute ${pos} z-20 flex flex-row gap-1`}>
+    <span className={`${pos} flex flex-row gap-1`}>
       {axes.map(key => {
         const axis = AXIS_BY_KEY[key];
         if (!axis) return null;

@@ -3,7 +3,7 @@ import type { AppState, Customization, BanList, AppliedList, ScryfallCard, Gener
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
-import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, brewGoal, goalProgress, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
+import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
 
 /** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
 const CLUSTER_PHASE_FILL = 0.4;
@@ -629,15 +629,11 @@ export const useStore = create<AppState>((set, get) => ({
       nextState = { ...nextState, moments: [...nextState.moments,
         { atPick: nextState.picks.length, kind: 'comboFragment', label: `Completed ${payoff}`, detail: added || undefined }] };
     }
-    // Earned-beat celebrations (the "juice"): one toast per decision, highest-priority beat wins.
-    //  1) the Brewer's Goal just completed (latches via goalDone so it fires once),
-    //  2) a combo just came online (the route pick), or
-    //  3) a synergy-streak milestone. The toast auto-dismisses; null leaves any prior one to fade.
+    // Earned-beat celebration (the "juice"): a combo coming online — the run's real high.
+    // (Goal/streak toasts were culled with their HUD surfaces: ceremony without a mechanic the
+    // player can see just reads as noise.) The toast auto-dismisses; null leaves any prior one to fade.
     let celebration: BrewCelebration | null = null;
-    if (!brewState.goalDone && !goalProgress(brewContext, brewState).done && goalProgress(brewContext, nextState).done) {
-      nextState = { ...nextState, goalDone: true };
-      celebration = { kind: 'goal', title: 'Goal complete!', subtitle: brewGoal(brewContext).label };
-    } else if (brewNode.type === 'combo') {
+    if (brewNode.type === 'combo') {
       // The engine coming online is the run's high — give the celebration the pieces so it can play
       // as a centered "they click together" spectacle (owned pieces first, then the ones just added).
       const artOf = (c: ScryfallCard) => c.image_uris?.art_crop ?? c.card_faces?.[0]?.image_uris?.art_crop;
@@ -646,8 +642,6 @@ export const useStore = create<AppState>((set, get) => ({
         ...option.cards.map(c => ({ name: c.name, art: artOf(c.scryfall) })),
       ];
       celebration = { kind: 'combo', title: 'Combo online!', subtitle: option.label, cards: comboCards };
-    } else if ([3, 6, 9, 12].includes(nextState.synergyStreak ?? 0)) {
-      celebration = { kind: 'streak', title: 'On a roll!', subtitle: `${nextState.synergyStreak} synergy picks in a row` };
     }
 
     // You shouldn't have to choose a path after every pick: auto-advance to the next card screen,

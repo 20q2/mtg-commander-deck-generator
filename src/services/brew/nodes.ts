@@ -187,10 +187,12 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
 function toOption(ctx: BrewContext, state: BrewState, cards: BrewCandidate[], id: string, label: string | undefined, comboFinishers: Set<string>): BrewOption {
   // engineScore is the Rival's ranking of this option (mean of its cards' offer scores) — the
   // store diffs it against the player's actual take to build the recap's divergence readout.
+  // The per-card scores also ride along so the fan can highlight its top picks as "Suggested".
+  const cardScores = cards.map(c => offerScore(ctx, state, c));
   const engineScore = cards.length
-    ? cards.reduce((s, c) => s + offerScore(ctx, state, c), 0) / cards.length
+    ? cardScores.reduce((s, v) => s + v, 0) / cards.length
     : 0;
-  return { id, label, cards, reasons: cards.map(c => deriveReasons(ctx, state, c, comboFinishers)), engineScore };
+  return { id, label, cards, reasons: cards.map(c => deriveReasons(ctx, state, c, comboFinishers)), engineScore, cardScores };
 }
 
 /** Cards draftable right now (unused, non-land, in budget), best-scored first. */
@@ -240,7 +242,7 @@ const BUNDLE_FLAVOR: Record<string, string> = {
   creature: 'Field an Army', instant: 'Hold Up Answers', sorcery: 'Big Plays',
   artifact: 'The Engine', enchantment: 'Lasting Power', planeswalker: 'Call in Allies',
   // common theme slugs
-  tokens: 'Raise an Army', sacrifice: 'Feed the Machine', aristocrats: 'Feed the Machine',
+  tokens: 'Raise an Army', sacrifice: 'Profit from Death', aristocrats: 'Profit from Death',
   counters: 'Grow Tall', '+1-+1-counters': 'Grow Tall', lifegain: 'Drain the Table',
   spellslinger: 'Cast a Storm', 'spells-matter': 'Cast a Storm', reanimator: 'Raise the Dead',
   graveyard: 'Raise the Dead', mill: 'Erode the Library', blink: 'Flicker and Flux',

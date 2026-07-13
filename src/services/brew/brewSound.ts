@@ -54,14 +54,16 @@ function tone(ac: AudioContext, freq: number, startAt: number, dur: number): voi
   osc.stop(startAt + dur + 0.02);
 }
 
-/** The pack-opening cue: a short foil-tear (a filtered noise sweep) + a low pop as it gives way. */
-export function playPackCrack(): void {
+/** The pack-opening cue: a foil-tear (a filtered noise sweep) + a low pop as it gives way.
+ *  `tearSec` stretches the tear so the pop lands on the visible strip release — the 3D ceremony
+ *  passes its seam-sweep duration; the CSS path keeps the default. */
+export function playPackCrack(tearSec = 0.3): void {
   if (!enabled) return;
   try { navigator.vibrate?.([12, 30, 10]); } catch { /* ignore */ }
   const ac = ctx();
   if (!ac) return;
   const now = ac.currentTime;
-  const dur = 0.3;
+  const dur = tearSec;
   // The tear: a decaying white-noise burst through a bandpass sweeping down — ripping foil.
   const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
   const data = buf.getChannelData(0);
@@ -79,7 +81,7 @@ export function playPackCrack(): void {
   src.connect(bp).connect(g).connect(ac.destination);
   src.start(now);
   // The pop as the wrapper gives way, just before the cards fan out.
-  tone(ac, 220, now + 0.3, 0.12);
+  tone(ac, 220, now + dur, 0.12);
 }
 
 /** Play the celebration cue (sound + haptic) for an earned beat. No-op when muted or unsupported. */

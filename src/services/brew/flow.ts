@@ -4,7 +4,6 @@ import { isComplete } from './health';
 import { nextEvent, comboFragmentEvent, MIN_MOMENT_GAP } from './events';
 import { FIRST_PHILOSOPHY_AT } from './relics';
 import { nextQuestion } from './questions';
-import { deckFill, IDENTITY_PHASE_FILL } from './scoring';
 
 /**
  * Run cadence: the player opens a pack at each node, and every STEER_EVERY-th node is a "moment"
@@ -36,29 +35,6 @@ export function advanceAfterPick(ctx: BrewContext, state: BrewState): BrewNode |
   // Between moments, keep the player opening packs. Combos and elite drafts are deliberate moves
   // elected at the fork, so they never auto-open. An empty pool returns null → mana base.
   return buildPackNode(ctx, state);
-}
-
-// --- Acts: naming the phases the engine already has -------------------------
-// The run always had three internal phases (identity fill < 0.3 → engine-building → complete +
-// capstone); the acts NAME them so the pack mix changing character reads as story structure, not
-// as arbitrary. Pure presentation: nothing below changes what any phase actually does.
-
-export interface BrewAct {
-  act: 1 | 2 | 3;
-  title: string;      // "The Spark"
-  numeral: string;    // "Act I"
-}
-
-const ACTS: BrewAct[] = [
-  { act: 1, numeral: 'Act I', title: 'The Spark' },      // identity forms (fill < IDENTITY_PHASE_FILL)
-  { act: 2, numeral: 'Act II', title: 'The Engine' },    // deficits steer; the deck gets built
-  { act: 3, numeral: 'Act III', title: 'The Finish' },   // complete → capstone → recap
-];
-
-/** Which act the run is in right now. Thresholds mirror the engine's real phase boundaries. */
-export function currentAct(ctx: BrewContext, state: BrewState): BrewAct {
-  if (isComplete(ctx, state)) return ACTS[2];
-  return deckFill(ctx, state) < IDENTITY_PHASE_FILL ? ACTS[0] : ACTS[1];
 }
 
 /** How many upcoming nodes the fate-map forecasts. */

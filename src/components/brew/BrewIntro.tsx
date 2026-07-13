@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { MapPin, Wand2 } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 
 /**
- * The "set off on your journey" intro: the Start button folds into the map-pin home node,
- * flies up to the spot it lives at during the brew, and routes fan out beneath it — then we
- * hand off to the first screen. Self-contained (fixed overlay) so it doesn't depend on the
- * setup or workflow being mounted. Positions are driven by inline transitions because the
- * start/target coordinates are measured at runtime.
+ * The "set off on your journey" beat, played when the philosophy choice hands off to the fork:
+ * the chosen card's frame folds into the map-pin home node, flies up to the spot it lives at
+ * during the brew, and routes fan out beneath it — then we hand off to the fork itself.
+ * Self-contained (fixed overlay) so it doesn't depend on the workflow being mounted. Positions
+ * are driven by inline transitions because the start/target coordinates are measured at runtime.
  */
 
 const PIN = 36;            // final pin diameter (matches the fork's home node, w-9)
@@ -15,7 +15,7 @@ const GHOSTS = 3;
 type Phase = 'button' | 'morph' | 'fly' | 'routes' | 'out';
 
 interface Props {
-  startRect: DOMRect;                 // the start button's on-screen frame
+  startRect: DOMRect;                 // the chosen card's on-screen frame — the morph origin
   target: { x: number; y: number };   // viewport-space center for the landed home node
   onDone: () => void;
 }
@@ -39,8 +39,8 @@ export function BrewIntro({ startRect, target, onDone }: Props) {
   const flown = phase === 'fly' || phase === 'routes' || phase === 'out';
   const showRoutes = phase === 'routes' || phase === 'out';
 
-  // The morphing pin: starts exactly over the button, collapses to a circle at its own center,
-  // then travels to the target. Centered on the button's center throughout the morph.
+  // The morphing pin: starts exactly over the chosen card, collapses to a circle at its own
+  // center, then travels to the target. Centered on the card's center throughout the morph.
   const btnCx = startRect.left + startRect.width / 2;
   const btnCy = startRect.top + startRect.height / 2;
   const pinStyle: React.CSSProperties = morphed
@@ -56,7 +56,7 @@ export function BrewIntro({ startRect, target, onDone }: Props) {
         top: startRect.top,
         width: startRect.width,
         height: startRect.height,
-        borderRadius: 14,
+        borderRadius: 16,
       };
 
   return (
@@ -65,7 +65,7 @@ export function BrewIntro({ startRect, target, onDone }: Props) {
       style={{ opacity: phase === 'out' ? 0 : 1 }}
       aria-hidden="true"
     >
-      {/* The morphing button → pin. */}
+      {/* The morphing card frame → pin. */}
       <div
         className={`absolute grid place-items-center border-2 text-violet-100 ${flown ? 'brew-node-pulse' : ''}`}
         style={{
@@ -77,21 +77,11 @@ export function BrewIntro({ startRect, target, onDone }: Props) {
           boxShadow: '0 8px 30px -6px hsl(var(--primary) / 0.5)',
         }}
       >
-        {/* Wand fades out, the home-node pin fades in, as the button collapses. */}
-        <Wand2
-          className="absolute w-5 h-5 transition-opacity duration-200"
-          style={{ opacity: morphed ? 0 : 1 }}
-        />
+        {/* The home-node pin fades in as the card frame collapses. */}
         <MapPin
           className="absolute w-4 h-4 transition-opacity duration-200"
           style={{ opacity: morphed ? 1 : 0, transitionDelay: morphed ? '160ms' : '0ms' }}
         />
-        <span
-          className="font-semibold text-lg whitespace-nowrap transition-opacity duration-150"
-          style={{ opacity: morphed ? 0 : 1 }}
-        >
-          Start Brewing
-        </span>
       </div>
 
       {/* Routes fan out from the landed node: branch lines draw, then ghost cards deal in. */}

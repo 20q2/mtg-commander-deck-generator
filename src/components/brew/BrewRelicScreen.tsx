@@ -18,14 +18,21 @@ const RELIC_ICON: Record<string, LucideIcon> = {
 // Relics read as warm, artifact-gold treasure.
 const RELIC_HSL = '38 92% 60%';
 
-export function BrewRelicScreen() {
+export function BrewRelicScreen({ onChosen }: { onChosen?: (rect: DOMRect) => void }) {
   const { brewRelicOffer, chooseBrewRelic } = useStore();
   const [chosen, setChosen] = useState<string | null>(null);
   if (!brewRelicOffer || brewRelicOffer.length === 0) return null;
 
   const exiting = chosen !== null;
-  function choose(relic: BrewRelic) {
+  function choose(relic: BrewRelic, rect: DOMRect) {
     if (exiting) return;
+    // When the page runs a handoff animation, the chosen card's frame is its morph origin — commit
+    // at once and let the page take over, instead of playing the local fly-out first.
+    if (onChosen) {
+      chooseBrewRelic(relic);
+      onChosen(rect);
+      return;
+    }
     setChosen(relic.id);
     window.setTimeout(() => chooseBrewRelic(relic), 360);
   }
@@ -55,7 +62,7 @@ export function BrewRelicScreen() {
           return (
             <button
               key={relic.id}
-              onClick={() => choose(relic)}
+              onClick={(e) => choose(relic, e.currentTarget.getBoundingClientRect())}
               disabled={exiting}
               style={exiting ? undefined : { animationDelay: `${idx * 70}ms` }}
               className={`group relative flex flex-col items-center gap-3 rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm px-5 py-6 text-center shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-[transform,border-color,background-color] duration-200 hover:-translate-y-1.5 hover:bg-card/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${

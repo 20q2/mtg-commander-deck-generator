@@ -29,8 +29,7 @@ import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
 import { BrewGauntlet } from '@/components/brew/BrewGauntlet';
 import { runGauntlet, type GauntletTrial } from '@/services/brew/gauntlet';
 import { recordRun, buildJournalRun } from '@/services/brew/journal';
-import { generateRunTitle, brewGoal, goalProgress, currentAct, leaningThemes, type BrewAct, type BrewMoment } from '@/services/brew/engine';
-import { BrewActCard } from '@/components/brew/BrewActCard';
+import { generateRunTitle, brewGoal, goalProgress, type BrewMoment } from '@/services/brew/engine';
 import { BrewPreviously } from '@/components/brew/BrewPreviously';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
@@ -57,23 +56,13 @@ export function BrewPage() {
   const [loadingCommander, setLoadingCommander] = useState(false);
   const [progress, setProgress] = useState<{ msg: string; pct: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The "set off" intro: morph the Start button into the home node, then fan out routes.
+  // The "set off" beat, played at the philosophy → fork handoff: the chosen card morphs into the
+  // home node, then the routes fan out beneath it.
   const [intro, setIntro] = useState<{ startRect: DOMRect; target: { x: number; y: number } } | null>(null);
   // The end-of-run story: once the deck is finished, hold here until the player taps through.
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
   // The Gauntlet — the climax between the built deck and the recap: three trials, then the story.
   const [gauntlet, setGauntlet] = useState<{ listId: string; trials: GauntletTrial[] } | null>(null);
-  // Act interstitials: fire only when the act INCREASES mid-session. The ref seeds on first sight
-  // of a session (a resume never replays a card) and follows down silently on undo.
-  const [actCard, setActCard] = useState<BrewAct | null>(null);
-  const prevActRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!brewContext || !brewState) { prevActRef.current = null; return; }
-    const act = currentAct(brewContext, brewState);
-    const prev = prevActRef.current;
-    prevActRef.current = act.act;
-    if (prev !== null && act.act > prev) setActCard(act);
-  }, [brewContext, brewState]);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
   // The "what is this?" splash pitches the mode on a player's FIRST brew only — once they've seen it
@@ -86,8 +75,10 @@ export function BrewPage() {
     try { localStorage.setItem(BREW_SPLASH_SEEN_KEY, 'true'); } catch { /* ignore */ }
     setShowSplash(false);
   }
-  const startButtonRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // The active-screen slot — measured at the philosophy choice so the intro's pin lands where the
+  // fork's home node is about to render.
+  const screenRef = useRef<HTMLDivElement>(null);
   // The live deck-so-far. On screens wide enough (≥1024px) it opens as its own COLUMN beside the
   // game (~25% of the page) instead of an overlay drawer; narrower screens keep the drawer.
   const [deckListOpen, setDeckListOpen] = useState(false);
@@ -218,15 +209,9 @@ export function BrewPage() {
         commander, partnerCommander, colorIdentity, customization, selectedThemes,
         collectionNames, onProgress: (msg, pct) => setProgress({ msg, pct }),
       });
-      // Capture the button + content frame BEFORE the screen swaps, so the intro can morph the
-      // button into the home node. Skipped under reduced-motion (we cut straight to the first screen).
-      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      const btnRect = startButtonRef.current?.getBoundingClientRect();
-      const contRect = contentRef.current?.getBoundingClientRect();
+      // No opening ceremony — the run drops straight onto the first pack. The "set off" intro
+      // now plays at the philosophy → fork handoff instead (see handlePhilosophyChosen).
       startBrewSession(ctx);
-      if (!reduceMotion && btnRect && contRect) {
-        setIntro({ startRect: btnRect, target: { x: contRect.left + contRect.width / 2, y: contRect.top + 150 } });
-      }
       const id = `${Date.now()}`;
       const base = partnerCommander
         ? `/brew/${formatCommanderNameForUrl(commander.name)}/${formatCommanderNameForUrl(partnerCommander.name)}`
@@ -238,6 +223,20 @@ export function BrewPage() {
     } finally {
       setProgress(null);
     }
+  }
+
+  // The philosophy is locked in — play the "set off" beat: the chosen card folds into the home
+  // node and the routes fan out beneath it, then the fork takes over. The store has already
+  // advanced (BrewRelicScreen commits before calling this), so only run the ceremony when the
+  // handoff genuinely lands on the fork — an event/question preempting it would break the promise.
+  function handlePhilosophyChosen(rect: DOMRect) {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const slot = screenRef.current?.getBoundingClientRect();
+    const s = useStore.getState();
+    const forkNext = !s.brewNode && !s.brewQuestion && !s.brewEvent && !s.brewRelicOffer;
+    if (reduceMotion || !slot || !forkNext) return;
+    // Land the pin where the fork's home node renders: below its heading + leaning readout.
+    setIntro({ startRect: rect, target: { x: slot.left + slot.width / 2, y: slot.top + 145 } });
   }
 
   async function handleFinish(landStyle?: ManaPhilosophy) {
@@ -326,19 +325,10 @@ export function BrewPage() {
       ref={contentRef}
       className={`brew-foundry px-4 py-6 ${deckColumn ? 'max-w-none min-[1560px]:pl-[288px] pr-[25vw]' : 'max-w-5xl mx-auto'}`}
     >
-      {/* The morph-and-fly intro plays over everything until it hands off to the first screen. */}
+      {/* The morph-and-fly "set off" beat plays over everything until it hands off to the fork. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
       {/* Resume cliffhanger — the last moments of a rejoined run, then straight back in. */}
       {previously && <BrewPreviously moments={previously} onDone={() => setPreviously(null)} />}
-      {/* Act boundary title card — 2–3s of punctuation when the run changes character. */}
-      {actCard && brewContext && brewState && (
-        <BrewActCard
-          act={actCard}
-          leaning={leaningThemes(brewContext, brewState)}
-          picks={brewState.picks.length}
-          onDone={() => setActCard(null)}
-        />
-      )}
       {/* The Gauntlet — the finished deck faces three trials before its story is told. */}
       {gauntlet && (
         <BrewGauntlet
@@ -363,12 +353,8 @@ export function BrewPage() {
             loadingCommander={loadingCommander}
             progress={progress}
             onStart={handleStartBrew}
-            startButtonRef={startButtonRef}
           />
         )
-      ) : intro ? (
-        // Hold the stage during the intro so the question doesn't flash behind the overlay.
-        <div className="min-h-[60vh]" />
       ) : (
         <>
           {/* The living-stats rail is fixed-positioned and mounted here (not inside a screen) so it
@@ -393,18 +379,23 @@ export function BrewPage() {
               instead of its pieces blinking into existence one by one. Priority: a relic offer or
               an event "moment" preempts the fork/question/node when the engine surfaces one. */}
           <div
-            key={brewRelicOffer ? 'relic' : brewEvent ? `event:${brewEvent.id}` : brewQuestion ? 'question' : brewNode ? 'node' : 'fork'}
+            ref={screenRef}
+            key={intro ? 'intro' : brewRelicOffer ? 'relic' : brewEvent ? `event:${brewEvent.id}` : brewQuestion ? 'question' : brewNode ? 'node' : 'fork'}
             className="animate-brew-view-in"
           >
-            {brewRelicOffer
-              ? <BrewRelicScreen />
-              : brewEvent
-                ? <BrewEventScreen key={brewEvent.id} />
-                : brewQuestion
-                  ? <BrewQuestionScreen key={brewQuestion.id} />
-                  : brewNode
-                    ? <BrewNode key={brewState?.history.length ?? 0} onFinish={quickFinish} />
-                    : <BrewPath onFinish={quickFinish} onManaBase={() => setCapstone(true)} />}
+            {intro
+              // Hold just the screen slot while the fan-out overlay plays — the health strip,
+              // track, and rails stay put; the fork fades in when the overlay hands off.
+              ? <div className="min-h-[42vh]" />
+              : brewRelicOffer
+                ? <BrewRelicScreen onChosen={handlePhilosophyChosen} />
+                : brewEvent
+                  ? <BrewEventScreen key={brewEvent.id} />
+                  : brewQuestion
+                    ? <BrewQuestionScreen key={brewQuestion.id} />
+                    : brewNode
+                      ? <BrewNode key={brewState?.history.length ?? 0} onFinish={quickFinish} />
+                      : <BrewPath onFinish={quickFinish} onManaBase={() => setCapstone(true)} />}
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>

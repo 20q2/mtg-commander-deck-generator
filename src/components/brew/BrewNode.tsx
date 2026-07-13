@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { BrewPackCrack } from '@/components/brew/BrewPackCrack';
+import { BrewSpecialPack } from '@/components/brew/BrewSpecialPack';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Plus, Pin, Info, Check, Link2, Play, Dices, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
@@ -119,6 +120,18 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   // Pack rounds get their own "crate" treatment — flavor-tinted panels you pick between.
   const isPack = brewNode.type === 'bundle';
 
+  // Special routes (Combos / Headliner / Hidden Synergy) arrive as ONE sealed, route-flavored
+  // booster: contents hidden until the crack, choices erupting from the open pack. The sealed face
+  // wears the route's color + card count and ABSTRACT generated art — no featured card, nothing
+  // teased (BrewSpecialPack paints the motif from the route key).
+  const specialFace: BrewOption = {
+    id: brewNode.routeId,
+    label: op.label,
+    cards: brewNode.options.flatMap(o => o.cards),
+    reasons: [],
+    flavor: isCombo ? 'combo' : routeKey(brewNode.routeId) === 'synergy' ? 'discovery' : undefined,
+  };
+
   function choose(option: BrewOption) {
     if (exiting) return;                          // ignore clicks once a card is on its way out
     const taken = new Set(option.cards.map(c => c.name));
@@ -194,11 +207,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         {brewNode.prompt}
       </h2>
       <p className="text-xs text-muted-foreground mb-7 mx-auto max-w-md">
-        {brewNode.type === 'bundle' ? 'Crack one open — keep what you like, pass the rest.'
-          : isHeadliner ? 'Pick any number of these standouts. The rest are gone.'
+        {isHeadliner ? 'Pick any number of these standouts. The rest are gone.'
           : brewNode.type === 'draft' ? 'Take one card. The rest are gone.'
           : brewNode.type === 'combo' ? 'Pick a combo to finish, or pass.'
-          : 'Take one card.'}
+          : ''}
       </p>
 
       {brewNode.options.length === 0 ? (
@@ -219,9 +231,15 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         <BrewPackCrack key={`${brewNode.routeId}|${allShown.join(',')}`} onCracked={setPackCracked} />
         </>
       ) : (
-      /* ── Single-card / lightning / combo layout. Remount on open AND reroll so deal-in replays. ── */
-      <div
+      /* ── Special routes: one sealed route-pack cracks open into the single-card / combo layout.
+            Keyed on open AND reroll so the seal + deal-in replay together. ── */
+      <BrewSpecialPack
         key={`${brewNode.routeId}|${allShown.join(',')}`}
+        face={specialFace}
+        packColor={op.color}
+        onCracked={() => setPackCracked(true)}
+      >
+      <div
         className={`relative gap-y-9 ${packaged ? `flex flex-wrap items-stretch justify-center ${isCombo ? 'gap-x-6' : 'gap-x-2'}` : 'grid items-stretch gap-x-3'}`}
         style={packaged
           ? { perspective: '1200px' }
@@ -401,10 +419,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           );
         })}
       </div>
-      )}
 
       {/* Headliner: a single CTA to lock in everything you've selected (the rest are gone). */}
-      {isHeadliner && brewNode.options.length > 0 && (
+      {isHeadliner && (
         <div className="mt-8 flex justify-center">
           <Button
             className="btn-shimmer"
@@ -417,6 +434,8 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               : `Take ${selectedIds.size} ${selectedIds.size === 1 ? 'card' : 'cards'} — leave the rest`}
           </Button>
         </div>
+      )}
+      </BrewSpecialPack>
       )}
 
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">

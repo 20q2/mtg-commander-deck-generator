@@ -115,13 +115,16 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
 
   const fillRatio = ctx.nonLandTarget > 0 ? nonLandPicks / ctx.nonLandTarget : 0;
 
-  const routes: BrewRoute[] = [];
+  // The fork's CARDS are the special opportunities — opening a pack is the run's normal fare, so it
+  // never competes as a peer card; it rides along as the quiet default (rendered as a low-key
+  // "or just open a pack" action under the specials).
+  const specials: BrewRoute[] = [];
   const leaning = leaningThemes(ctx, state);
   const leanFlavor = leaning.length > 0 ? ` Leaning into ${leaning[0]}.` : '';
 
   if (nearMiss.length > 0) {
     const count = Math.min(nearMiss.length, 3);
-    routes.push({
+    specials.push({
       id: 'combo',
       type: 'combo',
       title: count === 1 ? 'Complete a Combo' : 'Combos',
@@ -133,34 +136,34 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     });
   }
 
-  // The primary way to pick is to open a package: one screen, three directions — pick a whole pack,
-  // not a single card. Early ("identity phase") the directions are all themes; once the deck's shape
-  // is set, the lead direction becomes the biggest deficit (fill holes + add staples).
+  // The default path — open a package: one screen, three directions, pick a whole pack. Early
+  // ("identity phase") the directions are all themes; once the deck's shape is set, the lead
+  // direction becomes the biggest deficit (fill holes + add staples).
   const usedSet = new Set(state.usedNames);
   const draftableLeft = pool(ctx, state).some(c => !usedSet.has(c.name) && !c.isLand);
   const topNeed = deficits[0];
   const steer = !!topNeed && deckFill(ctx, state) >= IDENTITY_PHASE_FILL;
-  if (draftableLeft) {
-    routes.push({
-      id: 'bundle:pack',
-      type: 'bundle',
-      title: 'Open a Pack',
-      description: steer
-        ? `${deficitFlavor(topNeed!)}${leanFlavor}`
-        : leaning.length > 0
-          ? `Lean into ${leaning[0]} — three directions to explore.`
-          : "Three directions — find your deck's identity.",
-      targetRole: steer && topNeed!.kind === 'role' ? (topNeed!.key as RoleKey) : null,
-      targetType: steer && topNeed!.kind === 'type' ? topNeed!.key : null,
-      tone: steer ? 'need' : 'theme',
-      tag: steer ? `${topNeed!.shortLabel} ${topNeed!.current}/${topNeed!.target}` : (leaning[0] ?? 'Identity'),
-      fills: 3,
-    });
-  }
+  const packRoute: BrewRoute | null = draftableLeft
+    ? {
+        id: 'bundle:pack',
+        type: 'bundle',
+        title: 'Open a Pack',
+        description: steer
+          ? `${deficitFlavor(topNeed!)}${leanFlavor}`
+          : leaning.length > 0
+            ? `Lean into ${leaning[0]} — three directions to explore.`
+            : "Three directions — find your deck's identity.",
+        targetRole: steer && topNeed!.kind === 'role' ? (topNeed!.key as RoleKey) : null,
+        targetType: steer && topNeed!.kind === 'type' ? topNeed!.key : null,
+        tone: steer ? 'need' : 'theme',
+        tag: steer ? `${topNeed!.shortLabel} ${topNeed!.current}/${topNeed!.target}` : (leaning[0] ?? 'Identity'),
+        fills: 3,
+      }
+    : null;
 
   // Distinct "ways to acquire" beyond opening a pack — each a different decision (commit hard /
   // trust the synergy graph / take a swing). Surfaced as ROTATING extras so the fork stays a real
-  // menu fork-to-fork instead of always "Open a Pack". slice(0,3) below keeps the pack (+ combo).
+  // menu fork-to-fork. slice(0,3) below caps the special cards (+ combo).
   const extras: BrewRoute[] = [];
   // Headliner — four standouts; take as many as you want, the rest are gone. A regular option now
   // (no longer alternating-only), but withheld near completion so it doesn't crowd the late deck.
@@ -209,11 +212,11 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
       targetRole: null, targetType: null, tone: 'neutral', tag: 'Wager', fills: 0,
     });
   }
-  routes.push(...rotate(extras, (state.seed ?? 0) + state.history.length));
+  specials.push(...rotate(extras, (state.seed ?? 0) + state.history.length));
 
   // Exhaustion fallback: if nothing meaningful can be drafted (no pack/elite/combo route), surface
   // the mana base / finish route rather than a dead-end fork.
-  if (routes.length === 0) {
+  if (specials.length === 0 && !packRoute) {
     return [{
       id: 'manabase', type: 'manabase', title: 'Build the Mana Base',
       description: 'No more cards to draft — finish the deck and fill the mana base.',
@@ -221,7 +224,9 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     }];
   }
 
-  return routes.slice(0, 3);
+  // Up to three special cards; the pack route (if any) always tags along LAST — the UI renders it
+  // as the quiet default under the specials, never as one of the cards.
+  return packRoute ? [...specials.slice(0, 3), packRoute] : specials.slice(0, 3);
 }
 
 export function matchesDeficit(c: BrewContext['candidates'][number], d: Deficit): boolean {

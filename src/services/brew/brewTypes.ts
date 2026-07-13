@@ -127,6 +127,12 @@ export interface BrewOption {
    */
   engineScore?: number;
   /**
+   * Per-card offerScores, aligned with `cards` — the same numbers engineScore averages. Drives the
+   * fan's opt-in "Suggested" highlights (the top-scored card or two per cracked pack). Display-only;
+   * never shown as a number and never fed back into scoring.
+   */
+  cardScores?: number[];
+  /**
    * Double-or-nothing stakes: two face-down signature cards (the theme's next-best after the gold)
    * the player may trade the revealed gold card for, sight unseen. Attached to at most one gold
    * windfall per run (never rainbow — you don't gamble away the jackpot). Both outcomes are real
@@ -239,7 +245,6 @@ export interface BrewCelebration {
 export interface BrewHealth {
   cardCount: number;          // total cards picked (includes lands once the mana-base node runs in Plan 3)
   nonLandTarget: number;
-  deckScore: number;          // sum of EDHREC inclusion % across picks (mirrors GeneratedDeck.deckScore)
   roleCounts: Record<RoleKey, number>;
   roleTargets: Record<RoleKey, number>;
   typeCounts: Record<string, number>;

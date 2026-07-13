@@ -1,5 +1,5 @@
 import { useStore } from '@/store';
-import { computeDeckStats, isComplete, type RadarAxis, type TypeBar } from '@/services/brew/engine';
+import { computeDeckStats, type RadarAxis, type TypeBar } from '@/services/brew/engine';
 import { ROLE_AXES, CARD_TYPE_MS, operationTheme, RAIL_TITLE_CLASS, RAIL_RADAR_SCALE } from '@/components/brew/brewVisuals';
 import { BrewIdentityMeter } from './BrewIdentityMeter';
 import { Radar, type RadarDatum } from '@/components/charts/Radar';
@@ -47,7 +47,6 @@ export function BrewStatsContent() {
   // before they read as anything but zeros.
   const showCharts = brewState.picks.length >= 3;
   const stats = showCharts ? computeDeckStats(brewContext, brewState) : null;
-  const incomplete = !isComplete(brewContext, brewState);
 
   return (
     <>
@@ -68,14 +67,6 @@ export function BrewStatsContent() {
               gradientId="radarRole"
               scale={RAIL_RADAR_SCALE}
             />
-            {/* Reassurance: a thin role here doesn't mean the deck is broken — the generator rounds
-                out ramp/removal/protection when you finish. Without this, "Protection 0/6" reads as
-                an error rather than "we'll handle it." */}
-            {incomplete && !stats.rounded && (
-              <p className="mt-0.5 max-w-[190px] text-center font-flavor italic text-[11px] leading-tight text-muted-foreground/70 normal-case tracking-normal">
-                Light on a role? We fill the rest in when you finish.
-              </p>
-            )}
           </div>
 
           {stats.types.length >= 3 && (

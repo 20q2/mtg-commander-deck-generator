@@ -117,19 +117,6 @@ export function BrewHealthStrip() {
           </StatPop>
         </span>
 
-        <span className="h-5 w-px bg-border/60" aria-hidden="true" />
-
-        <StatPop
-          value={h.deckScore}
-          format={d => (Math.round(d) >= 1 ? `+${Math.round(d)}` : null)}
-          colorClass="text-violet-300"
-          className="text-violet-200"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-violet-300/90" />
-          <span className="text-[11px] font-medium text-violet-200/70">Deck Score</span>
-          <span className="text-sm font-bold tabular-nums text-violet-100">{Math.round(h.deckScore)}</span>
-        </StatPop>
-
         {/* Mute/unmute the celebration sound + haptic cues. */}
         <button
           type="button"

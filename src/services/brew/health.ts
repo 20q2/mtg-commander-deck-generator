@@ -30,7 +30,6 @@ function priceUsd(card: ScryfallCard): number {
 export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
   const roleCounts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   const typeCounts: Record<string, number> = {};
-  let deckScore = 0;
   let estCostUsd = 0;
   let themeCards = 0;
 
@@ -38,7 +37,6 @@ export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
     if (p.role && ROLE_KEYS.includes(p.role)) roleCounts[p.role] += 1;
     const tk = typeKey(p.card.type_line);
     typeCounts[tk] = (typeCounts[tk] ?? 0) + 1;
-    deckScore += p.inclusion;
     estCostUsd += priceUsd(p.card);
     // theme density uses the EDHREC theme-synergy flag stamped on the scryfall card if present
     if (p.card.isThemeSynergyCard) themeCards += 1;
@@ -58,7 +56,6 @@ export function buildHealth(ctx: BrewContext, state: BrewState): BrewHealth {
   return {
     cardCount,
     nonLandTarget: ctx.nonLandTarget,
-    deckScore,
     roleCounts,
     roleTargets: ctx.roleTargets,
     typeCounts,

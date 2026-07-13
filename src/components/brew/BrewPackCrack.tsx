@@ -9,14 +9,16 @@ import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
 import type { PackSceneAPI } from '@/components/brew/packScene';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey } from '@/components/brew/brewVisuals';
-import { Check, Crown, Sparkles, Package } from 'lucide-react';
+import { RoleBadges } from '@/components/brew/RoleBadges';
+import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb } from 'lucide-react';
 
 /**
  * The crack-a-pack loop: a pack round offers three SEALED boosters — theme + headline showing,
  * contents hidden. Click one and the ceremony plays in ONE continuous space (no overlay swap):
  * the other two packs FALL away, the chosen pack flies to center and looms closer while you
- * wait… then it bursts — the seam strip pops off, the wrapper tumbles away, and the cards SHOOT
- * out of it into the fan. Keep any you like (min 1), pass the rest.
+ * wait… then it CRACKS, Pocket-style — a spark sweeps the seam, the crimp strip rips off and
+ * tumbles away, light spills from the open mouth, and the cards SHOOT out of it into the fan
+ * while the emptied wrapper sheds underneath. Keep any you like (min 1), pass the rest.
  *
  * Physicality: sealed packs tilt in 3D toward the pointer (spring-simulated — they lag,
  * overshoot, wobble back) with a glare hotspot tracking the cursor. All CSS/DOM, no assets.
@@ -25,8 +27,9 @@ import { Check, Crown, Sparkles, Package } from 'lucide-react';
 
 const COMMIT_MS = 380;    // matches the fly-to-deck / melt-away animations used across brew
 const STAGE_MS = 1250;    // fall-away + fly-to-center + the anticipation creep, then the burst
-const SOUND_LEAD_MS = 120; // the tear sound starts just before the burst so the pop lands on it
+const SOUND_LEAD_MS = 120; // (CSS path) the tear sound starts just before the burst
 const GHOST_MS = 950;     // how long the burst wrapper (strip + falling body) stays mounted
+const TEAR_SEC = 0.48;    // (3D path) the tear-noise length — matches the scene's TEAR_MS sweep
 
 // --- Spring-driven tilt: the pack has mass. It lags the pointer, overshoots, and wobbles back
 //     to rest instead of snapping. Springs run per-element on rAF and write CSS vars directly. ---
@@ -34,9 +37,18 @@ const TILT_RANGE = 16;
 const SPRING_K = 0.16;
 const SPRING_D = 0.78;
 
+// Suggestions: an opt-out highlight of the engine's top-scored card or two in a cracked fan
+// (Lightbulb + lavender — the same "next best move" pairing the Inspector uses). Persisted.
+const SUGGEST_KEY = 'mtg-brew-suggest';
+
 type Spring = { cur: number; vel: number; target: number };
-type TiltState = { rx: Spring; ry: Spring; raf: number | null };
+type TiltState = { rx: Spring; ry: Spring; amt: number; hovered: boolean; raf: number | null };
 const tiltStates = new WeakMap<HTMLElement, TiltState>();
+
+// Per-frame engagement rates (~60fps, like the spring constants). Hover on/off is a step
+// function — without the ramp, entering from a side edge whips the pack to full side-tilt.
+const HOVER_IN = 0.14;
+const HOVER_OUT = 0.09;
 
 function tiltStep(el: HTMLElement, s: TiltState): void {
   let live = false;
@@ -45,23 +57,31 @@ function tiltStep(el: HTMLElement, s: TiltState): void {
     sp.cur += sp.vel;
     if (Math.abs(sp.vel) > 0.005 || Math.abs(sp.target - sp.cur) > 0.005) live = true;
   }
-  el.style.setProperty('--rx', `${s.rx.cur.toFixed(3)}deg`);
-  el.style.setProperty('--ry', `${s.ry.cur.toFixed(3)}deg`);
+  const goal = s.hovered ? 1 : 0;
+  s.amt += (goal - s.amt) * (s.hovered ? HOVER_IN : HOVER_OUT);
+  if (Math.abs(goal - s.amt) > 0.002) live = true;
+  el.style.setProperty('--rx', `${(s.rx.cur * s.amt).toFixed(3)}deg`);
+  el.style.setProperty('--ry', `${(s.ry.cur * s.amt).toFixed(3)}deg`);
   s.raf = live ? requestAnimationFrame(() => tiltStep(el, s)) : null;
 }
-function setTiltTarget(el: HTMLElement, rx: number, ry: number): void {
+function tiltState(el: HTMLElement): TiltState {
   let s = tiltStates.get(el);
   if (!s) {
-    s = { rx: { cur: 0, vel: 0, target: 0 }, ry: { cur: 0, vel: 0, target: 0 }, raf: null };
+    s = { rx: { cur: 0, vel: 0, target: 0 }, ry: { cur: 0, vel: 0, target: 0 }, amt: 0, hovered: false, raf: null };
     tiltStates.set(el, s);
   }
+  return s;
+}
+function setTiltTarget(el: HTMLElement, rx: number, ry: number): void {
+  const s = tiltState(el);
+  s.hovered = true;
   s.rx.target = rx;
   s.ry.target = ry;
-  if (s.raf == null) s.raf = requestAnimationFrame(() => tiltStep(el, s!));
+  if (s.raf == null) s.raf = requestAnimationFrame(() => tiltStep(el, s));
 }
 
 /** Pointer over the pack: glare follows instantly (light is massless); tilt springs after it. */
-function trackTilt(e: ReactPointerEvent<HTMLElement>): void {
+export function trackTilt(e: ReactPointerEvent<HTMLElement>): void {
   const el = e.currentTarget;
   const r = el.getBoundingClientRect();
   const px = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
@@ -70,15 +90,19 @@ function trackTilt(e: ReactPointerEvent<HTMLElement>): void {
   el.style.setProperty('--my', `${py * 100}%`);
   setTiltTarget(el, (py - 0.5) * -TILT_RANGE, (px - 0.5) * TILT_RANGE);
 }
-function resetTilt(e: ReactPointerEvent<HTMLElement>): void {
+export function resetTilt(e: ReactPointerEvent<HTMLElement>): void {
   const el = e.currentTarget;
   el.style.setProperty('--mx', '50%');
   el.style.setProperty('--my', '50%');
-  setTiltTarget(el, 0, 0);
+  // Keep the last tilt targets: the engagement fade settles the pack back along its current
+  // lean — re-targeting center would spring it back at full stiffness (the old snap).
+  const s = tiltState(el);
+  s.hovered = false;
+  if (s.raf == null) s.raf = requestAnimationFrame(() => tiltStep(el, s));
 }
 
 /** The pack's physical depth: back slab + side edges, revealed as the front face tilts. */
-function PackDepth() {
+export function PackDepth() {
   return (
     <>
       <div aria-hidden="true" className="brew-pack-back absolute inset-0 rounded-lg" />
@@ -88,11 +112,13 @@ function PackDepth() {
   );
 }
 
-/** The booster wrapper visuals, shared by the sealed grid and the burst ghost. */
-function PackBody({ option, packColor, brand = true }: { option: BrewOption; packColor: string; brand?: boolean }) {
+/** The booster wrapper visuals, shared by the sealed grid, the burst ghost, and the special pack.
+ *  `artOverride` swaps the featured card's art for generated art (the special packs never tease a card). */
+export function PackBody({ option, packColor, brand = true, artOverride }: { option: BrewOption; packColor: string; brand?: boolean; artOverride?: string }) {
   const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
   const sigCard = option.cards.find(c => c.name === option.hallmarkName) ?? option.cards[0];
-  const packArt = sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
+  const packArt = artOverride
+    ?? sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
   const count = option.cards.length + (option.goldCard ? 1 : 0);
   return (
     <>
@@ -151,6 +177,17 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
   const [committing, setCommitting] = useState(false);
   // Hovering a fan card pops a full, readable preview beside it (mirrors the old pack behavior).
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
+  // Suggestions on/off — the fan highlights the engine's top pick(s) when on. Sticky per player.
+  const [suggestOn, setSuggestOn] = useState(() => {
+    try { return localStorage.getItem(SUGGEST_KEY) !== 'false'; } catch { return true; }
+  });
+  function toggleSuggest() {
+    setSuggestOn(v => {
+      const next = !v;
+      try { localStorage.setItem(SUGGEST_KEY, String(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -161,32 +198,35 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
 
   // --- The real 3D packs (lazy WebGL; the CSS wrappers below stay as the automatic fallback).
   const [scene, setScene] = useState<PackSceneAPI | null>(null);
-  // The CSS packs render instantly and CROSSFADE out once the 3D scene is ready — a new round
-  // never hard-swaps styles in front of the player.
-  const [cssFaded, setCssFaded] = useState(false);
-  useEffect(() => {
-    if (!scene) { setCssFaded(false); return; }
-    const t = window.setTimeout(() => setCssFaded(true), 350);
-    return () => window.clearTimeout(t);
-  }, [scene]);
+  // The CSS packs are ONLY the true fallback (no WebGL / scene failure / reduced motion) — never
+  // a loading stand-in. While the 3D scene loads the shelf stays empty, then the meshes fade in;
+  // 2D wrappers being covered up by the 3D packs read as a glitch, not a crossfade.
+  const [webglFailed, setWebglFailed] = useState(false);
   const sceneRef = useRef<PackSceneAPI | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const zoneEls = useRef<Map<string, HTMLElement>>(new Map());
   const nodeKey = brewNode ? brewNode.routeId + brewNode.options.map(o => o.id).join('|') : '';
   useEffect(() => {
-    if (reduceMotion || !brewNode || brewNode.options.length === 0) return;
+    // Once WebGL has failed, don't retry per round — the CSS fallback owns the session.
+    if (reduceMotion || webglFailed || !brewNode || brewNode.options.length === 0) return;
     let cancelled = false;
     (async () => {
       try {
         const { createPackScene } = await import('@/components/brew/packScene');
         const canvas = canvasRef.current;
-        if (!canvas || cancelled) return;
+        if (cancelled) return;
+        if (!canvas) { setWebglFailed(true); return; }   // no stage to render into → CSS owns it
         const specs = brewNode.options.map(o => {
           const fl = (o.flavor && PACK_FLAVOR[o.flavor]) || PACK_FLAVOR.value;
           const sig = o.cards.find(c => c.name === o.hallmarkName) ?? o.cards[0];
           return {
             color: o.flavor === 'theme' ? themeColor(routeKey(o.id) ?? '') : fl.color,
             artUrl: sig?.scryfall.image_uris?.art_crop ?? sig?.scryfall.card_faces?.[0]?.image_uris?.art_crop,
+            // The set block is PRINTED on the wrapper — no DOM text ever floats over the mesh.
+            label: o.label,
+            featName: o.hallmarkName,
+            count: o.cards.length + (o.goldCard ? 1 : 0),
+            tease: !!o.windfallTease,
           };
         });
         const api = await createPackScene(canvas, specs);
@@ -194,7 +234,8 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
         sceneRef.current = api;
         setScene(api);
       } catch {
-        /* no WebGL / load failure → the CSS packs render instead */
+        // No WebGL / load failure → the CSS packs render instead.
+        if (!cancelled) setWebglFailed(true);
       }
     })();
     return () => {
@@ -203,7 +244,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
       sceneRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeKey, reduceMotion]);
+  }, [nodeKey, reduceMotion, webglFailed]);
 
   // Align the 3D packs with their DOM label zones (and re-align on resize).
   useLayoutEffect(() => {
@@ -227,13 +268,14 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
   }, [scene]);
 
   // The shoot-out: once the fan mounts behind a burst, aim every card FROM the pack's mouth
-  // (the container center, where the staged pack ends up) TO its own resting slot. Measured and
-  // written as per-card CSS vars before paint, so the eruption starts exactly inside the pack.
+  // TO its own resting slot. With the 3D scene that's literally the torn-open seam (the looming
+  // pack's upper region); the CSS path keeps the container center. Measured and written as
+  // per-card CSS vars before paint, so the eruption starts exactly inside the pack.
   useLayoutEffect(() => {
     if (!ghost || !fanRef.current || !containerRef.current) return;
     const box = containerRef.current.getBoundingClientRect();
     const originX = box.left + box.width / 2;
-    const originY = box.top + (scene ? 220 : Math.min(box.height / 2, 260));
+    const originY = box.top + (scene ? 100 : Math.min(box.height / 2, 260));
     const cards = fanRef.current.querySelectorAll<HTMLElement>('[data-fan-card]');
     cards.forEach((el, i) => {
       const r = el.getBoundingClientRect();
@@ -254,19 +296,23 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
     if (reduceMotion) { setCracked(option.id); return; }
     if (scene && brewNode) {
-      // 3D ceremony: the scene owns the fall / fly / loom / burst; DOM handles the card eruption.
+      // 3D ceremony: the scene owns the fall / fly / loom / crack (tear sweep → strip pop →
+      // mouth open); DOM handles the card eruption. burst() resolves at MOUTH-OPEN — that's the
+      // cue to mount the fan, so the cards erupt the moment the wrapper is actually open. The
+      // tear sound starts with the visible tear; its pop lands on the strip's release.
       const idx = brewNode.options.findIndex(o => o.id === option.id);
       scene.pointer(null);
       scene.stage(idx);
       setStaged(option.id);
-      timers.current.push(window.setTimeout(() => playPackCrack(), STAGE_MS - SOUND_LEAD_MS));
+      timers.current.push(window.setTimeout(() => playPackCrack(TEAR_SEC), STAGE_MS));
       timers.current.push(window.setTimeout(() => {
-        void scene.burst(idx);
-        setGhost(option);
-        setCracked(option.id);
-        setStaged(null);
+        void scene.burst(idx).then(() => {
+          setGhost(option);
+          setCracked(option.id);
+          setStaged(null);
+          timers.current.push(window.setTimeout(() => setGhost(null), GHOST_MS));
+        });
       }, STAGE_MS));
-      timers.current.push(window.setTimeout(() => setGhost(null), STAGE_MS + GHOST_MS));
       return;
     }
     // CSS ceremony (no WebGL): FLIP the chosen pack to the container center via keyframes while
@@ -314,6 +360,7 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
       windfallTier: foilKept ? option.windfallTier : undefined,
       windfallTease: undefined,
       wagerTrade: undefined,
+      cardScores: undefined,   // aligned to the ORIGINAL cards — stale once we filtered them
     };
     const allNames = options.flatMap(o => [...o.cards.map(c => c.name), ...(o.goldCard ? [o.goldCard.name] : [])]);
     const passed = allNames.filter(n => !keep.has(n));
@@ -330,6 +377,17 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
       ...(foil ? [{ card: foil, isFoil: true }] : []),
     ];
     const isRainbow = crackedOption.windfallTier === 'rainbow';
+    // The suggested take(s): the engine's top-scored card or two (the same offerScores behind
+    // engineScore — relevancy to YOUR build, not raw popularity). The foil rides its own rail.
+    const suggested = new Set<string>();
+    if (suggestOn && crackedOption.cardScores?.length) {
+      crackedOption.cards
+        .map((c, i) => ({ name: c.name, score: crackedOption.cardScores?.[i] ?? 0 }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, crackedOption.cards.length >= 4 ? 2 : 1)
+        .forEach(r => suggested.add(r.name));
+    }
+    const currencySymbol = customization.currency === 'EUR' ? '€' : '$';
     return (
       <div ref={fanRef} className="relative z-10 text-center" style={{ ['--pk' as string]: `hsl(${packColor})`, ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}>
         <div className={`mb-5 inline-flex items-center gap-2 font-display text-lg font-semibold text-[color:var(--pk-text)] ${ghost ? 'animate-fade-in' : ''}`}>
@@ -338,6 +396,14 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
         <div className="flex flex-wrap items-start justify-center gap-3 sm:gap-4">
           {fan.map(({ card, isFoil }, i) => {
             const kept = keep.has(card.name);
+            const priceNum = Number(getCardPrice(card.scryfall, customization.currency) ?? NaN);
+            // The fan's reasons align with crackedOption.cards; the foil rides at the end with none.
+            const cardReasons = isFoil ? [] : (crackedOption.reasons[i] ?? []);
+            const isGameChanger = cardReasons.some(r => r.kind === 'gameChanger');
+            const comboReason = cardReasons.find(r => r.kind === 'comboPiece');
+            // The wrapper promised "feat. <card>" — once the pack is open, point at that card.
+            const isHallmark = !isFoil && card.name === crackedOption.hallmarkName;
+            const isSuggested = !isFoil && suggested.has(card.name);
             const foilRing = isRainbow
               ? 'ring-2 ring-fuchsia-300/80 shadow-[0_0_26px_-4px_rgba(232,121,249,0.7),0_6px_18px_rgba(0,0,0,0.55)]'
               : 'ring-2 ring-amber-300/80 shadow-[0_0_26px_-4px_rgba(251,191,36,0.7),0_6px_18px_rgba(0,0,0,0.55)]';
@@ -351,10 +417,11 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                 disabled={committing}
                 aria-pressed={kept}
                 style={committing ? undefined : { animationDelay: `${120 + i * 65}ms` }}
-                className={`relative w-[150px] sm:w-[176px] rounded-[4.8%] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
+                className={`relative w-[172px] sm:w-[200px] rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   committing
                     ? (kept ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
-                    : ghost ? 'brew-card-shoot' : ''
+                    : ghost ? 'brew-card-shoot'
+                    : kept ? '-translate-y-2' : ''
                 }`}
               >
                 {isFoil && (
@@ -365,6 +432,19 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                   }`}>
                     {isRainbow ? <Sparkles className="w-3 h-3" /> : <Crown className="w-3 h-3" />}
                     {isRainbow ? 'Rainbow foil' : 'Foil'}
+                  </span>
+                )}
+                {/* One badge per card: the actionable "Suggested" wins over the informational
+                    "Signature" when the hallmark is also the engine's top pick. */}
+                {isSuggested ? (
+                  <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-1 rounded-full border border-violet-300/80 bg-[#150a2e]/90 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-100 backdrop-blur-sm">
+                    <Lightbulb className="w-3 h-3" />
+                    Suggested
+                  </span>
+                ) : isHallmark && (
+                  <span className="absolute -top-2.5 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-1 rounded-full border border-violet-300/80 bg-[#150a2e]/90 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-100 backdrop-blur-sm">
+                    <Star className="w-3 h-3" />
+                    Signature
                   </span>
                 )}
                 {kept && (
@@ -378,9 +458,33 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                   className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${
                     isFoil ? foilRing
                       : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
+                      : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
                       : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
                   } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
                 />
+                {/* Caption: what the corner badges used to say, in plain text under the card. */}
+                <span className="mt-1.5 block w-full truncate text-[11px] font-semibold leading-tight text-foreground/90">
+                  {card.name}
+                </span>
+                <span className="mt-1 flex min-h-[16px] items-center justify-center gap-1.5">
+                  <span className="text-[10px] font-bold tabular-nums text-muted-foreground">
+                    {Number.isFinite(priceNum) ? `${currencySymbol}${priceNum.toFixed(2)}` : '—'}
+                  </span>
+                  <RoleBadges cardName={card.name} size="sm" corner="inline" />
+                  {comboReason && (
+                    <span
+                      title={comboReason.label}
+                      className="grid place-items-center w-4 h-4 rounded-full bg-[#0b0b10]/85 text-teal-300 shadow ring-1 ring-inset ring-teal-400/60"
+                    >
+                      <Link2 className="w-2.5 h-2.5" strokeWidth={2.25} />
+                    </span>
+                  )}
+                  {isGameChanger && (
+                    <span title="Game Changer" className="grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40">
+                      <Crown className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+                </span>
               </button>
             );
           })}
@@ -496,24 +600,26 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
 
   // ── The 3D stage: real booster meshes aligned under DOM label zones. Stays mounted through
   //    the burst (the emptied wrapper tumbles in-scene, under the erupting DOM cards). ──
-  const webglView = !reduceMotion && (!crackedOption || ghost) && (
+  const webglView = !reduceMotion && !webglFailed && (!crackedOption || ghost) && (
     <div
       className={crackedOption
         ? 'pointer-events-none absolute inset-x-0 top-0 h-[440px]'
-        : 'relative h-[440px]'}
+        // The new round is DEALT to you: once the scene is ready, the whole shelf (canvas +
+        // zones together, so mesh↔zone alignment holds) slides up from the table edge.
+        : `relative h-[440px] ${scene ? 'animate-brew-shelf-in' : ''}`}
     >
-      {/* The canvas extends far below the visible shelf so falling/tumbling packs exit the
-          screen instead of clipping at an invisible edge. It never takes pointer events (the
-          zone buttons do), and it fades in over the CSS packs once the scene is ready. */}
+      {/* The canvas overshoots 160px ABOVE the shelf (headroom for the looming pack's crimp and
+          the popped tear strip — keep in step with packScene's HEADROOM_PX) and far below it so
+          falling/tumbling packs exit the screen instead of clipping at an invisible edge. It
+          never takes pointer events (the zone buttons do), and it fades in over the CSS packs
+          once the scene is ready. */}
       <canvas
         ref={canvasRef}
-        className={`pointer-events-none absolute inset-x-0 top-0 h-[900px] w-full transition-opacity duration-300 ${scene ? 'opacity-100' : 'opacity-0'}`}
+        className={`pointer-events-none absolute inset-x-0 -top-[160px] h-[1060px] w-full transition-opacity duration-300 ${scene ? 'opacity-100' : 'opacity-0'}`}
       />
       {!crackedOption && scene && (
         <div className="relative flex h-full items-stretch justify-center gap-6 py-2 sm:gap-9">
           {options.map((option, idx) => {
-            const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
-            const packColor = option.flavor === 'theme' ? themeColor(routeKey(option.id) ?? '') : fl.color;
             const count = option.cards.length + (option.goldCard ? 1 : 0);
             return (
               <button
@@ -527,29 +633,12 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
                   scene.pointer(idx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
                 }}
                 onPointerLeave={() => { if (!staged) scene.pointer(null); }}
-                style={{ ['--pk-text' as string]: `hsl(${legibleText(packColor)})` }}
+                // The set block (label / feat. / count / tease) is PRINTED on the wrapper
+                // texture — nothing floats over the mesh, so the zone button is invisible and
+                // needs its accessible name spelled out.
+                aria-label={`${option.label}${option.hallmarkName ? ` — feat. ${option.hallmarkName}` : ''}, ${count} cards`}
                 className="group relative w-[170px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[190px]"
-              >
-                {/* The set plate floats over the mesh's lower third (like the reference's title
-                    block); it fades out once the ceremony starts. */}
-                <div className={`absolute inset-x-0 bottom-[64px] flex flex-col items-center gap-1 px-2 transition-opacity duration-200 ${staged ? 'opacity-0' : ''}`}>
-                  {option.windfallTease && (
-                    <span className="font-flavor text-[11px] italic text-amber-200 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">something glints inside…</span>
-                  )}
-                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-white/25 bg-black/55 px-3 py-1 font-display text-sm font-bold uppercase tracking-wide text-[color:var(--pk-text)] shadow-[0_3px_12px_rgba(0,0,0,0.6)] backdrop-blur-sm">
-                    <fl.Icon className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{option.label}</span>
-                  </span>
-                  {option.hallmarkName && (
-                    <span className="max-w-full truncate text-[11px] text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                      feat. <span className="font-semibold">{option.hallmarkName}</span>
-                    </span>
-                  )}
-                  <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.2em] text-white/65 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                    <Package className="w-3 h-3" /> {count} cards
-                  </span>
-                </div>
-              </button>
+              />
             );
           })}
         </div>
@@ -560,12 +649,25 @@ export function BrewPackCrack({ onCracked }: { onCracked?: (cracked: boolean) =>
   // One continuous stage for all three beats — nothing fades in over anything else.
   return (
     <div ref={containerRef} className="relative min-h-[420px]">
+      {/* The suggestions toggle, up top. Absolutely positioned in the heading gap so it never
+          reflows the pack shelf (the CSS stand-ins and 3D zones share exact positions). */}
+      <button
+        onClick={toggleSuggest}
+        aria-pressed={suggestOn}
+        className={`absolute -top-7 right-0 z-30 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
+          suggestOn
+            ? 'border-violet-300/60 bg-violet-500/15 text-violet-200'
+            : 'border-border/60 bg-black/40 text-muted-foreground hover:text-foreground/80'
+        }`}
+      >
+        <Lightbulb className="w-3.5 h-3.5" />
+        Suggestions {suggestOn ? 'on' : 'off'}
+      </button>
       {webglView}
-      {(!scene || !cssFaded) && (
-        <div className={scene ? 'pointer-events-none absolute inset-x-0 top-0 z-10 opacity-0 transition-opacity duration-300' : ''}>
-          {gridView}
-        </div>
-      )}
+      {/* The CSS packs render ONLY when 3D genuinely can't (reduced motion / no WebGL / scene
+          failure) — never as a loading stand-in. While the scene loads, the shelf stays empty
+          and the meshes fade in on their own. */}
+      {(reduceMotion || webglFailed) && <div>{gridView}</div>}
       {fanView}
       {ghostView}
       {hoverView}
