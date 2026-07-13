@@ -4,6 +4,9 @@ import { getCardsByNames, getGameChangerNames, getArenaLegalNames } from '@/serv
 import { calculateTypeTargets, calculateCurveTargets } from '@/services/deckBuilder/curveUtils';
 import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckBuilder/roleTargets';
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
+import { loadTagIndex, loadTagDictionary, tagsForOracleId, allTags } from '@/services/spellchroma/tagIndex';
+import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
+import { computeThemeCharTags } from './chromaTags';
 import type { BrewContext, BrewCandidate } from './brewTypes';
 
 // Tag candidates with the commander's top-N themes so the player has lots of directions to lean
@@ -134,6 +137,29 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     }
   }
 
+  // Mechanical tags (SpellChroma index): stamp each candidate with its oracle-derived tags, then
+  // derive each theme's CHARACTERISTIC tags by pool-local lift. Best-effort — a failed fetch leaves
+  // chromaTags empty and themeCharTags undefined, and every consumer falls back to today's behavior.
+  let themeCharTags: Record<string, string[]> | undefined;
+  let chromaTagLabels: Record<string, string> | undefined;
+  try {
+    args.onProgress?.('Reading the cards…', 85);
+    const ok = await loadTagIndex();           // also loads the dictionary (decodes tag ids)
+    await loadTagDictionary();
+    if (ok) {
+      for (const c of candidates) {
+        const oid = c.scryfall.oracle_id;
+        c.chromaTags = oid ? tagsForOracleId(oid).filter(t => !isIgnoredTag(t)) : [];
+      }
+      themeCharTags = computeThemeCharTags(candidates, Object.keys(themeNames));
+      const labels: Record<string, string> = {};
+      for (const e of allTags()) labels[e.s] = e.l;
+      chromaTagLabels = labels;
+    }
+  } catch {
+    // Index unavailable — leave chromaTags empty / themeCharTags undefined (graceful degrade).
+  }
+
   // How many of the commander's known combos each card appears in. ≥2 makes a card "combo glue" —
   // a recurring piece worth flagging (e.g. Isochron Scepter, Dramatic Reversal). DFC front-faces are
   // counted under both the full name and the front face so either form matches a pool card later.
@@ -165,5 +191,7 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     themeNames,
     themeSignatures,
     gameChangerNames,
+    themeCharTags,
+    chromaTagLabels,
   };
 }
