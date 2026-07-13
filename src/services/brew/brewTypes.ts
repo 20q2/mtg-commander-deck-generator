@@ -16,6 +16,7 @@ export interface BrewCandidate {
   discoverySource?: 'lift' | 'coplay' | 'similar';
   connectionCount?: number;    // (cluster discovery) how many of YOUR cards lift this — "N of your cards want this"
   clusterScore?: number;       // (cluster discovery) summed edge strength across those cards (ranking)
+  chromaTags?: string[];       // SpellChroma mechanical tag slugs (oracle-text derived), from the tag index; undefined if the index didn't load
 }
 
 /** Immutable per-session data: the scored pool + targets. Built once by prepareBrewContext(). */
@@ -35,6 +36,8 @@ export interface BrewContext {
   themeNames: Record<string, string>;    // theme slug -> display name (for leaning readout + reasons)
   themeSignatures: Record<string, string[]>; // theme slug -> card names ranked by EDHREC theme-synergy (the cards that DEFINE the theme, not staples played in it)
   gameChangerNames?: Set<string>;        // WotC "game changer" list — surfaced as a pick reason
+  themeCharTags?: Record<string, string[]>;  // theme slug -> its CHARACTERISTIC chroma tags (over-represented in that theme's pool vs. the whole pool). Absent if the tag index didn't load.
+  chromaTagLabels?: Record<string, string>;  // chroma tag slug -> human label, for reason chips. Absent if the tag index didn't load.
 }
 
 export type ReasonKind = 'synergy' | 'role' | 'theme' | 'curve' | 'combo' | 'comboPiece' | 'discovery' | 'lift' | 'gameChanger' | 'tag';
@@ -92,7 +95,7 @@ export interface BrewOption {
   comboResults?: string[];    // for type 'combo': the FULL payoff lines (label only shows the first)
   comboDeckCount?: number;    // for type 'combo': popularity (number of EDHREC decks running it)
   /** What this pack represents — drives its header tint in a multi-pack round. */
-  flavor?: 'need' | 'theme' | 'discovery' | 'combo' | 'value';
+  flavor?: 'need' | 'theme' | 'discovery' | 'combo' | 'value' | 'power';
   /** Subjects (theme/role names) of the OTHER bundles on screen — what taking this one walks away from. */
   closing?: string[];
   /**
