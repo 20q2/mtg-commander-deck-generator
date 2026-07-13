@@ -217,6 +217,43 @@ function takeCards(scored: BrewCandidate[], taken: Set<string>, n: number, pred:
   return matching.slice(0, n);
 }
 
+/**
+ * Which of a theme's characteristic chroma tags this card carries. Empty when the tag index didn't
+ * load (themeCharTags absent) or the card carries none — callers treat "no char-tag data" as a no-op
+ * so the whole feature degrades to pre-tag behavior.
+ */
+function matchedCharTags(ctx: BrewContext, slug: string, c: BrewCandidate): string[] {
+  const chars = ctx.themeCharTags?.[slug];
+  if (!chars || chars.length === 0) return [];
+  const own = c.chromaTags;
+  if (!own || own.length === 0) return [];
+  return chars.filter(t => own.includes(t));
+}
+
+/**
+ * Is this card ON-MECHANIC for the theme — i.e. it carries at least one of the theme's characteristic
+ * tags, OR it's a top EDHREC signature (the escape hatch for cards the tag index doesn't cover). When
+ * the theme has no characteristic-tag data at all, everything on the page passes (legacy behavior).
+ */
+function isOnTheme(ctx: BrewContext, slug: string, c: BrewCandidate, sigRank: Map<string, number> | undefined): boolean {
+  const chars = ctx.themeCharTags?.[slug];
+  if (!chars || chars.length === 0) return true;           // no data → don't gate
+  return matchedCharTags(ctx, slug, c).length > 0 || (sigRank?.has(c.name) ?? false);
+}
+
+/**
+ * True when a card is NOT on-mechanic for ANY of the deck's themes — the honest home for a
+ * generically strong card (a universal tutor, a staple) that the stricter theme gate now excludes.
+ * Only meaningful when characteristic-tag data exists; without it there's no "off-mechanic" signal.
+ */
+function isThemeAgnostic(ctx: BrewContext, c: BrewCandidate): boolean {
+  if (!ctx.themeCharTags) return false;                    // no data → don't form a Good Stuff pack
+  for (const slug of c.themeTags) {
+    if (matchedCharTags(ctx, slug, c).length > 0) return false;
+  }
+  return true;
+}
+
 /** Commander theme slugs with at least a couple of draftable cards, most-stocked first. */
 function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[]): string[] {
   const counts: Record<string, number> = {};
@@ -374,9 +411,22 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       //  - Ramp/removal are softer: allowed only when they're THIS theme's own signature (sigRankBySlug
       //    [slug], not the global union — else a control-theme staple leaks into an unrelated pack).
       match: c => c.themeTags.includes(slug) && !isBoardWipeLike(c)
-        && ((sigRankBySlug[slug]?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role))),
+        && ((sigRankBySlug[slug]?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role)))
+        && isOnTheme(ctx, slug, c, sigRankBySlug[slug]),
       priority: 1_000 + (leanWeights[slug] ?? 0),
       rank: themeRank(slug),
+    });
+  }
+  // A "Good Stuff" pack: the strongest cards that aren't on-mechanic for any theme — the home for the
+  // generic power (universal tutors, staples) the stricter theme gate now excludes, so pick quality
+  // doesn't drop, it just gets an honest label. Only forms when tag data exists (see isThemeAgnostic).
+  if (ctx.themeCharTags && scored.filter(c => isThemeAgnostic(ctx, c)).length >= BUNDLE_MIN) {
+    clusters.push({
+      key: 'goodstuff',
+      label: 'Good Stuff',
+      flavor: 'value',
+      match: c => isThemeAgnostic(ctx, c),
+      priority: 800,     // below theme packs (1_000+), above the exploration slot
     });
   }
   // 3. A discovery bundle if lift/co-play finds are present (kept as its own coherent "hidden synergy").
