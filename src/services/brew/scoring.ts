@@ -117,6 +117,15 @@ const COMBO_PIECE_PER = 4;
 const COMBO_PIECE_CAP = 6;   // count past this stops adding (max ≈ +24)
 
 /**
+ * On-mechanic bonus: a card that carries the CHARACTERISTIC tags of a theme the deck is leaning into
+ * gets a small, capped bump so genuine payoffs outrank incidental staples inside theme packs and their
+ * ordering. Deliberately below the affinity/combo magnitudes — a tiebreaker, not a new dominant force.
+ */
+const ON_MECHANIC_BASE = 8;
+const ON_MECHANIC_PER_EXTRA = 5;
+const ON_MECHANIC_CAP = 18;
+
+/**
  * "Deep cuts early": while the deck is forming its identity, favor theme-DEFINING cards (high EDHREC
  * synergy — they show up far more in this commander's decks than baseline) and dampen generic staples
  * (high inclusion, low synergy). Full strength on an empty deck, fading to zero by mid-game so staples
@@ -200,5 +209,20 @@ export function scoreCandidate(
     && !isUrgentFill(ctx, state, candidate)
     && !pinned
     ? OFF_THEME_PENALTY * (0.5 + 0.5 * deckFill(ctx, state)) : 0;
-  return base + affinity + discovery + cluster + combo - penalty + staples + pin + comboPiece + deepCut;
+  // On-mechanic bump: for the leaning themes this card matches, how many of those themes'
+  // characteristic tags it carries. Scaled by the same affinity weight ramp so it grows with
+  // commitment; capped so it never dominates. No-op when tag data is absent or nothing matches.
+  let onMechanic = 0;
+  if (ctx.themeCharTags && candidate.chromaTags?.length && matchingTags.length > 0) {
+    let matchCount = 0;
+    for (const slug of matchingTags) {
+      const chars = ctx.themeCharTags[slug];
+      if (!chars) continue;
+      for (const t of chars) if (candidate.chromaTags.includes(t)) { matchCount++; }
+    }
+    if (matchCount > 0) {
+      onMechanic = Math.min(ON_MECHANIC_CAP, ON_MECHANIC_BASE + ON_MECHANIC_PER_EXTRA * (matchCount - 1)) * w;
+    }
+  }
+  return base + affinity + discovery + cluster + combo - penalty + staples + pin + comboPiece + deepCut + onMechanic;
 }
