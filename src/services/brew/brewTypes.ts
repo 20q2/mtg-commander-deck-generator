@@ -208,6 +208,7 @@ export interface BrewState {
   seededNames: string[];                // pick names already used as discovery seeds (no refetch)
   committedTheme?: string;              // theme slug the player committed to at a Crossroads (Slice A: drives soft-remove + meter marker)
   pinnedNames?: string[];               // cards the player pinned "for later" — boosted so they resurface in future offers
+  vetoedThemes?: string[];              // theme slugs the player muted — no theme packs / no exploration / zero affinity for them (steer-away, not a card ban)
   questionsAsked: number;               // personality questions answered/skipped so far (caps re-prompts)
   lastPackKeys?: string[];              // option ids (cluster keys) of the previous pack round — held back so the same pack never shows twice in a row
   prevPackKeys?: string[];              // the pack round before lastPackKeys — held back too, so packs rotate across a 2-round window (less "same 3 themes every time")

@@ -725,6 +725,19 @@ export const useStore = create<AppState>((set, get) => ({
     set({ brewState: next });
   },
 
+  // Mute / unmute a theme the player doesn't want to be steered toward. Muted themes stop forming
+  // theme packs, drop out of the exploration slot, and contribute no affinity — a "steer away", not a
+  // card ban. Takes effect from the next round; we recompute the fork routes so it's felt immediately
+  // there, but the current sealed pack round is left intact rather than reshuffling under the player.
+  toggleBrewThemeVeto: (slug: string) => {
+    const { brewContext, brewState } = get();
+    if (!brewContext || !brewState) return;
+    const cur = brewState.vetoedThemes ?? [];
+    const vetoedThemes = cur.includes(slug) ? cur.filter(s => s !== slug) : [...cur, slug];
+    const next: BrewState = { ...brewState, vetoedThemes };
+    set({ brewState: next, brewRoutes: nextRoutes(brewContext, next) });
+  },
+
   gambleDiscover: async (name: string) => {
     const { brewContext, brewState } = get();
     if (!brewContext || !brewState) return;

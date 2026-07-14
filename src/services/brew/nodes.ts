@@ -116,7 +116,9 @@ export function shortPayoff(results: string[]): string {
 function matchingTagsFor(state: BrewState, c: BrewCandidate): string[] {
   const tags = [...c.themeTags];
   if (c.subtype) tags.push(c.subtype);
-  return tags.filter(t => (state.themeAffinity[t] ?? 0) > 0);
+  // A muted theme contributes no affinity — picking its cards elsewhere never re-leans the deck toward
+  // a direction the player explicitly steered away from.
+  return tags.filter(t => (state.themeAffinity[t] ?? 0) > 0 && !state.vetoedThemes?.includes(t));
 }
 
 function availableFor(ctx: BrewContext, state: BrewState, route: BrewRoute): BrewCandidate[] {
@@ -168,7 +170,7 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
     }
   }
   const leaningTags = c.themeTags
-    .filter(t => (state.themeAffinity[t] ?? 0) > 0)
+    .filter(t => (state.themeAffinity[t] ?? 0) > 0 && !state.vetoedThemes?.includes(t))
     .sort((a, b) => (state.themeAffinity[b] ?? 0) - (state.themeAffinity[a] ?? 0));
   if (leaningTags.length > 0) {
     // Cap to the two strongest leans so the chip stays a chip — a deep build can match a dozen themes.
@@ -251,14 +253,26 @@ function matchedCharTags(ctx: BrewContext, slug: string, c: BrewCandidate): stri
 }
 
 /**
- * Is this card ON-MECHANIC for the theme — i.e. it carries at least one of the theme's characteristic
- * tags, OR it's a top EDHREC signature (the escape hatch for cards the tag index doesn't cover). When
- * the theme has no characteristic-tag data at all, everything on the page passes (legacy behavior).
+ * Is this card ON-MECHANIC for the theme — it carries at least one of the theme's characteristic tags,
+ * OR it's a top EDHREC signature (the escape hatch for cards the tag index doesn't cover). When the
+ * theme has no characteristic-tag data at all, everything on the page passes (legacy behavior).
+ *
+ * The escape hatch has one guard: a signature is rejected if it is characteristically a DIFFERENT
+ * theme on offer this round. A multi-tribal commander (e.g. Maralen, an Elf AND Faerie) blends the
+ * tribes on every EDHREC theme page, so Faeries rank as "Elves signatures" purely by co-play. Without
+ * this guard those Faeries ride into the Elves pack on synergy alone — the "elf pack, one elf" bug.
  */
-function isOnTheme(ctx: BrewContext, slug: string, c: BrewCandidate, sigRank: Map<string, number> | undefined): boolean {
+function isOnTheme(
+  ctx: BrewContext, slug: string, c: BrewCandidate,
+  sigRank: Map<string, number> | undefined, otherThemeSlugs: string[],
+): boolean {
   const chars = ctx.themeCharTags?.[slug];
   if (!chars || chars.length === 0) return true;           // no data → don't gate
-  return matchedCharTags(ctx, slug, c).length > 0 || (sigRank?.has(c.name) ?? false);
+  if (matchedCharTags(ctx, slug, c).length > 0) return true;   // carries THIS theme's mechanics
+  if (!(sigRank?.has(c.name) ?? false)) return false;          // not on-type and not a signature → out
+  // Signature, but off this theme's mechanics: admit UNLESS it belongs to another theme on offer.
+  const belongsElsewhere = otherThemeSlugs.some(o => o !== slug && matchedCharTags(ctx, o, c).length > 0);
+  return !belongsElsewhere;
 }
 
 /**
@@ -274,10 +288,12 @@ function isThemeAgnostic(ctx: BrewContext, c: BrewCandidate): boolean {
   return true;
 }
 
-/** Commander theme slugs with at least a couple of draftable cards, most-stocked first. */
-function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[]): string[] {
+/** Commander theme slugs with at least a couple of draftable cards, most-stocked first. Muted themes
+ *  (the player's veto) are dropped, so they never become a theme pack OR an exploration slot. */
+function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[], state: BrewState): string[] {
+  const vetoed = state.vetoedThemes;
   const counts: Record<string, number> = {};
-  for (const c of scored) for (const t of c.themeTags) if (ctx.themeNames[t]) counts[t] = (counts[t] ?? 0) + 1;
+  for (const c of scored) for (const t of c.themeTags) if (ctx.themeNames[t] && !vetoed?.includes(t)) counts[t] = (counts[t] ?? 0) + 1;
   return Object.entries(counts).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([s]) => s);
 }
 
@@ -419,7 +435,10 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   }
   // 2. Theme bundles — one per commander theme that has enough stock, leaning themes weighted up.
   //    Composed signature-first so the pack actually showcases the cards that define the theme.
-  for (const slug of availableThemeSlugs(ctx, scored)) {
+  //    themeSlugList is the full set of themes on offer, so isOnTheme can reject a cross-tribe leak
+  //    (a Faerie signature that belongs to the Faeries pack, not this Elves pack).
+  const themeSlugList = availableThemeSlugs(ctx, scored, state);
+  for (const slug of themeSlugList) {
     clusters.push({
       key: `theme:${slug}`,
       label: ctx.themeNames[slug] ?? slug,
@@ -432,7 +451,7 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       //    [slug], not the global union — else a control-theme staple leaks into an unrelated pack).
       match: c => c.themeTags.includes(slug) && !isBoardWipeLike(c)
         && ((sigRankBySlug[slug]?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role)))
-        && isOnTheme(ctx, slug, c, sigRankBySlug[slug]),
+        && isOnTheme(ctx, slug, c, sigRankBySlug[slug], themeSlugList),
       priority: 1_000 + (leanWeights[slug] ?? 0),
       rank: themeRank(slug),
     });

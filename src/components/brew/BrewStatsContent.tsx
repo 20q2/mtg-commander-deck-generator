@@ -2,6 +2,7 @@ import { useStore } from '@/store';
 import { computeDeckStats, type RadarAxis, type TypeBar } from '@/services/brew/engine';
 import { ROLE_AXES, CARD_TYPE_MS, operationTheme, RAIL_TITLE_CLASS, RAIL_RADAR_SCALE } from '@/components/brew/brewVisuals';
 import { BrewIdentityMeter } from './BrewIdentityMeter';
+import { BrewThemeVeto } from './BrewThemeVeto';
 import { Radar, type RadarDatum } from '@/components/charts/Radar';
 import { MiniCurve } from '@/components/charts/MiniCurve';
 
@@ -41,7 +42,7 @@ function typeRadarData(types: TypeBar[]): RadarDatum[] {
  */
 export function BrewStatsContent() {
   const { brewContext, brewState } = useStore();
-  if (!brewContext || !brewState || brewState.picks.length === 0) return null;
+  if (!brewContext || !brewState) return null;
 
   // The identity radar shows from the first pack; the coverage charts need a little more deck shape
   // before they read as anything but zeros.
@@ -84,6 +85,10 @@ export function BrewStatsContent() {
           )}
         </>
       )}
+
+      {/* Steer-away control — available from the first fork so the player can mute a theme they don't
+          want (e.g. a tribal commander's own tribe) before the lean compounds. */}
+      <BrewThemeVeto />
     </>
   );
 }
