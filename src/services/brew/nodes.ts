@@ -11,7 +11,7 @@ import { detectNearMissCombos } from './combos';
 import { relicBudgetCap } from './relics';
 import { computeDeficits, matchesDeficit } from './routes';
 import { CLUSTER_MIN_CONN } from './discovery';
-import { themeKindMatches } from './themeKind';
+import { themeKindMatches, type ThemeKind } from './themeKind';
 
 const REASON_CAP = 5;
 
@@ -183,6 +183,18 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
     reasons.push({ kind: 'theme', label: `On-theme: ${shown.join(', ')}${extra > 0 ? ` +${extra}` : ''}`, value: leaningTags.length });
   } else if (c.edhrec.isThemeSynergyCard) {
     reasons.push({ kind: 'theme', label: 'On-theme', value: 1 });
+  }
+  // Concrete on-theme call-out: for a leaning theme that's a real mechanic/tribe this card LITERALLY
+  // has, name it (e.g. "Elf", "Flying") — sharper than the statistical char-tag chip below.
+  if (ctx.themeKinds) {
+    const leaningDet = c.themeTags
+      .filter(t => (state.themeAffinity[t] ?? 0) > 0 && !state.vetoedThemes?.includes(t))
+      .map(t => ctx.themeKinds![t])
+      .find((k): k is Exclude<ThemeKind, { kind: 'archetype' }> =>
+        !!k && k.kind !== 'archetype' && themeKindMatches(k, c.scryfall));
+    if (leaningDet) {
+      reasons.push({ kind: 'tag', label: leaningDet.match.replace(/\b\w/g, m => m.toUpperCase()), value: 45 });
+    }
   }
   // On-mechanic call-out: name the theme's CHARACTERISTIC tags this card carries (e.g. "Infect ·
   // Proliferate") for the themes the deck is leaning into. This is why the card earned a theme-pack
