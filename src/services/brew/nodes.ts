@@ -11,6 +11,7 @@ import { detectNearMissCombos } from './combos';
 import { relicBudgetCap } from './relics';
 import { computeDeficits, matchesDeficit } from './routes';
 import { CLUSTER_MIN_CONN } from './discovery';
+import { themeKindMatches } from './themeKind';
 
 const REASON_CAP = 5;
 
@@ -147,6 +148,9 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
   else {
     const comboCount = ctx.comboPieceCounts[c.name] ?? 0;
     if (comboCount >= 2) reasons.push({ kind: 'comboPiece', label: `In ${comboCount} combos`, value: 55 });
+    // Any other card that's part of a known combo (commander OR color-wide) — one clear "this is a
+    // combo piece" call-out so a COMBO pack's contents are legible as combo pieces.
+    else if (ctx.comboPieceNames.has(c.name)) reasons.push({ kind: 'comboPiece', label: 'Combo piece', value: 50 });
   }
   if (ctx.gameChangerNames instanceof Set && ctx.gameChangerNames.has(c.name)) reasons.push({ kind: 'gameChanger', label: 'Game Changer', value: 100 });
   // Why it fits the plan.
@@ -275,13 +279,53 @@ function isOnTheme(
   return !belongsElsewhere;
 }
 
+/** Does this card deterministically belong to a DIFFERENT theme on offer? (the cross-theme guard for
+ *  the signature escape hatch, keyword/subtype-based). */
+function belongsToOtherKind(ctx: BrewContext, slug: string, c: BrewCandidate, otherThemeSlugs: string[]): boolean {
+  return otherThemeSlugs.some(o => {
+    if (o === slug) return false;
+    const k = ctx.themeKinds?.[o];
+    return !!k && k.kind !== 'archetype' && themeKindMatches(k, c.scryfall);
+  });
+}
+
+/**
+ * Theme-pack membership, branched by how the theme is defined:
+ *  - mechanic / tribal / curated → the card LITERALLY has the keyword / creature type / mechanic
+ *    (drawn from the whole pool, not just the EDHREC page), OR it is a signature payoff that doesn't
+ *    deterministically belong to another theme on offer. Board wipes are still excluded.
+ *  - archetype → the existing themeTags + tag-lift gate (isOnTheme).
+ */
+function themeMembership(
+  ctx: BrewContext, slug: string, c: BrewCandidate,
+  sigRank: Map<string, number> | undefined, otherThemeSlugs: string[],
+): boolean {
+  const kind = ctx.themeKinds?.[slug];
+  if (kind && kind.kind !== 'archetype') {
+    if (isBoardWipeLike(c)) return false;
+    if (themeKindMatches(kind, c.scryfall)) return true;              // literally on-mechanic / on-type
+    if (!(sigRank?.has(c.name) ?? false)) return false;               // else must be a signature payoff…
+    return !belongsToOtherKind(ctx, slug, c, otherThemeSlugs);        // …that isn't really another theme's
+  }
+  // Archetype: co-occurrence membership + statistical tag-lift (unchanged behavior).
+  return c.themeTags.includes(slug) && !isBoardWipeLike(c)
+    && ((sigRank?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role)))
+    && isOnTheme(ctx, slug, c, sigRank, otherThemeSlugs);
+}
+
 /**
  * True when a card is NOT on-mechanic for ANY of the deck's themes — the honest home for a
  * generically strong card (a universal tutor, a staple) that the stricter theme gate now excludes.
  * Only meaningful when characteristic-tag data exists; without it there's no "off-mechanic" signal.
  */
 function isThemeAgnostic(ctx: BrewContext, c: BrewCandidate): boolean {
-  if (!ctx.themeCharTags) return false;                    // no data → don't form a Good Stuff pack
+  const hasDet = !!ctx.themeKinds && Object.values(ctx.themeKinds).some(k => k.kind !== 'archetype');
+  if (!ctx.themeCharTags && !hasDet) return false;         // no theme data at all → no Good Stuff pack
+  // On-mechanic / on-type for any deterministic theme → not agnostic.
+  for (const kind of Object.values(ctx.themeKinds ?? {})) {
+    if (kind.kind !== 'archetype' && themeKindMatches(kind, c.scryfall)) return false;
+  }
+  // On-lift for any archetype theme it's tagged with → not agnostic.
   for (const slug of c.themeTags) {
     if (matchedCharTags(ctx, slug, c).length > 0) return false;
   }
@@ -293,8 +337,17 @@ function isThemeAgnostic(ctx: BrewContext, c: BrewCandidate): boolean {
 function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[], state: BrewState): string[] {
   const vetoed = state.vetoedThemes;
   const counts: Record<string, number> = {};
-  for (const c of scored) for (const t of c.themeTags) if (ctx.themeNames[t] && !vetoed?.includes(t)) counts[t] = (counts[t] ?? 0) + 1;
-  return Object.entries(counts).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([s]) => s);
+  for (const slug of Object.keys(ctx.themeNames)) {
+    if (vetoed?.includes(slug)) continue;
+    const kind = ctx.themeKinds?.[slug];
+    // Deterministic themes count LITERAL matches across the whole pool (so a tribal pack isn't starved
+    // by the EDHREC-page∩pool intersection); archetypes count EDHREC-page membership (themeTags).
+    const n = kind && kind.kind !== 'archetype'
+      ? scored.filter(c => themeKindMatches(kind, c.scryfall)).length
+      : scored.filter(c => c.themeTags.includes(slug)).length;
+    if (n >= 2) counts[slug] = n;
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([s]) => s);
 }
 
 // Crack-a-pack loop (2026-07-11 redesign): packs are SEALED on offer (theme + headline showing,
@@ -320,7 +373,7 @@ const BUNDLE_FLAVOR: Record<string, string> = {
   spellslinger: 'Cast a Storm', 'spells-matter': 'Cast a Storm', reanimator: 'Raise the Dead',
   graveyard: 'Raise the Dead', mill: 'Erode the Library', blink: 'Flicker and Flux',
   equipment: 'Suit Up', auras: 'Suit Up', voltron: 'Suit Up', landfall: 'Grow the Land',
-  lands: 'Grow the Land', ramp_theme: 'Fuel the Engine', stax: 'Lock It Down', control: 'Take the Reins',
+  lands: 'Grow the Land', ramp_theme: 'Fuel the Engine', stax: 'Lock It Down', control: 'Control',
 };
 
 // Role needs keep an accurate, evocative name (a Removal pack genuinely IS a "Clean Sweep"); type
@@ -361,6 +414,7 @@ interface Cluster {
   match: (c: BrewCandidate) => boolean;
   priority: number;            // higher = surfaced first (deficit/lean bias)
   rank?: (c: BrewCandidate) => number;   // optional within-pack ordering (lower = earlier); see takeCards
+  comboPack?: boolean;         // combo-flavored theme: compose combo-pieces-first + majority relabel (tryBuild)
 }
 
 /**
@@ -438,23 +492,46 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   //    themeSlugList is the full set of themes on offer, so isOnTheme can reject a cross-tribe leak
   //    (a Faerie signature that belongs to the Faeries pack, not this Elves pack).
   const themeSlugList = availableThemeSlugs(ctx, scored, state);
+  // A theme is "combo-flavored" when its display name reads as a combo theme ("Combo", "Storm Combo",
+  // …). Such a pack must earn its COMBO label with real combo pieces (see tryBuild), so it composes
+  // combo-pieces-first and only keeps the label when they're a majority.
+  const isComboTheme = (slug: string) => /\bcombo\b/i.test(ctx.themeNames[slug] ?? slug);
+  // Combo pack ordering: real combo pieces lead (by payoff, then per-run offer score); generic
+  // on-theme backfill sorts after via the normal signature rank.
+  const comboThemeRank = (slug: string) => (c: BrewCandidate) =>
+    ctx.comboPieceNames.has(c.name)
+      ? -1_000_000 - (ctx.comboPiecePayoff[c.name] ?? 0) * 1_000 - offerScore(ctx, state, c)
+      : themeRank(slug)(c);
   for (const slug of themeSlugList) {
-    clusters.push({
-      key: `theme:${slug}`,
-      label: ctx.themeNames[slug] ?? slug,
-      flavor: 'theme',
-      // On-theme membership, minus generic answer cards that read as off-strategy in a theme pack:
-      //  - A board wipe NEVER fronts a theme pack (you don't sweep your own go-wide board) — excluded
-      //    unconditionally, even if EDHREC's noisy theme data lists it as a "signature" (it shows up on
-      //    a tokens page via co-occurrence, but a wipe is never a tokens payoff). Wipes live in the need pack.
-      //  - Ramp/removal are softer: allowed only when they're THIS theme's own signature (sigRankBySlug
-      //    [slug], not the global union — else a control-theme staple leaks into an unrelated pack).
-      match: c => c.themeTags.includes(slug) && !isBoardWipeLike(c)
-        && ((sigRankBySlug[slug]?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role)))
-        && isOnTheme(ctx, slug, c, sigRankBySlug[slug], themeSlugList),
-      priority: 1_000 + (leanWeights[slug] ?? 0),
-      rank: themeRank(slug),
-    });
+    if (isComboTheme(slug)) {
+      clusters.push({
+        key: `theme:${slug}`,
+        label: ctx.themeNames[slug] ?? slug,
+        flavor: 'theme',
+        comboPack: true,
+        // Real combo pieces are ALWAYS eligible (that's the point); everything else is generic
+        // on-theme backfill under the normal theme gate (board wipes excluded, on-theme only).
+        match: c => ctx.comboPieceNames.has(c.name)
+          || themeMembership(ctx, slug, c, sigRankBySlug[slug], themeSlugList),
+        priority: 1_000 + (leanWeights[slug] ?? 0),
+        rank: comboThemeRank(slug),
+      });
+    } else {
+      clusters.push({
+        key: `theme:${slug}`,
+        label: ctx.themeNames[slug] ?? slug,
+        flavor: 'theme',
+        // On-theme membership, minus generic answer cards that read as off-strategy in a theme pack:
+        //  - A board wipe NEVER fronts a theme pack (you don't sweep your own go-wide board) — excluded
+        //    unconditionally, even if EDHREC's noisy theme data lists it as a "signature" (it shows up on
+        //    a tokens page via co-occurrence, but a wipe is never a tokens payoff). Wipes live in the need pack.
+        //  - Ramp/removal are softer: allowed only when they're THIS theme's own signature (sigRankBySlug
+        //    [slug], not the global union — else a control-theme staple leaks into an unrelated pack).
+        match: c => themeMembership(ctx, slug, c, sigRankBySlug[slug], themeSlugList),
+        priority: 1_000 + (leanWeights[slug] ?? 0),
+        rank: themeRank(slug),
+      });
+    }
   }
   // A "Good Stuff" pack: the strongest cards that aren't on-mechanic for any theme — the home for the
   // generic power (universal tutors, staples) the stricter theme gate now excludes, so pick quality
@@ -535,7 +612,7 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
     // drops its evocative name (themedName=false) so it never promises a strategy its cards don't back.
     let hallmarkName: string | undefined;
     let themedName = true;
-    if (cl.flavor === 'theme') {
+    if (cl.flavor === 'theme' && !cl.comboPack) {
       const slug = cl.key.slice('theme:'.length);
       const sigRank = sigRankBySlug[slug];
       if (sigRank) {
@@ -555,16 +632,30 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
     }
 
     cards.forEach(c => taken.add(c.name));
-    const flavorTitle = themedName ? bundleName(ctx, cl.key, cl.label) : cl.label;
-    const title = usedTitles.has(flavorTitle) ? cl.label : flavorTitle;
+    let title: string;
+    if (cl.comboPack) {
+      // Earn the COMBO label only when real combo pieces are a strict majority of the pack; otherwise
+      // relabel honestly to "Synergy" so the face never promises combos it can't back.
+      const slug = cl.key.slice('theme:'.length);
+      const pieceCount = cards.filter(c => ctx.comboPieceNames.has(c.name)).length;
+      title = pieceCount * 2 > cards.length ? (ctx.themeNames[slug] ?? 'Combo') : 'Synergy';
+    } else {
+      const flavorTitle = themedName ? bundleName(ctx, cl.key, cl.label) : cl.label;
+      title = usedTitles.has(flavorTitle) ? cl.label : flavorTitle;
+    }
     usedTitles.add(title);
     const option: BrewOption = { ...toOption(ctx, state, cards, cl.key, title, finishers), flavor: cl.flavor, hallmarkName };
     // Theme packs may secretly hide their defining payoff (see rollWindfall) — a free windfall on a
     // rarity ladder (gold / rainbow). On a god-pack round every theme pack is forced to carry one.
     if (cl.flavor === 'theme') {
       const slug = cl.key.slice('theme:'.length);
+      // On a combo pack the bonus card must also be a combo piece, so a gold reveal never puts an
+      // off-combo face on a COMBO-labelled pack. If none qualify, the combo pack skips the windfall.
+      const sigPool = cl.comboPack
+        ? (ctx.themeSignatures[slug] ?? []).filter(n => ctx.comboPieceNames.has(n))
+        : (ctx.themeSignatures[slug] ?? []);
       const chance = godPack ? 1 : windfallChance(state);
-      const wf = rollWindfall(ctx, state, slug, ctx.themeSignatures[slug] ?? [], byName, taken, chance);
+      const wf = rollWindfall(ctx, state, slug, sigPool, byName, taken, chance);
       if (wf) {
         option.goldCard = wf.card; option.windfallTier = wf.tier; taken.add(wf.card.name);
         // The windfall stays a BLIND surprise — a sealed pack never advertises it (no "something
@@ -573,7 +664,7 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
         // theme's next two signatures. Attach them here (seeded pool, stable across re-render) and
         // claim them so no other crate on screen shows the face-down trade. Rainbows are exempt.
         if (wf.tier === 'gold' && !state.wagerResolved) {
-          const trades = (ctx.themeSignatures[slug] ?? [])
+          const trades = sigPool
             .filter(n => n !== wf.card.name && !taken.has(n) && byName.has(n))
             .slice(0, 2)
             .map(n => byName.get(n)!);
