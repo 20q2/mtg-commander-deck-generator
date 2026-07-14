@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Sparkles, ChevronRight, BookOpen } from 'lucide-react';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { CommanderIcon } from '@/components/ui/mtg-icons';
 import { formatRelativeTime } from '@/lib/utils';
 
 export function PlaytestLandingPage() {
+  usePageTitle('Playtest');
   const navigate = useNavigate();
   const generatedDeck = useStore(s => s.generatedDeck);
   const commander = useStore(s => s.commander);

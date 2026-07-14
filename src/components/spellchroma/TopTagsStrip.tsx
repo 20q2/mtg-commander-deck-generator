@@ -82,7 +82,14 @@ export function TopTagsStrip({ tags, selected, onTagClick, onRemoveTag, limit = 
           {selected.map((slug, i) => (
             <span key={slug}>
               {i > 0 && (i === selected.length - 1 ? ' and ' : ', ')}
-              <span className="text-violet-300/90">{slug}</span>
+              <button
+                type="button"
+                onClick={() => onRemoveTag?.(slug)}
+                title={`Remove “${slug}” from search`}
+                className="text-violet-300/90 hover:text-violet-200 hover:line-through transition-colors"
+              >
+                {slug}
+              </button>
             </span>
           ))}
         </div>

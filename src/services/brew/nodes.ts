@@ -420,8 +420,8 @@ const BUNDLE_FLAVOR: Record<string, string> = {
   counters: 'Grow Tall', '+1-+1-counters': 'Grow Tall', lifegain: 'Drain the Table',
   spellslinger: 'Cast a Storm', 'spells-matter': 'Cast a Storm', reanimator: 'Raise the Dead',
   graveyard: 'Raise the Dead', mill: 'Erode the Library', blink: 'Flicker and Flux',
-  equipment: 'Suit Up', auras: 'Suit Up', voltron: 'Suit Up', landfall: 'Grow the Land',
-  lands: 'Grow the Land', ramp_theme: 'Fuel the Engine', stax: 'Lock It Down', control: 'Control',
+  equipment: 'Suit Up', auras: 'Suit Up', voltron: 'Suit Up',
+  ramp_theme: 'Fuel the Engine', stax: 'Lock It Down', control: 'Control',
 };
 
 // Role needs keep an accurate, evocative name (a Removal pack genuinely IS a "Clean Sweep"); type

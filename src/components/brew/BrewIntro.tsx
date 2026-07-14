@@ -10,17 +10,20 @@ import { MapPin } from 'lucide-react';
  */
 
 const PIN = 36;            // final pin diameter (matches the fork's home node, w-9)
-const GHOSTS = 3;
 
 type Phase = 'button' | 'morph' | 'fly' | 'routes' | 'out';
 
 interface Props {
   startRect: DOMRect;                 // the chosen card's on-screen frame — the morph origin
   target: { x: number; y: number };   // viewport-space center for the landed home node
+  // Fired once the pin has flown home: the cue for BrewPage to mount the fork SKELETON beneath this
+  // overlay (blank cards in the exact final layout), so the animation resolves onto the real fork
+  // instead of a separate set of ghost cards. The overlay then just fades its pin out over it.
+  onRoutes: () => void;
   onDone: () => void;
 }
 
-export function BrewIntro({ startRect, target, onDone }: Props) {
+export function BrewIntro({ startRect, target, onRoutes, onDone }: Props) {
   const [phase, setPhase] = useState<Phase>('button');
 
   useEffect(() => {
@@ -28,16 +31,16 @@ export function BrewIntro({ startRect, target, onDone }: Props) {
     const raf = requestAnimationFrame(() => setPhase('morph'));
     const timers = [
       window.setTimeout(() => setPhase('fly'), 380),
-      window.setTimeout(() => setPhase('routes'), 380 + 480),
+      // Pin has landed on the home node → reveal the fork skeleton underneath, then fade out.
+      window.setTimeout(() => { setPhase('routes'); onRoutes(); }, 380 + 480),
       window.setTimeout(() => setPhase('out'), 380 + 480 + 780),
       window.setTimeout(onDone, 380 + 480 + 780 + 320),
     ];
     return () => { cancelAnimationFrame(raf); timers.forEach(clearTimeout); };
-  }, [onDone]);
+  }, [onRoutes, onDone]);
 
   const morphed = phase !== 'button';
   const flown = phase === 'fly' || phase === 'routes' || phase === 'out';
-  const showRoutes = phase === 'routes' || phase === 'out';
 
   // The morphing pin: starts exactly over the chosen card, collapses to a circle at its own
   // center, then travels to the target. Centered on the card's center throughout the morph.
@@ -83,41 +86,9 @@ export function BrewIntro({ startRect, target, onDone }: Props) {
           style={{ opacity: morphed ? 1 : 0, transitionDelay: morphed ? '160ms' : '0ms' }}
         />
       </div>
-
-      {/* Routes fan out from the landed node: branch lines draw, then ghost cards deal in. */}
-      {showRoutes && (
-        <div
-          className="absolute flex flex-col items-center"
-          style={{ left: target.x, top: target.y + PIN / 2, transform: 'translateX(-50%)', width: 'min(680px, 92vw)' }}
-        >
-          <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-9 -mt-1" aria-hidden="true">
-            {Array.from({ length: GHOSTS }, (_, i) => {
-              const x = ((i + 0.5) / GHOSTS) * 100;
-              return (
-                <path
-                  key={i}
-                  d={`M 50 0 C 50 22, ${x} 16, ${x} 40`}
-                  pathLength={1}
-                  style={{ animationDelay: `${i * 90 + 60}ms` }}
-                  className="brew-branch"
-                  vectorEffect="non-scaling-stroke"
-                />
-              );
-            })}
-          </svg>
-          <div className="grid grid-cols-3 gap-4 w-full">
-            {Array.from({ length: GHOSTS }, (_, i) => (
-              <div
-                key={i}
-                className="animate-brew-card-in h-32 rounded-2xl border border-violet-400/30 bg-card/70 backdrop-blur-sm shadow-[0_18px_45px_-18px_hsl(var(--primary)/0.5)]"
-                style={{ animationDelay: `${i * 90 + 220}ms` }}
-              >
-                <span className="block h-[3px] w-full rounded-t-2xl bg-gradient-to-r from-transparent via-violet-400/60 to-transparent" />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* No ghost cards here anymore — once the pin lands (`onRoutes`), BrewPage renders the real
+          fork skeleton (node + branches + blank cards) in the flow beneath this overlay, and the
+          pin simply fades out over the skeleton's own matching node. */}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { CollectionManager } from '@/components/collection/CollectionManager';
 import { CollectionStats } from '@/components/collection/CollectionStats';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
 import { useCollection } from '@/hooks/useCollection';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { ArrowLeft, BarChart3, Crown, Info, Upload } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
@@ -16,6 +17,7 @@ const RARITY_TO_PRETTY: Record<string, string> = {
 };
 
 export function CollectionPage() {
+  usePageTitle('Collection');
   const navigate = useNavigate();
   const { count, cards } = useCollection();
   const [activeTab, setActiveTab] = useState<TopTab>('commanders');

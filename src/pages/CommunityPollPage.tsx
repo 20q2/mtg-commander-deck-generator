@@ -13,12 +13,14 @@ import { ComposeRow } from '@/components/poll/ComposeRow';
 import { SuggestionList, type Tab } from '@/components/poll/SuggestionList';
 import { AdminPasswordPrompt } from '@/components/poll/AdminPasswordPrompt';
 import { AdminControls } from '@/components/poll/AdminControls';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 interface Props {
   admin?: boolean;
 }
 
 export function CommunityPollPage({ admin = false }: Props) {
+  usePageTitle(admin ? ['Admin', 'Community Poll'] : 'Community Poll');
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [myVotes, setMyVotes] = useState<Set<string>>(() => getLocalVotes());
   const [tab, setTab] = useState<Tab>('top');

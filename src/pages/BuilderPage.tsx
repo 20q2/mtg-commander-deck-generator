@@ -24,6 +24,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { useUserLists } from '@/hooks/useUserLists';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 /**
  * Map EDHREC themes to selectable ThemeResults. If the user arrived via the "By strategy"
@@ -91,6 +92,9 @@ export function BuilderPage() {
     setError,
     reset,
   } = useStore();
+
+  const commanderTitle = [commander?.name, partnerCommander?.name].filter(Boolean).join(' & ');
+  usePageTitle([commanderTitle, 'Build']);
 
   // URL drives view visibility so back/forward both work: the deck stays in the store across
   // a back-to-settings, and forward re-shows it without regenerating.

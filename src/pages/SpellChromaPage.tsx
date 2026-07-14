@@ -5,6 +5,7 @@ import { buildCardComboMap } from '@/services/spellchroma/combos';
 import { getCardByName, getCardsByNames } from '@/services/scryfall/client';
 import { fetchColorIdentityCombos } from '@/services/edhrec/client';
 import type { EDHRECCombo } from '@/types';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useExplorerSearch } from '@/components/spellchroma/useExplorerSearch';
 import { useExplorerFilters } from '@/components/spellchroma/useExplorerFilters';
 import { TagSearchBar } from '@/components/spellchroma/TagSearchBar';
@@ -45,6 +46,7 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 }
 
 export function SpellChromaPage() {
+  usePageTitle('SpellChroma');
   // All explorer filter state (tags, colors, type, sort, text) lives in
   // useExplorerFilters, which seeds from the URL query string on mount and mirrors
   // changes back so any filtered view is a shareable link. ?card=/?deck= remain

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Upload, Download, FileJson, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import {
   parseAndMigrate,
   computeDiff,
@@ -47,6 +48,7 @@ function consumePersistedSummary(): ImportSummary | null {
 }
 
 export function MigratePage() {
+  usePageTitle('Migrate');
   const [stage, setStage] = useState<Stage>(() => {
     const persisted = consumePersistedSummary();
     return persisted ? { kind: 'done', summary: persisted } : { kind: 'picking' };

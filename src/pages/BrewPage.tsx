@@ -16,6 +16,7 @@ import { BrewHealthStrip } from '@/components/brew/BrewHealthStrip';
 import { BrewDeckListButton, BrewDeckListColumn } from '@/components/brew/BrewDeckListButton';
 import { BrewDebugButton } from '@/components/brew/BrewDebugDrawer';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { BrewTrack } from '@/components/brew/BrewTrack';
 import { BrewStatsButton, BrewStatsColumn } from '@/components/brew/BrewStatsButton';
 import { BrewCommitFlash } from '@/components/brew/BrewCommitFlash';
@@ -32,6 +33,7 @@ import { BrewPreviously } from '@/components/brew/BrewPreviously';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
 import type { ManaPhilosophy } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
+import { BrewFinishButton } from '@/components/brew/BrewFinishButton';
 
 // One-time onboarding: the splash shows on the player's first brew, then never again (see showSplash).
 const BREW_SPLASH_SEEN_KEY = 'mtg-brew-splash-seen';
@@ -52,12 +54,19 @@ export function BrewPage() {
 
   const { createList } = useUserLists();
 
+  const brewCommanderTitle = [commander?.name, partnerCommander?.name].filter(Boolean).join(' & ');
+  usePageTitle([brewCommanderTitle, 'Brew']);
+
   const [loadingCommander, setLoadingCommander] = useState(false);
   const [progress, setProgress] = useState<{ msg: string; pct: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The "set off" beat, played at the philosophy → fork handoff: the chosen card morphs into the
   // home node, then the routes fan out beneath it.
   const [intro, setIntro] = useState<{ startRect: DOMRect; target: { x: number; y: number } } | null>(null);
+  // Flips true once the intro's pin has flown home: from that beat we mount the real fork SKELETON
+  // (blank cards, exact final layout) beneath the overlay, so the "set off" animation resolves onto
+  // the fork itself and the overlay just fades its pin out over the skeleton's matching node.
+  const [introRoutes, setIntroRoutes] = useState(false);
   // The end-of-run story: once the deck is finished, hold here until the player taps through.
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
@@ -236,6 +245,7 @@ export function BrewPage() {
     const forkNext = !s.brewNode && !s.brewQuestion && !s.brewEvent && !s.brewRelicOffer;
     if (reduceMotion || !slot || !forkNext) return;
     // Land the pin where the fork's home node renders: below its heading + leaning readout.
+    setIntroRoutes(false);
     setIntro({ startRect: rect, target: { x: slot.left + slot.width / 2, y: slot.top + 145 } });
   }
 
@@ -337,10 +347,10 @@ export function BrewPage() {
     // to the center of the huge leftover space. When neither is open it simply centers in max-w-6xl.
     <div
       ref={contentRef}
-      className={`brew-foundry py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[18.75vw]' : 'pl-4'} ${deckColumn ? 'pr-[25vw]' : statsColumn ? 'pr-[18.75vw]' : 'pr-4'}`}
+      className={`brew-foundry flex min-h-full flex-col py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[18.75vw]' : 'pl-4'} ${deckColumn ? 'pr-[25vw]' : statsColumn ? 'pr-[18.75vw]' : 'pr-4'}`}
     >
       {/* The morph-and-fly "set off" beat plays over everything until it hands off to the fork. */}
-      {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
+      {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onRoutes={() => setIntroRoutes(true)} onDone={() => { setIntro(null); setIntroRoutes(false); }} />}
       {/* Resume cliffhanger — the last moments of a rejoined run, then straight back in. */}
       {previously && <BrewPreviously moments={previously} onDone={() => setPreviously(null)} />}
       {/* The run recap overlays everything once the deck is finished. */}
@@ -385,12 +395,16 @@ export function BrewPage() {
               an event "moment" preempts the fork/question/node when the engine surfaces one. */}
           <div
             ref={screenRef}
-            key={intro ? 'intro' : brewRelicOffer ? 'relic' : brewEvent ? `event:${brewEvent.id}` : brewQuestion ? 'question' : brewNode ? 'node' : 'fork'}
-            className="animate-brew-view-in"
+            // During the intro's morph/fly the slot is just held empty ('intro'); once the pin lands
+            // it becomes the real fork ('fork') so BrewPath's skeleton renders beneath the overlay —
+            // and the key STAYS 'fork' after the intro ends, so BrewPath doesn't remount (its
+            // skeleton → reveal keeps running straight through the hand-off).
+            key={intro && !introRoutes ? 'intro' : brewRelicOffer ? 'relic' : brewEvent ? `event:${brewEvent.id}` : brewQuestion ? 'question' : brewNode ? 'node' : 'fork'}
+            className={intro && !introRoutes ? undefined : 'animate-brew-view-in'}
           >
-            {intro
-              // Hold just the screen slot while the fan-out overlay plays — the health strip,
-              // track, and rails stay put; the fork fades in when the overlay hands off.
+            {intro && !introRoutes
+              // Hold just the screen slot while the pin morphs and flies — the health strip, track,
+              // and rails stay put; the fork skeleton mounts the moment the pin lands (introRoutes).
               ? <div className="min-h-[42vh]" />
               : brewRelicOffer
                 ? <BrewRelicScreen onChosen={handlePhilosophyChosen} />
@@ -400,10 +414,16 @@ export function BrewPage() {
                     ? <BrewQuestionScreen key={brewQuestion.id} />
                     : brewNode
                       ? <BrewNode key={brewState?.history.length ?? 0} onFinish={quickFinish} />
-                      : <BrewPath onFinish={quickFinish} onManaBase={() => setCapstone(true)} />}
+                      : <BrewPath onManaBase={() => setCapstone(true)} />}
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>
+          {/* The bail-out escape hatch — docked at the bottom of the content region (mt-auto), right
+              above the site footer, so it stays put instead of bouncing with each screen's height.
+              Only on the fork/pack screens (the forced-choice moments carry their own commit). */}
+          {!intro && !brewRelicOffer && !brewEvent && !brewQuestion && (
+            <BrewFinishButton onFinish={quickFinish} className="mt-auto" />
+          )}
           {/* The living-stats side column — fixed flush to the left edge, sliding in/out on toggle.
               Mounted through the close (statsPanel lags statsColumn) so the exit animation plays. */}
           {statsPanel && (

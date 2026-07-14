@@ -14,6 +14,7 @@ import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
 import { AnalyzeSplit } from '@/components/analyze/AnalyzeSplit';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { getCachedCard, getCardByName, isBasicLand } from '@/services/scryfall/client';
 import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { parseIntendedThemes } from '@/services/deckUpgrades/deckUpgrades';
@@ -99,6 +100,9 @@ export function AnalyzePage() {
   const updateCustomization = useStore(s => s.updateCustomization);
   const { param1, param2 } = useParams<{ param1?: string; param2?: string }>();
   const navigate = useNavigate();
+
+  const analyzeContext = source?.kind === 'list' ? source.listName : generatedDeck?.commander?.name;
+  usePageTitle([analyzeContext, 'Analyze']);
 
   // URL shape variants under /analyze:
   //   /analyze                       → hub

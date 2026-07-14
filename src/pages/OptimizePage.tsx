@@ -14,6 +14,7 @@ import { getCardByName, getCardImageUrl, getCardsByNames, getFrontFaceTypeLine }
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { loadUserLists } from '@/hooks/useUserLists';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import type { BracketLevel, BudgetOption, ThemeResult, UserCardList } from '@/types';
 import { Loader2, Wand2, ArrowLeft, ExternalLink, List } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
@@ -55,6 +56,8 @@ export function OptimizePage() {
     setError,
     reset,
   } = useStore();
+
+  usePageTitle([optimizeList?.name || commander?.name, 'Upgrade']);
 
   // Scroll to top on mount
   useEffect(() => {

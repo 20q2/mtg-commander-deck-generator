@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { fetchMetrics } from '@/services/analytics';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List, Server, TrendingUp, FlaskConical, Microscope, Sparkles, Gamepad2 } from 'lucide-react';
 
 
@@ -297,6 +298,7 @@ function FunnelCard({
 }
 
 export function MetricsPage() {
+  usePageTitle('Metrics');
   if (window.location.hostname !== 'localhost') return null;
 
   const [data, setData] = useState<MetricsSummary | null>(null);

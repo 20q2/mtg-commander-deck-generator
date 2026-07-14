@@ -1,6 +1,7 @@
 import { MapPin, Star, Route, Hammer } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { BrewTreasuryShelf } from '@/components/brew/BrewTreasuryShelf';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 /**
  * Landing for the interactive brewing flow (bare `/brew`). Pick a commander and we drop you into
@@ -21,6 +22,7 @@ const BEATS = [
 ];
 
 export function BrewLandingPage() {
+  usePageTitle('Brew');
   return (
     <main className="brew-foundry flex-1 container mx-auto px-4 py-8 relative">
       {/* Hero */}

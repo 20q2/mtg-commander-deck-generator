@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, pointerWithin, rectIntersection, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent, type Modifier } from '@dnd-kit/core';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import type { CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
@@ -48,6 +49,10 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
   const params = useParams<{ listId: string }>();
   const generatedDeck = useStore(s => s.generatedDeck);
   const { getListById } = useUserLists();
+
+  const playtestDeckName = kind === 'list' ? getListById(params.listId ?? '')?.name : generatedDeck?.commander?.name;
+  usePageTitle([playtestDeckName, 'Playtest']);
+
   const hydrate = usePlaytestStore(s => s.hydrate);
   const exit = usePlaytestStore(s => s.exit);
   const ready = usePlaytestStore(s => s.ready);

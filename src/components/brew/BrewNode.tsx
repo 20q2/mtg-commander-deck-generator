@@ -5,7 +5,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { BrewPackCrack } from '@/components/brew/BrewPackCrack';
 import { BrewSpecialPack } from '@/components/brew/BrewSpecialPack';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Info, Link2, Play, Dices, Star, X, Check, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Info, Link2, Dices, Star, X, Check, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey, PACK_FLAVOR } from '@/components/brew/brewVisuals';
 import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
@@ -236,9 +236,12 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     });
   }
 
-  // Headliner: lock in every selected card as one pick (the rest are passed and gone).
+  // Headliner: lock in every selected card as one pick (the rest are passed and gone). Striking ALL
+  // of them off is allowed — a Headliner where nothing's worth building around commits zero cards and
+  // moves on (the run advances with an empty decision). Hidden Synergy still asks for at least one
+  // (it starts empty and has its own Pass).
   function commitSelection() {
-    if (exiting || selectedIds.size === 0 || !brewNode) return;
+    if (exiting || !brewNode || (selectedIds.size === 0 && !isHeadliner)) return;
     const chosen = brewNode.options.filter(o => selectedIds.has(o.id));
     const combined: BrewOption = {
       id: chosen.length === 1 ? chosen[0].id : 'draft:multi',
@@ -472,13 +475,20 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                         {...hoverPreview(c.scryfall)}
                         className={`block w-full h-auto rounded-[4.8%] shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 group-hover:shadow-[0_18px_44px_var(--op-soft)] group-hover:ring-[color:var(--op)] ${
                           isSelected ? 'ring-[color:var(--op)] shadow-[0_10px_34px_var(--op-soft)]' : 'ring-black/60'
-                        }`}
+                        } ${isDropped ? 'opacity-0' : ''}`}
                       />
-                      {/* Struck off the bill: a thin diagonal cut reinforces that this one is being left. */}
+                      {/* Struck off the bill: the card is sliced in two along the bill line, the halves
+                          drifting apart. The invisible base image above still holds the layout size;
+                          these pieces are pointer-through so the hover preview + toggle click pass to it. */}
                       {isDropped && (
-                        <span aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden rounded-[4.8%]">
-                          <span className="h-[2px] w-[135%] -rotate-[18deg] bg-rose-400/50 shadow-[0_0_10px_rgba(251,113,133,0.5)]" />
-                        </span>
+                        <>
+                          <div aria-hidden="true" className="brew-cut-piece brew-cut-top pointer-events-none">
+                            <img src={getCardImageUrl(c.scryfall, imgSize)} alt="" />
+                          </div>
+                          <div aria-hidden="true" className="brew-cut-piece brew-cut-bottom pointer-events-none">
+                            <img src={getCardImageUrl(c.scryfall, imgSize)} alt="" />
+                          </div>
+                        </>
                       )}
                       {isGameChanger && (
                         <span title="Game Changer" className="absolute bottom-1 right-1 z-20 grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40">
@@ -527,16 +537,20 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
       {isMultiSelect && (() => {
         const kept = selectedIds.size;
         const left = brewNode.options.length - kept;
-        const CtaIcon = isHeadliner ? Star : Sparkles;
+        // Everything struck off the Headliner → a legit "none of these" exit (commit zero, move on).
+        const zeroHeadliner = isHeadliner && kept === 0;
+        const CtaIcon = zeroHeadliner ? X : isHeadliner ? Star : Sparkles;
         return (
           <div className="mt-8 flex flex-col items-center gap-2">
             <Button
               className="btn-shimmer"
-              disabled={exiting || kept === 0}
+              disabled={exiting || (kept === 0 && !isHeadliner)}
               onClick={commitSelection}
             >
-              <CtaIcon className="w-4 h-4 mr-1.5" fill={isHeadliner ? 'currentColor' : 'none'} />
-              {kept === 0 ? (isHeadliner ? 'Keep at least one' : 'Take at least one') : `Add ${kept} to your deck`}
+              <CtaIcon className="w-4 h-4 mr-1.5" fill={isHeadliner && !zeroHeadliner ? 'currentColor' : 'none'} />
+              {kept === 0
+                ? (isHeadliner ? 'None for me' : 'Take at least one')
+                : `Add ${kept} to your deck`}
             </Button>
             {kept > 0 && left > 0 && (
               <span className="text-[11px] text-muted-foreground/70">
@@ -549,19 +563,18 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
       </BrewSpecialPack>
       )}
 
+      {/* Once a pack is cracked, the crack IS the commitment — no backing out to peek elsewhere, so
+          this wayfinding row only renders when there's something in it to show. */}
+      {(!packCracked || brewNode.canPass) && (
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">
-        {/* Once a pack is cracked, the crack IS the commitment — no backing out to peek elsewhere. */}
         {!packCracked && (<>
         <Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
         <span className="w-1 h-1 rotate-45 bg-border" />
         <Button variant="ghost" size="sm" disabled={exiting} onClick={rerollBrew}><RefreshCw className="w-4 h-4 mr-1.5" /> Show different</Button>
         </>)}
-        {brewNode.canPass && (<><span className="w-1 h-1 rotate-45 bg-border" /><Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}>Pass</Button></>)}
-        {/* Always offer the bail-out from a pack too, not just the fork: build the deck now with a
-            sensible mana base. Mirrors the fork's "Finish for me". */}
-        {!packCracked && <span className="w-1 h-1 rotate-45 bg-border" />}
-        <Button variant="ghost" size="sm" className="text-violet-300 hover:text-violet-200" disabled={exiting} onClick={onFinish}><Play className="w-4 h-4 mr-1.5" /> Finish for me</Button>
+        {brewNode.canPass && (<>{!packCracked && <span className="w-1 h-1 rotate-45 bg-border" />}<Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}>Pass</Button></>)}
       </div>
+      )}
 
       {/* Floating full-size preview of the hovered card — anchored to its right, flipping left near
           the edge and clamped to the viewport, so you can actually read the small pack thumbnails. */}

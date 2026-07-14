@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useStore } from '@/store';
 import { getBanList } from '@/services/scryfall/client';
 import { ListCard } from '@/components/lists/ListCard';
@@ -70,6 +71,11 @@ export function ListsPage() {
     if (kind === 'deck') return { view: 'deck-view' as const, kind, listId };
     return { view: 'detail' as const, kind, listId };
   }, [splat, location.pathname]);
+
+  const laneLabel = currentView.kind === 'deck' ? 'My Decks' : 'My Lists';
+  const openList = 'listId' in currentView && currentView.listId ? getListById(currentView.listId) : undefined;
+  usePageTitle(openList?.name || laneLabel);
+
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => (localStorage.getItem('mtg-lists-view-mode') as 'grid' | 'list') || 'grid');
   const setViewModePersisted = useCallback((mode: 'grid' | 'list') => { setViewMode(mode); localStorage.setItem('mtg-lists-view-mode', mode); }, []);
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');

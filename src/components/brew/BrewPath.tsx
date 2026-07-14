@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
-import { Undo2, RefreshCw, Play, MapPin, Layers } from 'lucide-react';
+import { Undo2, RefreshCw, MapPin, Layers } from 'lucide-react';
 import { openNode, leaningThemes, isLastPickLocked, type BrewRoute } from '@/services/brew/engine';
 import { symbolFor, SymbolGlyph, routeKey } from '@/components/brew/brewVisuals';
 import type { ScryfallCard } from '@/types';
@@ -39,9 +39,14 @@ function artUrl(card?: ScryfallCard): string | undefined {
   return card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop;
 }
 
-export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onManaBase: () => void }) {
+export function BrewPath({ onManaBase }: { onManaBase: () => void }) {
   const { brewContext, brewState, brewRoutes, openBrewRoute, undoBrewPick, rerollBrew } = useStore();
   const [hovered, setHovered] = useState<number | null>(null);
+  // Skeleton → reveal: the fork's frame (heading, node, branches, card outlines) shows immediately,
+  // but the route cards stay BLANK until their art has loaded (or a short fallback), then the real
+  // cards fade in. This is what lets the philosophy → fork "set off" beat end on the exact final
+  // layout with blank cards that fill in as they load (BrewPage mounts this same skeleton mid-intro).
+  const [revealed, setRevealed] = useState(false);
 
   // The fork's CARDS are the specials; opening a pack is normal fare, so the pack route renders as
   // the quiet default action under them instead of competing as a peer card. If a fork ever has
@@ -62,6 +67,25 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brewRoutes, brewContext, brewState]);
+
+  // Preload the route art on mount; reveal the cards once every image is ready (or 600ms passes, so
+  // a slow/broken image never leaves the cards blank). BrewPath remounts per fork visit, so a mount-
+  // time effect resets the reveal each time; on return visits the art is cached and reveal is instant.
+  useEffect(() => {
+    const urls = cardRoutes.map(r => repArt[r.id]).filter((u): u is string => !!u);
+    if (urls.length === 0) { setRevealed(true); return; }
+    let done = 0; let cancelled = false;
+    const finish = () => { if (!cancelled) setRevealed(true); };
+    const timer = window.setTimeout(finish, 600);
+    urls.forEach(u => {
+      const img = new Image();
+      const bump = () => { done += 1; if (done >= urls.length) { window.clearTimeout(timer); finish(); } };
+      img.onload = bump; img.onerror = bump; img.src = u;
+      if (img.complete) bump();
+    });
+    return () => { cancelled = true; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!brewState) return null;
 
@@ -135,6 +159,7 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
             <button
               key={route.id}
               onClick={() => (route.type === 'manabase' ? onManaBase() : openBrewRoute(route))}
+              disabled={!revealed}
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered((h) => (h === i ? null : h))}
               onFocus={() => setHovered(i)}
@@ -143,24 +168,24 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
                 ['--tone' as string]: tone.color,
                 ['--tone-soft' as string]: tone.soft,
               }}
-              className="group relative flex min-h-[284px] flex-col justify-end overflow-hidden rounded-2xl border border-border/60 bg-card text-center transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-2 hover:border-[color:var(--tone)] hover:shadow-[0_28px_64px_-16px_var(--tone-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--tone)]"
+              className="group relative flex min-h-[284px] flex-col justify-end overflow-hidden rounded-2xl border border-border/60 bg-card text-center transition-[transform,box-shadow,border-color] duration-300 enabled:hover:-translate-y-2 enabled:hover:border-[color:var(--tone)] enabled:hover:shadow-[0_28px_64px_-16px_var(--tone-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--tone)]"
             >
-              {/* Full-bleed art — the route wears the art of the card it'd deal. */}
+              {/* Full-bleed art — the route wears the art of the card it'd deal. Blank until loaded. */}
               {art ? (
                 <img
                   src={art}
                   alt=""
                   aria-hidden="true"
-                  className="absolute inset-0 h-full w-full object-cover object-center opacity-[0.52] transition duration-[600ms] ease-out group-hover:opacity-[0.72] group-hover:scale-105"
+                  className={`absolute inset-0 h-full w-full object-cover object-center transition duration-[600ms] ease-out group-hover:scale-105 ${revealed ? 'opacity-[0.52] group-hover:opacity-[0.72]' : 'opacity-0'}`}
                 />
               ) : (
                 <div
-                  className="absolute inset-0 opacity-40"
+                  className={`absolute inset-0 transition-opacity duration-[600ms] ${revealed ? 'opacity-40' : 'opacity-0'}`}
                   style={{ background: 'radial-gradient(120% 80% at 50% 0%, var(--tone), transparent 62%)' }}
                 />
               )}
               {/* Scrim: art breathes up top, the lower third reads as a solid plate for the text. */}
-              <div className="absolute inset-0 bg-gradient-to-t from-card via-card/92 to-card/5" />
+              <div className={`absolute inset-0 bg-gradient-to-t from-card via-card/92 to-card/5 transition-opacity duration-[600ms] ${revealed ? 'opacity-100' : 'opacity-0'}`} />
               {/* Tone glow blooms from the top on hover. */}
               <div
                 aria-hidden="true"
@@ -175,15 +200,19 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
                 style={{ background: 'linear-gradient(90deg, transparent, var(--tone), transparent)' }}
               />
 
-              {/* Medallion riding the art. */}
+              {/* Medallion riding the art. The empty ring shows as part of the blank skeleton; its
+                  glyph fades in with the rest of the card once the art has loaded. */}
               <span
-                className={`absolute left-1/2 top-7 z-10 -translate-x-1/2 w-16 h-16 rounded-full grid place-items-center border-2 backdrop-blur-sm shadow-lg transition-[transform,box-shadow] duration-300 group-hover:scale-110 group-hover:-rotate-6 group-hover:shadow-[0_0_30px_-2px_var(--tone-soft)] ${tone.medallion}`}
+                className={`absolute left-1/2 top-7 z-10 -translate-x-1/2 w-16 h-16 rounded-full grid place-items-center border-2 backdrop-blur-sm shadow-lg transition-[transform,box-shadow,opacity] duration-300 group-hover:scale-110 group-hover:-rotate-6 group-hover:shadow-[0_0_30px_-2px_var(--tone-soft)] ${tone.medallion} ${revealed ? 'opacity-100' : 'opacity-30'}`}
               >
-                <SymbolGlyph sym={sym} size="lg" />
+                <span className={`transition-opacity duration-[600ms] ${revealed ? 'opacity-100' : 'opacity-0'}`}>
+                  <SymbolGlyph sym={sym} size="lg" />
+                </span>
               </span>
 
-              {/* Engraved title, flavor-text description, route tag — anchored at the bottom over the scrim. */}
-              <div className="relative z-10 flex flex-col items-center px-5 pb-5 pt-4">
+              {/* Engraved title, flavor-text description, route tag — anchored at the bottom over the
+                  scrim; fades in with the card once its art has loaded. */}
+              <div className={`relative z-10 flex flex-col items-center px-5 pb-5 pt-4 transition-opacity duration-[600ms] ${revealed ? 'opacity-100' : 'opacity-0'}`}>
                 <h3 className="font-display text-lg font-semibold leading-tight text-foreground mb-1.5">{route.title}</h3>
                 <p className="font-flavor text-[15px] italic leading-snug text-muted-foreground/90 mb-3.5 max-w-[26ch]">{route.description}</p>
                 {route.tag && (
@@ -233,8 +262,6 @@ export function BrewPath({ onFinish, onManaBase }: { onFinish: () => void; onMan
         </Button>
         <span className="w-1 h-1 rotate-45 bg-border" />
         <Button variant="ghost" size="sm" onClick={rerollBrew}><RefreshCw className="w-4 h-4 mr-1.5" /> Reroll routes</Button>
-        <span className="w-1 h-1 rotate-45 bg-border" />
-        <Button variant="ghost" size="sm" className="text-violet-300 hover:text-violet-200" onClick={onFinish}><Play className="w-4 h-4 mr-1.5" /> Finish for me</Button>
       </div>
     </div>
   );

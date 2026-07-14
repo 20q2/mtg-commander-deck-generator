@@ -1,8 +1,10 @@
 import { HelpCircle } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 export function HomePage() {
+  usePageTitle();
   return (
     <main className="flex-1 container mx-auto px-4 py-6 relative">
       <div className="absolute top-4 right-4 z-20">
