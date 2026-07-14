@@ -1,5 +1,6 @@
 import type { ScryfallCard, EDHRECCard, EDHRECCombo, Customization } from '@/types';
 import type { RoleKey } from '@/services/tagger/client';
+import type { ThemeKind } from './themeKind';
 
 /** A single scored card in the brew candidate pool. */
 export interface BrewCandidate {
@@ -33,11 +34,19 @@ export interface BrewContext {
   nonLandTarget: number;                 // Sum of typeTargets
   combos: EDHRECCombo[];                 // Commander-source combos, for combo routes (Plan 3)
   comboPieceCounts: Record<string, number>; // card name -> how many of `combos` it appears in (≥2 = "combo piece" / glue)
+  // Every card name (+ DFC front face) appearing in ANY known combo — commander OR color-identity.
+  // The "is this an actual combo piece?" oracle used by the combo pack + combo tagging. `combos`
+  // above stays commander-only (near-miss fork), so this is a superset kept separate on purpose.
+  comboPieceNames: Set<string>;
+  // name -> best payoffRank across the combos it appears in (see combos.ts payoffRank). Orders the
+  // combo pack so the exciting enablers (infinite mana/damage) lead.
+  comboPiecePayoff: Record<string, number>;
   themeNames: Record<string, string>;    // theme slug -> display name (for leaning readout + reasons)
   themeSignatures: Record<string, string[]>; // theme slug -> card names ranked by EDHREC theme-synergy (the cards that DEFINE the theme, not staples played in it)
   gameChangerNames?: Set<string>;        // WotC "game changer" list — surfaced as a pick reason
   themeCharTags?: Record<string, string[]>;  // theme slug -> its CHARACTERISTIC chroma tags (over-represented in that theme's pool vs. the whole pool). Absent if the tag index didn't load.
   chromaTagLabels?: Record<string, string>;  // chroma tag slug -> human label, for reason chips. Absent if the tag index didn't load.
+  themeKinds?: Record<string, ThemeKind>;    // theme slug -> how it's defined (mechanic/tribal/curated/archetype). Absent if the Scryfall catalogs didn't load → all themes treated as archetype.
 }
 
 export type ReasonKind = 'synergy' | 'role' | 'theme' | 'curve' | 'combo' | 'comboPiece' | 'discovery' | 'lift' | 'gameChanger' | 'tag';
@@ -57,6 +66,21 @@ export interface BrewPick {
   inclusion: number;
   viaRouteId: string;
   reasons: PickReason[];
+}
+
+/**
+ * A transient "what if I took these?" preview: the cards you've selected/hovered in a pack but not
+ * yet committed. The deck-stats charts read this (from the store) and draw a faint dashed projection
+ * of where each chart WOULD land, so you can see a pick's effect before taking it. Never persisted.
+ */
+export interface BrewPreview {
+  cards: BrewCandidate[];   // the cards that would be added (your kept selection ∪ the hovered card)
+  packSlug?: string;        // the cracked pack's theme slug, for an affinity projection that matches the real commit
+}
+
+/** A preview card as a throwaway BrewPick, so the stats functions can treat it like a real pick. */
+export function previewPick(c: BrewCandidate): BrewPick {
+  return { name: c.name, card: c.scryfall, role: c.role, subtype: c.subtype, inclusion: c.inclusion, viaRouteId: '', reasons: [] };
 }
 
 export type RouteType = 'draft' | 'bundle' | 'lightning' | 'gamble' | 'combo' | 'manabase' | 'seal';
@@ -184,7 +208,13 @@ export interface BrewHistoryEntry {
   routeType: RouteType;
   added: string[];            // card names added in this decision
   passed: string[];           // names shown-but-not-taken (for Plan 3 Build History)
-  tags?: Record<string, string[]>; // picked card name -> synergy tags (lets undo subtract affinity precisely)
+  tags?: Record<string, string[]>; // picked card name -> synergy tags (drives identityLean + reason chips)
+  /**
+   * The exact themeAffinity change this decision applied (theme/subtype slug -> amount). The weighting
+   * is decided at pick time (a cracked pack's own theme dominates; incidental page overlap counts far
+   * less), so undo just subtracts this back rather than re-deriving from tags. Absent on legacy entries.
+   */
+  affinityDelta?: Record<string, number>;
   moment?: { kind: BrewEventKind; label: string }; // set when this pick came from an event → locked from undo
   /**
    * The Rival's ledger: set when the player took an option the engine ranked BELOW its top pick

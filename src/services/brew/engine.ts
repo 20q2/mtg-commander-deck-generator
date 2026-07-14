@@ -1,14 +1,15 @@
 export * from './brewTypes';
 export * from './chromaTags';
 export * from './banned';
+export * from './themeKind';
 export { buildHealth, isComplete, NONLAND_COMPLETE_RATIO, pool } from './health';
 export { buildScoringContext, scoreCandidate, affinityWeight, isUrgentFill, philosophyPromoted } from './scoring';
-export { applyPick, undoLast, isLastPickLocked, AFFINITY_PER_PICK, type ApplyPickMeta } from './picks';
+export { applyPick, undoLast, isLastPickLocked, computeAffinityDelta, AFFINITY_PER_PICK, AFFINITY_SIGNATURE, AFFINITY_INCIDENTAL, PACK_STEER_BONUS, type ApplyPickMeta } from './picks';
 export { nextRoutes, computeDeficits, matchesDeficit, type Deficit } from './routes';
 export { openNode, deriveReasons, buildPackNode } from './nodes';
-export { leaningThemes, topIdentity, generateRunTitle, IDENTITY_COMMIT_THRESHOLD, type IdentityBar } from './identity';
+export { leaningThemes, topIdentity, topIdentityLean, identityLean, projectIdentityLean, generateRunTitle, IDENTITY_COMMIT_THRESHOLD, type IdentityBar } from './identity';
 export { discoverFrom, discoverClustersFrom } from './discovery';
-export { computeDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';
+export { computeDeckStats, projectDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';
 export { detectNearMissCombos, type NearMissCombo } from './combos';
 export { brewGoal, goalProgress } from './goals';
 export {
