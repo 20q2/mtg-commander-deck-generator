@@ -1,6 +1,7 @@
 import type { RoleKey } from '@/services/tagger/client';
 import { isTutor } from '@/services/tagger/client';
-import type { BrewContext, BrewState } from './brewTypes';
+import type { BrewContext, BrewState, BrewCandidate } from './brewTypes';
+import { previewPick } from './brewTypes';
 import { typeKey } from './health';
 
 export interface RadarAxis { key: string; label: string; current: number; target: number; fill: number; }
@@ -70,4 +71,12 @@ export function computeDeckStats(ctx: BrewContext, state: BrewState): DeckStats 
 
   const rounded = radar.every(a => a.fill >= ROUNDED_THRESHOLD);
   return { radar, curve, types, rounded };
+}
+
+/**
+ * The DeckStats the deck WOULD have if `previewCards` were added — used to draw the hover projection
+ * over the current charts. Same computation as computeDeckStats, just on picks + the preview cards.
+ */
+export function projectDeckStats(ctx: BrewContext, state: BrewState, previewCards: BrewCandidate[]): DeckStats {
+  return computeDeckStats(ctx, { ...state, picks: [...state.picks, ...previewCards.map(previewPick)] });
 }

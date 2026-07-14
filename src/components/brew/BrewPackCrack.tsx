@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { playPackCrack } from '@/services/brew/brewSound';
+import { useBrewSuggest } from '@/services/brew/brewSuggest';
 import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
 import type { PackSceneAPI } from '@/components/brew/packScene';
@@ -36,10 +37,6 @@ const TEAR_SEC = 0.48;    // (3D path) the tear-noise length — matches the sce
 const TILT_RANGE = 16;
 const SPRING_K = 0.16;
 const SPRING_D = 0.78;
-
-// Suggestions: an opt-out highlight of the engine's top-scored card or two in a cracked fan
-// (Lightbulb + lavender — the same "next best move" pairing the Inspector uses). Persisted.
-const SUGGEST_KEY = 'mtg-brew-suggest';
 
 type Spring = { cur: number; vel: number; target: number };
 type TiltState = { rx: Spring; ry: Spring; amt: number; hovered: boolean; raf: number | null };
@@ -163,7 +160,7 @@ export function PackBody({ option, packColor, brand = true, artOverride }: { opt
 }
 
 export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boolean) => void; onBack?: () => void }) {
-  const { brewNode, applyBrewOption, customization } = useStore();
+  const { brewNode, applyBrewOption, customization, setBrewPreview } = useStore();
   // The staged pack (option id): others are falling, this one is flying to center and looming.
   const [staged, setStaged] = useState<string | null>(null);
   // Which pack was cracked — drives the fan phase.
@@ -174,17 +171,9 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   const [committing, setCommitting] = useState(false);
   // Hovering a fan card pops a full, readable preview beside it (mirrors the old pack behavior).
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
-  // Suggestions on/off — the fan highlights the engine's top pick(s) when on. Sticky per player.
-  const [suggestOn, setSuggestOn] = useState(() => {
-    try { return localStorage.getItem(SUGGEST_KEY) !== 'false'; } catch { return true; }
-  });
-  function toggleSuggest() {
-    setSuggestOn(v => {
-      const next = !v;
-      try { localStorage.setItem(SUGGEST_KEY, String(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }
+  // Suggestions on/off — the fan highlights the engine's top pick(s) when on. The toggle itself now
+  // lives in the HUD (BrewHealthStrip); we just read the shared, persisted value here.
+  const [suggestOn] = useBrewSuggest();
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -282,6 +271,20 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
       el.style.setProperty('--fr', `${(i % 2 === 0 ? -1 : 1) * (8 + i * 4)}deg`);
     });
   }, [ghost]);
+
+  // Publish the "what if I keep these?" preview to the deck-stats charts: your kept selection plus
+  // the card under the cursor. The charts draw it as a dashed projection. Cleared while committing
+  // (the real bars are about to update) and on unmount.
+  useEffect(() => {
+    const co = cracked ? brewNode?.options.find(o => o.id === cracked) ?? null : null;
+    if (!co || committing) { setBrewPreview(null); return; }
+    const fan: BrewCandidate[] = [...co.cards, ...(co.goldCard ? [co.goldCard] : [])];
+    const hoveredName = hover?.card.name;
+    const cards = fan.filter(c => keep.has(c.name) || c.name === hoveredName);
+    const packSlug = co.id.startsWith('theme:') ? co.id.slice('theme:'.length) : undefined;
+    setBrewPreview(cards.length > 0 ? { cards, packSlug } : null);
+  }, [cracked, keep, hover, committing, brewNode, setBrewPreview]);
+  useEffect(() => () => setBrewPreview(null), [setBrewPreview]);
 
   if (!brewNode) return null;
   const options = brewNode.options;
@@ -652,20 +655,6 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   // One continuous stage for all three beats — nothing fades in over anything else.
   return (
     <div ref={containerRef} className="relative min-h-[420px]">
-      {/* The suggestions toggle, up top. Absolutely positioned in the heading gap so it never
-          reflows the pack shelf (the CSS stand-ins and 3D zones share exact positions). */}
-      <button
-        onClick={toggleSuggest}
-        aria-pressed={suggestOn}
-        className={`absolute -top-7 right-0 z-30 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] transition-colors ${
-          suggestOn
-            ? 'border-violet-300/60 bg-violet-500/15 text-violet-200'
-            : 'border-border/60 bg-black/40 text-muted-foreground hover:text-foreground/80'
-        }`}
-      >
-        <Lightbulb className="w-3.5 h-3.5" />
-        Suggestions {suggestOn ? 'on' : 'off'}
-      </button>
       {/* A quiet way out once a pack is open: no store mutation has happened yet (that waits for
           commit), so this just re-seals the shelf to crack a different pack. Deliberately understated
           — the crack is still meant to feel like the commitment. */}

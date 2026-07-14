@@ -14,10 +14,10 @@ import { BrewSetup } from '@/components/brew/BrewSetup';
 import { BrewSplash } from '@/components/brew/BrewSplash';
 import { BrewHealthStrip } from '@/components/brew/BrewHealthStrip';
 import { BrewDeckListButton, BrewDeckListColumn } from '@/components/brew/BrewDeckListButton';
+import { BrewDebugButton } from '@/components/brew/BrewDebugDrawer';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { BrewTrack } from '@/components/brew/BrewTrack';
-import { BrewStatsPanel } from '@/components/brew/BrewStatsPanel';
-import { BrewStatsButton } from '@/components/brew/BrewStatsButton';
+import { BrewStatsButton, BrewStatsColumn } from '@/components/brew/BrewStatsButton';
 import { BrewCommitFlash } from '@/components/brew/BrewCommitFlash';
 import { BrewCelebration } from '@/components/brew/BrewCelebration';
 import { BrewPath } from '@/components/brew/BrewPath';
@@ -26,8 +26,6 @@ import { BrewQuestionScreen } from '@/components/brew/BrewQuestionScreen';
 import { BrewEventScreen } from '@/components/brew/BrewEventScreen';
 import { BrewRelicScreen } from '@/components/brew/BrewRelicScreen';
 import { BrewRunRecap } from '@/components/brew/BrewRunRecap';
-import { BrewGauntlet } from '@/components/brew/BrewGauntlet';
-import { runGauntlet, type GauntletTrial } from '@/services/brew/gauntlet';
 import { recordRun, buildJournalRun } from '@/services/brew/journal';
 import { generateRunTitle, brewGoal, goalProgress, type BrewMoment } from '@/services/brew/engine';
 import { BrewPreviously } from '@/components/brew/BrewPreviously';
@@ -49,6 +47,7 @@ export function BrewPage() {
     setCommander, setPartnerCommander, setEdhrecStats, setEdhrecThemes, setSelectedThemes,
     setThemesLoading,
     brewContext, brewState, brewNode, brewQuestion, brewEvent, brewRelicOffer, startBrewSession, clearBrewSession,
+    brewStatsOpen, toggleBrewStats,
   } = useStore();
 
   const { createList } = useUserLists();
@@ -61,8 +60,6 @@ export function BrewPage() {
   const [intro, setIntro] = useState<{ startRect: DOMRect; target: { x: number; y: number } } | null>(null);
   // The end-of-run story: once the deck is finished, hold here until the player taps through.
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
-  // The Gauntlet — the climax between the built deck and the recap: three trials, then the story.
-  const [gauntlet, setGauntlet] = useState<{ listId: string; trials: GauntletTrial[] } | null>(null);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
   // The "what is this?" splash pitches the mode on a player's FIRST brew only — once they've seen it
@@ -82,7 +79,10 @@ export function BrewPage() {
   // The live deck-so-far. On screens wide enough (≥1024px) it opens as its own COLUMN beside the
   // game (~25% of the page) instead of an overlay drawer; narrower screens keep the drawer.
   const [deckListOpen, setDeckListOpen] = useState(false);
-  const deckColumnFits = useMediaQuery('(min-width: 1024px)');
+  const [debugOpen, setDebugOpen] = useState(false);
+  // Both side panels (stats on the left, deck list on the right) open as real slide-in columns once
+  // the viewport is wide enough (≥1024px); narrower screens fall back to overlay drawers.
+  const columnFits = useMediaQuery('(min-width: 1024px)');
 
   // 1) Load commander + EDHREC themes/stats from the URL (mirror of BuilderPage).
   useEffect(() => {
@@ -262,9 +262,8 @@ export function BrewPage() {
         goalLabel: brewGoal(brewContext).label,
         goalDone: goalProgress(brewContext, brewState).done,
       }));
-      // The Gauntlet first (the deck faces the table), then the recap — the session stays live so
-      // both can read the run's state.
-      setGauntlet({ listId: list.id, trials: runGauntlet(brewContext, brewState) });
+      // The run ends on the recap — the session stays live so it can read the run's state.
+      setRecap({ listId: list.id });
     } catch (e) {
       console.error(e); setError(e instanceof Error ? e.message : 'Failed to finish');
     } finally {
@@ -291,12 +290,12 @@ export function BrewPage() {
     if (listId) navigate(`/decks/${listId}`);
   }
 
-  // The Gauntlet's shaky-verdict bridge: same teardown as handleViewDeck, but land in the
-  // Inspector — "shore this up" is the one-click-fix thesis pointed at the finished deck.
+  // The recap's Inspector bridge: same teardown as handleViewDeck, but land in the Inspector —
+  // the one-click-fix thesis pointed at the finished deck.
   function handleInspector(listId: string) {
     if (brewId) clearPersistedBrew(brewId);
     clearBrewSession();
-    setGauntlet(null);
+    setRecap(null);
     navigate(`/analyze/${listId}`);
   }
 
@@ -304,10 +303,15 @@ export function BrewPage() {
 
   const sessionActive = !!brewContext && !!brewState;
   // The deck list renders as a real side column only when open, wide enough, and mid-session.
-  const deckColumn = sessionActive && deckListOpen && deckColumnFits;
+  const deckColumn = sessionActive && deckListOpen && columnFits;
+  // The stats render as a left-side column whenever they're open (the persisted default is shown),
+  // wide enough, and the deck has begun — a mirror of the deck list. The page reserves matching left
+  // padding so the game column sits beside it rather than under it.
+  const statsColumn = sessionActive && brewStatsOpen && columnFits && (brewState?.picks.length ?? 0) > 0;
+  const reserveColumns = statsColumn || deckColumn;
 
-  // Keep the column mounted through its close so the slide-out actually plays before unmounting
-  // (mirrors BrewStatsPanel's show/closing pattern). 250ms matches animate-slide-out-right.
+  // Keep each column mounted through its close so the slide-out actually plays before unmounting.
+  // 250ms matches animate-slide-out-*.
   const [deckPanel, setDeckPanel] = useState<{ closing: boolean } | null>(null);
   useEffect(() => {
     if (deckColumn) { setDeckPanel({ closing: false }); return; }
@@ -316,29 +320,29 @@ export function BrewPage() {
     return () => window.clearTimeout(t);
   }, [deckColumn]);
 
+  const [statsPanel, setStatsPanel] = useState<{ closing: boolean } | null>(null);
+  useEffect(() => {
+    if (statsColumn) { setStatsPanel({ closing: false }); return; }
+    setStatsPanel(p => (p ? { closing: true } : p));
+    const t = window.setTimeout(() => setStatsPanel(null), 250);
+    return () => window.clearTimeout(t);
+  }, [statsColumn]);
+
   return (
-    // The choices keep a single, centered column at every step. Opening the deck list on a wide
-    // screen slides in a fixed ~25% column flush with the viewport's right edge; the page reserves
-    // matching right padding so the game recenters beside it (and ≥1560px left padding keeps the
-    // widened layout clear of the fixed stats rail).
+    // The choices keep a single, centered column at every step. The stats (left) and deck list
+    // (right) each slide in as a fixed ~25% column flush with their viewport edge; the page reserves
+    // matching padding on whichever side is open so the game recenters between them instead of
+    // sliding underneath. When neither is open the column simply centers in max-w-6xl.
     <div
       ref={contentRef}
-      className={`brew-foundry px-4 py-6 ${deckColumn ? 'max-w-none min-[1560px]:pl-[288px] pr-[25vw]' : 'max-w-6xl mx-auto'}`}
+      className={`brew-foundry px-4 py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[18.75vw]' : ''} ${deckColumn ? 'pr-[25vw]' : ''}`}
     >
       {/* The morph-and-fly "set off" beat plays over everything until it hands off to the fork. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
       {/* Resume cliffhanger — the last moments of a rejoined run, then straight back in. */}
       {previously && <BrewPreviously moments={previously} onDone={() => setPreviously(null)} />}
-      {/* The Gauntlet — the finished deck faces three trials before its story is told. */}
-      {gauntlet && (
-        <BrewGauntlet
-          trials={gauntlet.trials}
-          onContinue={() => { setRecap({ listId: gauntlet.listId }); setGauntlet(null); }}
-          onInspector={() => handleInspector(gauntlet.listId)}
-        />
-      )}
       {/* The run recap overlays everything once the deck is finished. */}
-      {recap && <BrewRunRecap onContinue={handleViewDeck} />}
+      {recap && <BrewRunRecap onContinue={handleViewDeck} onInspector={() => handleInspector(recap.listId)} />}
       {/* The mana-base capstone — the final land-style choice, before the deck is built. */}
       {capstone && <BrewManaCapstone onChoose={(s) => void handleFinish(s)} onSkip={() => void handleFinish()} />}
       {/* The commit consequence banner — overlays everything briefly after a Crossroads commit. */}
@@ -357,18 +361,17 @@ export function BrewPage() {
         )
       ) : (
         <>
-          {/* The living-stats rail is fixed-positioned and mounted here (not inside a screen) so it
-              stays put across every fork/node/question/event, not only between rounds. Kept OUTSIDE
-              the space-y wrapper so its row-spacing margin doesn't shove the fixed panel down. */}
-          <BrewStatsPanel />
-          {/* Below 1560px the docked rail can't fit — this button opens the same stats in a drawer so
-              laptops/tablets see the living stats too. Hidden at ≥1560px (the rail takes over). */}
-          <BrewStatsButton />
-          {/* Deck list is its own button now: pinned top-right on wide screens (mirroring the stats
-              rail), a right-aligned row above the strip on narrower ones. Outside the space-y wrapper
-              so its row-margin doesn't push the fixed/HUD layout around. */}
-          <BrewDeckListButton open={deckListOpen} onToggle={setDeckListOpen} asColumn={deckColumnFits} />
-          <div className={`space-y-5 min-w-0 ${deckColumn ? 'max-w-6xl mx-auto' : ''}`}>
+          {/* Stats trigger — pinned top-left on wide screens (mirroring the deck-list button), a
+              left-aligned row above the strip on narrower ones. On wide screens it opens the living
+              stats as a slide-in column beside the game; on narrow ones, a left-side drawer. Outside
+              the space-y wrapper so its row-margin doesn't push the fixed/HUD layout around. */}
+          <BrewStatsButton open={brewStatsOpen} onToggle={(o) => toggleBrewStats(o)} asColumn={columnFits} />
+          {/* Deck-list trigger — mirror of the stats button on the opposite margin. */}
+          <BrewDeckListButton open={deckListOpen} onToggle={setDeckListOpen} asColumn={columnFits} />
+          {/* Developer debug drawer — sits just below the deck-list trigger; a holistic dump of the
+              card pool, tag aggregations, and pack-population reasoning. */}
+          <BrewDebugButton open={debugOpen} onToggle={setDebugOpen} />
+          <div className={`space-y-5 min-w-0 ${reserveColumns ? 'max-w-6xl mx-auto' : ''}`}>
           {/* Health strip + the "up next" track read as one stacked unit. The identity meter rides
               along as a compact strip on narrow screens (the wide-screen rail carries it otherwise). */}
           <div className="space-y-2">
@@ -399,6 +402,11 @@ export function BrewPage() {
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>
+          {/* The living-stats side column — fixed flush to the left edge, sliding in/out on toggle.
+              Mounted through the close (statsPanel lags statsColumn) so the exit animation plays. */}
+          {statsPanel && (
+            <BrewStatsColumn closing={statsPanel.closing} onClose={() => toggleBrewStats(false)} />
+          )}
           {/* The deck-so-far side column — fixed flush to the right edge, sliding in/out on toggle.
               Mounted through the close (deckPanel lags deckColumn) so the exit animation plays. */}
           {deckPanel && (

@@ -1,5 +1,6 @@
 import type { ThemeResult } from '@/types';
-import type { BrewContext, BrewState } from './brewTypes';
+import type { BrewContext, BrewState, BrewCandidate } from './brewTypes';
+import { computeAffinityDelta } from './picks';
 
 // AFFINITY_PER_PICK is 10 (picks.ts), so 20 ≈ two picks into a theme before we call it a "lean".
 export const LEANING_THRESHOLD = 20;
@@ -14,6 +15,51 @@ export interface IdentityBar {
   label: string;
   value: number;
   committed: boolean;
+}
+
+/**
+ * Identity lean per theme slug, for the identity meter's display. Reads straight from `themeAffinity`,
+ * which is already weighted at pick time so the theme you DELIBERATELY chose (the cracked pack, or a
+ * card's own defining signature) dominates the incidental pages a card merely also appears on (see
+ * applyBrewOption). This keeps the radar, the strip bars, and the "Leaning into" readout telling one
+ * story — the packs you cracked — instead of the meter re-deriving a second, disagreeing signal.
+ * Only real themes (a display name in ctx.themeNames) count; subtype/role slugs are filtered out.
+ */
+export function identityLean(ctx: BrewContext, state: BrewState): Record<string, number> {
+  const lean: Record<string, number> = {};
+  for (const [slug, v] of Object.entries(state.themeAffinity)) {
+    if (v > 0 && ctx.themeNames[slug]) lean[slug] = v;
+  }
+  return lean;
+}
+
+/**
+ * The identity lean the deck WOULD show if `previewCards` were added (using the same weighted
+ * affinity model as the real commit, via computeAffinityDelta). Drives the identity radar's dashed
+ * hover projection. `packSlug` is the cracked pack's theme when previewing a pack keep.
+ */
+export function projectIdentityLean(
+  ctx: BrewContext, state: BrewState, previewCards: BrewCandidate[], packSlug?: string,
+): Record<string, number> {
+  const delta = computeAffinityDelta(ctx, previewCards, packSlug);
+  const themeAffinity = { ...state.themeAffinity };
+  for (const [slug, amt] of Object.entries(delta)) themeAffinity[slug] = (themeAffinity[slug] ?? 0) + amt;
+  return identityLean(ctx, { ...state, themeAffinity });
+}
+
+/** The top `n` themes by signature-weighted lean, strongest first — the display counterpart to
+ *  topIdentity (which ranks by raw affinity for the engine). Used by the identity meter. */
+export function topIdentityLean(ctx: BrewContext, state: BrewState, n = 4): IdentityBar[] {
+  const lean = identityLean(ctx, state);
+  return Object.entries(lean)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([slug, value]) => ({
+      slug,
+      label: ctx.themeNames[slug],
+      value,
+      committed: state.committedTheme === slug,
+    }));
 }
 
 /**

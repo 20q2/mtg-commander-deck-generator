@@ -3,7 +3,7 @@ import type { AppState, Customization, BanList, AppliedList, ScryfallCard, Gener
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
-import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
+import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, computeAffinityDelta, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
 
 /** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
 const CLUSTER_PHASE_FILL = 0.4;
@@ -299,6 +299,7 @@ export const useStore = create<AppState>((set, get) => ({
   brewCelebration: null,
   brewRerollExclusions: [],
   brewStatsOpen: loadBrewStatsOpen(),
+  brewPreview: null,
 
   // UI
   isLoading: false,
@@ -560,6 +561,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (c.subtype) t.push(c.subtype);
       tags[c.name] = t;
     }
+    // Weighted affinity: the theme YOU chose leads, incidental page overlap barely counts. A commander's
+    // popular pages sit on almost every card, so flat per-membership credit made the lean always collapse
+    // onto the commander's top two themes. Here the cracked pack's own theme (its `theme:<slug>` id) is
+    // the deliberate signal; for non-pack picks (draft/combo) a card's own defining signature theme leads.
+    // Cracking a pack also adds a one-off steer bonus — the choice itself sets a direction.
+    const packSlug = brewNode.type === 'bundle' && option.id.startsWith('theme:') ? option.id.slice('theme:'.length) : undefined;
     // A secret gold card (rare, theme packs only) rides along as a free extra pick — committed in the
     // same (undoable) decision, with its own affinity, plus a story moment for the end-run recap.
     // Double or nothing: a traded gold is REPLACED by the two face-down signatures — the wager
@@ -574,6 +581,9 @@ export const useStore = create<AppState>((set, get) => ({
       if (w.subtype) t.push(w.subtype);
       tags[w.name] = t;
     }
+    // Weighted affinity delta — the single source of truth shared with the hover preview
+    // (computeAffinityDelta): the cracked pack's theme leads, incidental page overlap barely counts.
+    const affinityDelta = computeAffinityDelta(brewContext, [...option.cards, ...windfallCards], packSlug);
     // Rotate packs across a 2-round window: on a fresh pack round, shift the just-shown keys into
     // lastPackKeys and the previous round's into prevPackKeys, so the next two rounds hold both back
     // (less "same 3 themes every time"). A draft/combo pick isn't a pack round → leave the window be.
@@ -598,7 +608,7 @@ export const useStore = create<AppState>((set, get) => ({
         rival = { chosen: nameOf(option), top: nameOf(top), gap };
       }
     }
-    let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags, rival });
+    let nextState = applyPick(brewState, picks, { routeType: brewNode.type, passed: passedNames, tags, affinityDelta, rival });
     nextState = { ...nextState, lastPackKeys: nextLastPackKeys, prevPackKeys: nextPrevPackKeys, lastPackCardNames: nextLastPackCardNames };
     if (gold && traded) {
       // The wager beat: what was given up and what came back — a gamble moment, not a windfall
@@ -845,7 +855,9 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  clearBrewSession: () => set({ brewContext: null, brewState: null, brewRoutes: [], brewNode: null, brewQuestion: null, brewEvent: null, brewRelicOffer: null, brewCommitFlash: null, brewCelebration: null, brewRerollExclusions: [] }),
+  clearBrewSession: () => set({ brewContext: null, brewState: null, brewRoutes: [], brewNode: null, brewQuestion: null, brewEvent: null, brewRelicOffer: null, brewCommitFlash: null, brewCelebration: null, brewRerollExclusions: [], brewPreview: null }),
+
+  setBrewPreview: (preview) => set({ brewPreview: preview }),
 
   toggleBrewStats: (open) => set((s) => {
     const next = open ?? !s.brewStatsOpen;

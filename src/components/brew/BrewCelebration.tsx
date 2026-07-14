@@ -35,10 +35,11 @@ export function BrewCelebration() {
   const { kind, title, subtitle, cards } = brewCelebration;
   const { Icon, hsl } = STYLE[kind];
 
-  // ── Combo online: the pieces fly to center, a spark connects them, the spread locks with a punch.
+  // ── Combo online: the pieces fly in, a spark connects them, the spread locks with a punch. Tucked
+  //    into the bottom-right corner so it celebrates without taking over the center of the play area.
   if (isComboTakeover && cards) {
     return (
-      <div className="pointer-events-none fixed inset-0 z-[100] grid place-items-center px-4 animate-fade-in">
+      <div className="pointer-events-none fixed inset-0 z-[100] flex items-end justify-end p-4 sm:p-6 animate-fade-in">
         <div
           className="flex flex-col items-center gap-3 rounded-3xl border px-7 py-6 backdrop-blur-md animate-brew-combo-lock"
           style={{

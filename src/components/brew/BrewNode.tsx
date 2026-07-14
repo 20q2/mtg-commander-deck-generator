@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Pin, Info, Link2, Play, Dices, Star, X, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey, PACK_FLAVOR } from '@/components/brew/brewVisuals';
-import { RoleBadges } from '@/components/brew/RoleBadges';
 import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
@@ -43,7 +42,7 @@ const ROLE_ICON: Record<string, LucideIcon> = {
 
 
 export function BrewNode({ onFinish }: { onFinish: () => void }) {
-  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState } = useStore();
+  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState, brewContext, setBrewPreview } = useStore();
   const [chosenId, setChosenId] = useState<string | null>(null);
   // Headliner: multi-select. The set of option ids the player has toggled on, plus a commit flag
   // that fires the fly-to-deck animation once they lock in their picks.
@@ -85,6 +84,24 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   }, [shownKey]);
   // Cancel any pending windfall timers if the screen unmounts mid-reveal.
   useEffect(() => () => { revealTimers.current.forEach(t => window.clearTimeout(t)); }, []);
+
+  // Publish the hover/selection preview to the deck-stats charts (a dashed projection of what taking
+  // these cards would do). Packs (bundle nodes) are owned by BrewPackCrack; this covers the
+  // draft/headliner/combo/etc. surfaces. No packSlug → signature-weighted affinity, matching the
+  // real commit for these node types.
+  useEffect(() => {
+    if (!brewNode || brewNode.type === 'bundle') return; // BrewPackCrack owns the pack preview
+    if (committing || reveal) { setBrewPreview(null); return; }
+    const selected = brewNode.options.filter(o => selectedIds.has(o.id)).flatMap(o => o.cards);
+    const hoveredName = hover?.card.name;
+    const hoveredOption = hoveredName ? brewNode.options.find(o => o.cards.some(c => c.name === hoveredName)) : undefined;
+    const byName = new Map<string, BrewCandidate>();
+    for (const c of [...selected, ...(hoveredOption?.cards ?? [])]) byName.set(c.name, c);
+    const cards = [...byName.values()];
+    setBrewPreview(cards.length > 0 ? { cards } : null);
+  }, [brewNode, selectedIds, hover, committing, reveal, setBrewPreview]);
+  useEffect(() => () => setBrewPreview(null), [setBrewPreview]);
+
   if (!brewNode) return null;
 
   const clearRevealTimers = () => { revealTimers.current.forEach(t => window.clearTimeout(t)); revealTimers.current = []; };
@@ -109,6 +126,19 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     onMouseEnter: (e: MouseEvent<HTMLElement>) => setHover({ card, rect: e.currentTarget.getBoundingClientRect() }),
     onMouseLeave: () => setHover(null),
   });
+
+  // Resolve a discovery seed name (the "X" in "Hidden synergy with X" / "Similar to X") to a Scryfall
+  // card so its chip can preview it — the referenced card is one of the deck's picks, a commander, or
+  // still in the draftable pool. Returns undefined if it can't be found (chip stays non-interactive).
+  const resolveCardByName = (name: string): ScryfallCard | undefined => {
+    if (brewContext?.commander?.name === name) return brewContext.commander;
+    if (brewContext?.partnerCommander?.name === name) return brewContext.partnerCommander ?? undefined;
+    const pick = brewState?.picks.find(p => p.name === name);
+    if (pick) return pick.card;
+    const cand = brewContext?.candidates.find(c => c.name === name);
+    if (cand) return cand.scryfall;
+    return brewState?.discovered.find(c => c.name === name)?.scryfall;
+  };
 
   const op = operationTheme(brewNode.type, routeKey(brewNode.routeId));
 
@@ -230,6 +260,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
             The deck's marquee cards. Strike any you'd rather not build around.
           </p>
         </>
+      ) : isPack && packCracked ? (
+        /* Once a pack is cracked and we're looking at the cards inside, drop the
+           "Pick a Pack" title — the pack is chosen, the header is just noise now. */
+        null
       ) : (
         <>
           <h2 className="font-display text-2xl font-semibold tracking-tight mb-1" style={{ textShadow: `0 2px 22px hsl(${op.color} / 0.35)` }}>
@@ -368,6 +402,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                     src={getCardImageUrl(p.scryfall, 'small')}
                     alt={p.name}
                     loading="lazy"
+                    {...hoverPreview(p.scryfall)}
                     className="block w-full h-auto rounded-[4.8%] grayscale-[0.35] shadow-[0_4px_12px_rgba(0,0,0,0.5)] ring-1 ring-black/60"
                   />
                   <span className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Have</span>
@@ -383,7 +418,6 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 const isGameChanger = (option.reasons[i] ?? []).some(r => r.kind === 'gameChanger');
                 return (
                   <div key={c.name} className={`${cardW} relative flex flex-col items-center`}>
-                    <RoleBadges cardName={c.name} size={packaged ? 'sm' : 'md'} />
                     {/* Headliner: kept cards wear a star (they're billed on the marquee); struck
                         cards wear an X (left behind). The whole card toggles it — this is the read-out. */}
                     {isHeadliner && (
@@ -454,10 +488,18 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                       <div className="mt-2 flex w-full flex-wrap justify-center gap-1">
                         {reasons.map((r, ri) => {
                           const LeadIcon = r.kind === 'lift' ? Zap : r.kind === 'comboPiece' ? Link2 : r.kind === 'role' ? ROLE_ICON[r.label] : undefined;
+                          // A single-referent synergy chip ("Hidden synergy with X" / "Similar to X" /
+                          // "Plays with X") names one card — hovering the chip previews THAT card, so the
+                          // player can confirm the synergy. The cluster lift ("N of your cards want this")
+                          // names many, so it gets no preview.
+                          const refName = (r.kind === 'discovery' || (r.kind === 'lift' && (c.connectionCount ?? 0) < 2))
+                            ? c.discoveredVia : undefined;
+                          const refCard = refName ? resolveCardByName(refName) : undefined;
                           return (
                             <span
                               key={ri}
-                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none ${REASON_CHIP[r.kind] ?? 'border-border/60 bg-card/60 text-muted-foreground'}`}
+                              {...(refCard ? hoverPreview(refCard) : {})}
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none ${REASON_CHIP[r.kind] ?? 'border-border/60 bg-card/60 text-muted-foreground'} ${refCard ? 'cursor-help underline decoration-dotted underline-offset-2' : ''}`}
                             >
                               {LeadIcon && <LeadIcon className="w-3 h-3" />}
                               {r.label}

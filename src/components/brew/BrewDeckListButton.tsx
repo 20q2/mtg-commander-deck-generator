@@ -45,7 +45,7 @@ export function BrewDeckListContent({ onClose }: { onClose: () => void }) {
 }
 
 /** Track the sticky header's bottom edge (plus an offset) so fixed brew chrome pins just under it. */
-function useHeaderAnchoredTop(offset: number) {
+export function useHeaderAnchoredTop(offset: number) {
   const [top, setTop] = useState(88 + offset);
   useEffect(() => {
     const header = document.querySelector('header');
@@ -66,17 +66,50 @@ function useHeaderAnchoredTop(offset: number) {
 }
 
 /**
+ * The top/bottom insets for a docked side column: top pinned under the sticky header, bottom flush to
+ * the viewport edge until the footer scrolls into view — then it lifts to sit exactly above the
+ * footer instead of hovering over it. Shared by both side columns (stats left, deck list right) so
+ * they bound the same way. Both edges are measured (header height varies with the migration banner;
+ * the footer only enters view at the bottom of a scroll).
+ */
+export function useColumnBounds() {
+  const [bounds, setBounds] = useState({ top: 88, bottom: 0 });
+  useEffect(() => {
+    const header = document.querySelector('header');
+    const footer = document.querySelector('footer');
+    const measure = () => {
+      const top = header ? Math.round(header.getBoundingClientRect().bottom) : 0;
+      // Bottom inset = how far the footer has crossed into the viewport (0 while it's still below).
+      const bottom = footer ? Math.max(0, Math.round(window.innerHeight - footer.getBoundingClientRect().top)) : 0;
+      setBounds({ top, bottom });
+    };
+    measure();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    const ro = new ResizeObserver(measure); // catch banner dismiss / header + footer reflow
+    if (header) ro.observe(header);
+    if (footer) ro.observe(footer);
+    return () => {
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+      ro.disconnect();
+    };
+  }, []);
+  return bounds;
+}
+
+/**
  * The wide-screen deck-so-far column: docked flush to the viewport's right/bottom edges (top flush
  * under the header), sliding in from the right when opened and back out on close. BrewPage keeps it
  * mounted through the exit so the slide-out actually plays, and reserves matching page padding so
  * the game column sits beside it rather than under it.
  */
 export function BrewDeckListColumn({ closing, onClose }: { closing: boolean; onClose: () => void }) {
-  const top = useHeaderAnchoredTop(0);
+  const { top, bottom } = useColumnBounds();
   return (
     <aside
-      style={{ top }}
-      className={`fixed right-0 bottom-0 z-20 w-1/4 border-l border-border/50 bg-card/75 backdrop-blur-md shadow-2xl overflow-hidden
+      style={{ top, bottom }}
+      className={`fixed right-0 z-20 w-1/4 border-l border-border/50 bg-card/75 backdrop-blur-md shadow-2xl overflow-hidden
         ${closing ? 'animate-slide-out-right' : 'animate-slide-in-right'}`}
     >
       <BrewDeckListContent onClose={onClose} />

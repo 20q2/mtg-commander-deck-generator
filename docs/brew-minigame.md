@@ -55,7 +55,7 @@ separate brew generator, no railroading.
 /brew landing (+ Treasury shelf) → Setup → Intro morph
   → [ pack · pack · pack · MOMENT ] × N
   → Mana-base capstone (or "Finish for me" at any fork)
-  → finishBrew → Gauntlet (3 trials) → Run recap → Deck view
+  → finishBrew → Run recap → Deck view
 ```
 
 The rhythm is `STEER_EVERY = 4` in [flow.ts](../src/services/brew/flow.ts): three packs, then
@@ -299,7 +299,7 @@ Post-cull, the HUD is deliberately two quiet bars plus opt-in panels:
 [App.tsx](../src/App.tsx): `/brew` → BrewLandingPage, `/brew/:commanderName/:partnerName?` →
 [BrewPage](../src/pages/BrewPage.tsx) (both eager; only three.js + pack art are deferred).
 BrewPage renders exactly one primary screen — `brewRelicOffer → brewEvent → brewQuestion →
-brewNode → BrewPath` — plus overlays (Intro, Previously, Gauntlet, Recap, ManaCapstone,
+brewNode → BrewPath` — plus overlays (Intro, Previously, Recap, ManaCapstone,
 CommitFlash, Celebration). Store actions are the UI↔engine seam: `startBrewSession`,
 `openBrewRoute`, `applyBrewOption`, `answerBrewQuestion`, `chooseBrewEvent`,
 `chooseBrewRelic`, `undoBrewPick`, `rerollBrew`, `pinBrewCard`, `backToBrewFork`,
@@ -319,17 +319,20 @@ skips the quiz with an inferred style.
 `finishBrew` merges picks as must-includes into the standard `generateDeck()`, carrying the
 run's leaned themes. Then:
 
-1. **The Gauntlet** ([gauntlet.ts](../src/services/brew/gauntlet.ts)) — the deck faces three
-   trials (Board Wipe recovery, Archenemy, the Long Game), verdicts from tracked stats
-   (strong ≥1.0 / holds ≥0.6 / shaky). Read-only, never a fail state; a shaky verdict offers
-   the Inspector bridge (`/analyze/<id>`) — "shore this up" is the one-click-fix thesis
-   pointed at the finished deck.
-2. **The run recap** ([BrewRunRecap](../src/components/brew/BrewRunRecap.tsx)) — a generated
-   run title, the moment timeline, Treasury additions, and the Rival divergence tally (the
-   engine's private ranking vs. your actual takes — logged, never judged: "you built this
-   deck, your way").
-3. The run is recorded to the Journal, the session tears down, and the deck opens in the
+1. **The run recap** ([BrewRunRecap](../src/components/brew/BrewRunRecap.tsx)) — the single
+   end-of-run screen: a generated run title, the moment timeline, Treasury additions, and the
+   Rival divergence tally (the engine's private ranking vs. your actual takes — logged, never
+   judged: "you built this deck, your way"). Its footer carries **View your deck** plus a quiet
+   secondary **Open in Inspector** (`/analyze/<id>`) — the one-click-fix bridge, always
+   available, no deck-health framing.
+2. The run is recorded to the Journal, the session tears down, and the deck opens in the
    normal deck view.
+
+> The **Gauntlet** — a separate pre-recap screen that put the deck through three "trials"
+> (Board Wipe / Archenemy / Long Game) with epic per-verdict flavor — was **cut 2026-07-14**:
+> too wordy, a tone reaching past what the moment earned, and a redundant second dialogue
+> stacked before the recap. The honest deck-health read it offered lives on in the Inspector;
+> the Inspector bridge the player liked survives as the recap's secondary button.
 
 ---
 
@@ -337,7 +340,8 @@ run's leaned themes. Then:
 
 Kept honest so nobody describes these as working. The wordy/tonal cull (2026-07-11→) removed
 the Goal HUD label, streak chip, act interstitials + numeral, goal/streak celebration toasts,
-and the stats-rail reassurance caption. Still standing:
+the stats-rail reassurance caption, and the end-of-run **Gauntlet** (2026-07-14 — its trials
+folded away, its Inspector bridge kept on the recap). Still standing:
 
 | Seam | Reality |
 |---|---|
@@ -364,7 +368,7 @@ and the stats-rail reassurance caption. Still standing:
 | Events / questions / philosophies | `src/services/brew/{events,questions,relics}.ts` |
 | Combos / health / identity / stats / goals | `src/services/brew/{combos,health,identity,stats,goals}.ts` |
 | Seeded randomness | `src/services/brew/jitter.ts` |
-| Gauntlet / journal / sound / persistence | `src/services/brew/{gauntlet,journal,brewSound,persistCodec}.ts` |
+| Journal / sound / persistence | `src/services/brew/{journal,brewSound,persistCodec}.ts` |
 | Finish → deck | `src/services/brew/{finishBrew,brewDeckToList}.ts` |
 | Engine barrel | `src/services/brew/engine.ts` |
 | Orchestrator page | `src/pages/BrewPage.tsx` |

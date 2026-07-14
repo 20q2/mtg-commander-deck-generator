@@ -655,6 +655,7 @@ export interface AppState {
   brewCelebration: import('@/services/brew/engine').BrewCelebration | null; // transient earned-beat toast (goal/streak/combo)
   brewRerollExclusions: string[];
   brewStatsOpen: boolean; // whether the "Your deck so far" stats rail is shown (wide screens)
+  brewPreview: import('@/services/brew/engine').BrewPreview | null; // transient hover/selection preview for the deck-stats charts
 
   // UI
   isLoading: boolean;
@@ -704,6 +705,7 @@ export interface AppState {
   rerollBrew: () => void;
   clearBrewSession: () => void;
   toggleBrewStats: (open?: boolean) => void;
+  setBrewPreview: (preview: import('@/services/brew/engine').BrewPreview | null) => void;
 }
 
 // Deck view progressive load phases

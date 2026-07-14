@@ -1,6 +1,6 @@
 import { Lock } from 'lucide-react';
 import { useStore } from '@/store';
-import { topIdentity, NONLAND_COMPLETE_RATIO, type BrewContext, type BrewState } from '@/services/brew/engine';
+import { topIdentityLean, identityLean, projectIdentityLean, NONLAND_COMPLETE_RATIO, type BrewContext, type BrewState, type BrewPreview } from '@/services/brew/engine';
 import { StatPop } from './StatPop';
 import { RAIL_TITLE_CLASS, RAIL_RADAR_SCALE } from '@/components/brew/brewVisuals';
 import { Radar, type RadarDatum } from '@/components/charts/Radar';
@@ -19,26 +19,48 @@ const IDENTITY_AXES = 5;
  * the shape spikes toward what you favor instead of pegging to an absolute scale (which tops out after
  * a pack or two). The committed theme wears gold.
  */
-function identityRadarData(ctx: BrewContext, state: BrewState): RadarDatum[] {
+const isLandType = (typeLine: string) => typeLine.toLowerCase().includes('land');
+
+function identityRadarData(ctx: BrewContext, state: BrewState, preview?: BrewPreview | null): RadarDatum[] {
   const slugs = Object.keys(ctx.themeNames).slice(0, IDENTITY_AXES);
-  const vals = slugs.map(s => state.themeAffinity[s] ?? 0);
+  // Pack-weighted lean: the themes you deliberately cracked drive the shape, not the incidental page
+  // overlap that made every axis tie toward the commander's popular themes (see applyBrewOption).
+  const lean = identityLean(ctx, state);
+  const vals = slugs.map(s => lean[s] ?? 0);
   const peak = Math.max(...vals);
+  const total = vals.reduce((a, b) => a + b, 0);
   // Overall size = how far the build has come, vs the nonland count at which the engine calls the deck
   // finishable — so the radar reaches full size right as the deck rounds out, not on the first pack.
-  const nonLandPicks = state.picks.filter(p => !p.card.type_line.toLowerCase().includes('land')).length;
+  const nonLandPicks = state.picks.filter(p => !isLandType(p.card.type_line)).length;
   const finishLine = Math.max(1, Math.floor(ctx.nonLandTarget * NONLAND_COMPLETE_RATIO));
   const progress = Math.min(1, nonLandPicks / finishLine);
+
+  // Hover projection: the shape the identity WOULD take with the previewed cards added (same math on
+  // the affinity we'd have after taking them). Drawn as the radar's dashed reference outline.
+  let projFill: (number | null)[] = slugs.map(() => null);
+  if (preview && preview.cards.length > 0) {
+    const pLean = projectIdentityLean(ctx, state, preview.cards, preview.packSlug);
+    const pVals = slugs.map(s => pLean[s] ?? 0);
+    const pPeak = Math.max(...pVals);
+    const addedNonLand = preview.cards.filter(c => !isLandType(c.scryfall.type_line)).length;
+    const pProgress = Math.min(1, (nonLandPicks + addedNonLand) / finishLine);
+    projFill = slugs.map((_, i) => (pPeak > 0 ? pProgress * (pVals[i] / pPeak) : 0));
+  }
+
   return slugs.map((slug, i) => {
     const v = vals[i];
     const name = ctx.themeNames[slug];
+    const ref = projFill[i];
     return {
       key: slug,
       label: name.length > 9 ? `${name.slice(0, 8)}…` : name,
-      current: Math.round(v / 10),
-      target: Math.max(1, Math.round(peak / 10)),
+      current: v,
+      target: Math.max(1, peak),
       fill: peak > 0 ? progress * (v / peak) : 0,
       hue: state.committedTheme === slug ? GOLD : VIOLET,
       glyph: null,
+      tip: total > 0 ? `${name} · ${Math.round((v / total) * 100)}% of your lean` : name,
+      ...(ref != null ? { ref } : {}),
     };
   });
 }
@@ -49,13 +71,13 @@ function identityRadarData(ctx: BrewContext, state: BrewState): RadarDatum[] {
  * thin row): compact bars with a "+N Theme" pop on each pick.
  */
 export function BrewIdentityMeter({ variant = 'rail' }: { variant?: 'rail' | 'strip' }) {
-  const { brewContext, brewState } = useStore();
+  const { brewContext, brewState, brewPreview } = useStore();
   // Nothing to show before the first pack — identity only exists once a choice has been made.
   if (!brewContext || !brewState || brewState.picks.length === 0) return null;
 
   // ---- Rail: the radar ----
   if (variant === 'rail') {
-    const data = identityRadarData(brewContext, brewState);
+    const data = identityRadarData(brewContext, brewState, brewPreview);
     if (data.length < 3) return null; // a radar needs ≥3 axes; commanders virtually always clear this
     const committed = !!brewState.committedTheme;
     return (
@@ -67,7 +89,7 @@ export function BrewIdentityMeter({ variant = 'rail' }: { variant?: 'rail' | 'st
   }
 
   // ---- Strip: compact bars (narrow screens) ----
-  const bars = topIdentity(brewContext, brewState, 3);
+  const bars = topIdentityLean(brewContext, brewState, 3);
   if (bars.length === 0) return null;
   const max = Math.max(...bars.map(b => b.value), 1);
   return (

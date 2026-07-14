@@ -4,11 +4,12 @@ import { useStore } from '@/store';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { buildHealth, leaningThemes } from '@/services/brew/engine';
 import {
-  Sparkles, Gem, Flame, PiggyBank, Sprout, Crosshair, Bomb, BookOpen, Volume2, VolumeX,
+  Sparkles, Gem, Flame, PiggyBank, Sprout, Crosshair, Bomb, BookOpen, Volume2, VolumeX, Lightbulb,
   type LucideIcon,
 } from 'lucide-react';
 import { StatPop } from './StatPop';
 import { isBrewSoundEnabled, setBrewSoundEnabled } from '@/services/brew/brewSound';
+import { useBrewSuggest } from '@/services/brew/brewSuggest';
 
 // Mirrors the glyph keys in relics.ts so acquired relics show a familiar icon in the tray.
 const RELIC_ICON: Record<string, LucideIcon> = {
@@ -20,6 +21,8 @@ export function BrewHealthStrip() {
   const { brewContext, brewState } = useStore();
   // Celebration sound/haptic toggle (persisted). Hook stays above the early return per Rules of Hooks.
   const [soundOn, setSoundOn] = useState(isBrewSoundEnabled);
+  // Suggestions toggle (persisted, shared with the pack fan in BrewPackCrack via a tiny store).
+  const [suggestOn, setSuggestOn] = useBrewSuggest();
   // Hovering the commander portrait pops the full card(s) so the avatar is inspectable, not just decor.
   const [portraitRect, setPortraitRect] = useState<DOMRect | null>(null);
   if (!brewContext || !brewState) return null;
@@ -116,6 +119,23 @@ export function BrewHealthStrip() {
             {budget && budget > 0 ? <span className="text-muted-foreground/60"> / ${budget}</span> : null}
           </StatPop>
         </span>
+
+        {/* Highlight the engine's top pick(s) in a cracked fan. Persisted; the fan reads the same
+            shared value in BrewPackCrack. Lavender when on (the "next best move" accent). */}
+        <button
+          type="button"
+          onClick={() => setSuggestOn(!suggestOn)}
+          title={suggestOn ? 'Hide suggested picks' : 'Show suggested picks'}
+          aria-label={suggestOn ? 'Hide suggested picks' : 'Show suggested picks'}
+          aria-pressed={suggestOn}
+          className={`grid place-items-center w-6 h-6 rounded-md transition-colors ${
+            suggestOn
+              ? 'text-violet-300 hover:text-violet-200 hover:bg-white/5'
+              : 'text-muted-foreground/55 hover:text-violet-200 hover:bg-white/5'
+          }`}
+        >
+          <Lightbulb className="w-3.5 h-3.5" />
+        </button>
 
         {/* Mute/unmute the celebration sound + haptic cues. */}
         <button

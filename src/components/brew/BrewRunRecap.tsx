@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { leaningThemes, generateRunTitle, brewGoal, goalProgress } from '@/services/brew/engine';
 import { treasuryFromState } from '@/services/brew/journal';
 import {
-  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, Bot, Medal, type LucideIcon,
+  Sparkles, Infinity as InfinityIcon, GitFork, Gem, Compass, ArrowRight, ScrollText, Crown, Dices, Target, Bot, Medal, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import type { BrewMoment } from '@/services/brew/engine';
@@ -25,7 +25,7 @@ const MOMENT_ICON: Record<BrewMoment['kind'], { Icon: LucideIcon; color: string 
   goldCard: { Icon: Crown, color: '45 92% 56%' },
 };
 
-export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
+export function BrewRunRecap({ onContinue, onInspector }: { onContinue: () => void; onInspector: () => void }) {
   const { brewContext, brewState } = useStore();
   if (!brewContext || !brewState) return null;
 
@@ -163,9 +163,14 @@ export function BrewRunRecap({ onContinue }: { onContinue: () => void }) {
           <p className="font-flavor text-[15px] italic text-muted-foreground mb-7">A quiet, focused build — straight down the line.</p>
         )}
 
-        <Button size="lg" className="btn-shimmer" onClick={onContinue}>
-          View your deck <ArrowRight className="w-4 h-4 ml-1.5" />
-        </Button>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Button size="lg" className="btn-shimmer" onClick={onContinue}>
+            View your deck <ArrowRight className="w-4 h-4 ml-1.5" />
+          </Button>
+          <Button size="lg" variant="outline" onClick={onInspector}>
+            <Wrench className="w-4 h-4 mr-1.5" /> Open in Inspector
+          </Button>
+        </div>
       </div>
     </div>
   );
