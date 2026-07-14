@@ -6,6 +6,7 @@ import { scanLiftCandidates, clusterScore, edgeScore } from '@/services/optimize
 import type { BrewContext, BrewState, BrewCandidate } from './brewTypes';
 import { typeKey } from './health';
 import { relicBudgetCap } from './relics';
+import { bannedNameSet } from './banned';
 
 const SOURCE_RANK: Record<CardRelation['source'], number> = { lift: 0, coplay: 1, similar: 2 };
 
@@ -37,7 +38,8 @@ export async function discoverFrom(
     }
   }
 
-  // 2. Exclude names we already have or have used.
+  // 2. Exclude names we already have or have used — and the player's banned list, so a lift find can't
+  //    reintroduce a card we deliberately kept out of the base pool.
   const exclude = new Set<string>([
     ...state.usedNames,
     ...ctx.candidates.map(c => c.name),
@@ -45,6 +47,7 @@ export async function discoverFrom(
     ...seedNames,
     ctx.commander.name,
     ...(ctx.partnerCommander ? [ctx.partnerCommander.name] : []),
+    ...bannedNameSet(ctx.customization),
   ]);
   const wanted = [...best.entries()].filter(([name]) => !exclude.has(name));
   if (wanted.length === 0) return [];
@@ -105,6 +108,7 @@ export async function discoverClustersFrom(
     ...ctx.candidates.map(c => c.name),
     ...state.discovered.map(c => c.name),
     ...seedNames,
+    ...bannedNameSet(ctx.customization),
   ]);
 
   // scanLiftCandidates already filters to in-identity, commander-legal, non-land.

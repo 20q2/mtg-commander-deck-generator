@@ -7,6 +7,7 @@ import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/c
 import { loadTagIndex, loadTagDictionary, tagsForOracleId, allTags } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { computeThemeCharTags } from './chromaTags';
+import { bannedNameSet } from './banned';
 import type { BrewContext, BrewCandidate } from './brewTypes';
 
 // Tag candidates with the commander's top-N themes so the player has lots of directions to lean
@@ -74,10 +75,15 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     ? await getArenaLegalNames(poolNames)
     : null;
 
+  // The player's exclude list — a banned card must never enter the pool (so it can't be offered in a
+  // pack, hidden as a windfall, or surfaced by discovery). Mirrors the deck generator's banned filter.
+  const banned = bannedNameSet(customization);
+
   const candidates: BrewCandidate[] = [];
   const seen = new Set<string>();
   for (const e of edhrecData.cardlists.allNonLand) {
     if (seen.has(e.name)) continue;
+    if (banned.has(e.name)) continue;
     const scryfall = cardMap.get(e.name);
     if (!scryfall) continue;
     if (ownedOnly && args.collectionNames && !args.collectionNames.has(e.name)) continue;
