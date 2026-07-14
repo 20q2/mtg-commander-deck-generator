@@ -1,5 +1,5 @@
 import type { ScryfallCard, GeneratedDeck, DeckCategory } from '@/types';
-import { calculateStats } from './deckGenerator';
+import { calculateStats, countColorPips } from './deckGenerator';
 import { getCardRole, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { estimateBracket } from './bracketEstimator';
@@ -712,4 +712,57 @@ export function pickReplacementCandidate(
     return c;
   }
   return null;
+}
+
+const BASIC_BY_COLOR: Record<string, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
+const COLOR_BY_BASIC: Record<string, string> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
+
+export interface BasicLandTarget {
+  /** 'W' | 'U' | 'B' | 'R' | 'G', or 'C' for a colorless identity. */
+  color: string;
+  /** 'Plains' … 'Forest', or 'Wastes' when colorless. */
+  basicName: string;
+}
+
+/**
+ * Pick the basic-land color the deck is most short on: the largest gap between a
+ * color's share of mana pips (demand) and its share of the current basic lands (supply).
+ * Ties break toward the higher raw pip count. A colorless identity yields Wastes.
+ */
+export function mostNeededBasicColor(deck: GeneratedDeck): BasicLandTarget {
+  const identity = new Set<string>();
+  for (const cmdr of [deck.commander, deck.partnerCommander]) {
+    for (const c of cmdr?.color_identity ?? []) {
+      if (c in BASIC_BY_COLOR) identity.add(c);
+    }
+  }
+  const colors = [...identity];
+  if (colors.length === 0) return { color: 'C', basicName: 'Wastes' };
+
+  const nonLands = Object.values(deck.categories)
+    .flat()
+    .filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land'));
+  const pips = countColorPips(nonLands);
+  const totalPips = colors.reduce((s, c) => s + (pips[c] || 0), 0);
+
+  const basics: Record<string, number> = {};
+  for (const c of deck.categories.lands ?? []) {
+    const color = COLOR_BY_BASIC[c.name];
+    if (color) basics[color] = (basics[color] || 0) + 1;
+  }
+  const totalBasics = colors.reduce((s, c) => s + (basics[c] || 0), 0);
+
+  let best = colors[0];
+  let bestScore = -Infinity;
+  for (const c of colors) {
+    const pipShare = totalPips > 0 ? (pips[c] || 0) / totalPips : 0;
+    const basicShare = totalBasics > 0 ? (basics[c] || 0) / totalBasics : 0;
+    // Primary signal is unmet demand; the tiny pip term only breaks exact ties.
+    const score = (pipShare - basicShare) + (pips[c] || 0) * 1e-6;
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return { color: best, basicName: BASIC_BY_COLOR[best] };
 }

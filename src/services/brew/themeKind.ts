@@ -1,10 +1,12 @@
 import type { ScryfallCard } from '@/types';
+import type { RoleKey } from '@/services/tagger/client';
 
 /** How a theme is defined, and what to test a card against. */
 export type ThemeKind =
   | { kind: 'mechanic'; match: string }   // match = keyword (lowercase); test card.keywords
   | { kind: 'tribal'; match: string }     // match = creature subtype (lowercase); test type_line subtypes
   | { kind: 'curated'; match: string }    // match = CURATED_MECHANICS key; test oracle text
+  | { kind: 'role'; match: RoleKey }      // functional category (Ramp, Card Draw…) → NOT a theme pack
   | { kind: 'archetype' };                // no concrete card attribute → statistical (tag-lift) gate
 
 /**
@@ -18,6 +20,21 @@ export const CURATED_MECHANICS: Record<string, RegExp> = {
   'tokens': /\bcreates?\b[^.]*\btokens?\b/i,
 };
 
+/**
+ * EDHREC theme names that are really FUNCTIONAL CATEGORIES, not strategies. A "Ramp" or "Card Draw"
+ * theme page is a co-occurrence list of what those decks *play* (tutors, payoffs), so it makes a
+ * terrible theme pack — the cards aren't the role. Classifying these as `role` keeps them OUT of
+ * theme-pack generation; the deck seeks them through the deficit-gated need pack + the theme-tuned
+ * synergy pack instead (themes early, answers later). Keyed by lowercased display name → RoleKey.
+ */
+export const ROLE_THEME_NAMES: Record<string, RoleKey> = {
+  'ramp': 'ramp',
+  'card draw': 'cardDraw', 'card advantage': 'cardDraw', 'draw': 'cardDraw',
+  'removal': 'removal', 'spot removal': 'removal', 'targeted removal': 'removal',
+  'board wipe': 'boardwipe', 'board wipes': 'boardwipe', 'boardwipes': 'boardwipe', 'wraths': 'boardwipe',
+  'protection': 'protection',
+};
+
 /** Singular candidates for a plural theme name, to match Scryfall's singular creature types. */
 function singulars(n: string): string[] {
   return [n, n.replace(/ies$/, 'y'), n.replace(/ves$/, 'f'), n.replace(/s$/, ''), n.replace(/es$/, '')];
@@ -29,6 +46,8 @@ function singulars(n: string): string[] {
  */
 export function classifyTheme(themeName: string, mechanics: Set<string>, creatureTypes: Set<string>): ThemeKind {
   const n = themeName.toLowerCase().trim();
+  // Functional categories first — so a "Protection" theme reads as the role, never the keyword ability.
+  if (n in ROLE_THEME_NAMES) return { kind: 'role', match: ROLE_THEME_NAMES[n] };
   if (n in CURATED_MECHANICS) return { kind: 'curated', match: n };
   if (mechanics.has(n)) return { kind: 'mechanic', match: n };
   for (const cand of singulars(n)) if (creatureTypes.has(cand)) return { kind: 'tribal', match: cand };
@@ -50,12 +69,14 @@ function matchesCurated(sc: ScryfallCard, key: string): boolean {
   return re.test(text);
 }
 
-/** Does this card deterministically belong to a mechanic/tribal/curated theme? (archetype → false). */
+/** Does this card deterministically belong to a mechanic/tribal/curated theme? (archetype/role → false). */
 export function themeKindMatches(kind: ThemeKind, sc: ScryfallCard): boolean {
   switch (kind.kind) {
     case 'mechanic': return hasKeyword(sc, kind.match);
     case 'tribal': return hasSubtype(sc, kind.match);
     case 'curated': return matchesCurated(sc, kind.match);
+    // 'role' needs the tagger's role (BrewCandidate.role), which a ScryfallCard alone can't give —
+    // and role themes never become theme packs, so no card-attribute test is meaningful here.
     default: return false;
   }
 }

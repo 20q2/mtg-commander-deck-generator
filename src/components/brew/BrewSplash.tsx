@@ -53,10 +53,6 @@ export function BrewSplash({ commanderName, onContinue }: Props) {
       onClick={onContinue}
       className="relative flex min-h-[60vh] cursor-pointer flex-col items-center justify-center text-center animate-fade-in"
     >
-      <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full border border-violet-400/40 bg-violet-500/10 text-[11px] uppercase tracking-[0.18em] text-violet-200">
-        <Sparkles className="w-3.5 h-3.5" /> Interactive · Guided
-      </div>
-
       <h1 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mb-2 drop-shadow-[0_2px_18px_hsl(var(--primary)/0.35)]">
         {commanderName ? <>Brew <span className="gradient-text">{commanderName}</span></> : 'Build your deck, your way'}
       </h1>

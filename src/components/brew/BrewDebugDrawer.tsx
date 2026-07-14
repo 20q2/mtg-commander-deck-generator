@@ -51,7 +51,7 @@ function themeTagLift(candidates: BrewCandidate[], slug: string, poolCarriers: M
     const lift = base > 0 && memberN > 0 ? (mc / memberN) / base : 0;
     rows.push({ tag, carriers: mc, lift });
   }
-  rows.sort((a, b) => b.lift - a.lift);
+  rows.sort((a, b) => b.lift - a.lift || b.carriers - a.carriers);
   return { rows, memberN };
 }
 

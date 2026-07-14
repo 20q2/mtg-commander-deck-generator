@@ -4,11 +4,11 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store';
-import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, isMdfcLand, BASIC_LAND_NAMES, useScryfallImage } from '@/services/scryfall/client';
+import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getFrontFaceTypeLine, getCardByName, getCachedCard, isMdfcLand, BASIC_LAND_NAMES, useScryfallImage } from '@/services/scryfall/client';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
-import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase, UserCombo, CardEdhrecMeta } from '@/types';
+import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase, UserCombo, CardEdhrecMeta, GeneratedDeck } from '@/types';
 import {
   Copy,
   Check,
@@ -58,7 +58,7 @@ import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, type ReplaceMode } from '@/services/deckBuilder/cardSwap';
+import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, mostNeededBasicColor, type ReplaceMode } from '@/services/deckBuilder/cardSwap';
 import { HEALTH_GRADE_STYLES, ROLE_GROUP_ICONS } from '@/components/deck/optimizer/constants';
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
@@ -2997,66 +2997,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return getCardImageUrl(flatCardList[previewCardIndex + 1], 'small');
   }, [previewCardIndex, flatCardList]);
 
-  const handleReplaceWithMode = useCallback((mode: ReplaceMode) => {
-    setReplacePopoverOpen(false);
-    if (!generatedDeck) return;
-
-    const allCards = Object.values(groupedCards).flat();
-    const selected: ScryfallCard[] = [];
-    for (const { card } of allCards) {
-      if (selectedCards.has(card.id)) selected.push(card);
-    }
-    if (selected.length === 0) return;
-
-    const normName = (n: string) => (n.includes(' // ') ? n.split(' // ')[0] : n);
-
-    const banned = new Set<string>([
-      ...customization.bannedCards.map(normName),
-      ...(customization.tempBannedCards ?? []).map(normName),
-    ]);
-    const mustInclude = new Set<string>([
-      ...customization.mustIncludeCards.map(normName),
-      ...(customization.tempMustIncludeCards ?? []).map(normName),
-    ]);
-
-    let workingDeck = generatedDeck;
-    const pairs: Array<{ old: ScryfallCard; new: ScryfallCard }> = [];
-    const unreplaced: ScryfallCard[] = [];
-
-    for (const oldCard of selected) {
-      const inDeck = new Set<string>();
-      for (const arr of Object.values(workingDeck.categories)) {
-        for (const c of arr) inDeck.add(normName(c.name));
-      }
-      if (workingDeck.commander) inDeck.add(normName(workingDeck.commander.name));
-      if (workingDeck.partnerCommander) inDeck.add(normName(workingDeck.partnerCommander.name));
-
-      const candidate = pickReplacementCandidate(workingDeck, oldCard, mode, {
-        banned,
-        mustInclude,
-        inDeck,
-      });
-
-      if (!candidate) {
-        unreplaced.push(oldCard);
-        continue;
-      }
-
-      const result = swapCard(workingDeck, oldCard, candidate);
-      if (!result.success) {
-        unreplaced.push(oldCard);
-        continue;
-      }
-
-      workingDeck = result.deck;
-      pairs.push({ old: oldCard, new: candidate });
-    }
-
-    if (pairs.length === 0) {
-      setToastMessage({ text: 'No replacements found for the selected card(s).' });
-      return;
-    }
-
+  // Commit a set of card replacements: update deck, record history, toast the result.
+  // Shared by role/similar/synergy replacement and land-specific (basic) replacement.
+  const finalizeReplacements = useCallback((
+    workingDeck: GeneratedDeck,
+    pairs: Array<{ old: ScryfallCard; new: ScryfallCard }>,
+    unreplaced: ScryfallCard[],
+  ) => {
     setGeneratedDeck(workingDeck);
 
     for (const p of pairs) {
@@ -3133,6 +3080,69 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     ) : body;
 
     setToastMessage({ text });
+  }, [commander, pushDeckHistory, setGeneratedDeck]);
+
+  const handleReplaceWithMode = useCallback((mode: ReplaceMode) => {
+    setReplacePopoverOpen(false);
+    if (!generatedDeck) return;
+
+    const allCards = Object.values(groupedCards).flat();
+    const selected: ScryfallCard[] = [];
+    for (const { card } of allCards) {
+      if (selectedCards.has(card.id)) selected.push(card);
+    }
+    if (selected.length === 0) return;
+
+    const normName = (n: string) => (n.includes(' // ') ? n.split(' // ')[0] : n);
+
+    const banned = new Set<string>([
+      ...customization.bannedCards.map(normName),
+      ...(customization.tempBannedCards ?? []).map(normName),
+    ]);
+    const mustInclude = new Set<string>([
+      ...customization.mustIncludeCards.map(normName),
+      ...(customization.tempMustIncludeCards ?? []).map(normName),
+    ]);
+
+    let workingDeck = generatedDeck;
+    const pairs: Array<{ old: ScryfallCard; new: ScryfallCard }> = [];
+    const unreplaced: ScryfallCard[] = [];
+
+    for (const oldCard of selected) {
+      const inDeck = new Set<string>();
+      for (const arr of Object.values(workingDeck.categories)) {
+        for (const c of arr) inDeck.add(normName(c.name));
+      }
+      if (workingDeck.commander) inDeck.add(normName(workingDeck.commander.name));
+      if (workingDeck.partnerCommander) inDeck.add(normName(workingDeck.partnerCommander.name));
+
+      const candidate = pickReplacementCandidate(workingDeck, oldCard, mode, {
+        banned,
+        mustInclude,
+        inDeck,
+      });
+
+      if (!candidate) {
+        unreplaced.push(oldCard);
+        continue;
+      }
+
+      const result = swapCard(workingDeck, oldCard, candidate);
+      if (!result.success) {
+        unreplaced.push(oldCard);
+        continue;
+      }
+
+      workingDeck = result.deck;
+      pairs.push({ old: oldCard, new: candidate });
+    }
+
+    if (pairs.length === 0) {
+      setToastMessage({ text: 'No replacements found for the selected card(s).' });
+      return;
+    }
+
+    finalizeReplacements(workingDeck, pairs, unreplaced);
   }, [
     generatedDeck,
     groupedCards,
@@ -3141,14 +3151,70 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     customization.tempBannedCards,
     customization.mustIncludeCards,
     customization.tempMustIncludeCards,
-    commander,
-    pushDeckHistory,
-    setGeneratedDeck,
+    finalizeReplacements,
   ]);
 
   const handleReplaceSelected = useCallback(() => {
     handleReplaceWithMode('similar');
   }, [handleReplaceWithMode]);
+
+  // Basic-land replacement: swap each selected land for a basic of the color the deck is
+  // most short on. The target is recomputed per card against the working deck, so replacing
+  // several at once spreads the basics across the colors that need them. Async because a
+  // basic card may need fetching. (Callers only surface this when every selection is a land.)
+  const handleReplaceLandBasic = useCallback(async () => {
+    setReplacePopoverOpen(false);
+    if (!generatedDeck || selectedCards.size === 0) return;
+
+    const allCards = Object.values(groupedCards).flat();
+    const selectedLands = allCards
+      .filter(({ card }) => selectedCards.has(card.id))
+      .map(({ card }) => card)
+      .filter(card => getFrontFaceTypeLine(card).toLowerCase().includes('land'));
+    if (selectedLands.length === 0) return;
+
+    let workingDeck = generatedDeck;
+    const pairs: Array<{ old: ScryfallCard; new: ScryfallCard }> = [];
+    const unreplaced: ScryfallCard[] = [];
+
+    for (const oldCard of selectedLands) {
+      const { basicName } = mostNeededBasicColor(workingDeck);
+      // The land already is the basic the deck needs most — swapping it for itself is a no-op.
+      if (basicName === oldCard.name) {
+        unreplaced.push(oldCard);
+        continue;
+      }
+
+      // Prefer a basic already in the deck (cheap clone), else use the cache/fetch.
+      const existing = (workingDeck.categories.lands ?? []).find(c => c.name === basicName);
+      let basicCard: ScryfallCard | undefined = existing ?? getCachedCard(basicName);
+      if (!basicCard) {
+        try {
+          basicCard = await getCardByName(basicName);
+        } catch {
+          unreplaced.push(oldCard);
+          continue;
+        }
+      }
+      // Fresh instance + unique id so it doesn't collide with existing copies.
+      const newCard: ScryfallCard = { ...basicCard, id: `${basicCard.id}-basic-${oldCard.id}` };
+
+      const result = swapCard(workingDeck, oldCard, newCard);
+      if (!result.success) {
+        unreplaced.push(oldCard);
+        continue;
+      }
+      workingDeck = result.deck;
+      pairs.push({ old: oldCard, new: newCard });
+    }
+
+    if (pairs.length === 0) {
+      setToastMessage({ text: 'No basic-land replacements applied.' });
+      return;
+    }
+
+    finalizeReplacements(workingDeck, pairs, unreplaced);
+  }, [generatedDeck, groupedCards, selectedCards, finalizeReplacements]);
 
   const singleSelectedCard = useMemo<ScryfallCard | null>(() => {
     if (selectedCards.size !== 1) return null;
@@ -3173,6 +3239,29 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     }
     return [];
   }, [singleSelectedCard]);
+
+  // Lands get basic/non-basic replace options instead of the (meaningless-for-lands) role chips.
+  const singleSelectedIsLand = useMemo(
+    () => !!singleSelectedCard && getFrontFaceTypeLine(singleSelectedCard).toLowerCase().includes('land'),
+    [singleSelectedCard],
+  );
+  // True when every selected card is a land (1 or many) — show the land replace options,
+  // which stay land-for-land, rather than the role chips.
+  const selectedAreAllLands = useMemo(() => {
+    if (selectedCards.size === 0) return false;
+    const allCards = Object.values(groupedCards).flat();
+    let landCount = 0;
+    for (const { card } of allCards) {
+      if (!selectedCards.has(card.id)) continue;
+      if (!getFrontFaceTypeLine(card).toLowerCase().includes('land')) return false;
+      landCount++;
+    }
+    return landCount > 0;
+  }, [selectedCards, groupedCards]);
+  const basicLandTarget = useMemo(
+    () => (selectedAreAllLands && generatedDeck ? mostNeededBasicColor(generatedDeck) : null),
+    [selectedAreAllLands, generatedDeck],
+  );
 
   const handleBanSelected = useCallback(() => {
     const allCards = Object.values(groupedCards).flat();
@@ -5239,32 +5328,53 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                 );
                               })
                             ) : (
-                              <span className="italic">no role</span>
+                              <span className="italic">{singleSelectedIsLand ? 'Land' : 'no role'}</span>
                             )}
                           </div>
                           <div className="border-t border-border mb-1.5" />
                         </>
                       )}
-                      <div className="text-xs text-muted-foreground px-1 pb-1.5">Advanced — choose role</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {([
-                          { mode: 'ramp', label: 'Ramp', Icon: Sprout, color: 'text-emerald-400' },
-                          { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
-                          { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
-                          { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
-                          { mode: 'protection', label: 'Protection', Icon: Shield, color: 'text-yellow-400' },
-                          { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
-                        ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
+                      {selectedAreAllLands ? (
+                        <div className="flex flex-wrap gap-1.5">
                           <button
-                            key={mode}
-                            onClick={() => handleReplaceWithMode(mode)}
+                            onClick={() => handleReplaceWithMode('similar')}
                             className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                           >
-                            <Icon className={`w-3.5 h-3.5 ${color}`} />
-                            {label}
+                            <i className="ms ms-land text-white/80" aria-hidden />
+                            Non-basic
                           </button>
-                        ))}
-                      </div>
+                          {basicLandTarget && (
+                            <button
+                              onClick={handleReplaceLandBasic}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                              title={`Swap in a ${basicLandTarget.basicName} — the basic this deck needs most`}
+                            >
+                              <i className={`ms ms-${basicLandTarget.color.toLowerCase()} ms-cost text-xs`} aria-hidden />
+                              {selectedCards.size === 1 ? `Basic · ${basicLandTarget.basicName}` : 'Basic'}
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {([
+                            { mode: 'ramp', label: 'Ramp', Icon: Sprout, color: 'text-emerald-400' },
+                            { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
+                            { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
+                            { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
+                            { mode: 'protection', label: 'Protection', Icon: Shield, color: 'text-yellow-400' },
+                            { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
+                          ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
+                            <button
+                              key={mode}
+                              onClick={() => handleReplaceWithMode(mode)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <Icon className={`w-3.5 h-3.5 ${color}`} />
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </PopoverContent>
                   </Popover>
                 )}
@@ -5479,31 +5589,52 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                         );
                                       })
                                     ) : (
-                                      <span className="italic">no role</span>
+                                      <span className="italic">{singleSelectedIsLand ? 'Land' : 'no role'}</span>
                                     )}
                                   </div>
                                   <div className="border-t border-border mb-1.5" />
                                 </>
                               )}
-                              <div className="text-[11px] text-muted-foreground/70 pb-1.5">Advanced — choose role</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {([
-                                  { mode: 'ramp', label: 'Ramp', Icon: Sprout, color: 'text-emerald-400' },
-                                  { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
-                                  { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
-                                  { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
-                                  { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
-                                ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
+                              {selectedAreAllLands ? (
+                                <div className="flex flex-wrap gap-1.5">
                                   <button
-                                    key={mode}
-                                    onClick={() => handleReplaceWithMode(mode)}
+                                    onClick={() => handleReplaceWithMode('similar')}
                                     className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                                   >
-                                    <Icon className={`w-3.5 h-3.5 ${color}`} />
-                                    {label}
+                                    <i className="ms ms-land text-white/80" aria-hidden />
+                                    Non-basic
                                   </button>
-                                ))}
-                              </div>
+                                  {basicLandTarget && (
+                                    <button
+                                      onClick={handleReplaceLandBasic}
+                                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                                      title={`Swap in a ${basicLandTarget.basicName} — the basic this deck needs most`}
+                                    >
+                                      <i className={`ms ms-${basicLandTarget.color.toLowerCase()} ms-cost text-xs`} aria-hidden />
+                                      {selectedCards.size === 1 ? `Basic · ${basicLandTarget.basicName}` : 'Basic'}
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {([
+                                    { mode: 'ramp', label: 'Ramp', Icon: Sprout, color: 'text-emerald-400' },
+                                    { mode: 'removal', label: 'Removal', Icon: Swords, color: 'text-rose-400' },
+                                    { mode: 'boardwipe', label: 'Boardwipe', Icon: Flame, color: 'text-orange-400' },
+                                    { mode: 'cardDraw', label: 'Draw', Icon: BookOpen, color: 'text-sky-400' },
+                                    { mode: 'synergy', label: 'Synergy', Icon: Sparkles, color: 'text-violet-300' },
+                                  ] as Array<{ mode: ReplaceMode; label: string; Icon: typeof Sparkles; color: string }>).map(({ mode, label, Icon, color }) => (
+                                    <button
+                                      key={mode}
+                                      onClick={() => handleReplaceWithMode(mode)}
+                                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-border hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                      <Icon className={`w-3.5 h-3.5 ${color}`} />
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </>

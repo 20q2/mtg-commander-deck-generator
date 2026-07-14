@@ -202,8 +202,9 @@ const THEME_SYNERGY_TAGS = new Set(['highsynergycards', 'topcards', 'gamechanger
  * @param tagHint - Optional tag from the cardlist to help determine primary_type
  */
 function parseCard(raw: RawEDHRECCard, tagHint?: string): EDHRECCard {
-  // Calculate inclusion as percentage (EDHREC returns deck count)
-  const inclusionCount = raw.inclusion || 0;
+  // Calculate inclusion as percentage. EDHREC returns the deck count in
+  // `num_decks` (older/other shapes used `inclusion`); percentage = count / potential.
+  const inclusionCount = raw.num_decks ?? raw.inclusion ?? 0;
   const potentialDecks = raw.potential_decks || 1;
   const inclusionPercent = potentialDecks > 0
     ? (inclusionCount / potentialDecks) * 100
@@ -417,7 +418,7 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
       const existing = seenCards.get(rawCard.name);
       const potentialDecks = rawCard.potential_decks || 1;
       const inclusionPercent = potentialDecks > 0
-        ? ((rawCard.inclusion || 0) / potentialDecks) * 100
+        ? ((rawCard.num_decks ?? rawCard.inclusion ?? 0) / potentialDecks) * 100
         : 0;
 
       if (existing && existing.inclusion >= inclusionPercent) {
@@ -1185,7 +1186,7 @@ const COPLAY_TAKE = 4;
 const SIMILAR_TAKE = 4;
 
 function coPct(v: RawCardPageView): number {
-  return v.potential_decks && v.potential_decks > 0 ? Math.round(((v.inclusion ?? 0) / v.potential_decks) * 100) : 0;
+  return v.potential_decks && v.potential_decks > 0 ? Math.round(((v.num_decks ?? v.inclusion ?? 0) / v.potential_decks) * 100) : 0;
 }
 
 /** Pure: turn a card-page payload into card-to-card relations (lift > coplay > similar). */

@@ -110,6 +110,10 @@ packs don't cycle):
    card already representable by a deterministic tribal/mechanic pack on offer, so they show
    their genuine payoffs instead of a second copy of the tribe — and get dropped when that
    leaves them too thin (fixes the "Theft pack is all elves" collapse for a tribal commander).
+   **Role-named** EDHREC themes (Ramp, Card Draw, Removal, Board Wipes, Protection —
+   `ROLE_THEME_NAMES` → `themeKind: 'role'`) are **never offered as theme packs at all**: their
+   page is what those decks *play* (tutors, payoffs), not the role, so a "Ramp" theme pack would
+   contain zero ramp. Those categories surface only through the need pack + synergy pack below.
 4. **Cluster pack** ("Plays With Your Deck") — cards the whole-deck lift web found alongside
    many of your picks (`connectionCount ≥ 2`).
 5. **Discovery pack** — single-seed lift/co-play finds.

@@ -1203,7 +1203,7 @@ async function resolveMultiCopyCards(
 }
 
 // Count color pips across all cards' mana costs (including hybrid mana)
-function countColorPips(cards: ScryfallCard[]): Record<string, number> {
+export function countColorPips(cards: ScryfallCard[]): Record<string, number> {
   const pips: Record<string, number> = {};
   // Match any mana symbol: {W}, {U/B}, {2/R}, {G/P}, etc.
   const symbolPattern = /\{([^}]+)\}/g;

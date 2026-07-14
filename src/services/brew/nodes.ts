@@ -337,6 +337,9 @@ function themeMembership(
   sigRank: Map<string, number> | undefined, otherThemeSlugs: string[],
 ): boolean {
   const kind = ctx.themeKinds?.[slug];
+  // Role themes (Ramp, Card Draw…) are never theme packs — availableThemeSlugs already drops them,
+  // so this is a defensive floor should a role slug ever reach membership.
+  if (kind?.kind === 'role') return false;
   if (kind && kind.kind !== 'archetype') {
     if (isBoardWipeLike(c)) return false;
     if (themeKindMatches(kind, c.scryfall)) return true;              // literally on-mechanic / on-type
@@ -381,6 +384,10 @@ function availableThemeSlugs(ctx: BrewContext, scored: BrewCandidate[], state: B
   for (const slug of Object.keys(ctx.themeNames)) {
     if (vetoed?.includes(slug)) continue;
     const kind = ctx.themeKinds?.[slug];
+    // Functional categories (Ramp, Card Draw, Removal…) are NOT strategy themes — their EDHREC page is
+    // what those decks play (tutors, payoffs), not the role itself. They never become a theme pack; the
+    // deck seeks them through the need pack + the theme-tuned synergy pack (themes early, answers later).
+    if (kind?.kind === 'role') continue;
     // Deterministic themes count LITERAL matches across the whole pool (so a tribal pack isn't starved
     // by the EDHREC-page∩pool intersection); archetypes count EDHREC-page membership (themeTags).
     const n = kind && kind.kind !== 'archetype'

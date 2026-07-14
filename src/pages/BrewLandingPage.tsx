@@ -25,9 +25,6 @@ export function BrewLandingPage() {
     <main className="brew-foundry flex-1 container mx-auto px-4 py-8 relative">
       {/* Hero */}
       <div className="text-center py-8 mb-8 animate-fade-in">
-        <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full border border-violet-400/40 bg-violet-500/10 text-[11px] uppercase tracking-[0.18em] text-violet-200">
-          <Sparkles className="w-3.5 h-3.5" /> Interactive · Guided
-        </div>
         <h1 className="font-display text-4xl sm:text-5xl font-semibold tracking-tight mb-4 drop-shadow-[0_2px_18px_hsl(var(--primary)/0.4)]">
           Brew a <span className="gradient-text">Deck</span>
         </h1>
