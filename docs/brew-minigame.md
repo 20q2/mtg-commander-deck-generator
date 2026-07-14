@@ -94,16 +94,26 @@ packs don't cycle):
 
 1. **Need pack** — the biggest role/type deficit, only once the deck is past its
    identity-building opening (`deckFill ≥ IDENTITY_PHASE_FILL 0.3`). Early rounds are all
-   themes: direction first, holes later.
-2. **Theme packs** — one per commander theme with stock, leaning themes weighted up. Composed
+   themes: direction first, holes later. Once a theme is leaning, its contents lead with
+   **theme-synergistic answers** (a wipe that spares your tribe, on-theme ramp) before the
+   theme's signatures, before generic staples — filling a hole still reinforces the deck.
+2. **Synergy-functional pack** — the deck-tuned answer pack (§6a). Once you're leaning a
+   theme, a *non-top* deficit role that has ≥`BUNDLE_MIN` cards specifically fitting it (an
+   elf-sparing "Scorched Earth", on-theme ramp/draw) becomes its own pack, floated above the
+   theme packs. Deficit-gated, so it never over-pushes a role you've already met.
+3. **Theme packs** — one per commander theme with stock, leaning themes weighted up. Composed
    **signature-first** from `themeSignatures` (the cards that *define* the theme on EDHREC,
    not staples merely played in it); each carries a `hallmarkName` so a "Drain the Table"
    pack provably contains a drain. Board-wipe-likes never appear in a theme pack (oracle-text
    regex catches untagged wipes); ramp/removal only when they're that theme's own signature.
-3. **Cluster pack** ("Plays With Your Deck") — cards the whole-deck lift web found alongside
+   **Archetype** themes (Theft, Control — no concrete card attribute) additionally drop any
+   card already representable by a deterministic tribal/mechanic pack on offer, so they show
+   their genuine payoffs instead of a second copy of the tribe — and get dropped when that
+   leaves them too thin (fixes the "Theft pack is all elves" collapse for a tribal commander).
+4. **Cluster pack** ("Plays With Your Deck") — cards the whole-deck lift web found alongside
    many of your picks (`connectionCount ≥ 2`).
-4. **Discovery pack** — single-seed lift/co-play finds.
-5. **Exploration slot** — a seeded under-shown theme so runs don't converge on the same 1–2
+5. **Discovery pack** — single-seed lift/co-play finds.
+6. **Exploration slot** — a seeded under-shown theme so runs don't converge on the same 1–2
    themes (skipped when a cluster pack is present).
 
 Thin-pool fallbacks (generic "Top Picks"/"More Options" splits, then a single pack) guarantee
@@ -182,8 +192,28 @@ worse card never leapfrogs a clearly better one. Jitter applies to offers only, 
 or event math.
 
 `deriveReasons()` attaches up to 5 ranked rationales per card (combo finisher / Game Changer
-first, then role deficit, discovery provenance, theme, utility flags) — the chips under each
-fan card.
+first, then a **theme-synergy** chip, role deficit, discovery provenance, theme, utility
+flags) — the chips under each fan card.
+
+### 6a. Theme synergy: answers that fit the deck
+
+[themeSynergy.ts](../src/services/brew/themeSynergy.ts) is a pure detector,
+`detectThemeSynergy(card, role, leaningThemes)`, that answers "is this functional card tuned
+to a theme the deck has actually leaned into?" (`leaningThemesWithKind` in nodes.ts resolves
+`topIdentity` leans past `LEANING_THRESHOLD` to their concrete `ThemeKind`). It looks for, in
+priority order:
+
+- **Tribe-sparing / asymmetric board wipes** — oracle text that sweeps but leaves your
+  creature type standing (`non-Elf creatures`, `non-Elf … get -X/-X`) or hits only what you
+  don't control (`creatures you don't control`) → *"Spares your Elves" / "Spares your board"*.
+  A symmetric `destroy all creatures` is deliberately **not** a synergy.
+- **On-theme ramp** — an on-tribe/on-mechanic mana producer, or mana keyed to the theme
+  (`add … for each Elf`) → *"Ramps your Elves"*.
+- **Tribal draw payoffs** (`whenever an Elf enters … draw`) → *"Draws off your Elves"*.
+
+Best-effort oracle matching — a miss just degrades to a plain role card, never a wrong claim;
+silent when nothing is leaning. Three consumers: the need pack's ordering, the
+synergy-functional pack (§3.2), and the lavender `kind:'synergy'` chip in the fan.
 
 ---
 
@@ -363,6 +393,7 @@ folded away, its Inspector bridge kept on the recap). Still standing:
 | Fork routes / deficits | `src/services/brew/routes.ts` |
 | Pack building / windfalls / reasons | `src/services/brew/nodes.ts` |
 | Scoring | `src/services/brew/scoring.ts` |
+| Theme-synergy detection (answers that fit) | `src/services/brew/themeSynergy.ts` |
 | Pick / undo transitions | `src/services/brew/picks.ts` |
 | Discovery (seeds + clusters) | `src/services/brew/discovery.ts` |
 | Events / questions / philosophies | `src/services/brew/{events,questions,relics}.ts` |

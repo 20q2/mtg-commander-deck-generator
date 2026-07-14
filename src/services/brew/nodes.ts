@@ -12,6 +12,7 @@ import { relicBudgetCap } from './relics';
 import { computeDeficits, matchesDeficit } from './routes';
 import { CLUSTER_MIN_CONN } from './discovery';
 import { themeKindMatches, type ThemeKind } from './themeKind';
+import { detectThemeSynergy, type LeaningTheme, type ThemeSynergy } from './themeSynergy';
 
 const REASON_CAP = 5;
 
@@ -196,6 +197,12 @@ export function deriveReasons(ctx: BrewContext, state: BrewState, c: BrewCandida
       reasons.push({ kind: 'tag', label: leaningDet.match.replace(/\b\w/g, m => m.toUpperCase()), value: 45 });
     }
   }
+  // Functional synergy: a card whose ROLE fits the deck specifically because of a leaning theme —
+  // a board wipe that spares your tribe, ramp or draw keyed to it. The sharpest "why this answer"
+  // call-out (louder than a plain role/on-theme chip), and the reason a synergy-functional pack
+  // earned its slot. Silent when nothing is leaning or the card is a generic answer.
+  const synergy = detectThemeSynergy(c.scryfall, c.role, leaningThemesWithKind(ctx, state));
+  if (synergy) reasons.push({ kind: 'synergy', label: synergy.label, value: 62 });
   // On-mechanic call-out: name the theme's CHARACTERISTIC tags this card carries (e.g. "Infect ·
   // Proliferate") for the themes the deck is leaning into. This is why the card earned a theme-pack
   // slot — honest lineage. Uses the tag dictionary labels; silent when tag data is absent.
@@ -302,6 +309,23 @@ function belongsToOtherKind(ctx: BrewContext, slug: string, c: BrewCandidate, ot
 }
 
 /**
+ * The themes the deck is committed to (crossed the leaning threshold), resolved to their concrete
+ * kind — the input theme-synergy detection keys off (see themeSynergy.ts). A tribal lean carries the
+ * creature type ("elf"); mechanic/curated carry the keyword/mechanic key; archetypes carry the slug
+ * (they have no literal card attribute, so most detectors skip them). Empty until a lean forms, so
+ * synergy packs/chips only appear once the deck HAS an identity to synergize with.
+ */
+function leaningThemesWithKind(ctx: BrewContext, state: BrewState): LeaningTheme[] {
+  return topIdentity(ctx, state, 8)
+    .filter(b => b.value >= LEANING_THRESHOLD)
+    .map(b => {
+      const kind = ctx.themeKinds?.[b.slug] ?? ({ kind: 'archetype' } as const);
+      const singular = kind.kind !== 'archetype' ? kind.match : b.slug;
+      return { slug: b.slug, label: b.label, singular, kind };
+    });
+}
+
+/**
  * Theme-pack membership, branched by how the theme is defined:
  *  - mechanic / tribal / curated → the card LITERALLY has the keyword / creature type / mechanic
  *    (drawn from the whole pool, not just the EDHREC page), OR it is a signature payoff that doesn't
@@ -319,10 +343,15 @@ function themeMembership(
     if (!(sigRank?.has(c.name) ?? false)) return false;               // else must be a signature payoff…
     return !belongsToOtherKind(ctx, slug, c, otherThemeSlugs);        // …that isn't really another theme's
   }
-  // Archetype: co-occurrence membership + statistical tag-lift (unchanged behavior).
+  // Archetype: co-occurrence membership + statistical tag-lift. PLUS a de-duplication guard — a
+  // card already representable by a deterministic (tribal/mechanic/curated) pack ON OFFER this round
+  // is excluded, so an archetype pack ("Theft", "Control") shows its genuine payoffs instead of a
+  // second copy of the tribe already in the Elves pack. If that differentiation leaves the pack too
+  // thin (< BUNDLE_MIN), tryBuild drops it and the rotation surfaces another direction in its place.
   return c.themeTags.includes(slug) && !isBoardWipeLike(c)
     && ((sigRank?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role)))
-    && isOnTheme(ctx, slug, c, sigRank, otherThemeSlugs);
+    && isOnTheme(ctx, slug, c, sigRank, otherThemeSlugs)
+    && !belongsToOtherKind(ctx, slug, c, otherThemeSlugs);
 }
 
 /**
@@ -464,6 +493,17 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   const scored = unseen.length >= BUNDLE_MIN * 2 ? unseen : allScored;
   const byName = new Map(scored.map(c => [c.name, c]));
   const finishers = comboFinishersFor(ctx, state);
+  // Theme-synergy pass: once the deck is leaning a theme, find the functional cards (answers, ramp,
+  // draw) that fit it SPECIFICALLY — a board wipe that spares your tribe, ramp/draw keyed to it.
+  // Drives both the synergy-first ordering inside the need pack and the synergy-functional pack below.
+  const leaning = leaningThemesWithKind(ctx, state);
+  const synergyByName = new Map<string, ThemeSynergy>();
+  if (leaning.length) {
+    for (const c of scored) {
+      const s = detectThemeSynergy(c.scryfall, c.role, leaning);
+      if (s) synergyByName.set(c.name, s);
+    }
+  }
   // A god-pack round forces a windfall onto every theme pack (see rollWindfall). Computed here and,
   // identically, in buildPackNode — a pure seeded roll, so both reads agree.
   const godPack = isGodPackRound(state);
@@ -483,7 +523,9 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
     sigRankBySlug[slug] = m;
   }
   const themeRank = (slug: string) => (c: BrewCandidate) => sigRankBySlug[slug]?.get(c.name) ?? Number.MAX_SAFE_INTEGER;
-  const needRank = (c: BrewCandidate) => (signatureSet.has(c.name) ? 0 : 1);
+  // Need packs lead with theme-synergistic answers (a tribe-sparing wipe, on-theme ramp), then a
+  // theme's defining signatures, then generic staples — so filling a hole still reinforces the deck.
+  const needRank = (c: BrewCandidate) => (synergyByName.has(c.name) ? -1 : signatureSet.has(c.name) ? 0 : 1);
 
   const clusters: Cluster[] = [];
   // 1. The steering "need" bundle — only once the deck is past its identity-building opening. Early
@@ -542,6 +584,32 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
         match: c => themeMembership(ctx, slug, c, sigRankBySlug[slug], themeSlugList),
         priority: 1_000 + (leanWeights[slug] ?? 0),
         rank: themeRank(slug),
+      });
+    }
+  }
+  // A synergy-functional pack: once the deck is leaning a theme, surface a whole pack of answers that
+  // fit it — a "Scorched Earth" that spares your Elves, on-theme ramp/draw. Only for a role the deck
+  // is genuinely SHORT on (a deficit the pool can fill) and NOT the top deficit (that already leads the
+  // need pack, synergy-ranked). So we never over-push a role that's already met — the fix is honest
+  // functional choices tied to your identity, not more ramp for a deck already swimming in it. One per
+  // round: the role with the most synergistic cards, floated above theme packs as a rare "answers that
+  // fit YOUR deck" moment.
+  if (leaning.length && synergyByName.size) {
+    let best: { role: RoleKey; count: number } | null = null;
+    for (const d of deficits) {
+      if (d.kind !== 'role' || d.key === topDeficit?.key) continue;
+      const role = d.key as RoleKey;
+      const count = scored.filter(c => synergyByName.get(c.name)?.role === role).length;
+      if (count >= BUNDLE_MIN && (!best || count > best.count)) best = { role, count };
+    }
+    if (best) {
+      const role = best.role;
+      clusters.push({
+        key: `synergy:${role}`,
+        label: BUNDLE_FLAVOR[role] ?? (ROLE_LABELS[role] ?? role),
+        flavor: 'need',
+        match: c => synergyByName.get(c.name)?.role === role,
+        priority: 2_000,   // above theme packs (1_000+) and the cluster pack (1_500); below need/GC
       });
     }
   }
@@ -763,7 +831,7 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
       .filter(c => !used.has(c.name) && !c.isLand && !!c.discoveredVia)
       .sort((a, b) => offerScore(ctx, state, b) - offerScore(ctx, state, a))
       .slice(0, ELITE_PICKS);
-    return { routeId: route.id, type: 'draft', prompt: 'Hidden Synergy — take one',
+    return { routeId: route.id, type: 'draft', prompt: 'Hidden Synergy',
       options: finds.map((c, i) => toOption(ctx, state, [c], `syn:${i}`, undefined, finishers)),
       canPass: true };
   }

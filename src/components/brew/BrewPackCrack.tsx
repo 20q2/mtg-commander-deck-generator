@@ -9,7 +9,7 @@ import { useBrewSuggest } from '@/services/brew/brewSuggest';
 import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
 import type { PackSceneAPI } from '@/components/brew/packScene';
-import { PACK_FLAVOR, themeColor, legibleText, routeKey } from '@/components/brew/brewVisuals';
+import { PACK_FLAVOR, themeColor, legibleText, routeKey, CARD_TYPE_MS } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
 import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb, ArrowLeft } from 'lucide-react';
 
@@ -37,6 +37,15 @@ const TEAR_SEC = 0.48;    // (3D path) the tear-noise length — matches the sce
 const TILT_RANGE = 16;
 const SPRING_K = 0.16;
 const SPRING_D = 0.78;
+
+// The card-type glyph shown before a fan card's name. A card can wear several types (e.g. "Artifact
+// Creature"); we surface the most salient one, and read only the front face of a DFC's type line.
+const TYPE_PRIORITY = ['planeswalker', 'creature', 'instant', 'sorcery', 'enchantment', 'artifact', 'battle', 'land'] as const;
+function cardTypeGlyph(typeLine: string | undefined): string | null {
+  const front = (typeLine ?? '').split('//')[0].toLowerCase();
+  for (const t of TYPE_PRIORITY) if (front.includes(t)) return CARD_TYPE_MS[t];
+  return null;
+}
 
 type Spring = { cur: number; vel: number; target: number };
 type TiltState = { rx: Spring; ry: Spring; amt: number; hovered: boolean; raf: number | null };
@@ -397,10 +406,14 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
           {fan.map(({ card, isFoil }, i) => {
             const kept = keep.has(card.name);
             const priceNum = Number(getCardPrice(card.scryfall, customization.currency) ?? NaN);
+            const typeGlyph = cardTypeGlyph(card.scryfall.type_line);
             // The fan's reasons align with crackedOption.cards; the foil rides at the end with none.
             const cardReasons = isFoil ? [] : (crackedOption.reasons[i] ?? []);
             const isGameChanger = cardReasons.some(r => r.kind === 'gameChanger');
             const comboReason = cardReasons.find(r => r.kind === 'comboPiece');
+            // The flagship "why this answer": a functional card tuned to your leaning theme (a wipe
+            // that spares your tribe, on-theme ramp/draw). Lavender = the synergy/relevancy accent.
+            const synergyReason = cardReasons.find(r => r.kind === 'synergy');
             // The wrapper promised "feat. <card>" — once the pack is open, point at that card.
             const isHallmark = !isFoil && card.name === crackedOption.hallmarkName;
             const isSuggested = !isFoil && suggested.has(card.name);
@@ -471,26 +484,38 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                       : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
                   } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
                 />
-                {/* Caption: what the corner badges used to say, in plain text under the card. */}
-                <span className="mt-1.5 block w-full truncate text-[11px] font-semibold leading-tight text-foreground/90">
-                  {card.name}
+                {/* Caption: type glyph + name, the price, then a wrapping row of detail chips
+                    (each role named as specifically as we can — "Counterspell", not "Protection"). */}
+                <span className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] font-semibold leading-tight text-foreground/90">
+                  {typeGlyph && <i aria-hidden className={`ms ${typeGlyph} shrink-0 text-[12px] leading-none text-muted-foreground`} />}
+                  <span className="min-w-0 truncate">{card.name}</span>
                 </span>
-                <span className="mt-1 flex min-h-[16px] items-center justify-center gap-1.5">
-                  <span className="text-[10px] font-bold tabular-nums text-muted-foreground">
-                    {Number.isFinite(priceNum) ? `${currencySymbol}${priceNum.toFixed(2)}` : '—'}
-                  </span>
-                  <RoleBadges cardName={card.name} size="sm" corner="inline" />
+                <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-muted-foreground">
+                  {Number.isFinite(priceNum) ? `${currencySymbol}${priceNum.toFixed(2)}` : '—'}
+                </span>
+                <span className="mt-1 flex min-h-[16px] flex-wrap items-center justify-center gap-1">
+                  <RoleBadges cardName={card.name} corner="inline" withLabels />
+                  {synergyReason && (
+                    <span
+                      title={synergyReason.label}
+                      className="inline-flex items-center gap-1 rounded-full bg-[#150a2e]/85 px-1.5 py-0.5 text-[9px] font-semibold text-violet-200 shadow ring-1 ring-inset ring-violet-400/60"
+                    >
+                      {synergyReason.label}
+                    </span>
+                  )}
                   {comboReason && (
                     <span
                       title={comboReason.label}
-                      className="grid place-items-center w-4 h-4 rounded-full bg-[#0b0b10]/85 text-teal-300 shadow ring-1 ring-inset ring-teal-400/60"
+                      className="inline-flex items-center gap-1 rounded-full bg-[#0b0b10]/85 px-1.5 py-0.5 text-[9px] font-semibold text-teal-300 shadow ring-1 ring-inset ring-teal-400/60"
                     >
-                      <Link2 className="w-2.5 h-2.5" strokeWidth={2.25} />
+                      <Link2 className="w-2.5 h-2.5 shrink-0" strokeWidth={2.25} />
+                      Combo
                     </span>
                   )}
                   {isGameChanger && (
-                    <span title="Game Changer" className="grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40">
-                      <Crown className="w-2.5 h-2.5" />
+                    <span title="Game Changer" className="inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-1.5 py-0.5 text-[9px] font-bold text-black shadow ring-1 ring-black/40">
+                      <Crown className="w-2.5 h-2.5 shrink-0" />
+                      Game Changer
                     </span>
                   )}
                 </span>

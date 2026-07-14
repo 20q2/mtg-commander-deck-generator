@@ -5,7 +5,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { BrewPackCrack } from '@/components/brew/BrewPackCrack';
 import { BrewSpecialPack } from '@/components/brew/BrewSpecialPack';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Pin, Info, Link2, Play, Dices, Star, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Info, Link2, Play, Dices, Star, X, Check, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey, PACK_FLAVOR } from '@/components/brew/brewVisuals';
 import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
@@ -40,9 +40,14 @@ const ROLE_ICON: Record<string, LucideIcon> = {
   Ramp: Sprout, Removal: Crosshair, 'Board Wipes': Bomb, 'Card Advantage': BookOpen, Protection: Shield,
 };
 
+// The "Hidden synergy with X" / "Similar to X" chips reference another card; they always sit BELOW
+// a card's own descriptive tags (role, mechanic, combo) so every card's chip stack reads the same
+// way. A stable sort keeps the natural order within each group.
+const isSynergyChip = (kind: string) => kind === 'lift' || kind === 'discovery';
+
 
 export function BrewNode({ onFinish }: { onFinish: () => void }) {
-  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, pinBrewCard, brewState, brewContext, setBrewPreview } = useStore();
+  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, brewState, brewContext, setBrewPreview } = useStore();
   const [chosenId, setChosenId] = useState<string | null>(null);
   // Headliner: multi-select. The set of option ids the player has toggled on, plus a commit flag
   // that fires the fly-to-deck animation once they lock in their picks.
@@ -142,9 +147,12 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
 
   const op = operationTheme(brewNode.type, routeKey(brewNode.routeId));
 
-  // The Headliner draft lets you take any number of the four standouts at once (no pinning); every
-  // other draft (Hidden Synergy) stays a single-card pick.
+  // Both drafts let you take any number of cards at once. The Headliner bills its four standouts
+  // (starts all-kept, strike off what you don't want); Hidden Synergy starts empty (tap to add the
+  // secret-tech finds you like). Every other node type stays a single-click pick.
   const isHeadliner = brewNode.type === 'draft' && routeKey(brewNode.routeId) === 'elite';
+  const isSynergy = brewNode.type === 'draft' && routeKey(brewNode.routeId) === 'synergy';
+  const isMultiSelect = isHeadliner || isSynergy;
   const exiting = chosenId !== null || committing;
   // A card is on its way to the deck if it's the chosen single pick, or — for the headliner — one of
   // the selected cards now committing. Everything else melts away.
@@ -270,7 +278,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
             {brewNode.prompt}
           </h2>
           <p className="text-xs text-muted-foreground mb-7 mx-auto max-w-md">
-            {brewNode.type === 'draft' ? 'Take one card. The rest are gone.'
+            {brewNode.type === 'draft' ? 'Take any that click with your deck. The rest are gone.'
               : brewNode.type === 'combo' ? 'Pick a combo to finish, or pass.'
               : ''}
           </p>
@@ -329,15 +337,16 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           />
         )}
         {brewNode.options.map((option, idx) => {
-          const isSelected = isHeadliner && selectedIds.has(option.id);
-          // Headliner: a card the player has struck off the bill — it stays visible but visibly leaving.
+          const isSelected = isMultiSelect && selectedIds.has(option.id);
+          // Headliner only: a card struck off the bill — it stays visible but visibly leaving. Hidden
+          // Synergy starts empty, so an unselected card there reads as plain, not "dropped".
           const isDropped = isHeadliner && !isSelected;
           return (
           <button
             key={option.id}
-            onClick={() => (isHeadliner ? toggleSelect(option.id) : choose(option))}
+            onClick={() => (isMultiSelect ? toggleSelect(option.id) : choose(option))}
             disabled={exiting}
-            aria-pressed={isHeadliner ? isSelected : undefined}
+            aria-pressed={isMultiSelect ? isSelected : undefined}
             style={exiting ? undefined : { animationDelay: `${idx * 70}ms` }}
             className={`group relative z-10 flex flex-col items-center gap-2 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--op)] ${
               isCombo
@@ -414,7 +423,12 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               {option.cards.map((c, i) => {
                 // Drop the "On-theme" chip here — the leaning readout already lives on the fork.
                 // Game Changers get the small corner crown on the card instead of a loud chip.
-                const reasons = (option.reasons[i] ?? []).filter(r => r.kind !== 'theme' && r.kind !== 'gameChanger');
+                // Then float the card's own tags above the referential "Hidden synergy / Similar to"
+                // chips (stable sort → natural order preserved within each group) for a consistent read.
+                const reasons = (option.reasons[i] ?? [])
+                  .filter(r => r.kind !== 'theme' && r.kind !== 'gameChanger')
+                  .slice()
+                  .sort((a, b) => (isSynergyChip(a.kind) ? 1 : 0) - (isSynergyChip(b.kind) ? 1 : 0));
                 const isGameChanger = (option.reasons[i] ?? []).some(r => r.kind === 'gameChanger');
                 return (
                   <div key={c.name} className={`${cardW} relative flex flex-col items-center`}>
@@ -432,25 +446,16 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                         {isSelected ? <Star className="w-3.5 h-3.5" fill="currentColor" /> : <X className="w-3.5 h-3.5" />}
                       </span>
                     )}
-                    {/* Pin-for-later (other drafts): keep a card you're not taking now; it resurfaces later. */}
-                    {brewNode.type === 'draft' && !isHeadliner && (() => {
-                      const isPinned = (brewState?.pinnedNames ?? []).includes(c.name);
-                      return (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          title={isPinned ? 'Pinned for later' : 'Pin for later'}
-                          onClick={(e) => { e.stopPropagation(); pinBrewCard(c.name); }}
-                          className={`absolute -top-2 right-1 z-20 grid place-items-center w-6 h-6 rounded-full border backdrop-blur-sm transition-colors ${
-                            isPinned
-                              ? 'border-violet-300/80 bg-violet-500/30 text-violet-100'
-                              : 'border-border/60 bg-black/55 text-muted-foreground hover:text-violet-200 hover:border-violet-400/50'
-                          }`}
-                        >
-                          <Pin className="w-3 h-3" fill={isPinned ? 'currentColor' : 'none'} />
-                        </span>
-                      );
-                    })()}
+                    {/* Hidden Synergy: a taken card wears a check (top-right, matching the Headliner
+                        marker). The whole card toggles it — this is the read-out that it's coming with you. */}
+                    {isSynergy && isSelected && (
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute -top-2 right-1 z-20 grid place-items-center w-6 h-6 rounded-full border border-[color:var(--op)] bg-[color:var(--op)] text-background shadow-[0_0_14px_-2px_var(--op-soft)]"
+                      >
+                        <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                      </span>
+                    )}
                     {/* A lift find wears an electric "⚡ Lift" ribbon — it's in the pool because of a
                         card-to-card synergy spike, not because it's a commander staple. */}
                     {c.discoverySource === 'lift' && (
@@ -517,10 +522,12 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         })}
       </div>
 
-      {/* Headliner: one CTA to add everything still on the bill; a quiet read of what's left behind. */}
-      {isHeadliner && (() => {
+      {/* Multi-select drafts: one CTA to add everything currently chosen; a quiet read of what's left
+          behind. Headliner bills its lineup with a Star; Hidden Synergy adds the picked finds. */}
+      {isMultiSelect && (() => {
         const kept = selectedIds.size;
         const left = brewNode.options.length - kept;
+        const CtaIcon = isHeadliner ? Star : Sparkles;
         return (
           <div className="mt-8 flex flex-col items-center gap-2">
             <Button
@@ -528,8 +535,8 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               disabled={exiting || kept === 0}
               onClick={commitSelection}
             >
-              <Star className="w-4 h-4 mr-1.5" fill="currentColor" />
-              {kept === 0 ? 'Keep at least one' : `Add ${kept} to your deck`}
+              <CtaIcon className="w-4 h-4 mr-1.5" fill={isHeadliner ? 'currentColor' : 'none'} />
+              {kept === 0 ? (isHeadliner ? 'Keep at least one' : 'Take at least one') : `Add ${kept} to your deck`}
             </Button>
             {kept > 0 && left > 0 && (
               <span className="text-[11px] text-muted-foreground/70">

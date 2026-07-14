@@ -24,7 +24,9 @@ function BrewStatsInner({ onClose }: { onClose: () => void }) {
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center gap-4 px-4 py-4" style={{ scrollbarWidth: 'thin' }}>
+      {/* Scroll viewport only — the content wrapper (BrewStatsContent) owns the flex layout/padding
+          and measures this element to fit the visible charts to the available height. */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
         <BrewStatsContent />
       </div>
     </div>

@@ -70,7 +70,7 @@ function identityRadarData(ctx: BrewContext, state: BrewState, preview?: BrewPre
  * leanings (committed theme glows gold). Strip variant (narrow screens, where a radar can't fit a
  * thin row): compact bars with a "+N Theme" pop on each pick.
  */
-export function BrewIdentityMeter({ variant = 'rail' }: { variant?: 'rail' | 'strip' }) {
+export function BrewIdentityMeter({ variant = 'rail', scale = RAIL_RADAR_SCALE }: { variant?: 'rail' | 'strip'; scale?: number }) {
   const { brewContext, brewState, brewPreview } = useStore();
   // Nothing to show before the first pack — identity only exists once a choice has been made.
   if (!brewContext || !brewState || brewState.picks.length === 0) return null;
@@ -83,7 +83,7 @@ export function BrewIdentityMeter({ variant = 'rail' }: { variant?: 'rail' | 'st
     return (
       <div className="flex flex-col items-center gap-1">
         <div className={RAIL_TITLE_CLASS}>Identity</div>
-        <Radar data={data} accent={committed ? GOLD : VIOLET} glow={committed} gradientId="radarIdentity" scale={RAIL_RADAR_SCALE} />
+        <Radar data={data} accent={committed ? GOLD : VIOLET} glow={committed} gradientId="radarIdentity" scale={scale} />
       </div>
     );
   }

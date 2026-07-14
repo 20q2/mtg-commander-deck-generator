@@ -330,12 +330,14 @@ export function BrewPage() {
 
   return (
     // The choices keep a single, centered column at every step. The stats (left) and deck list
-    // (right) each slide in as a fixed ~25% column flush with their viewport edge; the page reserves
+    // (right) each slide in as a fixed column flush with their viewport edge; the page reserves
     // matching padding on whichever side is open so the game recenters between them instead of
-    // sliding underneath. When neither is open the column simply centers in max-w-6xl.
+    // sliding underneath. When only the (narrow) stats column is open, we mirror its width on the
+    // right too, so the game stays centered in the viewport and hugs the drawer rather than drifting
+    // to the center of the huge leftover space. When neither is open it simply centers in max-w-6xl.
     <div
       ref={contentRef}
-      className={`brew-foundry px-4 py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[18.75vw]' : ''} ${deckColumn ? 'pr-[25vw]' : ''}`}
+      className={`brew-foundry py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[18.75vw]' : 'pl-4'} ${deckColumn ? 'pr-[25vw]' : statsColumn ? 'pr-[18.75vw]' : 'pr-4'}`}
     >
       {/* The morph-and-fly "set off" beat plays over everything until it hands off to the fork. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
