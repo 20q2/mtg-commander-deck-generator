@@ -1,4 +1,4 @@
-import { Sparkles, MapPin, Star, Route, Hammer } from 'lucide-react';
+import { MapPin, Star, Route, Hammer } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { BrewTreasuryShelf } from '@/components/brew/BrewTreasuryShelf';
 

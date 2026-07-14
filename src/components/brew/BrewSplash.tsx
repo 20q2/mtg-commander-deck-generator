@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Sparkles, ArrowRight, MapPin } from 'lucide-react';
+import { ArrowRight, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
