@@ -1243,7 +1243,7 @@ export function BuilderPage() {
             }
           >
             {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
-              <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />
+              <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} deckBracket={typeof customization.bracketLevel === 'number' ? customization.bracketLevel : undefined} />
             )}
           </DeckDisplay>
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (

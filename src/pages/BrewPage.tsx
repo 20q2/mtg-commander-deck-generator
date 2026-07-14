@@ -323,7 +323,7 @@ export function BrewPage() {
     // widened layout clear of the fixed stats rail).
     <div
       ref={contentRef}
-      className={`brew-foundry px-4 py-6 ${deckColumn ? 'max-w-none min-[1560px]:pl-[288px] pr-[25vw]' : 'max-w-5xl mx-auto'}`}
+      className={`brew-foundry px-4 py-6 ${deckColumn ? 'max-w-none min-[1560px]:pl-[288px] pr-[25vw]' : 'max-w-6xl mx-auto'}`}
     >
       {/* The morph-and-fly "set off" beat plays over everything until it hands off to the fork. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onDone={() => setIntro(null)} />}
@@ -368,7 +368,7 @@ export function BrewPage() {
               rail), a right-aligned row above the strip on narrower ones. Outside the space-y wrapper
               so its row-margin doesn't push the fixed/HUD layout around. */}
           <BrewDeckListButton open={deckListOpen} onToggle={setDeckListOpen} asColumn={deckColumnFits} />
-          <div className={`space-y-5 min-w-0 ${deckColumn ? 'max-w-5xl mx-auto' : ''}`}>
+          <div className={`space-y-5 min-w-0 ${deckColumn ? 'max-w-6xl mx-auto' : ''}`}>
           {/* Health strip + the "up next" track read as one stacked unit. The identity meter rides
               along as a compact strip on narrow screens (the wide-screen rail carries it otherwise). */}
           <div className="space-y-2">

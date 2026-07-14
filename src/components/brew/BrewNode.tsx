@@ -5,7 +5,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { BrewPackCrack } from '@/components/brew/BrewPackCrack';
 import { BrewSpecialPack } from '@/components/brew/BrewSpecialPack';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Plus, Pin, Info, Check, Link2, Play, Dices, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Pin, Info, Link2, Play, Dices, Star, X, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { operationTheme, routeKey, PACK_FLAVOR } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
@@ -52,6 +52,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   // A pack has been cracked this round: the crack is the commitment, so Back/reroll disappear
   // (otherwise you could peek inside one pack, back out, and crack a different one).
   const [packCracked, setPackCracked] = useState(false);
+  // Bumped when the player backs out of an opened pack: it remounts BrewPackCrack so the shelf
+  // re-seals and the 3D scene rebuilds fresh (no scene reset API), letting them crack another.
+  const [packNonce, setPackNonce] = useState(0);
   // Hovering a (small) card pops a full, readable preview anchored beside it.
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   // A pack that secretly held a windfall reveals it here before the pick commits: a face-down card
@@ -67,9 +70,19 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const pendingTrade = useRef<null | (() => void)>(null);
   const revealExitingRef = useRef(false); // synchronous guard so auto-commit + a tap can't double-fire
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  // Clear any headliner selection when the offered cards change (reroll, back, next node).
+  // Reset per-round state when the offered cards change (reroll, back, next node). The headliner
+  // starts with every standout KEPT (billing the full lineup); the player strikes off any they'd
+  // rather not build around. Every other draft starts empty (tap to add).
   const shownKey = brewNode ? `${brewNode.routeId}|${brewNode.options.flatMap(o => o.cards.map(c => c.name)).join(',')}` : '';
-  useEffect(() => { setSelectedIds(new Set()); setCommitting(false); setPackCracked(false); setReveal(null); setFlipped(false); setRevealExiting(false); revealExitingRef.current = false; pendingTrade.current = null; }, [shownKey]);
+  useEffect(() => {
+    const initial = new Set<string>();
+    if (brewNode && brewNode.type === 'draft' && routeKey(brewNode.routeId) === 'elite') {
+      brewNode.options.forEach(o => initial.add(o.id));
+    }
+    setSelectedIds(initial);
+    setCommitting(false); setPackCracked(false); setReveal(null); setFlipped(false); setRevealExiting(false); revealExitingRef.current = false; pendingTrade.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey]);
   // Cancel any pending windfall timers if the screen unmounts mid-reveal.
   useEffect(() => () => { revealTimers.current.forEach(t => window.clearTimeout(t)); }, []);
   if (!brewNode) return null;
@@ -203,15 +216,32 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
 
   return (
     <div className="text-center" style={{ ['--op' as string]: `hsl(${op.color})`, ['--op-soft' as string]: `hsl(${op.color} / 0.5)` }}>
-      <h2 className="font-display text-2xl font-semibold tracking-tight mb-1" style={{ textShadow: `0 2px 22px hsl(${op.color} / 0.35)` }}>
-        {brewNode.prompt}
-      </h2>
-      <p className="text-xs text-muted-foreground mb-7 mx-auto max-w-md">
-        {isHeadliner ? 'Pick any number of these standouts. The rest are gone.'
-          : brewNode.type === 'draft' ? 'Take one card. The rest are gone.'
-          : brewNode.type === 'combo' ? 'Pick a combo to finish, or pass.'
-          : ''}
-      </p>
+      {isHeadliner ? (
+        /* One voice: an op-tinted billing eyebrow over a single instruction — no restated
+           "the rest are gone" (the strike animation says it). */
+        <>
+          <div
+            className="mb-2 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.32em]"
+            style={{ color: `hsl(${op.color})`, textShadow: `0 0 18px hsl(${op.color} / 0.5)` }}
+          >
+            <Star className="w-3.5 h-3.5" fill="currentColor" /> Headliner
+          </div>
+          <p className="text-sm text-muted-foreground mb-7 mx-auto max-w-md">
+            The deck's marquee cards. Strike any you'd rather not build around.
+          </p>
+        </>
+      ) : (
+        <>
+          <h2 className="font-display text-2xl font-semibold tracking-tight mb-1" style={{ textShadow: `0 2px 22px hsl(${op.color} / 0.35)` }}>
+            {brewNode.prompt}
+          </h2>
+          <p className="text-xs text-muted-foreground mb-7 mx-auto max-w-md">
+            {brewNode.type === 'draft' ? 'Take one card. The rest are gone.'
+              : brewNode.type === 'combo' ? 'Pick a combo to finish, or pass.'
+              : ''}
+          </p>
+        </>
+      )}
 
       {brewNode.options.length === 0 ? (
         <div className="text-sm text-muted-foreground py-10">
@@ -228,7 +258,11 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
             <Crown className="w-4 h-4" /> God pack — treasure guaranteed this round
           </div>
         )}
-        <BrewPackCrack key={`${brewNode.routeId}|${allShown.join(',')}`} onCracked={setPackCracked} />
+        <BrewPackCrack
+          key={`${brewNode.routeId}|${allShown.join(',')}|${packNonce}`}
+          onCracked={setPackCracked}
+          onBack={() => { setPackCracked(false); setPackNonce(n => n + 1); }}
+        />
         </>
       ) : (
       /* ── Special routes: one sealed route-pack cracks open into the single-card / combo layout.
@@ -251,8 +285,19 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[130%] blur-3xl z-0"
           style={{ background: `radial-gradient(ellipse at center, hsl(${op.color} / 0.10), transparent 70%)` }}
         />
+        {/* Headliner footlights: a warm wash rising from below the lineup, so the marquee reads as
+            a lit stage rather than a floating row. */}
+        {isHeadliner && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-[-8%] h-[55%] blur-2xl z-0"
+            style={{ background: `radial-gradient(ellipse at 50% 100%, hsl(${op.color} / 0.22), transparent 72%)` }}
+          />
+        )}
         {brewNode.options.map((option, idx) => {
           const isSelected = isHeadliner && selectedIds.has(option.id);
+          // Headliner: a card the player has struck off the bill — it stays visible but visibly leaving.
+          const isDropped = isHeadliner && !isSelected;
           return (
           <button
             key={option.id}
@@ -265,7 +310,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 ? 'px-4 pt-3 pb-4 border border-border/50 bg-card/40 backdrop-blur-sm shadow-[0_8px_30px_-12px_rgba(0,0,0,0.6)] transition-colors duration-200 hover:border-[color:var(--op)] hover:bg-card/60'
                 : 'p-1'
             } ${
-              isSelected ? 'ring-2 ring-[color:var(--op)] ring-offset-2 ring-offset-background' : ''
+              // Kept headliners wear their billing on the card image (foil edge) rather than a heavy
+              // offset ring, so a full four-card lineup doesn't read as busy. Struck cards fade back.
+              isDropped ? 'opacity-70' : ''
             } ${
               exiting
                 ? (goingToDeck(option.id) ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
@@ -337,18 +384,18 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                 return (
                   <div key={c.name} className={`${cardW} relative flex flex-col items-center`}>
                     <RoleBadges cardName={c.name} size={packaged ? 'sm' : 'md'} />
-                    {/* Headliner: a selection check that reflects whether this standout is in your pick.
-                        The whole card toggles it, so this badge is purely a visual read-out. */}
+                    {/* Headliner: kept cards wear a star (they're billed on the marquee); struck
+                        cards wear an X (left behind). The whole card toggles it — this is the read-out. */}
                     {isHeadliner && (
                       <span
                         aria-hidden="true"
-                        className={`pointer-events-none absolute -top-2 right-1 z-20 grid place-items-center w-6 h-6 rounded-full border backdrop-blur-sm transition-colors ${
+                        className={`pointer-events-none absolute -top-2 right-1 z-20 grid place-items-center w-6 h-6 rounded-full border backdrop-blur-sm transition-all ${
                           isSelected
-                            ? 'border-[color:var(--op)] bg-[color:var(--op)] text-background'
-                            : 'border-border/60 bg-black/55 text-muted-foreground group-hover:border-[color:var(--op)]/60'
+                            ? 'border-[color:var(--op)] bg-[color:var(--op)] text-background shadow-[0_0_14px_-2px_var(--op-soft)]'
+                            : 'border-rose-400/50 bg-black/60 text-rose-300/80'
                         }`}
                       >
-                        {isSelected ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
+                        {isSelected ? <Star className="w-3.5 h-3.5" fill="currentColor" /> : <X className="w-3.5 h-3.5" />}
                       </span>
                     )}
                     {/* Pin-for-later (other drafts): keep a card you're not taking now; it resurfaces later. */}
@@ -378,14 +425,22 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                       </span>
                     )}
                     {/* Wrapped so the corner crown rides the card through the hover lift. */}
-                    <div className="relative w-full transition-transform duration-150 ease-out group-hover:-translate-y-2.5 group-hover:scale-[1.07]">
+                    <div className={`relative w-full transition-all duration-200 ease-out group-hover:-translate-y-2.5 group-hover:scale-[1.07] ${isDropped ? 'grayscale scale-[0.97]' : ''}`}>
                       <img
                         src={getCardImageUrl(c.scryfall, imgSize)}
                         alt={c.name}
                         loading="lazy"
                         {...hoverPreview(c.scryfall)}
-                        className="block w-full h-auto rounded-[4.8%] shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 ring-black/60 group-hover:shadow-[0_18px_44px_var(--op-soft)] group-hover:ring-[color:var(--op)]"
+                        className={`block w-full h-auto rounded-[4.8%] shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 group-hover:shadow-[0_18px_44px_var(--op-soft)] group-hover:ring-[color:var(--op)] ${
+                          isSelected ? 'ring-[color:var(--op)] shadow-[0_10px_34px_var(--op-soft)]' : 'ring-black/60'
+                        }`}
                       />
+                      {/* Struck off the bill: a thin diagonal cut reinforces that this one is being left. */}
+                      {isDropped && (
+                        <span aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden rounded-[4.8%]">
+                          <span className="h-[2px] w-[135%] -rotate-[18deg] bg-rose-400/50 shadow-[0_0_10px_rgba(251,113,133,0.5)]" />
+                        </span>
+                      )}
                       {isGameChanger && (
                         <span title="Game Changer" className="absolute bottom-1 right-1 z-20 grid place-items-center w-4 h-4 rounded-full bg-amber-400/90 text-black shadow ring-1 ring-black/40">
                           <Crown className="w-2.5 h-2.5" />
@@ -420,21 +475,28 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         })}
       </div>
 
-      {/* Headliner: a single CTA to lock in everything you've selected (the rest are gone). */}
-      {isHeadliner && (
-        <div className="mt-8 flex justify-center">
-          <Button
-            className="btn-shimmer"
-            disabled={exiting || selectedIds.size === 0}
-            onClick={commitSelection}
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            {selectedIds.size === 0
-              ? 'Select at least one'
-              : `Take ${selectedIds.size} ${selectedIds.size === 1 ? 'card' : 'cards'} — leave the rest`}
-          </Button>
-        </div>
-      )}
+      {/* Headliner: one CTA to add everything still on the bill; a quiet read of what's left behind. */}
+      {isHeadliner && (() => {
+        const kept = selectedIds.size;
+        const left = brewNode.options.length - kept;
+        return (
+          <div className="mt-8 flex flex-col items-center gap-2">
+            <Button
+              className="btn-shimmer"
+              disabled={exiting || kept === 0}
+              onClick={commitSelection}
+            >
+              <Star className="w-4 h-4 mr-1.5" fill="currentColor" />
+              {kept === 0 ? 'Keep at least one' : `Add ${kept} to your deck`}
+            </Button>
+            {kept > 0 && left > 0 && (
+              <span className="text-[11px] text-muted-foreground/70">
+                {left} left behind
+              </span>
+            )}
+          </div>
+        );
+      })()}
       </BrewSpecialPack>
       )}
 

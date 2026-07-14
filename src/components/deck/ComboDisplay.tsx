@@ -3,6 +3,7 @@ import type { DetectedCombo, ScryfallCard, LoadPhase, UserCombo } from '@/types'
 import { getCardByName, getCardsByNames, getCardImageUrl, useScryfallImage } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
+import { comboFitsBracket } from '@/services/deckBuilder/bracketEstimator';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaText } from '@/components/ui/mtg-icons';
@@ -27,6 +28,13 @@ interface ComboDisplayProps {
   onMoveToMaybeboard?: (cardNames: string[]) => void;
   /** When true, the panel starts expanded and cannot be collapsed (Inspector usage). */
   forceExpanded?: boolean;
+  /**
+   * The deck's target bracket (1–5) when known — enables the bracket-ceiling
+   * filter, which hides near-misses rated above the chosen level. Combos already
+   * assembled in the deck always show regardless. Omit for decks with no known
+   * bracket (e.g. user lists) to hide the control entirely.
+   */
+  deckBracket?: number;
   /** Progressive load phases — when 'combos' is missing, render skeleton. */
   phasesDone?: Set<LoadPhase>;
   /** User-authored combos. Rendered alongside detected combos, marked "Yours". */
@@ -114,7 +122,7 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
   return out;
 }
 
-export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, phasesDone, customCombos, deckCardNames, onAddCombo, onEditCombo, onDeleteCombo, seedCard, onSeedConsumed }: ComboDisplayProps) {
+export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, deckBracket, phasesDone, customCombos, deckCardNames, onAddCombo, onEditCombo, onDeleteCombo, seedCard, onSeedConsumed }: ComboDisplayProps) {
   const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
@@ -132,6 +140,10 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [showAllNearMisses, setShowAllNearMisses] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('relevance');
+  // Max bracket ceiling for near-misses. null = "All" (no filter). Defaults to the
+  // deck's target bracket when known, so an over-bracket near-miss pile is hidden by
+  // default. Complete combos (already in the deck) are never filtered by this.
+  const [bracketCeiling, setBracketCeiling] = useState<number | null>(deckBracket ?? null);
   const [showSynergy, setShowSynergy] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     return localStorage.getItem('combos.showSynergy') !== 'false';
@@ -475,9 +487,16 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const matchesCardFilter = (combo: DetectedCombo) =>
     !cardFilter || combo.cards.some(n => (n.includes(' // ') ? n.split(' // ')[0] : n) === cardFilter);
 
+  // Bracket ceiling only trims incomplete combos — a combo the deck already
+  // assembles always shows, no matter how it's rated.
+  const withinBracket = (combo: DetectedCombo) =>
+    bracketCeiling == null || comboFitsBracket(combo.bracket, bracketCeiling);
+
   const completeCombos = sortCombos(visibleCombos.filter(c => c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
-  const nearMisses = sortCombos(visibleCombos.filter(c => !c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
-  const excludedCombos = visibleCombos.filter(c => hasExcludedCard(c) && matchesCardFilter(c));
+  const nearMissesInBracket = visibleCombos.filter(c => !c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c));
+  const nearMisses = sortCombos(nearMissesInBracket.filter(withinBracket));
+  const overBracketHiddenCount = nearMissesInBracket.length - nearMisses.length;
+  const excludedCombos = visibleCombos.filter(c => hasExcludedCard(c) && matchesCardFilter(c) && withinBracket(c));
   // Custom (user-authored) combos among the currently-visible set — reported separately
   // in the summary even though they also count toward "complete".
   const customCount = [...completeCombos, ...nearMisses, ...excludedCombos].filter(c => c.source === 'user').length;
@@ -954,7 +973,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         <Sparkles className="w-4 h-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold truncate">Combos in Your Deck</h3>
         <span className="text-xs text-muted-foreground ml-auto shrink-0 whitespace-nowrap">
-          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{customCount > 0 ? ` · ${customCount} custom` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}
+          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{customCount > 0 ? ` · ${customCount} custom` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}{overBracketHiddenCount > 0 ? ` · ${overBracketHiddenCount} over-bracket hidden` : ''}
         </span>
         {onAddCombo && (
           <button
@@ -1020,6 +1039,26 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                 {mode === 'popularity' ? 'Popular' : 'Relevant'}
               </button>
             ))}
+          </span>
+        )}
+        {expanded && deckBracket != null && (
+          <span
+            className="flex items-center gap-1 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+            title="Hide near-miss combos rated above this bracket. Combos already in your deck always show."
+          >
+            <span className="text-[10px] text-muted-foreground whitespace-nowrap">Bracket ≤</span>
+            <span className="flex items-center rounded-md border border-border overflow-hidden">
+              {([1, 2, 3, 4, 5, null] as const).map((lvl) => (
+                <button
+                  key={lvl ?? 'all'}
+                  onClick={() => setBracketCeiling(lvl)}
+                  className={`px-2 py-1 text-[10px] transition-colors ${bracketCeiling === lvl ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`}
+                >
+                  {lvl === null ? 'All' : lvl}
+                </button>
+              ))}
+            </span>
           </span>
         )}
         {!forceExpanded && (

@@ -722,7 +722,7 @@ export function OptimizePage() {
           </div>
           <DeckDisplay onRegenerate={handleGenerate} hideRegenerate regenerateProgress={isLoading ? progressPercent : undefined} regenerateMessage={isLoading ? progress : undefined}>
             {generatedDeck.detectedCombos && generatedDeck.detectedCombos.length > 0 && (
-              <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} />
+              <ComboDisplay combos={generatedDeck.detectedCombos} onRegenerate={handleGenerate} deckBracket={typeof customization.bracketLevel === 'number' ? customization.bracketLevel : undefined} />
             )}
           </DeckDisplay>
           {generatedDeck.gapAnalysis && generatedDeck.gapAnalysis.length > 0 && (

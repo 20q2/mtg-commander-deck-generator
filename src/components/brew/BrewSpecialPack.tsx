@@ -149,7 +149,7 @@ export function BrewSpecialPack({ face, packColor, onCracked, children }: {
           onPointerMove={staged ? undefined : trackTilt}
           onPointerLeave={staged ? undefined : resetTilt}
           style={packVars}
-          className="brew-pack3d relative min-h-[340px] w-[190px] text-left sm:w-[210px]"
+          className="brew-pack3d relative min-h-[340px] w-[212px] text-left sm:w-[232px]"
         >
           <PackDepth />
           <div className="brew-pack-face relative min-h-[340px] overflow-hidden rounded-lg shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] group-focus-visible:ring-2 group-focus-visible:ring-[color:var(--pk)]">
@@ -197,7 +197,7 @@ export function BrewSpecialPack({ face, packColor, onCracked, children }: {
             }}
             onPointerLeave={() => { if (!staged) scene.pointer(null); }}
             aria-label={`${face.label ?? 'Special pack'}, ${face.cards.length} cards — crack it open`}
-            className="group relative w-[170px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[190px]"
+            className="group relative w-[190px] rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 sm:w-[212px]"
           />
         </div>
       )}

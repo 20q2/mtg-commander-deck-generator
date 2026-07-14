@@ -516,10 +516,10 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
         emissiveMap: tex,
         emissiveIntensity: 0.5,
         metalness: 0.1,
-        roughness: 0.55,
-        clearcoat: 0.25,
-        clearcoatRoughness: 0.45,
-        envMapIntensity: 0.22,
+        roughness: 0.6,
+        clearcoat: 0.16,
+        clearcoatRoughness: 0.5,
+        envMapIntensity: 0.15,
       });
       disposables.push(tex, mat);
       return mat;
@@ -530,8 +530,8 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
     const sideMat = new THREE.MeshPhysicalMaterial({
       color: hue.clone().multiplyScalar(0.5),
       metalness: 0.2,
-      roughness: 0.6,
-      envMapIntensity: 0.25,
+      roughness: 0.65,
+      envMapIntensity: 0.17,
     });
     // The torn faces (strip underside / body mouth): near-black wrapper interior. The "cards
     // glowing inside" is the additive mouth-spill quad, not a lit face.
