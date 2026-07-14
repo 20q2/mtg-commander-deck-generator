@@ -1,13 +1,15 @@
 import type { ScryfallCard, Customization, ThemeResult, EDHRECCommanderStats, EDHRECCombo } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
-import { getCardsByNames, getGameChangerNames, getArenaLegalNames } from '@/services/scryfall/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos, fetchColorIdentityCombos, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
+import { getCardsByNames, getGameChangerNames, getArenaLegalNames, getMtgCatalogs } from '@/services/scryfall/client';
 import { calculateTypeTargets, calculateCurveTargets } from '@/services/deckBuilder/curveUtils';
 import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckBuilder/roleTargets';
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
 import { loadTagIndex, loadTagDictionary, tagsForOracleId, allTags } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { computeThemeCharTags } from './chromaTags';
+import { payoffRank } from './combos';
 import { bannedNameSet } from './banned';
+import { classifyTheme, type ThemeKind } from './themeKind';
 import type { BrewContext, BrewCandidate } from './brewTypes';
 
 // Tag candidates with the commander's top-N themes so the player has lots of directions to lean
@@ -34,12 +36,15 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
   const budgetOption = customization.budgetOption !== 'any' ? customization.budgetOption : undefined;
   const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
 
-  const [edhrecData, combos, gameChangerNames] = await Promise.all([
+  const [edhrecData, combos, gameChangerNames, colorCombos] = await Promise.all([
     partnerCommander
       ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
       : fetchCommanderData(commander.name, budgetOption, bracketLevel),
     fetchCommanderCombos(commander.name).catch(() => [] as EDHRECCombo[]),
     getGameChangerNames().catch(() => new Set<string>()),
+    // Color-identity combos broaden combo-piece knowledge for the combo pack + tagging. Best-effort:
+    // a failure just narrows comboPieceNames to the commander's own combos.
+    fetchColorIdentityCombos(args.colorIdentity).catch(() => [] as EDHRECCombo[]),
   ]);
 
   args.onProgress?.('Resolving cards…', 45);
@@ -143,6 +148,23 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     }
   }
 
+  // Classify each theme as a real MTG mechanic, a tribe, or a strategy archetype, from Scryfall's own
+  // catalogs. Deterministic kinds (mechanic/tribal/curated) get a literal card-property gate in
+  // clusterBundles; archetypes keep the statistical tag-lift gate. Best-effort — a failed catalog fetch
+  // leaves themeKinds undefined and every theme falls back to archetype (today's behavior).
+  let themeKinds: Record<string, ThemeKind> | undefined;
+  try {
+    const { mechanics, creatureTypes } = await getMtgCatalogs();
+    if (mechanics.size > 0 || creatureTypes.size > 0) {
+      themeKinds = {};
+      for (const [slug, name] of Object.entries(themeNames)) {
+        themeKinds[slug] = classifyTheme(name, mechanics, creatureTypes);
+      }
+    }
+  } catch {
+    // Catalogs unavailable → leave themeKinds undefined (all-archetype fallback).
+  }
+
   // Mechanical tags (SpellChroma index): stamp each candidate with its oracle-derived tags, then
   // derive each theme's CHARACTERISTIC tags by pool-local lift. Best-effort — a failed fetch leaves
   // chromaTags empty and themeCharTags undefined, and every consumer falls back to today's behavior.
@@ -180,6 +202,22 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     }
   }
 
+  // Combo-piece oracle across commander AND color combos (comboPieceCounts above stays commander-only
+  // for the "glue" scoring bump). Names + DFC front faces so either form matches a pool card later.
+  const comboPieceNames = new Set<string>();
+  const comboPiecePayoff: Record<string, number> = {};
+  for (const combo of [...combos, ...colorCombos]) {
+    const rank = payoffRank(combo.results);
+    for (const { name } of combo.cards) {
+      const record = (n: string) => {
+        comboPieceNames.add(n);
+        comboPiecePayoff[n] = Math.max(comboPiecePayoff[n] ?? 0, rank);
+      };
+      record(name);
+      if (name.includes(' // ')) record(name.split(' // ')[0]);
+    }
+  }
+
   args.onProgress?.('Shuffling up…', 90);
   return {
     commander,
@@ -194,10 +232,13 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
     nonLandTarget,
     combos,
     comboPieceCounts,
+    comboPieceNames,
+    comboPiecePayoff,
     themeNames,
     themeSignatures,
     gameChangerNames,
     themeCharTags,
     chromaTagLabels,
+    themeKinds,
   };
 }
