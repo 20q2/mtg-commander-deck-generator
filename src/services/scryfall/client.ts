@@ -922,6 +922,38 @@ export async function getGameChangerNames(): Promise<Set<string>> {
   return names;
 }
 
+export interface MtgCatalogs { mechanics: Set<string>; creatureTypes: Set<string>; }
+
+let mtgCatalogsCache: MtgCatalogs | null = null;
+let mtgCatalogsPromise: Promise<MtgCatalogs> | null = null;
+
+/**
+ * Scryfall's own vocabularies: every keyword ability / action / ability word (the game's real
+ * mechanics) and every creature type (tribes), lowercased. Fetched once, module-cached. On any
+ * failure returns empty sets — callers then treat all themes as archetypes (today's behavior).
+ */
+export async function getMtgCatalogs(): Promise<MtgCatalogs> {
+  if (mtgCatalogsCache) return mtgCatalogsCache;
+  if (mtgCatalogsPromise) return mtgCatalogsPromise;
+  mtgCatalogsPromise = (async () => {
+    const fetchCat = async (path: string): Promise<string[]> => {
+      try {
+        const json = await scryfallFetch<{ data?: string[] }>(`/catalog/${path}`);
+        return Array.isArray(json.data) ? json.data : [];
+      } catch { return []; }
+    };
+    const [abilities, actions, words, creatureTypes] = await Promise.all([
+      fetchCat('keyword-abilities'), fetchCat('keyword-actions'), fetchCat('ability-words'), fetchCat('creature-types'),
+    ]);
+    const mechanics = new Set<string>([...abilities, ...actions, ...words].map(s => s.toLowerCase()));
+    const result: MtgCatalogs = { mechanics, creatureTypes: new Set(creatureTypes.map(s => s.toLowerCase())) };
+    mtgCatalogsCache = result;
+    console.log(`[Scryfall] catalogs: ${mechanics.size} mechanics, ${result.creatureTypes.size} creature types`);
+    return result;
+  })();
+  return mtgCatalogsPromise;
+}
+
 // Session cache of card name -> "is available on MTG Arena". Resolved across ALL
 // printings via Scryfall's `game:arena` operator, which is the correct signal —
 // the per-printing `card.games` field is unreliable because a card's default
