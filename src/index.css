@@ -35,6 +35,14 @@
     @apply border-border;
   }
 
+  /* Always reserve the scrollbar's gutter so the viewport width stays constant whether or not a
+     scrollbar is present. Without this, tall screens (e.g. a cracked brew pack) show a scrollbar
+     and short ones don't, and the 8px width swing reflows the HUD (the health strip wraps to a
+     second row) on every turn. Reserving the gutter keeps layouts stable across the whole app. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;

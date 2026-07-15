@@ -118,11 +118,26 @@ export function PackDepth() {
   );
 }
 
+/**
+ * The card whose art fronts a pack (and, on a theme pack, the "feat." card billed on the wrapper).
+ * A Game Changer is never used as a pack's face UNLESS the pack is explicitly about raw power — Good
+ * Stuff (flavor 'value') or Game Changers (flavor 'power') — where a bomb on the face is the point.
+ * Everywhere else a GC would over-hype or spoil a themed/functional pack, so we fall to the top non-GC
+ * card; hallmark/cards[0] remain the last resort so a face is always chosen.
+ */
+export function packFaceCard(option: BrewOption): BrewCandidate | undefined {
+  const hallmark = option.cards.find(c => c.name === option.hallmarkName);
+  if (option.flavor === 'value' || option.flavor === 'power') return hallmark ?? option.cards[0];
+  const isGameChanger = (i: number) => (option.reasons[i] ?? []).some(r => r.kind === 'gameChanger');
+  if (hallmark && !isGameChanger(option.cards.indexOf(hallmark))) return hallmark;
+  return option.cards.find((_, i) => !isGameChanger(i)) ?? hallmark ?? option.cards[0];
+}
+
 /** The booster wrapper visuals, shared by the sealed grid, the burst ghost, and the special pack.
  *  `artOverride` swaps the featured card's art for generated art (the special packs never tease a card). */
 export function PackBody({ option, packColor, brand = true, artOverride }: { option: BrewOption; packColor: string; brand?: boolean; artOverride?: string }) {
   const fl = (option.flavor && PACK_FLAVOR[option.flavor]) || PACK_FLAVOR.value;
-  const sigCard = option.cards.find(c => c.name === option.hallmarkName) ?? option.cards[0];
+  const sigCard = packFaceCard(option);
   const packArt = artOverride
     ?? sigCard?.scryfall.image_uris?.art_crop ?? sigCard?.scryfall.card_faces?.[0]?.image_uris?.art_crop;
   const count = option.cards.length + (option.goldCard ? 1 : 0);
@@ -184,6 +199,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   // lives in the HUD (BrewHealthStrip); we just read the shared, persisted value here.
   const [suggestOn] = useBrewSuggest();
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  // Only pop the hover preview on devices with a real pointer. On touch (mobile), a tap fires a
+  // synthetic mouseenter, so the big preview overlay would flash up over the fan every time you
+  // tap a card to keep it — it just gets in the way. Tapping keeps the card; no preview.
+  const canHover = useMediaQuery('(hover: hover)');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fanRef = useRef<HTMLDivElement | null>(null);
@@ -213,7 +232,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
         if (!canvas) { setWebglFailed(true); return; }   // no stage to render into → CSS owns it
         const specs = brewNode.options.map(o => {
           const fl = (o.flavor && PACK_FLAVOR[o.flavor]) || PACK_FLAVOR.value;
-          const sig = o.cards.find(c => c.name === o.hallmarkName) ?? o.cards[0];
+          const sig = packFaceCard(o);
           return {
             color: o.flavor === 'theme' ? themeColor(routeKey(o.id) ?? '') : fl.color,
             artUrl: sig?.scryfall.image_uris?.art_crop ?? sig?.scryfall.card_faces?.[0]?.image_uris?.art_crop,
@@ -427,8 +446,8 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                 key={card.name}
                 data-fan-card
                 onClick={() => toggleKeep(card.name)}
-                onMouseEnter={(e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() })}
-                onMouseLeave={() => setHover(null)}
+                onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
+                onMouseLeave={canHover ? () => setHover(null) : undefined}
                 disabled={committing}
                 aria-pressed={kept}
                 style={committing ? undefined : { animationDelay: `${120 + i * 65}ms` }}
@@ -678,8 +697,13 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   );
 
   // One continuous stage for all three beats — nothing fades in over anything else.
+  // The 3D canvas overshoots this stage by ~160px above (loom headroom) and far below (so falling
+  // packs exit off-screen). That overshoot is fine on desktop, but on phones the unclipped canvas
+  // extends the scrollable page ~200px below the footer — dead black space you can scroll into. So
+  // clip it on mobile only (no hover-loom there anyway); desktop keeps the overshoot. The cracked-
+  // pack fan is in-flow, so it expands this box and is never clipped by the mobile overflow-hidden.
   return (
-    <div ref={containerRef} className="relative min-h-[420px]">
+    <div ref={containerRef} className="relative min-h-[420px] overflow-hidden sm:overflow-visible">
       {/* A quiet way out once a pack is open: no store mutation has happened yet (that waits for
           commit), so this just re-seals the shelf to crack a different pack. Deliberately understated
           — the crack is still meant to feel like the commitment. */}

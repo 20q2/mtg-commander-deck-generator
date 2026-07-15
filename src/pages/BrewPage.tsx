@@ -19,6 +19,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { BrewTrack } from '@/components/brew/BrewTrack';
 import { BrewStatsButton, BrewStatsColumn } from '@/components/brew/BrewStatsButton';
+import { BrewCombosDrawer } from '@/components/brew/BrewCombosDrawer';
 import { BrewCommitFlash } from '@/components/brew/BrewCommitFlash';
 import { BrewCelebration } from '@/components/brew/BrewCelebration';
 import { BrewPath } from '@/components/brew/BrewPath';
@@ -89,9 +90,15 @@ export function BrewPage() {
   // game (~25% of the page) instead of an overlay drawer; narrower screens keep the drawer.
   const [deckListOpen, setDeckListOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  // The combos-in-your-deck drawer, opened from the deck-stats panel — a left-side overlay.
+  const [combosOpen, setCombosOpen] = useState(false);
   // Both side panels (stats on the left, deck list on the right) open as real slide-in columns once
   // the viewport is wide enough (≥1024px); narrower screens fall back to overlay drawers.
   const columnFits = useMediaQuery('(min-width: 1024px)');
+  // On phones the core loop is just cracking packs — the stats, deck-list, and debug triggers only
+  // clutter the top there, so we drop them entirely below the phone breakpoint (they stay on
+  // tablet/desktop as drawers/columns).
+  const isPhone = useMediaQuery('(max-width: 639px)');
 
   // 1) Load commander + EDHREC themes/stats from the URL (mirror of BuilderPage).
   useEffect(() => {
@@ -347,7 +354,7 @@ export function BrewPage() {
     // to the center of the huge leftover space. When neither is open it simply centers in max-w-6xl.
     <div
       ref={contentRef}
-      className={`brew-foundry flex min-h-full flex-col py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[18.75vw]' : 'pl-4'} ${deckColumn ? 'pr-[25vw]' : statsColumn ? 'pr-[18.75vw]' : 'pr-4'}`}
+      className={`brew-foundry flex min-h-full flex-col py-6 ${reserveColumns ? 'max-w-none' : 'max-w-6xl mx-auto'} ${statsColumn ? 'pl-[17.8125vw]' : 'pl-4'} ${deckColumn ? 'pr-[25vw]' : statsColumn ? 'pr-[17.8125vw]' : 'pr-4'}`}
     >
       {/* The morph-and-fly "set off" beat plays over everything until it hands off to the fork. */}
       {intro && <BrewIntro startRect={intro.startRect} target={intro.target} onRoutes={() => setIntroRoutes(true)} onDone={() => { setIntro(null); setIntroRoutes(false); }} />}
@@ -377,12 +384,13 @@ export function BrewPage() {
               left-aligned row above the strip on narrower ones. On wide screens it opens the living
               stats as a slide-in column beside the game; on narrow ones, a left-side drawer. Outside
               the space-y wrapper so its row-margin doesn't push the fixed/HUD layout around. */}
-          <BrewStatsButton open={brewStatsOpen} onToggle={(o) => toggleBrewStats(o)} asColumn={columnFits} />
+          {/* Hidden on phones — the stats, deck-list, and debug triggers only clutter the top there. */}
+          {!isPhone && <BrewStatsButton open={brewStatsOpen} onToggle={(o) => toggleBrewStats(o)} asColumn={columnFits} onOpenCombos={() => setCombosOpen(true)} />}
           {/* Deck-list trigger — mirror of the stats button on the opposite margin. */}
-          <BrewDeckListButton open={deckListOpen} onToggle={setDeckListOpen} asColumn={columnFits} />
+          {!isPhone && <BrewDeckListButton open={deckListOpen} onToggle={setDeckListOpen} asColumn={columnFits} />}
           {/* Developer debug drawer — sits just below the deck-list trigger; a holistic dump of the
               card pool, tag aggregations, and pack-population reasoning. */}
-          <BrewDebugButton open={debugOpen} onToggle={setDebugOpen} />
+          {!isPhone && <BrewDebugButton open={debugOpen} onToggle={setDebugOpen} />}
           <div className={`space-y-5 min-w-0 ${reserveColumns ? 'max-w-6xl mx-auto' : ''}`}>
           {/* Health strip + the "up next" track read as one stacked unit. The identity meter rides
               along as a compact strip on narrow screens (the wide-screen rail carries it otherwise). */}
@@ -427,13 +435,16 @@ export function BrewPage() {
           {/* The living-stats side column — fixed flush to the left edge, sliding in/out on toggle.
               Mounted through the close (statsPanel lags statsColumn) so the exit animation plays. */}
           {statsPanel && (
-            <BrewStatsColumn closing={statsPanel.closing} onClose={() => toggleBrewStats(false)} />
+            <BrewStatsColumn closing={statsPanel.closing} onClose={() => toggleBrewStats(false)} onOpenCombos={() => setCombosOpen(true)} />
           )}
           {/* The deck-so-far side column — fixed flush to the right edge, sliding in/out on toggle.
               Mounted through the close (deckPanel lags deckColumn) so the exit animation plays. */}
           {deckPanel && (
             <BrewDeckListColumn closing={deckPanel.closing} onClose={() => setDeckListOpen(false)} />
           )}
+          {/* Combos-in-your-deck — a left-side overlay opened from the deck-stats panel header.
+              Rendered last so it stacks above the stats column/drawer it's launched from. */}
+          <BrewCombosDrawer open={combosOpen} onClose={() => setCombosOpen(false)} />
         </>
       )}
     </div>

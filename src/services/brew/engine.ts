@@ -10,7 +10,7 @@ export { openNode, deriveReasons, buildPackNode } from './nodes';
 export { leaningThemes, topIdentity, topIdentityLean, identityLean, projectIdentityLean, generateRunTitle, IDENTITY_COMMIT_THRESHOLD, type IdentityBar } from './identity';
 export { discoverFrom, discoverClustersFrom } from './discovery';
 export { computeDeckStats, projectDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';
-export { detectNearMissCombos, type NearMissCombo } from './combos';
+export { detectNearMissCombos, detectCompletedCombos, type NearMissCombo, type CompletedCombo } from './combos';
 export { brewGoal, goalProgress } from './goals';
 export {
   advanceAfterPick, STEER_EVERY, isSteerIndex, peekHorizon, HORIZON_LENGTH,

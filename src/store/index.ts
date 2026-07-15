@@ -834,10 +834,11 @@ export const useStore = create<AppState>((set, get) => ({
   rerollBrew: () => {
     const { brewContext, brewState, brewNode, brewRerollExclusions } = get();
     if (!brewContext || !brewState) return;
-    // Cap rerolls per view via rerollsUsed keyed by node/fork id (lightning gets an extra — see rerollLimit).
+    // "Show different" is unlimited — no quiet charge cap. Each reroll folds the currently-shown
+    // cards into the exclusion set so the next draw is fresh; it degrades gracefully to a thin/empty
+    // round once the pool is exhausted. rerollsUsed stays only as per-view bookkeeping.
     const key = brewNode?.routeId ?? 'fork';
     const used = brewState.rerollsUsed[key] ?? 0;
-    if (used >= rerollLimit(brewNode?.type)) return;
     // Exclude currently-shown cards by merging them into a transient usedNames for the next draw.
     const shown = brewNode ? brewNode.options.flatMap(o => o.cards.map(c => c.name)) : [];
     const exclusions = [...brewRerollExclusions, ...shown];
@@ -895,14 +896,6 @@ export const useStore = create<AppState>((set, get) => ({
     error: null,
   })),
 }));
-
-/**
- * How many times a view may be rerolled before "Show different" is exhausted. A curation nudge,
- * not a slot machine.
- */
-export function rerollLimit(_type?: string): number {
-  return 2;
-}
 
 // ---------------------------------------------------------------------------
 // Brew session sessionStorage helpers

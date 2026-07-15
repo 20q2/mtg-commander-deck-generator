@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { Drawer } from '@/components/ui/drawer';
-import { BarChart3, X } from 'lucide-react';
+import { BarChart3, X, Infinity as InfinityIcon } from 'lucide-react';
 import { BrewStatsContent } from './BrewStatsContent';
 import { useHeaderAnchoredTop, useColumnBounds } from './BrewDeckListButton';
 
@@ -11,18 +11,32 @@ import { useHeaderAnchoredTop, useColumnBounds } from './BrewDeckListButton';
  * with a header + close so it can render both as the wide-screen side column and inside the narrow
  * drawer. Mirrors BrewDeckListContent on the opposite margin.
  */
-function BrewStatsInner({ onClose }: { onClose: () => void }) {
+function BrewStatsInner({ onClose, onOpenCombos }: { onClose: () => void; onOpenCombos?: () => void }) {
+  // The "Combos" option only appears when the commander actually has known combos to assemble —
+  // otherwise the combos drawer would always be empty.
+  const hasCombos = useStore(s => (s.brewContext?.combos.length ?? 0) > 0);
   return (
     <div className="brew-foundry flex flex-col h-full min-w-0">
       <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-border/40 shrink-0">
         <span className="text-sm font-semibold">Deck stats</span>
-        <button
-          onClick={onClose}
-          aria-label="Close deck stats"
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {hasCombos && onOpenCombos && (
+            <button
+              onClick={onOpenCombos}
+              title="See the combos in your deck"
+              className="inline-flex items-center gap-1 rounded-lg border border-teal-400/30 bg-teal-500/10 px-2 py-1 text-[11px] font-medium text-teal-200 transition-colors hover:border-teal-400/50 hover:text-teal-100"
+            >
+              <InfinityIcon className="w-3.5 h-3.5" /> Combos
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close deck stats"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
       {/* Scroll viewport only — the content wrapper (BrewStatsContent) owns the flex layout/padding
           and measures this element to fit the visible charts to the available height. */}
@@ -39,15 +53,15 @@ function BrewStatsInner({ onClose }: { onClose: () => void }) {
  * BrewDeckListColumn on the right. BrewPage keeps it mounted through the exit so the slide-out plays,
  * and reserves matching left page padding so the game column sits beside it rather than under it.
  */
-export function BrewStatsColumn({ closing, onClose }: { closing: boolean; onClose: () => void }) {
+export function BrewStatsColumn({ closing, onClose, onOpenCombos }: { closing: boolean; onClose: () => void; onOpenCombos?: () => void }) {
   const { top, bottom } = useColumnBounds();
   return (
     <aside
       style={{ top, bottom }}
-      className={`fixed left-0 z-20 w-[18.75vw] border-r border-border/50 bg-card/75 backdrop-blur-md shadow-2xl overflow-hidden
+      className={`fixed left-0 z-20 w-[17.8125vw] border-r border-border/50 bg-card/75 backdrop-blur-md shadow-2xl overflow-hidden
         ${closing ? 'animate-slide-out-left' : 'animate-slide-in-left'}`}
     >
-      <BrewStatsInner onClose={onClose} />
+      <BrewStatsInner onClose={onClose} onOpenCombos={onOpenCombos} />
     </aside>
   );
 }
@@ -57,6 +71,8 @@ interface BrewStatsButtonProps {
   onToggle: (open: boolean) => void;
   /** Wide screens render the stats as their own page column (see BrewPage); narrow screens keep the drawer. */
   asColumn: boolean;
+  /** Opens the combos-in-your-deck drawer (rendered by BrewPage) from the stats panel header. */
+  onOpenCombos?: () => void;
 }
 
 /**
@@ -67,7 +83,7 @@ interface BrewStatsButtonProps {
  * screens it falls back to a left-side drawer with its own (default-closed) state, so the stats never
  * auto-cover a phone on load.
  */
-export function BrewStatsButton({ open, onToggle, asColumn }: BrewStatsButtonProps) {
+export function BrewStatsButton({ open, onToggle, asColumn, onOpenCombos }: BrewStatsButtonProps) {
   const { brewContext, brewState } = useStore();
 
   // Pin just under the sticky header, the same anchor the deck-list button uses, so the two
@@ -109,7 +125,7 @@ export function BrewStatsButton({ open, onToggle, asColumn }: BrewStatsButtonPro
       {/* Narrow screens only: the side column can't fit, so keep the overlay drawer there. */}
       {!asColumn && (
         <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} position="left" onPositionChange={() => {}} defaultSizePercent={40} closeOnOutsideClick>
-          {drawerOpen && <BrewStatsInner onClose={() => setDrawerOpen(false)} />}
+          {drawerOpen && <BrewStatsInner onClose={() => setDrawerOpen(false)} onOpenCombos={onOpenCombos} />}
         </Drawer>
       )}
     </>

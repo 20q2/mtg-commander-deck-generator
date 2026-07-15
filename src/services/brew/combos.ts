@@ -8,10 +8,44 @@ export interface NearMissCombo {
   deckCount: number;
 }
 
+export interface CompletedCombo {
+  comboId: string;
+  cards: string[];       // every piece — all owned (commander/partner/picks)
+  results: string[];
+  deckCount: number;
+}
+
 /** Add a name + its front-face (DFC) to a set. */
 function addName(set: Set<string>, name: string): void {
   set.add(name);
   if (name.includes(' // ')) set.add(name.split(' // ')[0]);
+}
+
+/** Owned card names (commander + partner + picks), front-face variants included for DFCs. */
+function ownedNames(ctx: BrewContext, state: BrewState): Set<string> {
+  const owned = new Set<string>();
+  addName(owned, ctx.commander.name);
+  if (ctx.partnerCommander) addName(owned, ctx.partnerCommander.name);
+  for (const n of state.usedNames) addName(owned, n);
+  return owned;
+}
+
+/**
+ * Combos fully assembled in the deck so far — every piece is owned (commander/partner/picks). Sorted
+ * by payoff quality (a decisive combo leads) then popularity. This is "combos in the deck", the
+ * headline of the brew combos drawer.
+ */
+export function detectCompletedCombos(ctx: BrewContext, state: BrewState): CompletedCombo[] {
+  const owned = ownedNames(ctx, state);
+  const out: CompletedCombo[] = [];
+  for (const combo of ctx.combos) {
+    if (combo.cards.length === 0) continue;
+    const names = combo.cards.map(c => c.name);
+    if (!names.every(n => owned.has(n))) continue;
+    out.push({ comboId: combo.comboId, cards: names, results: combo.results, deckCount: combo.deckCount });
+  }
+  out.sort((a, b) => (payoffRank(b.results) - payoffRank(a.results)) || (b.deckCount - a.deckCount));
+  return out;
 }
 
 /**
@@ -52,10 +86,7 @@ export function payoffRank(results: string[]): number {
  * Sorted by fewest missing, then popularity.
  */
 export function detectNearMissCombos(ctx: BrewContext, state: BrewState): NearMissCombo[] {
-  const owned = new Set<string>();
-  addName(owned, ctx.commander.name);
-  if (ctx.partnerCommander) addName(owned, ctx.partnerCommander.name);
-  for (const n of state.usedNames) addName(owned, n);
+  const owned = ownedNames(ctx, state);
 
   const used = new Set(state.usedNames);
   const poolNames = new Set(ctx.candidates.filter(c => !used.has(c.name)).map(c => c.name));

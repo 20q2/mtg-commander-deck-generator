@@ -74,6 +74,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const pendingTrade = useRef<null | (() => void)>(null);
   const revealExitingRef = useRef(false); // synchronous guard so auto-commit + a tap can't double-fire
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  // Only pop the hover preview on real-pointer devices. On touch a tap fires a synthetic
+  // mouseenter, so the preview overlay would flash up over a card every time you pick one.
+  const canHover = useMediaQuery('(hover: hover)');
   // Reset per-round state when the offered cards change (reroll, back, next node). The headliner
   // starts with every standout KEPT (billing the full lineup); the player strikes off any they'd
   // rather not build around. Every other draft starts empty (tap to add).
@@ -127,10 +130,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     finishReveal();
   }
 
-  const hoverPreview = (card: ScryfallCard) => ({
+  const hoverPreview = (card: ScryfallCard) => (canHover ? {
     onMouseEnter: (e: MouseEvent<HTMLElement>) => setHover({ card, rect: e.currentTarget.getBoundingClientRect() }),
     onMouseLeave: () => setHover(null),
-  });
+  } : {});
 
   // Resolve a discovery seed name (the "X" in "Hidden synergy with X" / "Similar to X") to a Scryfall
   // card so its chip can preview it — the referenced card is one of the deck's picks, a commander, or
@@ -170,6 +173,10 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   const isCombo = brewNode.type === 'combo';
   // Pack rounds get their own "crate" treatment — flavor-tinted panels you pick between.
   const isPack = brewNode.type === 'bundle';
+  // Hidden Synergy's crack only REVEALS the finds — nothing commits until you Add them — so, unlike
+  // the combo / single-card special packs where cracking IS the pick, its wayfinding (Back / Show
+  // different) stays live after opening, matching the sealed face. Treat it as "not cracked" there.
+  const wayfindingCracked = packCracked && !isSynergy;
 
   // Special routes (Combos / Headliner / Hidden Synergy) arrive as ONE sealed, route-flavored
   // booster: contents hidden until the crack, choices erupting from the open pack. The sealed face
@@ -385,7 +392,18 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                           role="button"
                           tabIndex={0}
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 hover:text-violet-200 transition-colors cursor-pointer"
+                          // The card itself is a <button>, so this trigger is a <span> to avoid nesting
+                          // buttons — but that means Radix can't wire Enter/Space for us. Do it by hand so
+                          // Details opens for keyboard/switch users, not just the mouse. stopPropagation
+                          // keeps the key from bubbling to the card and committing the combo pick.
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              e.currentTarget.click();
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 hover:text-violet-200 focus-visible:text-violet-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-300/60 transition-colors cursor-pointer"
                         >
                           <Info className="w-3 h-3" /> Details
                         </span>
@@ -563,16 +581,17 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
       </BrewSpecialPack>
       )}
 
-      {/* Once a pack is cracked, the crack IS the commitment — no backing out to peek elsewhere, so
-          this wayfinding row only renders when there's something in it to show. */}
-      {(!packCracked || brewNode.canPass) && (
+      {/* Cracking a pack is normally the commitment — no backing out to peek elsewhere — so this
+          wayfinding row collapses once the pack is open. Hidden Synergy is the exception (see
+          wayfindingCracked): its crack only reveals the finds, so Back / Show different stay live. */}
+      {(!wayfindingCracked || brewNode.canPass) && (
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">
-        {!packCracked && (<>
+        {!wayfindingCracked && (<>
         <Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
         <span className="w-1 h-1 rotate-45 bg-border" />
         <Button variant="ghost" size="sm" disabled={exiting} onClick={rerollBrew}><RefreshCw className="w-4 h-4 mr-1.5" /> Show different</Button>
         </>)}
-        {brewNode.canPass && (<>{!packCracked && <span className="w-1 h-1 rotate-45 bg-border" />}<Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}>Pass</Button></>)}
+        {brewNode.canPass && (<>{!wayfindingCracked && <span className="w-1 h-1 rotate-45 bg-border" />}<Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}>Pass</Button></>)}
       </div>
       )}
 

@@ -1,6 +1,5 @@
 import { MapPin, Star, Route, Hammer } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
-import { BrewTreasuryShelf } from '@/components/brew/BrewTreasuryShelf';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 /**
@@ -64,9 +63,6 @@ export function BrewLandingPage() {
           </div>
         ))}
       </div>
-
-      {/* The Treasury & Journal — cross-run memory. Hidden until a first run is recorded. */}
-      <BrewTreasuryShelf />
     </main>
   );
 }

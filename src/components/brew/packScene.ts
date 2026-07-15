@@ -580,6 +580,12 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
   // get pushed in as one rigid unit. Ceremony-safe: stage()'s tweens apply after this one in the
   // frame loop, and it reads the (resize-fresh) basePos every frame, so a mid-deal resize holds.
   let dealtIn = false;
+  // Once a pack is staged, the crack ceremony OWNS every group's transform (fly-to-center, the
+  // fall-aways, the tumbling wrapper). A resize firing the ResizeObserver mid- or post-ceremony
+  // must NOT snap the packs back to their shelf slots — that reads as the cracked pack (and the
+  // packs that fell away) reappearing at their origin spots. So after staging, layout() keeps the
+  // renderer sized and its reference values fresh but stops writing group positions/scales.
+  let staged = false;
   const DEAL_DROP_PX = 70;
   const DEAL_STEP_MS = 90;
   const DEAL_RISE_MS = 420;
@@ -598,6 +604,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       if (!groups[i]) return;
       basePos[i].set((z.cx - w / 2) * worldPerPx, (h / 2 - z.cy) * worldPerPx, 0);
       baseScale[i] = (z.w * worldPerPx) / PACK_W;
+      if (staged) return;   // the ceremony is driving these groups now — don't reset them
       groups[i].position.copy(basePos[i]);
       groups[i].scale.setScalar(baseScale[i]);
     });
@@ -709,6 +716,7 @@ export async function createPackScene(canvas: HTMLCanvasElement, specs: PackSpec
       });
     },
     stage(idx) {
+      staged = true;   // the ceremony now owns group transforms — layout() must stop resetting them
       const dropH = (canvasH * worldPerPx) * 1.4;
       groups.forEach((g, i) => {
         if (i === idx) return;

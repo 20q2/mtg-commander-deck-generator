@@ -256,10 +256,21 @@ function scoredPool(ctx: BrewContext, state: BrewState): BrewCandidate[] {
  * "Raise the Dead" pack shows reanimation payoffs, not whatever staples happen to sit on the page.
  * Stable sort: cards with the same rank keep their offer-score order.
  */
-function takeCards(scored: BrewCandidate[], taken: Set<string>, n: number, pred: (c: BrewCandidate) => boolean = () => true, rank?: (c: BrewCandidate) => number): BrewCandidate[] {
+function takeCards(scored: BrewCandidate[], taken: Set<string>, n: number, pred: (c: BrewCandidate) => boolean = () => true, rank?: (c: BrewCandidate) => number, cap?: { pred: (c: BrewCandidate) => boolean; max: number }): BrewCandidate[] {
   const matching = scored.filter(c => !taken.has(c.name) && pred(c));
   if (rank) matching.sort((a, b) => rank(a) - rank(b));
-  return matching.slice(0, n);
+  if (!cap) return matching.slice(0, n);
+  // A capped take keeps the pack full but limits how many cards matching cap.pred ride along (e.g.
+  // at most one game changer per pack): once the cap is hit, further matches are skipped and their
+  // slots go to the next non-capped card down the ranking.
+  const out: BrewCandidate[] = [];
+  let capped = 0;
+  for (const c of matching) {
+    if (out.length >= n) break;
+    if (cap.pred(c)) { if (capped >= cap.max) continue; capped++; }
+    out.push(c);
+  }
+  return out;
 }
 
 /**
@@ -689,7 +700,14 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   const built: { option: BrewOption; subject: string }[] = [];
   const tryBuild = (cl: Cluster) => {
     if (built.length >= BUNDLE_COUNT || built.some(b => b.option.id === cl.key)) return;
-    let cards = takeCards(scored, taken, BUNDLE_MAX, cl.match, cl.rank);
+    // At most one game changer per pack — a crate stuffed with bombs reads as a power spike and
+    // steals the whole round. The dedicated Game Changers pack is the deliberate exception (its
+    // whole point is a wall of bombs); every other pack caps them and fills the rest with normal
+    // cards down the ranking.
+    const gcCap = cl.key === 'gamechangers'
+      ? undefined
+      : { pred: (c: BrewCandidate) => ctx.gameChangerNames?.has(c.name) ?? false, max: 1 };
+    let cards = takeCards(scored, taken, BUNDLE_MAX, cl.match, cl.rank, gcCap);
     if (cards.length < BUNDLE_MIN) return;
 
     // A theme pack must SHOWCASE a hallmark — a card that defines the theme (its top EDHREC signature)
@@ -703,11 +721,15 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       const slug = cl.key.slice('theme:'.length);
       const sigRank = sigRankBySlug[slug];
       if (sigRank) {
-        const present = cards.filter(c => sigRank.has(c.name)).sort((a, b) => sigRank.get(a.name)! - sigRank.get(b.name)!);
+        // A Game Changer never HEADLINES a theme pack — a bomb shouldn't be the pack's billed face or
+        // its art. That spotlight is reserved for the packs whose whole point is raw power (Good Stuff /
+        // Game Changers). So bill the top NON-GC signature; the GC can still ride along as a normal card.
+        const notGc = (n: string) => !ctx.gameChangerNames?.has(n);
+        const present = cards.filter(c => sigRank.has(c.name) && notGc(c.name)).sort((a, b) => sigRank.get(a.name)! - sigRank.get(b.name)!);
         if (present.length > 0) {
           hallmarkName = present[0].name;
         } else {
-          const topSig = [...sigRank.keys()].find(n => !taken.has(n) && byName.has(n) && cl.match(byName.get(n)!));
+          const topSig = [...sigRank.keys()].find(n => notGc(n) && !taken.has(n) && byName.has(n) && cl.match(byName.get(n)!));
           if (topSig) {
             cards = [byName.get(topSig)!, ...cards.slice(0, BUNDLE_MAX - 1)];
             hallmarkName = topSig;

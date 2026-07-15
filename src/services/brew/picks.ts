@@ -5,15 +5,21 @@ export const AFFINITY_PER_PICK = 10;
 
 /**
  * Weighted affinity model (see applyBrewOption). A commander's popular theme pages sit on nearly
- * every card, so crediting each of a pick's page memberships equally made the lean readout collapse
- * onto the commander's top two themes no matter which packs you cracked. Instead:
- *  - the theme you DELIBERATELY chose (the cracked pack, or a card's own defining signature) is heavy,
- *  - every incidental page the card merely appears on is light,
- *  - cracking a theme pack adds a one-off steer bonus on top — the choice itself is a direction.
+ * every card, so crediting each of a pick's page memberships equally made the lean readout — AND the
+ * theme packs offered next round (their priority is 1_000 + themeAffinity[slug]) — collapse onto the
+ * commander's top two themes no matter which packs you cracked: those two blanket the pool, so every
+ * card you take anywhere drips onto them until they out-climb whatever you're deliberately steering.
+ *
+ * So the weights are tiered to match how the direction should be shaped — MOSTLY by the packs you
+ * choose to crack, then nudged by the cards you take, and only whispered at by incidental overlap:
+ *  - cracking a theme pack is the high-level steer — a heavy one-off bonus, the choice itself is a direction,
+ *  - a kept card's OWN defining theme (the pack's theme, or a draft card's signature) is a real nudge,
+ *  - every incidental page the card merely also appears on barely counts, so populous themes can't
+ *    silently climb into a lean on card volume alone.
  */
 export const AFFINITY_SIGNATURE = 10;   // a defining membership: the pack's theme, or a card's own signature theme
-export const AFFINITY_INCIDENTAL = 2;   // an incidental page the card merely also appears on
-export const PACK_STEER_BONUS = 20;     // the act of cracking a theme pack — its theme, once per crack
+export const AFFINITY_INCIDENTAL = 1;   // an incidental page the card merely also appears on — a whisper, not a driver
+export const PACK_STEER_BONUS = 30;     // the act of cracking a theme pack — its theme, once per crack (the dominant signal)
 
 /**
  * The weighted themeAffinity change a set of cards would add (slug -> amount). The single source of
