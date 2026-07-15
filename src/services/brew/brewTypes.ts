@@ -228,6 +228,7 @@ export interface BrewHistoryEntry {
 export interface BrewState {
   picks: BrewPick[];
   usedNames: string[];                  // names already in the deck (excludes them from future packs)
+  killedNames: string[];                // cards the player destroyed mid-crack (BrewPackCrack) — excluded from every future offer this run, never revived
   themeAffinity: Record<string, number>; // synergy-tag -> accumulated weight from picks
   rerollsUsed: Record<string, number>;   // fork/node id -> count
   seed?: number;                          // per-run jitter seed (minted once at session start); falsy = deterministic/no jitter

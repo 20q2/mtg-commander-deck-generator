@@ -6,12 +6,12 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { playPackCrack } from '@/services/brew/brewSound';
 import { useBrewSuggest } from '@/services/brew/brewSuggest';
-import type { BrewOption, BrewCandidate } from '@/services/brew/engine';
+import type { BrewOption, BrewCandidate, PickReason } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
 import type { PackSceneAPI } from '@/components/brew/packScene';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey, CARD_TYPE_MS } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
-import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb, ArrowLeft } from 'lucide-react';
+import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb, ArrowLeft, Skull, RotateCcw } from 'lucide-react';
 
 /**
  * The crack-a-pack loop: a pack round offers three SEALED boosters — theme + headline showing,
@@ -31,6 +31,7 @@ const STAGE_MS = 1250;    // fall-away + fly-to-center + the anticipation creep,
 const SOUND_LEAD_MS = 120; // (CSS path) the tear sound starts just before the burst
 const GHOST_MS = 950;     // how long the burst wrapper (strip + falling body) stays mounted
 const TEAR_SEC = 0.48;    // (3D path) the tear-noise length — matches the scene's TEAR_MS sweep
+const KILL_SLICE_MS = 420; // the cut plays (320ms keyframe) plus a brief hold before the card is gone for good
 
 // --- Spring-driven tilt: the pack has mass. It lags the pointer, overshoots, and wobbles back
 //     to rest instead of snapping. Springs run per-element on rAF and write CSS vars directly. ---
@@ -184,7 +185,7 @@ export function PackBody({ option, packColor, brand = true, artOverride }: { opt
 }
 
 export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boolean) => void; onBack?: () => void }) {
-  const { brewNode, applyBrewOption, customization, setBrewPreview } = useStore();
+  const { brewNode, brewState, applyBrewOption, killBrewCard, customization, setBrewPreview } = useStore();
   // The staged pack (option id): others are falling, this one is flying to center and looming.
   const [staged, setStaged] = useState<string | null>(null);
   // Which pack was cracked — drives the fan phase.
@@ -192,6 +193,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   // The burst wrapper: the strip pops off and the empty pack tumbles away under the shooting cards.
   const [ghost, setGhost] = useState<BrewOption | null>(null);
   const [keep, setKeep] = useState<Set<string>>(new Set());
+  // A repeat card mid-cut (slicing) vs. fully gone from the fan (removed) — two states so the
+  // halves have time to visibly drift apart before the slot collapses and the fan reflows.
+  const [slicing, setSlicing] = useState<Set<string>>(new Set());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [committing, setCommitting] = useState(false);
   // Hovering a fan card pops a full, readable preview beside it (mirrors the old pack behavior).
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
@@ -315,6 +320,11 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   useEffect(() => () => setBrewPreview(null), [setBrewPreview]);
 
   if (!brewNode) return null;
+  // Cards shown (added or passed) in a PRIOR round this run — a card resurfacing after that earns
+  // the eliminate option. Derived from history, so it's naturally undo-correct: undo pops the
+  // history entry, so a card only shown in an undone round stops counting as seen. The current
+  // (not-yet-committed) fan is never in history yet, so this never counts a card as a repeat of itself.
+  const seen = new Set(brewState?.history.flatMap(h => [...h.added, ...h.passed]) ?? []);
   const options = brewNode.options;
   const crackedOption = cracked ? options.find(o => o.id === cracked) ?? null : null;
 
@@ -322,6 +332,8 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     if (committing || cracked || staged) return;
     onCracked?.(true);   // the pick is the commitment — the parent hides Back/reroll
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
+    setSlicing(new Set());
+    setRemoved(new Set());
     if (reduceMotion) { setCracked(option.id); return; }
     if (scene && brewNode) {
       // 3D ceremony: the scene owns the fall / fly / loom / crack (tear sweep → strip pop →
@@ -371,6 +383,29 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     });
   }
 
+  // Cut a repeat card for good: plays the slice, bans it from every future offer this run
+  // (killBrewCard), and drops it from the fan once the cut settles. No undo — permanence is the
+  // point. Clears it from `keep` too — a card can't be both destroyed and taken.
+  function killCard(name: string) {
+    if (committing) return;
+    setSlicing(prev => new Set(prev).add(name));
+    setKeep(prev => {
+      if (!prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+    killBrewCard(name);
+    timers.current.push(window.setTimeout(() => {
+      setRemoved(prev => new Set(prev).add(name));
+      setSlicing(prev => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    }, KILL_SLICE_MS));
+  }
+
   // Lock in the kept cards as one decision. The synthetic option keeps the pack's identity
   // (id/label/flavor/engineScore → affinity, Rival, and pack-window bookkeeping all still work);
   // a kept foil stays on `goldCard` so the store's windfall moment + Treasury hook fire as before.
@@ -391,7 +426,9 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
       cardScores: undefined,   // aligned to the ORIGINAL cards — stale once we filtered them
     };
     const allNames = options.flatMap(o => [...o.cards.map(c => c.name), ...(o.goldCard ? [o.goldCard.name] : [])]);
-    const passed = allNames.filter(n => !keep.has(n));
+    // Killed cards were destroyed (already permanent via killBrewCard at kill-time), not merely
+    // passed — excluded here so the Build History stays honest about what actually happened.
+    const passed = allNames.filter(n => !keep.has(n) && !removed.has(n));
     window.setTimeout(() => applyBrewOption(synthetic, passed), COMMIT_MS);
   }
 
@@ -400,10 +437,13 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     const fl = (crackedOption.flavor && PACK_FLAVOR[crackedOption.flavor]) || PACK_FLAVOR.value;
     const packColor = crackedOption.flavor === 'theme' ? themeColor(routeKey(crackedOption.id) ?? '') : fl.color;
     const foil = crackedOption.goldCard;
-    const fan: { card: BrewCandidate; isFoil: boolean }[] = [
-      ...crackedOption.cards.map(card => ({ card, isFoil: false })),
-      ...(foil ? [{ card: foil, isFoil: true }] : []),
-    ];
+    // Reasons are attached to each fan entry AT CONSTRUCTION (indexed against the pack's ORIGINAL
+    // cards array), before the removed-cards filter below runs — so a kill can never shift a later
+    // card's reasons onto the wrong card.
+    const fan: { card: BrewCandidate; isFoil: boolean; reasons: PickReason[] }[] = [
+      ...crackedOption.cards.map((card, i) => ({ card, isFoil: false, reasons: crackedOption.reasons[i] ?? [] })),
+      ...(foil ? [{ card: foil, isFoil: true, reasons: [] }] : []),
+    ].filter(f => !removed.has(f.card.name));
     const isRainbow = crackedOption.windfallTier === 'rainbow';
     // The suggested take(s): the engine's top-scored card or two (the same offerScores behind
     // engineScore — relevancy to YOUR build, not raw popularity). The foil rides its own rail.
@@ -422,12 +462,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
           <fl.Icon className="w-4 h-4" /> {crackedOption.label}
         </div>
         <div className="flex flex-wrap items-start justify-center gap-3 sm:gap-4">
-          {fan.map(({ card, isFoil }, i) => {
+          {fan.map(({ card, isFoil, reasons: cardReasons }) => {
             const kept = keep.has(card.name);
             const priceNum = Number(getCardPrice(card.scryfall, customization.currency) ?? NaN);
             const typeGlyph = cardTypeGlyph(card.scryfall.type_line);
-            // The fan's reasons align with crackedOption.cards; the foil rides at the end with none.
-            const cardReasons = isFoil ? [] : (crackedOption.reasons[i] ?? []);
             const isGameChanger = cardReasons.some(r => r.kind === 'gameChanger');
             const comboReason = cardReasons.find(r => r.kind === 'comboPiece');
             // The flagship "why this answer": a functional card tuned to your leaning theme (a wipe
@@ -436,6 +474,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
             // The wrapper promised "feat. <card>" — once the pack is open, point at that card.
             const isHallmark = !isFoil && card.name === crackedOption.hallmarkName;
             const isSuggested = !isFoil && suggested.has(card.name);
+            // A repeat — shown in an EARLIER round this run — earns the eliminate option. The foil
+            // windfall is never killable (it's a reward, not a recurring offer).
+            const isRepeat = !isFoil && seen.has(card.name);
+            const isSlicing = slicing.has(card.name);
             // The surprise bonus card: a warm glow ring + a sunburst behind it (below). Not "foil" —
             // it's a free extra card, so it reads as a reward, not a print treatment.
             const bonusRing = isRainbow
@@ -448,10 +490,9 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                 onClick={() => toggleKeep(card.name)}
                 onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
                 onMouseLeave={canHover ? () => setHover(null) : undefined}
-                disabled={committing}
+                disabled={committing || isSlicing}
                 aria-pressed={kept}
-                style={committing ? undefined : { animationDelay: `${120 + i * 65}ms` }}
-                className={`relative w-[172px] sm:w-[200px] rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
+                className={`group relative w-[172px] sm:w-[200px] rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   committing
                     ? (kept ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
                     : ghost ? 'brew-card-shoot'
@@ -488,21 +529,54 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                     Signature
                   </span>
                 )}
+                {isRepeat && (() => {
+                  const killDisabled = committing || isSlicing || fan.length <= 1;
+                  return (
+                    <span
+                      role="button"
+                      tabIndex={killDisabled ? -1 : 0}
+                      onClick={(e: ReactMouseEvent<HTMLSpanElement>) => { e.stopPropagation(); if (!killDisabled) killCard(card.name); }}
+                      title="You keep seeing this — cut it for the rest of the run?"
+                      aria-label={`Eliminate ${card.name} — never offered again this run`}
+                      className={`absolute top-1.5 left-1.5 z-20 grid place-items-center w-6 h-6 rounded-full bg-black/70 text-rose-300/85 ring-1 ring-rose-400/40 backdrop-blur-sm transition-opacity hover:text-rose-200 hover:bg-black/85 ${
+                        killDisabled ? 'opacity-30 pointer-events-none' : canHover ? 'cursor-pointer opacity-0 group-hover:opacity-100' : 'cursor-pointer opacity-70'
+                      }`}
+                    >
+                      <Skull className="w-3.5 h-3.5" />
+                    </span>
+                  );
+                })()}
                 {kept && (
                   <span className="absolute top-1.5 right-1.5 z-20 grid place-items-center w-5 h-5 rounded-full bg-emerald-500 text-white shadow ring-1 ring-black/40">
                     <Check className="w-3.5 h-3.5" />
                   </span>
                 )}
-                <img
-                  src={getCardImageUrl(card.scryfall, 'normal')}
-                  alt={card.name}
-                  className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${
-                    isFoil ? bonusRing
-                      : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
-                      : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
-                      : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
-                  } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
-                />
+                <div className="relative w-full">
+                  <img
+                    src={getCardImageUrl(card.scryfall, 'normal')}
+                    alt={card.name}
+                    className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${isSlicing ? 'opacity-0' : ''} ${
+                      isFoil ? bonusRing
+                        : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
+                        : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
+                        : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
+                    } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
+                  />
+                  {/* The eliminate cut: the same two-piece slice used by the Headliner's "struck
+                      off" effect (brew-cut-piece / brew-cut-top / brew-cut-bottom in index.css) —
+                      the halves drift apart over the invisible (opacity-0) base image above, which
+                      keeps holding the layout size until the timeout in killCard removes the card. */}
+                  {isSlicing && (
+                    <>
+                      <div aria-hidden="true" className="brew-cut-piece brew-cut-top pointer-events-none">
+                        <img src={getCardImageUrl(card.scryfall, 'normal')} alt="" />
+                      </div>
+                      <div aria-hidden="true" className="brew-cut-piece brew-cut-bottom pointer-events-none">
+                        <img src={getCardImageUrl(card.scryfall, 'normal')} alt="" />
+                      </div>
+                    </>
+                  )}
+                </div>
                 {/* Caption: type glyph + name, the price, then a wrapping row of detail chips
                     (each role named as specifically as we can — "Counterspell", not "Protection"). */}
                 <span className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] font-semibold leading-tight text-foreground/90">
@@ -513,6 +587,15 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   {Number.isFinite(priceNum) ? `${currencySymbol}${priceNum.toFixed(2)}` : '—'}
                 </span>
                 <span className="mt-1 flex min-h-[16px] flex-wrap items-center justify-center gap-1">
+                  {isRepeat && (
+                    <span
+                      title="Shown in an earlier round this run"
+                      className="inline-flex items-center gap-1 rounded-full bg-black/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground/80 ring-1 ring-inset ring-border/60"
+                    >
+                      <RotateCcw className="w-2.5 h-2.5 shrink-0" />
+                      Repeat
+                    </span>
+                  )}
                   <RoleBadges cardName={card.name} corner="inline" withLabels />
                   {synergyReason && (
                     <span

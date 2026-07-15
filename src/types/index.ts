@@ -695,6 +695,7 @@ export interface AppState {
   injectCommitTheme: (slug: string) => Promise<void>;
   gambleDiscover: (name: string) => Promise<void>;
   pinBrewCard: (name: string) => void;
+  killBrewCard: (name: string) => void;
   toggleBrewThemeVeto: (slug: string) => void;
   setBrewCommitFlash: (flash: import('@/services/brew/engine').BrewCommitFlash | null) => void;
   setBrewCelebration: (celebration: import('@/services/brew/engine').BrewCelebration | null) => void;

@@ -6,6 +6,7 @@ import { detectNearMissCombos } from './combos';
 import { deriveReasons, shortPayoff } from './nodes';
 import { applyPick } from './picks';
 import { isUrgentFill } from './scoring';
+import { offerExcludedNames } from './health';
 
 /**
  * The "fun layer": framed, emotional decisions ("moments") generated from the runtime data the
@@ -50,7 +51,7 @@ function gapOk(state: BrewState): boolean {
  */
 export function strangeSignalEvent(_ctx: BrewContext, state: BrewState): BrewEvent | null {
   if (state.picks.length < SIGNAL_MIN_PICKS) return null;
-  const used = new Set(state.usedNames);
+  const used = offerExcludedNames(state);
   const fired = new Set(state.firedEventIds);
   const candidate = state.discovered
     .filter(c => c.discoverySource === 'lift'
@@ -124,7 +125,7 @@ export function crossroadsEvent(ctx: BrewContext, state: BrewState): BrewEvent |
   const id = `crossroads:${[...contenders].sort().join('|')}`;
   if (state.firedEventIds.includes(id)) return null;
 
-  const used = new Set(state.usedNames);
+  const used = offerExcludedNames(state);
   const byName = new Map(ctx.candidates.map(c => [c.name, c] as const));
   const paths: BrewCrossroadsPath[] = contenders.map(slug => {
     const sampleCards = (ctx.themeSignatures[slug] ?? [])
@@ -157,7 +158,7 @@ export function signaturePickEvent(ctx: BrewContext, state: BrewState): BrewEven
     Object.entries(state.themeAffinity).filter(([s, w]) => w > 0 && ctx.themeNames[s]).map(([s]) => s),
   );
   if (leaning.size === 0) return null;
-  const used = new Set(state.usedNames);
+  const used = offerExcludedNames(state);
   const fired = new Set(state.firedEventIds);
   const pick = [...ctx.candidates, ...state.discovered]
     .filter(c => !c.isLand && !used.has(c.name) && !fired.has(`signature:${c.name}`)
@@ -187,7 +188,7 @@ export function signaturePickEvent(ctx: BrewContext, state: BrewState): BrewEven
  */
 export function gambleEvent(ctx: BrewContext, state: BrewState): BrewEvent | null {
   if (state.picks.length < GAMBLE_MIN_PICKS) return null;
-  const used = new Set(state.usedNames);
+  const used = offerExcludedNames(state);
   const fired = new Set(state.firedEventIds);
   const card = [...ctx.candidates, ...state.discovered]
     .filter(c => !c.isLand && !used.has(c.name) && !fired.has(`gamble:${c.name}`))

@@ -23,6 +23,16 @@ export function pool(ctx: BrewContext, state: BrewState): BrewContext['candidate
   return state.discovered.length > 0 ? [...ctx.candidates, ...state.discovered] : ctx.candidates;
 }
 
+/**
+ * Names to exclude from every future offer this run: cards already taken, plus cards the player
+ * destroyed mid-crack (BrewPackCrack's kill-a-repeat). A kill is permanent and total — this is the
+ * single place every pool/discovery/event exclusion reads from, so a killed card can't resurface
+ * through some other surface that only knew about usedNames.
+ */
+export function offerExcludedNames(state: BrewState): Set<string> {
+  return new Set([...state.usedNames, ...state.killedNames]);
+}
+
 function priceUsd(card: ScryfallCard): number {
   return parseFloat(getCardPrice(card) ?? '') || 0;
 }

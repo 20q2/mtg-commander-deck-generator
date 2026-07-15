@@ -481,7 +481,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   startBrewSession: (ctx: BrewContext) => {
     const state: BrewState = {
-      picks: [], usedNames: [], themeAffinity: {}, rerollsUsed: {}, phase: 'nonland', history: [],
+      picks: [], usedNames: [], killedNames: [], themeAffinity: {}, rerollsUsed: {}, phase: 'nonland', history: [],
       discovered: [], seededNames: [], questionsAsked: 0,
       relics: [], comboWatch: [], firedEventIds: [], lastMomentPick: 0, moments: [],
       synergyStreak: 0, goalDone: false,
@@ -735,6 +735,16 @@ export const useStore = create<AppState>((set, get) => ({
     set({ brewState: next });
   },
 
+  // Kill a repeat card for good: appended to killedNames, which every pool/discovery/event
+  // exclusion reads from (offerExcludedNames) — so it never gets offered again this run. Add-only,
+  // no toggle-off and no undo path: the whole point of a kill is permanence.
+  killBrewCard: (name: string) => {
+    const { brewState } = get();
+    if (!brewState || brewState.killedNames.includes(name)) return;
+    const next: BrewState = { ...brewState, killedNames: [...brewState.killedNames, name] };
+    set({ brewState: next });
+  },
+
   // Mute / unmute a theme the player doesn't want to be steered toward. Muted themes stop forming
   // theme packs, drop out of the exploration slot, and contribute no affinity — a "steer away", not a
   // card ban. Takes effect from the next round; we recompute the fork routes so it's felt immediately
@@ -945,6 +955,7 @@ export function hydrateBrewSession(id: string): boolean {
       firedEventIds: parsedState.firedEventIds ?? [],
       lastMomentPick: parsedState.lastMomentPick ?? 0,
       moments: parsedState.moments ?? [],
+      killedNames: parsedState.killedNames ?? [],
     };
     const routes = nextRoutes(brewContext, brewState);
     // Fresh resume (nothing picked yet) drops straight onto the first pack, same as a new run.

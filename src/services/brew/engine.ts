@@ -2,7 +2,7 @@ export * from './brewTypes';
 export * from './chromaTags';
 export * from './banned';
 export * from './themeKind';
-export { buildHealth, isComplete, NONLAND_COMPLETE_RATIO, pool } from './health';
+export { buildHealth, isComplete, NONLAND_COMPLETE_RATIO, pool, offerExcludedNames } from './health';
 export { buildScoringContext, scoreCandidate, affinityWeight, isUrgentFill, philosophyPromoted } from './scoring';
 export { applyPick, undoLast, isLastPickLocked, computeAffinityDelta, AFFINITY_PER_PICK, AFFINITY_SIGNATURE, AFFINITY_INCIDENTAL, PACK_STEER_BONUS, type ApplyPickMeta } from './picks';
 export { nextRoutes, computeDeficits, matchesDeficit, type Deficit } from './routes';

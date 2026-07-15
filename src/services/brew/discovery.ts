@@ -4,7 +4,7 @@ import { getCardsByNames, getCardPrice } from '@/services/scryfall/client';
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
 import { scanLiftCandidates, clusterScore, edgeScore } from '@/services/optimizer/liftClusters';
 import type { BrewContext, BrewState, BrewCandidate } from './brewTypes';
-import { typeKey } from './health';
+import { typeKey, offerExcludedNames } from './health';
 import { relicBudgetCap } from './relics';
 import { bannedNameSet } from './banned';
 
@@ -41,7 +41,7 @@ export async function discoverFrom(
   // 2. Exclude names we already have or have used — and the player's banned list, so a lift find can't
   //    reintroduce a card we deliberately kept out of the base pool.
   const exclude = new Set<string>([
-    ...state.usedNames,
+    ...offerExcludedNames(state),
     ...ctx.candidates.map(c => c.name),
     ...state.discovered.map(c => c.name),
     ...seedNames,
@@ -104,7 +104,7 @@ export async function discoverClustersFrom(
     ...state.picks.map(p => p.name),
   ];
   const exclude = new Set<string>([
-    ...state.usedNames,
+    ...offerExcludedNames(state),
     ...ctx.candidates.map(c => c.name),
     ...state.discovered.map(c => c.name),
     ...seedNames,

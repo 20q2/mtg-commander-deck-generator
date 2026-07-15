@@ -6,7 +6,7 @@ import type { BrewContext, BrewState, BrewRoute, BrewNode, BrewOption, BrewCandi
 import { scoreCandidate, deckFill, IDENTITY_PHASE_FILL } from './scoring';
 import { topIdentity, LEANING_THRESHOLD } from './identity';
 import { seededJitter, seededPick, seededChance } from './jitter';
-import { buildHealth, typeKey, pool } from './health';
+import { buildHealth, typeKey, pool, offerExcludedNames } from './health';
 import { detectNearMissCombos } from './combos';
 import { relicBudgetCap } from './relics';
 import { computeDeficits, matchesDeficit } from './routes';
@@ -124,7 +124,7 @@ function matchingTagsFor(state: BrewState, c: BrewCandidate): string[] {
 }
 
 function availableFor(ctx: BrewContext, state: BrewState, route: BrewRoute): BrewCandidate[] {
-  const used = new Set(state.usedNames);
+  const used = offerExcludedNames(state);
   const cap = relicBudgetCap(state.relics);   // Budget Brewer: pricey cards stop appearing
   const available = pool(ctx, state).filter(c =>
     !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(getCardPrice(c.scryfall) ?? '') || 0) <= cap));
@@ -242,7 +242,7 @@ function toOption(ctx: BrewContext, state: BrewState, cards: BrewCandidate[], id
 
 /** Cards draftable right now (unused, non-land, in budget), best-scored first. */
 function scoredPool(ctx: BrewContext, state: BrewState): BrewCandidate[] {
-  const used = new Set(state.usedNames);
+  const used = offerExcludedNames(state);
   const cap = relicBudgetCap(state.relics);
   const avail = pool(ctx, state).filter(c =>
     !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(getCardPrice(c.scryfall) ?? '') || 0) <= cap));
@@ -855,7 +855,7 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
   // Hidden Synergy: a focused draft of the lift/co-play finds the discovery pass surfaced for your
   // picks — take one piece of "secret tech." Distinct from the discovery bundle inside Open a Pack.
   if (route.id === 'draft:synergy') {
-    const used = new Set(state.usedNames);
+    const used = offerExcludedNames(state);
     const finds = pool(ctx, state)
       .filter(c => !used.has(c.name) && !c.isLand && !!c.discoveredVia)
       .sort((a, b) => offerScore(ctx, state, b) - offerScore(ctx, state, a))
