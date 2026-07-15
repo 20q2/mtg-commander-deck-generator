@@ -1,6 +1,7 @@
 import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { DeckCustomizer } from '@/components/customization/DeckCustomizer';
+import { PartnerSelector } from '@/components/commander/PartnerSelector';
 import { Wand2 } from 'lucide-react';
 
 interface BrewSetupProps {
@@ -25,7 +26,16 @@ export function BrewSetup({ loadingCommander, progress, onStart }: BrewSetupProp
           Mount only once the commander is loaded: DeckCustomizer early-returns on a null commander
           BETWEEN hook groups, so mounting it mid-load and transitioning null->set crashes (Rules of Hooks). */}
       {commander ? (
-        <DeckCustomizer brewMode />
+        <>
+          {/* Partner / background — only renders for commanders that can take one (PartnerSelector
+              self-gates via canHavePartner). Adding one updates the store's partnerCommander +
+              colorIdentity, which handleStartBrew folds into the brew URL and the partner-aware
+              EDHREC fetch in prepareBrewContext. */}
+          <div className="mx-auto max-w-xl">
+            <PartnerSelector commander={commander} />
+          </div>
+          <DeckCustomizer brewMode />
+        </>
       ) : (
         <div className="text-center text-sm text-muted-foreground py-10">Loading commander…</div>
       )}
