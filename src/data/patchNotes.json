@@ -3,7 +3,8 @@
     "version": "1.3.21",
     "notes": [
       "When importing decks, removing a non-singleton card (like a land) no longer removes all of them",
-      "Added an Add button to the deck view, you can still add from the toolbar while modifying"
+      "Added an Add button to the deck view, you can still add from the toolbar while modifying",
+      "Added free muligan option in the playtester"
     ]
   },
   {
