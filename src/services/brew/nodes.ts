@@ -670,6 +670,10 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   // 4. A "cluster pack" once the foundation's set — cards the whole-deck lift web found are played
   //    alongside MANY of your picks. Priority above themes so it reliably enters the back-half
   //    rotation ("plays with your deck"); it supersedes the exploration slot once it's available.
+  //    Ranked by BREADTH, not raw lift: connectionCount (how many of your cards want it) leads, with
+  //    clusterScore (the inspector's summed-edge strength) as the tiebreaker — so the pack showcases
+  //    true cluster cards that tie into many of your picks, not one card riding a single monster lift.
+  const clusterRank = (c: BrewCandidate) => -((c.connectionCount ?? 0) * 1_000_000 + (c.clusterScore ?? 0));
   const hasClusterPack = scored.filter(c => (c.connectionCount ?? 0) >= CLUSTER_MIN_CONN).length >= BUNDLE_MIN;
   if (hasClusterPack) {
     clusters.push({
@@ -678,6 +682,7 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       flavor: 'discovery',
       match: c => (c.connectionCount ?? 0) >= CLUSTER_MIN_CONN,
       priority: 1_500,
+      rank: clusterRank,
     });
   }
   clusters.sort((a, b) => b.priority - a.priority);

@@ -467,6 +467,7 @@ export function ListsPage() {
             const newId = duplicateList(list.id);
             if (newId) navigate(list.type === 'deck' ? `/decks/${newId}` : `/lists/${newId}`);
           }}
+          onDelete={() => handleDelete(list.id)}
           onRemoveCards={(names) => {
             const current = getListById(list.id) ?? list;
             // Match DFC tolerantly: callers pass the canonical Scryfall name

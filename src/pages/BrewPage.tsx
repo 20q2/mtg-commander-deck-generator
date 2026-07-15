@@ -397,6 +397,11 @@ export function BrewPage() {
           <div className="space-y-2">
             <BrewHealthStrip />
             <BrewTrack />
+            {/* The bail-out escape hatch — a quiet link tucked under the right edge of the track,
+                on the fork/pack/node screens only (moments carry their own commit). */}
+            {!intro && !brewRelicOffer && !brewEvent && !brewQuestion && (
+              <BrewFinishButton onFinish={quickFinish} />
+            )}
           </div>
           {/* Key the view on the active screen so each arrival fades in as one cohesive unit
               instead of its pieces blinking into existence one by one. Priority: a relic offer or
@@ -426,12 +431,6 @@ export function BrewPage() {
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>
-          {/* The bail-out escape hatch — docked at the bottom of the content region (mt-auto), right
-              above the site footer, so it stays put instead of bouncing with each screen's height.
-              Only on the fork/pack screens (the forced-choice moments carry their own commit). */}
-          {!intro && !brewRelicOffer && !brewEvent && !brewQuestion && (
-            <BrewFinishButton onFinish={quickFinish} className="mt-auto" />
-          )}
           {/* The living-stats side column — fixed flush to the left edge, sliding in/out on toggle.
               Mounted through the close (statsPanel lags statsColumn) so the exit animation plays. */}
           {statsPanel && (

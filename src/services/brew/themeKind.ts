@@ -5,6 +5,7 @@ import type { RoleKey } from '@/services/tagger/client';
 export type ThemeKind =
   | { kind: 'mechanic'; match: string }   // match = keyword (lowercase); test card.keywords
   | { kind: 'tribal'; match: string }     // match = creature subtype (lowercase); test type_line subtypes
+  | { kind: 'subtype'; match: string }    // match = permanent subtype, e.g. equipment/aura (lowercase); test type_line subtypes
   | { kind: 'curated'; match: string }    // match = CURATED_MECHANICS key; test oracle text
   | { kind: 'role'; match: RoleKey }      // functional category (Ramp, Card Draw…) → NOT a theme pack
   | { kind: 'archetype' };                // no concrete card attribute → statistical (tag-lift) gate
@@ -44,13 +45,18 @@ function singulars(n: string): string[] {
  * Classify one theme. Order: curated (our small exception list) → mechanic (Scryfall keywords) →
  * tribal (Scryfall creature types, matched on a singularized name) → archetype (fallback).
  */
-export function classifyTheme(themeName: string, mechanics: Set<string>, creatureTypes: Set<string>): ThemeKind {
+export function classifyTheme(
+  themeName: string, mechanics: Set<string>, creatureTypes: Set<string>, permanentSubtypes: Set<string>,
+): ThemeKind {
   const n = themeName.toLowerCase().trim();
   // Functional categories first — so a "Protection" theme reads as the role, never the keyword ability.
   if (n in ROLE_THEME_NAMES) return { kind: 'role', match: ROLE_THEME_NAMES[n] };
   if (n in CURATED_MECHANICS) return { kind: 'curated', match: n };
   if (mechanics.has(n)) return { kind: 'mechanic', match: n };
   for (const cand of singulars(n)) if (creatureTypes.has(cand)) return { kind: 'tribal', match: cand };
+  // Non-creature permanent subtypes (Equipment, Aura, Vehicle, Saga…): an "Equipment" theme should
+  // ship Equipment, not the tag-lift co-occurrence pile — gate it on the literal type line like a tribe.
+  for (const cand of singulars(n)) if (permanentSubtypes.has(cand)) return { kind: 'subtype', match: cand };
   return { kind: 'archetype' };
 }
 
@@ -74,6 +80,7 @@ export function themeKindMatches(kind: ThemeKind, sc: ScryfallCard): boolean {
   switch (kind.kind) {
     case 'mechanic': return hasKeyword(sc, kind.match);
     case 'tribal': return hasSubtype(sc, kind.match);
+    case 'subtype': return hasSubtype(sc, kind.match);
     case 'curated': return matchesCurated(sc, kind.match);
     // 'role' needs the tagger's role (BrewCandidate.role), which a ScryfallCard alone can't give —
     // and role themes never become theme packs, so no card-attribute test is meaningful here.

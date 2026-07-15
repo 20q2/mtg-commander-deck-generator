@@ -922,7 +922,14 @@ export async function getGameChangerNames(): Promise<Set<string>> {
   return names;
 }
 
-export interface MtgCatalogs { mechanics: Set<string>; creatureTypes: Set<string>; }
+export interface MtgCatalogs {
+  mechanics: Set<string>;
+  creatureTypes: Set<string>;
+  /** Non-creature permanent subtypes (Equipment, Aura, Vehicle, Saga, Shrine, …) from the
+   *  artifact/enchantment type catalogs — used to gate "Equipment"/"Aura"-style theme packs on the
+   *  literal type line, exactly as creature types gate tribal packs. */
+  permanentSubtypes: Set<string>;
+}
 
 let mtgCatalogsCache: MtgCatalogs | null = null;
 let mtgCatalogsPromise: Promise<MtgCatalogs> | null = null;
@@ -942,13 +949,18 @@ export async function getMtgCatalogs(): Promise<MtgCatalogs> {
         return Array.isArray(json.data) ? json.data : [];
       } catch { return []; }
     };
-    const [abilities, actions, words, creatureTypes] = await Promise.all([
+    const [abilities, actions, words, creatureTypes, artifactTypes, enchantmentTypes] = await Promise.all([
       fetchCat('keyword-abilities'), fetchCat('keyword-actions'), fetchCat('ability-words'), fetchCat('creature-types'),
+      fetchCat('artifact-types'), fetchCat('enchantment-types'),
     ]);
     const mechanics = new Set<string>([...abilities, ...actions, ...words].map(s => s.toLowerCase()));
-    const result: MtgCatalogs = { mechanics, creatureTypes: new Set(creatureTypes.map(s => s.toLowerCase())) };
+    const result: MtgCatalogs = {
+      mechanics,
+      creatureTypes: new Set(creatureTypes.map(s => s.toLowerCase())),
+      permanentSubtypes: new Set([...artifactTypes, ...enchantmentTypes].map(s => s.toLowerCase())),
+    };
     mtgCatalogsCache = result;
-    console.log(`[Scryfall] catalogs: ${mechanics.size} mechanics, ${result.creatureTypes.size} creature types`);
+    console.log(`[Scryfall] catalogs: ${mechanics.size} mechanics, ${result.creatureTypes.size} creature types, ${result.permanentSubtypes.size} permanent subtypes`);
     return result;
   })();
   return mtgCatalogsPromise;

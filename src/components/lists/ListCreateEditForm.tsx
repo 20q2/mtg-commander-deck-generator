@@ -330,7 +330,11 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   };
 
   const handleRemoveCard = (cardName: string) => {
-    const newCards = cards.filter(n => n !== cardName);
+    // cards can hold duplicate entries (e.g. multiple basic lands), so remove
+    // only the first matching instance rather than every copy of the name.
+    const idx = cards.indexOf(cardName);
+    if (idx === -1) return;
+    const newCards = [...cards.slice(0, idx), ...cards.slice(idx + 1)];
     setCards(newCards);
     recomputeBreakdown(newCards);
   };

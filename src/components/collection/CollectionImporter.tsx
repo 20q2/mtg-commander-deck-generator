@@ -283,7 +283,7 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
           value={importText}
           onChange={(e) => { setImportText(e.target.value); onPendingChange?.(!!e.target.value.trim()); }}
           disabled={isImporting}
-          placeholder={"1 Sol Ring\n4 Lightning Bolt\n1 Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports"}
+          placeholder={"1 Sol Ring\n4 Forest\n1 Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports\nYou can also drag and drop cards from EDHRec, Scryfall, and Moxfield into your deck too!"}
           className={`w-full h-48 px-3 py-2 text-sm bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 ${textareaClassName ?? ''}`}
         />
 

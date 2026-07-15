@@ -154,11 +154,11 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
   // leaves themeKinds undefined and every theme falls back to archetype (today's behavior).
   let themeKinds: Record<string, ThemeKind> | undefined;
   try {
-    const { mechanics, creatureTypes } = await getMtgCatalogs();
+    const { mechanics, creatureTypes, permanentSubtypes } = await getMtgCatalogs();
     if (mechanics.size > 0 || creatureTypes.size > 0) {
       themeKinds = {};
       for (const [slug, name] of Object.entries(themeNames)) {
-        themeKinds[slug] = classifyTheme(name, mechanics, creatureTypes);
+        themeKinds[slug] = classifyTheme(name, mechanics, creatureTypes, permanentSubtypes);
       }
     }
   } catch {

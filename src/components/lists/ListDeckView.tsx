@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library, Trash2 } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { InspectorIcon } from '@/components/analyze/InspectorIcon';
@@ -54,6 +54,7 @@ interface ListDeckViewProps {
   onViewAsList?: () => void;
   onEdit?: () => void;
   onDuplicate?: () => void;
+  onDelete?: () => void;
   onRemoveCards?: (cardNames: string[]) => void;
   onAddCards?: (cardNames: string[], destination: 'deck' | 'sideboard' | 'maybeboard') => void;
   onMoveToSideboard?: (cardNames: string[]) => void;
@@ -620,7 +621,7 @@ function primaryTypeFromLine(typeLine: string | undefined): string {
   return order.find(t => tl.includes(t)) || 'creature';
 }
 
-export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
+export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onDelete, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
   const navigate = useNavigate();
   const generatedDeck = useStore(s => s.generatedDeck);
   const trimReady = !!(
@@ -761,6 +762,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   // Overflow menu
   const [showOverflow, setShowOverflow] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Controlled popover for color-identity violations (so "Remove all" can close it)
   const [offendersOpen, setOffendersOpen] = useState(false);
@@ -901,6 +903,21 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       if (result && result.notFound.length > 0) return;
     }
     setShowBulkAdd(false);
+  }, []);
+
+  // Header bulk-add (a second Bulk Add trigger placed next to the Modify Deck
+  // pencil, always visible without entering edit mode). Independent state so it
+  // never conflicts with the edit-mode Bulk Add panel above.
+  const [showHeaderBulkAdd, setShowHeaderBulkAdd] = useState(false);
+  const headerBulkAddRef = useRef<HTMLDivElement>(null);
+  const headerBulkImporterRef = useRef<CollectionImporterHandle>(null);
+  const closeHeaderBulkAddImporting = useCallback(async () => {
+    const imp = headerBulkImporterRef.current;
+    if (imp?.hasPending()) {
+      const result = await imp.triggerImport();
+      if (result && result.notFound.length > 0) return;
+    }
+    setShowHeaderBulkAdd(false);
   }, []);
 
   // Primer inline editing state
@@ -1636,6 +1653,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     const handleClick = (e: MouseEvent) => {
       if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
         setShowOverflow(false);
+        setConfirmingDelete(false);
       }
     };
     window.addEventListener('mousedown', handleClick);
@@ -1653,6 +1671,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     window.addEventListener('mousedown', handleClick);
     return () => window.removeEventListener('mousedown', handleClick);
   }, [showBulkAdd, closeBulkAddImporting]);
+
+  // Close header bulk add on outside click
+  useEffect(() => {
+    if (!showHeaderBulkAdd) return;
+    const handleClick = (e: MouseEvent) => {
+      if (headerBulkAddRef.current && !headerBulkAddRef.current.contains(e.target as Node)) {
+        closeHeaderBulkAddImporting();
+      }
+    };
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [showHeaderBulkAdd, closeHeaderBulkAddImporting]);
 
   // Debounced card search
   useEffect(() => {
@@ -2198,6 +2228,31 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                       </button>
                     );
                   })()}
+                  {onDelete && (
+                    <>
+                      <div className="border-t border-border/50 my-1" />
+                      <button
+                        onClick={() => {
+                          if (confirmingDelete) {
+                            setShowOverflow(false);
+                            setConfirmingDelete(false);
+                            onDelete();
+                          } else {
+                            setConfirmingDelete(true);
+                            setTimeout(() => setConfirmingDelete(false), 3000);
+                          }
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
+                          confirmingDelete
+                            ? 'bg-destructive/20 text-destructive font-medium'
+                            : 'hover:bg-destructive/10 text-destructive'
+                        }`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {confirmingDelete ? 'Confirm Delete?' : 'Delete deck'}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -2480,6 +2535,28 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           maybeboardNames={list.maybeboard}
           onSetSideboard={onSetSideboard}
           onSetMaybeboard={onSetMaybeboard}
+          headerBulkAdd={onAddCards ? (
+            <div className="relative" ref={headerBulkAddRef}>
+              <button
+                onClick={() => { if (showHeaderBulkAdd) closeHeaderBulkAddImporting(); else setShowHeaderBulkAdd(true); }}
+                title="Add cards from a list"
+                className={`flex items-center bg-card/50 rounded-md p-1.5 border border-border/50 transition-colors ${showHeaderBulkAdd ? 'text-foreground bg-accent' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              {showHeaderBulkAdd && (
+                <div className="absolute top-full mt-2 right-0 z-50 w-[min(90vw,24rem)] rounded-lg border border-border bg-card shadow-2xl p-4">
+                  <CollectionImporter
+                    ref={headerBulkImporterRef}
+                    onImportCards={handleBulkImport}
+                    label="Add Cards"
+                    updatedLabel="already in deck"
+                    onCancel={() => setShowHeaderBulkAdd(false)}
+                  />
+                </div>
+              )}
+            </div>
+          ) : undefined}
           toolbarExtra={onAddCards ? (
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
               <div className="flex items-center gap-2">

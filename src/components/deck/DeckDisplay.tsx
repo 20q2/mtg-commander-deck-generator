@@ -2365,6 +2365,8 @@ interface DeckDisplayProps {
   onMoveToMaybeboard?: (cardNames: string[]) => void;
   /** Slot rendered in toolbar next to Modify Deck button (e.g. add-card search) */
   toolbarExtra?: React.ReactNode;
+  /** Slot rendered next to the Modify Deck (pencil) button in the main toolbar (e.g. a bulk-add trigger) */
+  headerBulkAdd?: React.ReactNode;
   /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
   boardCounts?: { sideboard: number; maybeboard: number };
   /**
@@ -2421,7 +2423,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -2539,6 +2541,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return () => clearTimeout(t);
   }, [isEditMode]);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const [gridContextMenuCardId, setGridContextMenuCardId] = useState<string | null>(null);
   const [showAddToDropdown, setShowAddToDropdown] = useState(false);
   const [replacePopoverOpen, setReplacePopoverOpen] = useState(false);
   const [editDrawerTab, setEditDrawerTab] = useState<'actions' | 'move' | 'add'>('actions');
@@ -3828,6 +3831,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const normalizedName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
     const isMLive = mustIncludeNames.has(card.name);
     const isBLive = bannedNames.has(card.name);
+    const canShowMenu = !readOnly && !isCommanderType;
     return (
       <div
         key={card.id}
@@ -3848,6 +3852,12 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             } else {
               setPreviewCard(card);
             }
+          }
+        }}
+        onContextMenu={(e) => {
+          if (canShowMenu) {
+            e.preventDefault();
+            setGridContextMenuCardId(card.id);
           }
         }}
         onMouseEnter={(e) => handleHover(card, e, false, gridLayout === 'stacks' ? e.clientY : undefined)}
@@ -3874,8 +3884,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </span>
         )}
         {!readOnly && !isCommanderType && (
-          <span className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-10" style={quantity > 1 ? { top: '1.75rem' } : undefined}>
-            <CardContextMenu card={card} onAction={handleCardAction} {...cardMenuProps} isMustInclude={mustIncludeNames.has(card.name)} isBanned={bannedNames.has(card.name)} />
+          <span
+            className={`absolute top-1 right-1 transition-opacity z-10 ${gridContextMenuCardId === card.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+            style={quantity > 1 ? { top: '1.75rem' } : undefined}
+          >
+            <CardContextMenu
+              card={card}
+              onAction={handleCardAction}
+              {...cardMenuProps}
+              isMustInclude={mustIncludeNames.has(card.name)}
+              isBanned={bannedNames.has(card.name)}
+              forceOpen={gridContextMenuCardId === card.id}
+              onForceClose={() => setGridContextMenuCardId(null)}
+            />
           </span>
         )}
         {sortBy === 'cmc' && (
@@ -4582,6 +4603,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           {/* Edit + View Toggle + Text Editor — pushed to flex-end */}
           <TooltipProvider delayDuration={200}>
           <div className="order-1 xl:order-none ml-auto flex items-center gap-1.5">
+            {!readOnly && !isEditMode && headerBulkAdd}
             {!readOnly && !isEditMode && (
               <Tooltip>
                 <TooltipTrigger asChild>

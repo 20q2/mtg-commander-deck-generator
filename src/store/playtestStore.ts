@@ -101,6 +101,7 @@ interface PlaytestActions {
   draw: (n?: number) => void;
   shuffle: () => void;
   beginMulligan: () => void;                               // shuffle hand back, draw 7, increment mulliganCount, open mulligan modal
+  freeMulligan: () => void;                                // shuffle hand back, draw 7, no penalty (no count change, no bottoming)
   keepHandSendToBottom: (handIndices: number[]) => void;   // resolves the bottom-N step
   keepHand: () => void;                                    // confirms current 7
 
@@ -359,6 +360,18 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       shuffleTick: state.shuffleTick + 1,
       modal: { kind: 'mulligan', mulliganCount: newCount },
       log: [...state.log, makeLogEntry(`Mulligan to ${Math.max(0, 7 - newCount)} (drew 7)`, 'library')],
+    };
+  }),
+
+  freeMulligan: () => set(state => {
+    const combined = [...state.zones.hand, ...state.zones.library];
+    const shuffled = fisherYates(combined);
+    const draw = shuffled.slice(0, 7);
+    const rest = shuffled.slice(7);
+    return {
+      zones: { ...state.zones, hand: draw, library: rest },
+      shuffleTick: state.shuffleTick + 1,
+      log: [...state.log, makeLogEntry(`Free mulligan (drew 7)`, 'library')],
     };
   }),
 

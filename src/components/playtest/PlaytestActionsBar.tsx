@@ -20,6 +20,7 @@ export function PlaytestActionsBar() {
   const untapAll = usePlaytestStore(s => s.untapAll);
   const shuffle = usePlaytestStore(s => s.shuffle);
   const beginMulligan = usePlaytestStore(s => s.beginMulligan);
+  const freeMulligan = usePlaytestStore(s => s.freeMulligan);
   const openModal = usePlaytestStore(s => s.openModal);
   const closeModal = usePlaytestStore(s => s.closeModal);
   const modal = usePlaytestStore(s => s.modal);
@@ -59,9 +60,20 @@ export function PlaytestActionsBar() {
       </PopoverTrigger>
       <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-3 space-y-2">
         <p className="text-xs">Shuffle your hand back and draw a new one?</p>
-        <div className="flex justify-end gap-1.5">
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMullOpen(false)}>Cancel</Button>
-          <Button size="sm" className="h-7 px-2 text-xs" onClick={() => { setMullOpen(false); beginMulligan(); }}>Mulligan</Button>
+        <div className="flex justify-between items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            title="Reshuffle hand and draw 7 fresh cards, no penalty"
+            onClick={() => { setMullOpen(false); freeMulligan(); }}
+          >
+            Free mulligan
+          </Button>
+          <div className="flex gap-1.5">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMullOpen(false)}>Cancel</Button>
+            <Button size="sm" className="h-7 px-2 text-xs" onClick={() => { setMullOpen(false); beginMulligan(); }}>Mulligan</Button>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

@@ -953,9 +953,15 @@ export function DeckOptimizer({
 
   const handleAddCard = useCallback((name: string) => {
     if (!onAddCards) return;
+    const scrollY = window.scrollY;
     onAddCards([name], 'deck');
     pushDeckHistory({ action: 'add', cardName: name });
     setAddedCards(prev => new Set([...prev, name]));
+    // Adding a card can shrink a suggestions list (e.g. moving a card out
+    // of "suggested"), shortening the page. If that happens while we're
+    // scrolled deep in, the browser clamps scrollY to the new max, which
+    // reads as being "shot" to the bottom. Re-pin to where we were.
+    requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
   }, [onAddCards, pushDeckHistory]);
 
   const handlePreview = useCallback(async (name: string) => {
