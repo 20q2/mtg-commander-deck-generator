@@ -166,11 +166,11 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
         }
       }
 
-      // Collect all legendary creatures for commander dropdown
+      // Collect all legendary creatures (and spacecraft) for commander dropdown
       const allLegendaries = validatedParsed
         .filter(({ card }) => {
           const tl = (card.type_line ?? '').toLowerCase();
-          return tl.includes('legendary') && tl.includes('creature');
+          return tl.includes('legendary') && (tl.includes('creature') || tl.includes('spacecraft'));
         })
         .map(({ card }) => card);
       if (allLegendaries.length > 0) {

@@ -782,11 +782,25 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                       <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
                     </svg>
-                    <span>
+                    <span className="flex-1">
                       {cards.length} imported card{cards.length === 1 ? '' : 's'} — {cards.length < deckSize
                         ? `${deckSize - cards.length} short of`
                         : `${cards.length - deckSize} over`} the {deckSize}-card target.
                     </span>
+                    {deckSize === 100 && (() => {
+                      const nearest = [40, 60, 80].reduce((best, candidate) =>
+                        Math.abs(candidate - cards.length) < Math.abs(best - cards.length) ? candidate : best
+                      );
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setDeckSize(nearest)}
+                          className="shrink-0 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-500/40 transition-colors whitespace-nowrap"
+                        >
+                          Set to {nearest}
+                        </button>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

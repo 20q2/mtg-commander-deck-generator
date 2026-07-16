@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.22",
+    "notes": [
+      "Added a quick-set button to snap deck size to 40/60/80 when an import doesn't land on 100 (for my brawl homies)",
+      "Spacecraft commanders now show up in legendary pickers alongside legendary creatures when importing a deck",
+    ]
+  },
+  {
     "version": "1.3.21",
     "notes": [
       "When importing decks, removing a non-singleton card (like a land) no longer removes all of them",

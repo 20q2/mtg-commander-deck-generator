@@ -28,7 +28,7 @@ const COLOR_CHIPS = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
 
 function isLegendaryCreature(card: CollectionCard): boolean {
   const tl = (card.typeLine ?? '').split(' // ')[0].toLowerCase();
-  return tl.includes('legendary') && tl.includes('creature');
+  return tl.includes('legendary') && (tl.includes('creature') || tl.includes('spacecraft'));
 }
 
 function matchesColorFilter(

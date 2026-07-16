@@ -21,7 +21,7 @@ import { trackEvent, fetchMetrics } from '@/services/analytics';
 function isLegendaryCreature(card: CollectionCard): boolean {
   // Use only the front face type line to avoid matching DFC back faces (e.g. Battles)
   const tl = (card.typeLine?.split(' // ')[0] ?? '').toLowerCase();
-  return tl.includes('legendary') && tl.includes('creature');
+  return tl.includes('legendary') && (tl.includes('creature') || tl.includes('spacecraft'));
 }
 
 /** Map a sorted color key (e.g. "UBR") to its MTG name */
