@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Sparkles, Star, Pin, ArrowLeft, ArrowLeftRight, Plus, ChevronLeft, ChevronRight, ChevronDown, ListChecks, Footprints, Infinity, Loader2, ScrollText, Tag } from 'lucide-react';
 import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, getCardByName, getCardsByNames, getFrontFaceTypeLine, useScryfallImage, fetchCardRulings, getCachedRulings } from '@/services/scryfall/client';
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
-import { tagsForOracleId, loadTagIndex, isTagIndexLoaded } from '@/services/spellchroma/tagIndex';
+import { tagsForOracleId, loadTagIndex, isTagIndexLoaded, groupTagSlugs } from '@/services/spellchroma/tagIndex';
 import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
@@ -721,6 +721,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   // panel always reflects the focused card, not a staged swap preview).
   const tagSlugs = rulingsTarget ? tagsForOracleId(rulingsTarget.oracle_id) : [];
   const hasTags = tagSlugs.length > 0;
+  const tagGroups = groupTagSlugs(tagSlugs);
   // Available side-panel tabs in display order. The switcher appears only when 2+
   // have content; a lone section renders with its own header. Reserve the panel
   // while rulings load so the centered image doesn't jump when they arrive.
@@ -756,6 +757,48 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const canDirectAdd = !!onAddCard && !cardInDeck && !swapPreview && !cardOverride;
 
   const hasNav = !!(onNavigate && canNavigate && !cardOverride);
+
+  const handleTagChipClick = (slug: string) => {
+    if (onTagClick) onTagClick(slug);
+    else if (spellChromaDeckRef) {
+      // In a deck context: carry the whole deck along so SpellChroma
+      // opens with the full deck in its panel (edited in place, and the
+      // back button returns here) — mirrors the Statistics Top Tags chips.
+      navigate(`/spellchroma?deck=${encodeURIComponent(spellChromaDeckRef)}&tags=${encodeURIComponent(slug)}`);
+    } else {
+      // No deck context — carry just the previewed card so SpellChroma
+      // opens with it loaded in the deck area (the card we came from).
+      const params = new URLSearchParams({ tags: slug, card: rulingsTarget.name });
+      navigate(`/spellchroma?${params.toString()}`);
+    }
+    onClose();
+  };
+  const renderTagChip = (slug: string, small = false) => (
+    <button
+      key={slug}
+      type="button"
+      onClick={() => handleTagChipClick(slug)}
+      className={`inline-flex items-center gap-1.5 rounded-full bg-violet-500/15 text-violet-200 hover:bg-violet-500/30 transition-colors ${small ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'}`}
+    >
+      <Tag className={`opacity-70 ${small ? 'w-3 h-3' : 'w-3.5 h-3.5'}`} />
+      {slug}
+    </button>
+  );
+  // Parent tag chip — flush-corner "folder tab" look. Negative margin pulls it back
+  // into the group box's own padding so it sits flush at the true top-left corner
+  // (clipped rounded by the box's overflow-hidden), while still flowing inline as the
+  // first item in the same flex-wrap row as its children.
+  const renderParentTagHeader = (slug: string) => (
+    <button
+      key={slug}
+      type="button"
+      onClick={() => handleTagChipClick(slug)}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 -ml-1.5 -mt-1.5 rounded-br-md bg-violet-500/25 text-violet-100 text-xs font-medium hover:bg-violet-500/35 transition-colors"
+    >
+      <Tag className="w-3.5 h-3.5 opacity-70" />
+      {slug}
+    </button>
+  );
 
   return createPortal(
     <>
@@ -1029,32 +1072,20 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                   <p className="text-[11px] text-white/50 leading-snug mb-2.5">
                     Click a tag to search for similar cards in SpellChroma.
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    {tagSlugs.map((slug) => (
-                      <button
-                        key={slug}
-                        type="button"
-                        onClick={() => {
-                          if (onTagClick) onTagClick(slug);
-                          else if (spellChromaDeckRef) {
-                            // In a deck context: carry the whole deck along so SpellChroma
-                            // opens with the full deck in its panel (edited in place, and the
-                            // back button returns here) — mirrors the Statistics Top Tags chips.
-                            navigate(`/spellchroma?deck=${encodeURIComponent(spellChromaDeckRef)}&tags=${encodeURIComponent(slug)}`);
-                          } else {
-                            // No deck context — carry just the previewed card so SpellChroma
-                            // opens with it loaded in the deck area (the card we came from).
-                            const params = new URLSearchParams({ tags: slug, card: rulingsTarget.name });
-                            navigate(`/spellchroma?${params.toString()}`);
-                          }
-                          onClose();
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-200 text-xs hover:bg-violet-500/30 transition-colors"
-                      >
-                        <Tag className="w-3.5 h-3.5 opacity-70" />
-                        {slug}
-                      </button>
-                    ))}
+                  <div className="flex flex-col gap-1.5">
+                    {tagGroups.filter(g => g.children.length === 0).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {tagGroups.filter(g => g.children.length === 0).map(g => renderTagChip(g.slug))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {tagGroups.filter(g => g.children.length > 0).map(({ slug, children }) => (
+                        <div key={slug} className="flex flex-wrap items-start gap-1.5 p-1.5 rounded-md border border-violet-500/25 bg-violet-500/5 overflow-hidden">
+                          {renderParentTagHeader(slug)}
+                          {children.map(c => renderTagChip(c, true))}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </>
               )}

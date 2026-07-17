@@ -317,9 +317,6 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                     />
                   ))}
                 </div>
-                <span className="text-[10px] uppercase tracking-wider text-white/60">
-                  {spotlight?.discover ? 'Discover' : 'Ready'} · {safeSpotlightIndex + 1} of {spotlightPool.length}
-                </span>
               </div>
             </>
           )}

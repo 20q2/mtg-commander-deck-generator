@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, Check, FlaskConical } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
 import { LaneTabs, type LaneKey } from '@/components/analyze/LaneTabs';
@@ -100,6 +100,7 @@ export function AnalyzePage() {
   const updateCustomization = useStore(s => s.updateCustomization);
   const { param1, param2 } = useParams<{ param1?: string; param2?: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const analyzeContext = source?.kind === 'list' ? source.listName : generatedDeck?.commander?.name;
   usePageTitle([analyzeContext, 'Analyze']);
@@ -115,17 +116,21 @@ export function AnalyzePage() {
   const tabSlug: string | undefined = param1IsTab ? param1 : param2;
 
   const activeAnalyzerTab: TabKey = (tabSlug && TAB_KEY_BY_SLUG[tabSlug]) || 'overview';
+  // Lift Web deep-link: /analyze/<id>/lift?view=islands reproduces the Overview lift tile's jump
+  // (Your deck, islands shown, lands hidden) so the URL is shareable and survives a reload.
+  const liftViewParam = activeAnalyzerTab === 'lift' && searchParams.get('view') === 'islands' ? 'islands' : null;
   const [themeMembership, setThemeMembership] = useState<ThemeMembership | null>(null);
   const [misfitNames, setMisfitNames] = useState<Set<string>>(new Set());
   const [focusedMisfitName, setFocusedMisfitName] = useState<string | null>(null);
-  const handleAnalyzerTabChange = useCallback((next: TabKey) => {
+  const handleAnalyzerTabChange = useCallback((next: TabKey, opts?: { view?: string }) => {
     const slug = TAB_SLUG_BY_KEY[next];
+    const path = listIdParam ? `/analyze/${listIdParam}/${slug}` : `/analyze/${slug}`;
     // Push (don't replace) so each tab switch is its own history entry — the
     // browser back button then walks back through tabs to the overview and on
     // to the page the user came from, which is what they expect. The "Inspect a
     // different deck" button no longer relies on navigate(-1) (see
     // handleChangeDeck), so it stays correct even with tab entries in history.
-    navigate(listIdParam ? `/analyze/${listIdParam}/${slug}` : `/analyze/${slug}`);
+    navigate(opts?.view ? `${path}?view=${opts.view}` : path);
   }, [navigate, listIdParam]);
   const getAnalyzerTabHref = useCallback((next: TabKey) => {
     const slug = TAB_SLUG_BY_KEY[next];
@@ -264,7 +269,9 @@ export function AnalyzePage() {
         cardCount: countCards(deck),
         hasCommander: !!deck.commander,
       });
-      navigate('/analyze/overview');
+      // Preserve a tab the user deep-linked to (e.g. /analyze/lift-web) before the hub
+      // rendered in place of it — otherwise a fresh paste always dumps them on Overview.
+      navigate(`/analyze/${tabSlug ?? 'overview'}`);
     } catch (e) {
       console.error('[AnalyzePage] paste hydration failed', e);
       setError('Could not analyze this deck. Check the card names and try again.');
@@ -272,7 +279,7 @@ export function AnalyzePage() {
       setLoading(false);
       setLoadStage(null);
     }
-  }, [navigate]);
+  }, [navigate, tabSlug]);
 
   const handleListPick = useCallback(async (list: UserCardList) => {
     setLoading(true);
@@ -299,7 +306,9 @@ export function AnalyzePage() {
         cardCount: countCards(deck),
         hasCommander: !!deck.commander,
       });
-      navigate(`/analyze/${list.id}`);
+      // Preserve a tab the user deep-linked to (e.g. /analyze/lift-web) before the hub
+      // rendered in place of it — otherwise picking a list always dumps them on Overview.
+      navigate(param1IsTab ? `/analyze/${list.id}/${tabSlug}` : `/analyze/${list.id}`);
     } catch (e) {
       console.error('[AnalyzePage] list hydration failed', e);
       setError('Could not analyze this list. Please try again.');
@@ -308,7 +317,7 @@ export function AnalyzePage() {
       setLoadStage(null);
       setLoadingListId(null);
     }
-  }, [navigate]);
+  }, [navigate, param1IsTab, tabSlug]);
 
   const handleChangeDeck = useCallback(() => {
     if (source?.kind === 'paste') {
@@ -654,6 +663,7 @@ export function AnalyzePage() {
                 activeTab={activeAnalyzerTab}
                 onTabChange={handleAnalyzerTabChange}
                 getTabHref={getAnalyzerTabHref}
+                initialLiftView={liftViewParam}
                 onAddCards={handleAddCardsToAnalyzerDeck}
                 onRemoveCards={handleRemoveCardsFromAnalyzerDeck}
                 commander={generatedDeck.commander}

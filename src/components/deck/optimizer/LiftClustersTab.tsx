@@ -33,6 +33,7 @@ interface LiftClustersTabProps {
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps: CardRowMenuProps;
   focusRequest?: { name: string; seq: number } | null;   // external "Focus on graph" (e.g. deck-building area)
+  deckViewRequest?: { seq: number } | null;               // external "Explore islands" (e.g. Overview lift tile)
   deckName?: string;                                     // saved-list name — titles the share-card export
 }
 
@@ -224,6 +225,16 @@ export function LiftClustersTab(props: LiftClustersTabProps) {
     setViewMode('graph');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSeq]);
+
+  // External "Explore islands" (e.g. the Overview lift tile): jump to Your deck graph with
+  // islands revealed and lands hidden, so the outliers the tile flagged are front and center.
+  const deckViewSeq = props.deckViewRequest?.seq;
+  useEffect(() => {
+    if (!props.deckViewRequest) return;
+    setFilters(f => ({ ...f, type: 'deck', anchors: new Set(), hideIslands: false, hideLands: true }));
+    setViewMode('graph');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckViewSeq]);
 
   // Cards on the exclude list ("banned") never belong in the lab — drop them from the pool entirely
   // (graph + list) and count how many we hid, to note in the "X of Y" readout.

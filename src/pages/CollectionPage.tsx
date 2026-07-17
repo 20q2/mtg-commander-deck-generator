@@ -8,7 +8,7 @@ import { useBinders } from '@/hooks/useBinders';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { ALL_BINDERS_ID } from '@/services/collection/db';
-import { ArrowLeft, BarChart3, Crown, Info, Upload, Folder, FolderPlus, Pencil, Trash2, Check, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Crown, Info, Upload, Folder, FolderPlus, Pencil, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -34,6 +34,14 @@ export function CollectionPage() {
   const [editingBinderId, setEditingBinderId] = useState<string | null>(null);
   const [editingBinderName, setEditingBinderName] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [topSectionCollapsed, setTopSectionCollapsed] = useState(() => localStorage.getItem('collection-top-section-collapsed') === '1');
+  const toggleTopSectionCollapsed = () => {
+    setTopSectionCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('collection-top-section-collapsed', next ? '1' : '0');
+      return next;
+    });
+  };
 
   // Filter state, lifted from CollectionManager so the Statistics tab can drive it.
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
@@ -123,7 +131,7 @@ export function CollectionPage() {
   return (
     <>
       <AuroraThemed colors={auroraColors} />
-      <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
+      <main className="flex-1 container mx-auto px-4 py-8 max-w-6xl">
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
@@ -133,7 +141,7 @@ export function CollectionPage() {
         </button>
 
         <div className="space-y-2 mb-8">
-          <h2 className="text-2xl font-bold">My Collection</h2>
+          <h2 className="text-2xl font-bold">Collections</h2>
           <p className="text-sm text-muted-foreground">
             Import your MTG card collection, then enable "Build from Collection" when generating decks
             to only use cards you own.
@@ -224,7 +232,7 @@ export function CollectionPage() {
                       value={newBinderName}
                       onChange={(e) => setNewBinderName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleCreateBinder(); if (e.key === 'Escape') setCreatingBinder(false); }}
-                      placeholder="Binder name"
+                      placeholder="Collection name"
                       className="w-28 px-1.5 py-0.5 text-sm rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                     />
                     <button onClick={handleCreateBinder} className="p-1 text-muted-foreground hover:text-foreground"><Check className="w-3.5 h-3.5" /></button>
@@ -236,7 +244,7 @@ export function CollectionPage() {
                     className="shrink-0 flex items-center gap-2 px-3 py-2 text-sm rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors"
                   >
                     <FolderPlus className="w-3.5 h-3.5" />
-                    New binder
+                    New collection
                   </button>
                 )}
               </div>
@@ -278,24 +286,35 @@ export function CollectionPage() {
                     icon={<Crown className="w-3.5 h-3.5" />}
                     label="Commanders"
                   />
+                  <button
+                    type="button"
+                    onClick={toggleTopSectionCollapsed}
+                    title={topSectionCollapsed ? 'Expand' : 'Collapse'}
+                    aria-label={topSectionCollapsed ? 'Expand section' : 'Collapse section'}
+                    className="ml-auto shrink-0 p-2.5 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {topSectionCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                  </button>
                 </div>
-                <div className={activeTab === 'commanders' ? '' : 'p-4'}>
-                  {activeTab === 'stats' && (
-                    <CollectionStats
-                      cards={cards}
-                      onColorClick={handleColorClick}
-                      onTypeClick={handleTypeClick}
-                      onRarityClick={handleRarityClick}
-                    />
-                  )}
-                  {activeTab === 'import' && (
-                    <CollectionImporter
-                      hideLabel
-                      binderId={selectedBinderId !== ALL_BINDERS_ID ? selectedBinderId : binders[0]?.id}
-                    />
-                  )}
-                  {activeTab === 'commanders' && <CollectionCommanders cards={cards} />}
-                </div>
+                {!topSectionCollapsed && (
+                  <div className={activeTab === 'commanders' ? '' : 'p-4'}>
+                    {activeTab === 'stats' && (
+                      <CollectionStats
+                        cards={cards}
+                        onColorClick={handleColorClick}
+                        onTypeClick={handleTypeClick}
+                        onRarityClick={handleRarityClick}
+                      />
+                    )}
+                    {activeTab === 'import' && (
+                      <CollectionImporter
+                        hideLabel
+                        binderId={selectedBinderId !== ALL_BINDERS_ID ? selectedBinderId : binders[0]?.id}
+                      />
+                    )}
+                    {activeTab === 'commanders' && <CollectionCommanders cards={cards} />}
+                  </div>
+                )}
               </section>
             ) : (
               <section className="p-4 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm max-w-2xl">

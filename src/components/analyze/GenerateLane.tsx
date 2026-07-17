@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
 import { fetchCommanderData } from '@/services/edhrec/client';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
+import { TAB_KEY_BY_SLUG } from '@/components/deck/optimizer/constants';
 import type { Customization, ScryfallCard, ThemeResult } from '@/types';
 
 // Pristine customization used for "Generate & Inspect" — explicitly empties the
@@ -56,6 +57,10 @@ function buildPristineCustomization(): Customization {
 
 export function GenerateLane() {
   const navigate = useNavigate();
+  // Deep-linking into the hub with a tab already in the URL (e.g. /analyze/lift-web)
+  // should still land there once the deck finishes generating, not default to Overview.
+  const { param1 } = useParams<{ param1?: string }>();
+  const tabSlug = param1 && param1 in TAB_KEY_BY_SLUG ? param1 : 'overview';
   const [working, setWorking] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -113,13 +118,13 @@ export function GenerateLane() {
       });
 
       trackEvent('analyze_cta_clicked', { from: 'generate-lane-auto' });
-      navigate('/analyze/overview');
+      navigate(`/analyze/${tabSlug}`);
     } catch (e) {
       console.error('[GenerateLane] inline build failed', e);
       setError('Could not build a deck for this commander. Please try again.');
       setWorking(false);
     }
-  }, [navigate]);
+  }, [navigate, tabSlug]);
 
   if (working) {
     return (

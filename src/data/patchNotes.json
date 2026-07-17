@@ -1,9 +1,18 @@
 [
   {
+    "version": "1.3.23",
+    "notes": [
+      "My Collection is now Collections, because you can now store multiple collections there",
+      "Make the lift web and other links in Inspector more share friendly (insepctor will now load into the page referened instead of the overview always)",
+      "Clicking the liftweb button it the Inspector overview will take you to the 'your deck' view of the feature so you can actually see the island it was talking about",
+      "Cards now show their tag's parent tags in Spellchroma. It'll make sense if you click around a bit"      
+    ]
+  },
+  {
     "version": "1.3.22",
     "notes": [
       "Added a quick-set button to snap deck size to 40/60/80 when an import doesn't land on 100 (for my brawl homies)",
-      "Spacecraft commanders now show up in legendary pickers alongside legendary creatures when importing a deck",
+      "Spacecraft commanders now show up in legendary pickers alongside legendary creatures when importing a deck"
     ]
   },
   {

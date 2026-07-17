@@ -455,7 +455,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                       location.pathname === '/collection' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                     }`}
                   >
-                    My Collection
+                    Collections
                     {collectionCount > 0 && (
                       <span className="text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                         {collectionCount.toLocaleString()}
@@ -687,7 +687,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <Package className={`w-4 h-4 ${location.pathname === '/collection' ? 'text-primary' : ''}`} />
-                <span className="text-sm font-medium">My Collection</span>
+                <span className="text-sm font-medium">Collections</span>
                 {collectionCount > 0 && (
                   <span className="ml-auto text-[10px] font-medium bg-primary/20 text-violet-200 px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
                     {collectionCount.toLocaleString()}

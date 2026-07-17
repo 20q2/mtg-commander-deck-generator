@@ -98,7 +98,7 @@ export interface DashboardSummaryProps {
   sampleSize?: number | null;
   warnings: DashboardWarning[];
   adjustContent?: ReactNode;
-  onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove' }) => void;
+  onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove' } | { liftView: 'islands' }) => void;
   onSaveAsDeck?: () => void;
   onOpenInDeckView?: () => void;
   // Panel props
@@ -284,7 +284,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
           <SynergyWebTile
             graph={synergyGraph}
             loading={synergyLoading}
-            onClick={() => onNavigate('lift')}
+            onClick={() => onNavigate('lift', { liftView: 'islands' })}
           />
         </div>
       </div>

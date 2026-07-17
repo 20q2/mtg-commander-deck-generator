@@ -59,6 +59,7 @@ export function DeckOptimizer({
   onTabChange,
   getTabHref,
   initialSelectedCmc,
+  initialLiftView,
   commander,
   partnerCommander,
   colorIdentity: commanderColorIdentity,
@@ -82,8 +83,8 @@ export function DeckOptimizer({
   const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
   const [internalActiveTab, setInternalActiveTab] = useState<TabKey>('overview');
   const activeTab = controlledActiveTab ?? internalActiveTab;
-  const setActiveTab = useCallback((tab: TabKey) => {
-    if (onTabChange) onTabChange(tab);
+  const setActiveTab = useCallback((tab: TabKey, opts?: { view?: string }) => {
+    if (onTabChange) onTabChange(tab, opts);
     if (controlledActiveTab === undefined) setInternalActiveTab(tab);
     if (tab === 'cost') {
       document.dispatchEvent(new CustomEvent('analyze-set-sort', { detail: { sortKey: 'price' } }));
@@ -93,13 +94,28 @@ export function DeckOptimizer({
   // card, stash it so OptimizeTabContent can pre-check the right tile.
   const [pendingOptimizeSelection, setPendingOptimizeSelection] =
     useState<{ cardName: string; side: 'add' | 'remove'; comboId?: string } | null>(null);
+  // When the Overview's lift tile is clicked, jump the Lift Web straight to Your deck with
+  // islands revealed and lands hidden, so the outliers it teased are immediately visible.
+  const [liftDeckView, setLiftDeckView] = useState<{ seq: number } | null>(null);
   const navigateFromDashboard = useCallback(
-    (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; comboId?: string }) => {
-      if (tab === 'optimize' && opts) setPendingOptimizeSelection(opts);
+    (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; comboId?: string } | { liftView: 'islands' }) => {
+      if (tab === 'optimize' && opts && 'cardName' in opts) setPendingOptimizeSelection(opts);
+      if (tab === 'lift' && opts && 'liftView' in opts) {
+        setLiftDeckView(prev => ({ seq: (prev?.seq ?? 0) + 1 }));
+        setActiveTab(tab, { view: opts.liftView });
+        return;
+      }
       setActiveTab(tab);
     },
     [setActiveTab],
   );
+  // Seed the same "Your deck, islands shown, lands hidden" jump from a shared/reloaded URL
+  // (e.g. /analyze/<id>/lift?view=islands) — mirrors the in-app click above.
+  useEffect(() => {
+    if (initialLiftView === 'islands') {
+      setLiftDeckView(prev => ({ seq: (prev?.seq ?? 0) + 1 }));
+    }
+  }, [initialLiftView]);
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<LandSection | null>(null);
   const [activeCurvePhases, setActiveCurvePhases] = useState<Set<CurvePhase>>(new Set());
@@ -1804,6 +1820,7 @@ export function DeckOptimizer({
             onCardAction={handleCardAction}
             menuProps={menuProps}
             focusRequest={liftFocus}
+            deckViewRequest={liftDeckView}
             deckName={deckName}
           />
         )}

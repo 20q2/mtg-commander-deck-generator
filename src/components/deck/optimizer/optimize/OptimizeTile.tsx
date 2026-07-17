@@ -32,7 +32,7 @@ const SIDE_CLASSES: Record<TileSide, {
   },
 };
 
-export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(function OptimizeTile(
+export const OptimizeTile = forwardRef<HTMLDivElement, OptimizeTileProps>(function OptimizeTile(
   { card, side, checked, active, onClick, onToggleChecked },
   ref,
 ) {
@@ -51,11 +51,18 @@ export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(fun
   const inclusionWidth = Math.min(100, Math.max(4, inclusion));
 
   return (
-    <button
+    <div
       ref={ref}
-      type="button"
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className="group/tile relative block w-full text-left rounded-lg overflow-visible"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="group/tile relative block w-full text-left rounded-lg overflow-visible cursor-pointer"
       title={card.name}
     >
       <div
@@ -128,6 +135,6 @@ export const OptimizeTile = forwardRef<HTMLButtonElement, OptimizeTileProps>(fun
       }`}>
         {card.name}
       </div>
-    </button>
+    </div>
   );
 });

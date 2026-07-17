@@ -14,7 +14,7 @@ import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
 import { TopTagsStrip } from './TopTagsStrip';
 import { DeckTagGraph } from './DeckTagGraph';
 import { AddCardPopover } from './AddCardPopover';
-import { tagsForOracleId, aggregateDeckTags, type DeckTagCount } from '@/services/spellchroma/tagIndex';
+import { tagsForOracleId, aggregateDeckTags, groupTagSlugs, type DeckTagCount } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { useCardCombos } from './useCardCombos';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -696,12 +696,68 @@ export function CardTagPopoverContent({ card, count, tags, selected, noun = 'dec
   // below (or above, when there's no room below) where the full screen width is
   // available; keep the desktop side-by-side placement on wider screens.
   const wideEnough = useMediaQuery('(min-width: 640px)');
+  const tagGroups = useMemo(() => groupTagSlugs(tags), [tags]);
+  // `impliedActive` marks a child whose parent tag is selected — the parent's search
+  // already covers it (Scryfall's otag: matches child tags too), so it's highlighted
+  // as "included by proxy" without being treated as its own explicit selection.
+  const renderTagChip = (slug: string, impliedActive?: boolean) => {
+    const active = selected.has(slug);
+    return (
+      <button
+        key={slug}
+        type="button"
+        onClick={() => (active ? onRemoveTag?.(slug) : onTagClick(slug))}
+        title={
+          active
+            ? `Remove “${slug}” from search`
+            : impliedActive
+              ? `Already included via its parent tag — click to add “${slug}” explicitly`
+              : `Add “${slug}” to search`
+        }
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
+          active
+            ? 'bg-violet-500/30 text-violet-100 border-violet-400/70'
+            : impliedActive
+              ? 'bg-violet-500/18 text-violet-100/80 border-violet-400/40 border-dashed'
+              : 'bg-violet-500/12 text-violet-100/90 border-violet-500/45 hover:bg-violet-500/25'
+        }`}
+      >
+        <Tag className="w-3 h-3 opacity-70" />
+        {slug}
+        {active && <X className="w-3 h-3" />}
+      </button>
+    );
+  };
+  // Parent tag chip — flush-corner "folder tab" look. Negative margin pulls it back
+  // into the group box's own padding so it sits flush at the true top-left corner
+  // (clipped rounded by the box's overflow-hidden), while still flowing inline as the
+  // first item in the same flex-wrap row as its children.
+  const renderParentTagHeader = (slug: string) => {
+    const active = selected.has(slug);
+    return (
+      <button
+        key={slug}
+        type="button"
+        onClick={() => (active ? onRemoveTag?.(slug) : onTagClick(slug))}
+        title={active ? `Remove “${slug}” from search` : `Add “${slug}” to search`}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 -ml-1.5 -mt-1.5 rounded-br-md text-[11px] font-semibold transition-colors ${
+          active
+            ? 'bg-violet-500/35 text-violet-100'
+            : 'bg-violet-500/20 text-violet-100 hover:bg-violet-500/28'
+        }`}
+      >
+        <Tag className="w-3 h-3 opacity-70" />
+        {slug}
+        {active && <X className="w-3 h-3" />}
+      </button>
+    );
+  };
   return (
     <PopoverContent
       side={wideEnough ? 'right' : 'bottom'}
       align={wideEnough ? 'start' : 'center'}
       collisionPadding={8}
-      className="w-80 max-w-[calc(100vw-1rem)] p-0 overflow-hidden max-h-[80vh] overflow-y-auto border-2 border-violet-400/40 ring-1 ring-violet-500/10 shadow-2xl shadow-violet-950/40">
+      className="w-[22rem] max-w-[calc(100vw-1rem)] p-0 overflow-hidden max-h-[80vh] overflow-y-auto border-2 border-violet-400/40 ring-1 ring-violet-500/10 shadow-2xl shadow-violet-950/40">
       <div className="relative animate-preview-pop">
         <PopoverClose
           className="absolute top-2 right-2 z-10 inline-flex items-center justify-center w-7 h-7 rounded-full bg-background/80 text-foreground/80 border border-border shadow-sm hover:bg-background hover:text-foreground transition-colors"
@@ -784,27 +840,23 @@ export function CardTagPopoverContent({ card, count, tags, selected, noun = 'dec
             {tags.length === 0 ? (
               <p className="text-xs text-muted-foreground">No oracle tags for this card.</p>
             ) : (
-              <div className="flex flex-wrap gap-1">
-                {tags.map(slug => {
-                  const active = selected.has(slug);
-                  return (
-                    <button
-                      key={slug}
-                      type="button"
-                      onClick={() => (active ? onRemoveTag?.(slug) : onTagClick(slug))}
-                      title={active ? `Remove “${slug}” from search` : `Add “${slug}” to search`}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
-                        active
-                          ? 'bg-violet-500/30 text-violet-100 border-violet-400/70'
-                          : 'bg-violet-500/12 text-violet-100/90 border-violet-500/45 hover:bg-violet-500/25'
-                      }`}
-                    >
-                      <Tag className="w-3 h-3 opacity-70" />
-                      {slug}
-                      {active && <X className="w-3 h-3" />}
-                    </button>
-                  );
-                })}
+              <div className="flex flex-col gap-1.5">
+                {tagGroups.filter(g => g.children.length === 0).length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {tagGroups.filter(g => g.children.length === 0).map(g => renderTagChip(g.slug))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {tagGroups.filter(g => g.children.length > 0).map(({ slug, children }) => {
+                    const parentSelected = selected.has(slug);
+                    return (
+                      <div key={slug} className="flex flex-wrap items-start gap-1 p-1.5 rounded-md border border-violet-500/25 bg-violet-500/5 overflow-hidden">
+                        {renderParentTagHeader(slug)}
+                        {children.map(c => renderTagChip(c, parentSelected))}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

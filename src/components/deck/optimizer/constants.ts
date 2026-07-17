@@ -32,12 +32,16 @@ export interface DeckOptimizerProps {
   maybeboardNames?: string[];
   /** Controlled active tab (e.g. URL-driven). If omitted, uses internal state. */
   activeTab?: TabKey;
-  /** Fired when the user clicks a tab. Required if `activeTab` is provided. */
-  onTabChange?: (tab: TabKey) => void;
+  /** Fired when the user clicks a tab. Required if `activeTab` is provided. `opts.view` carries an
+   *  extra deep-link intent (e.g. Lift Web's "islands" view) for the caller to reflect in the URL. */
+  onTabChange?: (tab: TabKey, opts?: { view?: string }) => void;
   /** Optional href resolver for tab anchors. When provided, the sidebar renders <a> tags so tabs work as real links. */
   getTabHref?: (tab: TabKey) => string;
   /** Optional initial value for the Curve tab's CMC focus. */
   initialSelectedCmc?: number | null;
+  /** URL-seeded Lift Web view intent (e.g. `?view=islands`) — reproduces the Overview lift tile's
+   *  "Your deck, islands shown, lands hidden" jump on load, so the deep link is shareable. */
+  initialLiftView?: 'islands' | null;
   /** Commander card (for Overview header on /analyze). */
   commander?: ScryfallCard;
   /** Partner commander card (for Overview header on /analyze). */
