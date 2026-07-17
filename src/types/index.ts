@@ -592,6 +592,7 @@ export interface Customization {
   collectionMode: boolean; // When true, constrain generation to owned cards
   collectionStrategy: CollectionStrategy; // 'full' = only owned cards, 'partial' = prioritize owned then fill with recommended
   collectionOwnedPercent: number; // 25-100, target % of non-land cards from collection in partial mode
+  collectionBinderIds?: string[]; // Which binders count as "owned" for generation. undefined = every binder.
   arenaOnly: boolean; // When true, only use cards available on MTG Arena
   scryfallQuery: string; // Additional Scryfall search syntax appended to all card queries (e.g. "set:mkm", "is:full-art")
   comboCount: number; // 0 = none, 1 = normal, 2 = a few extra, 3 = many combo pieces prioritized

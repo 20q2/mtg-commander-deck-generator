@@ -1,7 +1,7 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
 import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
-import { bulkImport, type BulkImportCard } from '@/services/collection/db';
+import { bulkImport, DEFAULT_BINDER_ID, type BulkImportCard } from '@/services/collection/db';
 import { Upload, FileUp, Loader2, Check, AlertCircle } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
@@ -19,6 +19,9 @@ interface CollectionImporterProps {
    * Return { added, updated } counts for display in the result card.
    */
   onImportCards?: (validatedNames: string[]) => { added: number; updated: number };
+  /** Binder to import into when writing directly to the collection DB (i.e. no
+   *  `onImportCards` handler is supplied). Defaults to the default binder. */
+  binderId?: string;
   /** Called when a *CMDR* marker is detected during import, with the validated Scryfall card */
   onCommanderDetected?: (card: import('@/types').ScryfallCard) => void;
   /** Called when deck metadata (name, etc.) is detected during import (e.g. MTGGoldfish format) */
@@ -99,7 +102,7 @@ export interface CollectionImporterHandle {
   hasPending: () => boolean;
 }
 
-export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected }, ref) {
+export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID }, ref) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, _setProgress] = useState('');
@@ -209,7 +212,7 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
             imageUrl: getCardImageUrl(card, 'small'),
             edhrecRank: card.edhrec_rank,
           }));
-          const { added, updated } = await bulkImport(bulkCards);
+          const { added, updated } = await bulkImport(binderId, bulkCards);
           finalResult = { added, updated, notFound };
           setResult(finalResult);
           trackEvent('collection_imported', {

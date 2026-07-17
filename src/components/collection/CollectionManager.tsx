@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
-import { useCollection } from '@/hooks/useCollection';
 import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { getCardByName } from '@/services/scryfall/client';
@@ -104,6 +103,18 @@ function sortCards(cards: CollectionCard[], sortKey: SortKey, sortDir: 'asc' | '
 // --- Component ---
 
 interface CollectionManagerProps {
+  cards: CollectionCard[];
+  count: number;
+  removeCard: (name: string) => void;
+  updateQuantity: (name: string, qty: number) => void;
+  clearCollection: () => void;
+  needsEnrichment: number;
+  isEnriching: boolean;
+  enrichProgress: string;
+  enrichCollection: () => void;
+  /** True when viewing the merged "All binders" scope — quantity/remove controls
+   *  are hidden since a merged row may represent cards split across binders. */
+  readOnly: boolean;
   /** Controlled color filter set (WUBRG/C codes). */
   selectedColors: Set<string>;
   onSelectedColorsChange: (next: Set<string>) => void;
@@ -116,6 +127,9 @@ interface CollectionManagerProps {
 }
 
 export function CollectionManager({
+  cards, count, removeCard, updateQuantity, clearCollection,
+  needsEnrichment, isEnriching, enrichProgress, enrichCollection,
+  readOnly,
   selectedColors,
   onSelectedColorsChange,
   selectedTypes,
@@ -124,10 +138,6 @@ export function CollectionManager({
   onSelectedRaritiesChange,
 }: CollectionManagerProps) {
   const navigate = useNavigate();
-  const {
-    cards, count, removeCard, updateQuantity, clearCollection,
-    needsEnrichment, isEnriching, enrichProgress, enrichCollection,
-  } = useCollection();
 
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -337,13 +347,15 @@ export function CollectionManager({
           >
             <Download className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Clear collection"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Clear collection"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -582,6 +594,7 @@ export function CollectionManager({
           onUpdateQuantity={updateQuantity}
           onRemove={removeCard}
           onPreview={handlePreview}
+          readOnly={readOnly}
         />
       ) : (
         <ListView
@@ -592,6 +605,7 @@ export function CollectionManager({
           sortKey={sortKey}
           sortDir={sortDir}
           onToggleSort={toggleSort}
+          readOnly={readOnly}
         />
       )}
 
@@ -670,11 +684,13 @@ function GridView({
   onUpdateQuantity,
   onRemove,
   onPreview,
+  readOnly,
 }: {
   cards: CollectionCard[];
   onUpdateQuantity: (name: string, qty: number) => void;
   onRemove: (name: string) => void;
   onPreview: (name: string) => void;
+  readOnly: boolean;
 }) {
   const [parent] = useAutoAnimate({ duration: 250 });
 
@@ -687,6 +703,7 @@ function GridView({
           onUpdateQuantity={onUpdateQuantity}
           onRemove={onRemove}
           onPreview={onPreview}
+          readOnly={readOnly}
         />
       ))}
     </div>
@@ -698,11 +715,13 @@ function GridCard({
   onUpdateQuantity,
   onRemove,
   onPreview,
+  readOnly,
 }: {
   card: CollectionCard;
   onUpdateQuantity: (name: string, qty: number) => void;
   onRemove: (name: string) => void;
   onPreview: (name: string) => void;
+  readOnly: boolean;
 }) {
   const [showControls, setShowControls] = useState(false);
 
@@ -742,27 +761,34 @@ function GridCard({
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-2 pt-6">
           <p className="text-[10px] text-white font-medium truncate mb-1.5">{card.name}</p>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-0.5">
+            {!readOnly && (
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => onUpdateQuantity(card.name, card.quantity - 1)}
+                  className="p-0.5 rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <span className="text-[10px] font-mono text-white w-5 text-center">{card.quantity}</span>
+                <button
+                  onClick={() => onUpdateQuantity(card.name, card.quantity + 1)}
+                  className="p-0.5 rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            {readOnly && (
+              <span className="text-[10px] font-mono text-white">x{card.quantity}</span>
+            )}
+            {!readOnly && (
               <button
-                onClick={() => onUpdateQuantity(card.name, card.quantity - 1)}
-                className="p-0.5 rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+                onClick={() => onRemove(card.name)}
+                className="p-0.5 rounded bg-white/20 text-red-300 hover:bg-red-500/50 hover:text-white transition-colors"
               >
-                <Minus className="w-3 h-3" />
+                <Trash2 className="w-3 h-3" />
               </button>
-              <span className="text-[10px] font-mono text-white w-5 text-center">{card.quantity}</span>
-              <button
-                onClick={() => onUpdateQuantity(card.name, card.quantity + 1)}
-                className="p-0.5 rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            </div>
-            <button
-              onClick={() => onRemove(card.name)}
-              className="p-0.5 rounded bg-white/20 text-red-300 hover:bg-red-500/50 hover:text-white transition-colors"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
+            )}
           </div>
         </div>
       )}
@@ -780,6 +806,7 @@ function ListView({
   sortKey,
   sortDir,
   onToggleSort,
+  readOnly,
 }: {
   cards: CollectionCard[];
   onUpdateQuantity: (name: string, qty: number) => void;
@@ -788,6 +815,7 @@ function ListView({
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
   onToggleSort: (key: SortKey) => void;
+  readOnly: boolean;
 }) {
   const SortHeader = ({ label, field, className = '' }: { label: string; field: SortKey; className?: string }) => (
     <button
@@ -848,29 +876,37 @@ function ListView({
 
             {/* Quantity controls */}
             <div className="flex items-center gap-0.5 w-12 justify-center">
-              <button
-                onClick={() => onUpdateQuantity(card.name, card.quantity - 1)}
-                className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <Minus className="w-3 h-3" />
-              </button>
-              <span className="text-xs font-mono w-5 text-center tabular-nums">{card.quantity}</span>
-              <button
-                onClick={() => onUpdateQuantity(card.name, card.quantity + 1)}
-                className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
+              {readOnly ? (
+                <span className="text-xs font-mono tabular-nums">{card.quantity}</span>
+              ) : (
+                <>
+                  <button
+                    onClick={() => onUpdateQuantity(card.name, card.quantity - 1)}
+                    className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="text-xs font-mono w-5 text-center tabular-nums">{card.quantity}</span>
+                  <button
+                    onClick={() => onUpdateQuantity(card.name, card.quantity + 1)}
+                    className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Remove */}
             <div className="w-16 flex justify-end">
-              <button
-                onClick={() => onRemove(card.name)}
-                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => onRemove(card.name)}
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         ))}
