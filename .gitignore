@@ -3,6 +3,7 @@
 .superpowers/
 docs/superpowers/
 .mcp.json
+.worktrees/
 
 # Dependencies
 node_modules
