@@ -8,6 +8,7 @@ import { MustIncludeCards } from './MustIncludeCards';
 import { AdvancedCustomization } from './AdvancedCustomization';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useCollection } from '@/hooks/useCollection';
+import { useBinders } from '@/hooks/useBinders';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useNavigate } from 'react-router-dom';
 import { isEuropean } from '@/lib/region';
@@ -34,6 +35,7 @@ const RARITY_OPTIONS: { value: Rarity; label: string }[] = [
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast, brewMode = false }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void; brewMode?: boolean } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
   const { count: collectionCount, cards: collectionCards } = useCollection();
+  const { binders } = useBinders();
   const { lists: allUserLists } = useUserLists();
   const navigate = useNavigate();
   const [editingLands, setEditingLands] = useState(false);
@@ -1026,6 +1028,44 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                 </label>
                 <InfoTooltip text="Owned cards won't count against your per-card price limit or total deck budget. Useful when you already own expensive staples." />
               </div>
+
+              {/* Binder picker — only worth showing once the user has more than one binder */}
+              {binders.length > 1 && (
+                <div className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Count as owned</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {binders.map(binder => {
+                      const selectedIds = customization.collectionBinderIds;
+                      const isSelected = !selectedIds || selectedIds.includes(binder.id);
+                      return (
+                        <button
+                          key={binder.id}
+                          onClick={() => {
+                            const allIds = binders.map(b => b.id);
+                            const current = selectedIds ?? allIds;
+                            const next = isSelected
+                              ? current.filter(id => id !== binder.id)
+                              : [...current, binder.id];
+                            // Selecting every binder is equivalent to "undefined" (all binders) —
+                            // collapse back to undefined so saved settings stay forward-compatible
+                            // with binders created later.
+                            updateCustomization({
+                              collectionBinderIds: next.length === allIds.length ? undefined : next,
+                            });
+                          }}
+                          className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                            isSelected
+                              ? 'border-primary bg-primary/10 text-violet-200'
+                              : 'border-border text-muted-foreground hover:border-primary/50'
+                          }`}
+                        >
+                          {binder.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Collection summary card */}
               <div className="rounded-lg border border-border/50 bg-accent/20 overflow-hidden">
