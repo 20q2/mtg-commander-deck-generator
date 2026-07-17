@@ -55,7 +55,7 @@ export async function finishBrew(
   let collectionNames: Set<string> | undefined;
   if (customization.collectionMode) {
     const { getCollectionNameSet } = await import('@/services/collection/db');
-    collectionNames = await getCollectionNameSet();
+    collectionNames = await getCollectionNameSet(customization.collectionBinderIds);
   }
   const deck = await generateDeck({
     commander: ctx.commander,

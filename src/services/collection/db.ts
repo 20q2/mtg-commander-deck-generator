@@ -38,11 +38,15 @@ class CollectionDB extends Dexie {
     this.version(2).stores({
       cards: 'name, addedAt',
     });
-    // v3: cards move to a compound [binderId+name] key so the same card name
-    // can hold an independent quantity per binder. Existing rows (which have
-    // no binderId under the old schema) are migrated into a new default binder.
+    // v3: cards move to a compound [binderId+name] key so the same card name can hold
+    // an independent quantity per binder. Dexie doesn't support changing a table's primary
+    // key in place, so the old `cards` store (keyed by name) is dropped and replaced by a
+    // new `cardEntries` store (keyed by [binderId+name]); existing rows are migrated into a
+    // new default binder. The `cards` property is rebound below so the rest of the app can
+    // keep referring to `db.cards` unchanged.
     this.version(3).stores({
-      cards: '[binderId+name], binderId, name, addedAt',
+      cards: null,
+      cardEntries: '[binderId+name], binderId, name, addedAt',
       binders: 'id, order, createdAt',
     }).upgrade(async tx => {
       const oldCards = await tx.table('cards').toArray();
@@ -53,11 +57,13 @@ class CollectionDB extends Dexie {
         createdAt: Date.now(),
       };
       await tx.table('binders').add(defaultBinder);
-      await tx.table('cards').clear();
+      const cardEntries = tx.table('cardEntries');
       for (const c of oldCards) {
-        await tx.table('cards').add({ ...c, binderId: defaultBinder.id });
+        await cardEntries.add({ ...c, binderId: defaultBinder.id });
       }
     });
+
+    this.cards = this.table('cardEntries');
   }
 }
 

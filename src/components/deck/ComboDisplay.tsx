@@ -126,6 +126,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
+  const collectionBinderIds = useStore(s => s.customization.collectionBinderIds);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
   const tempMustIncludeCards = useStore(s => s.customization.tempMustIncludeCards ?? []);
   const updateCustomization = useStore(s => s.updateCustomization);
@@ -252,11 +253,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (!expanded) return;
     let cancelled = false;
-    getCollectionNameSet().then(names => {
+    getCollectionNameSet(collectionBinderIds).then(names => {
       if (!cancelled && names.size > 0) setCollectionNames(names);
     });
     return () => { cancelled = true; };
-  }, [expanded]);
+  }, [expanded, collectionBinderIds]);
 
   // Background-prefetch combo details for visible combos so we can show
   // non-trivial prerequisites (e.g. "three Foods") as chips alongside cards

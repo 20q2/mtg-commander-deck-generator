@@ -152,11 +152,11 @@ export function BuilderPage() {
   // Load collection names for header price display
   useEffect(() => {
     import('@/services/collection/db').then(({ getCollectionNameSet }) =>
-      getCollectionNameSet().then(names => {
+      getCollectionNameSet(customization.collectionBinderIds).then(names => {
         if (names.size > 0) setHeaderCollectionNames(names);
       })
     );
-  }, [generatedDeck]);
+  }, [generatedDeck, customization.collectionBinderIds]);
 
   // Compute total deck price and non-owned price for header
   const { headerTotalPrice, headerNewPrice } = useMemo(() => {
@@ -585,7 +585,7 @@ export function BuilderPage() {
       let collectionNames: Set<string> | undefined;
       if (cust.collectionMode) {
         const { getCollectionNameSet } = await import('@/services/collection/db');
-        collectionNames = await getCollectionNameSet();
+        collectionNames = await getCollectionNameSet(cust.collectionBinderIds);
         if (collectionNames.size === 0) {
           setError('Collection mode is enabled but your collection is empty. Import your collection first.');
           setLoading(false);

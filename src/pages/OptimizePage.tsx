@@ -362,7 +362,7 @@ export function OptimizePage() {
       let collectionNames: Set<string> | undefined;
       if (cust.collectionMode) {
         const { getCollectionNameSet } = await import('@/services/collection/db');
-        collectionNames = await getCollectionNameSet();
+        collectionNames = await getCollectionNameSet(cust.collectionBinderIds);
         if (collectionNames.size === 0) {
           setError('Collection mode is enabled but your collection is empty. Import your collection first.');
           setLoading(false);

@@ -1206,7 +1206,7 @@ export function DeckOptimizer({
     }
   }, [customization, updateCustomization, userLists, updateList, createList, onAddCards, onRemoveCards, onRemoveFromBoard, sideboardNames, maybeboardNames, pushDeckHistory]);
 
-  const collectionNames = useLiveQuery(() => getCollectionNameSet(), []);
+  const collectionNames = useLiveQuery(() => getCollectionNameSet(customization.collectionBinderIds), [customization.collectionBinderIds]);
 
   const menuProps = useMemo(() => ({
     userLists,

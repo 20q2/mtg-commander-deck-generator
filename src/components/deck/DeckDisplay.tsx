@@ -2609,10 +2609,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
   // Load collection names for "owned" indicators
   useEffect(() => {
-    getCollectionNameSet().then(names => {
+    getCollectionNameSet(customization.collectionBinderIds).then(names => {
       if (names.size > 0) setCollectionNames(names);
     });
-  }, [generatedDeck]);
+  }, [generatedDeck, customization.collectionBinderIds]);
 
   // Sidebar grade: computed at the end of deck generation, stored on the deck object.
   // Optimizer may update it via event if the user makes changes (swaps, theme changes, etc.)

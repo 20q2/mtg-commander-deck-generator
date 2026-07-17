@@ -218,7 +218,7 @@ export function BrewPage() {
       let collectionNames: Set<string> | undefined;
       if (customization.collectionMode) {
         const { getCollectionNameSet } = await import('@/services/collection/db');
-        collectionNames = await getCollectionNameSet();
+        collectionNames = await getCollectionNameSet(customization.collectionBinderIds);
         if (collectionNames.size === 0) { setError('Collection mode is on but your collection is empty.'); setProgress(null); return; }
       }
       const ctx = await prepareBrewContext({
