@@ -209,9 +209,10 @@ export async function getCardsForBinder(binderId: string): Promise<CollectionCar
   return cards.sort((a, b) => b.addedAt - a.addedAt);
 }
 
-/** Merges every binder's cards by name (summing quantities) for the "All" view. */
-export async function getAllCardsMerged(): Promise<CollectionCard[]> {
-  const all = await db.cards.toArray();
+/** Merges cards by name (summing quantities) across the given binders, or every binder if
+ *  omitted, for "All" / multi-binder views. */
+export async function getCardsMerged(binderIds?: string[]): Promise<CollectionCard[]> {
+  const all = binderIds ? await db.cards.where('binderId').anyOf(binderIds).toArray() : await db.cards.toArray();
   const byName = new Map<string, CollectionCard>();
   for (const c of all) {
     const existing = byName.get(c.name);
@@ -223,6 +224,11 @@ export async function getAllCardsMerged(): Promise<CollectionCard[]> {
     }
   }
   return [...byName.values()].sort((a, b) => b.addedAt - a.addedAt);
+}
+
+/** Merges every binder's cards by name (summing quantities) for the "All" view. */
+export async function getAllCardsMerged(): Promise<CollectionCard[]> {
+  return getCardsMerged();
 }
 
 // --- Binder CRUD ---

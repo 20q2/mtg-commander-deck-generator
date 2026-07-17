@@ -476,7 +476,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                       v{__APP_VERSION__}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent side="bottom" align="end" className="w-72 max-h-80 overflow-y-auto p-3 text-xs">
+                  <PopoverContent side="bottom" align="end" className="w-80 max-h-80 overflow-y-auto p-3 text-xs">
                     {import.meta.env.DEV && (
                       <Link
                         to="/metrics"

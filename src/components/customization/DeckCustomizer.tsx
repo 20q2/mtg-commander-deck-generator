@@ -7,12 +7,15 @@ import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
 import { AdvancedCustomization } from './AdvancedCustomization';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useCollection } from '@/hooks/useCollection';
 import { useBinders } from '@/hooks/useBinders';
+import { getCardsMerged } from '@/services/collection/db';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useNavigate } from 'react-router-dom';
 import { isEuropean } from '@/lib/region';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
+import { Folder } from 'lucide-react';
 
 const IS_EU = isEuropean() || location.hostname === 'localhost';
 
@@ -34,8 +37,13 @@ const RARITY_OPTIONS: { value: Rarity; label: string }[] = [
 
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast, brewMode = false }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void; brewMode?: boolean } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
-  const { count: collectionCount, cards: collectionCards } = useCollection();
+  const { count: collectionCount } = useCollection();
   const { binders } = useBinders();
+  const selectedBinderIds = customization.collectionBinderIds;
+  const selectedCollectionCards = useLiveQuery(
+    () => getCardsMerged(selectedBinderIds),
+    [selectedBinderIds]
+  );
   const { lists: allUserLists } = useUserLists();
   const navigate = useNavigate();
   const [editingLands, setEditingLands] = useState(false);
@@ -60,7 +68,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
   const customFormatInputRef = useRef<HTMLInputElement>(null);
 
   const collectionStats = useMemo(() => {
-    if (!collectionCards || collectionCards.length === 0) return null;
+    if (!selectedCollectionCards || selectedCollectionCards.length === 0) return null;
 
     const typeCounts: Record<string, number> = { Creature: 0, Instant: 0, Sorcery: 0, Artifact: 0, Enchantment: 0, Land: 0, Planeswalker: 0 };
     const typeColorCounts: Record<string, Record<string, number>> = {};
@@ -68,7 +76,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
       typeColorCounts[type] = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
     }
 
-    for (const card of collectionCards) {
+    for (const card of selectedCollectionCards) {
       if (card.typeLine) {
         const tl = card.typeLine.split('—')[0].split('//')[0];
         for (const type of Object.keys(typeCounts)) {
@@ -86,7 +94,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
     }
 
     return { typeCounts, typeColorCounts };
-  }, [collectionCards]);
+  }, [selectedCollectionCards]);
 
   if (!commander) return null;
 
@@ -1034,6 +1042,22 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                 <div className="space-y-1.5">
                   <span className="text-xs text-muted-foreground">Count as owned</span>
                   <div className="flex flex-wrap gap-1.5">
+                    {(() => {
+                      const selectedIds = customization.collectionBinderIds;
+                      const allSelected = !selectedIds;
+                      return (
+                        <button
+                          onClick={() => updateCustomization({ collectionBinderIds: allSelected ? [] : undefined })}
+                          className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                            allSelected
+                              ? 'border-primary bg-primary/10 text-violet-200'
+                              : 'border-border text-muted-foreground hover:border-primary/50'
+                          }`}
+                        >
+                          {allSelected ? 'None' : 'All'}
+                        </button>
+                      );
+                    })()}
                     {binders.map(binder => {
                       const selectedIds = customization.collectionBinderIds;
                       const isSelected = !selectedIds || selectedIds.includes(binder.id);
@@ -1053,12 +1077,13 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                               collectionBinderIds: next.length === allIds.length ? undefined : next,
                             });
                           }}
-                          className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                          className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md border transition-colors ${
                             isSelected
                               ? 'border-primary bg-primary/10 text-violet-200'
                               : 'border-border text-muted-foreground hover:border-primary/50'
                           }`}
                         >
+                          <Folder className="w-3 h-3" />
                           {binder.name}
                         </button>
                       );
@@ -1070,7 +1095,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
               {/* Collection summary card */}
               <div className="rounded-lg border border-border/50 bg-accent/20 overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
-                  <span className="text-xs font-medium text-foreground">{collectionCount.toLocaleString()} cards</span>
+                  <span className="text-xs font-medium text-foreground">{(selectedCollectionCards?.length ?? 0).toLocaleString()} cards</span>
                   <button
                     onClick={() => navigate('/collection')}
                     className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
