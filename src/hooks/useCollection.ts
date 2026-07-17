@@ -1,20 +1,33 @@
 import { useState, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, bulkImport, removeCard, updateQuantity, clearCollection, getCardsNeedingEnrichment, bulkUpdateMetadata } from '@/services/collection/db';
+import {
+  bulkImport as dbBulkImport,
+  removeCard as dbRemoveCard,
+  updateQuantity as dbUpdateQuantity,
+  clearBinder,
+  getCardsForBinder,
+  getAllCardsMerged,
+  getCardsNeedingEnrichment,
+  bulkUpdateMetadata,
+  ALL_BINDERS_ID,
+} from '@/services/collection/db';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
-import type { CollectionCard } from '@/services/collection/db';
+import type { CollectionCard, BulkImportCard } from '@/services/collection/db';
 
-export function useCollection() {
-  const cards = useLiveQuery(() => db.cards.orderBy('addedAt').reverse().toArray());
-  const count = useLiveQuery(() => db.cards.count());
+/**
+ * @param binderId Scope: a specific binder id, or ALL_BINDERS_ID (default) to merge
+ * every binder's cards by name with summed quantities.
+ */
+export function useCollection(binderId: string = ALL_BINDERS_ID) {
+  const cards = useLiveQuery(
+    () => binderId === ALL_BINDERS_ID ? getAllCardsMerged() : getCardsForBinder(binderId),
+    [binderId]
+  );
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichProgress, setEnrichProgress] = useState('');
 
-  // Count cards missing metadata
-  const needsEnrichment = useLiveQuery(async () => {
-    const all = await db.cards.toArray();
-    return all.filter(c => !c.typeLine).length;
-  });
+  // Count cards missing metadata (global — metadata doesn't vary by binder)
+  const needsEnrichment = useLiveQuery(async () => (await getCardsNeedingEnrichment()).length);
 
   const enrichCollection = useCallback(async () => {
     setIsEnriching(true);
@@ -56,15 +69,15 @@ export function useCollection() {
 
   return {
     cards: cards ?? [] as CollectionCard[],
-    count: count ?? 0,
+    count: cards?.length ?? 0,
     isLoading: cards === undefined,
     needsEnrichment: needsEnrichment ?? 0,
     isEnriching,
     enrichProgress,
     enrichCollection,
-    bulkImport,
-    removeCard,
-    updateQuantity,
-    clearCollection,
+    bulkImport: (cards: BulkImportCard[]) => dbBulkImport(binderId, cards),
+    removeCard: (name: string) => dbRemoveCard(binderId, name),
+    updateQuantity: (name: string, qty: number) => dbUpdateQuantity(binderId, name, qty),
+    clearCollection: () => clearBinder(binderId),
   };
 }

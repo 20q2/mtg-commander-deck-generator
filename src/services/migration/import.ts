@@ -7,9 +7,17 @@ import {
   type MigrationData,
   type MigrationPreferences,
 } from './schema';
-import { db, bulkImport } from '@/services/collection/db';
+import { db, bulkImport, DEFAULT_BINDER_ID } from '@/services/collection/db';
 import type { UserCardList, BanList, AppliedList } from '@/types';
 import type { CollectionCard } from '@/services/collection/db';
+
+/** Backup files predate the binder concept — restored collections always land in the default binder. */
+async function ensureDefaultBinderExists(): Promise<void> {
+  const existing = await db.binders.get(DEFAULT_BINDER_ID);
+  if (!existing) {
+    await db.binders.add({ id: DEFAULT_BINDER_ID, name: 'My Collection', order: 0, createdAt: Date.now() });
+  }
+}
 
 // ─── Parse + validate + migrate ─────────────────────────────────────────
 export function parseAndMigrate(rawJson: string): MigrationEnvelope {
@@ -77,6 +85,7 @@ function sanitizeData(data: Record<string, unknown>): MigrationData {
       const r = raw as Record<string, unknown>;
       if (typeof r.name !== 'string' || typeof r.quantity !== 'number' || r.quantity < 1) continue;
       collection.push({
+        binderId: DEFAULT_BINDER_ID,
         name: r.name,
         quantity: Math.floor(r.quantity),
         addedAt: typeof r.addedAt === 'number' ? r.addedAt : Date.now(),
@@ -228,13 +237,17 @@ export async function applyMigration(
   }
 
   // ── Collection ───────────────────────────────────────────────────────
+  // Backup files predate the binder concept, so restored cards always land in the
+  // default binder — 'replace' clears every binder (a full-app restore), 'merge' only
+  // touches the default binder's rows.
   if (plan.collection !== 'skip' && env.data.collection && env.data.collection.length > 0) {
+    await ensureDefaultBinderExists();
     if (plan.collection === 'replace') {
       await db.cards.clear();
       // Use bulkImport so metadata gets written via the same path the
       // collection importer uses. bulkImport sums into existing rows, but
       // we just cleared, so each becomes a clean add.
-      await bulkImport(env.data.collection.map(c => ({
+      await bulkImport(DEFAULT_BINDER_ID, env.data.collection.map(c => ({
         name: c.name,
         quantity: c.quantity,
         typeLine: c.typeLine,
@@ -250,9 +263,11 @@ export async function applyMigration(
       // existing-if-defined, otherwise take incoming.
       await db.transaction('rw', db.cards, async () => {
         for (const c of env.data.collection!) {
-          const existing = await db.cards.get(c.name);
+          const key: [string, string] = [DEFAULT_BINDER_ID, c.name];
+          const existing = await db.cards.get(key);
           if (!existing) {
             await db.cards.add({
+              binderId: DEFAULT_BINDER_ID,
               name: c.name,
               quantity: c.quantity,
               addedAt: c.addedAt ?? Date.now(),
@@ -265,7 +280,7 @@ export async function applyMigration(
               edhrecRank: c.edhrecRank,
             });
           } else {
-            await db.cards.update(c.name, {
+            await db.cards.update(key, {
               quantity: Math.max(existing.quantity, c.quantity),
               typeLine: existing.typeLine ?? c.typeLine,
               colorIdentity: existing.colorIdentity ?? c.colorIdentity,

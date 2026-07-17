@@ -1,7 +1,18 @@
 import Dexie, { type Table } from 'dexie';
 
+export interface Binder {
+  id: string;
+  name: string;
+  order: number;
+  createdAt: number;
+}
+
+export const DEFAULT_BINDER_ID = 'default';
+export const ALL_BINDERS_ID = 'all';
+
 export interface CollectionCard {
-  name: string;       // Primary key — canonical Scryfall card name
+  binderId: string;   // FK into `binders`
+  name: string;        // Canonical Scryfall card name
   quantity: number;
   addedAt: number;     // Date.now() timestamp
   // Card metadata (populated during import, backfilled via enrichCollection)
@@ -15,7 +26,8 @@ export interface CollectionCard {
 }
 
 class CollectionDB extends Dexie {
-  cards!: Table<CollectionCard, string>;
+  cards!: Table<CollectionCard, [string, string]>;
+  binders!: Table<Binder, string>;
 
   constructor() {
     super('mtg-collection');
@@ -23,9 +35,28 @@ class CollectionDB extends Dexie {
       cards: 'name, addedAt',
     });
     // v2: same indexes, but CollectionCard now has optional metadata fields
-    // Dexie doesn't need new indexes for these — they're just stored properties
     this.version(2).stores({
       cards: 'name, addedAt',
+    });
+    // v3: cards move to a compound [binderId+name] key so the same card name
+    // can hold an independent quantity per binder. Existing rows (which have
+    // no binderId under the old schema) are migrated into a new default binder.
+    this.version(3).stores({
+      cards: '[binderId+name], binderId, name, addedAt',
+      binders: 'id, order, createdAt',
+    }).upgrade(async tx => {
+      const oldCards = await tx.table('cards').toArray();
+      const defaultBinder: Binder = {
+        id: DEFAULT_BINDER_ID,
+        name: 'My Collection',
+        order: 0,
+        createdAt: Date.now(),
+      };
+      await tx.table('binders').add(defaultBinder);
+      await tx.table('cards').clear();
+      for (const c of oldCards) {
+        await tx.table('cards').add({ ...c, binderId: defaultBinder.id });
+      }
     });
   }
 }
@@ -44,8 +75,9 @@ export interface BulkImportCard {
   edhrecRank?: number;
 }
 
-/** Bulk upsert cards into the collection. Returns add/update counts. */
+/** Bulk upsert cards into one binder. Returns add/update counts. */
 export async function bulkImport(
+  binderId: string,
   cards: BulkImportCard[]
 ): Promise<{ added: number; updated: number }> {
   let added = 0;
@@ -53,9 +85,10 @@ export async function bulkImport(
 
   await db.transaction('rw', db.cards, async () => {
     for (const card of cards) {
-      const existing = await db.cards.get(card.name);
+      const key: [string, string] = [binderId, card.name];
+      const existing = await db.cards.get(key);
       if (existing) {
-        await db.cards.update(card.name, {
+        await db.cards.update(key, {
           quantity: existing.quantity + card.quantity,
           addedAt: Date.now(),
           typeLine: card.typeLine ?? existing.typeLine,
@@ -69,6 +102,7 @@ export async function bulkImport(
         updated++;
       } else {
         await db.cards.add({
+          binderId,
           name: card.name,
           quantity: card.quantity,
           addedAt: Date.now(),
@@ -88,60 +122,72 @@ export async function bulkImport(
   return { added, updated };
 }
 
-/** Enrich existing cards that are missing metadata by fetching from Scryfall. */
+/** Names (deduped across binders) that are missing metadata. */
 export async function getCardsNeedingEnrichment(): Promise<string[]> {
   const all = await db.cards.toArray();
-  return all.filter(c => !c.typeLine).map(c => c.name);
+  const names = new Set<string>();
+  for (const c of all) {
+    if (!c.typeLine) names.add(c.name);
+  }
+  return [...names];
 }
 
-/** Update metadata for cards in bulk (used during enrichment). */
+/** Update metadata for cards in bulk (used during enrichment). Applies to every
+ *  binder that holds a card with this name, since metadata doesn't vary by binder. */
 export async function bulkUpdateMetadata(
   updates: Array<{ name: string; typeLine: string; colorIdentity: string[]; cmc: number; manaCost?: string; rarity: string; imageUrl?: string; edhrecRank?: number }>
 ): Promise<number> {
   let count = 0;
   await db.transaction('rw', db.cards, async () => {
     for (const u of updates) {
-      await db.cards.update(u.name, {
-        typeLine: u.typeLine,
-        colorIdentity: u.colorIdentity,
-        cmc: u.cmc,
-        manaCost: u.manaCost,
-        rarity: u.rarity,
-        imageUrl: u.imageUrl,
-        edhrecRank: u.edhrecRank,
-      });
-      count++;
+      const rows = await db.cards.where('name').equals(u.name).toArray();
+      for (const row of rows) {
+        await db.cards.update([row.binderId, row.name], {
+          typeLine: u.typeLine,
+          colorIdentity: u.colorIdentity,
+          cmc: u.cmc,
+          manaCost: u.manaCost,
+          rarity: u.rarity,
+          imageUrl: u.imageUrl,
+          edhrecRank: u.edhrecRank,
+        });
+        count++;
+      }
     }
   });
   return count;
 }
 
-export async function removeCard(name: string): Promise<void> {
-  await db.cards.delete(name);
+export async function removeCard(binderId: string, name: string): Promise<void> {
+  await db.cards.delete([binderId, name]);
 }
 
-export async function updateQuantity(name: string, quantity: number): Promise<void> {
+export async function updateQuantity(binderId: string, name: string, quantity: number): Promise<void> {
   if (quantity <= 0) {
-    await db.cards.delete(name);
+    await db.cards.delete([binderId, name]);
   } else {
-    await db.cards.update(name, { quantity });
+    await db.cards.update([binderId, name], { quantity });
   }
 }
 
-export async function clearCollection(): Promise<void> {
-  await db.cards.clear();
+/** Clears every card from one binder (the binder itself is not deleted). */
+export async function clearBinder(binderId: string): Promise<void> {
+  await db.cards.where('binderId').equals(binderId).delete();
 }
 
-export async function getCollectionSize(): Promise<number> {
+export async function getCollectionSize(binderId?: string): Promise<number> {
+  if (binderId) return db.cards.where('binderId').equals(binderId).count();
   return db.cards.count();
 }
 
-/** Returns a Set<string> of all owned card names — used by the deck generator.
- *  For double-faced cards (e.g. "Kessig Naturalist // Lord of the Ulvenwald"),
- *  the set includes both the full name and the front-face name so that
- *  EDHREC's front-face-only names match correctly. */
-export async function getCollectionNameSet(): Promise<Set<string>> {
-  const allCards = await db.cards.toArray();
+/** Returns a Set<string> of owned card names, optionally scoped to a subset of binders
+ *  (undefined/omitted = every binder). For double-faced cards (e.g. "Kessig Naturalist //
+ *  Lord of the Ulvenwald"), the set includes both the full name and the front-face name so
+ *  that EDHREC's front-face-only names match correctly. */
+export async function getCollectionNameSet(binderIds?: string[]): Promise<Set<string>> {
+  const allCards = binderIds
+    ? await db.cards.where('binderId').anyOf(binderIds).toArray()
+    : await db.cards.toArray();
   const names = new Set<string>();
   for (const c of allCards) {
     names.add(c.name);
@@ -152,6 +198,54 @@ export async function getCollectionNameSet(): Promise<Set<string>> {
   return names;
 }
 
-export async function getAllCards(): Promise<CollectionCard[]> {
-  return db.cards.orderBy('addedAt').reverse().toArray();
+export async function getCardsForBinder(binderId: string): Promise<CollectionCard[]> {
+  const cards = await db.cards.where('binderId').equals(binderId).toArray();
+  return cards.sort((a, b) => b.addedAt - a.addedAt);
+}
+
+/** Merges every binder's cards by name (summing quantities) for the "All" view. */
+export async function getAllCardsMerged(): Promise<CollectionCard[]> {
+  const all = await db.cards.toArray();
+  const byName = new Map<string, CollectionCard>();
+  for (const c of all) {
+    const existing = byName.get(c.name);
+    if (existing) {
+      existing.quantity += c.quantity;
+      existing.addedAt = Math.max(existing.addedAt, c.addedAt);
+    } else {
+      byName.set(c.name, { ...c, binderId: ALL_BINDERS_ID });
+    }
+  }
+  return [...byName.values()].sort((a, b) => b.addedAt - a.addedAt);
+}
+
+// --- Binder CRUD ---
+
+export async function getBinders(): Promise<Binder[]> {
+  return db.binders.orderBy('order').toArray();
+}
+
+export async function createBinder(name: string): Promise<Binder> {
+  const existing = await db.binders.toArray();
+  const maxOrder = existing.reduce((m, b) => Math.max(m, b.order), -1);
+  const binder: Binder = {
+    id: crypto.randomUUID(),
+    name,
+    order: maxOrder + 1,
+    createdAt: Date.now(),
+  };
+  await db.binders.add(binder);
+  return binder;
+}
+
+export async function renameBinder(id: string, name: string): Promise<void> {
+  await db.binders.update(id, { name });
+}
+
+/** Deletes a binder and every card inside it. */
+export async function deleteBinder(id: string): Promise<void> {
+  await db.transaction('rw', db.binders, db.cards, async () => {
+    await db.cards.where('binderId').equals(id).delete();
+    await db.binders.delete(id);
+  });
 }
