@@ -11,7 +11,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import type { ScryfallCard, UserCardList, EDHRECTheme } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import type { DetectedThemeResult, Pacing } from '@/services/deckBuilder/themeDetector';
-import { getCardPrice } from '@/services/scryfall/client';
+import { getCardPrice, getCachedCard } from '@/services/scryfall/client';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import {
   scryfallImg, edhrecRankToInclusion,
@@ -63,12 +63,18 @@ export function SuggestionCardGrid({
     const order = (() => {
       if (hideSort) return cards;
       if (sortMode === 'popularity') return [...cards].sort((a, b) => b.inclusion - a.inclusion);
-      if (sortMode === 'cmc') return [...cards].sort((a, b) => {
-        const ac = a.cmc ?? -1;
-        const bc = b.cmc ?? -1;
-        if (ac !== bc) return bc - ac;
-        return (b.score ?? 0) - (a.score ?? 0);
-      });
+      if (sortMode === 'cmc') {
+        // Resolve CMC once per card: prefer the enriched rec value, else fall
+        // back to the Scryfall cache (populated when suggestions are fetched).
+        const cmcMap = new Map<string, number>();
+        for (const c of cards) cmcMap.set(c.name, c.cmc ?? getCachedCard(c.name)?.cmc ?? Infinity);
+        return [...cards].sort((a, b) => {
+          const ac = cmcMap.get(a.name) ?? Infinity;
+          const bc = cmcMap.get(b.name) ?? Infinity;
+          if (ac !== bc) return ac - bc;
+          return (b.score ?? 0) - (a.score ?? 0);
+        });
+      }
       return cards;
     })();
     if (!bannedSet || bannedSet.size === 0) return order;
@@ -320,7 +326,7 @@ export function SuggestionCardItem({
 // ─── Shared: Cut Card Grid (for lands to remove) ─────────────────────
 
 export function CutCardGrid({
-  cards, onRemove, onPreview, removedCards, excess, onCardAction, menuProps, cardInclusionMap, sortMode, getBadges,
+  cards, onRemove, onPreview, removedCards, excess, onCardAction, menuProps, cardInclusionMap, sortMode, getBadges, getReason,
 }: {
   cards: AnalyzedCard[];
   onRemove: (card: ScryfallCard) => void;
@@ -332,6 +338,9 @@ export function CutCardGrid({
   cardInclusionMap?: Record<string, number>;
   sortMode?: 'inclusion' | 'score';
   getBadges?: (ac: AnalyzedCard) => { countLabel?: string; warning?: string } | undefined;
+  /** Optional per-card cut reason: short label replaces the "Recommended Cut"
+   *  banner (trim-drawer style); full text becomes its tooltip. */
+  getReason?: (ac: AnalyzedCard) => { label: string; text: string } | undefined;
 }) {
   return (
     <div
@@ -355,6 +364,7 @@ export function CutCardGrid({
             sortMode={sortMode}
             countLabel={badges?.countLabel}
             warning={badges?.warning}
+            reason={getReason?.(ac)}
           />
         );
       })}
@@ -365,7 +375,7 @@ export function CutCardGrid({
 // ─── Cut Card Item ────────────────────────────────────────────────────
 
 export function CutCardItem({
-  ac, index = 0, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap, sortMode = 'inclusion', countLabel, warning,
+  ac, index = 0, removed, highlighted, onRemove, onPreview, onCardAction, menuProps, cardInclusionMap, sortMode = 'inclusion', countLabel, warning, reason,
 }: {
   ac: AnalyzedCard;
   index?: number;
@@ -379,6 +389,8 @@ export function CutCardItem({
   sortMode?: 'inclusion' | 'score';
   countLabel?: string;
   warning?: string;
+  /** Why this card is a recommended cut — short label for the banner + full tooltip text. */
+  reason?: { label: string; text: string };
 }) {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const isBanned = menuProps?.bannedNames.has(ac.card.name);
@@ -418,8 +430,11 @@ export function CutCardItem({
           onError={(e) => { (e.target as HTMLImageElement).src = scryfallImg(ac.card.name, 'normal'); }}
         />
         {highlighted && (
-          <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold uppercase tracking-wider px-1.5 py-px rounded-full bg-red-600 text-white shadow whitespace-nowrap">
-            Recommended Cut
+          <span
+            className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold uppercase tracking-wider px-1.5 py-px rounded-full bg-red-600 text-white shadow whitespace-nowrap"
+            title={reason?.text}
+          >
+            {reason?.label ?? 'Recommended Cut'}
           </span>
         )}
         {/* Remove button overlay */}

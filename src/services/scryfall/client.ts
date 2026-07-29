@@ -440,6 +440,51 @@ export async function getCheapestPrintings(names: string[]): Promise<Map<string,
 }
 
 /**
+ * Resolve names the /cards/collection endpoint couldn't find, by exact-name SEARCH.
+ * Unlike the collection endpoint (canonical name only), search's !"…" filter also
+ * matches reskin/flavor names — e.g. "Cordyceps Excision" resolves to Cabal Ritual.
+ * unique=prints ensures the reskin printing (the one carrying flavor_name) is present.
+ *
+ * Returns a map keyed by the REQUESTED spelling so callers can alias the flavor name
+ * onto its canonical card. Names that are genuine typos (no exact match) stay missing —
+ * this is a precise reskin resolver, not a fuzzy corrector.
+ */
+async function resolveNamesByFlavorSearch(names: string[]): Promise<Map<string, ScryfallCard>> {
+  const out = new Map<string, ScryfallCard>();
+  if (names.length === 0) return out;
+
+  // Normalized requested-name → original spelling, so we can map a returned card's
+  // name/flavor_name back to whatever the caller actually typed.
+  const reqByNorm = new Map<string, string>();
+  for (const n of names) reqByNorm.set(normalizeCardNameKey(n), n);
+
+  for (let i = 0; i < names.length; i += FALLBACK_SEARCH_BATCH_SIZE) {
+    const batch = names.slice(i, i + FALLBACK_SEARCH_BATCH_SIZE);
+    const nameQuery = batch.map(n => `!"${n}"`).join(' OR ');
+    const url = `${BASE_URL}/cards/search?q=${encodeURIComponent(`(${nameQuery})`)}&unique=prints`;
+    try {
+      const response = await withRateLimit(() =>
+        fetch(url, { headers: { 'Accept': 'application/json' } }),
+      );
+      if (!response.ok) continue; // 404 = none of this batch matched
+      const data = await response.json() as ScryfallSearchResponse;
+      for (const card of data.data) {
+        // Prefer the flavor_name match (the reskin the user typed); fall back to the
+        // canonical name. First writer wins so a flavor printing isn't overwritten.
+        for (const candidate of [card.flavor_name, card.name]) {
+          if (!candidate) continue;
+          const req = reqByNorm.get(normalizeCardNameKey(candidate));
+          if (req && !out.has(req)) out.set(req, card);
+        }
+      }
+    } catch (err) {
+      console.warn('[Scryfall] flavor-name resolution batch failed:', err);
+    }
+  }
+  return out;
+}
+
+/**
  * Batch fetch multiple cards by name using Scryfall's /cards/collection endpoint.
  * Fetches up to 75 cards per request, drastically reducing API calls vs individual lookups.
  *
@@ -629,6 +674,25 @@ export async function getCardsByNames(
       } catch (err) {
         console.warn('[Scryfall] Fallback collection batch failed:', err);
       }
+    }
+  }
+
+  // Reskin/flavor-name pass: any name the collection endpoint still couldn't resolve
+  // may be a reskinned printing (e.g. "Cordyceps Excision" → Cabal Ritual), which the
+  // collection endpoint matches only by canonical name. Exact-name SEARCH matches the
+  // flavor name, so re-resolve the stragglers and alias them onto their canonical card.
+  const flavorMissing = names.filter(name => !result.has(name));
+  if (flavorMissing.length > 0) {
+    const resolved = await resolveNamesByFlavorSearch(flavorMissing);
+    for (const [reqName, card] of resolved) {
+      const copy = freshCopy(card);
+      result.set(reqName, copy);
+      result.set(card.name, freshCopy(card));
+      // Cache and persist under BOTH the requested (flavor) spelling and the canonical
+      // name so future imports of either hit the cache.
+      cardCache.set(reqName, card);
+      cardCache.set(card.name, card);
+      void writePersistedMany([{ name: reqName, card }, { name: card.name, card }]);
     }
   }
 

@@ -1,5 +1,13 @@
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
+import {
+  LOW_FIT_INCLUSION,
+  LOW_FIT_SYNERGY,
+  GAME_CHANGER_KEEP_BOOST,
+  buildConnectivityPercentiles,
+  connectivityAdjustment,
+  isNearMissComboPiece,
+} from './cutRanking';
 
 export type TrimReasonKey =
   | 'low-fit'
@@ -135,7 +143,7 @@ function pickReason(
   const incl = ctx.inclusionMap[card.name] ?? 0;
   const syn = ctx.synergyMap[card.name] ?? 0;
 
-  if (incl < 5 && syn <= 0) {
+  if (incl < LOW_FIT_INCLUSION && syn <= LOW_FIT_SYNERGY) {
     return { key: 'low-fit', text: `Only ${incl.toFixed(0)}% of decks run this; no synergy bonus.` };
   }
 
@@ -238,31 +246,11 @@ export function planTrim(input: TrimInput): TrimResult {
     if (t) typeCounts[t] = (typeCounts[t] || 0) + 1;
   }
 
-  // Deck-relative connectivity percentile per spell (0 = least connected). Built
-  // over the trimmable spell pool so "outlier" means outlier *within this deck*,
-  // not against some absolute scale. O(n²) but n ≈ 60 — negligible.
-  const hasConnectivity = !!input.connectivityMap && Object.keys(input.connectivityMap).length > 0;
-  const connPercentile: Record<string, number> = {};
-  if (hasConnectivity) {
-    const cm = input.connectivityMap!;
-    const vals = spells.map(c => cm[c.name] ?? 0);
-    for (const c of spells) {
-      const v = cm[c.name] ?? 0;
-      let below = 0, atOrBelow = 0;
-      for (const x of vals) { if (x < v) below++; if (x <= v) atOrBelow++; }
-      // Midrank handles ties (a cluster of zero-connectivity cards shares one percentile).
-      connPercentile[c.name] = vals.length ? ((below + atOrBelow) / 2) / vals.length : 0.5;
-    }
-  }
-
-  // Map a card's connectivity percentile to a relevancy-point adjustment in
-  // [-SYN_ADJ_MAX, +SYN_ADJ_MAX]. Least-connected (percentile 0) loses the most,
-  // pushing synergy outliers toward the cut; well-connected cards are protected.
-  // ±35 is meaningful next to typical relevancy gaps but stays below combo/role
-  // boosts (~80), so it re-ranks near-ties without overriding hard keeps.
-  const SYN_ADJ_MAX = 35;
-  const synergyAdj = (name: string) =>
-    hasConnectivity ? ((connPercentile[name] ?? 0.5) - 0.5) * 2 * SYN_ADJ_MAX : 0;
+  // Deck-relative connectivity percentiles over the trimmable spell pool, so
+  // "outlier" means outlier *within this deck*. Shared with the Inspector's
+  // Optimize tab (see cutRanking) so both surfaces re-rank identically.
+  const conn = buildConnectivityPercentiles(spells, input.connectivityMap);
+  const synergyAdj = (name: string) => connectivityAdjustment(conn, name);
 
   const ctx: ReasonContext = {
     cmcBuckets,
@@ -273,8 +261,8 @@ export function planTrim(input: TrimInput): TrimResult {
     roleTargets,
     inclusionMap,
     synergyMap,
-    connPercentile,
-    hasConnectivity,
+    connPercentile: conn.percentile,
+    hasConnectivity: conn.has,
   };
 
   const byRelevancy = (a: ScryfallCard, b: ScryfallCard) => {
@@ -288,12 +276,18 @@ export function planTrim(input: TrimInput): TrimResult {
     return a.name.localeCompare(b.name);
   };
 
-  // Spells rank by a synergy-aware keep score: relevancy nudged by connectivity.
+  // Spells rank by a synergy-aware keep score: relevancy nudged by connectivity,
+  // plus bracket stickiness — game changers are last-resort cuts in a forced
+  // trim (suggest-mode surfaces exclude them entirely; see cutRanking).
   // Lands keep the pure-relevancy order (synergy connectivity is a spell signal;
   // lands are chosen by the land-target math, not the graph).
+  const spellKeepScore = (c: ScryfallCard) =>
+    (relevancyMap[c.name] ?? 0)
+    + synergyAdj(c.name)
+    + (c.isGameChanger ? GAME_CHANGER_KEEP_BOOST : 0);
   const bySpellKeep = (a: ScryfallCard, b: ScryfallCard) => {
-    const ka = (relevancyMap[a.name] ?? 0) + synergyAdj(a.name);
-    const kb = (relevancyMap[b.name] ?? 0) + synergyAdj(b.name);
+    const ka = spellKeepScore(a);
+    const kb = spellKeepScore(b);
     if (ka !== kb) return ka - kb;
     return byRelevancy(a, b);
   };
@@ -304,15 +298,7 @@ export function planTrim(input: TrimInput): TrimResult {
   const toCandidate = (card: ScryfallCard, partition: 'land' | 'spell'): TrimCandidate => {
     // If the card is in a near-miss combo, surface that label — it's the most
     // informative thing to tell the user about a still-cut combo piece.
-    const cardNameVariants = card.name.includes(' // ')
-      ? [card.name, card.name.split(' // ')[0]]
-      : [card.name];
-    const isNearMissComboPiece = detectedCombos?.some(combo =>
-      !combo.isComplete &&
-      combo.missingCards.length === 1 &&
-      combo.cards.some(cn => cardNameVariants.includes(cn))
-    ) ?? false;
-    const { key, text } = isNearMissComboPiece
+    const { key, text } = isNearMissComboPiece(card.name, detectedCombos)
       ? { key: 'combo-near-miss' as TrimReasonKey, text: 'Piece of a one-away combo — cutting widens the gap.' }
       : pickReason(card, ctx);
     return {

@@ -7,12 +7,13 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { ChevronDown, ChevronRight, X, Target, Crown, BookOpen, Sprout, Lightbulb, AlertTriangle, Swords, Mountain, Layers, ArrowUpDown, Scissors, Sparkles } from 'lucide-react';
-import type { ScryfallCard } from '@/types';
+import type { ScryfallCard, DetectedCombo } from '@/types';
+import { buildComboParticipation } from '@/services/deckBuilder/cutRanking';
 import type { CurvePhaseAnalysis, CurvePhase, CurveSlot, CurveBreakdown, ManaTrajectoryPoint, AnalyzedCard, RecommendedCard, ManaSourcesAnalysis, RoleBreakdown, GradeResult } from '@/services/deckBuilder/deckAnalyzer';
 import { PACING_MULTIPLIERS } from '@/services/deckBuilder/deckAnalyzer';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import { getCachedCard } from '@/services/scryfall/client';
-import { getCardRole } from '@/services/tagger/client';
+import { cardMatchesRole } from '@/services/tagger/client';
 import { PACING_LABELS, PHASE_META, tileGradeStyles, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
@@ -102,7 +103,7 @@ export function CurveSummaryStrip({
                   {phase.current}
                 </span>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {phase.target} suggested
+                  target: {phase.target}
                 </span>
               </div>
             </button>
@@ -142,7 +143,7 @@ export function CurveSummaryStrip({
                   {prb?.current ?? 0}
                 </span>
                 <span className="text-[9px] text-muted-foreground tabular-nums leading-none">
-                  {prb?.target ?? 0} suggested
+                  target: {prb?.target ?? 0}
                 </span>
               </div>
             </button>
@@ -183,6 +184,7 @@ export function CurveTooltip({ active, payload, label }: {
       )}
       {hasRoles && (
         <div className="mt-1 pt-1 border-t border-border/30 space-y-0.5">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70">In your deck</div>
           {ramp > 0        && <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-emerald-400/60 shrink-0" />Ramp: {ramp}</div>}
           {interaction > 0 && <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-red-400/60 shrink-0" />Removal: {interaction}</div>}
           {cardDraw > 0    && <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-sky-400/60 shrink-0" />Draw: {cardDraw}</div>}
@@ -298,11 +300,17 @@ export function ManaCurveLineChart({
     for (const b of curveBreakdowns) {
       let ramp = 0, interaction = 0, cardDraw = 0, other = 0;
       for (const ac of b.cards) {
-        const role = ac.card.deckRole;
-        if (role === 'ramp') ramp++;
-        else if (role === 'removal' || role === 'boardwipe') interaction++;
-        else if (role === 'cardDraw') cardDraw++;
-        else other++;
+        // Credit a card to every role it fills (e.g. The Gitrog Monster is both
+        // ramp and card draw), matching the phase tiles and Roles tab. Multi-role
+        // cards are counted in each group, so segments can sum above the card total.
+        const name = ac.card.name;
+        const isRamp = cardMatchesRole(name, 'ramp');
+        const isInteraction = cardMatchesRole(name, 'removal') || cardMatchesRole(name, 'boardwipe');
+        const isDraw = cardMatchesRole(name, 'cardDraw');
+        if (isRamp) ramp++;
+        if (isInteraction) interaction++;
+        if (isDraw) cardDraw++;
+        if (!isRamp && !isInteraction && !isDraw) other++;
       }
       map[b.cmc] = { ramp, interaction, cardDraw, other };
     }
@@ -333,7 +341,7 @@ export function ManaCurveLineChart({
   const isDimmed = (d: { cmc: number; inPhase: boolean }) => !isFocused(d);
 
   return (
-    <div className="bg-background/70 pt-2 pb-0 flex flex-col -m-4">
+    <div className="relative z-20 bg-background/70 pt-2 pb-0 flex flex-col -m-4">
       <div className="flex flex-col gap-0.5 mb-1 px-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mana Curve</span>
@@ -403,7 +411,7 @@ export function ManaCurveLineChart({
             width={28}
             allowDecimals={false}
           />
-          <Tooltip content={<CurveTooltip />} cursor={false} />
+          <Tooltip content={<CurveTooltip />} cursor={false} wrapperStyle={{ zIndex: 50 }} />
 
 
           {/* Role breakdown bars — stacked columns, per-cell dimming when a CMC is selected */}
@@ -536,11 +544,17 @@ export function CmcCardList({
       ramp: [], interaction: [], cardDraw: [], other: [],
     };
     for (const ac of bucket.cards) {
-      const role = ac.card.deckRole;
-      if (role === 'ramp') buckets.ramp.push(ac);
-      else if (role === 'removal' || role === 'boardwipe') buckets.interaction.push(ac);
-      else if (role === 'cardDraw') buckets.cardDraw.push(ac);
-      else buckets.other.push(ac);
+      // A card is listed under every role group it fills (e.g. The Gitrog
+      // Monster appears under both Ramp and Card Draw), matching how the phase
+      // tiles and curve bars now count multi-role cards.
+      const name = ac.card.name;
+      const isRamp = cardMatchesRole(name, 'ramp');
+      const isInteraction = cardMatchesRole(name, 'removal') || cardMatchesRole(name, 'boardwipe');
+      const isDraw = cardMatchesRole(name, 'cardDraw');
+      if (isRamp) buckets.ramp.push(ac);
+      if (isInteraction) buckets.interaction.push(ac);
+      if (isDraw) buckets.cardDraw.push(ac);
+      if (!isRamp && !isInteraction && !isDraw) buckets.other.push(ac);
     }
     for (const key of ROLE_GROUP_ORDER) {
       buckets[key] = sortWithinGroup(buckets[key], sortMode);
@@ -1108,20 +1122,26 @@ function PhaseRoleCardList({
   menuProps?: CardRowMenuProps;
 }) {
   const groups = useMemo(() => {
-    // Bucket cards by role group, deduped across phases
+    // Bucket cards by role group, deduped per group across phases. A card is
+    // listed under every role group it fills (e.g. The Gitrog Monster shows in
+    // both Ramp and Card Draw), matching the phase tiles and curve bars.
     const buckets: Record<RoleGroupKey, AnalyzedCard[]> = { ramp: [], interaction: [], cardDraw: [], other: [] };
-    const seen = new Set<string>();
+    const seen: Record<RoleGroupKey, Set<string>> = { ramp: new Set(), interaction: new Set(), cardDraw: new Set(), other: new Set() };
+    const pushOnce = (key: RoleGroupKey, ac: AnalyzedCard) => {
+      if (seen[key].has(ac.card.name)) return;
+      seen[key].add(ac.card.name);
+      buckets[key].push(ac);
+    };
     for (const phase of phases) {
       for (const ac of phase.cards) {
-        if (seen.has(ac.card.name)) continue;
-        seen.add(ac.card.name);
-        const role = ac.card.deckRole || getCardRole(ac.card.name);
-        const key: RoleGroupKey =
-          role === 'ramp' ? 'ramp' :
-          (role === 'removal' || role === 'boardwipe') ? 'interaction' :
-          role === 'cardDraw' ? 'cardDraw' :
-          'other';
-        buckets[key].push(ac);
+        const name = ac.card.name;
+        const isRamp = cardMatchesRole(name, 'ramp');
+        const isInteraction = cardMatchesRole(name, 'removal') || cardMatchesRole(name, 'boardwipe');
+        const isDraw = cardMatchesRole(name, 'cardDraw');
+        if (isRamp) pushOnce('ramp', ac);
+        if (isInteraction) pushOnce('interaction', ac);
+        if (isDraw) pushOnce('cardDraw', ac);
+        if (!isRamp && !isInteraction && !isDraw) pushOnce('other', ac);
       }
     }
 
@@ -1368,12 +1388,16 @@ function curveRoleGroupOf(role: string | undefined): RoleGroupKey {
 }
 
 function buildCurveCuts({
-  phases, activeRoleGroups, mustIncludeNames,
+  phases, activeRoleGroups, mustIncludeNames, detectedCombos,
 }: {
   phases: CurvePhaseAnalysis[];
   activeRoleGroups: Set<RoleGroupKey>;
   mustIncludeNames?: Set<string>;
-}): AnalyzedCard[] {
+  detectedCombos?: DetectedCombo[];
+}): { cuts: AnalyzedCard[]; cutReasons: Record<string, { label: string; text: string }> } {
+  // Shared suggest-mode protections: never offer combo pieces or bracket
+  // game changers as cuts (matches computeOptimizeSwaps).
+  const comboMap = buildComboParticipation(detectedCombos);
   const ALL_GROUPS: RoleGroupKey[] = ['ramp', 'interaction', 'cardDraw', 'other'];
 
   // Excess per role group, summed across active phases.
@@ -1394,7 +1418,32 @@ function buildCurveCuts({
   });
 
   const totalExcess = candidateGroups.reduce((s, g) => s + phaseExcesses[g], 0);
-  if (totalExcess === 0) return [];
+  if (totalExcess === 0) return { cuts: [], cutReasons: {} };
+
+  // Why is this group over? Short label on the card banner (trim-drawer style),
+  // full sentence in the tooltip. Summed current/target across active phases.
+  const CUT_LABELS: Record<RoleGroupKey, string> = {
+    ramp: 'Excess Ramp',
+    interaction: 'Excess Interaction',
+    cardDraw: 'Excess Draw',
+    other: 'Over Target',
+  };
+  const reasonFor = (group: RoleGroupKey): { label: string; text: string } => {
+    let current = 0, target = 0;
+    for (const phase of phases) {
+      for (const prb of phase.phaseRoleBreakdowns) {
+        if (prb.roleGroup !== group) continue;
+        current += prb.current;
+        target += prb.target;
+      }
+    }
+    const groupName = ROLE_GROUP_META[group].label.toLowerCase();
+    const where = phases.length === 1 ? ` in the ${phases[0].phase} game` : '';
+    return {
+      label: CUT_LABELS[group],
+      text: `Running ${current} ${groupName}${where} — target is ${target}`,
+    };
+  };
 
   // Cap total cuts at min(18, totalExcess) — never suggest more cuts than there is actual surplus.
   const TARGET = Math.min(18, totalExcess);
@@ -1440,6 +1489,8 @@ function buildCurveCuts({
       for (const ac of phase.cards) {
         if (curveRoleGroupOf(ac.card.deckRole) !== group) continue;
         if (mustIncludeNames?.has(ac.card.name)) continue; // never suggest cutting a must-include card
+        if (comboMap.has(ac.card.name)) continue; // never suggest cutting a combo piece
+        if (ac.card.isGameChanger) continue; // never suggest cutting a game changer
         if (seen.has(ac.card.name)) continue;
         seen.add(ac.card.name);
         pool.push(ac);
@@ -1451,6 +1502,7 @@ function buildCurveCuts({
 
   // Fill each group's quota, deduping across groups (lowest-score wins).
   const taken = new Set<string>();
+  const cutReasons: Record<string, { label: string; text: string }> = {};
   const perGroup: Record<RoleGroupKey, AnalyzedCard[]> = {
     ramp: [], interaction: [], cardDraw: [], other: [],
   };
@@ -1459,17 +1511,19 @@ function buildCurveCuts({
   );
   for (const g of orderedExcess) {
     const pool = poolFor(g);
+    const reason = reasonFor(g);
     for (const ac of pool) {
       if (perGroup[g].length >= slots[g]) break;
       if (taken.has(ac.card.name)) continue;
       taken.add(ac.card.name);
+      cutReasons[ac.card.name] = reason;
       perGroup[g].push(ac);
     }
   }
 
   const result: AnalyzedCard[] = [];
   for (const g of orderedExcess) result.push(...perGroup[g]);
-  return result;
+  return { cuts: result, cutReasons };
 }
 
 function sumCurveExcess(
@@ -1489,7 +1543,7 @@ function sumCurveExcess(
 
 /** Right column: suggestion card grid — matches Roles/Lands tab format. */
 function CurveSuggestionPanel({
-  phases, roleBreakdowns, activeRoleGroups, addedCards, onAdd, onPreview, onCardAction, menuProps, allRecommendations,
+  phases, roleBreakdowns, activeRoleGroups, addedCards, onAdd, onPreview, onCardAction, menuProps, allRecommendations, detectedCombos,
 }: {
   phases: CurvePhaseAnalysis[];
   roleBreakdowns: RoleBreakdown[];
@@ -1500,15 +1554,16 @@ function CurveSuggestionPanel({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   allRecommendations?: RecommendedCard[];
+  detectedCombos?: DetectedCombo[];
 }) {
   const suggestions = useMemo(() =>
     buildCurveSuggestions({ phases, roleBreakdowns, activeRoleGroups, allRecommendations }),
     [phases, roleBreakdowns, activeRoleGroups, allRecommendations]
   );
 
-  const cuts = useMemo(() =>
-    buildCurveCuts({ phases, activeRoleGroups, mustIncludeNames: menuProps?.mustIncludeNames }),
-    [phases, activeRoleGroups, menuProps?.mustIncludeNames]
+  const { cuts, cutReasons } = useMemo(() =>
+    buildCurveCuts({ phases, activeRoleGroups, mustIncludeNames: menuProps?.mustIncludeNames, detectedCombos }),
+    [phases, activeRoleGroups, menuProps?.mustIncludeNames, detectedCombos]
   );
 
   const totalDeficit = useMemo(() => {
@@ -1629,6 +1684,7 @@ function CurveSuggestionPanel({
             onCardAction={onCardAction}
             menuProps={menuProps}
             sortMode="score"
+            getReason={(ac) => cutReasons[ac.card.name]}
           />
         </div>
       ) : (
@@ -1738,7 +1794,7 @@ export function CurveOverallGradeTip({
 /** Two-column panel: left = grouped deck card list, right = suggestions grid. */
 export function CurveDetailPanel({
   phases, roleBreakdowns, activeRoleGroups,
-  addedCards, onAdd, onPreview, onCardAction, menuProps, allRecommendations,
+  addedCards, onAdd, onPreview, onCardAction, menuProps, allRecommendations, detectedCombos,
 }: {
   phases: CurvePhaseAnalysis[];
   roleBreakdowns: RoleBreakdown[];
@@ -1749,6 +1805,7 @@ export function CurveDetailPanel({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   allRecommendations?: RecommendedCard[];
+  detectedCombos?: DetectedCombo[];
 }) {
   const showSuggestions = true;
   const aurora = auroraForCurveContext(phases, activeRoleGroups);
@@ -1788,6 +1845,7 @@ export function CurveDetailPanel({
               onCardAction={onCardAction}
               menuProps={menuProps}
               allRecommendations={allRecommendations}
+              detectedCombos={detectedCombos}
             />
           </div>
         )}

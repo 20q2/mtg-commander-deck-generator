@@ -16,6 +16,8 @@ import { useNavigate } from 'react-router-dom';
 import { isEuropean } from '@/lib/region';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import { Folder } from 'lucide-react';
+import { calculateCurvePercentages } from '@/services/deckBuilder/curveUtils';
+import { PACING_CURVE_MULTIPLIERS } from '@/services/deckBuilder/roleTargets';
 
 const IS_EU = isEuropean() || location.hostname === 'localhost';
 
@@ -36,7 +38,7 @@ const RARITY_OPTIONS: { value: Rarity; label: string }[] = [
 ];
 
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast, brewMode = false }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void; brewMode?: boolean } = {}) {
-  const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion } = useStore();
+  const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion, edhrecStats } = useStore();
   const { count: collectionCount } = useCollection();
   const { binders } = useBinders();
   const selectedBinderIds = customization.collectionBinderIds;
@@ -95,6 +97,82 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
 
     return { typeCounts, typeColorCounts };
   }, [selectedCollectionCards]);
+
+  // CMC curve preview: EDHREC baseline ("expected") vs the curve after the
+  // selected tempo pacing multipliers are applied ("adjusted"). Mirrors the
+  // pacing math in calculateCurveTargets(), but works in percentage space.
+  const tempoCurve = useMemo(() => {
+    const baseCurve = edhrecStats?.manaCurve;
+    if (!baseCurve || Object.keys(baseCurve).length === 0) return null;
+    const pcts = calculateCurvePercentages(baseCurve);
+    if (Object.keys(pcts).length === 0) return null;
+
+    const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
+    const expected = buckets.map(cmc => pcts[cmc] ?? 0);
+
+    // Apply a pacing's phase multipliers to the baseline, re-normalized to 100%.
+    const applyPacing = (pacing: Pacing) => {
+      const mult = PACING_CURVE_MULTIPLIERS[pacing];
+      const shifted = buckets.map((cmc, i) => {
+        const phase = cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
+        return expected[i] * mult[phase];
+      });
+      const total = shifted.reduce((a, b) => a + b, 0);
+      return total > 0 ? shifted.map(v => (v / total) * 100) : shifted;
+    };
+
+    const adjusted = applyPacing(customization.tempoPacing);
+
+    // Peak (y-axis scale) is pinned to the max across the baseline AND every
+    // pacing option, so the axis never rescales when the tempo changes —
+    // otherwise the static "expected" line would appear to move.
+    const allPacings = Object.keys(PACING_CURVE_MULTIPLIERS) as Pacing[];
+    const peak = Math.max(
+      ...expected,
+      ...allPacings.flatMap(p => applyPacing(p)),
+      1,
+    );
+    const avg = (series: number[]) => {
+      const total = series.reduce((a, b) => a + b, 0);
+      if (total === 0) return 0;
+      return series.reduce((s, v, i) => s + buckets[i] * v, 0) / total;
+    };
+    return {
+      buckets,
+      expected,
+      adjusted,
+      peak,
+      avgExpected: avg(expected),
+      avgAdjusted: avg(adjusted),
+    };
+  }, [edhrecStats, customization.tempoPacing]);
+
+  // Tween the adjusted line when the tempo changes (SVG `points` can't be
+  // CSS-transitioned, so interpolate with requestAnimationFrame).
+  const [displayAdjusted, setDisplayAdjusted] = useState<number[]>([]);
+  const displayAdjustedRef = useRef<number[]>([]);
+  const targetAdjusted = tempoCurve?.adjusted;
+  useEffect(() => {
+    if (!targetAdjusted) return;
+    const to = targetAdjusted;
+    const from = displayAdjustedRef.current.length === to.length
+      ? displayAdjustedRef.current
+      : to;
+    const dur = 300;
+    let startTs: number | null = null;
+    let raf = 0;
+    const step = (ts: number) => {
+      if (startTs === null) startTs = ts;
+      const p = Math.min(1, (ts - startTs) / dur);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const cur = to.map((v, i) => from[i] + (v - from[i]) * eased);
+      displayAdjustedRef.current = cur;
+      setDisplayAdjusted(cur);
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [targetAdjusted]);
 
   if (!commander) return null;
 
@@ -447,8 +525,15 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
             Auto-detect
           </button>
         </div>
-        {!customization.tempoAutoDetect && (
-          <>
+        <div
+          className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+          style={{
+            gridTemplateRows: customization.tempoAutoDetect ? '0fr' : '1fr',
+            opacity: customization.tempoAutoDetect ? 0 : 1,
+          }}
+        >
+          <div className="overflow-hidden min-h-0">
+            <div className="pt-1">
             <Slider
               value={PACING_LABELS.findIndex(p => p.value === customization.tempoPacing)}
               min={0}
@@ -461,8 +546,82 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
               <span>Balanced</span>
               <span>Late Game</span>
             </div>
-          </>
-        )}
+
+            {/* CMC curve preview: expected (EDHREC) vs tempo-adjusted */}
+            {tempoCurve && (() => {
+              const adj = displayAdjusted.length === tempoCurve.buckets.length
+                ? displayAdjusted
+                : tempoCurve.adjusted;
+              const avgAdj = (() => {
+                const total = adj.reduce((a, b) => a + b, 0);
+                if (total === 0) return tempoCurve.avgAdjusted;
+                return adj.reduce((s, v, i) => s + tempoCurve.buckets[i] * v, 0) / total;
+              })();
+              return (
+              <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                <div className="flex items-center justify-between mb-1 gap-2">
+                  <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block w-2.5 h-px border-t border-dashed border-muted-foreground/60" />
+                      Expected
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block w-2.5 h-0.5 rounded-full bg-violet-400" />
+                      Adjusted
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    avg cmc{' '}
+                    <span className="text-muted-foreground/70">{tempoCurve.avgExpected.toFixed(2)}</span>
+                    <span className="mx-1">→</span>
+                    <span className="text-violet-300/90 font-medium">{avgAdj.toFixed(2)}</span>
+                  </span>
+                </div>
+                {(() => {
+                  const W = 100, H = 40, padX = 1.5, padTop = 3, padBot = 2;
+                  const innerW = W - padX * 2;
+                  const innerH = H - padTop - padBot;
+                  const n = tempoCurve.buckets.length;
+                  const x = (i: number) => padX + (i / (n - 1)) * innerW;
+                  const y = (v: number) => padTop + (1 - v / tempoCurve.peak) * innerH;
+                  const line = (series: number[]) =>
+                    series.map((v, i) => `${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(' ');
+                  return (
+                    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16">
+                      <polyline
+                        points={line(tempoCurve.expected)}
+                        fill="none"
+                        stroke="currentColor"
+                        className="text-muted-foreground/50"
+                        strokeWidth={1}
+                        strokeDasharray="2.5 2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                      <polyline
+                        points={line(adj)}
+                        fill="none"
+                        stroke="rgb(167 139 250)"
+                        strokeWidth={1.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    </svg>
+                  );
+                })()}
+                <div className="flex justify-between text-[10px] text-muted-foreground/70 leading-none -mt-0.5">
+                  {tempoCurve.buckets.map(cmc => (
+                    <span key={cmc}>{cmc <= 6 ? cmc : '7+'}</span>
+                  ))}
+                </div>
+              </div>
+              );
+            })()}
+            </div>
+          </div>
+        </div>
       </div>
       </>
       )}
@@ -1037,6 +1196,8 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                 <InfoTooltip text="Owned cards won't count against your per-card price limit or total deck budget. Useful when you already own expensive staples." />
               </div>
 
+              {/* Binder picker + collection summary — only relevant when building from the collection */}
+              <div className={`space-y-3 transition-opacity duration-200 ${customization.collectionMode ? '' : 'opacity-40 pointer-events-none select-none'}`}>
               {/* Binder picker — only worth showing once the user has more than one binder */}
               {binders.length > 1 && (
                 <div className="space-y-1.5">
@@ -1135,6 +1296,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                     </div>
                   );
                 })()}
+              </div>
               </div>
             </div>
             </div>

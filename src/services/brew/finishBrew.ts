@@ -1,7 +1,25 @@
-import type { GeneratedDeck, ManaPhilosophy } from '@/types';
+import type { GeneratedDeck, ManaPhilosophy, ManaMix, ScryfallCard } from '@/types';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
 import type { BrewContext, BrewState } from './engine';
 import { leaningThemeResults } from './identity';
+import { scoreCandidate } from './scoring';
+
+const MANA_STYLES: ManaPhilosophy[] = ['reliable', 'greedy', 'budget', 'spelllands'];
+
+/**
+ * The non-land cards most likely to top up the deck's "remaining space" after the brew picks + lands
+ * — the top-scored candidates from the SAME scored pool the generator backfills from, minus what's
+ * already picked or cut (killedNames). An honest ESTIMATE for the capstone's live preview: the real
+ * fill lands when generateDeck runs at finish, but this pool + ordering is what it draws from. Sorted
+ * once (best first); the capstone slices however many slots the chosen land count leaves open.
+ */
+export function previewBackfill(ctx: BrewContext, state: BrewState): ScryfallCard[] {
+  const used = new Set([...state.usedNames, ...state.killedNames]);
+  return ctx.candidates
+    .filter(c => !c.isLand && !used.has(c.name))
+    .sort((a, b) => scoreCandidate(ctx, state, b, []) - scoreCandidate(ctx, state, a, []))
+    .map(c => c.scryfall);
+}
 
 /** Don't let a philosophy's land delta drop a deck below this many lands. Never inflates a base the
  *  player deliberately set below it — only guards against the delta pushing an already-fine count too low. */
@@ -26,31 +44,44 @@ const PHILOSOPHY_PROFILE: Record<ManaPhilosophy, { landDelta: number; nonBasicDe
 /**
  * Finish a brew: feed every brewed pick to generateDeck as a must-include, so the
  * existing generator fills the remaining slots (incl. the mana base) around them.
- * `landStyle` is the capstone mana-base choice — it biases land selection in the generator
- * (undefined = the standard "Balanced" selection).
+ * `landMix` is the capstone wheel's blend of the four land styles — it biases land selection in the
+ * generator and reshapes the count/basic split (undefined / all-zero = the standard "Balanced" base).
  */
 export async function finishBrew(
   ctx: BrewContext,
   state: BrewState,
-  landStyle?: ManaPhilosophy,
+  landMix?: ManaMix,
+  landCount?: number,
   onProgress?: (message: string, percent: number) => void,
 ): Promise<GeneratedDeck> {
   const brewedNames = state.picks.map(p => p.name);
+  const mixTotal = landMix ? MANA_STYLES.reduce((s, k) => s + Math.max(0, landMix[k] ?? 0), 0) : 0;
   const customization = {
     ...ctx.customization,
     mustIncludeCards: Array.from(new Set([...(ctx.customization.mustIncludeCards ?? []), ...brewedNames])),
     tempMustIncludeCards: [],
-    manaPhilosophy: landStyle,
+    // The wheel's blend steers WHICH lands fill the base (resolveManaMix in the generator reads this).
+    manaPhilosophy: undefined,
+    manaPhilosophyMix: mixTotal > 0 ? landMix : undefined,
   };
-  // WS5: a chosen land style reshapes the structure (count + basic/nonbasic split), flowing through
-  // the generator's existing land-target math. "Keep it balanced" (undefined) leaves it untouched.
-  if (landStyle) {
-    const profile = PHILOSOPHY_PROFILE[landStyle];
-    // The floor only catches the delta dropping lands too low; it never raises a base the player set
-    // below it (so picking a delta-0 style on a deliberately-low land count is a no-op, as intended).
+  // The capstone's chosen land COUNT is authoritative when set (the player dialed it within the
+  // recommendation's wiggle room); the mix then only steers the basic/nonbasic split, not the total.
+  if (landCount != null) customization.landCount = Math.max(1, Math.round(landCount));
+  // WS5: the blend reshapes the STRUCTURE too — a weight-normalized sum of each style's profile delta,
+  // flowing through the generator's existing land-target math. An all-zero / absent mix ("balanced")
+  // leaves it untouched.
+  if (mixTotal > 0) {
+    let landDelta = 0, nonBasicDelta = 0;
+    for (const k of MANA_STYLES) {
+      const w = Math.max(0, landMix![k] ?? 0) / mixTotal;
+      landDelta += w * PHILOSOPHY_PROFILE[k].landDelta;
+      nonBasicDelta += w * PHILOSOPHY_PROFILE[k].nonBasicDelta;
+    }
     const floor = Math.min(customization.landCount, LAND_FLOOR);
-    customization.landCount = Math.max(floor, customization.landCount + profile.landDelta);
-    customization.nonBasicLandCount = Math.max(0, Math.min(customization.landCount, customization.nonBasicLandCount + profile.nonBasicDelta));
+    // The mix nudges the COUNT only when the player didn't set it explicitly (else they're authoritative);
+    // the floor only catches a delta dropping lands too low, never raising a deliberately-low base.
+    if (landCount == null) customization.landCount = Math.max(floor, customization.landCount + Math.round(landDelta));
+    customization.nonBasicLandCount = Math.max(0, Math.min(customization.landCount, customization.nonBasicLandCount + Math.round(nonBasicDelta)));
   }
   let collectionNames: Set<string> | undefined;
   if (customization.collectionMode) {

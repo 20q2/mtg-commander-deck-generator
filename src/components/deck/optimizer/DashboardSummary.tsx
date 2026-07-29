@@ -132,7 +132,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     commander, partnerCommander, colorIdentity, sourceLabel,
     analysis, cards, themeMembership, primaryThemeData, planName,
     sampleSize, adjustContent, onNavigate,
-    onSaveAsDeck, onOpenInDeckView,
+    onOpenInDeckView,
     cardSynergyMap,
     detectedCombos, deckTarget,
     roleBreakdowns, curvePhases, themeCoverage,
@@ -241,7 +241,6 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         planName={planName}
         secondaryPlanName={themeMembership?.themes?.[1]?.name ?? null}
         adjustContent={adjustContent}
-        onSaveAsDeck={onSaveAsDeck}
         onOpenInDeckView={onOpenInDeckView}
       />
       <NextBestMove

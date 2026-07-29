@@ -31,7 +31,6 @@ const STAGE_MS = 1250;    // fall-away + fly-to-center + the anticipation creep,
 const SOUND_LEAD_MS = 120; // (CSS path) the tear sound starts just before the burst
 const GHOST_MS = 950;     // how long the burst wrapper (strip + falling body) stays mounted
 const TEAR_SEC = 0.48;    // (3D path) the tear-noise length — matches the scene's TEAR_MS sweep
-const KILL_SLICE_MS = 420; // the cut plays (320ms keyframe) plus a brief hold before the card is gone for good
 
 // --- Spring-driven tilt: the pack has mass. It lags the pointer, overshoots, and wobbles back
 //     to rest instead of snapping. Springs run per-element on rAF and write CSS vars directly. ---
@@ -193,10 +192,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   // The burst wrapper: the strip pops off and the empty pack tumbles away under the shooting cards.
   const [ghost, setGhost] = useState<BrewOption | null>(null);
   const [keep, setKeep] = useState<Set<string>>(new Set());
-  // A repeat card mid-cut (slicing) vs. fully gone from the fan (removed) — two states so the
-  // halves have time to visibly drift apart before the slot collapses and the fan reflows.
-  const [slicing, setSlicing] = useState<Set<string>>(new Set());
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  // Cards marked to CUT (skull): they turn grey + sliced and linger as feedback for the rest of the
+  // round, then leave with everything else on commit — where they're also banned for the run. The
+  // slice is no longer destructive on click, so a cut stays toggleable right up until you pass.
+  const [cut, setCut] = useState<Set<string>>(new Set());
   const [committing, setCommitting] = useState(false);
   // Hovering a fan card pops a full, readable preview beside it (mirrors the old pack behavior).
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
@@ -332,8 +331,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     if (committing || cracked || staged) return;
     onCracked?.(true);   // the pick is the commitment — the parent hides Back/reroll
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
-    setSlicing(new Set());
-    setRemoved(new Set());
+    setCut(new Set());
     if (reduceMotion) { setCracked(option.id); return; }
     if (scene && brewNode) {
       // 3D ceremony: the scene owns the fall / fly / loom / crack (tear sweep → strip pop →
@@ -383,27 +381,23 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     });
   }
 
-  // Cut a repeat card for good: plays the slice, bans it from every future offer this run
-  // (killBrewCard), and drops it from the fan once the cut settles. No undo — permanence is the
-  // point. Clears it from `keep` too — a card can't be both destroyed and taken.
-  function killCard(name: string) {
+  // Toggle a repeat card's CUT mark: it turns grey and gets sliced (staying put as feedback), or
+  // un-cuts if already marked. The actual run-ban (killBrewCard) is deferred to commit, so nothing
+  // is destroyed until you pass the round — a mis-click is one more tap to undo. A cut card can't
+  // also be kept, so marking one clears it from `keep`.
+  function cutCard(name: string) {
     if (committing) return;
-    setSlicing(prev => new Set(prev).add(name));
+    setCut(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
     setKeep(prev => {
       if (!prev.has(name)) return prev;
       const next = new Set(prev);
       next.delete(name);
       return next;
     });
-    killBrewCard(name);
-    timers.current.push(window.setTimeout(() => {
-      setRemoved(prev => new Set(prev).add(name));
-      setSlicing(prev => {
-        const next = new Set(prev);
-        next.delete(name);
-        return next;
-      });
-    }, KILL_SLICE_MS));
   }
 
   // Lock in the kept cards as one decision. The synthetic option keeps the pack's identity
@@ -412,6 +406,9 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   function commitKeeps(option: BrewOption) {
     if (committing || keep.size === 0) return;
     setCommitting(true);
+    // The cut is locked in now that the round is passing: ban each marked card from the rest of the
+    // run (deferred from the click so the slice could linger as feedback until this moment).
+    for (const name of cut) killBrewCard(name);
     const keptRegular = option.cards.filter(c => keep.has(c.name));
     const reasons = keptRegular.map(c => option.reasons[option.cards.findIndex(x => x.name === c.name)] ?? []);
     const foilKept = !!option.goldCard && keep.has(option.goldCard.name);
@@ -425,10 +422,12 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
       wagerTrade: undefined,
       cardScores: undefined,   // aligned to the ORIGINAL cards — stale once we filtered them
     };
-    const allNames = options.flatMap(o => [...o.cards.map(c => c.name), ...(o.goldCard ? [o.goldCard.name] : [])]);
-    // Killed cards were destroyed (already permanent via killBrewCard at kill-time), not merely
-    // passed — excluded here so the Build History stays honest about what actually happened.
-    const passed = allNames.filter(n => !keep.has(n) && !removed.has(n));
+    // Only the CRACKED pack's cards were ever ON SCREEN (the other packs stayed sealed), so record
+    // just those as "passed" — this is what the repeat/skull heuristic reads as "seen", and counting
+    // never-shown sealed-pack cards would light the skull the first time a face actually appears. Cut
+    // cards were destroyed (banned above), not merely passed, so they're excluded too.
+    const shown = [...option.cards.map(c => c.name), ...(option.goldCard ? [option.goldCard.name] : [])];
+    const passed = shown.filter(n => !keep.has(n) && !cut.has(n));
     window.setTimeout(() => applyBrewOption(synthetic, passed), COMMIT_MS);
   }
 
@@ -437,13 +436,12 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     const fl = (crackedOption.flavor && PACK_FLAVOR[crackedOption.flavor]) || PACK_FLAVOR.value;
     const packColor = crackedOption.flavor === 'theme' ? themeColor(routeKey(crackedOption.id) ?? '') : fl.color;
     const foil = crackedOption.goldCard;
-    // Reasons are attached to each fan entry AT CONSTRUCTION (indexed against the pack's ORIGINAL
-    // cards array), before the removed-cards filter below runs — so a kill can never shift a later
-    // card's reasons onto the wrong card.
+    // Reasons are attached to each fan entry AT CONSTRUCTION, indexed against the pack's cards array,
+    // so a chip can never land on the wrong card. Cut cards stay in the fan (greyed) until commit.
     const fan: { card: BrewCandidate; isFoil: boolean; reasons: PickReason[] }[] = [
       ...crackedOption.cards.map((card, i) => ({ card, isFoil: false, reasons: crackedOption.reasons[i] ?? [] })),
       ...(foil ? [{ card: foil, isFoil: true, reasons: [] }] : []),
-    ].filter(f => !removed.has(f.card.name));
+    ];
     const isRainbow = crackedOption.windfallTier === 'rainbow';
     // The suggested take(s): the engine's top-scored card or two (the same offerScores behind
     // engineScore — relevancy to YOUR build, not raw popularity). The foil rides its own rail.
@@ -477,7 +475,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
             // A repeat — shown in an EARLIER round this run — earns the eliminate option. The foil
             // windfall is never killable (it's a reward, not a recurring offer).
             const isRepeat = !isFoil && seen.has(card.name);
-            const isSlicing = slicing.has(card.name);
+            const isCut = cut.has(card.name);
             // The surprise bonus card: a warm glow ring + a sunburst behind it (below). Not "foil" —
             // it's a free extra card, so it reads as a reward, not a print treatment.
             const bonusRing = isRainbow
@@ -487,10 +485,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
               <button
                 key={card.name}
                 data-fan-card
-                onClick={() => toggleKeep(card.name)}
+                onClick={() => { if (!isCut) toggleKeep(card.name); }}
                 onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
                 onMouseLeave={canHover ? () => setHover(null) : undefined}
-                disabled={committing || isSlicing}
+                disabled={committing}
                 aria-pressed={kept}
                 className={`group relative w-[172px] sm:w-[200px] rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   committing
@@ -530,16 +528,21 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   </span>
                 )}
                 {isRepeat && (() => {
-                  const killDisabled = committing || isSlicing || fan.length <= 1;
+                  // Always visible on a repeat (no hover needed); toggles the cut mark. Enabled right
+                  // up until the round commits — the ban only lands on pass, so it stays reversible.
+                  const disabled = committing;
                   return (
                     <span
                       role="button"
-                      tabIndex={killDisabled ? -1 : 0}
-                      onClick={(e: ReactMouseEvent<HTMLSpanElement>) => { e.stopPropagation(); if (!killDisabled) killCard(card.name); }}
-                      title="You keep seeing this — cut it for the rest of the run?"
-                      aria-label={`Eliminate ${card.name} — never offered again this run`}
-                      className={`absolute top-1.5 left-1.5 z-20 grid place-items-center w-6 h-6 rounded-full bg-black/70 text-rose-300/85 ring-1 ring-rose-400/40 backdrop-blur-sm transition-opacity hover:text-rose-200 hover:bg-black/85 ${
-                        killDisabled ? 'opacity-30 pointer-events-none' : canHover ? 'cursor-pointer opacity-0 group-hover:opacity-100' : 'cursor-pointer opacity-70'
+                      tabIndex={disabled ? -1 : 0}
+                      onClick={(e: ReactMouseEvent<HTMLSpanElement>) => { e.stopPropagation(); if (!disabled) cutCard(card.name); }}
+                      title={isCut ? 'Un-cut — keep it in the running' : 'You keep seeing this — cut it for the rest of the run'}
+                      aria-label={isCut ? `Un-cut ${card.name}` : `Cut ${card.name} — never offered again this run`}
+                      aria-pressed={isCut}
+                      className={`absolute top-1.5 left-1.5 z-20 grid place-items-center w-6 h-6 rounded-full ring-1 backdrop-blur-sm transition-colors ${
+                        disabled ? 'opacity-30 pointer-events-none bg-black/70 text-rose-300/85 ring-rose-400/40'
+                          : isCut ? 'cursor-pointer bg-rose-500/90 text-white ring-rose-300/70 shadow-[0_0_12px_-2px_rgba(244,63,94,0.7)]'
+                          : 'cursor-pointer bg-black/70 text-rose-300/85 ring-rose-400/40 hover:text-rose-200 hover:bg-black/85'
                       }`}
                     >
                       <Skull className="w-3.5 h-3.5" />
@@ -555,23 +558,23 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   <img
                     src={getCardImageUrl(card.scryfall, 'normal')}
                     alt={card.name}
-                    className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${isSlicing ? 'opacity-0' : ''} ${
+                    className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${isCut ? 'opacity-0' : ''} ${
                       isFoil ? bonusRing
                         : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
                         : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
                         : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
                     } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
                   />
-                  {/* The eliminate cut: the same two-piece slice used by the Headliner's "struck
-                      off" effect (brew-cut-piece / brew-cut-top / brew-cut-bottom in index.css) —
-                      the halves drift apart over the invisible (opacity-0) base image above, which
-                      keeps holding the layout size until the timeout in killCard removes the card. */}
-                  {isSlicing && (
+                  {/* The cut mark: grey, sliced in two (the Headliner's brew-cut-piece / -top / -bottom
+                      effect in index.css). The halves animate apart once, then HOLD — a lingering
+                      "this one's out" state over the invisible (opacity-0) base image, which keeps
+                      the layout size until the whole fan animates away on commit. */}
+                  {isCut && (
                     <>
-                      <div aria-hidden="true" className="brew-cut-piece brew-cut-top pointer-events-none">
+                      <div aria-hidden="true" className="brew-cut-piece brew-cut-top pointer-events-none grayscale opacity-80">
                         <img src={getCardImageUrl(card.scryfall, 'normal')} alt="" />
                       </div>
-                      <div aria-hidden="true" className="brew-cut-piece brew-cut-bottom pointer-events-none">
+                      <div aria-hidden="true" className="brew-cut-piece brew-cut-bottom pointer-events-none grayscale opacity-80">
                         <img src={getCardImageUrl(card.scryfall, 'normal')} alt="" />
                       </div>
                     </>

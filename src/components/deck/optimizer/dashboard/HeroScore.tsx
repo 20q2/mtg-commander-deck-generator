@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Pencil, Bookmark, ExternalLink, FlaskConical } from 'lucide-react';
+import { Pencil, ExternalLink, FlaskConical } from 'lucide-react';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { formatCommanderNameForUrl } from '@/services/edhrec/client';
@@ -22,7 +22,6 @@ export interface HeroScoreProps {
   secondaryPlanName?: string | null;
   /** Adjust popover content. */
   adjustContent?: ReactNode;
-  onSaveAsDeck?: () => void;
   onOpenInDeckView?: () => void;
 }
 
@@ -35,7 +34,6 @@ export function HeroScore({
   planName,
   secondaryPlanName,
   adjustContent,
-  onSaveAsDeck,
   onOpenInDeckView,
 }: HeroScoreProps) {
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
@@ -144,7 +142,18 @@ export function HeroScore({
               </a>
             </div>
             <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/70">
-              <span className="truncate">{sourceLabel}</span>
+              {onOpenInDeckView ? (
+                <button
+                  type="button"
+                  onClick={onOpenInDeckView}
+                  className="truncate hover:text-violet-300 hover:underline transition-colors"
+                  title="Open deck"
+                >
+                  {sourceLabel}
+                </button>
+              ) : (
+                <span className="truncate">{sourceLabel}</span>
+              )}
               {planName && (
                 <>
                   <span>·</span>
@@ -184,47 +193,23 @@ export function HeroScore({
                 </PopoverContent>
               </Popover>
             )}
-            {onOpenInDeckView ? (
-              <Button size="sm" variant="outline" onClick={onOpenInDeckView}>
-                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                <span>Deck view</span>
-              </Button>
-            ) : onSaveAsDeck ? (
-              <Button size="sm" variant="outline" onClick={onSaveAsDeck}>
-                <Bookmark className="w-3.5 h-3.5 mr-1.5" />
-                <span>Save as deck</span>
-              </Button>
-            ) : null}
           </div>
         </div>
 
         {/* MOBILE-ONLY ACTION ROW: full-width row beneath art + info */}
-        {(adjustContent || onOpenInDeckView || onSaveAsDeck) && (
+        {adjustContent && (
           <div className="flex sm:hidden items-center gap-2">
-            {adjustContent && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1.5 flex-1">
-                    <Pencil className="w-3.5 h-3.5" />
-                    <span>Adjust plan</span>
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="bottom" align="start" className="w-80 p-0">
-                  {adjustContent}
-                </PopoverContent>
-              </Popover>
-            )}
-            {onOpenInDeckView ? (
-              <Button size="sm" variant="outline" onClick={onOpenInDeckView} className="flex-1">
-                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                <span>Deck view</span>
-              </Button>
-            ) : onSaveAsDeck ? (
-              <Button size="sm" variant="outline" onClick={onSaveAsDeck} className="flex-1">
-                <Bookmark className="w-3.5 h-3.5 mr-1.5" />
-                <span>Save as deck</span>
-              </Button>
-            ) : null}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5 flex-1">
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Adjust plan</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="start" className="w-80 p-0">
+                {adjustContent}
+              </PopoverContent>
+            </Popover>
           </div>
         )}
 

@@ -3,6 +3,8 @@ export interface ScryfallCard {
   id: string;
   oracle_id: string;
   name: string;
+  /** Reskin/flavor name for alternate-identity printings (e.g. "Cordyceps Excision" for Cabal Ritual). */
+  flavor_name?: string;
   mana_cost?: string;
   cmc: number;
   type_line: string;
@@ -607,10 +609,15 @@ export interface Customization {
   tempoAutoDetect: boolean;
   tempoPacing: Pacing;
   manaPhilosophy?: ManaPhilosophy; // brew capstone land style; undefined = standard (non-brew) selection
+  manaPhilosophyMix?: ManaMix;     // brew capstone: blended land-style ratios; supersedes manaPhilosophy when set
 }
 
 /** Brew mana-base capstone styles. undefined = "Balanced" (standard land selection, no re-weighting). */
 export type ManaPhilosophy = 'reliable' | 'greedy' | 'budget' | 'spelllands';
+
+/** A blend of the four land styles by weight (the capstone wheel's output). Weights need not be
+ *  normalized — consumers normalize by their sum. All-zero / empty = no re-weighting. */
+export type ManaMix = Partial<Record<ManaPhilosophy, number>>;
 
 // Store state
 export interface AppState {

@@ -12,6 +12,13 @@ import {
   composePlanScore,
 } from './planScore';
 import { computeMisfits, computeCardFitSubscore } from './cardFit';
+import {
+  CHANNEL_LAND_BOOST,
+  MDFC_LAND_BOOST,
+  buildComboParticipation,
+  buildConnectivityPercentiles,
+  connectivityAdjustment,
+} from './cutRanking';
 
 export interface RoleDeficit {
   role: string;
@@ -218,6 +225,10 @@ export interface DeckAnalysis {
   misfits?: Misfit[];
   /** Live-filtered gap candidates (stale entries already in the deck removed). */
   gapAnalysis?: GapAnalysisCard[];
+  /** Per-card relevancy for in-deck cards (same scoreRecommendation composite the
+   *  generator and trim drawer use). Cards with no EDHREC data have no entry —
+   *  consumers fall back to inclusion-based ordering. */
+  cardRelevancyMap: Record<string, number>;
 }
 
 /**
@@ -693,26 +704,53 @@ export function getCurvePhases(
     const cmcSum = cards.reduce((s, ac) => s + ac.card.cmc, 0);
     const avgCmc = cards.length > 0 ? cmcSum / cards.length : 0;
 
-    // Count roles in this phase
+    // Count roles in this phase. A card is credited to EVERY role it fills
+    // (e.g. The Gitrog Monster is both ramp and card draw), matching how the
+    // Roles tab counts — so multi-role cards aren't undercounted here. "Other"
+    // is anything filling none of the tracked role groups. Because multi-role
+    // cards are double-counted, the role sums can exceed the phase card total.
     let rampInPhase = 0;
     let interactionInPhase = 0;
     let cardDrawInPhase = 0;
+    let otherInPhase = 0;
     for (const ac of cards) {
-      const role = ac.card.deckRole || getCardRole(ac.card.name);
-      if (role === 'ramp') rampInPhase++;
-      if (role === 'removal' || role === 'boardwipe') interactionInPhase++;
-      if (role === 'cardDraw') cardDrawInPhase++;
+      const name = ac.card.name;
+      const isRamp = cardMatchesRole(name, 'ramp');
+      const isInteraction = cardMatchesRole(name, 'removal') || cardMatchesRole(name, 'boardwipe');
+      const isDraw = cardMatchesRole(name, 'cardDraw');
+      if (isRamp) rampInPhase++;
+      if (isInteraction) interactionInPhase++;
+      if (isDraw) cardDrawInPhase++;
+      if (!isRamp && !isInteraction && !isDraw) otherInPhase++;
     }
 
-    // Per-phase role breakdowns with targets
+    // Per-phase role breakdowns with targets. The phase split of global role
+    // targets is budget-blind — a ramp-heavy archetype (e.g. Landfall at 1.30×,
+    // EDHREC-blended) can push early ramp alone near the entire early-phase
+    // card budget, cratering "other" to 0. Cap the combined role asks at 75%
+    // of the phase target so "other" (threats, theme plays) always keeps a
+    // meaningful share, scaling roles down proportionally when they overflow.
     const prt = phaseRoleTargets?.[phase];
-    const otherCount = cards.length - rampInPhase - interactionInPhase - cardDrawInPhase;
-    const rolesTargetSum = (prt?.ramp ?? 0) + (prt?.interaction ?? 0) + (prt?.cardDraw ?? 0);
+    const otherCount = otherInPhase;
+    let rampTarget = prt?.ramp ?? 0;
+    let interactionTarget = prt?.interaction ?? 0;
+    let cardDrawTarget = prt?.cardDraw ?? 0;
+    const rawRoleSum = rampTarget + interactionTarget + cardDrawTarget;
+    const maxRoleShare = Math.round(target * 0.75);
+    if (rawRoleSum > maxRoleShare && rawRoleSum > 0) {
+      const scale = maxRoleShare / rawRoleSum;
+      // Keep at least 1 for any role that had a nonzero ask
+      const scaleRole = (t: number) => (t > 0 ? Math.max(1, Math.round(t * scale)) : 0);
+      rampTarget = scaleRole(rampTarget);
+      interactionTarget = scaleRole(interactionTarget);
+      cardDrawTarget = scaleRole(cardDrawTarget);
+    }
+    const rolesTargetSum = rampTarget + interactionTarget + cardDrawTarget;
     const otherTarget = Math.max(0, target - rolesTargetSum);
     const phaseRoleBreakdowns: PhaseRoleBreakdown[] = [
-      { roleGroup: 'ramp', label: 'Ramp', current: rampInPhase, target: prt?.ramp ?? 0, deficit: Math.max(0, (prt?.ramp ?? 0) - rampInPhase) },
-      { roleGroup: 'interaction', label: 'Interaction', current: interactionInPhase, target: prt?.interaction ?? 0, deficit: Math.max(0, (prt?.interaction ?? 0) - interactionInPhase) },
-      { roleGroup: 'cardDraw', label: 'Card Draw', current: cardDrawInPhase, target: prt?.cardDraw ?? 0, deficit: Math.max(0, (prt?.cardDraw ?? 0) - cardDrawInPhase) },
+      { roleGroup: 'ramp', label: 'Ramp', current: rampInPhase, target: rampTarget, deficit: Math.max(0, rampTarget - rampInPhase) },
+      { roleGroup: 'interaction', label: 'Interaction', current: interactionInPhase, target: interactionTarget, deficit: Math.max(0, interactionTarget - interactionInPhase) },
+      { roleGroup: 'cardDraw', label: 'Card Draw', current: cardDrawInPhase, target: cardDrawTarget, deficit: Math.max(0, cardDrawTarget - cardDrawInPhase) },
       { roleGroup: 'other', label: 'Other', current: otherCount, target: otherTarget, deficit: Math.max(0, otherTarget - otherCount) },
     ];
 
@@ -1027,6 +1065,10 @@ export interface ComputeOptimizeSwapsOptions {
   mustIncludeNames: Set<string>;
   bannedNames: Set<string>;
   detectedCombos?: DetectedCombo[];
+  /** Per-card lift-graph connectivity (see useDeckConnectivity). Optional —
+   *  spell cut-ranking is re-weighted so synergy outliers sort toward the cut.
+   *  Absent (scan not yet loaded) → pure relevancy ranking, same as planTrim. */
+  connectivityMap?: Record<string, number>;
 }
 
 export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): OptimizeSwaps {
@@ -1047,18 +1089,19 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   // Build combo participation map: card name → number of combos it enables.
   // Protect cards in BOTH complete combos and near-misses-in-progress (deckCount >= 2),
   // so cards we just suggested as combo enablers don't immediately get suggested as cuts.
-  // Phase A: only commander-source combos contribute to protection — color-identity
-  // combos are detection-only and must not silently change card-scoring behavior.
-  const comboCountMap = new Map<string, number>();
-  if (detectedCombos) {
-    for (const combo of detectedCombos) {
-      if (combo.source !== 'commander') continue;
-      if (!combo.isComplete && combo.deckCount < 2) continue;
-      for (const card of combo.cards) {
-        comboCountMap.set(card, (comboCountMap.get(card) || 0) + 1);
-      }
-    }
-  }
+  const comboCountMap = buildComboParticipation(detectedCombos);
+
+  // Shared cut-ranking scale: the same relevancy composite the trim drawer and
+  // generator use, re-weighted for spells by lift-graph connectivity when a
+  // scan is available. Fallback for cards with no relevancy entry is the
+  // caller-supplied inclusion figure, so unknown cards still sort sensibly.
+  const relMap = analysis.cardRelevancyMap ?? {};
+  const nonLandForConn = currentCards.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land'));
+  const conn = buildConnectivityPercentiles(nonLandForConn, opts.connectivityMap);
+  const keepScore = (name: string, fallback: number, isSpell: boolean): number => {
+    const base = relMap[name] ?? fallback;
+    return isSpell ? base + connectivityAdjustment(conn, name) : base;
+  };
 
   // ── Build removal candidates with reasons ──
   // Two-pass approach: first collect all potential candidates, then sort & cap
@@ -1142,9 +1185,9 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
         if (produced.filter(c => neededColors.includes(c)).length >= 2) continue;
       }
       if (hasTaplandProblem && isTapland(card.name)) {
-        taplandCandidates.push({ ...base, reason: 'Tapland', reasonCategory: 'tapland', sortScore: inclusion ?? 50 });
+        taplandCandidates.push({ ...base, reason: 'Tapland', reasonCategory: 'tapland', sortScore: keepScore(card.name, inclusion ?? 50, false) });
       } else if (hasExcessLands) {
-        excessLandCandidates.push({ ...base, reason: 'Excess land', reasonCategory: 'excess-land', sortScore: inclusion ?? 50 });
+        excessLandCandidates.push({ ...base, reason: 'Excess land', reasonCategory: 'excess-land', sortScore: keepScore(card.name, inclusion ?? 50, false) });
       }
       continue;
     }
@@ -1153,7 +1196,7 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     // Protect theme synergy cards (e.g. tribal elves that are also ramp) — they serve double duty
     if (role && excessRoles.has(role) && !card.isThemeSynergyCard) {
       const bucket = excessRoleCandidates.get(role) || [];
-      bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: (inclusion ?? 50) + curveAdjust });
+      bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: keepScore(card.name, inclusion ?? 50, true) + curveAdjust });
       excessRoleCandidates.set(role, bucket);
       continue; // don't also consider as general cut
     }
@@ -1163,11 +1206,11 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     if ((inclusion ?? 0) >= INCLUSION_FLOOR) continue;
 
     if (!role && (inclusion ?? 100) < 35) {
-      generalCandidates.push({ ...base, reason: 'Low synergy', reasonCategory: 'low-synergy', sortScore: (inclusion ?? 0) + curveAdjust });
+      generalCandidates.push({ ...base, reason: 'Low synergy', reasonCategory: 'low-synergy', sortScore: keepScore(card.name, inclusion ?? 0, true) + curveAdjust });
     } else if (isTopHeavy && cmc >= 5 && !role && (inclusion ?? 100) < 50) {
-      generalCandidates.push({ ...base, reason: 'Curve fix', reasonCategory: 'curve-fix', sortScore: (inclusion ?? 0) - cmc * 2 + curveAdjust });
+      generalCandidates.push({ ...base, reason: 'Curve fix', reasonCategory: 'curve-fix', sortScore: keepScore(card.name, inclusion ?? 0, true) - cmc * 2 + curveAdjust });
     } else if (!role && (inclusion ?? 100) < 50) {
-      generalCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: (inclusion ?? 0) + 20 + curveAdjust });
+      generalCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: keepScore(card.name, inclusion ?? 0, true) + 20 + curveAdjust });
     }
   }
 
@@ -1272,7 +1315,7 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
       const primaryType = typeLine || undefined;
       const imageUrl = getCardImageUrl(card, 'small');
       const base = { name: card.name, inclusion, role, roleLabel, cmc, primaryType, imageUrl, isGameChanger: card.isGameChanger || undefined, isThemeSynergy: card.isThemeSynergyCard || undefined };
-      fallbackCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: inclusion ?? 50 });
+      fallbackCandidates.push({ ...base, reason: 'Low inclusion', reasonCategory: 'low-inclusion', sortScore: keepScore(card.name, inclusion ?? 50, !typeLine.toLowerCase().includes('land')) });
     }
     fallbackCandidates.sort((a, b) => a.sortScore - b.sortScore);
     const needed = deckExcess - removalCandidates.length;
@@ -1525,7 +1568,7 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
         isGameChanger: card.isGameChanger || undefined,
         isThemeSynergy: card.isThemeSynergyCard || undefined,
         reason: 'Balance to deck size', reasonCategory: 'balance',
-        sortScore: inclusion ?? 50,
+        sortScore: keepScore(card.name, inclusion ?? 50, true),
       });
     }
     balanceCandidates.sort((a, b) => a.sortScore - b.sortScore);
@@ -1990,44 +2033,36 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     candidateScoreCache.set(name, { score: scoreRecommendation(card, role, subtype, scoringContext), role, subtype });
   }
 
-  // Pre-compute scores for in-deck cards (for cut recommendations)
-  // Combines EDHREC commander-specific inclusion/synergy with Scryfall global edhrec_rank
+  // Pre-compute relevancy for in-deck cards (for cut recommendations).
+  // Uses the SAME scoreRecommendation composite as candidates above and as the
+  // generator/trim-drawer relevancy map (see rebuildRelevancyMap), so every
+  // cut surface in the app ranks cards on one scale. Cards with no EDHREC
+  // entry for this commander get NO entry — consumers fall back to inclusion.
   const inDeckScoreMap = new Map<string, number>();
   const edhrecCardLookup = new Map<string, EDHRECCard>();
   for (const card of edhrecData.cardlists.allNonLand) edhrecCardLookup.set(card.name, card);
   for (const card of edhrecData.cardlists.lands) if (!edhrecCardLookup.has(card.name)) edhrecCardLookup.set(card.name, card);
   for (const card of currentCards) {
     const edhrecCard = edhrecCardLookup.get(card.name);
-    const inclusion = edhrecCard?.inclusion ?? cardInclusionMap?.[card.name] ?? 0;
-    const synergy = edhrecCard?.synergy ?? 0;
-    // edhrec_rank: lower = more popular globally. Convert to 0-100 scale (100 = most popular)
-    const rankScore = card.edhrec_rank != null
-      ? Math.max(0, 100 - Math.floor(card.edhrec_rank / 100))
-      : 50; // neutral default if no rank
-    // Composite: 50% commander-specific inclusion, 25% global rank, 25% synergy-boosted inclusion
-    const synergyBoost = Math.max(0, synergy) * 50;
-    const isLand = (card.type_line || '').toLowerCase().includes('land');
-    const role = isLand ? null : getCardRole(card.name);
-    // Role deficit boost (same logic as scoreRecommendation) — skip lands
-    let roleBoost = 0;
-    if (role) {
-      const rd = roleDeficits.find(r => r.role === role);
-      if (rd && rd.deficit > 0 && rd.target > 0) {
-        roleBoost = (rd.deficit / rd.target) * 75;
-        if (role === 'ramp' && card.cmc !== undefined) {
-          if (card.cmc <= 1) roleBoost *= 2.0;
-          else if (card.cmc <= 2) roleBoost *= 1.5;
-          else if (card.cmc <= 3) roleBoost *= 1.2;
-        }
-      }
-    }
-    // MDFC bump: modal double-faced lands double as a spell, so a "weak" land
-    // score under-represents their value. A small flat bump keeps them above
-    // pure nonbasics in cut-sorted views.
-    const mdfcBump = isLand && isMdfcLand(card) ? 15 : 0;
-    const score = (inclusion * 0.5) + (rankScore * 0.25) + (synergyBoost * 0.25) + roleBoost + mdfcBump;
-    inDeckScoreMap.set(card.name, score);
+    const inclusion = edhrecCard?.inclusion ?? cardInclusionMap?.[card.name];
+    if (inclusion === undefined) continue; // no EDHREC data → no relevancy entry
+    const ec: EDHRECCard = edhrecCard ?? {
+      name: card.name,
+      sanitized: card.name,
+      primary_type: '',
+      inclusion,
+      num_decks: 0,
+      synergy: 0,
+      cmc: card.cmc,
+    };
+    const role = (card.deckRole as RoleKey | undefined) ?? getCardRole(card.name);
+    const subtype = role ? getCardSubtype(card.name) : null;
+    let score = scoreRecommendation(ec, role, subtype, scoringContext);
+    if (isChannelLand(card)) score += CHANNEL_LAND_BOOST;
+    else if (isMdfcLand(card)) score += MDFC_LAND_BOOST;
+    inDeckScoreMap.set(card.name, Math.round(score));
   }
+  const cardRelevancyMap: Record<string, number> = Object.fromEntries(inDeckScoreMap);
 
   const recommendations: RecommendedCard[] = [...candidateMap.values()].map(({ card }) => {
     const cached = candidateScoreCache.get(card.name);
@@ -2681,5 +2716,6 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     planScore,
     misfits,
     gapAnalysis: liveGapCandidates,
+    cardRelevancyMap,
   };
 }

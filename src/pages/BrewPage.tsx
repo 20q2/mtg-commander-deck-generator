@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
 import { getCardByName } from '@/services/scryfall/client';
 import { fetchCommanderData, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { prepareBrewContext } from '@/services/brew/prepareBrewContext';
 import { persistBrewSession, hydrateBrewSession, clearPersistedBrew } from '@/store';
-import { finishBrew } from '@/services/brew/finishBrew';
+import { finishBrew, previewBackfill } from '@/services/brew/finishBrew';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
 import { brewDeckToList } from '@/services/brew/brewDeckToList';
@@ -32,7 +32,8 @@ import { recordRun, buildJournalRun } from '@/services/brew/journal';
 import { generateRunTitle, brewGoal, goalProgress, type BrewMoment } from '@/services/brew/engine';
 import { BrewPreviously } from '@/components/brew/BrewPreviously';
 import { BrewManaCapstone } from '@/components/brew/BrewManaCapstone';
-import type { ManaPhilosophy } from '@/types';
+import { BrewFinishReveal } from '@/components/brew/BrewFinishReveal';
+import type { ManaMix, ScryfallCard } from '@/types';
 import { BrewIntro } from '@/components/brew/BrewIntro';
 import { BrewFinishButton } from '@/components/brew/BrewFinishButton';
 
@@ -70,8 +71,16 @@ export function BrewPage() {
   const [introRoutes, setIntroRoutes] = useState(false);
   // The end-of-run story: once the deck is finished, hold here until the player taps through.
   const [recap, setRecap] = useState<{ listId: string } | null>(null);
+  // The finish reveal: every land flies into the deck pile + the count ticks to full, then → recap.
+  const [reveal, setReveal] = useState<{ commander: ScryfallCard; lands: ScryfallCard[]; startCount: number; total: number; listId: string } | null>(null);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
+  // Estimated cards that will top up the deck's remaining space — sorted once from the scored pool;
+  // the capstone slices to however many slots the chosen land count leaves open.
+  const backfillPool = useMemo(
+    () => (brewContext && brewState ? previewBackfill(brewContext, brewState) : []),
+    [brewContext, brewState],
+  );
   // The "what is this?" splash pitches the mode on a player's FIRST brew only — once they've seen it
   // (and continued), later brews drop straight onto the setup form so repeat use stays fast. The
   // one-tap continue persists the flag.
@@ -256,12 +265,12 @@ export function BrewPage() {
     setIntro({ startRect: rect, target: { x: slot.left + slot.width / 2, y: slot.top + 145 } });
   }
 
-  async function handleFinish(landStyle?: ManaPhilosophy) {
+  async function handleFinish(landMix?: ManaMix, landCount?: number) {
     if (!brewState || !brewContext) return;
     setCapstone(false);
     setProgress({ msg: 'Finishing your deck…', pct: 0 });
     try {
-      const deck = await finishBrew(brewContext, brewState, landStyle, (msg, pct) => setProgress({ msg, pct }));
+      const deck = await finishBrew(brewContext, brewState, landMix, landCount, (msg, pct) => setProgress({ msg, pct }));
       const payload = brewDeckToList(deck, brewContext.commander, brewContext.partnerCommander, brewContext.customization);
       const list = createList(payload.name, payload.cards, '', {
         type: 'deck',
@@ -279,8 +288,16 @@ export function BrewPage() {
         goalLabel: brewGoal(brewContext).label,
         goalDone: goalProgress(brewContext, brewState).done,
       }));
-      // The run ends on the recap — the session stays live so it can read the run's state.
-      setRecap({ listId: list.id });
+      // The payoff: every land flies into the deck + the count ticks to full, THEN the recap. The
+      // session stays live throughout so the recap can read the run's state.
+      const lands = deck.categories.lands ?? [];
+      setReveal({
+        commander: brewContext.commander,
+        lands,
+        startCount: Math.max(0, payload.deckSize - lands.length),
+        total: payload.deckSize,
+        listId: list.id,
+      });
     } catch (e) {
       console.error(e); setError(e instanceof Error ? e.message : 'Failed to finish');
     } finally {
@@ -288,14 +305,21 @@ export function BrewPage() {
     }
   }
 
+  // The fly-in reveal finished → move on to the recap.
+  function handleRevealDone() {
+    const listId = reveal?.listId;
+    setReveal(null);
+    if (listId) setRecap({ listId });
+  }
+
   // "Finish for me" is the bail-out: build the deck NOW with a sensible mana base, no extra prompt.
-  // We infer the land style from the up-front setup (a budget pool → budget fixing; otherwise the
-  // best available fixing) so the player who taps out early still gets a good base without a quiz.
+  // We infer the land lean from the up-front setup (a budget pool → cheap fixing; otherwise best
+  // available fixing) so the player who taps out early still gets a good base without the wheel.
   // The deliberate "Build the Mana Base" route (onManaBase) still opens the capstone for players who
   // play all the way to completion and want to make that final call themselves.
   function quickFinish() {
-    const style: ManaPhilosophy = customization.budgetOption === 'budget' ? 'budget' : 'reliable';
-    void handleFinish(style);
+    const mix: ManaMix = customization.budgetOption === 'budget' ? { budget: 1 } : { reliable: 1 };
+    void handleFinish(mix);
   }
 
   // Tear down the brew session and head to the finished deck once the player closes the recap.
@@ -361,9 +385,17 @@ export function BrewPage() {
       {/* Resume cliffhanger — the last moments of a rejoined run, then straight back in. */}
       {previously && <BrewPreviously moments={previously} onDone={() => setPreviously(null)} />}
       {/* The run recap overlays everything once the deck is finished. */}
+      {reveal && (
+        <BrewFinishReveal
+          commander={reveal.commander}
+          lands={reveal.lands}
+          startCount={reveal.startCount}
+          total={reveal.total}
+          onDone={handleRevealDone}
+        />
+      )}
       {recap && <BrewRunRecap onContinue={handleViewDeck} onInspector={() => handleInspector(recap.listId)} />}
       {/* The mana-base capstone — the final land-style choice, before the deck is built. */}
-      {capstone && <BrewManaCapstone onChoose={(s) => void handleFinish(s)} onSkip={() => void handleFinish()} />}
       {/* The commit consequence banner — overlays everything briefly after a Crossroads commit. */}
       <BrewCommitFlash />
       {/* Earned-beat celebrations — goal complete / hot streak / combo online. */}
@@ -412,7 +444,7 @@ export function BrewPage() {
             // it becomes the real fork ('fork') so BrewPath's skeleton renders beneath the overlay —
             // and the key STAYS 'fork' after the intro ends, so BrewPath doesn't remount (its
             // skeleton → reveal keeps running straight through the hand-off).
-            key={intro && !introRoutes ? 'intro' : brewRelicOffer ? 'relic' : brewEvent ? `event:${brewEvent.id}` : brewQuestion ? 'question' : brewNode ? 'node' : 'fork'}
+            key={intro && !introRoutes ? 'intro' : brewRelicOffer ? 'relic' : brewEvent ? `event:${brewEvent.id}` : brewQuestion ? 'question' : brewNode ? 'node' : capstone ? 'capstone' : 'fork'}
             className={intro && !introRoutes ? undefined : 'animate-brew-view-in'}
           >
             {intro && !introRoutes
@@ -427,7 +459,16 @@ export function BrewPage() {
                     ? <BrewQuestionScreen key={brewQuestion.id} />
                     : brewNode
                       ? <BrewNode key={brewState?.history.length ?? 0} onFinish={quickFinish} />
-                      : <BrewPath onManaBase={() => setCapstone(true)} />}
+                      : capstone && brewContext && brewState
+                        ? <BrewManaCapstone
+                            onChoose={(mix, landCount) => void handleFinish(mix, landCount)}
+                            onBack={() => setCapstone(false)}
+                            recommendedLandCount={brewContext.landTarget}
+                            total={brewContext.nonLandTarget + brewContext.landTarget}
+                            nonlandPicks={brewState.picks.filter(p => !p.card.type_line.toLowerCase().includes('land')).length}
+                            backfillPool={backfillPool}
+                          />
+                        : <BrewPath onManaBase={() => setCapstone(true)} />}
           </div>
           {progress && <p className="text-center text-xs text-muted-foreground">{progress.msg}</p>}
           </div>

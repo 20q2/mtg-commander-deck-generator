@@ -58,3 +58,37 @@ describe('parseCollectionList — non-numeric collector numbers', () => {
     expect(names('Sol Ring (sld) 1429★')).toEqual(['Sol Ring']);
   });
 });
+
+describe('parseCollectionList — MTGO/paper export with (SET) collector + sideboard', () => {
+  it('parses set codes, hyphenated collector numbers, DFCs, and skips section headers', () => {
+    const input = [
+      '2 Blood Fountain (VOW) 95',
+      '4 Cast Down (2XM) 79',
+      '3 Ephemerate (PLST) MH1-7',
+      '2 Reckoner\'s Bargain (PLST) NEO-120',
+      '4 Tithing Blade / Consuming Sepulcher (LCI) 128',
+      '3 Troll of Khazad-dûm (LTR) 111',
+      '8 Swamp (J25) 89',
+      '',
+      'SIDEBOARD:',
+      '3 Duress (PLST) EMA-86',
+      '3 God-Pharaoh\'s Faithful (HOU) 14',
+    ].join('\n');
+
+    const cards = parseCollectionList(input).cards;
+    expect(cards.map(c => c.name)).toEqual([
+      'Blood Fountain',
+      'Cast Down',
+      'Ephemerate',
+      "Reckoner's Bargain",
+      'Tithing Blade',
+      'Troll of Khazad-dûm',
+      'Swamp',
+      'Duress',
+      "God-Pharaoh's Faithful",
+    ]);
+    // Quantities preserved
+    expect(cards.find(c => c.name === 'Swamp')?.quantity).toBe(8);
+    expect(cards.find(c => c.name === 'Cast Down')?.quantity).toBe(4);
+  });
+});

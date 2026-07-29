@@ -540,6 +540,26 @@
     to   { opacity: 0; transform: scale(0.85) translateY(16px); }
   }
 
+  /* ---- Finish reveal: every land flies in from around the pile and merges into the deck. Each card
+     starts offset (--sx/--sy) at its own animation-delay, arcs to the pile center, and shrinks + fades
+     as it "slots in." The -50%/-50% keeps it anchored on the pile's center point. ---- */
+  .brew-land-fly {
+    transform: translate(-50%, -50%) translate(var(--sx), var(--sy)) rotate(var(--sr)) scale(0.9);
+    opacity: 0;
+    animation: brewLandFly 540ms cubic-bezier(0.4, 0.05, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+  @keyframes brewLandFly {
+    0%   { transform: translate(-50%, -50%) translate(var(--sx), var(--sy)) rotate(var(--sr)) scale(0.9); opacity: 0; }
+    18%  { opacity: 1; }
+    82%  { opacity: 1; }
+    100% { transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(0.34); opacity: 0; }
+  }
+  @keyframes brewPilePulse {
+    0%, 100% { box-shadow: 0 10px 40px rgba(0,0,0,0.6), 0 0 34px -10px hsl(40 92% 62% / 0.45); }
+    50%      { box-shadow: 0 10px 40px rgba(0,0,0,0.6), 0 0 52px -6px hsl(40 92% 62% / 0.7); }
+  }
+
   /* ---- Headliner: a struck-off card is cleanly SLICED in two along the ~18° bill line, the halves
      drifting apart around a shadowed kerf (replaces the old single strike line — reads as "cut from
      the lineup"). Two clipped copies of the card, offset perpendicular to the cut; drop-shadow (which

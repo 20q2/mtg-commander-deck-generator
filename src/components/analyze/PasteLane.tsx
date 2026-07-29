@@ -1,8 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
-import { searchCommanders } from '@/services/scryfall/client';
+import { searchCommanders, getCardImageUrl } from '@/services/scryfall/client';
+import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import type { ScryfallCard } from '@/types';
 
 export interface PasteLaneResult {
@@ -23,6 +25,7 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
   const [fallbackQuery, setFallbackQuery] = useState('');
   const [fallbackResults, setFallbackResults] = useState<ScryfallCard[]>([]);
   const [fallbackSearching, setFallbackSearching] = useState(false);
+  const [hoverPreview, setHoverPreview] = useState<{ card: ScryfallCard; top: number; left: number; below: boolean } | null>(null);
 
   // The CollectionImporter fires onLegendariesDetected FIRST, then auto-fires
   // onCommanderDetected with the first legendary. If multiple legendaries were
@@ -61,6 +64,30 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
     }
   }, []);
 
+  const handleChipHover = useCallback((card: ScryfallCard, e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const isDesktop = window.innerWidth >= 768;
+    setHoverPreview({
+      card,
+      top: isDesktop ? rect.bottom + 8 : rect.top - 8,
+      left: rect.left + rect.width / 2,
+      below: isDesktop,
+    });
+  }, []);
+
+  const renderCommanderChip = useCallback((card: ScryfallCard, onClick: () => void) => (
+    <button
+      key={card.name}
+      onClick={onClick}
+      onMouseEnter={(e) => handleChipHover(card, e)}
+      onMouseLeave={() => setHoverPreview(null)}
+      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border/50 hover:bg-accent hover:border-primary/50 transition-colors"
+    >
+      <CardTypeIcon type="commander" size="sm" className="text-amber-300/90 opacity-90" />
+      {card.name}
+    </button>
+  ), [handleChipHover]);
+
   const showLegendaryPicker = legendaries.length > 1 && !commanderCard;
   const showFallback = importedCards.length > 0 && legendaries.length === 0 && !commanderCard;
   const canAnalyze = importedCards.length > 0 && commanderCard !== null && !loading;
@@ -68,7 +95,7 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
   return (
     <div className="space-y-4">
       <CollectionImporter
-        label=""
+        label="Decklist"
         textareaClassName="min-h-[180px]"
         onImportCards={handleImportCards}
         onCommanderDetected={handleCommanderDetected}
@@ -81,15 +108,7 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
             Multiple legendary creatures detected — pick the commander:
           </p>
           <div className="flex flex-wrap gap-2">
-            {legendaries.map(card => (
-              <button
-                key={card.name}
-                onClick={() => setCommanderCard(card)}
-                className="text-xs px-2.5 py-1.5 rounded-md border border-border/50 hover:bg-accent hover:border-primary/50 transition-colors"
-              >
-                {card.name}
-              </button>
-            ))}
+            {legendaries.map(card => renderCommanderChip(card, () => setCommanderCard(card)))}
           </div>
         </div>
       )}
@@ -114,15 +133,7 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
           )}
           {fallbackResults.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {fallbackResults.map(c => (
-                <button
-                  key={c.name}
-                  onClick={() => setCommanderCard(c)}
-                  className="text-xs px-2.5 py-1.5 rounded-md border border-border/50 hover:bg-accent hover:border-primary/50 transition-colors"
-                >
-                  {c.name}
-                </button>
-              ))}
+              {fallbackResults.map(c => renderCommanderChip(c, () => setCommanderCard(c)))}
             </div>
           )}
         </div>
@@ -153,10 +164,28 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
               Inspecting…
             </>
           ) : (
-            <>Inspect (Beta) →</>
+            <>Inspect →</>
           )}
         </Button>
       </div>
+
+      {hoverPreview && createPortal(
+        <div
+          className="pointer-events-none fixed z-[110] animate-fade-in"
+          style={{
+            top: hoverPreview.top,
+            left: hoverPreview.left,
+            transform: hoverPreview.below ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+          }}
+        >
+          <img
+            src={getCardImageUrl(hoverPreview.card, 'normal')}
+            alt={hoverPreview.card.name}
+            className="w-48 rounded-lg shadow-2xl border border-white/10"
+          />
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

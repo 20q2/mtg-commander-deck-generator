@@ -10,9 +10,12 @@ import type { ThemeMembership } from '@/components/analyze/themeMembership';
 import { ROLE_LABELS } from './roleTargets';
 import { getCardRole } from '../tagger/client';
 import { isAnyLand } from '../scryfall/client';
+import { LOW_FIT_INCLUSION, LOW_FIT_SYNERGY } from './cutRanking';
 
-const INCLUSION_LOW = 5;       // %
-const SYNERGY_LOW = 0;          // EDHREC synergy ≤ 0
+// Shared with the trim drawer's "low-fit" reason (see cutRanking) so the two
+// surfaces provably agree on what counts as a poor fit.
+const INCLUSION_LOW = LOW_FIT_INCLUSION;  // %
+const SYNERGY_LOW = LOW_FIT_SYNERGY;      // EDHREC synergy ≤ 0
 const MISFIT_REASON_THRESHOLD = 2; // need ≥ 2 reasons to flag as misfit
 
 // Misfit score weights

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Loader2, Sparkles, RefreshCw,
-  Zap, ArrowLeft,
+  Zap, ArrowLeft, ExternalLink, Bookmark,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -18,6 +18,7 @@ import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { useDeckConnectivity } from '@/hooks/useDeckConnectivity';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
@@ -869,24 +870,32 @@ export function DeckOptimizer({
             finalLandRecs = merged.landRecommendations;
           }
 
-          // Enrich theme-only recs with prices BEFORE committing the analysis.
-          // Rows are React.memo'd, so mutating rec.price after setAnalysis
-          // wouldn't trigger a re-render — prices must be in place when the
-          // new rec objects first land in state.
+          // Enrich theme-only recs with prices/cmc/colors BEFORE committing the
+          // analysis. Rows are React.memo'd, so mutating a rec after setAnalysis
+          // wouldn't trigger a re-render — the values must be in place when the
+          // new rec objects first land in state. cmc in particular must be
+          // present here or the CMC sort has nothing to sort by.
           const allFinalRecs: RecommendedCard[] = [
             ...finalRecs,
             ...finalLandRecs,
             ...finalRoleBreakdowns.flatMap(rb => rb.suggestedReplacements),
           ];
-          const newRecs = allFinalRecs.filter(r => !r.price);
+          const newRecs = allFinalRecs.filter(r => !r.price || r.cmc == null || !r.producedColors?.length);
           if (newRecs.length > 0) {
             try {
-              const cards = await getCardsByNames(newRecs.map(r => r.name));
-              for (const rec of newRecs) {
+              const cards = await getCardsByNames([...new Set(newRecs.map(r => r.name))]);
+              for (const rec of allFinalRecs) {
                 const card = cards.get(rec.name);
-                if (card) {
+                if (!card) continue;
+                if (!rec.price) {
                   const p = getCardPrice(card);
                   if (p) rec.price = p;
+                }
+                if (rec.cmc == null && card.cmc != null) rec.cmc = card.cmc;
+                if (!rec.producedColors?.length) {
+                  const produced = (card.produced_mana || []).filter((c: string) => (WUBRG as readonly string[]).includes(c));
+                  if (produced.length > 0) rec.producedColors = [...new Set(produced)];
+                  else if (card.color_identity?.length) rec.producedColors = card.color_identity.map((c: string) => c.toUpperCase());
                 }
               }
             } catch { /* non-critical */ }
@@ -1086,6 +1095,35 @@ export function DeckOptimizer({
         finalLandRecs = merged.landRecommendations;
       }
 
+      // Enrich theme-driven recs with prices/cmc/colors BEFORE committing.
+      // Rows are React.memo'd, so values must be in place when the new rec
+      // objects first land in state — cmc especially, or the CMC sort no-ops.
+      const allFinalRecs: RecommendedCard[] = [
+        ...finalRecs,
+        ...finalLandRecs,
+        ...finalRoleBreakdowns.flatMap(rb => rb.suggestedReplacements),
+      ];
+      const newRecs = allFinalRecs.filter(r => !r.price || r.cmc == null || !r.producedColors?.length);
+      if (newRecs.length > 0) {
+        try {
+          const cards = await getCardsByNames([...new Set(newRecs.map(r => r.name))]);
+          for (const rec of allFinalRecs) {
+            const card = cards.get(rec.name);
+            if (!card) continue;
+            if (!rec.price) {
+              const p = getCardPrice(card);
+              if (p) rec.price = p;
+            }
+            if (rec.cmc == null && card.cmc != null) rec.cmc = card.cmc;
+            if (!rec.producedColors?.length) {
+              const produced = (card.produced_mana || []).filter((c: string) => (WUBRG as readonly string[]).includes(c));
+              if (produced.length > 0) rec.producedColors = [...new Set(produced)];
+              else if (card.color_identity?.length) rec.producedColors = card.color_identity.map((c: string) => c.toUpperCase());
+            }
+          }
+        } catch { /* non-critical */ }
+      }
+
       setAnalysis(prev => prev ? {
         ...prev,
         recommendations: finalRecs,
@@ -1240,6 +1278,15 @@ export function DeckOptimizer({
   // list, so they never drift out of sync. Recomputes only when its inputs
   // actually change.
   const detectedCombosForSwaps = useStore(s => s.generatedDeck?.detectedCombos);
+  // Lift-graph connectivity for cut ranking — same additive signal the trim
+  // drawer uses. Reuses the shared LIFT_SCAN_CACHE (warmed by the Lift Web tab
+  // and Overview bento); until it resolves, ranking is relevancy-only.
+  const { connectivity: swapConnectivity } = useDeckConnectivity({
+    enabled: !!analysis,
+    commanderName,
+    partnerCommanderName,
+    cards: currentCards,
+  });
   const baseSwaps = useMemo<OptimizeSwaps | null>(() => {
     if (!analysis) return null;
     return computeOptimizeSwaps({
@@ -1251,8 +1298,9 @@ export function DeckOptimizer({
       mustIncludeNames: menuProps.mustIncludeNames,
       bannedNames: menuProps.bannedNames,
       detectedCombos: detectedCombosForSwaps,
+      connectivityMap: swapConnectivity ?? undefined,
     });
-  }, [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps]);
+  }, [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity]);
 
   // True when the deck cards differ from what was analyzed — drives the
   // "this is stale, re-run me" gold treatment on the Re-analyze button.
@@ -1578,19 +1626,36 @@ export function DeckOptimizer({
             </div>
             <div className="flex items-center gap-2 shrink-0">
             {themePacingStrip}
+            {onOpenInDeckView ? (
+              <button
+                onClick={onOpenInDeckView}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Deck view
+              </button>
+            ) : onSaveAsDeck ? (
+              <button
+                onClick={onSaveAsDeck}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Bookmark className="w-3 h-3" />
+                Save as deck
+              </button>
+            ) : null}
             {analysis && (
               <button
                 onClick={handleOptimize}
                 disabled={loading}
                 title={isAnalysisDirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+                aria-label={isAnalysisDirty ? 'Deck has changed since the last analysis — click to refresh' : 'Re-run analysis'}
+                className={`flex items-center justify-center p-1.5 rounded-lg border transition-colors ${
                   isAnalysisDirty
                     ? 'border-amber-500/60 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
                     : 'border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground'
                 } disabled:opacity-60 disabled:pointer-events-none`}
               >
-                {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                Re-analyze
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
               </button>
             )}
             </div>
@@ -1712,7 +1777,6 @@ export function DeckOptimizer({
                 pacing={effectivePacing}
                 activePhases={allPhasesActive ? undefined : activeCurvePhases}
                 selectedCmc={selectedCmc}
-                onCmcClick={(cmc: number) => setSelectedCmc(prev => prev === cmc ? null : cmc)}
               />
               <CurveSummaryStrip
                 phases={analysis.curvePhases}
@@ -1743,6 +1807,7 @@ export function DeckOptimizer({
                   onCardAction={handleCardAction}
                   menuProps={menuProps}
                   allRecommendations={analysis.recommendations}
+                  detectedCombos={detectedCombosForSwaps}
                 />
               ) : (
                 <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">

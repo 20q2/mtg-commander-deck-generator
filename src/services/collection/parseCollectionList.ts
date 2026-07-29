@@ -11,6 +11,18 @@ export interface ParsedCollectionResult {
   };
 }
 
+/** Section headers used by MTGO / Moxfield / Goldfish / Archidekt exports.
+ *  A standalone line matching one of these (with an optional trailing colon)
+ *  is a divider, not a card, and is skipped during standard parsing. */
+const SECTION_HEADERS = new Set([
+  'about', 'commander', 'deck', 'sideboard', 'maybeboard', 'companion', 'tokens',
+]);
+
+/** True when a line is just a section header (e.g. "Sideboard", "SIDEBOARD:", "Deck"). */
+function isSectionHeader(line: string): boolean {
+  return SECTION_HEADERS.has(line.replace(/:$/, '').trim().toLowerCase());
+}
+
 /**
  * Parse a collection list from text input.
  * Supports:
@@ -74,6 +86,9 @@ export function parseCollectionList(input: string): ParsedCollectionResult {
     for (const segment of segments) {
       const line = segment.trim();
       if (!line || line.startsWith('//') || line.startsWith('#')) continue;
+      // Skip section dividers ("Sideboard", "SIDEBOARD:", "Deck", …) so they
+      // don't get parsed as bogus card names.
+      if (isSectionHeader(line)) continue;
 
       // Strip quantity prefix: "4x ", "4 ", "1x"
       const match = line.match(/^(\d+)x?\s+(.+)/i);
@@ -120,7 +135,6 @@ function parseGoldfishSections(lines: string[]): ParsedCollectionResult {
   let currentSection: string | null = null;
   const cards: ParsedCard[] = [];
   const seen = new Set<string>();
-  const sectionHeaders = new Set(['about', 'commander', 'deck', 'sideboard', 'maybeboard']);
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -129,7 +143,7 @@ function parseGoldfishSections(lines: string[]): ParsedCollectionResult {
     const lower = line.toLowerCase();
 
     // Check for section header
-    if (sectionHeaders.has(lower)) {
+    if (SECTION_HEADERS.has(lower)) {
       currentSection = lower;
       continue;
     }
@@ -220,9 +234,12 @@ function parseCSV(lines: string[]): ParsedCard[] {
 
 /** Strip common card name suffixes: tags (*f*, *F*), set/collector codes, trailing IDs, DFC back face */
 function stripSuffixes(cardName: string): string {
-  // Strip DFC back face: "Delver of Secrets // Insectile Aberration" → "Delver of Secrets"
+  // Strip DFC/split back face: "Delver of Secrets // Insectile Aberration" → "Delver of Secrets".
   // Scryfall's collection endpoint matches front-face names; it returns the full canonical name.
   cardName = cardName.replace(/\s*\/\/\s*.+$/, '').trim();
+  // Also handle the single-slash form some exports use ("Tithing Blade / Consuming Sepulcher").
+  // Requires spaces around the slash so real names are never affected (no card name has " / ").
+  cardName = cardName.replace(/\s+\/\s+.+$/, '').trim();
   // Strip tags like *f* (foil), *e* (etched), *s* (showcase), *F*, *Foil*, etc.
   cardName = cardName.replace(/\s*\*[a-zA-Z]+\*\s*/g, '').trim();
   // Strip trailing category annotations: "[Removal]", "[Ramp,Draw]", "[A] [B]" (Archidekt export).

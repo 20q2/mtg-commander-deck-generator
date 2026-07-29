@@ -17,6 +17,7 @@ import type {
   EDHRECCommanderStats,
   Rarity,
   ManaPhilosophy,
+  ManaMix,
   BracketLevel,
   BudgetOption,
   CollectionStrategy,
@@ -1048,10 +1049,10 @@ const BASIC_LAND_NAMES = new Set([
 // ============================================================
 const DEFAULT_MULTI_COPY_COUNT = 15; // Fallback when EDHREC average deck is unavailable
 
-/** Priority boost for Kamigawa channel lands — near-auto-includes in their color. */
-export const CHANNEL_LAND_BOOST = 80;
-/** Priority boost for MDFC spell/lands — strictly better than spell-only equivalents. */
-export const MDFC_LAND_BOOST = 50;
+// Land-flex boosts live in cutRanking so the analyzer can share them without
+// an analyzer→generator import cycle. Re-exported to keep existing importers stable.
+export { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './cutRanking';
+import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './cutRanking';
 
 const TAPLAND_PENALTIES: Record<Pacing, number> = {
   'aggressive-early': -30,
@@ -1083,6 +1084,32 @@ export function manaPhilosophyBoost(card: ScryfallCard, name: string, philosophy
     default:
       return 0;
   }
+}
+
+const MANA_STYLES: ManaPhilosophy[] = ['reliable', 'greedy', 'budget', 'spelllands'];
+
+/**
+ * The capstone wheel's blended per-land boost: a weight-normalized sum of each style's boost, so a
+ * Reliable+Spell lean floats duals AND MDFCs, a Budget+Greedy lean floats cheap utility, etc.
+ * Weights are normalized by their total so a mix's boost magnitude stays comparable to a single style
+ * (never inflated by how the ratios were expressed).
+ */
+export function manaMixBoost(card: ScryfallCard, name: string, mix: ManaMix): number {
+  const total = MANA_STYLES.reduce((s, k) => s + Math.max(0, mix[k] ?? 0), 0);
+  if (total <= 0) return 0;
+  let boost = 0;
+  for (const k of MANA_STYLES) {
+    const w = Math.max(0, mix[k] ?? 0) / total;
+    if (w > 0) boost += w * manaPhilosophyBoost(card, name, k);
+  }
+  return boost;
+}
+
+/** Resolve a customization to its effective land-style mix: the wheel's mix if it carries any weight,
+ *  else the single-enum style as a 100% mix, else undefined (standard, no re-weighting). */
+export function resolveManaMix(c: { manaPhilosophyMix?: ManaMix; manaPhilosophy?: ManaPhilosophy }): ManaMix | undefined {
+  if (c.manaPhilosophyMix && MANA_STYLES.some(k => (c.manaPhilosophyMix![k] ?? 0) > 0)) return c.manaPhilosophyMix;
+  return c.manaPhilosophy ? { [c.manaPhilosophy]: 1 } : undefined;
 }
 
 interface MultiCopyResult {
@@ -1258,7 +1285,7 @@ async function generateLands(
   ignoreOwnedRarity: boolean = false,
   pacing: Pacing = 'balanced',
   priorityBoosts?: Map<string, number>,
-  manaPhilosophy?: ManaPhilosophy,
+  manaMix?: ManaMix,
   landSwapPool?: ScryfallCard[],
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
@@ -1345,11 +1372,11 @@ async function generateLands(
       }
     }
 
-    // Brew mana-base capstone: re-weight lands toward the chosen style. Gated on manaPhilosophy, so
+    // Brew mana-base capstone: re-weight lands toward the chosen BLEND of styles. Gated on the mix, so
     // the standard (non-brew) path — where it's undefined — adds nothing and behaves exactly as before.
-    if (manaPhilosophy) {
+    if (manaMix) {
       for (const [name, card] of landCardMap) {
-        const boost = manaPhilosophyBoost(card, name, manaPhilosophy);
+        const boost = manaMixBoost(card, name, manaMix);
         if (boost !== 0) landPenalties.set(name, (landPenalties.get(name) ?? 0) + boost);
       }
     }
@@ -3075,7 +3102,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         ignoreOwnedRarity,
         resolvedPacing,
         undefined,
-        customization.manaPhilosophy,
+        resolveManaMix(customization),
         landSwapPool,
       ),
     ];
@@ -3358,7 +3385,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         ignoreOwnedRarity,
         resolvedPacing,
         undefined,
-        customization.manaPhilosophy,
+        resolveManaMix(customization),
       ),
     ];
   }
