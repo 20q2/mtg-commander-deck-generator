@@ -4,8 +4,10 @@ import { clusterScore, isStaple, type LiftCandidate } from './liftClusters';
 import { getCardRole, getAllCardRoles, isUtilityLand, isTapland } from '@/services/tagger/client';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 
-/** How loud the cluster signal is on the recommendation score scale (role boost ~= 75, inclusion <= 100). */
-export const CLUSTER_WEIGHT = 60;
+/** How loud the cluster signal is on the recommendation score scale (role boost ~= 75, inclusion <= 100).
+ *  At 90 a top cluster-only card (+15 deficit) reaches ~105 — able to out-rank many inclusion picks so it
+ *  actually surfaces, not just re-order silently. */
+export const CLUSTER_WEIGHT = 90;
 /** A synthesized cluster-only card whose role is under target gets this nudge (mirrors role-fit in scoreRecommendation). */
 const CLUSTER_ROLE_DEFICIT_BONUS = 15;
 /** Only breadth clusters drive the blend — single-anchor "bombs" are excluded (design: high cluster over high lift). */

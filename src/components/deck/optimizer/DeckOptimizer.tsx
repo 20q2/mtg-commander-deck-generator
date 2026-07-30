@@ -1321,10 +1321,12 @@ export function DeckOptimizer({
 
   const blendedRecommendations = useMemo(() => {
     if (!analysis || !liftCandidates) return null; // null = scan pending → gate holds
+    // Raised past the display default so cluster cards have room to reach the general/"other"
+    // (e.g. late-game tempo) bucket, which draws from this global list.
     return blendClusterIntoRecommendations(analysis.recommendations, liftCandidates, {
       deficitRoles: deficitRoleSet,
       excludeNames: menuProps.bannedNames,
-      limit: 30,
+      limit: 40,
     });
   }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames]);
 
@@ -1332,11 +1334,13 @@ export function DeckOptimizer({
     if (!analysis || !liftCandidates) return null;
     return analysis.roleBreakdowns.map(rb => ({
       ...rb,
+      // Grow the list beyond its original length so injected cluster tech ADDS to a role's pool
+      // (especially thin ones) rather than only displacing an existing pick.
       suggestedReplacements: blendClusterIntoRecommendations(rb.suggestedReplacements, liftCandidates, {
         roleFilter: rb.role,
         deficitRoles: deficitRoleSet,
         excludeNames: menuProps.bannedNames,
-        limit: rb.suggestedReplacements.length || 12,
+        limit: rb.suggestedReplacements.length + 8,
       }),
     }));
   }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames]);
