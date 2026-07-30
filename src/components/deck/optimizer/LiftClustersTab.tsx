@@ -9,7 +9,7 @@ import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay'
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { scryfallImg } from './constants';
 import type { CardRowMenuProps } from './shared';
-import { scanLiftCandidates, edgeScore, bombScore, clusterScore, LIFT_SCAN_CACHE, liftDeckKey, buildLiftScanInputs, type LiftCandidate, type DeckLink } from '@/services/optimizer/liftClusters';
+import { scanLiftCandidates, edgeScore, bombScore, clusterScore, baselinePct, isStaple, STAPLE_BASELINE_PCT, LIFT_SCAN_CACHE, liftDeckKey, buildLiftScanInputs, type LiftCandidate, type DeckLink } from '@/services/optimizer/liftClusters';
 import { LiftGraph } from './LiftGraph';
 
 /**
@@ -52,17 +52,8 @@ const CONFIDENCE_FLOOR = 50; // bestNumDecks below this = low-confidence (matche
 /** EDHREC caps lift display at 99+; mirror that so absurd values never read as e.g. ×1376. */
 const liftLabel = (l: number) => (l >= 99 ? '99+' : `×${l.toFixed(1)}`);
 
-// A "staple" is a card with a high overall play rate — strong everywhere, not deck-specific tech.
-// That play rate is recoverable from any edge: lift = coPlay% ÷ baseline%, so baseline% = coPct / lift
-// (mathematically identical across a card's edges — it's just P(card)). Above this baseline we flag and
-// demote the card so the bombs list keeps leading with genuine, niche spice.
-const STAPLE_BASELINE_PCT = 3.5;
-function baselinePct(edges: LiftCandidate['edges']): number | null {
-  const top = [...edges].sort((a, b) => edgeScore(b) - edgeScore(a))[0];
-  if (!top || top.lift <= 0) return null;
-  return top.coPct / top.lift;
-}
-const isStaple = (edges: LiftCandidate['edges']) => (baselinePct(edges) ?? 0) >= STAPLE_BASELINE_PCT;
+// Staple detection (STAPLE_BASELINE_PCT / baselinePct / isStaple) now lives in the lift service so
+// the recommendation blend and this tab share one definition.
 
 // ── Filter bar ────────────────────────────────────────────────────────
 type TypeFilter = 'all' | 'bomb' | 'cluster' | 'deck';

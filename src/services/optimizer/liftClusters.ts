@@ -87,6 +87,23 @@ export function clusterScore(c: { edges: LiftEdge[] }): number {
   return c.edges.reduce((s, e) => s + edgeScore(e), 0);
 }
 
+// ── Staple detection ────────────────────────────────────────────────────
+// A "staple" is a card with a high overall play rate — strong everywhere, not deck-specific tech.
+// That play rate is recoverable from any edge: lift = coPlay% ÷ baseline%, so baseline% = coPct / lift
+// (mathematically identical across a card's edges — it's just P(card)). Above this baseline we treat
+// the card as a broadly-played staple (the inclusion rank already covers it) rather than niche spice.
+export const STAPLE_BASELINE_PCT = 3.5;
+
+export function baselinePct(edges: LiftEdge[]): number | null {
+  const top = [...edges].sort((a, b) => edgeScore(b) - edgeScore(a))[0];
+  if (!top || top.lift <= 0) return null;
+  return top.coPct / top.lift;
+}
+
+export function isStaple(edges: LiftEdge[]): boolean {
+  return (baselinePct(edges) ?? 0) >= STAPLE_BASELINE_PCT;
+}
+
 // ── Deck-internal relationships ─────────────────────────────────────────
 // An undirected lift tie between two cards you ALREADY run — the synergy backbone of your deck.
 export interface DeckLink { a: string; b: string; lift: number; coPct: number; numDecks: number; }
