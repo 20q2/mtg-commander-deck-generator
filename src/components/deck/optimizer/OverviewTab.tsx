@@ -5,7 +5,7 @@ import {
   Ban,
   Tag, ArrowUpDown,
   RotateCcw, Info, Zap, Mountain,
-  AlertTriangle, Layers, Package,
+  AlertTriangle, Layers, Package, Waypoints,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard, UserCardList, EDHRECTheme } from '@/types';
@@ -285,8 +285,17 @@ export function SuggestionCardItem({
         )}
       </div>
       {/* Row 2: role + land tags */}
-      {(allBadges.length > 0 || isOwned || rec.isGameChanger) && (
+      {(allBadges.length > 0 || isOwned || rec.isGameChanger || (rec.clusterConnections != null && rec.clusterConnections >= 2)) && (
         <div className="flex items-center gap-1 px-1 min-w-0 justify-center flex-wrap">
+          {rec.clusterConnections != null && rec.clusterConnections >= 2 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-medium bg-violet-500/15 text-violet-300"
+              title={`Played alongside ${rec.clusterConnections} of your deck's cards`}
+            >
+              <Waypoints className="w-2.5 h-2.5 shrink-0" />
+              Plays with {rec.clusterConnections}
+            </span>
+          )}
           {isOwned && (
             <span
               className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-md text-[9px] font-medium bg-zinc-700/70 text-zinc-200"
