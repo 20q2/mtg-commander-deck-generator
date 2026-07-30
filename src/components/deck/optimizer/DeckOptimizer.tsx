@@ -19,6 +19,9 @@ import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { useDeckConnectivity } from '@/hooks/useDeckConnectivity';
+import { useLiftScan } from '@/hooks/useLiftScan';
+import { blendClusterIntoRecommendations } from '@/services/optimizer/recommendationBlend';
+import { RecsLoadingState } from './shared';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
@@ -1302,6 +1305,49 @@ export function DeckOptimizer({
     });
   }, [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity]);
 
+  // Deck-wide lift scan (shared cache) → cluster-aware recommendations. The three rec surfaces
+  // (Optimize / Curve / Roles) wait for this before rendering suggestions, per design.
+  const { candidates: liftCandidates } = useLiftScan({
+    enabled: !!commander,
+    commanderName,
+    partnerCommanderName,
+    cards: currentCards,
+  });
+
+  const deficitRoleSet = useMemo(
+    () => new Set((analysis?.roleBreakdowns ?? []).filter(rb => rb.deficit > 0).map(rb => rb.role)),
+    [analysis],
+  );
+
+  const blendedRecommendations = useMemo(() => {
+    if (!analysis || !liftCandidates) return null; // null = scan pending → gate holds
+    return blendClusterIntoRecommendations(analysis.recommendations, liftCandidates, {
+      deficitRoles: deficitRoleSet,
+      excludeNames: menuProps.bannedNames,
+      limit: 30,
+    });
+  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames]);
+
+  const blendedRoleBreakdowns = useMemo(() => {
+    if (!analysis || !liftCandidates) return null;
+    return analysis.roleBreakdowns.map(rb => ({
+      ...rb,
+      suggestedReplacements: blendClusterIntoRecommendations(rb.suggestedReplacements, liftCandidates, {
+        roleFilter: rb.role,
+        deficitRoles: deficitRoleSet,
+        excludeNames: menuProps.bannedNames,
+        limit: rb.suggestedReplacements.length || 12,
+      }),
+    }));
+  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames]);
+
+  const blendedAnalysis = useMemo(() => {
+    if (!analysis || !blendedRecommendations || !blendedRoleBreakdowns) return null;
+    return { ...analysis, recommendations: blendedRecommendations, roleBreakdowns: blendedRoleBreakdowns };
+  }, [analysis, blendedRecommendations, blendedRoleBreakdowns]);
+
+  const recsReady = blendedAnalysis !== null;
+
   // True when the deck cards differ from what was analyzed — drives the
   // "this is stale, re-run me" gold treatment on the Re-analyze button.
   const currentCardKey = useMemo(() => currentCards.map(c => c.name).join('\0'), [currentCards]);
@@ -1734,9 +1780,9 @@ export function DeckOptimizer({
         )}
 
         {/* ── ROLES TAB ── */}
-        {activeTab === 'roles' && (
+        {activeTab === 'roles' && (recsReady ? (
           <RolesTabContent
-            roleBreakdowns={analysis.roleBreakdowns}
+            roleBreakdowns={blendedRoleBreakdowns!}
             activeRole={activeRole}
             onRoleChange={setActiveRole}
             onPreview={handlePreview}
@@ -1745,7 +1791,7 @@ export function DeckOptimizer({
             onCardAction={handleCardAction}
             menuProps={menuProps}
           />
-        )}
+        ) : <RecsLoadingState />)}
 
         {/* ── LANDS TAB ── */}
         {activeTab === 'lands' && (
@@ -1794,21 +1840,23 @@ export function DeckOptimizer({
                 }}
               />
               {selectedPhases.length > 0 ? (
-                <CurveDetailPanel
-                  phases={selectedPhases}
-                  roleBreakdowns={analysis.roleBreakdowns}
-                  activeRoleGroups={activeRoleGroups}
-                  addedCards={addedCards}
-                  onAdd={(name: string) => {
-                    onAddCards?.([name], 'deck');
-                    setAddedCards(prev => new Set([...prev, name]));
-                  }}
-                  onPreview={handlePreview}
-                  onCardAction={handleCardAction}
-                  menuProps={menuProps}
-                  allRecommendations={analysis.recommendations}
-                  detectedCombos={detectedCombosForSwaps}
-                />
+                recsReady ? (
+                  <CurveDetailPanel
+                    phases={selectedPhases}
+                    roleBreakdowns={blendedAnalysis!.roleBreakdowns}
+                    activeRoleGroups={activeRoleGroups}
+                    addedCards={addedCards}
+                    onAdd={(name: string) => {
+                      onAddCards?.([name], 'deck');
+                      setAddedCards(prev => new Set([...prev, name]));
+                    }}
+                    onPreview={handlePreview}
+                    onCardAction={handleCardAction}
+                    menuProps={menuProps}
+                    allRecommendations={blendedRecommendations!}
+                    detectedCombos={detectedCombosForSwaps}
+                  />
+                ) : <RecsLoadingState />
               ) : (
                 <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
                   <p className="text-xs text-muted-foreground">Select Early, Mid, or Late Game above to view cards by role</p>
@@ -1819,9 +1867,9 @@ export function DeckOptimizer({
         })()}
 
         {/* ── OPTIMIZE TAB ── */}
-        {activeTab === 'optimize' && analysis && (
+        {activeTab === 'optimize' && (analysis ? (recsReady ? (
           <OptimizeTabContent
-            analysis={analysis}
+            analysis={blendedAnalysis!}
             currentCards={currentCards}
             commanderName={commanderName}
             partnerCommanderName={partnerCommanderName}
@@ -1838,7 +1886,7 @@ export function DeckOptimizer({
             baseSwaps={baseSwaps ?? undefined}
             collectionNames={collectionNames}
           />
-        )}
+        ) : <RecsLoadingState />) : null)}
 
         {/* ── BRACKET TAB ── */}
         {activeTab === 'bracket' && (
