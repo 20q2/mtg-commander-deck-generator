@@ -86,6 +86,10 @@ export interface RecommendedCard {
   isUtilityLand?: boolean;
   isTapland?: boolean;
   isGameChanger?: boolean;
+  /** How many of the current deck's cards lift this one (deck-wide cluster signal). Set only when the blend touched it. */
+  clusterConnections?: number;
+  /** Summed lift×co-occurrence strength across the deck cards that lift this one. */
+  clusterScore?: number;
 }
 
 export interface AnalyzedCard {

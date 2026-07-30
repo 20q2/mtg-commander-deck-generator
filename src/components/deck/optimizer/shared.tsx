@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban, Package, Pin } from 'lucide-react';
+import { Plus, Trash2, Check, AlertTriangle, ChevronRight, ThumbsUp, Ban, Package, Pin, Waypoints, Loader2 } from 'lucide-react';
 import type { ScryfallCard, UserCardList } from '@/types';
 import type { RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getFrontFaceTypeLine, getCachedCard, getProducedColors } from '@/services/scryfall/client';
@@ -30,6 +30,16 @@ export function AnimatedCollapse({ open, children }: { open: boolean; children: 
   return (
     <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
       <div className="overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
+/** Loading state shown while the deck-wide lift scan resolves, before cluster-aware recommendations render. */
+export function RecsLoadingState({ label = 'Finding cards that play well with your deck…' }: { label?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground">
+      <Loader2 className="w-5 h-5 animate-spin text-violet-300/80" />
+      <p className="text-xs">{label}</p>
     </div>
   );
 }
@@ -312,6 +322,15 @@ function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction,
               </span>
             );
           })}
+          {card.clusterConnections != null && card.clusterConnections >= 2 && (
+            <span
+              title={`Played alongside ${card.clusterConnections} of your deck's cards`}
+              className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded-full shrink-0 bg-violet-500/15 text-violet-300"
+            >
+              <Waypoints className="w-2.5 h-2.5" />
+              Plays with {card.clusterConnections}
+            </span>
+          )}
         </div>
         {resolvedType && (
           <p className="text-xs text-muted-foreground truncate">{resolvedType}</p>
@@ -333,7 +352,7 @@ function _RecommendationRow({ card, rank, onAdd, onPreview, added, onCardAction,
         )}
         <div className="text-right w-12 leading-tight">
           <p className="text-xs font-medium tabular-nums">{card.price ? `$${card.price}` : '—'}</p>
-          <p className="text-[11px] text-muted-foreground tabular-nums">{Math.round(card.inclusion)}%</p>
+          <p className="text-[11px] text-muted-foreground tabular-nums">{card.inclusion > 0 ? `${Math.round(card.inclusion)}%` : '—'}</p>
         </div>
       </div>
       {onCardAction && menuProps && (
