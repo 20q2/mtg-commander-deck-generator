@@ -5,7 +5,7 @@ import { getCardByName } from '@/services/scryfall/client';
 import { fetchCommanderData, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { prepareBrewContext } from '@/services/brew/prepareBrewContext';
 import { persistBrewSession, hydrateBrewSession, clearPersistedBrew } from '@/store';
-import { finishBrew, previewBackfill } from '@/services/brew/finishBrew';
+import { finishBrew, previewBackfill, recommendLandCount } from '@/services/brew/finishBrew';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists } from '@/hooks/useUserLists';
 import { brewDeckToList } from '@/services/brew/brewDeckToList';
@@ -463,7 +463,7 @@ export function BrewPage() {
                         ? <BrewManaCapstone
                             onChoose={(mix, landCount) => void handleFinish(mix, landCount)}
                             onBack={() => setCapstone(false)}
-                            recommendedLandCount={brewContext.landTarget}
+                            recommendedLandCount={recommendLandCount(brewContext, brewState)}
                             total={brewContext.nonLandTarget + brewContext.landTarget}
                             nonlandPicks={brewState.picks.filter(p => !p.card.type_line.toLowerCase().includes('land')).length}
                             backfillPool={backfillPool}

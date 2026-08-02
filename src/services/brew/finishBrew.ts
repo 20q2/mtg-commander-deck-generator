@@ -13,6 +13,25 @@ const MANA_STYLES: ManaPhilosophy[] = ['reliable', 'greedy', 'budget', 'spelllan
  * fill lands when generateDeck runs at finish, but this pool + ordering is what it draws from. Sorted
  * once (best first); the capstone slices however many slots the chosen land count leaves open.
  */
+/**
+ * A land count tuned to the deck you brewed, not a static target: the commander's EDHREC baseline
+ * (ctx.landTarget), nudged DOWN for a low curve / strong ramp and UP for a high curve / sparse ramp,
+ * floored at ~a third of the deck.
+ */
+export function recommendLandCount(ctx: BrewContext, state: BrewState): number {
+  const total = ctx.nonLandTarget + ctx.landTarget;
+  const nonland = state.picks.filter(p => !p.card.type_line.toLowerCase().includes('land'));
+  const avgCmc = nonland.length ? nonland.reduce((s, p) => s + (p.card.cmc ?? 0), 0) / nonland.length : 3;
+  const ramp = state.picks.filter(p => p.role === 'ramp').length;
+  const ratio = total / 99;
+
+  let n = ctx.landTarget;
+  if (avgCmc < 2.5) n -= 2; else if (avgCmc < 3.0) n -= 1; else if (avgCmc >= 4.0) n += 2; else if (avgCmc >= 3.5) n += 1;
+  if (ramp >= Math.round(10 * ratio)) n -= 2; else if (ramp >= Math.round(7 * ratio)) n -= 1; else if (ramp < Math.round(4 * ratio)) n += 1;
+
+  return Math.max(Math.round(total * 0.33), Math.min(total - 1, n));
+}
+
 export function previewBackfill(ctx: BrewContext, state: BrewState): ScryfallCard[] {
   const used = new Set([...state.usedNames, ...state.killedNames]);
   return ctx.candidates

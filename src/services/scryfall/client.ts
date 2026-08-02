@@ -18,10 +18,19 @@ const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
  * Extract a set code from a scryfallQuery string.
  * Recognizes: set:xxx, s:xxx, e:xxx, edition:xxx (with or without quotes).
  */
+/** All set codes referenced in a scryfall query, in order. A query can OR several
+ *  (e.g. `set:fin or set:spm`); each one is a set the user wants cards drawn from. */
+export function parseSetsFromQuery(scryfallQuery: string): string[] {
+  if (!scryfallQuery) return [];
+  const matches = scryfallQuery.matchAll(/\b(?:set|s|e|edition):["']?([a-zA-Z0-9_]+)["']?/gi);
+  return [...matches].map(m => m[1].toLowerCase());
+}
+
+/** The first set code in a scryfall query, used as a single-set printing hint for
+ *  getCardsByNames. For membership filtering across a multi-set query, use
+ *  parseSetsFromQuery — this only returns the first. */
 export function parseSetFromQuery(scryfallQuery: string): string | undefined {
-  if (!scryfallQuery) return undefined;
-  const match = scryfallQuery.match(/\b(?:set|s|e|edition):["']?([a-zA-Z0-9_]+)["']?/i);
-  return match ? match[1].toLowerCase() : undefined;
+  return parseSetsFromQuery(scryfallQuery)[0];
 }
 
 /** Return a shallow copy with deck-generation flags stripped so cached objects stay clean. */

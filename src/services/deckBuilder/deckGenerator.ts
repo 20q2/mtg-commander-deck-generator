@@ -22,7 +22,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData } from '@/services/edhrec/client';
 import { blendArchetypeData, buildArchetypeSourceLabel } from './archetypeBlend';
 import {
@@ -1327,9 +1327,11 @@ async function generateLands(
     }
 
     const landCardMap = await getCardsByNames(landNamesToFetch, undefined, preferredSet, { currency });
-    if (preferredSet) {
+    // Keep lands printed in ANY set the query lists, not just the first (preferredSet).
+    const preferredSets = parseSetsFromQuery(scryfallQuery);
+    if (preferredSets.length) {
       for (const [name, card] of landCardMap) {
-        if (card.set !== preferredSet) landCardMap.delete(name);
+        if (!preferredSets.includes(card.set)) landCardMap.delete(name);
       }
     }
     await upgradeCardPrintings(landCardMap, scryfallQuery, true);
@@ -1765,7 +1767,11 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const maxCmc = customization.tinyLeaders ? 3 : null;
   const arenaOnly = !!customization.arenaOnly;
   const scryfallQuery = customization.scryfallQuery ?? '';
-  const preferredSet = parseSetFromQuery(scryfallQuery);
+  // All sets the query references (a multi-set OR query lists several). preferredSet is
+  // just the first, used as a single-set printing hint when batch-fetching; preferredSets
+  // is the full list used to keep any card printed in ANY requested set.
+  const preferredSets = parseSetsFromQuery(scryfallQuery);
+  const preferredSet = preferredSets[0];
   const maxGameChangers = customization.gameChangerLimit === 'none' ? 0
     : customization.gameChangerLimit === 'unlimited' ? Infinity
     : customization.gameChangerLimit;
@@ -2636,10 +2642,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       const pct = 25 + Math.round((fetched / total) * 10);
       onProgress?.('Summoning cards from Scryfall...', pct);
     }, preferredSet, { currency });
-    // Post-filter: remove cards that don't match the scryfallQuery filter
-    if (preferredSet) {
+    // Post-filter: remove cards that don't match the scryfallQuery filter. A multi-set
+    // query (set:a or set:b) keeps a card printed in ANY of the listed sets — filtering
+    // to just the first set here is what guts the EDHREC pool for cross-set queries.
+    if (preferredSets.length) {
       for (const [name, card] of cardMap) {
-        if (card.set !== preferredSet) cardMap.delete(name);
+        if (!preferredSets.includes(card.set)) cardMap.delete(name);
       }
     }
     await upgradeCardPrintings(cardMap, scryfallQuery, true);
@@ -3566,9 +3574,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
       const namesToFetch = remainingEdhrecCards.slice(0, shortage * 3).map(c => c.name);
       const fillCardMap = await getCardsByNames(namesToFetch, undefined, preferredSet, { currency });
-      if (preferredSet) {
+      if (preferredSets.length) {
         for (const [name, card] of fillCardMap) {
-          if (card.set !== preferredSet) fillCardMap.delete(name);
+          if (!preferredSets.includes(card.set)) fillCardMap.delete(name);
         }
       }
       await upgradeCardPrintings(fillCardMap, scryfallQuery, true);

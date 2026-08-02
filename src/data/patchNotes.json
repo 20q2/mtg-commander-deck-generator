@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.25",
+    "notes": [
+      "Inspector recommendations now factor in what plays well with your whole deck, not just each card on its own",
+      "Fixed decks built with a set filter that lists several sets coming out lopsided with too many artifacts and lands — cards from all the listed sets are now used"
+    ]
+  },
+  {
     "version": "1.3.24",
     "notes": [
       "Improved importer to recognize cards that have been renamed in secret lairs and such",
