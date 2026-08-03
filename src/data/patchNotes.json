@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.3.26",
+    "notes": [
+      "Building a deck from your collection now fills open slots with cards you actually own instead of padding with basic lands — limited collections will now produce far more complete decks",
+      "Fixed the Deck Roles panel showing counts that didn't line up when building from Collection",
+      "Added role filters (Ramp, Removal, Board Wipes, Card Draw, Protection) to your collection view",
+      "Tidied up the binder tabs on the collection page"
+    ]
+  },
+  {
     "version": "1.3.25",
     "notes": [
       "Inspector recommendations now factor in what plays well with your whole deck, not just each card on its own",

@@ -9,9 +9,11 @@ import {
   Search, Trash2, Minus, Plus, Download, AlertTriangle,
   Grid3X3, List, ChevronDown, RefreshCw, Loader2,
   ChevronLeft, ChevronRight, X, Check,
+  Sprout, Swords, Flame, BookOpen, Shield, type LucideIcon,
 } from 'lucide-react';
 import type { CollectionCard } from '@/services/collection/db';
 import type { ScryfallCard } from '@/types';
+import { loadTaggerData, cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 
 // --- Constants ---
 
@@ -32,6 +34,17 @@ const RARITIES = [
   { code: 'rare', label: 'Rare', color: 'text-amber-500' },
   { code: 'mythic', label: 'Mythic', color: 'text-orange-500' },
 ];
+
+// Role filter chips — match the type-breakdown chip style above them; colors mirror
+// the base role badge hues in getRoleBadgeProps, icons the Inspector's role mapping.
+const ROLES: { key: RoleKey; label: string; icon: LucideIcon; on: string }[] = [
+  { key: 'ramp', label: 'Ramp', icon: Sprout, on: 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40' },
+  { key: 'removal', label: 'Removal', icon: Swords, on: 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' },
+  { key: 'boardwipe', label: 'Board Wipe', icon: Flame, on: 'bg-orange-500/20 text-orange-300 ring-1 ring-orange-500/40' },
+  { key: 'cardDraw', label: 'Card Draw', icon: BookOpen, on: 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40' },
+  { key: 'protection', label: 'Protection', icon: Shield, on: 'bg-yellow-500/20 text-yellow-300 ring-1 ring-yellow-500/40' },
+];
+const ROLE_PILL_OFF = 'bg-accent/60 text-muted-foreground hover:bg-accent';
 
 type SortKey = 'name' | 'quantity' | 'cmc' | 'type' | 'rarity' | 'added' | 'edhrecRank';
 type ViewMode = 'grid' | 'list';
@@ -146,6 +159,8 @@ export function CollectionManager({
   const [colorFilterMode, setColorFilterMode] = useState<ColorFilterMode>('at-least');
   const [commandersOnly, setCommandersOnly] = useState(false);
   const [multicolorOnly, setMulticolorOnly] = useState(false);
+  const [selectedRoles, setSelectedRoles] = useState<Set<RoleKey>>(new Set());
+  const [taggerReady, setTaggerReady] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
@@ -155,6 +170,16 @@ export function CollectionManager({
   useEffect(() => {
     setPage(1);
   }, [selectedColors, selectedTypes, selectedRarities]);
+
+  // Load tagger data so role filtering (cardMatchesRole) works. The pills only render
+  // once this resolves — if VITE_TAG_REPO_URL is unset or the fetch fails, they stay hidden.
+  useEffect(() => {
+    let alive = true;
+    loadTaggerData().then(data => {
+      if (alive && data) setTaggerReady(true);
+    });
+    return () => { alive = false; };
+  }, []);
 
   // Filter & sort
   const filteredCards = useMemo(() => {
@@ -201,8 +226,13 @@ export function CollectionManager({
       result = result.filter(c => (c.colorIdentity?.length ?? 0) >= 2);
     }
 
+    // Role filter — card matches if it fills ANY selected role (ramp/removal/etc.)
+    if (selectedRoles.size > 0) {
+      result = result.filter(c => [...selectedRoles].some(role => cardMatchesRole(c.name, role)));
+    }
+
     return sortCards(result, sortKey, sortDir);
-  }, [cards, searchQuery, selectedColors, colorFilterMode, selectedTypes, selectedRarities, commandersOnly, multicolorOnly, sortKey, sortDir]);
+  }, [cards, searchQuery, selectedColors, colorFilterMode, selectedTypes, selectedRarities, commandersOnly, multicolorOnly, selectedRoles, sortKey, sortDir]);
 
   // Pagination
   const itemsPerPage = viewMode === 'grid' ? ITEMS_PER_PAGE_GRID : ITEMS_PER_PAGE_LIST;
@@ -224,7 +254,7 @@ export function CollectionManager({
     return { totalQuantity, typeBreakdown };
   }, [cards]);
 
-  const activeFilters = (selectedColors.size > 0 ? 1 : 0) + (selectedTypes.size > 0 ? 1 : 0) + (selectedRarities.size > 0 ? 1 : 0) + (commandersOnly ? 1 : 0) + (multicolorOnly ? 1 : 0);
+  const activeFilters = (selectedColors.size > 0 ? 1 : 0) + (selectedTypes.size > 0 ? 1 : 0) + (selectedRarities.size > 0 ? 1 : 0) + (commandersOnly ? 1 : 0) + (multicolorOnly ? 1 : 0) + (selectedRoles.size > 0 ? 1 : 0);
 
   const toggleColor = (code: string) => {
     const next = new Set(selectedColors);
@@ -250,12 +280,21 @@ export function CollectionManager({
     setPage(1);
   };
 
+  const toggleRole = (role: RoleKey) => {
+    const next = new Set(selectedRoles);
+    if (next.has(role)) next.delete(role);
+    else next.add(role);
+    setSelectedRoles(next);
+    setPage(1);
+  };
+
   const clearFilters = () => {
     onSelectedColorsChange(new Set());
     onSelectedTypesChange(new Set());
     onSelectedRaritiesChange(new Set());
     setCommandersOnly(false);
     setMulticolorOnly(false);
+    setSelectedRoles(new Set());
     setSearchQuery('');
     setPage(1);
   };
@@ -413,6 +452,24 @@ export function CollectionManager({
             </button>
           ))}
       </div>
+
+      {/* Role filter pills — only shown once tagger data is loaded */}
+      {taggerReady && (
+        <div className="flex flex-wrap gap-1.5">
+          {ROLES.map(({ key, label, icon: Icon, on }) => (
+            <button
+              key={key}
+              onClick={() => toggleRole(key)}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full transition-colors cursor-pointer ${
+                selectedRoles.has(key) ? on : ROLE_PILL_OFF
+              }`}
+            >
+              <Icon className="w-3 h-3 opacity-70" />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Search + View Toggle */}
       <div className="flex gap-2">

@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ManaCost, ColorIdentity } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
-import { generateDeck } from '@/services/deckBuilder/deckGenerator';
+import { generateDeck, type OwnedCardMeta } from '@/services/deckBuilder/deckGenerator';
 import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/services/scryfall/client';
 import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
@@ -583,14 +583,26 @@ export function BuilderPage() {
     try {
       // Load collection if collection mode is enabled
       let collectionNames: Set<string> | undefined;
+      let collectionCards: OwnedCardMeta[] | undefined;
       if (cust.collectionMode) {
-        const { getCollectionNameSet } = await import('@/services/collection/db');
+        const { getCollectionNameSet, getCardsMerged } = await import('@/services/collection/db');
         collectionNames = await getCollectionNameSet(cust.collectionBinderIds);
         if (collectionNames.size === 0) {
           setError('Collection mode is enabled but your collection is empty. Import your collection first.');
           setLoading(false);
           return;
         }
+        // Rich owned-card metadata powers the collection-first shortfall fill (fills the
+        // deck from what you actually own instead of padding basics on low EDHREC overlap).
+        const rows = await getCardsMerged(cust.collectionBinderIds);
+        collectionCards = rows.map(r => ({
+          name: r.name,
+          typeLine: r.typeLine,
+          colorIdentity: r.colorIdentity,
+          cmc: r.cmc,
+          rarity: r.rarity,
+          edhrecRank: r.edhrecRank,
+        }));
       }
 
       const deck = await generateDeck({
@@ -600,6 +612,7 @@ export function BuilderPage() {
         customization: cust,
         selectedThemes: themes,
         collectionNames,
+        collectionCards,
         onProgress: (message, percent) => {
           setProgress(message);
           setProgressPercent(percent);

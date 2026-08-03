@@ -38,6 +38,17 @@ import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './r
 import type { Pacing, RoleTargetBreakdown } from '@/types';
 import { loadUserLists } from '@/hooks/useUserLists';
 
+/** Lightweight owned-card metadata used to build a collection-first candidate pool
+ *  without a Scryfall round-trip. Sourced from the local collection DB. */
+export interface OwnedCardMeta {
+  name: string;
+  typeLine?: string;
+  colorIdentity?: string[];
+  cmc?: number;
+  rarity?: string;
+  edhrecRank?: number;
+}
+
 interface GenerationContext {
   commander: ScryfallCard;
   partnerCommander: ScryfallCard | null;
@@ -45,6 +56,9 @@ interface GenerationContext {
   customization: Customization;
   selectedThemes?: ThemeResult[];
   collectionNames?: Set<string>;
+  // Owned-card metadata (collection mode only) — powers the collection-first
+  // shortfall fill so a niche owned pool can fill the deck instead of padding basics.
+  collectionCards?: OwnedCardMeta[];
   optimizeDeckCards?: string[];
   onProgress?: (message: string, percent: number) => void;
 }
@@ -1034,6 +1048,129 @@ async function fillWithScryfall(
     console.error(`Scryfall fallback failed for query "${query}":`, error);
     return [];
   }
+}
+
+// Map a raw type line to the primary card type used for deficit tracking.
+// Checks creature/planeswalker before artifact/enchantment so "Artifact Creature"
+// and "Enchantment Creature" count as creatures. Returns 'land' so lands can be excluded.
+function primaryTypeFromLine(typeLine: string | undefined): string | null {
+  if (!typeLine) return null;
+  const t = typeLine.toLowerCase();
+  if (t.includes('land')) return 'land';
+  if (t.includes('creature')) return 'creature';
+  if (t.includes('planeswalker')) return 'planeswalker';
+  if (t.includes('instant')) return 'instant';
+  if (t.includes('sorcery')) return 'sorcery';
+  if (t.includes('artifact')) return 'artifact';
+  if (t.includes('enchantment')) return 'enchantment';
+  return null;
+}
+
+/**
+ * Collection-first shortfall fill. When building from a collection, EDHREC's
+ * recommendations for a niche commander rarely overlap a niche owned pool, so the
+ * normal pipeline comes up short and pads with basics. This fills the remaining
+ * non-land slots directly from OWNED cards — ranked with local collection metadata
+ * (type deficit + tagger functional role + EDHREC popularity), fetching full card
+ * data only for the slice it may actually use. Returns the number of cards added.
+ *
+ * Runs only in collection mode (owned metadata is present); ordinary generation with
+ * access to all of Magic is untouched.
+ */
+async function fillShortageFromCollection(opts: {
+  ownedCards: OwnedCardMeta[];
+  categories: Record<DeckCategory, ScryfallCard[]>;
+  shortage: number;
+  usedNames: Set<string>;
+  bannedCards: Set<string>;
+  colorIdentity: string[];
+  typeTargets: Record<string, number>;
+  allowedRarities: Rarity[] | null;
+  maxCmc: number | null;
+  arenaOnly: boolean;
+  maxCardPrice: number | null;
+  currency: 'USD' | 'EUR';
+  ignoreOwnedRarity: boolean;
+  collectionNames?: Set<string>;
+  preferredSet?: string;
+  scryfallQuery: string;
+}): Promise<number> {
+  const {
+    ownedCards, categories, shortage, usedNames, bannedCards, colorIdentity,
+    typeTargets, allowedRarities, maxCmc, arenaOnly, maxCardPrice, currency,
+    ignoreOwnedRarity, collectionNames, preferredSet, scryfallQuery,
+  } = opts;
+  if (shortage <= 0 || ownedCards.length === 0) return 0;
+
+  // Current non-land type counts → which types still want cards
+  const currentTypeCounts: Record<string, number> = {};
+  for (const card of Object.values(categories).flat()) {
+    const t = primaryTypeFromLine(getFrontFaceTypeLine(card));
+    if (t && t !== 'land') currentTypeCounts[t] = (currentTypeCounts[t] ?? 0) + 1;
+  }
+  const typeInDeficit = (type: string | null): boolean =>
+    !!type && type !== 'land' && (typeTargets[type] ?? 0) - (currentTypeCounts[type] ?? 0) > 0;
+
+  // Rank owned candidates from local metadata (no fetch). Prefer cards whose type is
+  // still under target, then functional (tagger-role) cards, breaking ties by EDHREC rank.
+  const ranked = ownedCards
+    .filter(c => {
+      if (usedNames.has(c.name) || bannedCards.has(c.name)) return false;
+      if (BASIC_LAND_NAMES.has(c.name)) return false;
+      if (primaryTypeFromLine(c.typeLine) === 'land') return false; // lands filled elsewhere
+      if (c.colorIdentity && !c.colorIdentity.every(col => colorIdentity.includes(col))) return false;
+      if (maxCmc !== null && c.cmc !== undefined && c.cmc > maxCmc) return false;
+      return true;
+    })
+    .map(c => {
+      let score = 0;
+      if (typeInDeficit(primaryTypeFromLine(c.typeLine))) score += 100;
+      if (getCardRole(c.name)) score += 30; // functional cards earn their slot
+      if (c.edhrecRank !== undefined) score += Math.max(0, 20 - c.edhrecRank / 2000);
+      return { meta: c, score };
+    })
+    .sort((a, b) => b.score - a.score || (a.meta.edhrecRank ?? Infinity) - (b.meta.edhrecRank ?? Infinity));
+
+  if (ranked.length === 0) return 0;
+
+  // Fetch full card data only for the top slice we might actually use (buffer for
+  // post-fetch validation drops).
+  const namesToFetch = ranked.slice(0, shortage * 3).map(r => r.meta.name);
+  const cardMap = await getCardsByNames(namesToFetch, undefined, preferredSet, { currency });
+  await upgradeCardPrintings(cardMap, scryfallQuery, true);
+
+  let filled = 0;
+  for (const { meta } of ranked) {
+    if (filled >= shortage) break;
+    if (usedNames.has(meta.name)) continue;
+
+    const card = cardMap.get(meta.name);
+    if (!card) continue;
+    if (getFrontFaceTypeLine(card).toLowerCase().includes('land')) continue; // lands filled elsewhere
+    if (!fitsColorIdentity(card, colorIdentity)) continue;
+    if (notOnArena(card, arenaOnly)) continue;
+    if (exceedsCmcCap(card, maxCmc)) continue;
+    if (exceedsMaxPrice(card, maxCardPrice, currency)) continue;
+    if (!isOwnedRarityExempt(meta.name, collectionNames, ignoreOwnedRarity)) {
+      if (!rarityAllowed(card.rarity, allowedRarities)) continue;
+    }
+
+    // Stamp tagger role + subtypes so these owned picks behave like fully-processed
+    // cards in the optimizer (role badges, role-filtered views).
+    stampRoleSubtypes(card);
+
+    // Creatures keep their type slot; everything else is bucketed by tagger role
+    // (ramp/removal/draw/…), falling back to synergy.
+    if (getFrontFaceTypeLine(card).toLowerCase().includes('creature')) {
+      categories.creatures.push(card);
+    } else {
+      categorizeCards([card], categories);
+    }
+    usedNames.add(meta.name);
+    if (card.name !== meta.name) usedNames.add(card.name);
+    filled++;
+  }
+  return filled;
 }
 
 // Basic land names to filter out from EDHREC suggestions
@@ -3669,6 +3806,33 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log(`[DeckGen] Filled ${filled} cards from remaining EDHREC suggestions`);
     }
 
+    // Collection-first fill: with a collection, fill remaining non-land slots from OWNED
+    // cards (categorized by tagger role + type) before a generic Scryfall search or basic
+    // padding. This is what lets a niche/low-data collection build a real deck instead of
+    // collapsing to lands when EDHREC's recommendations don't overlap what you own.
+    currentCount = countAllCards();
+    if (currentCount < targetDeckSize && context.collectionCards && context.collectionCards.length > 0) {
+      const filled = await fillShortageFromCollection({
+        ownedCards: context.collectionCards,
+        categories,
+        shortage: targetDeckSize - currentCount,
+        usedNames,
+        bannedCards,
+        colorIdentity,
+        typeTargets,
+        allowedRarities,
+        maxCmc,
+        arenaOnly,
+        maxCardPrice: shortagePriceCap,
+        currency,
+        ignoreOwnedRarity,
+        collectionNames: context.collectionNames,
+        preferredSet,
+        scryfallQuery,
+      });
+      console.log(`[DeckGen] Filled ${filled} cards from collection pool`);
+    }
+
     // If still short after EDHREC, use Scryfall — fill by type to stay balanced
     currentCount = countAllCards();
     if (currentCount < targetDeckSize) {
@@ -4385,6 +4549,46 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
   }
 
+  // Reconcile role + subtype counts against the FINAL deck. Shortfall fills (collection
+  // pool, EDHREC remainder, Scryfall fallback) add cards without touching the fill-time
+  // accumulators, so the Deck Roles header (roleCounts) undercounted; meanwhile the subtype
+  // chips were scanned from the final deck counting EVERY stamped subtype (a card can carry
+  // several), so they overcounted. Recompute both here from each card's PRIMARY tagger role
+  // so the header, chips, target breakdown, scoring, and grade all agree.
+  let finalSubtypeCounts: Record<RoleKey, Record<string, number>> | null = null;
+  if (roleTargets) {
+    const roleSubtypeGetter: Record<RoleKey, (name: string) => string | null> = {
+      ramp: getRampSubtype,
+      removal: getRemovalSubtype,
+      boardwipe: getBoardwipeSubtype,
+      cardDraw: getCardDrawSubtype,
+      protection: getProtectionSubtype,
+    };
+    finalSubtypeCounts = {
+      ramp: { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 },
+      removal: { bounce: 0, 'spot-removal': 0, removal: 0 },
+      boardwipe: { 'bounce-wipe': 0, boardwipe: 0 },
+      cardDraw: { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 },
+      protection: { counterspell: 0, protection: 0 },
+    };
+    for (const key of Object.keys(currentRoleCounts) as RoleKey[]) currentRoleCounts[key] = 0;
+    for (const key of Object.keys(currentSubtypeCounts)) delete currentSubtypeCounts[key];
+    for (const cards of Object.values(categories)) {
+      for (const card of cards) {
+        if (BASIC_LAND_NAMES.has(card.name)) continue;
+        const role = getCardRole(card.name);
+        if (!role) continue;
+        currentRoleCounts[role]++;
+        const subtype = roleSubtypeGetter[role](card.name);
+        if (subtype) {
+          finalSubtypeCounts[role][subtype] = (finalSubtypeCounts[role][subtype] ?? 0) + 1;
+          currentSubtypeCounts[subtype] = (currentSubtypeCounts[subtype] ?? 0) + 1;
+        }
+      }
+    }
+    console.log(`[DeckGen] Reconciled role counts from final deck:`, { ...currentRoleCounts });
+  }
+
   // Build deck score from EDHREC inclusion percentages
   let deckScore: number | undefined;
   let cardInclusionMap: Record<string, number> | undefined;
@@ -4619,29 +4823,13 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     roleCounts: roleTargets ? { ...currentRoleCounts } : undefined,
     roleTargets: roleTargets ? { ...roleTargets } : undefined,
     roleTargetBreakdown,
-    ...roleTargets ? (() => {
-      const rampSub: Record<string, number> = { 'mana-producer': 0, 'mana-rock': 0, 'cost-reducer': 0, ramp: 0 };
-      const removalSub: Record<string, number> = { bounce: 0, 'spot-removal': 0, removal: 0 };
-      const boardwipeSub: Record<string, number> = { 'bounce-wipe': 0, boardwipe: 0 };
-      const cardDrawSub: Record<string, number> = { tutor: 0, wheel: 0, cantrip: 0, 'card-draw': 0, 'card-advantage': 0 };
-      const protectionSub: Record<string, number> = { counterspell: 0, protection: 0 };
-      for (const cards of Object.values(categories)) {
-        for (const card of cards) {
-          if (card.rampSubtype) rampSub[card.rampSubtype] = (rampSub[card.rampSubtype] || 0) + 1;
-          if (card.removalSubtype) removalSub[card.removalSubtype] = (removalSub[card.removalSubtype] || 0) + 1;
-          if (card.boardwipeSubtype) boardwipeSub[card.boardwipeSubtype] = (boardwipeSub[card.boardwipeSubtype] || 0) + 1;
-          if (card.cardDrawSubtype) cardDrawSub[card.cardDrawSubtype] = (cardDrawSub[card.cardDrawSubtype] || 0) + 1;
-          if (card.protectionSubtype) protectionSub[card.protectionSubtype] = (protectionSub[card.protectionSubtype] || 0) + 1;
-        }
-      }
-      return {
-        rampSubtypeCounts: rampSub,
-        removalSubtypeCounts: removalSub,
-        boardwipeSubtypeCounts: boardwipeSub,
-        cardDrawSubtypeCounts: cardDrawSub,
-        protectionSubtypeCounts: protectionSub,
-      };
-    })() : {},
+    ...finalSubtypeCounts ? {
+      rampSubtypeCounts: finalSubtypeCounts.ramp,
+      removalSubtypeCounts: finalSubtypeCounts.removal,
+      boardwipeSubtypeCounts: finalSubtypeCounts.boardwipe,
+      cardDrawSubtypeCounts: finalSubtypeCounts.cardDraw,
+      protectionSubtypeCounts: finalSubtypeCounts.protection,
+    } : {},
     swapCandidates,
     deckScore,
     cardInclusionMap,

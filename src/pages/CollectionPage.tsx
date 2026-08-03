@@ -186,7 +186,7 @@ export function CollectionPage() {
                 </button>
 
                 {binders.map(binder => (
-                  <div key={binder.id} className="group shrink-0 flex items-center gap-1">
+                  <div key={binder.id} className="group shrink-0 lg:min-w-0 flex items-center gap-1">
                     {editingBinderId === binder.id ? (
                       <div className="flex items-center gap-1 px-2 py-1">
                         <input
@@ -202,7 +202,7 @@ export function CollectionPage() {
                     ) : (
                       <button
                         onClick={() => setSelectedBinderId(binder.id)}
-                        className={`flex-1 flex items-center gap-2 px-3 py-2 text-sm rounded-md text-left transition-colors ${
+                        className={`flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-sm rounded-md text-left transition-colors ${
                           selectedBinderId === binder.id
                             ? 'bg-primary/15 text-foreground font-medium'
                             : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground'
@@ -213,7 +213,7 @@ export function CollectionPage() {
                       </button>
                     )}
                     {editingBinderId !== binder.id && (
-                      <div className="hidden lg:flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="hidden lg:flex shrink-0 items-center opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => startRenameBinder(binder.id, binder.name)} className="p-1 text-muted-foreground hover:text-foreground" title="Rename">
                           <Pencil className="w-3 h-3" />
                         </button>
