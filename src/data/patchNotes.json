@@ -1,5 +1,11 @@
 [
   {
+    "version": "1.3.27",
+    "notes": [
+      "Building from colleciton will now fill your landbase more intelligently based on the card you own"      
+    ]
+  },
+  {
     "version": "1.3.26",
     "notes": [
       "Building a deck from your collection now fills open slots with cards you actually own instead of padding with basic lands — limited collections will now produce far more complete decks",

@@ -1173,6 +1173,78 @@ async function fillShortageFromCollection(opts: {
   return filled;
 }
 
+/**
+ * Collection-first non-basic land fill. Owned non-basic lands rarely rank high enough on
+ * EDHREC (or in the popularity-ordered Scryfall fallback) to surface for a niche commander,
+ * so a collection's lands get skipped and land slots collapse to basics. This pulls owned
+ * non-basic lands directly — ranked by local metadata, fetching full data only for the top
+ * slice — so an explicit non-basic land request is honored from what you own. Returns the
+ * lands to add. Runs only in collection mode (owned metadata present).
+ */
+async function fillLandsFromCollection(opts: {
+  ownedCards: OwnedCardMeta[];
+  need: number;
+  usedNames: Set<string>;
+  bannedCards: Set<string>;
+  colorIdentity: string[];
+  allowedRarities: Rarity[] | null;
+  arenaOnly: boolean;
+  maxCardPrice: number | null;
+  currency: 'USD' | 'EUR';
+  ignoreOwnedRarity: boolean;
+  collectionNames?: Set<string>;
+  preferredSet?: string;
+  scryfallQuery: string;
+}): Promise<ScryfallCard[]> {
+  const {
+    ownedCards, need, usedNames, bannedCards, colorIdentity, allowedRarities,
+    arenaOnly, maxCardPrice, currency, ignoreOwnedRarity, collectionNames,
+    preferredSet, scryfallQuery,
+  } = opts;
+  if (need <= 0 || ownedCards.length === 0) return [];
+
+  // Rank owned non-basic lands from local metadata (no fetch): color identity fit,
+  // ordered by EDHREC popularity.
+  const candidates = ownedCards
+    .filter(c => {
+      if (usedNames.has(c.name) || bannedCards.has(c.name)) return false;
+      if (BASIC_LAND_NAMES.has(c.name)) return false;
+      const tl = c.typeLine?.toLowerCase();
+      if (!tl || !tl.includes('land') || tl.includes('basic')) return false;
+      if (c.colorIdentity && !c.colorIdentity.every(col => colorIdentity.includes(col))) return false;
+      return true;
+    })
+    .sort((a, b) => (a.edhrecRank ?? Infinity) - (b.edhrecRank ?? Infinity));
+
+  if (candidates.length === 0) return [];
+
+  const namesToFetch = candidates.slice(0, need * 3).map(c => c.name);
+  const cardMap = await getCardsByNames(namesToFetch, undefined, preferredSet, { currency });
+  await upgradeCardPrintings(cardMap, scryfallQuery, true);
+
+  const result: ScryfallCard[] = [];
+  for (const meta of candidates) {
+    if (result.length >= need) break;
+    if (usedNames.has(meta.name)) continue;
+
+    const card = cardMap.get(meta.name);
+    if (!card) continue;
+    const tl = getFrontFaceTypeLine(card).toLowerCase();
+    if (!tl.includes('land') || tl.includes('basic')) continue;
+    if (!fitsColorIdentity(card, colorIdentity)) continue;
+    if (isWastedFixingLand(card, colorIdentity)) continue; // e.g. Mana Confluence in a mono deck
+    if (notOnArena(card, arenaOnly)) continue;
+    if (exceedsMaxPrice(card, maxCardPrice, currency)) continue;
+    if (!isOwnedRarityExempt(meta.name, collectionNames, ignoreOwnedRarity)) {
+      if (!rarityAllowed(card.rarity, allowedRarities)) continue;
+    }
+    result.push(card);
+    usedNames.add(meta.name);
+    if (card.name !== meta.name) usedNames.add(card.name);
+  }
+  return result;
+}
+
 // Basic land names to filter out from EDHREC suggestions
 const BASIC_LAND_NAMES = new Set([
   'Plains', 'Island', 'Swamp', 'Mountain', 'Forest',
@@ -1424,6 +1496,7 @@ async function generateLands(
   priorityBoosts?: Map<string, number>,
   manaMix?: ManaMix,
   landSwapPool?: ScryfallCard[],
+  collectionCards?: OwnedCardMeta[],
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1545,6 +1618,31 @@ async function generateLands(
         if (notOnArena(card, arenaOnly)) continue;
         landSwapPool.push(card);
       }
+    }
+  }
+
+  // Collection-first land fill: pull owned non-basic lands that the EDHREC list and the
+  // popularity-ordered Scryfall fallback both miss (a niche collection's lands rarely rank
+  // high enough to surface). Runs before the generic fallback so owned lands win the slots.
+  if (lands.length < nonBasicTarget && collectionCards && collectionCards.length > 0) {
+    const owned = await fillLandsFromCollection({
+      ownedCards: collectionCards,
+      need: nonBasicTarget - lands.length,
+      usedNames,
+      bannedCards,
+      colorIdentity,
+      allowedRarities,
+      arenaOnly,
+      maxCardPrice,
+      currency,
+      ignoreOwnedRarity,
+      collectionNames,
+      preferredSet,
+      scryfallQuery,
+    });
+    lands.push(...owned);
+    if (owned.length > 0) {
+      console.log(`[DeckGen] Filled ${owned.length} non-basic lands from collection pool:`, owned.map(l => l.name));
     }
   }
 
@@ -3249,6 +3347,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         undefined,
         resolveManaMix(customization),
         landSwapPool,
+        context.collectionCards,
       ),
     ];
 
@@ -3531,6 +3630,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         resolvedPacing,
         undefined,
         resolveManaMix(customization),
+        undefined,
+        context.collectionCards,
       ),
     ];
   }
