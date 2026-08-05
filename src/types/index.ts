@@ -650,6 +650,8 @@ export interface AppState {
   // Deck
   generatedDeck: GeneratedDeck | null;
   deckHistory: DeckHistoryEntry[];
+  /** Dexie row id (src/services/deckBuilder/deckPersistence.ts) the active deck auto-saves to. */
+  activeDeckId: string | null;
 
   // Brew session (interactive brewing mode)
   brewContext: import('@/services/brew/engine').BrewContext | null;
@@ -690,6 +692,11 @@ export interface AppState {
   pushDeckHistory: (entry: Omit<DeckHistoryEntry, 'id' | 'timestamp'>) => void;
   popLatestHistoryEntries: (action: DeckHistoryAction, cardNames: string[]) => void;
   clearDeckHistory: () => void;
+  setDeckHistory: (history: DeckHistoryEntry[]) => void;
+  /** Mints and stores a fresh activeDeckId (a brand-new saved-deck row) so edit history
+   *  doesn't bleed into an unrelated deck. Call whenever starting a new deck from scratch. */
+  startNewActiveDeck: () => string;
+  setActiveDeckId: (id: string | null) => void;
   setLoading: (loading: boolean, message?: string) => void;
   setError: (error: string | null) => void;
   setModifyMode: (on: boolean) => void;

@@ -8,6 +8,7 @@ import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, g
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { getMaxCopies } from '@/lib/utils';
 import { DeckHistory } from '@/components/deck/DeckHistory';
+import { CutFinder, useCutFinderState } from '@/components/deck/CutFinder';
 import type { ScryfallCard, DetectedCombo, UserCardList, LoadPhase, UserCombo, CardEdhrecMeta, GeneratedDeck } from '@/types';
 import {
   Copy,
@@ -49,6 +50,7 @@ import {
   Tag,
   History,
   Telescope,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -2431,6 +2433,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const [hoverCard, setHoverCard] = useState<{ card: ScryfallCard; rowRect: { right: number; top: number; height: number }; showBack?: boolean } | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const cutFinder = useCutFinderState();
   const [viewMode, _setViewMode] = useState<'list' | 'grid'>(
     () => (localStorage.getItem('mtg-deck-view-mode') as 'list' | 'grid') || 'list'
   );
@@ -4402,6 +4405,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
               <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
+              {!readOnly && (
+                <Button variant="outline" size="sm" onClick={cutFinder.open} className="w-full">
+                  <ArrowRightLeft className="w-3.5 h-3.5 mr-1.5" /> What should I cut?
+                </Button>
+              )}
               <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
@@ -4879,10 +4887,16 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               </div>
             </div>
             <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
+            {!readOnly && (
+              <Button variant="outline" size="sm" onClick={cutFinder.open} className="w-full mt-4">
+                <ArrowRightLeft className="w-3.5 h-3.5 mr-1.5" /> What should I cut?
+              </Button>
+            )}
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>
       </div>
+      <CutFinder isOpen={cutFinder.isOpen} onClose={cutFinder.close} deckCardNames={deckCardNames} />
 
       {/* Floating Preview */}
       {hoverCard && (

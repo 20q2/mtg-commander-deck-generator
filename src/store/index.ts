@@ -3,6 +3,7 @@ import type { AppState, Customization, BanList, AppliedList, ScryfallCard, Gener
 import { isEuropean } from '@/lib/region';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
+import { loadActiveDeckId, saveActiveDeckId } from '@/services/deckBuilder/deckPersistence';
 import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, computeAffinityDelta, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
 
 /** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
@@ -286,6 +287,7 @@ export const useStore = create<AppState>((set, get) => ({
   // Deck
   generatedDeck: null,
   deckHistory: [],
+  activeDeckId: loadActiveDeckId(),
 
   // Brew session
   brewContext: null,
@@ -316,6 +318,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Re-setting the same commander (e.g. on a page refresh that re-fetches it)
     // would otherwise clobber a deck restored from sessionStorage.
     const sameCommander = state.commander?.name === card?.name;
+    if (!sameCommander) saveActiveDeckId(null); // new commander = new deck; BuilderPage mints a fresh id on generate
 
     return {
       commander: card,
@@ -332,6 +335,7 @@ export const useStore = create<AppState>((set, get) => ({
       edhrecStats: null,
       userEditedLands: false,
       deckHistory: [],
+      ...(sameCommander ? {} : { activeDeckId: null }),
     };
   }),
 
@@ -341,6 +345,7 @@ export const useStore = create<AppState>((set, get) => ({
     const combined = [...new Set([...commanderIdentity, ...partnerIdentity])];
     // Avoid wiping a deck restored from sessionStorage on refresh (see setCommander).
     const samePartner = (state.partnerCommander?.name ?? null) === (card?.name ?? null);
+    if (!samePartner) saveActiveDeckId(null);
 
     return {
       partnerCommander: card,
@@ -355,6 +360,7 @@ export const useStore = create<AppState>((set, get) => ({
       edhrecNumDecks: null,
       edhrecStats: null,
       deckHistory: [],
+      ...(samePartner ? {} : { activeDeckId: null }),
     };
   }),
 
@@ -478,6 +484,20 @@ export const useStore = create<AppState>((set, get) => ({
   }),
 
   clearDeckHistory: () => set({ deckHistory: [] }),
+
+  setDeckHistory: (history) => set({ deckHistory: history }),
+
+  startNewActiveDeck: () => {
+    const id = crypto.randomUUID();
+    saveActiveDeckId(id);
+    set({ activeDeckId: id });
+    return id;
+  },
+
+  setActiveDeckId: (id) => {
+    saveActiveDeckId(id);
+    set({ activeDeckId: id });
+  },
 
   startBrewSession: (ctx: BrewContext) => {
     const state: BrewState = {
@@ -885,26 +905,30 @@ export const useStore = create<AppState>((set, get) => ({
 
   setModifyMode: (on: boolean) => set({ isModifyMode: on }),
 
-  reset: () => set((state) => ({
-    commander: null,
-    partnerCommander: null,
-    colorIdentity: [],
-    edhrecThemes: [],
-    selectedThemes: [],
-    themesLoading: false,
-    themesError: null,
-    themeSource: 'local',
-    edhrecNumDecks: null,
-    pendingStrategySlug: null,
-    userEditedLands: false,
-    // Preserve all customization settings when switching commanders
-    customization: state.customization,
-    generatedDeck: null,
-    deckHistory: [],
-    isLoading: false,
-    loadingMessage: '',
-    error: null,
-  })),
+  reset: () => {
+    saveActiveDeckId(null);
+    return set((state) => ({
+      commander: null,
+      partnerCommander: null,
+      colorIdentity: [],
+      edhrecThemes: [],
+      selectedThemes: [],
+      themesLoading: false,
+      themesError: null,
+      themeSource: 'local',
+      edhrecNumDecks: null,
+      pendingStrategySlug: null,
+      userEditedLands: false,
+      // Preserve all customization settings when switching commanders
+      customization: state.customization,
+      generatedDeck: null,
+      deckHistory: [],
+      activeDeckId: null,
+      isLoading: false,
+      loadingMessage: '',
+      error: null,
+    }));
+  },
 }));
 
 // ---------------------------------------------------------------------------

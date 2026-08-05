@@ -15,6 +15,7 @@ import { useStore } from '@/store';
 import { generateDeck, type OwnedCardMeta } from '@/services/deckBuilder/deckGenerator';
 import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/services/scryfall/client';
 import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
+import { loadDeckSnapshot, saveDeckSnapshot } from '@/services/deckBuilder/deckPersistence';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, EDHRECTheme, GeneratedDeck, ThemeResult } from '@/types';
@@ -148,6 +149,43 @@ export function BuilderPage() {
       console.warn('Failed to persist deck to sessionStorage:', e);
     }
   }, [generatedDeck, genParam]);
+
+  // Durable restore: if the sessionStorage snapshot above didn't already resurrect a deck
+  // (e.g. a fresh tab, or the sessionStorage entry aged out) but there's a saved activeDeckId
+  // in Dexie, resume that deck + its full change log so a reload picks up exactly where the
+  // user left off.
+  useEffect(() => {
+    if (!genParam || generatedDeck || !commander) return;
+    const { activeDeckId } = useStore.getState();
+    if (!activeDeckId) return;
+    let cancelled = false;
+    loadDeckSnapshot(activeDeckId).then(row => {
+      if (cancelled || !row) return;
+      if (useStore.getState().generatedDeck) return; // raced with sessionStorage hydration
+      setGeneratedDeck(row.deck);
+      useStore.getState().setDeckHistory(row.history);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genParam, commander?.name]);
+
+  // Debounce-persist the active deck's snapshot (deck + edit log) to Dexie whenever either
+  // changes — add/remove/swap/sideboard/maybeboard all flow through generatedDeck/deckHistory,
+  // so this single effect covers every meaningful edit without threading persistence calls
+  // through each mutation site. Fire-and-forget; never blocks the UI.
+  const deckHistory = useStore(s => s.deckHistory);
+  const activeDeckId = useStore(s => s.activeDeckId);
+  useEffect(() => {
+    if (!generatedDeck) return;
+    // A deck can exist (e.g. resumed from the sessionStorage snapshot) without an activeDeckId
+    // yet — mint one lazily so it starts auto-saving from here on.
+    const id = activeDeckId ?? useStore.getState().startNewActiveDeck();
+    const commanderName = generatedDeck.commander?.name ?? commander?.name ?? '';
+    const timer = setTimeout(() => {
+      void saveDeckSnapshot(id, commanderName, generatedDeck, deckHistory);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [generatedDeck, deckHistory, activeDeckId, commander?.name]);
 
   // Load collection names for header price display
   useEffect(() => {
@@ -627,6 +665,11 @@ export function BuilderPage() {
       }
       setGeneratedDeck(deck);
       useStore.getState().clearDeckHistory();
+      // Fresh generation = a brand-new deck: mint a new active-deck id so the persisted
+      // change log doesn't bleed into an unrelated deck. Regeneration keeps editing the same one.
+      if (!isRegeneration) {
+        useStore.getState().startNewActiveDeck();
+      }
       // Push a new URL with ?g=<timestamp> so browser back returns to settings view.
       // Only on fresh generation — regeneration stays on the same entry.
       if (!isRegeneration) {
