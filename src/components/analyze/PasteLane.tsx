@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
-import { searchCommanders, getCardImageUrl } from '@/services/scryfall/client';
+import { searchCommanders, getCardImageUrl, getCardByName } from '@/services/scryfall/client';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import type { ScryfallCard } from '@/types';
 
@@ -16,9 +16,19 @@ export interface PasteLaneResult {
 interface PasteLaneProps {
   onAnalyze: (result: PasteLaneResult) => void;
   loading: boolean;
+  /** Prefill from `/analyze?c=`. */
+  initialText?: string;
+  /** From `?commander=` — wins over *CMDR* / auto-detect. */
+  initialCommander?: string;
+  /** After import, call onAnalyze once if a commander is resolved. */
+  autoAnalyze?: boolean;
 }
 
-export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
+function namesMatch(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+export function PasteLane({ onAnalyze, loading, initialText, initialCommander, autoAnalyze }: PasteLaneProps) {
   const [importedCards, setImportedCards] = useState<string[]>([]);
   const [legendaries, setLegendaries] = useState<ScryfallCard[]>([]);
   const [commanderCard, setCommanderCard] = useState<ScryfallCard | null>(null);
@@ -27,12 +37,14 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
   const [fallbackSearching, setFallbackSearching] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ card: ScryfallCard; top: number; left: number; below: boolean } | null>(null);
 
-  // The CollectionImporter fires onLegendariesDetected FIRST, then auto-fires
-  // onCommanderDetected with the first legendary. If multiple legendaries were
-  // detected (and no `*CMDR*` marker was present) we want the user to pick
-  // explicitly — so we use a ref to know about multi-legendary state at the
-  // moment onCommanderDetected runs.
+  // CollectionImporter fires onLegendariesDetected, then auto-picks the first
+  // legendary via onCommanderDetected. With multiple legendaries (and no *CMDR*
+  // / ?commander=) we want the user to pick — legendariesRef tells us that.
   const legendariesRef = useRef<ScryfallCard[]>([]);
+  const hasExplicitCommander = !!initialCommander?.trim();
+  const autoAnalyzeRanRef = useRef(false);
+  const onAnalyzeRef = useRef(onAnalyze);
+  onAnalyzeRef.current = onAnalyze;
 
   const handleImportCards = useCallback((validatedNames: string[]) => {
     setImportedCards(validatedNames);
@@ -40,17 +52,50 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
   }, []);
 
   const handleCommanderDetected = useCallback((card: ScryfallCard) => {
-    // Suppress the importer's auto-pick when multiple legendaries are present.
-    // The *CMDR* marker path still works because the marker fires onCommanderDetected
-    // BEFORE legendaries are scanned (so legendariesRef is still empty here).
+    if (hasExplicitCommander) return;
+    // *CMDR* fires before legendaries are scanned (ref still empty) so it still wins.
     if (legendariesRef.current.length > 1) return;
     setCommanderCard(card);
-  }, []);
+  }, [hasExplicitCommander]);
 
   const handleLegendariesDetected = useCallback((found: ScryfallCard[]) => {
     legendariesRef.current = found;
     setLegendaries(found);
   }, []);
+
+  // Resolve ?commander= from the imported legendaries, else Scryfall.
+  useEffect(() => {
+    const name = initialCommander?.trim();
+    if (!name || commanderCard) return;
+
+    const fromList = legendaries.find(c => namesMatch(c.name, name))
+      ?? legendariesRef.current.find(c => namesMatch(c.name, name));
+    if (fromList) {
+      setCommanderCard(fromList);
+      return;
+    }
+
+    // Wait for the auto-import to finish before a network lookup (avoids racing
+    // the importer and briefly showing the "no commander" fallback).
+    if (initialText?.trim() && importedCards.length === 0 && legendaries.length === 0) return;
+
+    let cancelled = false;
+    getCardByName(name, true)
+      .then(card => { if (!cancelled) setCommanderCard(card); })
+      .catch(() => { /* leave picker UI */ });
+    return () => { cancelled = true; };
+  }, [initialCommander, commanderCard, importedCards.length, legendaries, initialText]);
+
+  // Auto-inspect once we have cards + a commander. Ambiguous lists stay on the picker.
+  useEffect(() => {
+    if (!autoAnalyze || autoAnalyzeRanRef.current || loading) return;
+    if (!importedCards.length || !commanderCard) return;
+    autoAnalyzeRanRef.current = true;
+    const names = importedCards.some(n => namesMatch(n, commanderCard.name))
+      ? importedCards
+      : [commanderCard.name, ...importedCards];
+    onAnalyzeRef.current({ cardNames: names, commanderName: commanderCard.name });
+  }, [autoAnalyze, importedCards, commanderCard, loading]);
 
   const runFallbackSearch = useCallback(async (q: string) => {
     setFallbackQuery(q);
@@ -100,6 +145,8 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
         onImportCards={handleImportCards}
         onCommanderDetected={handleCommanderDetected}
         onLegendariesDetected={handleLegendariesDetected}
+        initialText={initialText}
+        autoImport={!!initialText?.trim()}
       />
 
       {showLegendaryPicker && (
@@ -149,7 +196,7 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
         <Button
           onClick={() => {
             if (!commanderCard) return;
-            const names = importedCards.includes(commanderCard.name)
+            const names = importedCards.some(n => namesMatch(n, commanderCard.name))
               ? importedCards
               : [commanderCard.name, ...importedCards];
             onAnalyze({ cardNames: names, commanderName: commanderCard.name });

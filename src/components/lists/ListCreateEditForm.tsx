@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
+import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl, getCardsByNames, getCardByName } from '@/services/scryfall/client';
 import { CollectionImporter, ImportResultDisplay, type ImportResult, type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
@@ -37,13 +37,17 @@ interface ListCreateEditFormProps {
   mode?: 'deck' | 'list';
   onSave: (name: string, cards: string[], description: string, commanderOptions?: { commanderName?: string; partnerCommanderName?: string; deckSize?: number; primer?: string; heroCardName?: string }) => void;
   onCancel: () => void;
+  /** Prefill from `?c=` / `?name=` / `?commander=` on /decks/create. */
+  initialImportText?: string;
+  initialName?: string;
+  initialCommander?: string;
 }
 
-export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCancel }: ListCreateEditFormProps) {
+export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCancel, initialImportText, initialName, initialCommander }: ListCreateEditFormProps) {
   const isDeck = modeProp === 'deck' || (existingList?.type === 'deck');
   const isEditing = !!existingList;
 
-  const [name, setName] = useState(existingList?.name ?? '');
+  const [name, setName] = useState(existingList?.name ?? initialName ?? '');
   const [description, setDescription] = useState(existingList?.description ?? '');
   const [cards, setCards] = useState<string[]>(existingList?.cards ?? []);
   const [primer, setPrimer] = useState(existingList?.primer ?? '');
@@ -88,7 +92,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   };
 
   // Commander state
-  const [commanderName, setCommanderName] = useState(existingList?.commanderName ?? '');
+  const [commanderName, setCommanderName] = useState(existingList?.commanderName ?? initialCommander ?? '');
   const [commanderCard, setCommanderCard] = useState<ScryfallCard | null>(null);
   const [partnerCommanderName, setPartnerCommanderName] = useState(existingList?.partnerCommanderName ?? '');
   const [importedLegendaries, setImportedLegendaries] = useState<ScryfallCard[]>([]);
@@ -219,6 +223,23 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
     if (cards.length > 0) fetchMissingCardData(cards);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Look up ?commander= so the create form shows the card, not just the name string.
+  useEffect(() => {
+    if (!isDeck || !initialCommander?.trim() || commanderCard) return;
+    let cancelled = false;
+    getCardByName(initialCommander.trim(), true)
+      .then(card => {
+        if (cancelled) return;
+        setCommanderName(card.name);
+        setCommanderCard(card);
+        setDeckSize(prev => prev || 100);
+        setCards(prev => (prev.includes(card.name) ? prev : [card.name, ...prev]));
+      })
+      .catch(() => { /* keep the typed name; user can fix via the picker */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only deep-link seed
+  }, [isDeck, initialCommander]);
 
   // Auto-focus name field on create
   useEffect(() => {
@@ -878,6 +899,8 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             externalResult
             onResultChange={setImportResult}
             onProgressChange={setImportProgress}
+            initialText={initialImportText}
+            autoImport={!!initialImportText?.trim()}
           />
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -16,6 +16,7 @@ import { TagFilterStrip } from '@/components/lists/TagFilterStrip';
 import { trackEvent } from '@/services/analytics';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
+import { readExternalDecklist } from '@/services/import/externalDeckUrl';
 import type { BanList, UserCardList } from '@/types';
 
 type SortKey = 'updatedAt' | 'name' | 'size' | 'tag';
@@ -71,6 +72,18 @@ export function ListsPage() {
     if (kind === 'deck') return { view: 'deck-view' as const, kind, listId };
     return { view: 'detail' as const, kind, listId };
   }, [splat, location.pathname]);
+
+  // External /decks/create?c=… — stash the payload before we strip the query so
+  // CollectionImporter can auto-import on first mount. Cleared when leaving create.
+  // (ListsPage stays mounted under /decks/*, so this can't be a one-shot useState.)
+  const createImportRef = useRef<ReturnType<typeof readExternalDecklist>>(null);
+  if (currentView.view === 'create' && currentView.kind === 'deck') {
+    const incoming = readExternalDecklist(searchParams);
+    if (incoming) createImportRef.current = incoming;
+  } else if (currentView.view !== 'create') {
+    createImportRef.current = null;
+  }
+  const createImport = createImportRef.current;
 
   const laneLabel = currentView.kind === 'deck' ? 'My Decks' : 'My Lists';
   const openList = 'listId' in currentView && currentView.listId ? getListById(currentView.listId) : undefined;
@@ -268,6 +281,16 @@ export function ListsPage() {
     // Legacy: /lists/create?type=list → /lists/create (strip the query)
     if (currentView.view === 'create' && currentView.kind === 'list' && searchParams.get('type') === 'list') {
       navigate('/lists/create', { replace: true });
+      return;
+    }
+
+    // External import: /decks/create?c=… — strip query after stashing (above).
+    if (
+      currentView.view === 'create' &&
+      currentView.kind === 'deck' &&
+      (searchParams.has('c') || searchParams.has('name') || searchParams.has('commander'))
+    ) {
+      navigate('/decks/create', { replace: true });
       return;
     }
 
@@ -656,6 +679,9 @@ export function ListsPage() {
         <div className="aurora-bg" />
         <ListCreateEditForm
           mode={createMode}
+          initialImportText={createMode === 'deck' ? createImport?.decklist : undefined}
+          initialName={createMode === 'deck' ? createImport?.name : undefined}
+          initialCommander={createMode === 'deck' ? createImport?.commander : undefined}
           onSave={(name, cards, description, commanderOptions) => {
             const newList = createList(name, cards, description, {
               type: createMode === 'deck' || commanderOptions?.commanderName ? 'deck' : 'list',
