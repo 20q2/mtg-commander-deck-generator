@@ -36,6 +36,7 @@ This project is the original implementation and reference system for the underly
 - **Type Distribution Logic** - Creature / instant / sorcery / artifact / enchantment balancing
 - **Dynamic UI Theming** - Commander artwork and color identity influence UI styling
 - **Deck Export** - Copy-ready format for Moxfield, Archidekt, and MTGO
+- **External URL import** - Deep-link a decklist into Create Deck or Inspector via `?c=` + `?commander=`
 
 ---
 
@@ -133,6 +134,35 @@ Manafoundry will:
 ### Step 5: Export
 - Copy deck list
 - Import to Moxfield / Archidekt / MTGO
+
+---
+
+## External deck URL import
+
+Other sites can deep-link a decklist into ManaFoundry the same way Moxfield’s `?c=` import works. Helpers live in [`src/services/import/externalDeckUrl.ts`](src/services/import/externalDeckUrl.ts).
+
+| Intent | URL |
+|--------|-----|
+| Create deck | `https://manafoundry.gg/decks/create?c=<decklist>&commander=<name>&name=<optional>` |
+| Inspect | `https://manafoundry.gg/analyze?c=<decklist>&commander=<name>` |
+
+- `c` — URL-encoded plain decklist (`qty Name` per line)
+- `commander` — **preferred** explicit commander card name (auto-selects on Create / auto-inspects in Inspector)
+- `name` — optional deck title (Create only)
+
+Example (Create):
+
+```
+https://manafoundry.gg/decks/create?c=1%20Pantlaza%2C%20Sun-Favored%0A1%20Sol%20Ring&commander=Pantlaza%2C%20Sun-Favored&name=Dino%20Tribal
+```
+
+Example (Inspect):
+
+```
+https://manafoundry.gg/analyze?c=1%20Pantlaza%2C%20Sun-Favored%0A1%20Sol%20Ring&commander=Pantlaza%2C%20Sun-Favored
+```
+
+Fallbacks when `commander` is omitted: `*CMDR*` on a list line, a single legendary in the list, or Goldfish-style `Commander` / `Deck` section headers. Create opens the form and auto-imports (user still saves). Inspect auto-hydrates when the commander is unambiguous; otherwise the Paste lane shows a picker.
 
 ---
 

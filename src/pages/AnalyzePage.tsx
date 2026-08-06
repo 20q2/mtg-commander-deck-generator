@@ -21,6 +21,7 @@ import { parseIntendedThemes } from '@/services/deckUpgrades/deckUpgrades';
 import { stampRoleSubtypes } from '@/services/deckBuilder/deckGenerator';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { trackEvent } from '@/services/analytics';
+import { readExternalDecklist } from '@/services/import/externalDeckUrl';
 import type { UserCardList, GeneratedDeck, ScryfallCard } from '@/types';
 import type { CardAction } from '@/components/deck/DeckDisplay';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
@@ -54,10 +55,20 @@ function countCards(deck: GeneratedDeck): number {
 
 export function AnalyzePage() {
   const [activeLane, setActiveLane] = useState<LaneKey>(() => {
+    // Prefer paste when arriving via ?c= so the deep link doesn't land on lists/generate.
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('c')) {
+      return 'paste';
+    }
     const stored = localStorage.getItem(LANE_STORAGE_KEY);
     if (stored === 'paste' || stored === 'lists' || stored === 'generate') return stored;
     return 'paste';
   });
+  // One-shot ?c= seed (same idea as SpellChroma's ?deck= / ?card=). Captured at mount
+  // so stripping the query doesn't lose it; cleared once a deck is loaded.
+  const [importSeed, setImportSeed] = useState(() =>
+    readExternalDecklist(new URLSearchParams(window.location.search)),
+  );
+  const importSeedStripped = useRef(false);
   const [loading, setLoading] = useState(false);
   const [loadStage, setLoadStage] = useState<HydrateStage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +125,20 @@ export function AnalyzePage() {
   const param1IsTab = !!(param1 && param1 in TAB_KEY_BY_SLUG);
   const listIdParam: string | null = !param1 ? null : (param1IsTab ? null : param1);
   const tabSlug: string | undefined = param1IsTab ? param1 : param2;
+
+  // Strip ?c= / ?commander= after capturing so refresh doesn't re-import.
+  useEffect(() => {
+    if (!importSeed || importSeedStripped.current) return;
+    if (listIdParam || param1IsTab) return;
+    if (!searchParams.has('c') && !searchParams.has('commander')) return;
+    importSeedStripped.current = true;
+    navigate('/analyze', { replace: true });
+  }, [importSeed, listIdParam, param1IsTab, searchParams, navigate]);
+
+  // Drop the seed once a deck is loaded so "Inspect a different deck" doesn't re-fire.
+  useEffect(() => {
+    if (source !== null && importSeed) setImportSeed(null);
+  }, [source, importSeed]);
 
   const activeAnalyzerTab: TabKey = (tabSlug && TAB_KEY_BY_SLUG[tabSlug]) || 'overview';
   // Lift Web deep-link: /analyze/<id>/lift?view=islands reproduces the Overview lift tile's jump
@@ -772,7 +797,14 @@ export function AnalyzePage() {
           style={{ animationDelay: '170ms' }}
         >
           {activeLane === 'paste' && (
-            <PasteLane onAnalyze={handlePasteAnalyze} loading={loading} />
+            <PasteLane
+              key={importSeed ? `import:${importSeed.commander ?? ''}` : 'paste'}
+              onAnalyze={handlePasteAnalyze}
+              loading={loading}
+              initialText={importSeed?.decklist}
+              initialCommander={importSeed?.commander}
+              autoAnalyze={!!importSeed}
+            />
           )}
           {activeLane === 'lists' && (
             <ListsLane onPick={handleListPick} loading={loading} loadingListId={loadingListId} />

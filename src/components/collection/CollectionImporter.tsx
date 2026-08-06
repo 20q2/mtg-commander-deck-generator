@@ -1,4 +1,4 @@
-import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { bulkImport, DEFAULT_BINDER_ID, type BulkImportCard } from '@/services/collection/db';
@@ -46,6 +46,10 @@ interface CollectionImporterProps {
   onProgressChange?: (progress: string) => void;
   /** Called with all legendary creatures found during import, for commander selection */
   onLegendariesDetected?: (legendaries: import('@/types').ScryfallCard[]) => void;
+  /** Prefill the textarea (e.g. from a `?c=` deep link). */
+  initialText?: string;
+  /** Run import once on mount when `initialText` is set. */
+  autoImport?: boolean;
 }
 
 export function ImportResultDisplay({ result, updatedLabel, progress }: { result: ImportResult | null; updatedLabel?: string; progress?: string }) {
@@ -102,12 +106,16 @@ export interface CollectionImporterHandle {
   hasPending: () => boolean;
 }
 
-export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID }, ref) {
-  const [importText, setImportText] = useState('');
+export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID, initialText, autoImport }, ref) {
+  const [importText, setImportText] = useState(() => initialText?.trim() ? initialText : '');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, _setProgress] = useState('');
   const [result, _setResult] = useState<ImportResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoImportRanRef = useRef(false);
+  // Keep latest callbacks for the one-shot auto-import effect without re-firing.
+  const onPendingChangeRef = useRef(onPendingChange);
+  onPendingChangeRef.current = onPendingChange;
 
   const setProgress = (p: string) => { _setProgress(p); onProgressChange?.(p); };
   const setResult = (r: ImportResult | null) => { _setResult(r); onResultChange?.(r); };
@@ -237,6 +245,16 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
     }
     return finalResult;
   };
+
+  // Auto-import when opened via ?c= (one-shot).
+  useEffect(() => {
+    const seed = initialText?.trim();
+    if (!autoImport || !seed || autoImportRanRef.current) return;
+    autoImportRanRef.current = true;
+    onPendingChangeRef.current?.(true);
+    void handleImport(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only for deep-link seed
+  }, [autoImport, initialText]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
