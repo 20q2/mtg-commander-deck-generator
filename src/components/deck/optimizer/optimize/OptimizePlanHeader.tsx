@@ -1,8 +1,8 @@
-import { Sparkles, Check, ArrowRightLeft, Zap } from 'lucide-react';
+import { Sparkles, Check, ArrowRightLeft, Zap, ArrowLeftRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { OptimizePlanTotals } from './useOptimizePlan';
 
-export type OptimizeView = 'swaps' | 'combos';
+export type OptimizeView = 'swaps' | 'combos' | 'find-swap';
 
 export interface OptimizePlanHeaderProps {
   totals: OptimizePlanTotals;
@@ -32,25 +32,40 @@ export function OptimizePlanHeader({
   const { totalChanges, removeCount, addCount, priceDelta, scoreDelta, projectedSize, targetSize, overBy } = totals;
 
   const toggleOptions: ToggleOption[] = [
-    { key: 'swaps',  label: 'Swaps',  count: totalChanges, Icon: ArrowRightLeft, activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
-    { key: 'combos', label: 'Combos', count: comboCount,   Icon: Zap,            activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
+    { key: 'swaps',     label: 'Swaps',     count: totalChanges, Icon: ArrowRightLeft, activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
+    { key: 'combos',    label: 'Combos',    count: comboCount,   Icon: Zap,            activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
+    { key: 'find-swap', label: 'Find Swap', count: -1,           Icon: ArrowLeftRight, activeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
   ];
 
-  if (!hasSwaps) {
+  if (!hasSwaps && view !== 'find-swap') {
     return (
       <div className="sticky top-0 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 py-4 mb-6 sm:mb-8 border-b-2 border-border/60 shadow-lg shadow-black/40 bg-gradient-to-b from-violet-900/25 via-background/95 to-background backdrop-blur-lg">
-        <div className="flex items-center gap-2 text-sm text-emerald-400/80">
-          <Check className="w-4 h-4" />
-          <span className="font-medium">Looking good — no swaps recommended.</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm text-emerald-400/80">
+            <Check className="w-4 h-4" />
+            <span className="font-medium">Looking good — no swaps recommended.</span>
+          </div>
+          <button
+            type="button"
+            role="tab"
+            onClick={() => onViewChange('find-swap')}
+            className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md border bg-transparent text-foreground/70 border-transparent hover:bg-white/5 hover:text-foreground transition-colors"
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5" />
+            <span>Find Swap</span>
+          </button>
         </div>
       </div>
     );
   }
 
   const isCombosView = view === 'combos';
-  const title = isCombosView ? 'Combos in your deck' : 'Tune your deck';
+  const isFindSwapView = view === 'find-swap';
+  const title = isCombosView ? 'Combos in your deck' : isFindSwapView ? 'Find a swap' : 'Tune your deck';
   const subtitle = isCombosView
     ? `${comboCount} combo${comboCount !== 1 ? 's' : ''} found across complete sets and near-misses.`
+    : isFindSwapView
+    ? 'Search for a card to add and get a targeted 1-for-1 cut recommendation.'
     : `We found ${totalChanges > 0 ? `${totalChanges} swap${totalChanges !== 1 ? 's' : ''}` : 'a set of suggestions'} that look like upgrades.`;
 
   return (
@@ -88,16 +103,18 @@ export function OptimizePlanHeader({
               >
                 <opt.Icon className="w-3.5 h-3.5" />
                 <span>{opt.label}</span>
-                <span className={`tabular-nums font-bold ${isActive ? '' : 'text-foreground/60'}`}>
-                  {opt.count}
-                </span>
+                {opt.count >= 0 && (
+                  <span className={`tabular-nums font-bold ${isActive ? '' : 'text-foreground/60'}`}>
+                    {opt.count}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </div>
 
-      {!isCombosView && (
+      {!isCombosView && !isFindSwapView && (
         <div className="mt-2 flex items-center flex-wrap gap-1.5 text-[10px] font-semibold tabular-nums">
           <span className="px-1.5 py-0.5 rounded-md bg-muted/30 text-foreground/80 border border-border/40">
             {removeCount} cut · {addCount} add

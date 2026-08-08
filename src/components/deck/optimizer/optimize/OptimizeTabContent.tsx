@@ -9,6 +9,7 @@ import { OptimizePlanHeader, type OptimizeView } from './OptimizePlanHeader';
 import { OptimizeColumn } from './OptimizeColumn';
 import { OptimizeDrilldown } from './OptimizeDrilldown';
 import { useOptimizePlan } from './useOptimizePlan';
+import { FindSwapTab } from './FindSwapTab';
 
 // Module-level constant so optional-prop fallbacks don't allocate fresh arrays
 // each render (which would invalidate downstream useMemo deps).
@@ -250,6 +251,18 @@ export function OptimizeTabContent({
             forceExpanded
           />
         </div>
+      )}
+
+      {view === 'find-swap' && (
+        <FindSwapTab
+          currentCards={currentCards}
+          analysis={analysis}
+          synergyMap={deck?.cardSynergyMap}
+          onPreviewCard={onPreviewCard}
+          onApply={async (remove, add) => {
+            await onApply([remove], [add]);
+          }}
+        />
       )}
     </div>
   );
