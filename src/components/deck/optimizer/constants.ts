@@ -1,7 +1,7 @@
 import {
   Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
   LayoutDashboard, Mountain, BarChart3, Zap, Target, Crown,
-  MapPin, Clock, Gauge, DollarSign, Wand2, ChartNetwork, Newspaper,
+  MapPin, Clock, Gauge, DollarSign, Wand2, ChartNetwork, Newspaper, MessageCircle,
 } from 'lucide-react';
 import type { Pacing } from '@/services/deckBuilder/themeDetector';
 import type { CurvePhase } from '@/services/deckBuilder/deckAnalyzer';
@@ -71,7 +71,7 @@ export interface DeckOptimizerProps {
   sourceListId?: string;
 }
 
-export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift' | 'newCards';
+export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift' | 'newCards' | 'chat';
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -83,6 +83,7 @@ export const TABS: { key: TabKey; label: string; icon: typeof LayoutDashboard }[
   { key: 'lift',     label: 'Lift Web', icon: ChartNetwork as typeof LayoutDashboard },
   { key: 'optimize', label: 'Card Fit', icon: Wand2 as typeof LayoutDashboard },
   { key: 'newCards', label: 'New Cards', icon: Newspaper as typeof LayoutDashboard },
+  { key: 'chat',     label: 'Ask',       icon: MessageCircle as typeof LayoutDashboard },
 ];
 
 // URL slug <-> TabKey mapping. Slugs follow the user-facing labels
@@ -97,6 +98,7 @@ export const TAB_SLUG_BY_KEY: Record<TabKey, string> = {
   cost:     'cost',
   lift:     'lift-web',
   newCards: 'new-cards',
+  chat:     'ask',
 };
 
 export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
@@ -110,6 +112,7 @@ export const TAB_KEY_BY_SLUG: Record<string, TabKey> = {
   cost:       'cost',
   'lift-web': 'lift',
   'new-cards': 'newCards',
+  ask:         'chat',
 };
 
 // ─── Utility Functions ───────────────────────────────────────────────

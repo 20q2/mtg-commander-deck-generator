@@ -262,6 +262,36 @@ const defaultCustomization: Customization = {
   tempoPacing: 'balanced' as const,
 };
 
+// ---------------------------------------------------------------------------
+// Deck history localStorage persistence
+// ---------------------------------------------------------------------------
+const DECK_HISTORY_KEY = 'mtg-deck-history-v1';
+const DECK_HISTORY_COMMANDER_KEY = 'mtg-deck-history-commander-v1';
+
+function loadPersistedHistory(): import('@/types').DeckHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(DECK_HISTORY_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch { return []; }
+}
+
+function saveHistoryToStorage(history: import('@/types').DeckHistoryEntry[], commanderName?: string): void {
+  try {
+    localStorage.setItem(DECK_HISTORY_KEY, JSON.stringify(history));
+    if (commanderName !== undefined) {
+      localStorage.setItem(DECK_HISTORY_COMMANDER_KEY, commanderName);
+    }
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function clearHistoryStorage(): void {
+  try {
+    localStorage.removeItem(DECK_HISTORY_KEY);
+    localStorage.removeItem(DECK_HISTORY_COMMANDER_KEY);
+  } catch { /* ignore */ }
+}
+
 export const useStore = create<AppState>((set, get) => ({
   // Commander
   commander: null,
@@ -285,7 +315,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Deck
   generatedDeck: null,
-  deckHistory: [],
+  deckHistory: loadPersistedHistory(),
 
   // Brew session
   brewContext: null,
@@ -317,6 +347,8 @@ export const useStore = create<AppState>((set, get) => ({
     // would otherwise clobber a deck restored from sessionStorage.
     const sameCommander = state.commander?.name === card?.name;
 
+    if (!sameCommander) clearHistoryStorage();
+
     return {
       commander: card,
       colorIdentity: combined,
@@ -331,7 +363,7 @@ export const useStore = create<AppState>((set, get) => ({
       edhrecLandSuggestion: null,
       edhrecStats: null,
       userEditedLands: false,
-      deckHistory: [],
+      deckHistory: sameCommander ? state.deckHistory : [],
     };
   }),
 
@@ -341,6 +373,8 @@ export const useStore = create<AppState>((set, get) => ({
     const combined = [...new Set([...commanderIdentity, ...partnerIdentity])];
     // Avoid wiping a deck restored from sessionStorage on refresh (see setCommander).
     const samePartner = (state.partnerCommander?.name ?? null) === (card?.name ?? null);
+
+    if (!samePartner) clearHistoryStorage();
 
     return {
       partnerCommander: card,
@@ -354,7 +388,7 @@ export const useStore = create<AppState>((set, get) => ({
       themeSource: 'local',
       edhrecNumDecks: null,
       edhrecStats: null,
-      deckHistory: [],
+      deckHistory: samePartner ? state.deckHistory : [],
     };
   }),
 
@@ -457,7 +491,9 @@ export const useStore = create<AppState>((set, get) => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: Date.now(),
     };
-    return { deckHistory: [newEntry, ...state.deckHistory].slice(0, 50) };
+    const next = [newEntry, ...state.deckHistory].slice(0, 50);
+    saveHistoryToStorage(next, state.commander?.name);
+    return { deckHistory: next };
   }),
 
   popLatestHistoryEntries: (action: DeckHistoryAction, cardNames: string[]) => set((state) => {
@@ -474,10 +510,14 @@ export const useStore = create<AppState>((set, get) => ({
       }
       filtered.push(entry);
     }
+    saveHistoryToStorage(filtered, state.commander?.name);
     return { deckHistory: filtered };
   }),
 
-  clearDeckHistory: () => set({ deckHistory: [] }),
+  clearDeckHistory: () => {
+    clearHistoryStorage();
+    set({ deckHistory: [] });
+  },
 
   startBrewSession: (ctx: BrewContext) => {
     const state: BrewState = {
@@ -885,26 +925,29 @@ export const useStore = create<AppState>((set, get) => ({
 
   setModifyMode: (on: boolean) => set({ isModifyMode: on }),
 
-  reset: () => set((state) => ({
-    commander: null,
-    partnerCommander: null,
-    colorIdentity: [],
-    edhrecThemes: [],
-    selectedThemes: [],
-    themesLoading: false,
-    themesError: null,
-    themeSource: 'local',
-    edhrecNumDecks: null,
-    pendingStrategySlug: null,
-    userEditedLands: false,
-    // Preserve all customization settings when switching commanders
-    customization: state.customization,
-    generatedDeck: null,
-    deckHistory: [],
-    isLoading: false,
-    loadingMessage: '',
-    error: null,
-  })),
+  reset: () => {
+    clearHistoryStorage();
+    set((state) => ({
+      commander: null,
+      partnerCommander: null,
+      colorIdentity: [],
+      edhrecThemes: [],
+      selectedThemes: [],
+      themesLoading: false,
+      themesError: null,
+      themeSource: 'local',
+      edhrecNumDecks: null,
+      pendingStrategySlug: null,
+      userEditedLands: false,
+      // Preserve all customization settings when switching commanders
+      customization: state.customization,
+      generatedDeck: null,
+      deckHistory: [],
+      isLoading: false,
+      loadingMessage: '',
+      error: null,
+    }));
+  },
 }));
 
 // ---------------------------------------------------------------------------

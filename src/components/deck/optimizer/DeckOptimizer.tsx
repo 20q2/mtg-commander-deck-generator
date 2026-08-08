@@ -40,6 +40,7 @@ import { CostTab } from './CostTab';
 import { OptimizeTabContent } from './optimize/OptimizeTabContent';
 import { LiftClustersTab } from './LiftClustersTab';
 import { NewCardsTab } from './NewCardsTab';
+import { ChatTab } from './chat/ChatTab';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main Component
@@ -81,7 +82,12 @@ export function DeckOptimizer({
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
+  const [_addedCards, setAddedCards] = useState<Set<string>>(new Set());
+  // Derive from currentCards so removals instantly re-enable the Add button.
+  const addedCards = useMemo(
+    () => new Set(currentCards.map(c => c.name)),
+    [currentCards],
+  );
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
@@ -1713,7 +1719,7 @@ export function DeckOptimizer({
         )}
 
         {/* Tab Content */}
-        <div className={`flex-1 min-h-0 overflow-y-auto ${activeTab === 'optimize' ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''} ${activeTab === 'cost' ? 'pt-0 sm:pt-0' : ''}`}>
+        <div className={`flex-1 min-h-0 ${activeTab === 'chat' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'} ${activeTab === 'optimize' ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''} ${activeTab === 'cost' ? 'pt-0 sm:pt-0' : ''}`}>
 
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && commander && (
@@ -1953,6 +1959,18 @@ export function DeckOptimizer({
             onAdd={handleAddCard}
             addedCards={addedCards}
             onPreview={handlePreview}
+          />
+        )}
+
+        {/* ── ASK (Chat) ── */}
+        {activeTab === 'chat' && analysis && (
+          <ChatTab
+            currentCards={currentCards}
+            analysis={analysis}
+            commanderName={commanderName}
+            synergyMap={useStore.getState().generatedDeck?.cardSynergyMap}
+            bracketLevel={bracketLevel}
+            deckPrice={deckTotalPrice > 0 ? deckTotalPrice : undefined}
           />
         )}
 
