@@ -26,8 +26,13 @@ export const PACK_STEER_BONUS = 30;     // the act of cracking a theme pack — 
  * truth for the affinity model, shared by the real commit (applyBrewOption) and the hover preview
  * (projectIdentityLean) so the dashed projection can never drift from what taking the cards does.
  *   - `packSlug` set (a cracked theme pack): that theme is the deliberate signal — every card's
- *     membership in it is SIGNATURE-weighted, every other page is incidental, plus a one-off steer bonus.
- *   - `packSlug` omitted (draft/combo/headliner): a card's OWN defining signature theme leads instead.
+ *     membership in it is SIGNATURE-weighted, plus a one-off steer bonus.
+ *   - A card's OWN defining signature theme ALSO leads, pack crack or not — so a keep-set that
+ *     diverges from the pack's label (reanimation staples kept out of a "Control" pack) drags the
+ *     lean toward what was actually kept. The pack still dominates (~70/30 for a typical keep):
+ *     its slug earns membership credit per card AND the steer bonus; kept-card signatures only
+ *     their own. A mislabeled pack can no longer fully hijack the identity.
+ *   - Everything else is an incidental page the card merely also appears on — a whisper.
  * Subtypes are signature-weighted for functional-package cohesion (filtered from the theme readout).
  */
 export function computeAffinityDelta(
@@ -39,7 +44,7 @@ export function computeAffinityDelta(
   const bump = (slug: string, amt: number) => { delta[slug] = (delta[slug] ?? 0) + amt; };
   for (const c of cards) {
     for (const slug of c.themeTags) {
-      const leads = packSlug ? slug === packSlug : (ctx.themeSignatures[slug] ?? []).includes(c.name);
+      const leads = slug === packSlug || (ctx.themeSignatures[slug] ?? []).includes(c.name);
       bump(slug, leads ? AFFINITY_SIGNATURE : AFFINITY_INCIDENTAL);
     }
     if (c.subtype) bump(c.subtype, AFFINITY_SIGNATURE);

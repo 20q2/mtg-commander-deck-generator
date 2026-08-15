@@ -723,6 +723,19 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       rank: clusterRank,
     });
   }
+  // The commander's #1 EDHREC theme is guaranteed a pack slot in the first two rounds — the fantasy
+  // the player most likely came for (Elves for Lathril, Squirrels for Toski) must be on the table
+  // before the lean hardens around whatever else the opening rounds happened to deal. themeNames
+  // preserves EDHREC's ranking, so its first available slug IS the headline theme. Boosted above
+  // other themes (not forced): if the pool can't fill a real pack (BUNDLE_MIN), tryBuild still
+  // drops it, and the boost sits below the need/Game-Changers tiers by design.
+  const inFirstTwoRounds = !(state.prevPackKeys?.length);
+  const topSlug = Object.keys(ctx.themeNames).find(s => themeSlugList.includes(s));
+  if (inFirstTwoRounds && topSlug && !(state.lastPackKeys ?? []).includes(`theme:${topSlug}`)) {
+    const headline = clusters.find(cl => cl.key === `theme:${topSlug}`);
+    if (headline) headline.priority = 100_000;
+  }
+
   clusters.sort((a, b) => b.priority - a.priority);
 
   // Rotate packs across a 2-round window: clusters shown in either of the last two pack rounds
