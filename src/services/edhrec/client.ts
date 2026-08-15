@@ -115,6 +115,18 @@ interface RawEDHRECResponse {
 }
 
 /**
+ * EDHREC lists partner/background pairs as a single combined entry
+ * ("Kraum, Ludevic's Opus // Tymna the Weaver"). Those aren't real cards, so
+ * commander lists filter them out.
+ *
+ * The separator must be spaced: exactly one real card name contains a bare "//"
+ * ("SP//dr, Piloted by Peni"), and EDHREC always writes pairs with " // ".
+ */
+export function isPartnerPair(name: string): boolean {
+  return name.includes(' // ');
+}
+
+/**
  * Format commander name for EDHREC URL
  * "Atraxa, Praetors' Voice" -> "atraxa-praetors-voice"
  * "Venat, Heart of Hydaelyn // Hydaelyn, the Mothercrystal" -> "venat-heart-of-hydaelyn"
@@ -954,7 +966,7 @@ export async function fetchTopCommanders(colors: string[]): Promise<EDHRECTopCom
     const cardviews = response.container?.json_dict?.cardlists?.[0]?.cardviews ?? [];
     const isOverall = key === '';
     // Filter out partner pairs (e.g. "Kraum // Tymna") before taking top 12
-    const top = cardviews.filter(e => !e.name.includes('//')).slice(0, 12);
+    const top = cardviews.filter(e => !isPartnerPair(e.name)).slice(0, 12);
 
     let commanders: EDHRECTopCommander[] = top.map((entry, i) => ({
       rank: i + 1,
@@ -1091,7 +1103,7 @@ async function fetchAllCommandersForColor(colors: string[]): Promise<EDHRECTopCo
     );
     const cardviews = response.container?.json_dict?.cardlists?.[0]?.cardviews ?? [];
     const commanders: EDHRECTopCommander[] = cardviews
-      .filter(e => !e.name.includes('//'))
+      .filter(e => !isPartnerPair(e.name))
       .map((entry, i) => ({
         rank: i + 1,
         name: entry.name,
@@ -1611,7 +1623,7 @@ export function parseTagCommanders(raw: RawTagPageResponse): EDHRECTopCommander[
   const out: EDHRECTopCommander[] = [];
   let rank = 1;
   for (const v of list?.cardviews ?? []) {
-    if (!v.name || v.name.includes('//')) continue;
+    if (!v.name || isPartnerPair(v.name)) continue;
     out.push({
       rank: rank++,
       name: v.name,

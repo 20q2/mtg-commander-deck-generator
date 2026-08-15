@@ -126,7 +126,10 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
   const bannedCards = useStore(s => s.customization.bannedCards);
-  const collectionBinderIds = useStore(s => s.customization.collectionBinderIds);
+  // Scope owned combo pieces to the binders this deck was built from (falls back to the
+  // live customization for an in-progress build that isn't stored on a deck yet), so a saved
+  // deck's owned markers match its Owned count rather than every binder.
+  const collectionBinderIds = useStore(s => s.generatedDeck?.collectionBinderIds ?? s.customization.collectionBinderIds);
   const mustIncludeCards = useStore(s => s.customization.mustIncludeCards);
   const tempMustIncludeCards = useStore(s => s.customization.tempMustIncludeCards ?? []);
   const updateCustomization = useStore(s => s.updateCustomization);

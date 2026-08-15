@@ -1,7 +1,7 @@
 import type { UserCardList } from '@/types';
 import { CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { stripMarkdown, formatRelativeTime } from '@/lib/utils';
-import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search, Pin, PinOff, Tags } from 'lucide-react';
+import { MoreHorizontal, CopyPlus, Download, Trash2, Pencil, List, Search, Pin, PinOff, Tags, Library } from 'lucide-react';
 import { ColorIdentityBar } from '@/components/theme/ColorIdentityBar';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -117,6 +117,15 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
                 }
               </span>
             )}
+            {list.builtFromCollection && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary/90 shrink-0"
+                title="Built from your collection"
+              >
+                <Library className="w-2.5 h-2.5" />
+                Collection
+              </span>
+            )}
             {(list.description || list.primer) && (
               <span className="text-xs text-muted-foreground truncate">{list.description || stripMarkdown(list.primer!)}</span>
             )}
@@ -226,6 +235,15 @@ export function ListCard({ list, viewMode, typeBreakdown, colorIdentity, colorBr
         <span>{list.cards.length} cards</span>
         <span className="text-border">·</span>
         <span>{formatRelativeTime(list.updatedAt)}</span>
+        {list.builtFromCollection && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary/90"
+            title="Built from your collection"
+          >
+            <Library className="w-2.5 h-2.5" />
+            Collection
+          </span>
+        )}
       </div>
 
       {(() => {

@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.3.28",
+    "notes": [
+      "Fixed decks sometimes opening with most of the cards missing and a warning that they couldn't be loaded",
+      "Decks you built from your collection now show a Collection badge in My Decks and at the top of the deck",
+      "When building from multiple or partial collections, the deck view better specifies which collections the cards came from",
+      "SP//dr, Piloted by Peni is now a functional card",
+      "Cards like Clara Oswald that allow you to pick a color have a new color picker component when customizing deck options"
+    ]
+  },
+  {
     "version": "1.3.27",
     "notes": [
       "Building from collection will now fill your landbase more intelligently based on the card you own"      

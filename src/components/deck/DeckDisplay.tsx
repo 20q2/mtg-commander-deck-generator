@@ -54,8 +54,9 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { PieChart } from '@/components/ui/pie-chart';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
-import { parseCollectionList } from '@/services/collection/parseCollectionList';
-import { getCardsByNames, autocompleteCardName } from '@/services/scryfall/client';
+import { parseCollectionList, stripBackFace } from '@/services/collection/parseCollectionList';
+import { getCardsByNames } from '@/services/scryfall/client';
+import { AddCardsPopover } from '@/components/deck/AddCardsPanel';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, mostNeededBasicColor, type ReplaceMode } from '@/services/deckBuilder/cardSwap';
@@ -63,7 +64,8 @@ import { HEALTH_GRADE_STYLES, ROLE_GROUP_ICONS } from '@/components/deck/optimiz
 import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists, useLastAddTarget } from '@/hooks/useUserLists';
-import { getCollectionNameSet } from '@/services/collection/db';
+import { useBinders } from '@/hooks/useBinders';
+import { getCollectionNameSet, getCollectionBinderMap, getCollectionBinderEntries } from '@/services/collection/db';
 import { Select } from '@/components/ui/select';
 import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/grouping';
 import { StacksColumn } from './visualGrid/StacksColumn';
@@ -84,14 +86,90 @@ function isCardOwned(cardName: string, collectionNames: Set<string> | null | und
   return collectionNames.has(front);
 }
 
+/** Literal front-face membership in a collection name set — unlike isCardOwned, basics are
+ *  NOT auto-counted, so this reflects whether a card is actually imported into those binders. */
+function isInCollectionSet(cardName: string, set: Set<string> | null | undefined): boolean {
+  if (!set) return false;
+  const front = cardName.includes(' // ') ? cardName.split(' // ')[0] : cardName;
+  return set.has(front);
+}
+
+/** Hover title for an owned card's checkmark, naming the collection(s) it's in. Basics that
+ *  aren't explicitly imported fall back to a "freely available" note. */
+function ownedCardTitle(cardName: string, binderMap: Map<string, string[]> | null | undefined): string {
+  const front = cardName.includes(' // ') ? cardName.split(' // ')[0] : cardName;
+  const binders = binderMap?.get(cardName) ?? binderMap?.get(front);
+  if (binders && binders.length > 0) return `In your collection: ${binders.join(', ')}`;
+  if (BASIC_LAND_NAMES.has(front)) return 'Basic land — always available';
+  return 'In your collection';
+}
+
 // Stats filter for interactive highlighting
+// Sentinel binderId for the "Basics" row of the owned drill-down (lands owned by default,
+// not imported into any binder).
+const OWNED_BASICS_ID = '__basics__';
+
 type StatsFilter =
   | { type: 'cmc'; value: number }
   | { type: 'color'; value: string }
   | { type: 'manaProduction'; value: string }
   | { type: 'role'; value: string }
   | { type: 'owned'; value: 'owned' }
+  // Owned cards drilled down to one collection (or the Basics sentinel). `label` is the
+  // collection's display name, shown in the active-filter pill.
+  | { type: 'ownedCollection'; binderId: string; label: string }
   | null;
+
+/** Top-level "Collection" group in the Show menu: a parent checkbox that toggles owned
+ *  checkmarks, plus two radios choosing what the owned count/checkmarks measure against —
+ *  the collections the deck was built from, or every collection. Shared by both (responsive)
+ *  copies of the Show menu. Renders nothing unless a collection exists (`show`). */
+function CollectionShowMenuGroup({
+  show, checksOn, onToggleChecks, scope, onScopeChange, showScopeOptions,
+}: {
+  show: boolean;
+  checksOn: boolean;
+  onToggleChecks: () => void;
+  scope: 'build' | 'total';
+  onScopeChange: (s: 'build' | 'total') => void;
+  /** Only offer the Build/Total radios when the deck was built from a distinct collection.
+   *  Otherwise the group is just the on/off checkmark toggle (measuring the whole collection). */
+  showScopeOptions: boolean;
+}) {
+  if (!show) return null;
+  const scopeOptions = [
+    { key: 'build' as const, label: 'Built From' },
+    { key: 'total' as const, label: 'All Collections' },
+  ];
+  return (
+    <div className="pt-1 mt-1">
+      <button
+        onClick={onToggleChecks}
+        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${checksOn ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+      >
+        <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${checksOn ? 'bg-primary border-primary' : 'border-border'}`}>
+          {checksOn && <Check className="w-2 h-2 text-primary-foreground" />}
+        </span>
+        Collection
+      </button>
+      {checksOn && showScopeOptions && scopeOptions.map(opt => {
+        const active = scope === opt.key;
+        return (
+          <button
+            key={opt.key}
+            onClick={() => onScopeChange(opt.key)}
+            className={`w-full flex items-center gap-2 px-2 pl-4 py-1.5 rounded text-xs transition-colors ${active ? 'text-foreground bg-accent/50' : 'text-muted-foreground hover:bg-accent/30'}`}
+          >
+            <span className={`w-3 h-3 rounded-full border flex items-center justify-center shrink-0 ${active ? 'border-primary' : 'border-border'}`}>
+              {active && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+            </span>
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // Check if a card matches the current stats filter
 function cardMatchesFilter(card: ScryfallCard, filter: StatsFilter): boolean {
@@ -644,6 +722,12 @@ interface CardRowProps {
   isCommanderCard?: boolean;
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   isOwned?: boolean;
+  /** Hover title for the owned checkmark, naming the collection(s) the card is in. */
+  ownedTitle?: string;
+  /** Colours the owned checkmark: 'build' (cyan) = in the deck's chosen build collection,
+   *  'total' (green) = owned elsewhere in the full collection. undefined = default green,
+   *  used when build and total collections aren't distinct. */
+  ownedTier?: 'build' | 'total';
   isMustIncludeLive?: boolean;
   isBannedLive?: boolean;
   inclusionPercent?: number | null;
@@ -661,7 +745,7 @@ interface CardRowProps {
   isSingleton?: boolean;
 }
 
-const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, archetypeSource, showArchetypeColumn, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
+const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimmed, avgCardPrice, currency = 'USD', combosForCard, cardTypeMap, showRoleColumn, showPinColumn, showPinBanIcons = true, isRemoved, isEditMode, isSelected, isCommanderCard, onToggleSelect, isOwned, ownedTitle, ownedTier, isMustIncludeLive, isBannedLive, inclusionPercent, relevancyScore, archetypeSource, showArchetypeColumn, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton }: CardRowProps) {
   const rawPrice = getCardPrice(card, currency);
   const price = formatPrice(rawPrice, currency === 'EUR' ? '€' : '$');
   const isDfc = isDoubleFacedCard(card);
@@ -740,7 +824,7 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
         </span>
       )}
       {showPinColumn && (
-        <span className="w-3 shrink-0 flex justify-center">
+        <span className="w-3 shrink-0 flex items-center justify-center">
           {showPinBanIcons && isBannedLive ? (
             <span title="Excluded" className="animate-pop-in"><Ban className="w-3 h-3 text-red-400/70" /></span>
           ) : showPinBanIcons && isMustIncludeLive ? (
@@ -748,7 +832,12 @@ const CardRow = memo(function CardRow({ card, quantity, onPreview, onHover, dimm
             card.mustIncludeSource === 'combo' ? <span title="Added by user"><Sparkles className="w-3 h-3 text-violet-500/70" /></span> :
             <span title="Must include" className="animate-pop-in"><Pin className="w-3 h-3 text-emerald-500/70" /></span>
           ) : card.isReplacement ? <span title="Replacement" className="animate-pop-in"><Replace className="w-3 h-3 text-blue-400/80" /></span>
-          : isOwned ? <span title="In your collection"><Check className="w-3 h-3 text-emerald-500/50" /></span>
+          : isOwned ? (
+            <span title={ownedTitle ?? 'In your collection'} className="relative inline-flex items-center justify-center w-3 h-3">
+              <Check className={`w-3 h-3 ${ownedTier === 'build' ? 'text-cyan-400/70' : 'text-emerald-500/50'}`} />
+              {ownedTier === 'build' && <Plus className="w-2 h-2 text-cyan-300/50 absolute -top-1 -right-1" strokeWidth={3} />}
+            </span>
+          )
           : showArchetypeColumn && archetypeSource != null ? (
             <span className="text-teal-300/80 inline-flex" title={`From EDHREC ${archetypeSource} archetype data — proven in the archetype, not yet common in this commander's own decks`}>
               <Telescope className="w-3 h-3" />
@@ -884,6 +973,13 @@ interface CategoryColumnProps {
   onToggleSelect?: (card: ScryfallCard, shiftKey?: boolean) => void;
   onToggleCategory?: (cardIds: string[]) => void;
   collectionNames?: Set<string> | null;
+  /** Build-collection owned names — used to colour the checkmark blue when a card is in the
+   *  deck's chosen build collection (vs green for the rest of the collection). */
+  buildCollectionNames?: Set<string> | null;
+  /** Only two-tone the owned checkmarks when build and total collections actually differ. */
+  distinguishOwned?: boolean;
+  /** Owned card name → binder display names, for the "which collection?" checkmark tooltip. */
+  collectionBinderMap?: Map<string, string[]> | null;
   mustIncludeNames?: Set<string>;
   bannedNames?: Set<string>;
   cardInclusionMap?: Record<string, number> | null;
@@ -901,7 +997,7 @@ interface CategoryColumnProps {
   mdfcLandCount?: number;
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, showArchetypeColumn, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, buildCollectionNames, distinguishOwned, collectionBinderMap, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, showArchetypeColumn, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -984,6 +1080,8 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               isCommanderCard={type === 'Commander'}
               onToggleSelect={onToggleSelect}
               isOwned={collectionNames ? isCardOwned(card.name, collectionNames) : undefined}
+              ownedTitle={collectionNames && isCardOwned(card.name, collectionNames) ? ownedCardTitle(card.name, collectionBinderMap) : undefined}
+              ownedTier={distinguishOwned ? (isInCollectionSet(card.name, buildCollectionNames) ? 'build' : 'total') : undefined}
               isMustIncludeLive={mustIncludeNames ? mustIncludeNames.has(card.name) : card.isMustInclude}
               isBannedLive={bannedNames ? bannedNames.has(card.name) : false}
               inclusionPercent={cardInclusionMap ? (cardInclusionMap[card.name] ?? cardInclusionMap[normalizedName] ?? null) : null}
@@ -1198,6 +1296,10 @@ interface TextEditorViewProps {
   onChangeQuantity?: (cardName: string, newQuantity: number) => void;
   onClose?: () => void;
   readOnly?: boolean;
+  /** Saved lists persist text edits; a generated deck can only be viewed until saved. */
+  savedList?: boolean;
+  /** Slot for the host page's save control, shown in the Deck View footer. */
+  saveNudge?: React.ReactNode;
   sideboardNames?: string[];
   maybeboardNames?: string[];
   onSetSideboard?: (names: string[]) => void;
@@ -1213,8 +1315,12 @@ function sortDeckListAlpha(raw: string): string {
   }).join('\n');
 }
 
-function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQuantity, readOnly, onClose, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, pushDeckHistory }: TextEditorViewProps) {
-  const canEdit = !readOnly && (!!onAddCards || !!onRemoveCards);
+function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQuantity, readOnly, savedList, saveNudge, onClose, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, pushDeckHistory }: TextEditorViewProps) {
+  const hasHandlers = !readOnly && (!!onAddCards || !!onRemoveCards);
+  // Editing a generated deck can't stick — it lives only until you leave the
+  // page — so the panel drops to a read-only "Deck View" that nudges you to save.
+  const canEdit = hasHandlers && !!savedList;
+  const needsSave = hasHandlers && !savedList;
   const hasSideboard = !!onSetSideboard;
   const hasMaybeboard = !!onSetMaybeboard;
   const hasBoards = hasSideboard || hasMaybeboard;
@@ -1228,12 +1334,6 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
 
   const [applying, setApplying] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
-  const [addQuery, setAddQuery] = useState('');
-  const [addSuggestions, setAddSuggestions] = useState<string[]>([]);
-  const [showAddSearch, setShowAddSearch] = useState(false);
-  const addSearchRef = useRef<HTMLDivElement>(null);
-  const addInputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync sideboard/maybeboard text when external data changes
   const sbKey = (sideboardNames || []).join(',');
@@ -1253,29 +1353,27 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
     }
   }, [mbKey, maybeboardNames]);
 
-  // Autocomplete search
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (addQuery.length < 2) { setAddSuggestions([]); return; }
-    debounceRef.current = setTimeout(async () => {
-      const results = await autocompleteCardName(addQuery);
-      setAddSuggestions(results.slice(0, 8));
-    }, 200);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [addQuery]);
-
-  const handleAddCard = useCallback((name: string) => {
-    if (activeTab === 'deck') {
-      setText(prev => sortDeckListAlpha(prev + '\n1 ' + name));
-    } else if (activeTab === 'sideboard') {
-      setSbText(prev => sortDeckListAlpha(prev + '\n1 ' + name));
-    } else {
-      setMbText(prev => sortDeckListAlpha(prev + '\n1 ' + name));
+  // Adds stage into the active tab's text rather than the deck itself: they
+  // show up in the +N diff and only land when you hit Apply Changes, like every
+  // other edit in this panel.
+  const stageAdds = useCallback((names: string[]) => {
+    const current = activeTab === 'deck' ? text : activeTab === 'sideboard' ? sbText : mbText;
+    const setter = activeTab === 'deck' ? setText : activeTab === 'sideboard' ? setSbText : setMbText;
+    const present = new Set(parseCollectionList(current).cards.map(c => c.name.toLowerCase()));
+    // Quantities arrive expanded ("9 Swamp" → nine entries); fold them back into
+    // one line per card so the list keeps its "N Name" shape.
+    const counts = new Map<string, number>();
+    let skipped = 0;
+    for (const name of names) {
+      if (present.has(name.toLowerCase())) { skipped++; continue; }
+      counts.set(name, (counts.get(name) ?? 0) + 1);
     }
-    setAddQuery('');
-    setAddSuggestions([]);
-    setTimeout(() => addInputRef.current?.focus(), 0);
-  }, [activeTab]);
+    if (counts.size > 0) {
+      const lines = [...counts].map(([name, qty]) => `${qty} ${name}`);
+      setter(sortDeckListAlpha([current, ...lines].filter(Boolean).join('\n')));
+    }
+    return { added: names.length - skipped, updated: skipped };
+  }, [activeTab, text, sbText, mbText]);
   const [lastAppliedDeckList, setLastAppliedDeckList] = useState(() => generateDeckList());
 
   // Re-sync text when deck changes externally (e.g. after apply, or switching back)
@@ -1308,7 +1406,7 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
       const qty = parseInt(match[1], 10);
       const raw = match[2].trim();
       // Strip DFC back face to match parseCollectionList normalization
-      const name = raw.replace(/\s*\/\/\s*.+$/, '').trim().toLowerCase();
+      const name = stripBackFace(raw).toLowerCase();
       map.set(name, (map.get(name) || 0) + qty);
     }
     return map;
@@ -1518,66 +1616,35 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
 
   return (
     <div className="p-3 flex flex-col gap-2 h-full">
-      {/* Header — add search + close */}
+      {/* Header — title + add + close */}
       <div className="flex items-center gap-1.5">
-        {canEdit && (
-          <div className="relative flex-1" ref={addSearchRef}>
-            {showAddSearch ? (
-              <>
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-                <input
-                  ref={addInputRef}
-                  type="text"
-                  value={addQuery}
-                  onChange={(e) => setAddQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') { setShowAddSearch(false); setAddQuery(''); setAddSuggestions([]); }
-                    if (e.key === 'Enter' && addSuggestions.length > 0) { handleAddCard(addSuggestions[0]); }
-                  }}
-                  placeholder="Add a card..."
-                  className="w-full bg-background border border-border rounded-md pl-7 pr-7 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-                  autoFocus
-                />
+        <h3 className="text-xs font-semibold text-foreground/90">{canEdit ? 'Edit Deck' : 'Deck View'}</h3>
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          {canEdit && (
+            <AddCardsPopover
+              trigger={
                 <button
-                  onClick={() => { setShowAddSearch(false); setAddQuery(''); setAddSuggestions([]); }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  title="Add cards"
                 >
-                  <X className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5" />
                 </button>
-                {addSuggestions.length > 0 && (
-                  <div className="absolute top-full left-0 mt-1 z-50 w-full max-h-[240px] overflow-auto bg-card border border-border rounded-lg shadow-2xl py-1">
-                    {addSuggestions.map((name) => (
-                      <button
-                        key={name}
-                        onClick={() => handleAddCard(name)}
-                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent/50 transition-colors truncate"
-                      >
-                        {name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <button
-                onClick={() => { setShowAddSearch(true); setTimeout(() => addInputRef.current?.focus(), 0); }}
-                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-                title="Add a card"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        )}
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0 ml-auto"
-            title="Close text editor"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
+              }
+              existingNames={new Set(parseCollectionList(activeText).cards.map(c => c.name))}
+              onAddCards={stageAdds}
+              label={activeTab === 'deck' ? 'Add Cards' : activeTab === 'sideboard' ? 'Add to Sideboard' : 'Add to Maybeboard'}
+            />
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              title="Close text editor"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
       {/* Board Tabs */}
       {hasBoards && (
@@ -1660,6 +1727,24 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:pointer-events-none"
             >
               {applying && <Loader2Icon className="w-3 h-3 animate-spin" />}
+              Apply Changes
+            </button>
+          </div>
+        </div>
+      ) : needsSave ? (
+        // Generated deck: edits here would evaporate with the deck, so the
+        // panel stays a viewer and points at the save flow instead.
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground tabular-nums">{activeCardCount} cards</span>
+          <div className="ml-auto flex items-center gap-1.5">
+            {saveNudge ?? (
+              <span className="text-[10px] text-muted-foreground/70">Save this deck to a list to edit it</span>
+            )}
+            <button
+              disabled
+              title="Save this deck to a list to edit it"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground opacity-40 cursor-not-allowed"
+            >
               Apply Changes
             </button>
           </div>
@@ -1806,6 +1891,12 @@ interface DeckStatsProps {
   onToggleRoles: () => void;
   hideHeader?: boolean;
   collectionNames?: Set<string> | null;
+  /** Owned names scoped to the deck's build collections — used to show the build-vs-total
+   *  split on the Owned stat when the active scope is 'total'. */
+  buildCollectionNames?: Set<string> | null;
+  collectionScope?: 'build' | 'total';
+  /** Per-collection owned-card counts for the Owned drill-down popover. */
+  ownedCollectionBreakdown?: { collections: { id: string; name: string; count: number }[]; basics: number; total: number } | null;
   showCollection?: boolean;
   showRelevancy?: boolean;
   overallGrade?: { letter: string; headline: string } | null;
@@ -1815,10 +1906,12 @@ interface DeckStatsProps {
   spellChromaDeckRef?: string;
 }
 
-function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, showCollection, showRelevancy: _showRelevancy, overallGrade, phasesDone, cardCountAction, spellChromaDeckRef = 'generated' }: DeckStatsProps) {
+function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hideHeader, collectionNames, buildCollectionNames, collectionScope, ownedCollectionBreakdown, showCollection, showRelevancy: _showRelevancy, overallGrade, phasesDone, cardCountAction, spellChromaDeckRef = 'generated' }: DeckStatsProps) {
   const taggerReady = !phasesDone || phasesDone.has('tagger');
   const navigate = useNavigate();
   const { generatedDeck, colorIdentity } = useStore();
+  // Owned drill-down popover open state.
+  const [ownedMenuOpen, setOwnedMenuOpen] = useState(false);
   // SpellChroma top tags — lazily load the per-card index, then aggregate.
   const [deckTags, setDeckTags] = useState<DeckTagCount[]>([]);
   useEffect(() => {
@@ -1842,13 +1935,19 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
   const allCards = Object.values(categories).flat();
   // Owned tally — include the commander(s), which sit outside `categories`,
   // so a fully-owned 100-card deck reports 100/100, not 99.
-  const ownedCount = (showCollection && collectionNames)
-    ? (
-        allCards.filter(c => isCardOwned(c.name, collectionNames)).length
-        + (generatedDeck.commander && isCardOwned(generatedDeck.commander.name, collectionNames) ? 1 : 0)
-        + (partnerCommander && isCardOwned(partnerCommander.name, collectionNames) ? 1 : 0)
-      )
-    : null;
+  const countOwned = (names: Set<string> | null | undefined): number | null =>
+    names
+      ? allCards.filter(c => isCardOwned(c.name, names)).length
+        + (generatedDeck.commander && isCardOwned(generatedDeck.commander.name, names) ? 1 : 0)
+        + (partnerCommander && isCardOwned(partnerCommander.name, names) ? 1 : 0)
+      : null;
+  const ownedCount = showCollection ? countOwned(collectionNames) : null;
+  // In 'total' scope, also surface the build-collection subset so the difference against
+  // unrelated collections (e.g. an Arena binder) is visible. Only split when the deck
+  // actually tracks build binders and the two counts differ.
+  const buildOwnedCount = showCollection ? countOwned(buildCollectionNames) : null;
+  const showOwnedSplit = collectionScope === 'total'
+    && ownedCount !== null && buildOwnedCount !== null && buildOwnedCount !== ownedCount;
   const nonLandCards = allCards.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('land'));
 
   // Calculate mana pips and production
@@ -1888,6 +1987,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                     ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
                   }`}
                   {activeFilter.type === 'owned' && 'Owned cards'}
+                  {activeFilter.type === 'ownedCollection' && `Owned · ${activeFilter.label}`}
                 </span>
               </button>
             )}
@@ -1932,25 +2032,88 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               <div className="text-xs text-muted-foreground">Avg CMC</div>
             </div>
             {ownedCount !== null && (() => {
-              const isActive = activeFilter?.type === 'owned';
+              const isActive = activeFilter?.type === 'owned' || activeFilter?.type === 'ownedCollection';
+              // Keep the box lit while its drill-down popover is open, not just when a filter sticks.
+              const highlighted = isActive || ownedMenuOpen;
               const disabled = ownedCount === 0;
-              return (
+              const totalOwned = ownedCollectionBreakdown?.total ?? ownedCount;
+              const selectRow = (filter: StatsFilter, rowActive: boolean) => {
+                onFilterChange(rowActive ? null : filter);
+                setOwnedMenuOpen(false);
+              };
+              const rowClass = (rowActive: boolean) =>
+                `w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs transition-colors ${rowActive ? 'bg-primary/15 text-primary' : 'text-foreground hover:bg-accent/50'}`;
+              const trigger = (
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={() => onFilterChange({ type: 'owned', value: 'owned' })}
-                  title={disabled ? 'No owned cards in this deck' : isActive ? 'Clear focus on owned cards' : 'Focus cards in your collection'}
-                  className={`rounded-lg p-3 text-center transition-colors ${
+                  title={disabled ? 'No owned cards in this deck' : 'Break owned cards down by collection'}
+                  className={`rounded-lg p-3 text-center transition-colors flex flex-col justify-center ${
                     disabled
                       ? 'bg-accent/20 cursor-not-allowed opacity-60'
-                      : isActive
+                      : highlighted
                         ? 'bg-primary/20 ring-1 ring-primary/50'
                         : 'bg-accent/30 hover:bg-accent/50 cursor-pointer'
                   }`}
                 >
-                  <div className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</div>
-                  <div className={`text-xs ${isActive ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
+                  {showOwnedSplit ? (
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-baseline justify-center gap-1.5">
+                        <span className={`text-lg font-bold leading-none ${highlighted ? 'text-primary' : 'text-foreground'}`}>{buildOwnedCount}</span>
+                        <span className="text-[10px] text-muted-foreground">Built</span>
+                      </div>
+                      <div className="flex items-baseline justify-center gap-1.5">
+                        <span className={`text-lg font-bold leading-none ${highlighted ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</span>
+                        <span className="text-[10px] text-muted-foreground">All</span>
+                      </div>
+                      <div className={`text-[10px] mt-0.5 ${highlighted ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className={`text-2xl font-bold ${highlighted ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</div>
+                      <div className={`text-xs ${highlighted ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
+                    </>
+                  )}
                 </button>
+              );
+              if (disabled) return trigger;
+              return (
+                <Popover open={ownedMenuOpen} onOpenChange={setOwnedMenuOpen}>
+                  <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+                  <PopoverContent align="center" className="w-60 p-1">
+                    <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Owned in this deck</div>
+                    <div className="max-h-64 overflow-auto">
+                      {ownedCollectionBreakdown?.collections.map(col => {
+                        const rowActive = activeFilter?.type === 'ownedCollection' && activeFilter.binderId === col.id;
+                        return (
+                          <button key={col.id} type="button" onClick={() => selectRow({ type: 'ownedCollection', binderId: col.id, label: col.name }, rowActive)} className={rowClass(rowActive)}>
+                            <span className="truncate">{col.name}</span>
+                            <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{col.count}</span>
+                          </button>
+                        );
+                      })}
+                      {ownedCollectionBreakdown && ownedCollectionBreakdown.basics > 0 && (() => {
+                        const rowActive = activeFilter?.type === 'ownedCollection' && activeFilter.binderId === OWNED_BASICS_ID;
+                        return (
+                          <button type="button" onClick={() => selectRow({ type: 'ownedCollection', binderId: OWNED_BASICS_ID, label: 'Basics' }, rowActive)} className={rowClass(rowActive)}>
+                            <span className="truncate">Basics <span className="text-muted-foreground">(always)</span></span>
+                            <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{ownedCollectionBreakdown.basics}</span>
+                          </button>
+                        );
+                      })()}
+                    </div>
+                    <div className="my-1 border-t border-border/60" />
+                    {(() => {
+                      const rowActive = activeFilter?.type === 'owned';
+                      return (
+                        <button type="button" onClick={() => selectRow({ type: 'owned', value: 'owned' }, rowActive)} className={`${rowClass(rowActive)} font-medium`}>
+                          <span>All owned</span>
+                          <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{totalOwned}</span>
+                        </button>
+                      );
+                    })()}
+                  </PopoverContent>
+                </Popover>
               );
             })()}
           </div>
@@ -2013,6 +2176,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                 ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
               }`}
               {activeFilter.type === 'owned' && 'Owned cards'}
+              {activeFilter.type === 'ownedCollection' && `Owned · ${activeFilter.label}`}
             </span>
           </button>
         </div>
@@ -2367,6 +2531,16 @@ interface DeckDisplayProps {
   toolbarExtra?: React.ReactNode;
   /** Slot rendered next to the Modify Deck (pencil) button in the main toolbar (e.g. a bulk-add trigger) */
   headerBulkAdd?: React.ReactNode;
+  /**
+   * True when the deck being shown is a saved list, so text-panel edits persist.
+   * A generated deck leaves the panel in read-only "Deck View" mode.
+   */
+  savedList?: boolean;
+  /**
+   * Save control shown in the Deck View footer. A node rather than a callback so
+   * the host's popover anchors to the button the user actually clicked.
+   */
+  saveNudge?: React.ReactNode;
   /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
   boardCounts?: { sideboard: number; maybeboard: number };
   /**
@@ -2423,7 +2597,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, savedList, saveNudge, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -2502,6 +2676,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const [showCollectionChecks, setShowCollectionChecks] = useState(
     () => localStorage.getItem('mtg-deck-builder-show-collection-checks') !== 'false'
   );
+  // Which collections the owned count + checkmarks measure against:
+  // 'build' = only the binders this deck was built from (accurate for "can I assemble this?");
+  // 'total' = every binder. Default 'build' so the count isn't inflated by unrelated collections.
+  const [collectionScope, setCollectionScope] = useState<'build' | 'total'>(
+    () => (localStorage.getItem('mtg-deck-collection-scope') === 'total' ? 'total' : 'build')
+  );
+  const handleCollectionScopeChange = useCallback((s: 'build' | 'total') => {
+    localStorage.setItem('mtg-deck-collection-scope', s);
+    setCollectionScope(s);
+  }, []);
+  const toggleCollectionChecks = useCallback(() => {
+    setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; });
+  }, []);
   const [showPinBan, setShowPinBan] = useState(() => localStorage.getItem('mtg-deck-show-pin-ban') !== 'false');
   const [showIcons, setShowIcons] = useState(() => localStorage.getItem('mtg-deck-show-icons') !== 'false');
   const [showMenu, setShowMenu] = useState(false);
@@ -2516,7 +2703,63 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   const editToolbarRef = useRef<HTMLDivElement>(null);
   const [toolbarOffscreen, setToolbarOffscreen] = useState(false);
   const [mobileStatsOpen, setMobileStatsOpen] = useState(false);
-  const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
+  // Owned-name sets for both scopes: the binders this deck was built from, and every binder.
+  // Held separately so the Owned stat can show the build-vs-total difference, and so toggling
+  // scope doesn't refetch. `collectionNames` is the active-scope set used for checkmarks.
+  const [buildCollectionNames, setBuildCollectionNames] = useState<Set<string> | null>(null);
+  const [totalCollectionNames, setTotalCollectionNames] = useState<Set<string> | null>(null);
+  // Card name → binder display names, scoped to the active collection scope. Drives the
+  // "which collection is this from?" tooltip on the owned checkmark.
+  const [collectionBinderMap, setCollectionBinderMap] = useState<Map<string, string[]> | null>(null);
+  // Card name → [{id, name}] across EVERY binder (total). Drives the owned-cards drill-down
+  // popover: per-collection counts + filtering by a specific collection.
+  const [binderEntriesTotal, setBinderEntriesTotal] = useState<Map<string, { id: string; name: string }[]> | null>(null);
+  // Whether "build collections" is a meaningful, distinct scope. Since the build set is always
+  // a subset of the total set, a size difference means the deck was actually built from a
+  // narrower collection. When they match (deck not built from a specific collection), the
+  // Build/Total choice is meaningless — hide it and just measure against everything.
+  const collectionScopeDiffers = (buildCollectionNames?.size ?? 0) !== (totalCollectionNames?.size ?? 0);
+  const effectiveCollectionScope: 'build' | 'total' = collectionScopeDiffers ? collectionScope : 'total';
+  const collectionNames = effectiveCollectionScope === 'total' ? totalCollectionNames : buildCollectionNames;
+  // Display names of the collections this deck was built from (for the header badge). Empty
+  // when the deck wasn't built from a specific collection.
+  const { binders } = useBinders();
+  const buildBinderNames = useMemo(() => {
+    const ids = generatedDeck?.collectionBinderIds;
+    if (!ids || ids.length === 0) return [] as string[];
+    const nameById = new Map(binders.map(b => [b.id, b.name]));
+    return ids.map(id => nameById.get(id)).filter((n): n is string => !!n);
+  }, [binders, generatedDeck?.collectionBinderIds]);
+  // Per-collection owned-card counts for the drill-down popover: how many cards in this deck
+  // are held in each collection, a "basics" tally (owned-by-default lands not in any binder),
+  // and the grand total. Collections sorted by count desc.
+  const ownedCollectionBreakdown = useMemo(() => {
+    if (!generatedDeck || !binderEntriesTotal) return null;
+    const names: string[] = Object.values(generatedDeck.categories).flat().map(c => c.name);
+    if (generatedDeck.commander) names.push(generatedDeck.commander.name);
+    if (generatedDeck.partnerCommander) names.push(generatedDeck.partnerCommander.name);
+    const counts = new Map<string, { id: string; name: string; count: number }>();
+    let basics = 0;
+    let total = 0;
+    for (const cardName of names) {
+      const front = cardName.includes(' // ') ? cardName.split(' // ')[0] : cardName;
+      const entries = binderEntriesTotal.get(cardName) ?? binderEntriesTotal.get(front);
+      const inBinder = !!(entries && entries.length);
+      const isBasic = BASIC_LAND_NAMES.has(front);
+      if (inBinder) {
+        for (const e of entries!) {
+          const cur = counts.get(e.id);
+          if (cur) cur.count++;
+          else counts.set(e.id, { id: e.id, name: e.name, count: 1 });
+        }
+      } else if (isBasic) {
+        basics++;
+      }
+      if (inBinder || isBasic) total++;
+    }
+    const collections = [...counts.values()].sort((a, b) => b.count - a.count);
+    return { collections, basics, total };
+  }, [generatedDeck, binderEntriesTotal]);
   const [isEditMode, _setIsEditMode] = useState(false);
   const editModeRef = useRef(false);
   const setIsEditMode = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
@@ -2607,12 +2850,41 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return () => document.removeEventListener('mousedown', handler);
   }, [showMenu]);
 
-  // Load collection names for "owned" indicators
+  // Load owned-name sets for both scopes at once. The build set is scoped to the deck's own
+  // binders (undefined for untracked/old decks, which resolves to all binders — today's
+  // behavior); the total set spans every binder. Reloads only when the deck changes.
   useEffect(() => {
-    getCollectionNameSet(customization.collectionBinderIds).then(names => {
-      if (names.size > 0) setCollectionNames(names);
+    let cancelled = false;
+    Promise.all([
+      getCollectionNameSet(generatedDeck?.collectionBinderIds),
+      getCollectionNameSet(undefined),
+    ]).then(([build, total]) => {
+      if (cancelled) return;
+      setBuildCollectionNames(build.size > 0 ? build : null);
+      setTotalCollectionNames(total.size > 0 ? total : null);
     });
-  }, [generatedDeck, customization.collectionBinderIds]);
+    return () => { cancelled = true; };
+  }, [generatedDeck]);
+
+  // Load per-card binder names for the checkmark tooltip, scoped to the active collection scope
+  // so the named binders match which cards show as owned.
+  useEffect(() => {
+    let cancelled = false;
+    const binderIds = effectiveCollectionScope === 'total' ? undefined : generatedDeck?.collectionBinderIds;
+    getCollectionBinderMap(binderIds).then(m => {
+      if (!cancelled) setCollectionBinderMap(m);
+    });
+    return () => { cancelled = true; };
+  }, [generatedDeck, effectiveCollectionScope]);
+
+  // Load per-card binder id+name across every binder for the owned drill-down popover.
+  useEffect(() => {
+    let cancelled = false;
+    getCollectionBinderEntries(undefined).then(m => {
+      if (!cancelled) setBinderEntriesTotal(m);
+    });
+    return () => { cancelled = true; };
+  }, [generatedDeck]);
 
   // Sidebar grade: computed at the end of deck generation, stored on the deck object.
   // Optimizer may update it via event if the user makes changes (swaps, theme changes, etc.)
@@ -2633,10 +2905,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
   // Surface the "In Collection" toggle whenever a collection exists. The user can
   // turn checkmarks off via the show menu if they don't want them.
+  // Gate the Collection UI on whether the user has ANY collection (total), not the active
+  // scope — otherwise a deck built from an empty binder would hide the menu that lets you
+  // switch back to Total.
   const showOwnedIndicators = useMemo(() => {
-    if (!collectionNames || !generatedDeck) return false;
+    if (!totalCollectionNames || !generatedDeck) return false;
     return true;
-  }, [collectionNames, generatedDeck]);
+  }, [totalCollectionNames, generatedDeck]);
 
   // Track dirty state: snapshot mustIncludeCards + appliedIncludeLists at generation time
   const [snapshotMustInclude, setSnapshotMustInclude] = useState<string[]>([]);
@@ -2790,14 +3065,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   }, [onRegenerate]);
 
   const handleStatsFilterChange = useCallback((newFilter: StatsFilter) => {
-    setStatsFilter(prev => {
-      if (prev && newFilter &&
-          prev.type === newFilter.type &&
-          prev.value === newFilter.value) {
-        return null;
-      }
-      return newFilter;
-    });
+    // Toggle off when re-selecting the same filter. JSON compare handles every filter shape
+    // (including ownedCollection, which keys on binderId rather than a `value` field).
+    setStatsFilter(prev => (prev && newFilter && JSON.stringify(prev) === JSON.stringify(newFilter)) ? null : newFilter);
   }, []);
 
   // Group cards by type and count duplicates
@@ -3590,9 +3860,19 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     // 'owned' needs collectionNames (in scope here), so it's handled outside
     // cardMatchesFilter — that keeps cardMatchesFilter's signature pure.
     const isOwnedFilter = statsFilter.type === 'owned';
+    const ownedCollectionId = statsFilter.type === 'ownedCollection' ? statsFilter.binderId : null;
     for (const { card } of allGrouped) {
       if (isOwnedFilter) {
-        if (collectionNames && isCardOwned(card.name, collectionNames)) {
+        // "All owned" spans every collection (plus basics), matching the popover's total row.
+        if ((totalCollectionNames || collectionNames) && isCardOwned(card.name, totalCollectionNames ?? collectionNames)) {
+          ids.add(card.id);
+        }
+      } else if (ownedCollectionId) {
+        const front = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
+        const entries = binderEntriesTotal?.get(card.name) ?? binderEntriesTotal?.get(front);
+        if (ownedCollectionId === OWNED_BASICS_ID) {
+          if (BASIC_LAND_NAMES.has(front) && !(entries && entries.length)) ids.add(card.id);
+        } else if (entries?.some(e => e.id === ownedCollectionId)) {
           ids.add(card.id);
         }
       } else if (cardMatchesFilter(card, statsFilter)) {
@@ -3600,7 +3880,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       }
     }
     return ids;
-  }, [statsFilter, groupedCards, collectionNames]);
+  }, [statsFilter, groupedCards, collectionNames, totalCollectionNames, binderEntriesTotal]);
 
   // Build set of card IDs matching the search query (name or oracle text)
   const searchMatchingIds = useMemo(() => {
@@ -3792,6 +4072,11 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
               {usedThemes && usedThemes.length > 0 && (
                 <span className="ml-2">
                   · Built with: <span className="font-medium">{usedThemes.join(', ')}</span>
+                </span>
+              )}
+              {collectionScopeDiffers && buildBinderNames.length > 0 && (
+                <span className="ml-1">
+                  · Built from: <span className="font-medium text-cyan-300/90">{buildBinderNames.join(', ')}</span>
                 </span>
               )}
             </>
@@ -4284,7 +4569,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       </button>
                     </div>
                     {showIcons && [
-                      ...(!showOwnedIndicators ? [] : [{ key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }) }]),
                       { key: 'pinban', label: 'Pin / Ban', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
                       ...(!hasArchetypeCards ? [] : [{ key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' }]),
                     ].map(opt => (
@@ -4306,6 +4590,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       </div>
                     ))}
                   </div>
+                  <CollectionShowMenuGroup show={showOwnedIndicators} checksOn={showCollectionChecks} onToggleChecks={toggleCollectionChecks} scope={effectiveCollectionScope} onScopeChange={handleCollectionScopeChange} showScopeOptions={collectionScopeDiffers} />
                 </div>
               )}
             </div>
@@ -4401,7 +4686,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           </button>
           {mobileStatsOpen && (
             <div className="px-4 pb-3 space-y-4">
-              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
+              <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} hideHeader collectionNames={collectionNames} buildCollectionNames={buildCollectionNames} collectionScope={effectiveCollectionScope} ownedCollectionBreakdown={ownedCollectionBreakdown} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
               <DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} />
             </div>
           )}
@@ -4547,7 +4832,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     </button>
                   </div>
                   {showIcons && [
-                    ...(!showOwnedIndicators ? [] : [{ key: 'collection', label: 'In Collection', value: showCollectionChecks, toggle: () => setShowCollectionChecks(v => { const next = !v; localStorage.setItem('mtg-deck-builder-show-collection-checks', String(next)); return next; }) }]),
                     { key: 'pinban', label: 'Pin / Ban', value: showPinBan, toggle: () => setShowPinBan(v => { const next = !v; localStorage.setItem('mtg-deck-show-pin-ban', String(next)); return next; }) },
                     ...(!hasArchetypeCards ? [] : [{ key: 'archetype', label: 'Archetype cards', value: showArchetype, toggle: () => setShowArchetype(v => { const next = !v; localStorage.setItem('mtg-deck-show-archetype', String(next)); return next; }), infoText: 'The teal telescope marks cards drawn from EDHREC archetype-wide data (e.g. Golgari · Pillow Fort) — proven in the archetype but not yet common in this commander\'s own decks.' }]),
                   ].map(opt => (
@@ -4569,6 +4853,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     </div>
                   ))}
                 </div>
+                <CollectionShowMenuGroup show={showOwnedIndicators} checksOn={showCollectionChecks} onToggleChecks={toggleCollectionChecks} scope={effectiveCollectionScope} onScopeChange={handleCollectionScopeChange} showScopeOptions={collectionScopeDiffers} />
               </div>
             )}
           </div>
@@ -4718,6 +5003,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 onRemoveCards={onRemoveCards}
                 onChangeQuantity={onChangeQuantity}
                 readOnly={readOnly || (!onAddCards && !onRemoveCards)}
+                savedList={savedList}
+                saveNudge={saveNudge}
                 onClose={() => setShowTextEditor(false)}
                 sideboardNames={sideboardNames}
                 maybeboardNames={maybeboardNames}
@@ -4751,6 +5038,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     onToggleSelect={handleToggleCardSelection}
                     onToggleCategory={handleToggleCategory}
                     collectionNames={showIcons && showOwnedIndicators && showCollectionChecks ? collectionNames : null}
+                    buildCollectionNames={buildCollectionNames}
+                    distinguishOwned={collectionScopeDiffers}
+                    collectionBinderMap={collectionBinderMap}
                     mustIncludeNames={mustIncludeNames}
                     bannedNames={bannedNames}
                     cardInclusionMap={showInclusion ? generatedDeck?.cardInclusionMap : null}
@@ -4878,7 +5168,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 {sidebarHeader || deckSummary}
               </div>
             </div>
-            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
+            <DeckStats activeFilter={statsFilter} onFilterChange={handleStatsFilterChange} showRoles={showRoles} onToggleRoles={handleToggleRoles} collectionNames={collectionNames} buildCollectionNames={buildCollectionNames} collectionScope={effectiveCollectionScope} ownedCollectionBreakdown={ownedCollectionBreakdown} showCollection={showIcons && showOwnedIndicators && showCollectionChecks} showRelevancy={showRelevancy} overallGrade={overallGrade} phasesDone={phasesDone} cardCountAction={cardCountAction} spellChromaDeckRef={spellChromaDeckRef} />
             <div className="mt-4"><DeckHistory onPreviewCard={handleHistoryPreview} resolveCard={resolveCardByName} onCardAction={!readOnly ? handleCardAction : undefined} cardMenuProps={!readOnly ? cardMenuProps : undefined} deckCardNames={deckCardNames} /></div>
           </div>
         </div>

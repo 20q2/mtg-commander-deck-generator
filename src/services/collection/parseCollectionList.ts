@@ -232,14 +232,26 @@ function parseCSV(lines: string[]): ParsedCard[] {
   return result;
 }
 
+/**
+ * Strip a DFC/split back face: "Delver of Secrets // Insectile Aberration" → "Delver of Secrets".
+ * Scryfall's collection endpoint only resolves front-face names (the full "A // B" name is
+ * *not* accepted), and it returns the canonical full name for us.
+ *
+ * The separator must have whitespace next to it. Real card names can contain a bare "//"
+ * — e.g. "SP//dr, Piloted by Peni" — and every exporter writes back faces as " // ".
+ */
+export function stripBackFace(cardName: string): string {
+  return cardName
+    // "A // B", "A// B", "A //B" — but never "SP//dr".
+    .replace(/(?:\s+\/\/\s*|\s*\/\/\s+).+$/, '').trim()
+    // Single-slash form some exports use ("Tithing Blade / Consuming Sepulcher").
+    // Requires spaces around the slash so real names are never affected (no card name has " / ").
+    .replace(/\s+\/\s+.+$/, '').trim();
+}
+
 /** Strip common card name suffixes: tags (*f*, *F*), set/collector codes, trailing IDs, DFC back face */
 function stripSuffixes(cardName: string): string {
-  // Strip DFC/split back face: "Delver of Secrets // Insectile Aberration" → "Delver of Secrets".
-  // Scryfall's collection endpoint matches front-face names; it returns the full canonical name.
-  cardName = cardName.replace(/\s*\/\/\s*.+$/, '').trim();
-  // Also handle the single-slash form some exports use ("Tithing Blade / Consuming Sepulcher").
-  // Requires spaces around the slash so real names are never affected (no card name has " / ").
-  cardName = cardName.replace(/\s+\/\s+.+$/, '').trim();
+  cardName = stripBackFace(cardName);
   // Strip tags like *f* (foil), *e* (etched), *s* (showcase), *F*, *Foil*, etc.
   cardName = cardName.replace(/\s*\*[a-zA-Z]+\*\s*/g, '').trim();
   // Strip trailing category annotations: "[Removal]", "[Ramp,Draw]", "[A] [B]" (Archidekt export).

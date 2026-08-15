@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry, DeckHistoryAction } from '@/types';
 import { isEuropean } from '@/lib/region';
+import { combineColorIdentity, needsChosenColor } from '@/lib/partnerUtils';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
 import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, computeAffinityDelta, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
@@ -267,6 +268,7 @@ export const useStore = create<AppState>((set, get) => ({
   commander: null,
   partnerCommander: null,
   colorIdentity: [],
+  chosenColor: null,
 
   // EDHREC Themes
   edhrecThemes: [],
@@ -309,9 +311,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Actions
   setCommander: (card: ScryfallCard | null) => set((state) => {
-    const partnerIdentity = state.partnerCommander?.color_identity || [];
-    const commanderIdentity = card?.color_identity || [];
-    const combined = [...new Set([...commanderIdentity, ...partnerIdentity])];
+    // Drop a stale chosen color once no "choose a color" commander is left in the zone,
+    // so it can't silently widen the next commander's identity.
+    const chosenColor = needsChosenColor(card, state.partnerCommander) ? state.chosenColor : null;
+    const combined = combineColorIdentity(card, state.partnerCommander, chosenColor);
     // Only wipe the deck/theme state when the commander actually changes.
     // Re-setting the same commander (e.g. on a page refresh that re-fetches it)
     // would otherwise clobber a deck restored from sessionStorage.
@@ -320,6 +323,7 @@ export const useStore = create<AppState>((set, get) => ({
     return {
       commander: card,
       colorIdentity: combined,
+      chosenColor,
       ...(sameCommander ? {} : { generatedDeck: null }), // Reset deck when commander changes
       // Reset theme state when commander changes
       edhrecThemes: [],
@@ -336,15 +340,16 @@ export const useStore = create<AppState>((set, get) => ({
   }),
 
   setPartnerCommander: (card: ScryfallCard | null) => set((state) => {
-    const commanderIdentity = state.commander?.color_identity || [];
-    const partnerIdentity = card?.color_identity || [];
-    const combined = [...new Set([...commanderIdentity, ...partnerIdentity])];
+    // See setCommander: a chosen color only survives while a "choose a color" commander does.
+    const chosenColor = needsChosenColor(state.commander, card) ? state.chosenColor : null;
+    const combined = combineColorIdentity(state.commander, card, chosenColor);
     // Avoid wiping a deck restored from sessionStorage on refresh (see setCommander).
     const samePartner = (state.partnerCommander?.name ?? null) === (card?.name ?? null);
 
     return {
       partnerCommander: card,
       colorIdentity: combined,
+      chosenColor,
       ...(samePartner ? {} : { generatedDeck: null }),
       // Reset theme state when partner changes
       edhrecThemes: [],
@@ -354,6 +359,20 @@ export const useStore = create<AppState>((set, get) => ({
       themeSource: 'local',
       edhrecNumDecks: null,
       edhrecStats: null,
+      deckHistory: [],
+    };
+  }),
+
+  // Color picked for a "choose a color before the game begins" commander (Clara Oswald,
+  // The Prismatic Piper, Faceless One). Changing it changes the legal card pool, so it
+  // clears the generated deck the same way swapping a partner does.
+  setChosenColor: (color: string | null) => set((state) => {
+    const chosenColor = needsChosenColor(state.commander, state.partnerCommander) ? color : null;
+    if (chosenColor === state.chosenColor) return {};
+    return {
+      chosenColor,
+      colorIdentity: combineColorIdentity(state.commander, state.partnerCommander, chosenColor),
+      generatedDeck: null,
       deckHistory: [],
     };
   }),
@@ -889,6 +908,7 @@ export const useStore = create<AppState>((set, get) => ({
     commander: null,
     partnerCommander: null,
     colorIdentity: [],
+    chosenColor: null,
     edhrecThemes: [],
     selectedThemes: [],
     themesLoading: false,

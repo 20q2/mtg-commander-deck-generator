@@ -8,6 +8,7 @@ import { InspectorIcon } from '@/components/analyze/InspectorIcon';
 import { GapAnalysisDisplay } from '@/components/deck/GapAnalysisDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
 import { PartnerSelector } from '@/components/commander/PartnerSelector';
+import { hasChosenColorIdentity } from '@/lib/partnerUtils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ManaCost, ColorIdentity } from '@/components/ui/mtg-icons';
@@ -24,6 +25,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { trackEvent } from '@/services/analytics';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { useUserLists } from '@/hooks/useUserLists';
+import { useBinders } from '@/hooks/useBinders';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 /**
@@ -43,11 +45,78 @@ function buildThemeResults(themes: EDHRECTheme[], preferredSlug?: string | null)
   }));
 }
 
+/**
+ * Name-and-save popover. Owns its own open state so it anchors to whichever
+ * trigger it wraps — the sidebar bookmark, the deck-view "save to edit" nudge —
+ * instead of always opening in one corner of the page.
+ */
+function SaveDeckPopover({ trigger, defaultName, onSave, side = 'bottom', align = 'end' }: {
+  trigger: React.ReactNode;
+  defaultName: string;
+  onSave: (deckName: string) => void;
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  align?: 'start' | 'center' | 'end';
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const close = () => { setOpen(false); setName(''); };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) { close(); return; }
+        setName(defaultName);
+        setOpen(true);
+        setTimeout(() => inputRef.current?.select(), 0);
+      }}
+    >
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent side={side} align={align} className="w-auto p-2">
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => { e.preventDefault(); onSave(name.trim() || defaultName); close(); }}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={defaultName}
+            className="bg-card/50 border border-border/50 rounded-md px-2.5 py-1.5 text-xs w-52 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
+            onKeyDown={(e) => { if (e.key === 'Escape') close(); }}
+          />
+          <button
+            type="submit"
+            className="p-1.5 rounded-md text-emerald-400 hover:text-emerald-300 hover:bg-accent transition-colors"
+            title="Save"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={close}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors"
+            title="Cancel"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function BuilderPage() {
   const { commanderName, partnerName } = useParams<{ commanderName: string; partnerName?: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const genParam = searchParams.get('g');
+  // Color picked for a "choose a color before the game begins" commander (Clara Oswald &c).
+  // Lives in the URL so a refresh or a shared link rebuilds the same color identity.
+  const colorParam = searchParams.get('color');
   // Strategy slug carried from the "By strategy" discovery tab; pre-selects the matching archetype.
   const strategyParam = searchParams.get('strategy');
   const [progress, setProgress] = useState('');
@@ -59,10 +128,8 @@ export function BuilderPage() {
   const [noDataForSettings, setNoDataForSettings] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [previewCard, setPreviewCard] = useState<import('@/types').ScryfallCard | null>(null);
-  const [showSaveInput, setShowSaveInput] = useState(false);
-  const [saveListName, setSaveListName] = useState('');
-  const saveInputRef = useRef<HTMLInputElement>(null);
   const { createList } = useUserLists();
+  const { binders } = useBinders();
   const exportTriggerRef = useRef<(() => void) | null>(null);
   const [headerCollectionNames, setHeaderCollectionNames] = useState<Set<string> | null>(null);
   const [listsPanelOpen, setListsPanelOpen] = useState(false);
@@ -91,10 +158,75 @@ export function BuilderPage() {
     setLoading,
     setError,
     reset,
+    chosenColor,
+    setChosenColor,
   } = useStore();
 
   const commanderTitle = [commander?.name, partnerCommander?.name].filter(Boolean).join(' & ');
   usePageTitle([commanderTitle, 'Build']);
+
+  const saveDefaultName = `${commander?.name ?? 'New'}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
+
+  // Turns the generated deck into a saved list, tagged with what built it, then
+  // hands the user straight to the new deck's page.
+  const handleSaveDeck = useCallback((deckName: string) => {
+    if (!generatedDeck || !commander) return;
+    const allCards: string[] = [commander.name];
+    if (partnerCommander) allCards.push(partnerCommander.name);
+    for (const cards of Object.values(generatedDeck.categories)) {
+      for (const card of cards) allCards.push(card.name);
+    }
+
+    // Generation summary — same logic as the header grey text.
+    const summaryParts: string[] = [];
+    if (generatedDeck.usedThemes && generatedDeck.usedThemes.length > 0) {
+      summaryParts.push(`Built with: ${generatedDeck.usedThemes.join(', ')}`);
+    }
+    const sym = customization.currency === 'EUR' ? '€' : '$';
+    if (customization.bracketLevel !== 'all') summaryParts.push(`Bracket ${customization.bracketLevel}`);
+    if (customization.budgetOption === 'budget') summaryParts.push('Budget');
+    if (customization.budgetOption === 'expensive') summaryParts.push('Expensive');
+    if (customization.maxCardPrice !== null) summaryParts.push(`<${sym}${customization.maxCardPrice}/card`);
+    if (customization.deckBudget !== null) summaryParts.push(`${sym}${customization.deckBudget} deck budget`);
+    if (customization.allowedRarities) summaryParts.push(customization.allowedRarities.map((r) => r.charAt(0).toUpperCase() + r.slice(1)).join(', '));
+    if (customization.tinyLeaders) summaryParts.push('Tiny Leaders');
+    if (customization.arenaOnly) summaryParts.push('Arena Only');
+    if (customization.collectionMode) summaryParts.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
+    if (!customization.tempoAutoDetect) {
+      const pacingLabels: Record<string, string> = { 'aggressive-early': 'Aggressive Early', 'fast-tempo': 'Fast Tempo', 'balanced': 'Balanced', 'midrange': 'Midrange', 'late-game': 'Late Game' };
+      summaryParts.push(pacingLabels[customization.tempoPacing] || customization.tempoPacing);
+    }
+    if (customization.hyperFocus) summaryParts.push('Hyper-focused');
+    if (customization.comboCount === 0) summaryParts.push('No combos');
+    if (customization.comboCount === 2) summaryParts.push('Extra combos');
+    if (customization.comboCount === 3) summaryParts.push('Combo-heavy');
+    if (customization.scryfallQuery) summaryParts.push(`Query: ${customization.scryfallQuery}`);
+    const generationSummary = summaryParts.length > 0 ? summaryParts.join(' · ') : undefined;
+
+    // Tag the saved deck with the themes it was generated with (name + slug) so
+    // its card shows them and they drive theme-aware enrichment. Capped at 2,
+    // matching the picker.
+    const savedThemes = selectedThemes
+      .filter(t => t.isSelected && t.slug)
+      .map(t => ({ name: t.name, slug: t.slug! }))
+      .slice(0, 2);
+
+    const newList = createList(deckName, allCards, '', {
+      type: 'deck',
+      commanderName: commander.name,
+      partnerCommanderName: partnerCommander?.name,
+      chosenColor: chosenColor ?? undefined,
+      deckSize: allCards.length,
+      generationSummary,
+      usedThemes: generatedDeck.usedThemes?.length ? generatedDeck.usedThemes : undefined,
+      themes: savedThemes.length > 0 ? savedThemes : undefined,
+      builtFromCollection: generatedDeck.builtFromCollection,
+      collectionBinderIds: generatedDeck.collectionBinderIds,
+    });
+    trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
+    // Skip the "saved!" toast — take the user straight to their new deck's page.
+    navigate(`/decks/${newList.id}`);
+  }, [generatedDeck, commander, partnerCommander, customization, selectedThemes, chosenColor, createList, navigate]);
 
   // URL drives view visibility so back/forward both work: the deck stays in the store across
   // a back-to-settings, and forward re-shows it without regenerating.
@@ -121,6 +253,8 @@ export function BuilderPage() {
     const urlPartnerName = partnerName ? decodeURIComponent(partnerName) : null;
     const storePartnerName = partnerCommander?.name ?? null;
     if (urlPartnerName !== storePartnerName) return;
+    // setChosenColor also wipes generatedDeck, so wait for it to settle too.
+    if (colorParam !== chosenColor) return;
     try {
       const stored = sessionStorage.getItem(`deck:${genParam}`);
       if (stored) setGeneratedDeck(JSON.parse(stored) as GeneratedDeck);
@@ -128,7 +262,7 @@ export function BuilderPage() {
       console.warn('Failed to restore deck from sessionStorage:', e);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [genParam, commander?.name, partnerCommander?.name, partnerName]);
+  }, [genParam, commander?.name, partnerCommander?.name, partnerName, colorParam, chosenColor]);
 
   // Persist generated deck to sessionStorage. Only the current snapshot needs
   // to survive a hard refresh — every fresh generation gets a new ?g= timestamp,
@@ -319,6 +453,29 @@ export function BuilderPage() {
       navigate(newPath, { replace: true });
     }
   }, [partnerCommander?.name, commander?.name, commanderName, partnerName, navigate]);
+
+  // Chosen color (Clara Oswald / The Prismatic Piper / Faceless One) ⇄ ?color= URL param.
+  // Read the URL only once both commanders are in the store — setChosenColor drops the value
+  // unless a "choose a color" commander is actually in the command zone.
+  const partnerSettled = partnerName
+    ? partnerCommander?.name === decodeURIComponent(partnerName)
+    : !partnerCommander;
+  useEffect(() => {
+    if (!commander || !partnerSettled) return;
+    if (colorParam !== chosenColor) setChosenColor(colorParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorParam, commander?.name, partnerSettled]);
+
+  // Push the picker's choice back into the URL so a refresh restores the same identity.
+  useEffect(() => {
+    if (!commander) return;
+    if ((chosenColor ?? null) === colorParam) return;
+    const next = new URLSearchParams(searchParams);
+    if (chosenColor) next.set('color', chosenColor);
+    else next.delete('color');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenColor, commander?.name]);
 
   // Apply commander color theme (uses combined color identity from both commanders)
   useEffect(() => {
@@ -620,6 +777,7 @@ export function BuilderPage() {
       });
 
       deck.builtFromCollection = !!cust.collectionMode;
+      deck.collectionBinderIds = cust.collectionBinderIds;
       // On fresh generation, clear temporary lists
       // On regeneration, keep them — user added these after seeing the deck
       if (!isRegeneration) {
@@ -817,7 +975,7 @@ export function BuilderPage() {
 
                       {/* Color Identity - show combined when partner exists */}
                       <div className="mt-3">
-                        <ColorIdentity colors={partnerCommander ? colorIdentity : commander.color_identity} size="lg" />
+                        <ColorIdentity colors={partnerCommander || chosenColor ? colorIdentity : commander.color_identity} size="lg" />
                       </div>
 
                       {/* Mana Cost */}
@@ -879,9 +1037,17 @@ export function BuilderPage() {
                           {partnerCommander.type_line}
                         </p>
 
-                        {/* Partner's individual color identity */}
+                        {/* Partner's individual color identity — a chosen-color partner
+                            (Clara Oswald &c) prints colorless, so show the picked color. */}
                         <div className="mt-3">
-                          <ColorIdentity colors={partnerCommander.color_identity} size="lg" />
+                          <ColorIdentity
+                            colors={
+                              chosenColor && hasChosenColorIdentity(partnerCommander)
+                                ? [chosenColor]
+                                : partnerCommander.color_identity
+                            }
+                            size="lg"
+                          />
                         </div>
 
                         {/* Mana Cost */}
@@ -1111,6 +1277,14 @@ export function BuilderPage() {
                 if (customization.tinyLeaders) details.push('Tiny Leaders');
                 if (customization.arenaOnly) details.push('Arena Only');
                 if (customization.collectionMode) details.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
+                {
+                  const ids = generatedDeck.collectionBinderIds;
+                  if (ids && ids.length > 0) {
+                    const nameById = new Map(binders.map(b => [b.id, b.name]));
+                    const names = ids.map(id => nameById.get(id)).filter((n): n is string => !!n);
+                    if (names.length > 0) details.push(`Built from: ${names.join(', ')}`);
+                  }
+                }
                 if (!customization.tempoAutoDetect) {
                   const pacingLabels: Record<string, string> = { 'aggressive-early': 'Aggressive Early', 'fast-tempo': 'Fast Tempo', 'balanced': 'Balanced', 'midrange': 'Midrange', 'late-game': 'Late Game' };
                   details.push(pacingLabels[customization.tempoPacing] || customization.tempoPacing);
@@ -1145,113 +1319,36 @@ export function BuilderPage() {
                 </div>
               );
             }}
+            saveNudge={
+              <SaveDeckPopover
+                trigger={
+                  <button className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg text-primary hover:bg-primary/10 transition-colors">
+                    <Bookmark className="w-3 h-3" />
+                    Save deck to edit
+                  </button>
+                }
+                defaultName={saveDefaultName}
+                onSave={handleSaveDeck}
+                side="top"
+                align="end"
+              />
+            }
             sidebarHeader={
               <div className="flex items-center justify-end gap-2">
-                <Popover open={showSaveInput} onOpenChange={(open) => { if (!open) { setShowSaveInput(false); setSaveListName(''); } }}>
-                  <PopoverTrigger asChild>
+                <SaveDeckPopover
+                  trigger={
                     <button
-                      onClick={() => {
-                        const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
-                        setSaveListName(defaultName);
-                        setShowSaveInput(true);
-                        setTimeout(() => saveInputRef.current?.select(), 0);
-                      }}
                       className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                       title="Save deck"
                     >
                       <Bookmark className="w-4 h-4" />
                     </button>
-                  </PopoverTrigger>
-                  <PopoverContent side="left" className="w-auto p-2">
-                    <form
-                      className="flex items-center gap-1.5"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!generatedDeck) return;
-                        const defaultName = `${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
-                        const deckName = saveListName.trim() || defaultName;
-                        const allCards: string[] = [];
-                        if (commander) allCards.push(commander.name);
-                        if (partnerCommander) allCards.push(partnerCommander.name);
-                        for (const cards of Object.values(generatedDeck.categories)) {
-                          for (const card of cards) allCards.push(card.name);
-                        }
-                        // Build generation summary (same logic as the header grey text)
-                        const summaryParts: string[] = [];
-                        if (generatedDeck.usedThemes && generatedDeck.usedThemes.length > 0) {
-                          summaryParts.push(`Built with: ${generatedDeck.usedThemes.join(', ')}`);
-                        }
-                        const sym = customization.currency === 'EUR' ? '€' : '$';
-                        if (customization.bracketLevel !== 'all') summaryParts.push(`Bracket ${customization.bracketLevel}`);
-                        if (customization.budgetOption === 'budget') summaryParts.push('Budget');
-                        if (customization.budgetOption === 'expensive') summaryParts.push('Expensive');
-                        if (customization.maxCardPrice !== null) summaryParts.push(`<${sym}${customization.maxCardPrice}/card`);
-                        if (customization.deckBudget !== null) summaryParts.push(`${sym}${customization.deckBudget} deck budget`);
-                        if (customization.allowedRarities) summaryParts.push(customization.allowedRarities.map((r) => r.charAt(0).toUpperCase() + r.slice(1)).join(', '));
-                        if (customization.tinyLeaders) summaryParts.push('Tiny Leaders');
-                        if (customization.arenaOnly) summaryParts.push('Arena Only');
-                        if (customization.collectionMode) summaryParts.push(customization.collectionStrategy === 'partial' ? `Collection (${customization.collectionOwnedPercent}%)` : 'Collection Only');
-                        if (!customization.tempoAutoDetect) {
-                          const pacingLabels: Record<string, string> = { 'aggressive-early': 'Aggressive Early', 'fast-tempo': 'Fast Tempo', 'balanced': 'Balanced', 'midrange': 'Midrange', 'late-game': 'Late Game' };
-                          summaryParts.push(pacingLabels[customization.tempoPacing] || customization.tempoPacing);
-                        }
-                        if (customization.hyperFocus) summaryParts.push('Hyper-focused');
-                        if (customization.comboCount === 0) summaryParts.push('No combos');
-                        if (customization.comboCount === 2) summaryParts.push('Extra combos');
-                        if (customization.comboCount === 3) summaryParts.push('Combo-heavy');
-                        if (customization.scryfallQuery) summaryParts.push(`Query: ${customization.scryfallQuery}`);
-                        const generationSummary = summaryParts.length > 0 ? summaryParts.join(' · ') : undefined;
-
-                        // Tag the saved deck with the themes it was generated with
-                        // (name + slug) so its card shows them and they drive
-                        // theme-aware enrichment. Capped at 2, matching the picker.
-                        const savedThemes = selectedThemes
-                          .filter(t => t.isSelected && t.slug)
-                          .map(t => ({ name: t.name, slug: t.slug! }))
-                          .slice(0, 2);
-
-                        const newList = createList(deckName, allCards, '', {
-                          type: 'deck',
-                          commanderName: commander?.name,
-                          partnerCommanderName: partnerCommander?.name,
-                          deckSize: allCards.length,
-                          generationSummary,
-                          usedThemes: generatedDeck.usedThemes?.length ? generatedDeck.usedThemes : undefined,
-                          themes: savedThemes.length > 0 ? savedThemes : undefined,
-                        });
-                        trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
-                        setShowSaveInput(false);
-                        // Skip the "saved!" toast — take the user straight to their new deck's page.
-                        navigate(`/decks/${newList.id}`);
-                      }}
-                    >
-                      <input
-                        ref={saveInputRef}
-                        type="text"
-                        value={saveListName}
-                        onChange={(e) => setSaveListName(e.target.value)}
-                        placeholder={`${commander.name}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`}
-                        className="bg-card/50 border border-border/50 rounded-md px-2.5 py-1.5 text-xs w-52 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
-                        onKeyDown={(e) => { if (e.key === 'Escape') { setShowSaveInput(false); setSaveListName(''); } }}
-                      />
-                      <button
-                        type="submit"
-                        className="p-1.5 rounded-md text-emerald-400 hover:text-emerald-300 hover:bg-accent transition-colors"
-                        title="Save"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowSaveInput(false); setSaveListName(''); }}
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors"
-                        title="Cancel"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </form>
-                  </PopoverContent>
-                </Popover>
+                  }
+                  defaultName={saveDefaultName}
+                  onSave={handleSaveDeck}
+                  side="left"
+                  align="start"
+                />
                 <Button onClick={() => exportTriggerRef.current?.()} className="btn-shimmer">
                   <Copy className="w-4 h-4 mr-2" />
                   Export

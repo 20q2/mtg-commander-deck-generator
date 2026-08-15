@@ -204,6 +204,57 @@ export async function getCollectionNameSet(binderIds?: string[]): Promise<Set<st
   return names;
 }
 
+/** Maps each owned card name → the display names of the binders that hold it, optionally
+ *  scoped to a subset of binders (undefined = every binder). Powers the "which collection is
+ *  this from?" tooltip on owned cards. Front-face names are added for DFCs, matching
+ *  getCollectionNameSet. */
+export async function getCollectionBinderMap(binderIds?: string[]): Promise<Map<string, string[]>> {
+  const [rows, binders] = await Promise.all([
+    binderIds
+      ? db.cards.where('binderId').anyOf(binderIds).toArray()
+      : db.cards.toArray(),
+    db.binders.toArray(),
+  ]);
+  const nameById = new Map(binders.map(b => [b.id, b.name]));
+  const map = new Map<string, string[]>();
+  const add = (key: string, binderName: string) => {
+    const arr = map.get(key);
+    if (arr) { if (!arr.includes(binderName)) arr.push(binderName); }
+    else map.set(key, [binderName]);
+  };
+  for (const c of rows) {
+    const binderName = nameById.get(c.binderId) ?? 'Collection';
+    add(c.name, binderName);
+    if (c.name.includes(' // ')) add(c.name.split(' // ')[0], binderName);
+  }
+  return map;
+}
+
+/** Like getCollectionBinderMap, but keeps binder ids alongside names so callers can count
+ *  per-binder and filter by a specific binder. Maps card name → [{id, name}] of the binders
+ *  that hold it (front-face names added for DFCs). */
+export async function getCollectionBinderEntries(binderIds?: string[]): Promise<Map<string, { id: string; name: string }[]>> {
+  const [rows, binders] = await Promise.all([
+    binderIds
+      ? db.cards.where('binderId').anyOf(binderIds).toArray()
+      : db.cards.toArray(),
+    db.binders.toArray(),
+  ]);
+  const nameById = new Map(binders.map(b => [b.id, b.name]));
+  const map = new Map<string, { id: string; name: string }[]>();
+  const add = (key: string, id: string, name: string) => {
+    const arr = map.get(key);
+    if (arr) { if (!arr.some(e => e.id === id)) arr.push({ id, name }); }
+    else map.set(key, [{ id, name }]);
+  };
+  for (const c of rows) {
+    const binderName = nameById.get(c.binderId) ?? 'Collection';
+    add(c.name, c.binderId, binderName);
+    if (c.name.includes(' // ')) add(c.name.split(' // ')[0], c.binderId, binderName);
+  }
+  return map;
+}
+
 export async function getCardsForBinder(binderId: string): Promise<CollectionCard[]> {
   const cards = await db.cards.where('binderId').equals(binderId).toArray();
   return cards.sort((a, b) => b.addedAt - a.addedAt);

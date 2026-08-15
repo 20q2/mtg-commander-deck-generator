@@ -8,7 +8,7 @@ import {
   getCardByName,
   getCardImageUrl,
 } from '@/services/scryfall/client';
-import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl } from '@/services/edhrec/client';
+import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl, isPartnerPair } from '@/services/edhrec/client';
 import { StrategyBrowser } from '@/components/commander/StrategyBrowser';
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { useStore } from '@/store';
@@ -280,7 +280,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
       } else {
         // No filter — pick from full EDHREC commander typeahead list
         const allNames = await fetchAllCommanderNames();
-        const filtered = allNames.filter(n => !n.includes('//'));
+        const filtered = allNames.filter(n => !isPartnerPair(n));
         if (filtered.length === 0) return;
         const pick = filtered[Math.floor(Math.random() * filtered.length)];
         const card = await getCardByName(pick);
@@ -542,7 +542,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
                           <Loader2 className="w-5 h-5 animate-spin text-primary" />
                         </div>
                       )}
-                      {edhrecCommanders.filter(c => !c.name.includes('//')).map((commander, i) => (
+                      {edhrecCommanders.filter(c => !isPartnerPair(c.name)).map((commander, i) => (
                         <button
                           key={commander.sanitized}
                           onClick={() => setQuery(commander.name)}
@@ -621,7 +621,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               onClick={handleSurpriseMe}
               disabled={isSearching || (ownedOnly && collectionLegends.length === 0)}
               className="animate-chip-in flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ animationDelay: `${(ownedOnly ? ownedSuggestions.length : edhrecCommanders.filter(c => !c.name.includes('//')).length) * 40 + 80}ms` }}
+              style={{ animationDelay: `${(ownedOnly ? ownedSuggestions.length : edhrecCommanders.filter(c => !isPartnerPair(c.name)).length) * 40 + 80}ms` }}
             >
               <Shuffle className="w-4 h-4" />
               Surprise me!

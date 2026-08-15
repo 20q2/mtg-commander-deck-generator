@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '@/store';
-import { getCardByName } from '@/services/scryfall/client';
+import { getCardByName, getCardImageUrl } from '@/services/scryfall/client';
 import { fetchCommanderData, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { prepareBrewContext } from '@/services/brew/prepareBrewContext';
 import { persistBrewSession, hydrateBrewSession, clearPersistedBrew } from '@/store';
@@ -75,6 +75,9 @@ export function BrewPage() {
   const [reveal, setReveal] = useState<{ commander: ScryfallCard; lands: ScryfallCard[]; startCount: number; total: number; listId: string } | null>(null);
   // The mana-base capstone: the final land-style choice, shown before the deck is built.
   const [capstone, setCapstone] = useState(false);
+  // True while finishBrew runs (fetching lands + building) — mounts a loading overlay so the multi-
+  // second wait between "Lock it in" and the fly-in reveal isn't a confusing blank.
+  const [finishing, setFinishing] = useState(false);
   // Estimated cards that will top up the deck's remaining space — sorted once from the scored pool;
   // the capstone slices to however many slots the chosen land count leaves open.
   const backfillPool = useMemo(
@@ -268,6 +271,7 @@ export function BrewPage() {
   async function handleFinish(landMix?: ManaMix, landCount?: number) {
     if (!brewState || !brewContext) return;
     setCapstone(false);
+    setFinishing(true);
     setProgress({ msg: 'Finishing your deck…', pct: 0 });
     try {
       const deck = await finishBrew(brewContext, brewState, landMix, landCount, (msg, pct) => setProgress({ msg, pct }));
@@ -278,6 +282,8 @@ export function BrewPage() {
         partnerCommanderName: brewContext.partnerCommander?.name,
         deckSize: payload.deckSize,
         generationSummary: payload.generationSummary,
+        builtFromCollection: deck.builtFromCollection,
+        collectionBinderIds: deck.collectionBinderIds,
       });
       trackEvent('brew_finished', { commanderName: brewContext.commander.name, picks: brewState.picks.length });
       trackEvent('list_created', { listName: payload.name, cardCount: payload.cards.length });
@@ -302,6 +308,7 @@ export function BrewPage() {
       console.error(e); setError(e instanceof Error ? e.message : 'Failed to finish');
     } finally {
       setProgress(null);
+      setFinishing(false);
     }
   }
 
@@ -385,6 +392,26 @@ export function BrewPage() {
       {/* Resume cliffhanger — the last moments of a rejoined run, then straight back in. */}
       {previously && <BrewPreviously moments={previously} onDone={() => setPreviously(null)} />}
       {/* The run recap overlays everything once the deck is finished. */}
+      {finishing && !reveal && brewContext && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-background/88 backdrop-blur-md p-4 animate-brew-view-in">
+          <div className="text-center">
+            <div
+              className="relative mx-auto w-[132px] rounded-[4.8%] ring-1 ring-[hsl(40_92%_62%_/_0.5)] shadow-[0_10px_40px_rgba(0,0,0,0.6),0_0_40px_-8px_hsl(40_92%_62%_/_0.5)]"
+              style={{ animation: 'brewPilePulse 900ms ease-in-out infinite' }}
+            >
+              <img src={getCardImageUrl(brewContext.commander, 'normal')} alt="" className="block w-full h-auto rounded-[4.8%]" />
+            </div>
+            <div className="mt-5 font-display text-lg font-semibold text-foreground">Building your deck…</div>
+            <div className="mt-1 min-h-[16px] text-xs text-muted-foreground">{progress?.msg}</div>
+            <div className="mx-auto mt-3 h-1 w-48 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full transition-[width] duration-300"
+                style={{ width: `${progress ? (progress.pct > 1 ? Math.min(100, progress.pct) : Math.round(progress.pct * 100)) : 0}%`, background: 'hsl(40 92% 62%)' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {reveal && (
         <BrewFinishReveal
           commander={reveal.commander}

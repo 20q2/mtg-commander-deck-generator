@@ -493,6 +493,15 @@ async function resolveNamesByFlavorSearch(names: string[]): Promise<Map<string, 
   return out;
 }
 
+/** Out-param for getCardsByNames — lets callers distinguish "Scryfall doesn't know
+ *  this name" from "the request failed". */
+export interface CardFetchStats {
+  /** Count of /cards/collection requests that threw or returned non-OK. Non-zero
+   *  means some names are missing because the NETWORK failed — callers must not
+   *  persist that as "these names don't exist". */
+  failedRequests: number;
+}
+
 /**
  * Batch fetch multiple cards by name using Scryfall's /cards/collection endpoint.
  * Fetches up to 75 cards per request, drastically reducing API calls vs individual lookups.
@@ -504,9 +513,10 @@ export async function getCardsByNames(
   names: string[],
   onProgress?: (fetched: number, total: number) => void,
   preferredSet?: string,
-  opts?: { currency?: 'USD' | 'EUR' },
+  opts?: { currency?: 'USD' | 'EUR'; stats?: CardFetchStats },
 ): Promise<Map<string, ScryfallCard>> {
   const currency = opts?.currency ?? 'USD';
+  const stats = opts?.stats;
   const result = new Map<string, ScryfallCard>();
 
   if (names.length === 0) return result;
@@ -625,8 +635,12 @@ export async function getCardsByNames(
             console.warn(`[Scryfall] ${data.not_found.length} cards not found in collection batch`);
           }
         }
+      } else {
+        if (stats) stats.failedRequests++;
+        console.warn(`[Scryfall] Collection batch returned ${response.status} for ${batch.length} names`);
       }
     } catch (err) {
+      if (stats) stats.failedRequests++;
       console.warn('[Scryfall] Collection batch failed:', err);
     }
 
@@ -679,8 +693,11 @@ export async function getCardsByNames(
           if (data.data.length > 0) {
             void writePersistedMany(data.data.map(card => ({ name: card.name, card })));
           }
+        } else if (stats) {
+          stats.failedRequests++;
         }
       } catch (err) {
+        if (stats) stats.failedRequests++;
         console.warn('[Scryfall] Fallback collection batch failed:', err);
       }
     }

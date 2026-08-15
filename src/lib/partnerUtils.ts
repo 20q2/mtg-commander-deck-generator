@@ -153,6 +153,48 @@ export function areValidPartners(card1: ScryfallCard, card2: ScryfallCard): bool
 }
 
 /**
+ * True for the colorless legends whose color identity is picked before the game rather
+ * than printed: Clara Oswald ("Impossible Girl"), The Prismatic Piper and Faceless One.
+ * Scryfall reports `color_identity: []` for all three, so a pair like
+ * The Fourteenth Doctor + Clara Oswald reads as WURG unless the chosen color is folded in.
+ * Detected from oracle text so a future reprint of the same template is covered too.
+ */
+export function hasChosenColorIdentity(card: ScryfallCard | null | undefined): boolean {
+  if (!card) return false;
+  const oracleText = getOracleText(card);
+  return /choose a color before the game begins/i.test(oracleText)
+    && /is the chosen color/i.test(oracleText);
+}
+
+/** True when either half of the command zone needs the user to pick a color. */
+export function needsChosenColor(
+  commander: ScryfallCard | null | undefined,
+  partner: ScryfallCard | null | undefined,
+): boolean {
+  return hasChosenColorIdentity(commander) || hasChosenColorIdentity(partner);
+}
+
+/**
+ * The deck's real color identity: both commanders' printed identities plus the color
+ * chosen for a "choose a color before the game begins" commander. The chosen color is
+ * ignored when neither commander has that ability, so a stale value can't widen a deck.
+ */
+export function combineColorIdentity(
+  commander: ScryfallCard | null | undefined,
+  partner: ScryfallCard | null | undefined,
+  chosenColor?: string | null,
+): string[] {
+  const colors = new Set<string>([
+    ...(commander?.color_identity || []),
+    ...(partner?.color_identity || []),
+  ]);
+  if (chosenColor && needsChosenColor(commander, partner)) {
+    colors.add(chosenColor);
+  }
+  return [...colors];
+}
+
+/**
  * Gets a human-readable label for the partner type
  */
 export function getPartnerTypeLabel(partnerType: PartnerType): string {

@@ -59,6 +59,44 @@ describe('parseCollectionList — non-numeric collector numbers', () => {
   });
 });
 
+describe('parseCollectionList — "//" inside a real card name', () => {
+  it('keeps a bare "//" that is part of the name (SP//dr)', () => {
+    expect(names('SP//dr, Piloted by Peni')).toEqual(['SP//dr, Piloted by Peni']);
+  });
+
+  it('keeps it with a quantity prefix and set/collector suffix', () => {
+    expect(names('1 SP//dr, Piloted by Peni (SPM) 12')).toEqual(['SP//dr, Piloted by Peni']);
+  });
+
+  it('still strips a spaced back face', () => {
+    expect(names('Delver of Secrets // Insectile Aberration')).toEqual(['Delver of Secrets']);
+    expect(names('Tithing Blade / Consuming Sepulcher')).toEqual(['Tithing Blade']);
+  });
+
+  // Scryfall's /cards/collection endpoint does NOT resolve full multi-face names
+  // (not even the canonical " // " form), so every layout below must reduce to its
+  // front face. A Scryfall regex sweep confirms SP//dr is the ONLY card in the game
+  // whose name has an unspaced "//", so requiring whitespace is safe for all of them.
+  it('strips the back face for every multi-face layout', () => {
+    const cases: [string, string][] = [
+      ['Fire // Ice', 'Fire'],                                                             // split
+      ['Aberrant Researcher // Perfected Form', 'Aberrant Researcher'],                    // transform
+      ["Agadeem's Awakening // Agadeem, the Undercrypt", "Agadeem's Awakening"],           // modal_dfc
+      ['Bonecrusher Giant // Stomp', 'Bonecrusher Giant'],                                 // adventure
+      ['Akki Lavarunner // Tok-Tok, Volcano Born', 'Akki Lavarunner'],                     // flip
+      ['Brisela, Voice of Nightmares', 'Brisela, Voice of Nightmares'],                    // meld (no "//")
+    ];
+    for (const [input, expected] of cases) {
+      expect(names(input), input).toEqual([expected]);
+    }
+  });
+
+  it('tolerates exporters that drop a space around the back-face separator', () => {
+    expect(names('Fire// Ice')).toEqual(['Fire']);
+    expect(names('Fire //Ice')).toEqual(['Fire']);
+  });
+});
+
 describe('parseCollectionList — MTGO/paper export with (SET) collector + sideboard', () => {
   it('parses set codes, hyphenated collector numbers, DFCs, and skips section headers', () => {
     const input = [

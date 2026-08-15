@@ -34,8 +34,10 @@ import {
   cacheMatchesCommander,
   cacheMatchesContent,
 } from '@/services/deckBuilder/deckEnrichmentCache';
-import { CollectionImporter, type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
+import { type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
+import { AddCardsPanel } from '@/components/deck/AddCardsPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, LoadPhase, SerializedEnrichment } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -46,6 +48,7 @@ import { FillDeckDialog } from './FillDeckDialog';
 import { Drawer } from '@/components/ui/drawer';
 import { MustIncludeCards } from '@/components/customization/MustIncludeCards';
 import { getMaxCopies } from '@/lib/utils';
+import { combineColorIdentity } from '@/lib/partnerUtils';
 import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 
 interface ListDeckViewProps {
@@ -74,6 +77,38 @@ interface ListDeckViewProps {
  *  themes invalidates the cached enrichment. */
 function listHashInput(list: UserCardList): string[] {
   return [...list.cards, ...(list.themes ?? []).map(t => `theme:${t.slug}`)];
+}
+
+/** Normalized name keys for every card a build resolved — deck cards plus commanders,
+ *  each also indexed by its DFC faces. Normalizing means a card that loaded under its
+ *  canonical Scryfall name still matches a differently-accented request in list.cards. */
+function resolvedNameKeys(
+  cards: ScryfallCard[],
+  ...commanders: Array<ScryfallCard | null | undefined>
+): Set<string> {
+  const keys = new Set<string>();
+  const add = (n: string) => {
+    keys.add(normalizeCardNameKey(n));
+    if (n.includes(' // ')) {
+      for (const face of n.split(' // ')) keys.add(normalizeCardNameKey(face));
+    }
+  };
+  for (const c of cards) add(c.name);
+  for (const c of commanders) if (c) add(c.name);
+  return keys;
+}
+
+/** Mainboard names with no resolved card, deduped, in list order. */
+function unresolvedNames(names: string[], resolved: Set<string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    if (resolved.has(normalizeCardNameKey(name))) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
 
 function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
@@ -644,13 +679,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     const commanderCard = generatedDeck?.commander;
     const partnerCard = generatedDeck?.partnerCommander;
     if (!commanderCard) return [];
-    const allowed = new Set<string>([
-      ...(commanderCard.color_identity || []),
-      ...((list.partnerCommanderName && partnerCard?.color_identity) || []),
-    ]);
+    const allowed = new Set<string>(combineColorIdentity(
+      commanderCard,
+      list.partnerCommanderName ? partnerCard : null,
+      list.chosenColor,
+    ));
     const cards: ScryfallCard[] = generatedDeck ? Object.values(generatedDeck.categories).flat() : [];
     return cards.filter(c => (c.color_identity || []).some(color => !allowed.has(color)));
-  }, [generatedDeck, list.commanderName, list.partnerCommanderName]);
+  }, [generatedDeck, list.commanderName, list.partnerCommanderName, list.chosenColor]);
 
   // Singleton violations — duplicate non-basic cards. Uses getMaxCopies() so
   // basics and "any number" / capped multi-copy cards are recognized from card
@@ -713,41 +749,27 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   // Unloaded cards — names in list.cards that don't appear in the loaded
   // categories (typically Scryfall lookup failures from typos or renamed cards).
   // Gated on phasesDone.has('cards') so we don't flag everything during loading.
+  // Commander and partner live outside categories, so resolvedNameKeys counts them
+  // as loaded and their names don't get flagged when present in list.cards.
   const unloadedCards = useMemo(() => {
     if (!phasesDone.has('cards')) return [];
-    // Compare on normalized keys so a card that loaded under its canonical
-    // Scryfall name isn't falsely flagged when list.cards holds a differently-
-    // spelled request (accents/punctuation — common with EDHREC/inspector names).
-    // A genuinely unresolvable name still fails to load, so it stays flagged.
-    const loadedNames = new Set<string>();
-    const addLoaded = (n: string) => {
-      loadedNames.add(normalizeCardNameKey(n));
-      if (n.includes(' // ')) {
-        for (const face of n.split(' // ')) loadedNames.add(normalizeCardNameKey(face));
-      }
-    };
-    if (generatedDeck) {
-      for (const c of Object.values(generatedDeck.categories).flat()) {
-        addLoaded(c.name);
-      }
-      // Commander and partner live outside categories — count them as loaded
-      // so their names don't get flagged when present in list.cards.
-      if (generatedDeck.commander) addLoaded(generatedDeck.commander.name);
-      if (generatedDeck.partnerCommander) addLoaded(generatedDeck.partnerCommander.name);
-    }
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const name of list.cards) {
-      if (loadedNames.has(normalizeCardNameKey(name))) continue;
-      if (seen.has(name)) continue;
-      seen.add(name);
-      out.push(name);
-    }
-    return out;
+    if (!generatedDeck) return [];
+    return unresolvedNames(
+      list.cards,
+      resolvedNameKeys(
+        Object.values(generatedDeck.categories).flat(),
+        generatedDeck.commander,
+        generatedDeck.partnerCommander,
+      ),
+    );
   }, [list.cards, generatedDeck, phasesDone]);
 
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // True when Scryfall requests failed during the load, so cards are missing because
+  // the network fell over — not because their names are wrong. Changes the banner from
+  // "check spelling" (a lie) to a retry, and blocks caching the incomplete result.
+  const [loadDegraded, setLoadDegraded] = useState(false);
   const [artUrl, setArtUrl] = useState<string | null>(null);
   const [artLoaded, setArtLoaded] = useState(false);
   const [deckEditMode, setDeckEditMode] = useState(false);
@@ -967,6 +989,11 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
   const isInitialLoadDone = useRef(false);
   // Cache raw combos so incremental updates can re-evaluate completeness
   const rawCombosRef = useRef<EDHRECCombo[]>([]);
+  // Names the current build proved Scryfall can't resolve. Only a full load may add to
+  // this; in-place re-enrichment merely carries it forward, so a card that goes missing
+  // for any other reason (a failed add fetch) leaves the cache incomplete-by-coverage and
+  // gets rebuilt on next open instead of being recorded as a bad name.
+  const knownUnresolvedRef = useRef<string[]>([]);
 
   // Full build — only on initial mount / list.id change / manual refresh
   useEffect(() => {
@@ -985,6 +1012,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       edhrecResult: EdhrecMapsResult;
       swapsResult: SwapCandidatesResult;
       detectedCombos: DetectedCombo[] | undefined;
+      unresolved: string[];
     }) {
       const mergedRelevancy = args.edhrecResult.cardRelevancyMap
         ? { ...args.edhrecResult.cardRelevancyMap, ...(args.swapsResult.candidateRelevancyMap ?? {}) }
@@ -1017,6 +1045,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         edhrecTypes: args.edhrecResult.edhrecTypes,
         detectedCombos: args.detectedCombos,
         rawCombos: rawCombosRef.current,
+        unresolvedNames: args.unresolved,
       };
       await writeEnrichmentCache({
         listId: list.id,
@@ -1029,6 +1058,24 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       });
     }
 
+    /** True when a payload holds a card for every mainboard name it doesn't already
+     *  record as unresolvable. A payload that fails this was built from an incomplete
+     *  Scryfall fetch: hydrating it would paint a fraction of the deck and label the
+     *  rest "couldn't be loaded", so it gets rebuilt instead. */
+    function cacheCoversDeck(payload: SerializedEnrichment): boolean {
+      const missing = unresolvedNames(
+        list.cards,
+        resolvedNameKeys(
+          Object.values(payload.categories).flat(),
+          payload.commanderCard,
+          payload.partnerCard,
+        ),
+      );
+      if (missing.length === 0) return true;
+      const known = new Set(payload.unresolvedNames ?? []);
+      return missing.every(name => known.has(name));
+    }
+
     function hydrateFromCache(payload: SerializedEnrichment) {
       setSideboardCards(payload.sideboardCards);
       setMaybeboardCards(payload.maybeboardCards);
@@ -1037,11 +1084,13 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       // combo card) can re-evaluate completeness instead of falling back to the
       // stale detectedCombos array.
       rawCombosRef.current = payload.rawCombos ?? [];
+      knownUnresolvedRef.current = payload.unresolvedNames ?? [];
       const syntheticDeck: GeneratedDeck = {
         commander: payload.commanderCard,
         partnerCommander: payload.partnerCard,
         categories: payload.categories,
         stats: payload.stats,
+        collectionBinderIds: list.collectionBinderIds,
         detectedCombos: dedupeCombosByCardSet(payload.detectedCombos),
         roleCounts: payload.roleCounts,
         roleTargets: payload.roleTargets,
@@ -1069,10 +1118,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       for (const card of allCardsForColor) {
         for (const c of card.color_identity || []) allColors.add(c);
       }
+      // A "choose a color" commander (Clara Oswald &c) prints colorless, so its color is
+      // only in the deck's identity if the saved pick says so.
+      if (list.chosenColor) allColors.add(list.chosenColor);
       const colorArray = [...allColors];
       useStore.setState({
         commander: payload.commanderCard,
         colorIdentity: colorArray,
+        chosenColor: list.chosenColor ?? null,
         generatedDeck: syntheticDeck,
         deckHistory: [],
       });
@@ -1088,7 +1141,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         ...(list.sideboard || []),
         ...(list.maybeboard || []),
       ];
-      const cardMap = await getCardsByNames(allNames);
+      const fetchStats = { failedRequests: 0 };
+      const cardMap = await getCardsByNames(allNames, undefined, undefined, { stats: fetchStats });
       if (cancelled) return;
 
       const cards: ScryfallCard[] = [];
@@ -1128,12 +1182,25 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         ? cards.filter(c => !commanderNames.has(c.name))
         : cards;
 
+      // Names this fetch couldn't resolve. If any Scryfall request failed, the misses
+      // are the network's fault rather than bad names — flag the load as degraded so we
+      // neither blame the user's spelling nor cache the incomplete deck for 14 days.
+      const unresolved = unresolvedNames(
+        list.cards,
+        resolvedNameKeys(deckCards, commanderCard, partnerCard),
+      );
+      const degraded = unresolved.length > 0 && fetchStats.failedRequests > 0;
+      setLoadDegraded(degraded);
+      knownUnresolvedRef.current = degraded ? [] : unresolved;
+
       const stats = computeStatsFromCards(deckCards);
 
       const allColors = new Set<string>();
       for (const card of cards) {
         for (const c of card.color_identity || []) allColors.add(c);
       }
+      // See above: a chosen-color commander contributes nothing on its own.
+      if (list.chosenColor) allColors.add(list.chosenColor);
       const colorArray = [...allColors];
 
       // Phase A paint: deck list + stats + curve, all non-commander cards
@@ -1142,6 +1209,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       useStore.setState({
         commander: commanderCard,
         colorIdentity: colorArray,
+        chosenColor: list.chosenColor ?? null,
         generatedDeck: {
           commander: commanderCard,
           partnerCommander: partnerCard,
@@ -1150,6 +1218,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             boardWipes: [], protection: [], creatures: deckCards, synergy: [], utility: [],
           },
           stats,
+          collectionBinderIds: list.collectionBinderIds,
         } as GeneratedDeck,
         deckHistory: [],
       });
@@ -1236,11 +1305,13 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             ? { ...state.generatedDeck, roleTargets: fallbackEdhrec.roleTargets }
             : null,
         }));
-        await persistCache({
-          commanderCard, partnerCard, deckCards, sbCards, mbCards, stats,
-          taggerResult, edhrecResult: fallbackEdhrec, swapsResult: {},
-          detectedCombos: detectedNoCmdr,
-        });
+        if (!degraded) {
+          await persistCache({
+            commanderCard, partnerCard, deckCards, sbCards, mbCards, stats,
+            taggerResult, edhrecResult: fallbackEdhrec, swapsResult: {},
+            detectedCombos: detectedNoCmdr, unresolved,
+          });
+        }
         prevCardsRef.current = list.cards;
         isInitialLoadDone.current = true;
         return;
@@ -1300,11 +1371,13 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       });
       markPhaseDone('swaps');
 
-      await persistCache({
-        commanderCard, partnerCard, deckCards, sbCards, mbCards, stats,
-        taggerResult, edhrecResult, swapsResult,
-        detectedCombos: detectedFromCombos,
-      });
+      if (!degraded) {
+        await persistCache({
+          commanderCard, partnerCard, deckCards, sbCards, mbCards, stats,
+          taggerResult, edhrecResult, swapsResult,
+          detectedCombos: detectedFromCombos, unresolved,
+        });
+      }
       prevCardsRef.current = list.cards;
       isInitialLoadDone.current = true;
     }
@@ -1312,7 +1385,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     async function backgroundRefresh() {
       try {
         const allNames = [...list.cards, ...(list.sideboard || []), ...(list.maybeboard || [])];
-        const cardMap = await getCardsByNames(allNames);
+        const fetchStats = { failedRequests: 0 };
+        const cardMap = await getCardsByNames(allNames, undefined, undefined, { stats: fetchStats });
         if (cancelled) return;
 
         const cards: ScryfallCard[] = [];
@@ -1342,6 +1416,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         if (partnerCard) commanderNames.add(partnerCard.name);
         const deckCards = commanderNames.size > 0 ? cards.filter(c => !commanderNames.has(c.name)) : cards;
         const stats = computeStatsFromCards(deckCards);
+        const unresolved = unresolvedNames(
+          list.cards,
+          resolvedNameKeys(deckCards, commanderCard, partnerCard),
+        );
+        const degraded = unresolved.length > 0 && fetchStats.failedRequests > 0;
+        if (!degraded) knownUnresolvedRef.current = unresolved;
 
         const taggerResult = await stampTaggerAndGameChangers(deckCards);
         if (cancelled) return;
@@ -1400,9 +1480,52 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           if (cancelled) return;
         }
 
+        // Repaint if the refresh resolved cards the hydrated payload was missing —
+        // otherwise a warm load off a stale cache sits at a partial deck until the
+        // user navigates away and back. Skipped once the user has edited the list
+        // (the incremental effect owns the deck from then on).
+        if (prevCardsRef.current === list.cards) {
+          const displayed = useStore.getState().generatedDeck;
+          const displayedCount = displayed ? Object.values(displayed.categories).flat().length : 0;
+          if (displayed && displayedCount < deckCards.length) {
+            setSideboardCards(sbCards);
+            setMaybeboardCards(mbCards);
+            useStore.setState({
+              generatedDeck: {
+                ...displayed,
+                categories: taggerResult.categories,
+                stats,
+                detectedCombos,
+                roleCounts: taggerResult.roleCounts,
+                roleTargets: edhrecResult.roleTargets,
+                rampSubtypeCounts: taggerResult.rampSubtypeCounts,
+                removalSubtypeCounts: taggerResult.removalSubtypeCounts,
+                boardwipeSubtypeCounts: taggerResult.boardwipeSubtypeCounts,
+                cardDrawSubtypeCounts: taggerResult.cardDrawSubtypeCounts,
+                protectionSubtypeCounts: taggerResult.protectionSubtypeCounts,
+                bracketEstimation: taggerResult.bracketEstimation,
+                gameChangerNames: taggerResult.gameChangerNames,
+                cardInclusionMap: edhrecResult.cardInclusionMap,
+                cardSynergyMap: edhrecResult.cardSynergyMap,
+                cardRelevancyMap: edhrecResult.cardRelevancyMap
+                  ? { ...edhrecResult.cardRelevancyMap, ...(swapsResult.candidateRelevancyMap ?? {}) }
+                  : swapsResult.candidateRelevancyMap,
+                cardEdhrecMetaMap: edhrecResult.cardEdhrecMetaMap,
+                deckScore: edhrecResult.deckScore,
+                gapAnalysis: edhrecResult.gapAnalysis,
+                swapCandidates: swapsResult.swapCandidates,
+                edhrecCurve: edhrecResult.edhrecCurve,
+                edhrecTypes: edhrecResult.edhrecTypes,
+              },
+            });
+          }
+          setLoadDegraded(degraded);
+        }
+
+        if (degraded) return; // don't overwrite a good cache with an incomplete fetch
         await persistCache({
           commanderCard, partnerCard, deckCards, sbCards, mbCards, stats,
-          taggerResult, edhrecResult, swapsResult, detectedCombos,
+          taggerResult, edhrecResult, swapsResult, detectedCombos, unresolved,
         });
       } catch (e) {
         console.warn('[ListDeckView] background refresh failed:', e);
@@ -1412,6 +1535,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     async function buildAndSetDeck() {
       setPhasesDone(new Set());
       setError(null);
+      setLoadDegraded(false);
       setArtUrl(null);
       setArtLoaded(false);
 
@@ -1424,6 +1548,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           && cacheMatchesCommander(cached, list.commanderName, list.partnerCommanderName)
           && cacheMatchesContent(cached, listHashInput(list))
           && isCacheFresh(cached)
+          && cacheCoversDeck(cached.payload)
         ) {
           hydrateFromCache(cached.payload);
           setPhasesDone(new Set(['cards', 'tagger', 'edhrec', 'combos', 'swaps']));
@@ -1541,6 +1666,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       edhrecTypes: enrichResult.edhrecTypes,
       detectedCombos,
       rawCombos: rawCombosRef.current,
+      unresolvedNames: knownUnresolvedRef.current.filter(n => list.cards.includes(n)),
     };
     await writeEnrichmentCache({
       listId: list.id,
@@ -1826,6 +1952,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     return { added: newCards.length, updated: dupeCount };
   }, [onAddCards, list.cards, pushDeckHistory]);
 
+  // Everything already in the list — dropped from the add-panel's suggestions.
+  const allListNames = useMemo(
+    () => new Set([...list.cards, ...(list.sideboard || []), ...(list.maybeboard || [])]),
+    [list.cards, list.sideboard, list.maybeboard]
+  );
+
   // Board context menu handler
   const handleBoardCardAction = useCallback((card: ScryfallCard, action: CardAction, boardType: 'sideboard' | 'maybeboard') => {
     const name = card.name;
@@ -2068,6 +2200,15 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                 >
                   {list.name}
                 </h2>
+                {list.builtFromCollection && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] font-medium text-primary/90 shrink-0"
+                    title="Built from your collection"
+                  >
+                    <Library className="w-3 h-3" />
+                    Collection
+                  </span>
+                )}
                 {list.type === 'deck' && list.commanderName && (
                   <ThemePickerPopover
                     themes={list.themes ?? []}
@@ -2365,6 +2506,25 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               </PopoverContent>
             </Popover>
           </div>
+        ) : unloadedCards.length > 0 && loadDegraded ? (
+          <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm flex-wrap">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>
+              Scryfall didn't respond for {unloadedCards.length} card{unloadedCards.length === 1 ? '' : 's'}.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRefreshCounter(c => c + 1)}
+              className="ml-auto h-7 px-2.5 text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border-amber-500/40"
+            >
+              <RotateCw className="w-3 h-3 mr-1" />
+              Retry
+            </Button>
+          </div>
         ) : unloadedCards.length > 0 ? (
           <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm flex-wrap">
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -2535,6 +2695,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           maybeboardNames={list.maybeboard}
           onSetSideboard={onSetSideboard}
           onSetMaybeboard={onSetMaybeboard}
+          savedList
           headerBulkAdd={onAddCards ? (
             <div className="relative" ref={headerBulkAddRef}>
               <button
@@ -2546,11 +2707,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               </button>
               {showHeaderBulkAdd && (
                 <div className="absolute top-full mt-2 right-0 z-50 w-[min(90vw,24rem)] rounded-lg border border-border bg-card shadow-2xl p-4">
-                  <CollectionImporter
+                  <AddCardsPanel
                     ref={headerBulkImporterRef}
-                    onImportCards={handleBulkImport}
+                    autoFocus
+                    existingNames={allListNames}
+                    onAddCards={handleBulkImport}
                     label="Add Cards"
-                    updatedLabel="already in deck"
                     onCancel={() => setShowHeaderBulkAdd(false)}
                   />
                 </div>
@@ -2659,11 +2821,12 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                   {/* Desktop: floating panel above button */}
                   {showBulkAdd && (
                     <div className="hidden sm:block absolute bottom-full mb-2 right-0 z-50 w-96 rounded-lg border border-border bg-card shadow-2xl p-4">
-                      <CollectionImporter
+                      <AddCardsPanel
                         ref={bulkImporterDesktopRef}
-                        onImportCards={handleBulkImport}
+                        autoFocus
+                        existingNames={allListNames}
+                        onAddCards={handleBulkImport}
                         label="Bulk Add Cards"
-                        updatedLabel="already in deck"
                         onCancel={() => setShowBulkAdd(false)}
                       />
                     </div>
@@ -2673,11 +2836,11 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               {/* Mobile: inline bulk add content */}
               {showBulkAdd && (
                 <div className="sm:hidden">
-                  <CollectionImporter
+                  <AddCardsPanel
                     ref={bulkImporterMobileRef}
-                    onImportCards={handleBulkImport}
+                    existingNames={allListNames}
+                    onAddCards={handleBulkImport}
                     label="Bulk Add Cards"
-                    updatedLabel="already in deck"
                     onCancel={() => setShowBulkAdd(false)}
                   />
                 </div>

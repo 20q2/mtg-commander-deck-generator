@@ -114,12 +114,15 @@ interface CreateListOptions {
   type?: 'list' | 'deck';
   commanderName?: string;
   partnerCommanderName?: string;
+  chosenColor?: string;
   deckSize?: number;
   primer?: string;
   generationSummary?: string;
   usedThemes?: string[];
   themes?: Array<{ name: string; slug: string }>;
   heroCardName?: string;
+  builtFromCollection?: boolean;
+  collectionBinderIds?: string[];
 }
 
 // ─── Shared state: all useUserLists() instances stay in sync ─────────
@@ -245,12 +248,15 @@ export function useUserLists() {
       cards,
       commanderName: options?.commanderName,
       partnerCommanderName: options?.partnerCommanderName,
+      chosenColor: options?.chosenColor,
       deckSize: options?.deckSize,
       primer: options?.primer,
       generationSummary: options?.generationSummary,
       usedThemes: options?.usedThemes,
       themes: options?.themes,
       heroCardName: options?.heroCardName,
+      builtFromCollection: options?.builtFromCollection,
+      collectionBinderIds: options?.collectionBinderIds,
       createdAt: now,
       updatedAt: now,
     };
@@ -264,7 +270,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos' | 'themes'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'chosenColor' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos' | 'themes' | 'builtFromCollection' | 'collectionBinderIds'>>) => {
     updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));
@@ -308,6 +314,7 @@ export function useUserLists() {
         maybeboard: src.maybeboard ? [...src.maybeboard] : undefined,
         commanderName: src.commanderName,
         partnerCommanderName: src.partnerCommanderName,
+        chosenColor: src.chosenColor,
         primer: src.primer,
         customCombos: src.customCombos ? src.customCombos.map(c => ({ ...c })) : undefined,
         cachedTypeBreakdown: src.cachedTypeBreakdown,
@@ -335,7 +342,7 @@ export function useUserLists() {
 
   const convertToList = useCallback((id: string) => {
     updateShared(prev => prev.map(l =>
-      l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, usedThemes: undefined, upgradeState: undefined, cachedColorIdentity: undefined, cachedCommanderArtUrl: undefined, updatedAt: Date.now() } : l
+      l.id === id ? { ...l, type: 'list' as const, commanderName: undefined, partnerCommanderName: undefined, chosenColor: undefined, usedThemes: undefined, upgradeState: undefined, cachedColorIdentity: undefined, cachedCommanderArtUrl: undefined, updatedAt: Date.now() } : l
     ));
   }, []);
 

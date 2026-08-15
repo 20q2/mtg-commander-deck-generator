@@ -119,5 +119,6 @@ export async function finishBrew(
     onProgress,
   });
   deck.builtFromCollection = !!customization.collectionMode;
+  deck.collectionBinderIds = customization.collectionBinderIds;
   return deck;
 }

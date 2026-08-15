@@ -10,13 +10,67 @@ import {
   getPartnerWithName,
   getPartnerTypeLabel,
   canHavePartner,
+  hasChosenColorIdentity,
+  needsChosenColor,
 } from '@/lib/partnerUtils';
 import { useStore } from '@/store';
 import type { ScryfallCard } from '@/types';
-import { Search, Loader2, Plus, X, Users } from 'lucide-react';
+import { Search, Loader2, Plus, X, Users, Palette } from 'lucide-react';
 
 interface PartnerSelectorProps {
   commander: ScryfallCard;
+}
+
+const WUBRG = [
+  { code: 'W', name: 'White' },
+  { code: 'U', name: 'Blue' },
+  { code: 'B', name: 'Black' },
+  { code: 'R', name: 'Red' },
+  { code: 'G', name: 'Green' },
+] as const;
+
+/** Chosen-color commanders print as colorless — show the picked color instead of {C}. */
+function displayIdentity(card: ScryfallCard, chosenColor: string | null): string[] {
+  if (hasChosenColorIdentity(card) && chosenColor) return [chosenColor];
+  return card.color_identity || [];
+}
+
+/**
+ * Color picker for commanders whose identity is chosen before the game (Clara Oswald,
+ * The Prismatic Piper, Faceless One). Scryfall prints these as colorless, so without a
+ * pick the deck is built in the other commander's colors alone.
+ */
+function ChosenColorPicker({ card }: { card: ScryfallCard }) {
+  const chosenColor = useStore(s => s.chosenColor);
+  const setChosenColor = useStore(s => s.setChosenColor);
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+        <Palette className="w-4 h-4" />
+        <span>{card.name}&rsquo;s color</span>
+      </div>
+      <div className="flex items-center gap-2 p-3 bg-accent/30 rounded-lg">
+        {WUBRG.map(({ code, name }) => (
+          <Button
+            key={code}
+            variant={chosenColor === code ? 'default' : 'outline'}
+            size="icon"
+            onClick={() => setChosenColor(chosenColor === code ? null : code)}
+            title={chosenColor === code ? `${name} (click to clear)` : `Choose ${name}`}
+            aria-pressed={chosenColor === code}
+            className="shrink-0"
+          >
+            <i className={`ms ms-${code.toLowerCase()} ms-cost text-base`} />
+          </Button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground mt-2">
+        {card.name} is the color you choose before the game begins &mdash; pick it to add that
+        color to the deck.
+      </p>
+    </div>
+  );
 }
 
 export function PartnerSelector({ commander }: PartnerSelectorProps) {
@@ -30,7 +84,7 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
   // Ref to persist popularity across searches (so sorting stays stable)
   const popularityRef = useRef<Map<string, number>>(new Map());
 
-  const { partnerCommander, setPartnerCommander } = useStore();
+  const { partnerCommander, setPartnerCommander, chosenColor } = useStore();
 
   const partnerType = getPartnerType(commander);
   const hasPartnerAbility = canHavePartner(commander);
@@ -138,47 +192,62 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
     return null;
   }
 
+  // "Choose a color before the game begins" commanders print as colorless — the picker
+  // is what makes the deck's real color identity reachable. Either half can be one.
+  const chosenColorCard = needsChosenColor(commander, partnerCommander)
+    ? (hasChosenColorIdentity(commander) ? commander : partnerCommander!)
+    : null;
+  const colorPicker = chosenColorCard ? <ChosenColorPicker card={chosenColorCard} /> : null;
+
   // Show selected partner
   if (partnerCommander) {
     const deckCount = popularity.get(partnerCommander.name);
     return (
-      <div className="mt-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-          <Users className="w-4 h-4" />
-          <span>{getPartnerTypeLabel(partnerType)}</span>
-        </div>
-        <div className="flex items-center gap-3 p-3 bg-accent/30 rounded-lg">
-          <img
-            src={getCardImageUrl(partnerCommander, 'small')}
-            alt={partnerCommander.name}
-            className="w-12 h-auto rounded shadow"
-          />
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold truncate">{partnerCommander.name}</p>
-            <div className="flex items-center gap-2 mt-1">
-              <ColorIdentity colors={partnerCommander.color_identity} size="sm" />
-              {deckCount !== undefined && (
-                <span className="text-xs text-muted-foreground">
-                  {formatDeckCount(deckCount)} decks
-                </span>
-              )}
-            </div>
+      <>
+        <div className="mt-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+            <Users className="w-4 h-4" />
+            <span>{getPartnerTypeLabel(partnerType)}</span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRemovePartner}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
-          >
-            <X className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-3 p-3 bg-accent/30 rounded-lg">
+            <img
+              src={getCardImageUrl(partnerCommander, 'small')}
+              alt={partnerCommander.name}
+              className="w-12 h-auto rounded shadow"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold truncate">{partnerCommander.name}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <ColorIdentity
+                  colors={displayIdentity(partnerCommander, chosenColor)}
+                  size="sm"
+                />
+                {deckCount !== undefined && (
+                  <span className="text-xs text-muted-foreground">
+                    {formatDeckCount(deckCount)} decks
+                  </span>
+                )}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleRemovePartner}
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
-      </div>
+        {colorPicker}
+      </>
     );
   }
 
   // Show "Add Partner" button and dropdown
   return (
+    <>
+    {colorPicker}
     <div className="mt-4 relative">
       {!isOpen ? (
         <Button
@@ -281,5 +350,6 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
         </Card>
       )}
     </div>
+    </>
   );
 }

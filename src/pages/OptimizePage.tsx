@@ -44,6 +44,7 @@ export function OptimizePage() {
     themesLoading,
     setCommander,
     setPartnerCommander,
+    setChosenColor,
     updateCustomization,
     setEdhrecThemes,
     setEdhrecNumDecks,
@@ -160,6 +161,10 @@ export function OptimizePage() {
           }
         }
       }
+
+      // Restore the color picked for a colorless "choose a color" commander (Clara Oswald &c);
+      // must run after both commanders are set, since setChosenColor ignores it otherwise.
+      setChosenColor(list!.chosenColor ?? null);
 
       // Always fetch fresh EDHREC themes for build-from-deck flow
       // (don't skip even if commander is cached — themes may be stale from a previous session)
@@ -385,6 +390,7 @@ export function OptimizePage() {
       });
 
       deck.builtFromCollection = !!cust.collectionMode;
+      deck.collectionBinderIds = cust.collectionBinderIds;
       if (!isRegeneration) {
         updateCustomization({ tempBannedCards: [], tempMustIncludeCards: [] });
       }

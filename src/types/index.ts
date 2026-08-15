@@ -405,6 +405,9 @@ export interface GeneratedDeck {
   usedThemes?: string[];
   gapAnalysis?: GapAnalysisCard[];
   builtFromCollection?: boolean;
+  /** Binders counted as "owned" at build time (snapshot of customization.collectionBinderIds).
+   *  undefined = every binder / not tracked. Drives the scoped owned count in the deck view. */
+  collectionBinderIds?: string[];
   collectionShortfall?: number;
   filterShortfall?: number; // Extra basic lands added because scryfallQuery filters reduced the available card pool
   arenaIneligibleCards?: string[]; // Arena-only mode: deck cards not on Arena (the force-included commander(s)) — surfaced as a warning
@@ -518,6 +521,10 @@ export interface UserCardList {
   maybeboard?: string[];
   commanderName?: string;
   partnerCommanderName?: string;
+  /** Single WUBRG letter picked for a "choose a color before the game begins" commander
+   *  (Clara Oswald / The Prismatic Piper / Faceless One). Their printed color_identity is
+   *  empty, so without this the deck's identity would be missing that color. */
+  chosenColor?: string;
   deckSize?: number; // Total intended deck size including commander(s)
   primer?: string; // Strategy notes / deck primer (deck type only)
   customCombos?: UserCombo[]; // User-authored combos (see UserCombo)
@@ -528,6 +535,14 @@ export interface UserCardList {
    *  Drives theme-aware enrichment + archetype cross-reference in both the deck view
    *  and the Inspector. Distinct from usedThemes (names only, generation provenance). */
   themes?: Array<{ name: string; slug: string }>;
+  /** True when this deck was generated in Collection-Only mode (built from owned cards).
+   *  A persistent modifier on the saved deck — surfaced as a badge and available to
+   *  gate collection-aware features (e.g. upgrade suggestions from what you own). */
+  builtFromCollection?: boolean;
+  /** Binders that were counted as "owned" when this deck was built (snapshot of
+   *  customization.collectionBinderIds). undefined = every binder / not tracked (decks
+   *  saved before this was recorded). Scopes the "Owned" count + checkmarks in the deck view. */
+  collectionBinderIds?: string[];
   createdAt: number;
   updatedAt: number;
   pinnedAt?: number; // Timestamp when user pinned this list to the top; undefined = not pinned
@@ -625,6 +640,10 @@ export interface AppState {
   commander: ScryfallCard | null;
   partnerCommander: ScryfallCard | null;
   colorIdentity: string[];
+  /** Single WUBRG letter picked for a "choose a color before the game begins" commander
+   *  (Clara Oswald / The Prismatic Piper / Faceless One). Folded into colorIdentity by
+   *  combineColorIdentity(); null when no such commander is in the command zone. */
+  chosenColor: string | null;
 
   // EDHREC Themes
   edhrecThemes: EDHRECTheme[];
@@ -674,6 +693,7 @@ export interface AppState {
   // Actions
   setCommander: (card: ScryfallCard | null) => void;
   setPartnerCommander: (card: ScryfallCard | null) => void;
+  setChosenColor: (color: string | null) => void;
   setEdhrecThemes: (themes: EDHRECTheme[]) => void;
   setEdhrecNumDecks: (count: number | null) => void;
   setSelectedThemes: (themes: ThemeResult[]) => void;
@@ -757,4 +777,8 @@ export interface SerializedEnrichment {
   swapCandidates?: Record<string, ScryfallCard[]>;
   bracketEstimation?: import('@/services/deckBuilder/bracketEstimator').BracketEstimation;
   gameChangerNames?: string[];
+  /** Mainboard names Scryfall genuinely couldn't resolve when this payload was built
+   *  (typos, renamed cards). Lets a warm load tell "this name doesn't exist" apart
+   *  from "this payload is incomplete" — the latter must be rebuilt, not displayed. */
+  unresolvedNames?: string[];
 }

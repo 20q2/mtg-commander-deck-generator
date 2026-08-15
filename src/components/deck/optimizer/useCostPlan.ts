@@ -10,6 +10,7 @@ import {
 } from '@/services/scryfall/client';
 import { fetchSimilarCards } from '@/services/edhrec/client';
 import { scoreSimilarity } from '@/services/deckBuilder/cardSimilarity';
+import { useStore } from '@/store';
 
 export interface UseCostPlanOptions {
   commanderName: string;
@@ -28,11 +29,14 @@ const PRICE_FLOOR = 1;
 /** Cap similar candidates considered per card (bounds the Scryfall price fetch). */
 const MAX_SIMILAR_PER_CARD = 12;
 
-/** Deck color identity: commander (+ partner). Falls back to the union of all cards. */
+/** Deck color identity: commander (+ partner), plus the color picked for a "choose a color
+ *  before the game begins" commander (Clara Oswald &c, which print colorless).
+ *  Falls back to the union of all cards. */
 function resolveDeckColorIdentity(
   cards: ScryfallCard[],
   commanderName: string,
   partnerCommanderName?: string,
+  chosenColor?: string | null,
 ): string[] {
   const ci = new Set<string>();
   for (const c of cards) {
@@ -40,6 +44,7 @@ function resolveDeckColorIdentity(
       for (const color of c.color_identity ?? []) ci.add(color.toUpperCase());
     }
   }
+  if (chosenColor) ci.add(chosenColor.toUpperCase());
   if (ci.size === 0) {
     for (const c of cards) for (const color of c.color_identity ?? []) ci.add(color.toUpperCase());
   }
@@ -58,7 +63,7 @@ function resolveInputs(
   cards: ScryfallCard[],
   commanderName: string,
   partnerCommanderName: string | undefined,
-  opts: { mustIncludeNames: Set<string>; currency: 'USD' | 'EUR' },
+  opts: { mustIncludeNames: Set<string>; currency: 'USD' | 'EUR'; chosenColor?: string | null },
 ): CostPlanInputs {
   const eligible: { name: string; price: number; isLand: boolean }[] = [];
   for (const card of cards) {
@@ -75,7 +80,7 @@ function resolveInputs(
   return {
     scopeNames: new Set(scoped.map(c => c.name)),
     spellNamesToFetch: scoped.filter(c => !c.isLand).map(c => c.name),
-    deckColorIdentity: resolveDeckColorIdentity(cards, commanderName, partnerCommanderName),
+    deckColorIdentity: resolveDeckColorIdentity(cards, commanderName, partnerCommanderName, opts.chosenColor),
   };
 }
 
@@ -84,6 +89,9 @@ export function useCostPlan(opts: UseCostPlanOptions): { plan: CostPlan | null; 
     commanderName, partnerCommanderName, currentCards, analysis,
     mustIncludeNames, excludeFromSuggestions, currency,
   } = opts;
+
+  // Colorless "choose a color" commanders contribute their color only via this pick.
+  const chosenColor = useStore(s => s.chosenColor);
 
   const [plan, setPlan] = useState<CostPlan | null>(null);
   const [loading, setLoading] = useState(false);
@@ -95,13 +103,13 @@ export function useCostPlan(opts: UseCostPlanOptions): { plan: CostPlan | null; 
   // stale. (This useMemo only recomputes when `analysis` identity changes, so the join is cheap.)
   const depKey = useMemo(() => JSON.stringify({
     names: currentCards.map(c => c.name).sort(),
-    commanderName, partnerCommanderName, currency,
+    commanderName, partnerCommanderName, currency, chosenColor,
     must: [...mustIncludeNames].sort(),
     excl: [...excludeFromSuggestions].sort(),
     recs: analysis
       ? analysis.recommendations.map(r => `${r.name}:${r.inclusion}:${r.role ?? ''}:${r.primaryType ?? ''}`).join('|')
       : null,
-  }), [currentCards, commanderName, partnerCommanderName, currency, mustIncludeNames, excludeFromSuggestions, analysis]);
+  }), [currentCards, commanderName, partnerCommanderName, currency, chosenColor, mustIncludeNames, excludeFromSuggestions, analysis]);
 
   const runIdRef = useRef(0);
 
@@ -112,7 +120,7 @@ export function useCostPlan(opts: UseCostPlanOptions): { plan: CostPlan | null; 
 
     (async () => {
       const { scopeNames, spellNamesToFetch, deckColorIdentity } =
-        resolveInputs(currentCards, commanderName, partnerCommanderName, { mustIncludeNames, currency });
+        resolveInputs(currentCards, commanderName, partnerCommanderName, { mustIncludeNames, currency, chosenColor });
 
       // 1. Similar-card names per in-scope spell (EDHREC, cached 14 days).
       const similarNames = await Promise.all(
