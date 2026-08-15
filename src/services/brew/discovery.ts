@@ -10,6 +10,15 @@ import { bannedNameSet } from './banned';
 
 const SOURCE_RANK: Record<CardRelation['source'], number> = { lift: 0, coplay: 1, similar: 2 };
 
+/**
+ * Discovery quality floor. 'similar' relations are functional twins of a card you already run —
+ * redundancy shopping (a worse Spore Frog), not discovery — so they never qualify. And a lift/
+ * co-play relation below this co% is the graph mumbling, not speaking (Chub Toad "clicks with"
+ * Spore Frog by frog-coincidence at ~nothing co-play). Scarcity is the feature: when nothing
+ * clears the bar, the Hidden Synergy surfaces simply don't form that round.
+ */
+const DISCOVERY_MIN_CO = 8;
+
 /** A "cluster" find must be lifted by at least this many of your cards (matches the optimizer's Lift Web). */
 export const CLUSTER_MIN_CONN = 2;
 const CLUSTER_TAKE = 12;     // cap how many cluster finds we inject per scan
@@ -33,6 +42,7 @@ export async function discoverFrom(
   const best = new Map<string, { rel: CardRelation; via: string }>();
   for (const { seed, rels } of relLists) {
     for (const rel of rels) {
+      if (rel.source === 'similar' || rel.coPct < DISCOVERY_MIN_CO) continue;  // quality floor (see above)
       const prev = best.get(rel.name);
       if (!prev || SOURCE_RANK[rel.source] < SOURCE_RANK[prev.rel.source]) best.set(rel.name, { rel, via: seed });
     }

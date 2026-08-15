@@ -175,9 +175,11 @@ export function nextRoutes(ctx: BrewContext, state: BrewState): BrewRoute[] {
     });
   }
   // Hidden Synergy — draft a card the relationship graph surfaced for YOUR picks. Only when the
-  // discovery pool has fed in some lift/co-play finds (grows stronger later in the run).
-  const hasSynergyFinds = pool(ctx, state).some(c => !usedSet.has(c.name) && !c.isLand && !!c.discoveredVia);
-  if (hasSynergyFinds) {
+  // discovery pool holds a REAL spread of lift/co-play finds (3+): a one-card "take the one that
+  // calls to you" isn't a choice, and scarcity keeps the surface special (finds also pass the
+  // quality floor in discovery.ts before they ever land in the pool).
+  const synergyFinds = pool(ctx, state).filter(c => !usedSet.has(c.name) && !c.isLand && !!c.discoveredVia);
+  if (synergyFinds.length >= 3) {
     extras.push({
       id: 'draft:synergy', type: 'draft', title: 'Hidden Synergy',
       description: 'Cards the graph says click with what you’ve built — take the one that calls to you.',
