@@ -36,6 +36,13 @@ export default defineConfig({
           'Accept': 'application/json',
         },
       },
+      // The tagger S3 bucket has no CORS headers for localhost — proxying it means the
+      // SpellChroma tag index (and brew's tag-lift pack filtering) works in local dev too.
+      '/tagger-s3': {
+        target: 'https://mtg-deck-builder-tagger.s3.amazonaws.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/tagger-s3/, ''),
+      },
     },
   },
 })

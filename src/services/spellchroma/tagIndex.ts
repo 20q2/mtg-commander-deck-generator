@@ -2,7 +2,11 @@ import { isIgnoredTag } from './ignoredTags';
 
 // File URLs — same public bucket as tagger-tags.json. Overridable via env for
 // local/staging, with a prod fallback so the service works even without .env.
-const BUCKET = 'https://mtg-deck-builder-tagger.s3.amazonaws.com';
+// In dev the bucket is reached through the vite proxy (the bucket sends no CORS headers
+// for localhost); prod fetches it directly.
+const BUCKET = import.meta.env.DEV
+  ? '/tagger-s3'
+  : 'https://mtg-deck-builder-tagger.s3.amazonaws.com';
 const DICT_URL = (import.meta.env.VITE_SPELLCHROMA_DICT_URL as string | undefined)
   ?? `${BUCKET}/spellchroma-tag-dictionary.json`;
 const INDEX_URL = (import.meta.env.VITE_SPELLCHROMA_INDEX_URL as string | undefined)

@@ -1,4 +1,9 @@
-const TAG_REPO_URL = import.meta.env.VITE_TAG_REPO_URL as string | undefined;
+const RAW_TAG_REPO_URL = import.meta.env.VITE_TAG_REPO_URL as string | undefined;
+// The tagger bucket sends no CORS headers for localhost — in dev, reach it through the vite
+// /tagger-s3 proxy (same treatment as the SpellChroma index). Non-bucket URLs pass through.
+const TAG_REPO_URL = import.meta.env.DEV
+  ? RAW_TAG_REPO_URL?.replace('https://mtg-deck-builder-tagger.s3.amazonaws.com', '/tagger-s3')
+  : RAW_TAG_REPO_URL;
 
 export interface TaggerData {
   generatedAt: string;
