@@ -54,11 +54,21 @@ function answerFor(slug: string, name: string, index: number): BrewAnswer {
 export function nextQuestion(ctx: BrewContext, state: BrewState): BrewQuestion | null {
   if (state.questionsAsked >= MAX_QUESTIONS) return null;
   const candidates = Object.keys(ctx.themeNames)
+    // Role-named EDHREC themes (Ramp, Card Draw…) are means, not victory paths — same
+    // exclusion the pack builder applies via themeKind.
+    .filter(slug => ctx.themeKinds?.[slug]?.kind !== 'role')
     .filter(slug => (state.themeAffinity[slug] ?? 0) < LEANING_THRESHOLD);
-  if (candidates.length < 2) return null;
-  const answers = candidates
-    .slice(0, ANSWERS_PER_QUESTION)
-    .map((slug, i) => answerFor(slug, ctx.themeNames[slug], i));
+  // Voltron/auras/equipment share one playstyle label — merge such twins into a single answer
+  // that leans ALL of its slugs, so the player never sees duplicate options.
+  const byLabel = new Map<string, BrewAnswer>();
+  for (const slug of candidates) {
+    const answer = answerFor(slug, ctx.themeNames[slug], byLabel.size);
+    const existing = byLabel.get(answer.label);
+    if (existing) existing.themeSlugs.push(slug);
+    else if (byLabel.size < ANSWERS_PER_QUESTION) byLabel.set(answer.label, answer);
+  }
+  const answers = [...byLabel.values()];
+  if (answers.length < 2) return null;
   return {
     id: `question:${state.questionsAsked}`,
     prompt: PROMPTS[state.questionsAsked % PROMPTS.length],

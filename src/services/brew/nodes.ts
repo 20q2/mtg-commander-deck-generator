@@ -123,11 +123,34 @@ function matchingTagsFor(state: BrewState, c: BrewCandidate): string[] {
   return tags.filter(t => (state.themeAffinity[t] ?? 0) > 0 && !state.vetoedThemes?.includes(t));
 }
 
+/**
+ * Tightest per-card price ceiling in force: the player's Max Card Price, any Budget Brewer relic
+ * cap, and — when a total deck budget is set — the budget still unspent after prior picks. Null =
+ * uncapped. Applied everywhere offers are drawn (packs, drafts, windfalls, combo finishers) so the
+ * game never shows a card the player's own settings forbid them from keeping.
+ */
+export function priceCeiling(ctx: BrewContext, state: BrewState): number | null {
+  const caps: number[] = [];
+  if (ctx.customization.maxCardPrice != null) caps.push(ctx.customization.maxCardPrice);
+  const relicCap = relicBudgetCap(state.relics);
+  if (relicCap != null) caps.push(relicCap);
+  if (ctx.customization.deckBudget != null) {
+    const spent = state.picks.reduce((sum, p) =>
+      sum + (parseFloat(getCardPrice(p.card, ctx.customization.currency) ?? '') || 0), 0);
+    caps.push(Math.max(0, ctx.customization.deckBudget - spent));
+  }
+  return caps.length ? Math.min(...caps) : null;
+}
+
+export function withinCeiling(ctx: BrewContext, cap: number | null, c: BrewCandidate): boolean {
+  return cap == null || (parseFloat(getCardPrice(c.scryfall, ctx.customization.currency) ?? '') || 0) <= cap;
+}
+
 function availableFor(ctx: BrewContext, state: BrewState, route: BrewRoute): BrewCandidate[] {
   const used = offerExcludedNames(state);
-  const cap = relicBudgetCap(state.relics);   // Budget Brewer: pricey cards stop appearing
+  const cap = priceCeiling(ctx, state);
   const available = pool(ctx, state).filter(c =>
-    !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(getCardPrice(c.scryfall) ?? '') || 0) <= cap));
+    !used.has(c.name) && !c.isLand && withinCeiling(ctx, cap, c));
   const matches = available.filter(c => {
     if (route.targetRole) return c.role === route.targetRole;
     if (route.targetType) return typeKey(c.scryfall.type_line) === route.targetType;
@@ -243,9 +266,9 @@ function toOption(ctx: BrewContext, state: BrewState, cards: BrewCandidate[], id
 /** Cards draftable right now (unused, non-land, in budget), best-scored first. */
 function scoredPool(ctx: BrewContext, state: BrewState): BrewCandidate[] {
   const used = offerExcludedNames(state);
-  const cap = relicBudgetCap(state.relics);
+  const cap = priceCeiling(ctx, state);
   const avail = pool(ctx, state).filter(c =>
-    !used.has(c.name) && !c.isLand && (cap == null || (parseFloat(getCardPrice(c.scryfall) ?? '') || 0) <= cap));
+    !used.has(c.name) && !c.isLand && withinCeiling(ctx, cap, c));
   return [...avail].sort((a, b) => offerScore(ctx, state, b) - offerScore(ctx, state, a));
 }
 
@@ -474,6 +497,7 @@ interface Cluster {
   priority: number;            // higher = surfaced first (deficit/lean bias)
   rank?: (c: BrewCandidate) => number;   // optional within-pack ordering (lower = earlier); see takeCards
   comboPack?: boolean;         // combo-flavored theme: compose combo-pieces-first + majority relabel (tryBuild)
+  size?: number;               // pack size override (default BUNDLE_MAX) — e.g. GC pack sized to the remaining allowance
 }
 
 /**
@@ -646,8 +670,14 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
   // Game Changers: a rare, gold power pack. Forms only when enough game changers are draftable and a
   // seeded per-round roll hits — and never on a god-pack round (one spectacle at a time). High priority
   // so when it rolls it claims a slot; the rotation window keeps it from repeating back-to-back.
+  // The Game Changers SETTING is a contract: the pack sizes itself to the allowance still unspent
+  // (limit minus GCs already kept) and doesn't form when that's thinner than a real pack; at zero
+  // allowance ordinary packs stop carrying game changers too (gcCap in tryBuild).
+  const gcLimit = ctx.customization.gameChangerLimit;
+  const gcKept = state.picks.filter(p => ctx.gameChangerNames?.has(p.name)).length;
+  const gcAllowance = gcLimit === 'none' ? 0 : gcLimit === 'unlimited' ? Infinity : Math.max(0, gcLimit - gcKept);
   const gcDraftable = scored.filter(c => ctx.gameChangerNames?.has(c.name));
-  if (!godPack && gcDraftable.length >= GC_PACK_MIN_CARDS
+  if (!godPack && gcDraftable.length >= GC_PACK_MIN_CARDS && gcAllowance >= GC_PACK_MIN_CARDS
       && seededChance(state.seed, `gcpack:${state.picks.length}`, GC_PACK_CHANCE)) {
     clusters.push({
       key: 'gamechangers',
@@ -655,6 +685,7 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
       flavor: 'power',
       match: c => ctx.gameChangerNames?.has(c.name) ?? false,
       priority: 900_000,     // below the need pack (1_000_000+), above themes — claims a slot when it rolls
+      size: Math.min(BUNDLE_MAX, gcAllowance),
     });
   }
   // 3. A discovery bundle if lift/co-play finds are present (kept as its own coherent "hidden synergy").
@@ -711,8 +742,8 @@ function clusterBundles(ctx: BrewContext, state: BrewState): BrewOption[] {
     // cards down the ranking.
     const gcCap = cl.key === 'gamechangers'
       ? undefined
-      : { pred: (c: BrewCandidate) => ctx.gameChangerNames?.has(c.name) ?? false, max: 1 };
-    let cards = takeCards(scored, taken, BUNDLE_MAX, cl.match, cl.rank, gcCap);
+      : { pred: (c: BrewCandidate) => ctx.gameChangerNames?.has(c.name) ?? false, max: Math.min(1, gcAllowance) };
+    let cards = takeCards(scored, taken, cl.size ?? BUNDLE_MAX, cl.match, cl.rank, gcCap);
     if (cards.length < BUNDLE_MIN) return;
 
     // A theme pack must SHOWCASE a hallmark — a card that defines the theme (its top EDHREC signature)
@@ -880,6 +911,7 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
 
   if (route.type === 'combo') {
     const byName = new Map(ctx.candidates.map(c => [c.name, c]));
+    const cap = priceCeiling(ctx, state);
     // Resolve owned combo pieces to their art: the commander, partner, and prior picks.
     const ownedArt = new Map<string, ScryfallCard>();
     ownedArt.set(ctx.commander.name, ctx.commander);
@@ -892,6 +924,8 @@ export function openNode(ctx: BrewContext, state: BrewState, route: BrewRoute): 
         .map(n => byName.get(n))
         .filter((c): c is BrewCandidate => !!c);
       if (cards.length === 0) continue;
+      // A completion the budget can't afford isn't a completion — the combo sits this screen out.
+      if (!cards.every(c => withinCeiling(ctx, cap, c))) continue;
       // The owned half of the combo, shown for context (capped at 2 so a 3-piece combo doesn't sprawl).
       const comboHave: ComboPiece[] = nm.have
         .map(n => { const scryfall = ownedArt.get(n); return scryfall ? { name: n, scryfall } : null; })

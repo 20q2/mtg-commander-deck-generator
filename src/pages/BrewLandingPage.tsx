@@ -1,4 +1,4 @@
-import { MapPin, Star, Route, Hammer } from 'lucide-react';
+import { MapPin, Package, Route, Hammer } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -15,8 +15,8 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 // The three beats of a run, in the Foundry's instrument-panel voice. Steps 1-2 are "structure"
 // (blueprint cyan); the finish is the "weld" (molten orange) — the deck coming off the forge.
 const BEATS = [
-  { n: '01', Icon: Star, label: 'Signature', desc: 'Pick a signature card to set your direction', weld: false },
-  { n: '02', Icon: Route, label: 'Routes', desc: 'Choose routes and draft packs, a few cards at a time', weld: false },
+  { n: '01', Icon: Package, label: 'Crack', desc: 'Crack themed packs — keep any cards you like', weld: false },
+  { n: '02', Icon: Route, label: 'Steer', desc: 'Moments and forks steer where the deck leans', weld: false },
   { n: '03', Icon: Hammer, label: 'Forge', desc: 'Watch your deck take shape, then forge the finish', weld: true },
 ];
 

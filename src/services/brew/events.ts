@@ -3,7 +3,7 @@ import type {
   BrewContext, BrewState, BrewCandidate, BrewEvent, BrewPick, BrewMoment, ComboPiece, BrewCrossroadsPath,
 } from './brewTypes';
 import { detectNearMissCombos } from './combos';
-import { deriveReasons, shortPayoff } from './nodes';
+import { deriveReasons, shortPayoff, priceCeiling, withinCeiling } from './nodes';
 import { applyPick } from './picks';
 import { isUrgentFill } from './scoring';
 import { offerExcludedNames } from './health';
@@ -49,15 +49,17 @@ function gapOk(state: BrewState): boolean {
  * rate would predict. We surface the strongest unseen lift discovery face-up, with no stat badges —
  * the intrigue is the point.
  */
-export function strangeSignalEvent(_ctx: BrewContext, state: BrewState): BrewEvent | null {
+export function strangeSignalEvent(ctx: BrewContext, state: BrewState): BrewEvent | null {
   if (state.picks.length < SIGNAL_MIN_PICKS) return null;
   const used = offerExcludedNames(state);
   const fired = new Set(state.firedEventIds);
+  const cap = priceCeiling(ctx, state);
   const candidate = state.discovered
     .filter(c => c.discoverySource === 'lift'
       && (c.coSynergy ?? 0) >= SIGNAL_MIN_CO
       && !used.has(c.name)
-      && !fired.has(`signal:${c.name}`))
+      && !fired.has(`signal:${c.name}`)
+      && withinCeiling(ctx, cap, c))
     .sort((a, b) => (b.coSynergy ?? 0) - (a.coSynergy ?? 0))[0];
   if (!candidate) return null;
   const via = candidate.discoveredVia ?? 'your picks';
@@ -86,10 +88,13 @@ export function comboFragmentEvent(ctx: BrewContext, state: BrewState): BrewEven
   for (const p of state.picks) ownedArt.set(p.name, p.card);
   const fired = new Set(state.firedEventIds);
 
+  const cap = priceCeiling(ctx, state);
   for (const nm of detectNearMissCombos(ctx, state)) {
     if (fired.has(`combo:${nm.comboId}`)) continue;
     const missing = nm.missing.map(n => byName.get(n)).filter((c): c is BrewCandidate => !!c);
     if (missing.length === 0) continue;
+    // A completion the budget can't afford isn't treasure — skip it.
+    if (!missing.every(c => withinCeiling(ctx, cap, c))) continue;
     const have: ComboPiece[] = nm.have
       .map(n => { const scryfall = ownedArt.get(n); return scryfall ? { name: n, scryfall } : null; })
       .filter((p): p is ComboPiece => !!p)
@@ -160,9 +165,10 @@ export function signaturePickEvent(ctx: BrewContext, state: BrewState): BrewEven
   if (leaning.size === 0) return null;
   const used = offerExcludedNames(state);
   const fired = new Set(state.firedEventIds);
+  const cap = priceCeiling(ctx, state);
   const pick = [...ctx.candidates, ...state.discovered]
     .filter(c => !c.isLand && !used.has(c.name) && !fired.has(`signature:${c.name}`)
-      && c.themeTags.some(t => leaning.has(t)))
+      && c.themeTags.some(t => leaning.has(t)) && withinCeiling(ctx, cap, c))
     .sort((a, b) => b.inclusion - a.inclusion)[0];
   if (!pick) return null;
   const slug = pick.themeTags.find(t => leaning.has(t))!;
@@ -190,8 +196,10 @@ export function gambleEvent(ctx: BrewContext, state: BrewState): BrewEvent | nul
   if (state.picks.length < GAMBLE_MIN_PICKS) return null;
   const used = offerExcludedNames(state);
   const fired = new Set(state.firedEventIds);
+  const cap = priceCeiling(ctx, state);
   const card = [...ctx.candidates, ...state.discovered]
-    .filter(c => !c.isLand && !used.has(c.name) && !fired.has(`gamble:${c.name}`))
+    .filter(c => !c.isLand && !used.has(c.name) && !fired.has(`gamble:${c.name}`)
+      && withinCeiling(ctx, cap, c))
     .sort((a, b) => a.inclusion - b.inclusion)[0];   // the deepest cut — least-played in the pool
   if (!card) return null;
   return {
