@@ -107,6 +107,10 @@ export function comboFragmentEvent(ctx: BrewContext, state: BrewState): BrewEven
       combo: { comboId: nm.comboId, results: nm.results, missing, have },
       choices: [
         { id: 'finish', label: 'Finish the combo', blurb: missing.length === 1 ? 'Adds the missing card to your deck.' : `Adds all ${missing.length} missing cards to your deck.`, tone: 'need' },
+        // The cheaper commitment: don't take it now, hunt it. Writes comboWatch, which scoring
+        // already reads (COMBO_WATCH_BONUS) and the Combo Brew philosophy amplifies — this is the
+        // choice that makes that philosophy's promise real.
+        { id: 'investigate', label: 'Hunt the pieces', blurb: missing.length === 1 ? 'Leave it — but it shows up far more often from here.' : 'Leave them — but they show up far more often from here.', tone: 'theme' },
       ],
       canPass: true,
       passLabel: 'Skip for now',
@@ -286,6 +290,15 @@ export function applyEvent(ctx: BrewContext, state: BrewState, event: BrewEvent,
       });
       return recordMoment(withPick, event,
         { atPick: atPick + picks.length, kind: 'comboFragment', label: `Completed ${payoff}`, detail: pieces.map(p => p.name).join(' + ') });
+    }
+    if (choiceId === 'investigate') {
+      // Chase it instead of taking it: the missing pieces float to the top of every later offer
+      // (scoring's COMBO_WATCH_BONUS, amplified by a comboBias philosophy). No card, no pick —
+      // so the fragment can fire again later only via a DIFFERENT combo (firedEventIds dedupes this one).
+      const names = event.combo.missing.map(p => p.name);
+      const comboWatch = [...state.comboWatch, ...names.filter(n => !state.comboWatch.includes(n))];
+      return recordMoment({ ...state, comboWatch }, event,
+        { atPick, kind: 'comboFragment', label: `Hunting ${payoff}`, detail: names.join(' + ') });
     }
     return recordMoment(state, event, { atPick, kind: 'comboFragment', label: `Skipped ${payoff}` });
   }

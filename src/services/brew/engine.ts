@@ -6,7 +6,7 @@ export { buildHealth, isComplete, NONLAND_COMPLETE_RATIO, pool, offerExcludedNam
 export { buildScoringContext, scoreCandidate, affinityWeight, isUrgentFill, philosophyPromoted } from './scoring';
 export { applyPick, undoLast, isLastPickLocked, computeAffinityDelta, AFFINITY_PER_PICK, AFFINITY_SIGNATURE, AFFINITY_INCIDENTAL, PACK_STEER_BONUS, type ApplyPickMeta } from './picks';
 export { nextRoutes, computeDeficits, matchesDeficit, type Deficit } from './routes';
-export { openNode, deriveReasons, buildPackNode } from './nodes';
+export { openNode, deriveReasons, buildPackNode, windfallChance, isGodPackRound, WINDFALL_CHANCE, PITY_START_PICK } from './nodes';
 export { leaningThemes, topIdentity, topIdentityLean, identityLean, projectIdentityLean, generateRunTitle, IDENTITY_COMMIT_THRESHOLD, type IdentityBar } from './identity';
 export { discoverFrom, discoverClustersFrom } from './discovery';
 export { computeDeckStats, projectDeckStats, type DeckStats, type RadarAxis, type CurveBar, type TypeBar } from './stats';

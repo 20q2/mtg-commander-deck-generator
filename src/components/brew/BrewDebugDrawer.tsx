@@ -5,6 +5,7 @@ import { Drawer } from '@/components/ui/drawer';
 import { useHeaderAnchoredTop } from '@/components/brew/BrewDeckListButton';
 import {
   buildHealth, computeDeficits, CHAR_TAG_MIN_LIFT, CHAR_TAG_MIN_CARRIERS, themeKindMatches,
+  windfallChance, isGodPackRound, WINDFALL_CHANCE, PITY_START_PICK,
   type BrewContext, type BrewState, type BrewCandidate,
 } from '@/services/brew/engine';
 import { Bug, X } from 'lucide-react';
@@ -126,6 +127,18 @@ export function BrewDebugContent({ onClose }: { onClose: () => void }) {
           <Stat label="Deck fill" value={`${st.picks.length}/${ctx.nonLandTarget} · ${Math.round(fill * 100)}%`} />
           <Stat label="Banned (excluded)" value={ctx.customization.bannedCards?.length ?? 0} />
           <Stat label="Game changers in pool" value={gcInPool} />
+        </Section>
+
+        {/* ── Treasure ── is the run actually dry, or does it just feel that way? */}
+        <Section title="Treasure / windfalls" subtitle="Windfalls roll per THEME pack only (need/cluster/discovery packs never carry one). Pity ramps the odds once a run goes dry.">
+          <Stat label="Windfalls fired" value={st.moments.filter(m => m.kind === 'goldCard').length}
+            tone={st.moments.some(m => m.kind === 'goldCard') ? 'ok' : undefined} />
+          <Stat label="Odds per theme pack (now)" value={`${Math.round(windfallChance(st) * 100)}%`}
+            tone={windfallChance(st) > WINDFALL_CHANCE ? 'warn' : undefined} />
+          <Stat label="Base odds / pity start" value={`${Math.round(WINDFALL_CHANCE * 100)}% · pick ${PITY_START_PICK}`} />
+          <Stat label="Pity active" value={windfallChance(st) > WINDFALL_CHANCE ? `YES (+${Math.round((windfallChance(st) - WINDFALL_CHANCE) * 100)}%)` : 'no'} />
+          <Stat label="Seal armed (forces next)" value={st.sealedGold ? 'YES' : 'no'} tone={st.sealedGold ? 'ok' : undefined} />
+          <Stat label="God-pack round" value={isGodPackRound(st) ? 'YES' : 'no'} tone={isGodPackRound(st) ? 'ok' : undefined} />
         </Section>
 
         {/* ── Tag index health ── the single most important "why" toggle. */}

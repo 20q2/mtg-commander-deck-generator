@@ -26,11 +26,11 @@ const JITTER_AMPLITUDE = 15;
 // to a RAINBOW (a Game Changer / the theme's very top signature) for a rarer, prismatic reveal.
 // Everything is seeded (see rollWindfall) so a given pack presentation always either has it or
 // doesn't — stable across undo/re-render, no save-scumming.
-const WINDFALL_CHANCE = 0.12;
+export const WINDFALL_CHANCE = 0.12;
 const RAINBOW_SHARE = 0.16;    // of windfall hits (≈2% absolute) → the theme's Game Changer / top payoff
 // Pity timer: if a run reaches this pick with NO windfall yet, gold odds climb per theme pack so
 // every run gets at least one treasure moment. Resets (back to base) the instant a windfall fires.
-const PITY_START_PICK = 15;
+export const PITY_START_PICK = 15;
 const PITY_STEP = 0.06;        // +6% per theme pack past the threshold
 const PITY_CAP = 0.6;
 // A rare "god pack" round: every theme pack is guaranteed to hide a windfall (whichever you take
@@ -48,7 +48,7 @@ export function isGodPackRound(state: BrewState): boolean {
 }
 
 /** The current per-theme-pack windfall probability, pity-ramped when a run has gone dry (see above). */
-function windfallChance(state: BrewState): number {
+export function windfallChance(state: BrewState): number {
   // "Seal the Pack" armed: the skipped round bought a guarantee — every theme pack rolls a
   // windfall until one actually fires (the store clears the flag when the gold moment lands).
   if (state.sealedGold) return 1;
