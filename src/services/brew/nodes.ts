@@ -1,5 +1,5 @@
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
-import { hasTag, isExtraTurn, isMassLandDenial, type RoleKey } from '@/services/tagger/client';
+import { hasTag, isExtraTurn, isMassLandDenial, isTutor, type RoleKey } from '@/services/tagger/client';
 import { getCardPrice } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import type { BrewContext, BrewState, BrewRoute, BrewNode, BrewOption, BrewCandidate, ComboPiece, PickReason } from './brewTypes';
@@ -385,8 +385,13 @@ function themeMembership(
   // is excluded, so an archetype pack ("Theft", "Control") shows its genuine payoffs instead of a
   // second copy of the tribe already in the Elves pack. If that differentiation leaves the pack too
   // thin (< BUNDLE_MIN), tryBuild drops it and the rotation surfaces another direction in its place.
+  const isSig = sigRank?.has(c.name) ?? false;
+  // Functional means (ramp/removal/wipes) and generic tutors never DEFINE an archetype — they enter
+  // only as the theme's own signatures (Entomb can define Reanimator; Worldly Tutor can't define
+  // Graveyard, even when tutor-family tags clear the char-tag lift bar via tutor-dense theme pages).
+  // Same thesis as role-kind themes: means aren't identity.
+  if (!isSig && ((c.role && OFF_THEME_ROLES.has(c.role)) || isTutor(c.name))) return false;
   return c.themeTags.includes(slug) && !isBoardWipeLike(c)
-    && ((sigRank?.has(c.name) ?? false) || !(c.role && OFF_THEME_ROLES.has(c.role)))
     && isOnTheme(ctx, slug, c, sigRank, otherThemeSlugs)
     && !belongsToOtherKind(ctx, slug, c, otherThemeSlugs);
 }
@@ -463,10 +468,12 @@ const BUNDLE_FLAVOR: Record<string, string> = {
 const ROLE_NEED_SLUGS = new Set(['ramp', 'removal', 'boardwipe', 'cardDraw', 'protection']);
 
 // Generic "answer" roles that read as off-strategy inside a THEME pack: a board wipe in a go-wide
-// "Raise an Army" pack, or ramp in a "+1/+1 Counters" pack, is jarring even when EDHREC's noisy theme
-// membership tags it under that theme. We let these in only when the card actually DEFINES the theme
-// (it's in themeSignatures) — otherwise they belong in their own need pack / the Headliner, not here.
-const OFF_THEME_ROLES = new Set<RoleKey>(['ramp', 'removal', 'boardwipe']);
+// "Raise an Army" pack, ramp in a "+1/+1 Counters" pack, or Lightning Greaves in a "Birthing Pod"
+// pack, is jarring even when EDHREC's noisy theme membership tags it under that theme. We let these
+// in only when the card actually DEFINES the theme (it's in themeSignatures) — a Mother of Runes
+// stays a Protection signature — otherwise they belong in their own need pack / the Headliner.
+// cardDraw is deliberately NOT here: draw engines ARE archetype identity (death-draw in aristocrats).
+const OFF_THEME_ROLES = new Set<RoleKey>(['ramp', 'removal', 'boardwipe', 'protection']);
 
 // A board wipe is the worst offender in a theme pack (you don't sweep your own go-wide board), and the
 // tagger doesn't catch every one — e.g. Sunfall ("Exile all creatures…") isn't role-tagged as a wipe.
