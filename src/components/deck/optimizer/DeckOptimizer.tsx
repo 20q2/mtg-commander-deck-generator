@@ -10,6 +10,13 @@ import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData,
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { persistListThemes } from '@/services/lists/listThemes';
+import {
+  inspectorOverrideRef,
+  loadInspectorOverrides,
+  saveInspectorOverrides,
+  hasInspectorOverrides,
+  type InspectorOverrides,
+} from '@/services/inspectorOverrides/storage';
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
@@ -77,6 +84,7 @@ export function DeckOptimizer({
   onOpenInDeckView,
   intendedThemes,
   sourceListId,
+  sourceListUpdatedAt,
 }: DeckOptimizerProps) {
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
@@ -246,19 +254,39 @@ export function DeckOptimizer({
   // click "Analyze Deck" every time the page loads.
   const hasAutoAnalyzedRef = useRef(false);
 
-  // Theme detection state
-  const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
-  const [, setThemeLoading] = useState(false);
-  const [primaryThemeSlug, setPrimaryThemeSlug] = useState<string | null>(null);
-  const [secondaryThemeSlug, setSecondaryThemeSlug] = useState<string | null>(null);
-  const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
-  const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
-
   // Lists are needed up here: saved themes must be readable before the theme
-  // effects/handlers below, and handleThemeSelect persists through updateList.
+  // state below is seeded, and handleThemeSelect persists through updateList.
+  // useUserLists reads localStorage at module load, so this is populated on the
+  // very first render — the seeding below can rely on it.
   const { lists: userLists, updateList, createList } = useUserLists();
   const sourceList = sourceListId ? userLists.find(l => l.id === sourceListId) : undefined;
   const savedThemes = sourceList?.themes;
+  const savedThemesRef = useRef(savedThemes);
+  savedThemesRef.current = savedThemes;
+
+  // Persisted "Adjust" menu overrides (themes / tempo / land target / deck size).
+  // Seeded via lazy useState initialisers rather than an effect: the auto-analyze
+  // effect fires in the same commit as any hydration effect would, and it closes
+  // over the FIRST render's values — so anything set by an effect would arrive
+  // too late and the first analysis would run un-overridden.
+  const overrideRef = inspectorOverrideRef(sourceListId, commanderName, partnerCommanderName);
+  const bootRef = useRef<InspectorOverrides | null>(null);
+  if (!bootRef.current) bootRef.current = loadInspectorOverrides(overrideRef);
+  const boot = bootRef.current;
+  // Saved lists declare their themes on the list itself; only unsaved decks read
+  // the pair back out of the overrides record.
+  const bootThemes = savedThemes ?? boot.themes ?? [];
+
+  // Theme detection state
+  const [themeDetection, setThemeDetection] = useState<DetectedThemeResult | null>(null);
+  const [, setThemeLoading] = useState(false);
+  const [primaryThemeSlug, setPrimaryThemeSlug] = useState<string | null>(bootThemes[0]?.slug ?? null);
+  const [secondaryThemeSlug, setSecondaryThemeSlug] = useState<string | null>(bootThemes[1]?.slug ?? null);
+  // Whether the user has personally set the theme pair (a cleared pair counts).
+  // Gates auto-detection from overwriting a deliberate choice on re-analysis.
+  const [themesTouched, setThemesTouched] = useState(boot.themesTouched ?? false);
+  const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
+  const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
 
   // Full EDHREC taxonomy — resolves names for themes outside the commander's
   // taglinks (custom picks, saved off-list themes). One cached fetch.
@@ -353,14 +381,17 @@ export function DeckOptimizer({
   }, [analysis, onMisfitNamesChange]);
 
   // User-overridable tempo (null = use auto-detected)
-  const [userPacing, setUserPacing] = useState<Pacing | null>(null);
-  const detectedPacingRef = useRef<Pacing | null>(null);
+  const [userPacing, setUserPacing] = useState<Pacing | null>(boot.pacing ?? null);
+  // The deck's own tempo, as read by the analyzer. State rather than a ref because
+  // effectiveRoleTargets rebases the override off it — a ref would leave that memo
+  // stuck on whatever baseline it first guessed.
+  const [detectedPacing, setDetectedPacing] = useState<Pacing | null>(null);
 
   // User-overridable land target (null = use auto-computed)
-  const [userLandTarget, setUserLandTarget] = useState<number | null>(null);
+  const [userLandTarget, setUserLandTarget] = useState<number | null>(boot.landTarget ?? null);
 
   // User-overridable intended deck size (null = use loaded deck's actual size)
-  const [userDeckSize, setUserDeckSize] = useState<number | null>(null);
+  const [userDeckSize, setUserDeckSize] = useState<number | null>(boot.deckSize ?? null);
   const deckSize = userDeckSize ?? propDeckSize;
 
   // The effective pacing: user override > theme-detected > base analysis
@@ -369,9 +400,8 @@ export function DeckOptimizer({
   // Role targets adjusted for user pacing override
   const effectiveRoleTargets = useMemo(() => {
     if (!userPacing) return roleTargets;
-    const detectedPacing = detectedPacingRef.current ?? 'balanced';
-    return recomputeRoleTargetsForPacing(roleTargets, detectedPacing, userPacing);
-  }, [roleTargets, userPacing]);
+    return recomputeRoleTargetsForPacing(roleTargets, detectedPacing ?? 'balanced', userPacing);
+  }, [roleTargets, userPacing, detectedPacing]);
 
 
   // Rebuild the detection banner message reflecting user overrides
@@ -388,7 +418,7 @@ export function DeckOptimizer({
       const pacingVal = opts.pacingOverride !== undefined ? opts.pacingOverride : userPacing;
       const hasUserOverride = pacingVal != null || primary !== prev.matchedThemes[0]?.theme.slug;
 
-      const pacingKey = pacingVal ?? detectedPacingRef.current ?? prev.pacing;
+      const pacingKey = pacingVal ?? detectedPacing ?? prev.pacing;
       const pacingLabel = PACING_PHRASE[pacingKey] || prev.pacingLabel;
 
       const dummyMatch = (slug: string) => {
@@ -405,19 +435,54 @@ export function DeckOptimizer({
       );
       return { ...prev, detectionMessage: newMessage, strategyLabel, pacingLabel };
     });
-  }, [commanderName, primaryThemeSlug, secondaryThemeSlug, userPacing]);
+  }, [commanderName, primaryThemeSlug, secondaryThemeSlug, userPacing, detectedPacing]);
 
-  // Reset theme state when commander changes
+  // Swap every override when the deck underneath us changes. /analyze/:listA →
+  // /analyze/:listB rehydrates in place without unmounting, so without this a
+  // land target or deck size set on one deck would silently drive the next
+  // deck's mana math. Skipped on mount — the lazy initialisers above already
+  // seeded this deck, and re-running here would clobber them before the first
+  // analysis reads them.
+  const commanderKey = `${commanderName}|${partnerCommanderName ?? ''}`;
+  const prevCommanderKeyRef = useRef(commanderKey);
+  const prevOverrideRefRef = useRef(overrideRef);
   useEffect(() => {
-    setThemeDetection(null);
-    setThemeLoading(false);
-    setPrimaryThemeSlug(null);
-    setSecondaryThemeSlug(null);
-    setUserPacing(null);
-    detectedPacingRef.current = null;
-    themeDataCacheRef.current = new Map();
-    themeEnhancedDataRef.current = null;
-  }, [commanderName, partnerCommanderName]);
+    const sameCommander = prevCommanderKeyRef.current === commanderKey;
+    if (sameCommander && prevOverrideRefRef.current === overrideRef) return;
+    const prevRef = prevOverrideRefRef.current;
+    prevCommanderKeyRef.current = commanderKey;
+    prevOverrideRefRef.current = overrideRef;
+
+    let next = loadInspectorOverrides(overrideRef);
+    // "Save as deck" re-keys the record mid-session (unsaved:<commander> → the
+    // new list id). Same deck, same commander — so carry the settings across
+    // rather than resetting the menu the user just finished dialling in.
+    if (sameCommander && !hasInspectorOverrides(next)) {
+      const carried = loadInspectorOverrides(prevRef);
+      if (hasInspectorOverrides(carried)) {
+        next = carried;
+        saveInspectorOverrides(overrideRef, carried);
+      }
+    }
+
+    // A genuinely different commander invalidates the detection and the theme
+    // pages; re-keying the same deck must not throw either away.
+    if (!sameCommander) {
+      setThemeDetection(null);
+      setThemeLoading(false);
+      setDetectedPacing(null);
+      themeDataCacheRef.current = new Map();
+      themeEnhancedDataRef.current = null;
+    }
+
+    setThemesTouched(next.themesTouched ?? false);
+    const themes = savedThemesRef.current ?? next.themes ?? [];
+    setPrimaryThemeSlug(themes[0]?.slug ?? null);
+    setSecondaryThemeSlug(themes[1]?.slug ?? null);
+    setUserPacing(next.pacing ?? null);
+    setUserLandTarget(next.landTarget ?? null);
+    setUserDeckSize(next.deckSize ?? null);
+  }, [commanderKey, commanderName, partnerCommanderName, overrideRef]);
 
   // Initialize sub-tab defaults once when analysis arrives
   useEffect(() => {
@@ -640,7 +705,8 @@ export function DeckOptimizer({
   // so we schedule the re-run after state has flushed.
   const handleDeckSizeChange = useCallback((newSize: number | null) => {
     setUserDeckSize(newSize);
-  }, []);
+    saveInspectorOverrides(overrideRef, { deckSize: newSize });
+  }, [overrideRef]);
 
   // Re-run analysis whenever the effective deckSize changes via user override.
   useEffect(() => {
@@ -659,6 +725,7 @@ export function DeckOptimizer({
   // When user changes land target, re-run analysis with the new override
   const handleLandTargetChange = useCallback((newTarget: number | null) => {
     setUserLandTarget(newTarget);
+    saveInspectorOverrides(overrideRef, { landTarget: newTarget });
     if (!analysis) return;
     const result = runAnalysisFor({
       targets: effectiveRoleTargets,
@@ -666,16 +733,17 @@ export function DeckOptimizer({
       landTarget: newTarget ?? undefined,
     });
     if (result) setAnalysis(result);
-  }, [analysis, effectiveRoleTargets, userPacing, runAnalysisFor]);
+  }, [analysis, effectiveRoleTargets, userPacing, runAnalysisFor, overrideRef]);
 
   // When user changes pacing, re-run full analysis with adjusted role targets
   const handlePacingChange = useCallback((newPacing: Pacing | null) => {
     setUserPacing(newPacing);
+    saveInspectorOverrides(overrideRef, { pacing: newPacing });
     if (!analysis) {
       rebuildBannerMessage({ pacingOverride: newPacing });
       return;
     }
-    const detPacing = detectedPacingRef.current ?? 'balanced';
+    const detPacing = detectedPacing ?? 'balanced';
     const newTargets = newPacing
       ? recomputeRoleTargetsForPacing(roleTargets, detPacing, newPacing)
       : roleTargets;
@@ -686,15 +754,19 @@ export function DeckOptimizer({
     });
     if (result) setAnalysis(result);
     rebuildBannerMessage({ pacingOverride: newPacing });
-  }, [analysis, rebuildBannerMessage, roleTargets, userLandTarget, runAnalysisFor]);
+  }, [analysis, rebuildBannerMessage, roleTargets, userLandTarget, runAnalysisFor, overrideRef, detectedPacing]);
 
   const handleOptimize = async () => {
     setLoading(true);
     setError(null);
+    // Only the DETECTION is thrown away and recomputed here — the user's applied
+    // themes are carried through. Nulling the slugs is what made "add a card,
+    // come back to Overview" silently revert to the auto-detected guess, and it
+    // also blanked the theme chips for the length of the EDHREC round-trip.
+    const keptPrimary = primaryThemeSlug;
+    const keptSecondary = secondaryThemeSlug;
+    const keptThemesTouched = themesTouched;
     setThemeDetection(null);
-    setPrimaryThemeSlug(null);
-    setSecondaryThemeSlug(null);
-    themeDataCacheRef.current = new Map();
     themeEnhancedDataRef.current = null;
 
     try {
@@ -708,19 +780,38 @@ export function DeckOptimizer({
       const effectiveInclusionMap = buildInclusionMap(edhrecData);
 
       const storedDeck = useStore.getState().generatedDeck;
-      const baseResult = analyzeDeck({
+      const analyzeBase = (targets: Record<string, number>) => analyzeDeck({
         edhrecData,
         currentCards,
         roleCounts,
-        roleTargets,
+        // The tempo override has to ride along here the same way it does in
+        // applyThemeSelection. Without it a re-analysis quietly recomputed the
+        // curve and phase-role targets from the DETECTED tempo while the strip
+        // above still advertised the user's choice.
+        roleTargets: targets,
         deckSize,
         cardInclusionMap: effectiveInclusionMap,
         colorIdentity,
+        overridePacing: userPacing ?? undefined,
         overrideLandTarget: userLandTarget ?? undefined,
         cardSynergyMap: storedDeck?.cardSynergyMap,
         gapCandidates: storedDeck?.gapAnalysis,
         commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
       });
+
+      // effectiveRoleTargets rebases the override off detectedPacing, which is
+      // empty on the first pass — and a tempo override restored from storage is
+      // live before any pass has run, so that first guess uses 'balanced'. Once
+      // the deck's real tempo is known, rebase and redo the pass if the guess was
+      // wrong. Only ever a second analyze on the first load of a deck that has a
+      // stored tempo and doesn't detect as balanced.
+      const guessedBaseline: Pacing = detectedPacing ?? 'balanced';
+      let effectiveTargets = effectiveRoleTargets;
+      let baseResult = analyzeBase(effectiveTargets);
+      if (userPacing && baseResult.detectedPacing !== guessedBaseline) {
+        effectiveTargets = recomputeRoleTargetsForPacing(roleTargets, baseResult.detectedPacing, userPacing);
+        baseResult = analyzeBase(effectiveTargets);
+      }
 
       // Enrich recommendations with Scryfall prices/colors
       const allRecs: RecommendedCard[] = [
@@ -756,7 +847,10 @@ export function DeckOptimizer({
         } catch { /* prices/colors are nice-to-have */ }
       }
 
-      detectedPacingRef.current = baseResult.pacing;
+      // detectedPacing, NOT pacing: with an override in play the latter echoes
+      // the override back, and recomputeRoleTargetsForPacing would then divide
+      // out the very multipliers it is meant to apply.
+      setDetectedPacing(baseResult.detectedPacing);
       fullAnalyzedCardKeyRef.current = currentCards.map(c => c.name).join('\0');
       setAnalysis(baseResult);
       setLoading(false); // Dashboard visible NOW
@@ -785,7 +879,10 @@ export function DeckOptimizer({
           console.warn(`[DeckOptimizer] Failed to fetch theme data for ${theme.slug}:`, err);
         }
       }
-      themeDataCacheRef.current = themeDataMap;
+      // Merge rather than replace: a kept theme's data may have come from the
+      // on-demand archetype tag-page fallback and so isn't in themeDataMap.
+      // Cross-commander staleness is handled by the reset effect, not here.
+      for (const [slug, data] of themeDataMap) themeDataCacheRef.current.set(slug, data);
 
       if (themeDataMap.size === 0) {
         setThemeLoading(false);
@@ -802,12 +899,19 @@ export function DeckOptimizer({
       );
       setThemeDetection(detection);
 
-      // Applied themes: the list's saved declaration wins; detection auto-applies
-      // only when nothing is saved. handleOptimize is reassigned to a ref every
-      // render, so savedThemes here is current at call time.
+      // Applied themes, most authoritative first: the user's own pick, then the
+      // list's saved declaration, and only then detection's guess.
+      // handleOptimize is reassigned to a ref every render, so savedThemes here
+      // is current at call time.
       let appliedPrimary: string | null = null;
       let appliedSecondary: string | null = null;
-      if (savedThemes && savedThemes.length > 0) {
+      if (keptThemesTouched) {
+        // A pick the user made themselves wins outright — including a deliberate
+        // "no themes at all", which is why this branch is taken even when both
+        // slugs are null rather than falling through to detection.
+        appliedPrimary = keptPrimary;
+        appliedSecondary = keptSecondary;
+      } else if (savedThemes && savedThemes.length > 0) {
         appliedPrimary = savedThemes[0]?.slug ?? null;
         appliedSecondary = savedThemes[1]?.slug ?? null;
       } else if (detection.isConfident && detection.matchedThemes.length > 0) {
@@ -817,10 +921,13 @@ export function DeckOptimizer({
           : null;
       }
 
-      if (appliedPrimary) {
-        setPrimaryThemeSlug(appliedPrimary);
-        if (appliedSecondary) setSecondaryThemeSlug(appliedSecondary);
+      // Assigned unconditionally: the slugs are no longer cleared at the top of
+      // this function, so a stale secondary would otherwise survive a pass that
+      // resolved to a primary only.
+      setPrimaryThemeSlug(appliedPrimary);
+      setSecondaryThemeSlug(appliedSecondary);
 
+      if (appliedPrimary) {
         // Saved themes may sit outside the detected top-8 — fetch on demand
         // (fetchThemeData falls back to the archetype tag page).
         let bestThemeData = themeDataMap.get(appliedPrimary);
@@ -847,10 +954,11 @@ export function DeckOptimizer({
             edhrecData: bestThemeData,
             currentCards,
             roleCounts,
-            roleTargets,
+            roleTargets: effectiveTargets,
             deckSize,
             cardInclusionMap: themeInclusionMap,
             colorIdentity,
+            overridePacing: userPacing ?? undefined,
             overrideLandTarget: userLandTarget ?? undefined,
             themeMembership: themeMembershipForScore,
             primaryThemeData: bestThemeData,
@@ -876,7 +984,7 @@ export function DeckOptimizer({
             const merged = mergeSecondaryTheme(
               { recommendations: finalRecs, roleBreakdowns: finalRoleBreakdowns, landRecommendations: finalLandRecs },
               secondaryData,
-              { targets: roleTargets, landTarget: userLandTarget ?? undefined },
+              { targets: effectiveTargets, pacing: userPacing ?? undefined, landTarget: userLandTarget ?? undefined },
             );
             finalRecs = merged.recommendations;
             finalRoleBreakdowns = merged.roleBreakdowns;
@@ -1181,14 +1289,26 @@ export function DeckOptimizer({
 
     setPrimaryThemeSlug(newPrimary);
     setSecondaryThemeSlug(newSecondary);
+    setThemesTouched(true);
     await applyThemeSelection(newPrimary, newSecondary);
+
+    const primaryInfo = resolveThemeInfo(newPrimary);
+    const secondaryInfo = resolveThemeInfo(newSecondary);
 
     // Persist the declaration to the saved list so the deck view (and the next
     // analyze) share the same themes. No-op for pasted/generated sources.
     if (sourceListId) {
-      persistListThemes(updateList, sourceListId, resolveThemeInfo(newPrimary), resolveThemeInfo(newSecondary));
+      persistListThemes(updateList, sourceListId, primaryInfo, secondaryInfo);
     }
-  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection, sourceListId, updateList, resolveThemeInfo]);
+    // Recorded for every source, saved or not. The list copy above is what the
+    // deck view reads; this one survives for unsaved decks, and its
+    // themesTouched flag is what stops re-detection from overruling a cleared
+    // pair on either.
+    saveInspectorOverrides(overrideRef, {
+      themesTouched: true,
+      themes: [primaryInfo, secondaryInfo].filter((t): t is { slug: string; name: string } => t !== null),
+    });
+  }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection, sourceListId, updateList, resolveThemeInfo, overrideRef]);
 
   // Context menu support
   const customization = useStore(s => s.customization);
@@ -1204,6 +1324,9 @@ export function DeckOptimizer({
         .map(t => t.name);
       if (names.length > 0) return names;
     }
+    // A user who cleared the picker meant it — the fallbacks below would put the
+    // auto-detected guess back in the strip while nothing was actually applied.
+    if (themesTouched) return undefined;
     // 2. Store-selected themes from BuilderPage
     const selected = storeSelectedThemes.filter(t => t.isSelected).map(t => t.name);
     if (selected.length > 0) return selected;
@@ -1212,7 +1335,7 @@ export function DeckOptimizer({
     // 4. Auto-detected themes
     if (themeDetection?.matchedThemes?.length) return themeDetection.matchedThemes.map(t => t.theme.name);
     return undefined;
-  }, [primaryThemeSlug, secondaryThemeSlug, storeSelectedThemes, usedThemes, themeDetection, resolveThemeInfo]);
+  }, [primaryThemeSlug, secondaryThemeSlug, themesTouched, storeSelectedThemes, usedThemes, themeDetection, resolveThemeInfo]);
   const handleCardAction = useCallback((card: ScryfallCard, action: CardAction) => {
     const name = card.name;
     switch (action.type) {
@@ -1568,7 +1691,7 @@ export function DeckOptimizer({
             deckSize={deckSize}
             userDeckSize={userDeckSize}
             onDeckSizeChange={handleDeckSizeChange}
-            detectedPacing={detectedPacingRef.current ?? undefined}
+            detectedPacing={detectedPacing ?? undefined}
             userPacing={userPacing}
             onPacingChange={handlePacingChange}
           />
@@ -1754,7 +1877,7 @@ export function DeckOptimizer({
                   deckSize={deckSize}
                   userDeckSize={userDeckSize}
                   onDeckSizeChange={handleDeckSizeChange}
-                  detectedPacing={detectedPacingRef.current ?? analysis.pacing}
+                  detectedPacing={detectedPacing ?? analysis.detectedPacing}
                   userPacing={userPacing}
                   onPacingChange={handlePacingChange}
                 />
@@ -1953,6 +2076,8 @@ export function DeckOptimizer({
             partnerCommanderName={partnerCommanderName}
             colorIdentity={colorIdentity}
             intendedThemes={intendedThemes}
+            listId={sourceListId}
+            lastEditedAt={sourceListUpdatedAt}
             onAdd={handleAddCard}
             addedCards={addedCards}
             onPreview={handlePreview}

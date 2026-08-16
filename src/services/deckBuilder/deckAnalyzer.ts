@@ -222,6 +222,11 @@ export interface DeckAnalysis {
   manaGrade: GradeResult;
   curveGrade: GradeResult;
   pacing: Pacing;
+  /** What detectPacing read off the deck, independent of any overridePacing.
+   *  Callers that recompute role targets need this baseline: feeding them
+   *  `pacing` after an override would divide out the override's own multipliers
+   *  and make the recompute a no-op. */
+  detectedPacing: Pacing;
   pacingLabel: string;
   /** Plan Execution Score (data-driven dashboard hero). */
   planScore?: PlanScore;
@@ -2716,6 +2721,7 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     manaGrade,
     curveGrade,
     pacing,
+    detectedPacing: detected.pacing,
     pacingLabel,
     planScore,
     misfits,

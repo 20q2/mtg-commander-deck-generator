@@ -1,8 +1,15 @@
+import { useMemo, useState } from 'react';
 import { Gauge, AlertTriangle, ChevronRight, Zap, Sparkles } from 'lucide-react';
 import { useStore } from '@/store';
+import { Button } from '@/components/ui/button';
 import { BRACKET_COLORS, BRACKET_LABELS, BRACKET_DESCRIPTIONS, scryfallImg } from './constants';
 import type { BracketEstimation, BracketBreakdown } from '@/services/deckBuilder/bracketEstimator';
 import type { DetectedCombo } from '@/types';
+import { buildBracketViewModel } from './bracket/bracketViewModel';
+import { VerdictFirstView } from './bracket/VerdictFirstView';
+import { RefinedVerdictView } from './bracket/RefinedVerdictView';
+import { GateWalkView } from './bracket/GateWalkView';
+import { LadderView } from './bracket/LadderView';
 
 // ─── Clickable Card Chip ─────────────────────────────────────────────
 
@@ -26,11 +33,11 @@ function CardChip({ name, onPreview }: { name: string; onPreview: (name: string)
 
 // ─── Bracket Scale ───────────────────────────────────────────────────
 
-function BracketScale({ activeBracket }: { activeBracket: number }) {
+function BracketScale({ activeBracket, activeMax }: { activeBracket: number; activeMax?: number }) {
   return (
     <div className="flex flex-col gap-1.5">
       {[1, 2, 3, 4, 5].map(n => {
-        const isActive = n === activeBracket;
+        const isActive = n >= activeBracket && n <= (activeMax ?? activeBracket);
         const colors = BRACKET_COLORS[n];
         return (
           <div
@@ -266,22 +273,13 @@ function getComboFloorCards(combos: DetectedCombo[] | undefined, floorReason: st
   return [...allCards];
 }
 
-// ─── Main Export ─────────────────────────────────────────────────────
+// ─── Classic View ────────────────────────────────────────────────────
 
-export function BracketTabContent({ onPreview }: { onPreview: (name: string) => void }) {
-  const bracketEstimation = useStore(s => s.generatedDeck?.bracketEstimation);
-  const detectedCombos = useStore(s => s.generatedDeck?.detectedCombos);
-
-  if (!bracketEstimation) {
-    return (
-      <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
-        <Gauge className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
-        <p className="text-xs text-muted-foreground">Generate a deck to see bracket analysis</p>
-      </div>
-    );
-  }
-
-  const est = bracketEstimation;
+function ClassicView({ est, detectedCombos, onPreview }: {
+  est: BracketEstimation;
+  detectedCombos?: DetectedCombo[];
+  onPreview: (name: string) => void;
+}) {
   const colors = BRACKET_COLORS[est.bracket];
   const b = est.breakdown;
   const soft = computeSoftComponents(b);
@@ -315,11 +313,19 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
               <Gauge className={`w-5 h-5 ${colors.text}`} />
             </div>
             <div>
-              <div className="flex items-baseline gap-2">
-                <span className={`text-2xl font-bold ${colors.text}`}>{est.bracket}</span>
-                <span className={`text-sm font-semibold ${colors.text}`}>{est.label}</span>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className={`text-2xl font-bold ${colors.text}`}>
+                  {est.bracketMax > est.bracket ? `${est.bracket}–${est.bracketMax}` : est.bracket}
+                </span>
+                <span className={`text-sm font-semibold ${colors.text}`}>
+                  {est.bracketMax > est.bracket ? `${est.label} or ${BRACKET_LABELS[est.bracketMax]}` : est.label}
+                </span>
               </div>
-              <p className="text-xs text-muted-foreground/80">{BRACKET_DESCRIPTIONS[est.bracket]}</p>
+              <p className="text-xs text-muted-foreground/80">
+                {est.bracketMax > est.bracket
+                  ? 'Brackets 1 and 2 permit the same cards — the difference is intent, which a card list can\'t show.'
+                  : BRACKET_DESCRIPTIONS[est.bracket]}
+              </p>
             </div>
           </div>
           {est.hardFloors.length > 0 && (
@@ -350,7 +356,7 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
         </div>
         {/* Right: Scale */}
         <div className="rounded-lg border border-border/30 bg-card/60 p-3 sm:min-w-[160px]">
-          <BracketScale activeBracket={est.bracket} />
+          <BracketScale activeBracket={est.bracket} activeMax={est.bracketMax} />
         </div>
       </div>
 
@@ -435,6 +441,90 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
 
       {/* ── Calculation Result (compact) ── */}
       <CalculationSummary est={est} />
+    </div>
+  );
+}
+
+// ─── View Swapper ────────────────────────────────────────────────────
+// Prototype harness: alternate presentations of the same estimate, side by
+// side with the shipped one. Pick a winner and delete the rest.
+
+type BracketViewKey = 'classic' | 'refined' | 'verdict' | 'gates' | 'ladder';
+
+const BRACKET_VIEWS: { key: BracketViewKey; label: string; hint: string }[] = [
+  { key: 'classic', label: 'Current',  hint: 'The shipped layout' },
+  { key: 'refined', label: 'Refined',  hint: 'One bracket statement, then the checks and the score as evidence' },
+  { key: 'verdict', label: 'Verdict',  hint: 'Bracket and reasons first, criteria fold away' },
+  { key: 'gates',   label: 'Gates',    hint: 'Walk the five hard checks, then a tuning dial' },
+  { key: 'ladder',  label: 'Ladder',   hint: 'Place it on the 1–5 scale, then what moves it' },
+];
+
+const VIEW_STORAGE_KEY = 'bracket-view';
+
+function readStoredView(): BracketViewKey {
+  try {
+    const raw = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (BRACKET_VIEWS.some(v => v.key === raw)) return raw as BracketViewKey;
+  } catch { /* private mode — fall through */ }
+  return 'classic';
+}
+
+// ─── Main Export ─────────────────────────────────────────────────────
+
+export function BracketTabContent({ onPreview }: { onPreview: (name: string) => void }) {
+  const bracketEstimation = useStore(s => s.generatedDeck?.bracketEstimation);
+  const detectedCombos = useStore(s => s.generatedDeck?.detectedCombos);
+  const [view, setView] = useState<BracketViewKey>(readStoredView);
+
+  const vm = useMemo(
+    () => (bracketEstimation ? buildBracketViewModel(bracketEstimation, detectedCombos) : null),
+    [bracketEstimation, detectedCombos],
+  );
+
+  if (!bracketEstimation || !vm) {
+    return (
+      <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
+        <Gauge className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
+        <p className="text-xs text-muted-foreground">Generate a deck to see bracket analysis</p>
+      </div>
+    );
+  }
+
+  const pick = (key: BracketViewKey) => {
+    setView(key);
+    try { localStorage.setItem(VIEW_STORAGE_KEY, key); } catch { /* private mode */ }
+  };
+
+  const active = BRACKET_VIEWS.find(v => v.key === view) ?? BRACKET_VIEWS[0];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1 p-1 rounded-lg bg-card border border-border/40">
+          {BRACKET_VIEWS.map(v => (
+            <Button
+              key={v.key}
+              variant="ghost"
+              size="sm"
+              onClick={() => pick(v.key)}
+              className={`h-7 px-3 text-xs rounded-md ${
+                v.key === view
+                  ? 'bg-accent text-foreground hover:bg-accent'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {v.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-[11.5px] text-muted-foreground">{active.hint}</p>
+      </div>
+
+      {view === 'classic' && <ClassicView est={bracketEstimation} detectedCombos={detectedCombos} onPreview={onPreview} />}
+      {view === 'refined' && <RefinedVerdictView vm={vm} onPreview={onPreview} />}
+      {view === 'verdict' && <VerdictFirstView vm={vm} onPreview={onPreview} />}
+      {view === 'gates'   && <GateWalkView vm={vm} onPreview={onPreview} />}
+      {view === 'ladder'  && <LadderView vm={vm} onPreview={onPreview} />}
     </div>
   );
 }

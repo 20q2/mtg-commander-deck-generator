@@ -685,6 +685,7 @@ export function AnalyzePage() {
                 onOpenInDeckView={handleOpenInDeckView}
                 intendedThemes={intendedThemes}
                 sourceListId={source.kind === 'list' ? source.listId : undefined}
+                sourceListUpdatedAt={sourceList?.updatedAt}
               />
             }
             deck={

@@ -8,7 +8,9 @@ import {
 } from '@/services/edhrec/client';
 import { searchCards, getCardsByNames, isAnyLand } from '@/services/scryfall/client';
 import { isFormatStaple } from '@/lib/constants/staples';
-import type { EDHRECTheme } from '@/types';
+import { loadTaggerData } from '@/services/tagger/client';
+import { findUpgradePair, type PairReceipt } from './upgradePairing';
+import type { EDHRECTheme, ScryfallCard } from '@/types';
 import {
   deckLiftEdges,
   liftEdgeScore,
@@ -27,6 +29,10 @@ const MAX_THEMES = 2;
 const BACKFILL_WINDOW_DAYS = 120;
 /** Scryfall backfill: extra lift-pool lookups budgeted for recent-set cards. */
 const MAX_BACKFILL_LOOKUPS = 8;
+/** Widened newness (old decks): synergy pre-rank size before the released_at filter. */
+const WIDEN_PRERANK = 100;
+/** Widened newness: extra lift-pool lookups budgeted for since-baseline cards. */
+const MAX_WIDENED_LOOKUPS = 12;
 
 export interface RelevantCardsArgs {
   commanderName: string;
@@ -40,6 +46,10 @@ export interface RelevantCardsArgs {
   /** Color picked for a "choose a color before the game begins" commander (Clara Oswald &c),
    *  which selects EDHREC's per-identity page instead of the variant-aggregating base page. */
   chosenColor?: string | null;
+  /** "Since when" (ms epoch). When older than the recent-set window, newness widens from
+   *  EDHREC's rolling isNewCard flag to `released_at > baseline` over the full page lists —
+   *  a ten-year-old deck gets its decade of tech, not just the last two sets. */
+  baselineDate?: number;
 }
 
 /**
@@ -105,7 +115,7 @@ export async function getRelevantCards(args: RelevantCardsArgs): Promise<RankedC
 }
 
 /** Where a candidate was discovered. */
-export type UpgradeSource = 'commander' | 'theme' | 'recent-set';
+export type UpgradeSource = 'commander' | 'theme' | 'recent-set' | 'since-baseline';
 
 /** A fully-explained upgrade candidate — the "New Cards" inspector tab's row data. */
 export interface UpgradeDetail extends UpgradeCandidate {
@@ -116,6 +126,10 @@ export interface UpgradeDetail extends UpgradeCandidate {
   liftFit: number;
   /** Strongest deck cards backing the recommendation, best first. */
   topEdges: { deckCard: string; lift: number; coPct: number; numDecks: number }[];
+  /** Conservative "possible upgrade of your X" pairing, when one clears every gate. */
+  pairedWith?: PairReceipt;
+  /** ISO release date of the candidate's cached printing (era chip in the tab). */
+  releasedAt?: string;
 }
 
 const MAX_TOP_EDGES = 4;
@@ -128,7 +142,7 @@ type DetailDraft = UpgradeCandidate & { sources: UpgradeSource[]; matchedThemes:
  * inspector tab consumes it directly. Same caching + failure behavior.
  */
 export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<UpgradeDetail[]> {
-  const { commanderName, partnerName, deckCardNames, themes, colorIdentity, chosenColor } = args;
+  const { commanderName, partnerName, deckCardNames, themes, colorIdentity, chosenColor, baselineDate } = args;
   // cachedColorIdentity is the union of the deck's card colors, so a chosen color with no
   // cards yet would be missing from it — add it back before resolving EDHREC's color page.
   // It's also populated asynchronously after a first save; without it the union would be the
@@ -143,6 +157,9 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     // "no lands identified" (names-only), which is safe — worst case a land or two
     // slips back into the evidence set.
     const deckTypesPromise = getCardsByNames(deckCardNames).catch(() => new Map());
+    // Tagger tags back the upgrade-pairing "shared role" gate; failures degrade to
+    // theme-lift-only pairing (hasTag returns false when data is absent).
+    const taggerPromise = loadTaggerData().catch(() => null);
     const data = partnerName
       ? await fetchPartnerCommanderData(commanderName, partnerName, undefined, undefined, colorSeg)
       : await fetchCommanderData(commanderName, undefined, undefined, colorSeg);
@@ -152,9 +169,12 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
       ? fetchRecentSetCandidates(colorIdentity, deckSet)
       : Promise.resolve([] as UpgradeCandidate[]);
 
-    // 1. Commander-page new cards.
+    // 1. Commander-page new cards. The same pass collects commander-page stats for
+    // cards already IN the deck — the upgrade pairing's incumbent side.
     const byName = new Map<string, DetailDraft>();
+    const incumbentStats = new Map<string, { synergy?: number; inclusion: number }>();
     for (const c of data.cardlists.allNonLand) {
+      if (deckSet.has(c.name)) incumbentStats.set(c.name, { synergy: c.synergy, inclusion: c.inclusion });
       if (!c.isNewCard) continue;
       byName.set(c.name, {
         name: c.name,
@@ -176,9 +196,15 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
       ).catch(() => null);
       return { themeName, themeData };
     }));
+    // Full theme membership (every card the page lists, not just new ones) — feeds the
+    // pairing's "same plan" gate for both candidates and incumbents.
+    const themeMembership = new Map<string, string[]>();
     for (const { themeName, themeData } of themeDatas) {
       if (!themeData) continue;
       for (const c of themeData.cardlists.allNonLand) {
+        const membered = themeMembership.get(c.name);
+        if (membered) { if (!membered.includes(themeName)) membered.push(themeName); }
+        else themeMembership.set(c.name, [themeName]);
         if (!c.isNewCard) continue;
         const prev = byName.get(c.name);
         if (prev) {
@@ -207,13 +233,55 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
         ((b.synergy ?? 0) + (b.fromTheme ? 0.5 : 0)) - ((a.synergy ?? 0) + (a.fromTheme ? 0.5 : 0)))
       .slice(0, MAX_LIFT_LOOKUPS);
 
-    // 4. Merge the backfill (deduped against EDHREC's picks) and remember which
-    // candidates carry no EDHREC signal — they must prove themselves via lift.
+    // 3.5. Widened newness for old decks: when the baseline predates the recent-set
+    // window, EDHREC's rolling isNewCard flag misses almost everything that matters —
+    // a ten-year-old deck needs "printed since the baseline" over the FULL page lists.
+    // Pre-rank by synergy so the one batch card fetch spends on the likeliest fits;
+    // the reprint flag guards a late printing of an old card from reading as new.
+    let widened: DetailDraft[] = [];
+    if (baselineDate && Date.now() - baselineDate > BACKFILL_WINDOW_DAYS * 86400000) {
+      const baselineISO = new Date(baselineDate).toISOString().slice(0, 10);
+      const eraPool = new Map<string, DetailDraft>();
+      const consider = (c: { name: string; inclusion: number; synergy?: number; isNewCard?: boolean }, themeName?: string) => {
+        if (c.isNewCard || deckSet.has(c.name) || byName.has(c.name)) return;
+        const prev = eraPool.get(c.name);
+        if (prev) {
+          prev.synergy = Math.max(prev.synergy ?? 0, c.synergy ?? 0);
+          if (themeName) {
+            prev.fromTheme = true;
+            if (!prev.matchedThemes.includes(themeName)) prev.matchedThemes.push(themeName);
+          }
+        } else {
+          eraPool.set(c.name, {
+            name: c.name, inclusion: c.inclusion, synergy: c.synergy, fromTheme: !!themeName,
+            sources: ['since-baseline'], matchedThemes: themeName ? [themeName] : [],
+          });
+        }
+      };
+      for (const c of data.cardlists.allNonLand) consider(c);
+      for (const { themeName, themeData } of themeDatas) {
+        if (!themeData) continue;
+        for (const c of themeData.cardlists.allNonLand) consider(c, themeName);
+      }
+      const preranked = [...eraPool.values()]
+        .sort((a, b) =>
+          ((b.synergy ?? 0) + (b.fromTheme ? 0.5 : 0)) - ((a.synergy ?? 0) + (a.fromTheme ? 0.5 : 0)))
+        .slice(0, WIDEN_PRERANK);
+      const eraCards = await getCardsByNames(preranked.map(c => c.name)).catch(() => new Map());
+      widened = preranked.filter(c => {
+        const card = eraCards.get(c.name);
+        return !!card?.released_at && card.released_at > baselineISO && card.reprint !== true;
+      }).slice(0, MAX_WIDENED_LOOKUPS);
+    }
+    const widenedNames = new Set(widened.map(c => c.name));
+
+    // 4. Merge the backfill (deduped against EDHREC's picks and the widened pool) and
+    // remember which candidates carry no EDHREC signal — they must prove themselves via lift.
     const backfill: DetailDraft[] = (await backfillPromise)
-      .filter(c => !byName.has(c.name))
+      .filter(c => !byName.has(c.name) && !widenedNames.has(c.name))
       .map(c => ({ ...c, sources: ['recent-set' as const], matchedThemes: [] }));
     const backfillNames = new Set(backfill.map(c => c.name));
-    const candidates = [...edhrecCandidates, ...backfill];
+    const candidates = [...edhrecCandidates, ...widened, ...backfill];
 
     // 5. Deck-fit lift evidence per candidate.
     // Two kinds of card are mana-base/universal noise as lift evidence rather than
@@ -230,14 +298,35 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
         return !(card && isAnyLand(card));
       }),
     );
+    // Candidate card objects back the pairing (type class, price, release date) and the
+    // era chip. One cached batch fetch — the tab re-requests the same names for art.
+    const candidateCards = await getCardsByNames(candidates.map(c => c.name)).catch(() => new Map());
+    const deckCardObjs = [...new Set(deckCardNames)]
+      .map(n => deckTypes.get(n))
+      .filter((c): c is ScryfallCard => !!c);
+    await taggerPromise;
+
     const scored = await Promise.all(candidates.map(async draft => {
-      const edges = deckLiftEdges(await fetchCardLiftPool(draft.name), liftDeckSet);
+      const pool = await fetchCardLiftPool(draft.name);
+      const edges = deckLiftEdges(pool, liftDeckSet);
+      const card = candidateCards.get(draft.name);
       const candidate: UpgradeDetail = {
         ...draft,
         liftFit: edges.reduce((s, e) => s + liftEdgeScore(e), 0),
         topEdges: edges.slice(0, MAX_TOP_EDGES).map(e => ({
           deckCard: e.name, lift: e.lift, coPct: e.coPct, numDecks: e.numDecks,
         })),
+        pairedWith: findUpgradePair({
+          candidate: {
+            name: draft.name, card, synergy: draft.synergy, inclusion: draft.inclusion,
+            themes: draft.matchedThemes.length > 0 ? draft.matchedThemes : (themeMembership.get(draft.name) ?? []),
+          },
+          candidatePool: pool,
+          deckCards: deckCardObjs,
+          incumbentStats,
+          themeMembership,
+        }) ?? undefined,
+        releasedAt: card?.released_at,
       };
       return { candidate, liftFit: candidate.liftFit };
     }));

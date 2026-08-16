@@ -4908,6 +4908,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   if (partnerCommander) allDeckCardNames.push(partnerCommander.name);
   const bracketEstimation = estimateBracket(
     allDeckCardNames,
+    new Set(categories.lands.map(c => c.name)),
     detectedCombos,
     stats.averageCmc,
     deckScore,

@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Newspaper, Plus, Check, CalendarDays, Crown, Tags, List, LayoutGrid } from 'lucide-react';
+import { Newspaper, Plus, Check, CalendarDays, Crown, Tags, List, LayoutGrid, ArrowUpRight } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { Button } from '@/components/ui/button';
 import { getUpgradeDetails, type UpgradeDetail } from '@/services/deckUpgrades/getRelevantCards';
+import type { PairReceipt } from '@/services/deckUpgrades/upgradePairing';
 
 /**
- * "New Cards" inspector tab — the deep surface behind the deck view's
- * "New cards for this deck" panel. Same producer, but with the reasoning shown:
- * where each card came from (commander page / intended-theme page / recent set)
- * and which of YOUR cards back it (lift edges), so the ranking is inspectable
- * rather than a black box.
+ * "New Cards" inspector tab — what got printed that matters for THIS deck.
+ *
+ * Organized for the returning player: a user-adjustable "since when" baseline
+ * (defaults to the saved list's last edit), then four meaning-based sections —
+ * possible upgrades of cards you run (with receipts), cards that slot into your
+ * build, the commander's broader new hits, and recent-set long shots. Every row
+ * still shows its reasoning (sources, lift edges), never a black-box ranking.
  */
 
 interface NewCardsTabProps {
@@ -20,6 +23,10 @@ interface NewCardsTabProps {
   colorIdentity?: string[];
   /** Intended EDHREC theme names (from the saved list / generated deck). */
   intendedThemes?: string[];
+  /** Saved-list id backing this deck — persists the baseline choice per deck. */
+  listId?: string;
+  /** The saved list's last-edit time (ms) — the default "since when" baseline. */
+  lastEditedAt?: number;
   onAdd: (name: string) => void;
   addedCards: Set<string>;
   onPreview: (name: string) => void;
@@ -36,8 +43,126 @@ const liftLabel = (l: number) => (l >= 99 ? '99+' : `×${l.toFixed(1)}`);
 /** Below this many shared decks a lift edge is thin evidence — shown, but dimmed. */
 const EDGE_CONFIDENCE_FLOOR = 50;
 
+/** Upgrade pairs shown in the hero section; overflow falls into "Slots into your build". */
+const MAX_PAIRS_SHOWN = 8;
+
+// ── Baseline ("since when") ──────────────────────────────────────────────
+
+type BaselineKey = 'last-edit' | '1y' | '2y' | '5y' | '10y' | 'recent';
+const YEAR_MS = 365 * 86400000;
+
+const BASELINE_OPTIONS: { key: BaselineKey; label: string }[] = [
+  { key: 'last-edit', label: 'your last edit' },
+  { key: '1y', label: '1 year back' },
+  { key: '2y', label: '2 years back' },
+  { key: '5y', label: '5 years back' },
+  { key: '10y', label: '10 years back' },
+  { key: 'recent', label: 'recent sets only' },
+];
+
+function baselineMs(key: BaselineKey, lastEditedAt?: number): number | undefined {
+  switch (key) {
+    case 'last-edit': return lastEditedAt;
+    case '1y': return Date.now() - YEAR_MS;
+    case '2y': return Date.now() - 2 * YEAR_MS;
+    case '5y': return Date.now() - 5 * YEAR_MS;
+    case '10y': return Date.now() - 10 * YEAR_MS;
+    case 'recent': return undefined;
+  }
+}
+
+function baselineNarrative(key: BaselineKey, lastEditedAt?: number): string {
+  if (key === 'recent') return 'the last few sets';
+  if (key === 'last-edit' && lastEditedAt) {
+    return `your last edit (${new Date(lastEditedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })})`;
+  }
+  return BASELINE_OPTIONS.find(o => o.key === key)?.label ?? key;
+}
+
+// ── Sections ─────────────────────────────────────────────────────────────
+
+type SectionKey = 'upgrades' | 'build' | 'broad' | 'longshots';
+
+interface Section {
+  key: SectionKey;
+  title: string;
+  blurb: string;
+  /** Section marker color (small square, mirrors the deck view's group dots). */
+  pole: string;
+  details: UpgradeDetail[];
+}
+
+function partitionSections(details: UpgradeDetail[], commanderShortName: string): Section[] {
+  const maxFit = Math.max(0, ...details.map(d => d.liftFit));
+  const upgrades: UpgradeDetail[] = [];
+  const build: UpgradeDetail[] = [];
+  const broad: UpgradeDetail[] = [];
+  const longshots: UpgradeDetail[] = [];
+  for (const d of details) {
+    if (d.pairedWith && upgrades.length < MAX_PAIRS_SHOWN) upgrades.push(d);
+    else if (d.matchedThemes.length > 0 || (maxFit > 0 && d.liftFit >= 0.6 * maxFit)) build.push(d);
+    else if (d.sources.includes('commander')) broad.push(d);
+    else longshots.push(d);
+  }
+  return [
+    {
+      key: 'upgrades', details: upgrades, pole: 'bg-emerald-400',
+      title: 'Upgrades for cards you run',
+      blurb: 'Modern takes on jobs your deck already does — each pair shows its receipts.',
+    },
+    {
+      key: 'build', details: build, pole: 'bg-violet-400',
+      title: 'Slots into your build',
+      blurb: 'Matches your themes or plays strongly with cards you already run.',
+    },
+    {
+      key: 'broad', details: broad, pole: 'bg-muted-foreground/60',
+      title: `New for ${commanderShortName} broadly`,
+      blurb: 'Popular with the commander at large — not especially your build\'s plan.',
+    },
+    {
+      key: 'longshots', details: longshots, pole: 'bg-amber-400',
+      title: 'Recent-set long shots',
+      blurb: 'Fresh printings with a thread of evidence — speculative by nature.',
+    },
+  ];
+}
+
+const fmtPrice = (p: number) => (p >= 10 ? `$${Math.round(p)}` : `$${p.toFixed(2)}`);
+const fmtSynergy = (s: number) => `${s >= 0 ? '+' : ''}${Math.round(s * 100)}%`;
+
+/** The pairing receipts line: shared job, price compare, synergy compare, mutual lift. */
+function PairBanner({ pair }: { pair: PairReceipt }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 px-2 py-1 text-[11px]">
+      <span className="inline-flex items-center gap-1 font-medium text-emerald-300">
+        <ArrowUpRight className="w-3 h-3" /> Possible upgrade of your {pair.deckCard}
+      </span>
+      <span className="text-muted-foreground/80">
+        {pair.basis === 'role' ? `both: ${pair.sharedLabel}` : `same plan: ${pair.sharedLabel}`}
+      </span>
+      {pair.candidatePrice !== undefined && pair.incumbentPrice !== undefined && (
+        <span className={pair.axis === 'cheaper' ? 'text-emerald-300 font-medium' : 'text-muted-foreground/80'}>
+          {fmtPrice(pair.candidatePrice)} vs {fmtPrice(pair.incumbentPrice)}
+        </span>
+      )}
+      {typeof pair.candidateSynergy === 'number' && typeof pair.incumbentSynergy === 'number' && (
+        <span className="text-violet-300/80" title="EDHREC synergy, this card vs yours">
+          {fmtSynergy(pair.candidateSynergy)} vs {fmtSynergy(pair.incumbentSynergy)} synergy
+        </span>
+      )}
+      {pair.mutualLift !== undefined && (
+        <span className="text-muted-foreground/80" title="How much more often the pair appears together than chance">
+          played together {liftLabel(pair.mutualLift)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function NewCardsTab({
   currentCards, commanderName, partnerCommanderName, colorIdentity, intendedThemes,
+  listId, lastEditedAt,
   onAdd, addedCards, onPreview,
 }: NewCardsTabProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
@@ -49,6 +174,19 @@ export function NewCardsTab({
     localStorage.setItem('mtg-newcards-view-mode', v);
     _setViewMode(v);
   };
+
+  const baselineStoreKey = `mtg-newcards-baseline-${listId ?? 'adhoc'}`;
+  const [baselineKey, _setBaselineKey] = useState<BaselineKey>(() => {
+    const stored = localStorage.getItem(baselineStoreKey) as BaselineKey | null;
+    const valid = stored && BASELINE_OPTIONS.some(o => o.key === stored) && (stored !== 'last-edit' || lastEditedAt);
+    if (valid) return stored;
+    return lastEditedAt ? 'last-edit' : 'recent';
+  });
+  const setBaselineKey = (k: BaselineKey) => {
+    localStorage.setItem(baselineStoreKey, k);
+    _setBaselineKey(k);
+  };
+  const baselineDate = baselineMs(baselineKey, lastEditedAt);
 
   const deckCardNames = useMemo(
     () => [...new Set([commanderName, partnerCommanderName, ...currentCards.map(c => c.name)].filter(Boolean) as string[])],
@@ -65,6 +203,7 @@ export function NewCardsTab({
       deckCardNames,
       themes: intendedThemes,
       colorIdentity,
+      baselineDate,
     }).then(async details => {
       if (cancelled) return;
       setState({ phase: 'done', details });
@@ -74,9 +213,182 @@ export function NewCardsTab({
     }).catch(() => { if (!cancelled) setState({ phase: 'error' }); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commanderName, partnerCommanderName, themesKey]);
+  }, [commanderName, partnerCommanderName, themesKey, baselineDate]);
 
+  const commanderShortName = commanderName.split(',')[0];
+  const sections = useMemo(
+    () => (state.phase === 'done' ? partitionSections(state.details, commanderShortName) : []),
+    [state, commanderShortName],
+  );
+  const total = state.phase === 'done' ? state.details.length : 0;
   const maxFit = state.phase === 'done' ? Math.max(0, ...state.details.map(d => d.liftFit)) : 0;
+
+  const renderListRow = (d: UpgradeDetail) => {
+    const card = images.get(d.name);
+    const img = card ? getCardImageUrl(card, 'small') : null;
+    const added = addedCards.has(d.name);
+    const fitPct = maxFit > 0 ? Math.round((d.liftFit / maxFit) * 100) : 0;
+    return (
+      <div key={d.name} className="bg-card/60 border border-border/30 rounded-lg p-3 sm:p-4 flex gap-3">
+        {/* Art */}
+        <button
+          type="button"
+          onClick={() => onPreview(d.name)}
+          title={d.name}
+          className="relative w-14 sm:w-16 shrink-0 aspect-[5/7] rounded-md overflow-hidden bg-violet-500/10 border border-border/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 self-start"
+        >
+          {img
+            ? <img src={img} alt={d.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+            : <div className="absolute inset-0 animate-pulse bg-violet-500/10" />}
+        </button>
+
+        {/* Body */}
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onPreview(d.name)}
+                className="text-sm font-medium text-foreground hover:text-violet-300 transition-colors truncate block max-w-full text-left"
+              >
+                {d.name}
+              </button>
+              {/* Source badges — where this recommendation came from */}
+              <div className="flex flex-wrap items-center gap-1 mt-1">
+                {d.sources.includes('commander') && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/90">
+                    <Crown className="w-2.5 h-2.5" /> New for {commanderShortName}
+                  </span>
+                )}
+                {d.matchedThemes.map(t => (
+                  <span key={t} className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/80">
+                    <Tags className="w-2.5 h-2.5" /> {t}
+                  </span>
+                ))}
+                {(d.sources.includes('recent-set') || d.sources.includes('since-baseline')) && d.releasedAt && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-300/90">
+                    <CalendarDays className="w-2.5 h-2.5" /> Printed {d.releasedAt.slice(0, 4)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Button
+              variant={added ? 'ghost' : 'outline'}
+              size="sm"
+              disabled={added}
+              className="shrink-0"
+              onClick={() => onAdd(d.name)}
+            >
+              {added ? <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Added</> : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
+            </Button>
+          </div>
+
+          {/* The pairing receipts — why this reads as an upgrade of a card you run */}
+          {d.pairedWith && <PairBanner pair={d.pairedWith} />}
+
+          {/* Signals: fit meter + synergy + inclusion */}
+          <div className="flex items-center gap-3 text-[11px]">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-56" title="Summed lift between this card and the cards in your deck, scaled to the strongest candidate">
+              <span className="text-muted-foreground/80 shrink-0">Deck fit</span>
+              <div className="h-1.5 flex-1 rounded-full bg-border/40 overflow-hidden">
+                <div className="h-full rounded-full bg-gradient-to-r from-violet-500/60 to-violet-400" style={{ width: `${fitPct}%` }} />
+              </div>
+            </div>
+            {typeof d.synergy === 'number' && (
+              <span className="text-violet-300/80 shrink-0" title="EDHREC synergy: how much more this commander plays it than the average deck">
+                {d.synergy >= 0 ? '+' : ''}{Math.round(d.synergy * 100)}% synergy
+              </span>
+            )}
+            {d.inclusion > 0 && (
+              <span className="text-muted-foreground/80 shrink-0">in {Math.round(d.inclusion)}% of decks</span>
+            )}
+          </div>
+
+          {/* Evidence: which of YOUR cards back it */}
+          {d.topEdges.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1 text-[11px]">
+              <span className="text-muted-foreground/70">Plays with your</span>
+              {d.topEdges.map(e => (
+                <button
+                  key={e.deckCard}
+                  type="button"
+                  onClick={() => onPreview(e.deckCard)}
+                  title={`Lift ${liftLabel(e.lift)} · together in ${e.numDecks.toLocaleString()} decks${e.numDecks < EDGE_CONFIDENCE_FLOOR ? ' (thin data)' : ''}`}
+                  className={`inline-flex items-center gap-1 rounded-full bg-accent/40 hover:bg-accent/70 border border-border/40 px-2 py-0.5 transition-colors ${e.numDecks < EDGE_CONFIDENCE_FLOOR ? 'text-foreground/60' : 'text-foreground/85'}`}
+                >
+                  {e.deckCard}
+                  <span className="text-violet-300/80 font-medium">{liftLabel(e.lift)}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground/70">No lift data against your cards yet — too new for co-occurrence stats.</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGridTile = (d: UpgradeDetail) => {
+    const card = images.get(d.name);
+    const img = card ? getCardImageUrl(card, 'normal') : null;
+    const added = addedCards.has(d.name);
+    const fitPct = maxFit > 0 ? Math.round((d.liftFit / maxFit) * 100) : 0;
+    return (
+      <div key={d.name} className="bg-card/60 border border-border/30 rounded-lg p-2 flex flex-col gap-2 group">
+        <button
+          type="button"
+          onClick={() => onPreview(d.name)}
+          title={d.name}
+          className="relative w-full aspect-[5/7] rounded-md overflow-hidden bg-violet-500/10 border border-border/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+        >
+          {img
+            ? <img src={img} alt={d.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+            : <div className="absolute inset-0 animate-pulse bg-violet-500/10" />}
+          {/* Source badges, icon-only */}
+          <span className="absolute top-1 left-1 flex gap-1">
+            {d.sources.includes('commander') && (
+              <span className="bg-violet-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title={`New for ${commanderShortName}`}>
+                <Crown className="w-2.5 h-2.5" />
+              </span>
+            )}
+            {d.matchedThemes.length > 0 && (
+              <span className="bg-violet-500/60 text-white rounded-full w-5 h-5 flex items-center justify-center" title={d.matchedThemes.join(' + ')}>
+                <Tags className="w-2.5 h-2.5" />
+              </span>
+            )}
+            {(d.sources.includes('recent-set') || d.sources.includes('since-baseline')) && d.releasedAt && (
+              <span className="bg-amber-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title={`Printed ${d.releasedAt.slice(0, 4)}`}>
+                <CalendarDays className="w-2.5 h-2.5" />
+              </span>
+            )}
+          </span>
+        </button>
+        {d.pairedWith && (
+          <p className="text-[10px] leading-tight text-emerald-300/90 truncate" title={`Possible upgrade of your ${d.pairedWith.deckCard}`}>
+            <ArrowUpRight className="w-2.5 h-2.5 inline mr-0.5" />upgrade of {d.pairedWith.deckCard}
+          </p>
+        )}
+        <div
+          className="flex items-center gap-1.5"
+          title={`Deck fit ${fitPct}%${typeof d.synergy === 'number' ? ` · ${d.synergy >= 0 ? '+' : ''}${Math.round(d.synergy * 100)}% synergy` : ''}${d.inclusion > 0 ? ` · in ${Math.round(d.inclusion)}% of decks` : ''}${d.topEdges.length > 0 ? ` · plays with ${d.topEdges.map(e => e.deckCard).join(', ')}` : ''}`}
+        >
+          <div className="h-1.5 flex-1 rounded-full bg-border/40 overflow-hidden">
+            <div className="h-full rounded-full bg-gradient-to-r from-violet-500/60 to-violet-400" style={{ width: `${fitPct}%` }} />
+          </div>
+        </div>
+        <Button
+          variant={added ? 'ghost' : 'outline'}
+          size="sm"
+          disabled={added}
+          className="w-full h-7"
+          onClick={() => onAdd(d.name)}
+        >
+          {added ? <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Added</> : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
+        </Button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-3">
@@ -89,30 +401,44 @@ export function NewCardsTab({
           <div className="leading-tight min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-foreground">New cards for this deck</h3>
             <p className="text-xs text-muted-foreground/80">
-              EDHREC's new-card lists for {commanderName}
-              {intendedThemes && intendedThemes.length > 0 && <> and its {intendedThemes.join(' + ')} theme page{intendedThemes.length > 1 ? 's' : ''}</>}
-              , plus recent sets — ranked by how strongly they play alongside the cards already in your deck.
+              {state.phase === 'done'
+                ? <>Since <span className="text-foreground/90">{baselineNarrative(baselineKey, lastEditedAt)}</span>, {total === 0 ? 'nothing new has shown up for this deck.' : <>{total} card{total === 1 ? '' : 's'} worth a look — from EDHREC's data for {commanderName}{intendedThemes && intendedThemes.length > 0 ? ` and your ${intendedThemes.join(' + ')} theme${intendedThemes.length > 1 ? 's' : ''}` : ''}, ranked by fit with your cards.</>}</>
+                : <>EDHREC's new-card data for {commanderName}, ranked by how strongly it plays alongside the cards already in your deck.</>}
             </p>
           </div>
-          <div className="flex items-center gap-0.5 shrink-0 self-start rounded-lg border border-border/40 p-0.5">
-            <Button
-              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="h-7 w-7"
-              title="List view"
-              onClick={() => setViewMode('list')}
+          <div className="flex items-center gap-1.5 shrink-0 self-start">
+            <label className="sr-only" htmlFor="newcards-baseline">Show cards printed since</label>
+            <select
+              id="newcards-baseline"
+              value={baselineKey}
+              onChange={e => setBaselineKey(e.target.value as BaselineKey)}
+              title="Show cards printed since…"
+              className="h-8 rounded-lg border border-border/40 bg-card text-xs text-foreground/90 px-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
             >
-              <List className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="h-7 w-7"
-              title="Grid view"
-              onClick={() => setViewMode('grid')}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </Button>
+              {BASELINE_OPTIONS.filter(o => o.key !== 'last-edit' || lastEditedAt).map(o => (
+                <option key={o.key} value={o.key}>since {o.label}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-0.5 rounded-lg border border-border/40 p-0.5">
+              <Button
+                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-7 w-7"
+                title="List view"
+                onClick={() => setViewMode('list')}
+              >
+                <List className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-7 w-7"
+                title="Grid view"
+                onClick={() => setViewMode('grid')}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -131,177 +457,31 @@ export function NewCardsTab({
         </div>
       )}
 
-      {state.phase === 'done' && state.details.length === 0 && (
+      {state.phase === 'done' && total === 0 && (
         <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
           <Newspaper className="w-6 h-6 text-violet-300/60 mx-auto mb-2" />
           <p className="text-sm text-foreground/90">Nothing new for this deck right now.</p>
-          <p className="text-xs text-muted-foreground/80 mt-1">Check back after the next set drops — this list tracks EDHREC's new-card data as it moves.</p>
+          <p className="text-xs text-muted-foreground/80 mt-1">Try a wider "since" window above, or check back after the next set drops.</p>
         </div>
       )}
 
-      {/* Grid view: art-first tiles; the list view's reasoning lives in tooltips here */}
-      {state.phase === 'done' && viewMode === 'grid' && state.details.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {state.details.map(d => {
-            const card = images.get(d.name);
-            const img = card ? getCardImageUrl(card, 'normal') : null;
-            const added = addedCards.has(d.name);
-            const fitPct = maxFit > 0 ? Math.round((d.liftFit / maxFit) * 100) : 0;
-            return (
-              <div key={d.name} className="bg-card/60 border border-border/30 rounded-lg p-2 flex flex-col gap-2 group">
-                <button
-                  type="button"
-                  onClick={() => onPreview(d.name)}
-                  title={d.name}
-                  className="relative w-full aspect-[5/7] rounded-md overflow-hidden bg-violet-500/10 border border-border/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
-                >
-                  {img
-                    ? <img src={img} alt={d.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-                    : <div className="absolute inset-0 animate-pulse bg-violet-500/10" />}
-                  {/* Source badges, icon-only */}
-                  <span className="absolute top-1 left-1 flex gap-1">
-                    {d.sources.includes('commander') && (
-                      <span className="bg-violet-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title={`New for ${commanderName.split(',')[0]}`}>
-                        <Crown className="w-2.5 h-2.5" />
-                      </span>
-                    )}
-                    {d.matchedThemes.length > 0 && (
-                      <span className="bg-violet-500/60 text-white rounded-full w-5 h-5 flex items-center justify-center" title={d.matchedThemes.join(' + ')}>
-                        <Tags className="w-2.5 h-2.5" />
-                      </span>
-                    )}
-                    {d.sources.includes('recent-set') && (
-                      <span className="bg-amber-500/80 text-white rounded-full w-5 h-5 flex items-center justify-center" title="Recent set">
-                        <CalendarDays className="w-2.5 h-2.5" />
-                      </span>
-                    )}
-                  </span>
-                </button>
-                <div
-                  className="flex items-center gap-1.5"
-                  title={`Deck fit ${fitPct}%${typeof d.synergy === 'number' ? ` · ${d.synergy >= 0 ? '+' : ''}${Math.round(d.synergy * 100)}% synergy` : ''}${d.inclusion > 0 ? ` · in ${Math.round(d.inclusion)}% of decks` : ''}${d.topEdges.length > 0 ? ` · plays with ${d.topEdges.map(e => e.deckCard).join(', ')}` : ''}`}
-                >
-                  <div className="h-1.5 flex-1 rounded-full bg-border/40 overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-violet-500/60 to-violet-400" style={{ width: `${fitPct}%` }} />
-                  </div>
-                </div>
-                <Button
-                  variant={added ? 'ghost' : 'outline'}
-                  size="sm"
-                  disabled={added}
-                  className="w-full h-7"
-                  onClick={() => onAdd(d.name)}
-                >
-                  {added ? <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Added</> : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {state.phase === 'done' && viewMode === 'list' && state.details.map(d => {
-        const card = images.get(d.name);
-        const img = card ? getCardImageUrl(card, 'small') : null;
-        const added = addedCards.has(d.name);
-        const fitPct = maxFit > 0 ? Math.round((d.liftFit / maxFit) * 100) : 0;
-        return (
-          <div key={d.name} className="bg-card/60 border border-border/30 rounded-lg p-3 sm:p-4 flex gap-3">
-            {/* Art */}
-            <button
-              type="button"
-              onClick={() => onPreview(d.name)}
-              title={d.name}
-              className="relative w-14 sm:w-16 shrink-0 aspect-[5/7] rounded-md overflow-hidden bg-violet-500/10 border border-border/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70 self-start"
-            >
-              {img
-                ? <img src={img} alt={d.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-                : <div className="absolute inset-0 animate-pulse bg-violet-500/10" />}
-            </button>
-
-            {/* Body */}
-            <div className="flex-1 min-w-0 space-y-1.5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => onPreview(d.name)}
-                    className="text-sm font-medium text-foreground hover:text-violet-300 transition-colors truncate block max-w-full text-left"
-                  >
-                    {d.name}
-                  </button>
-                  {/* Source badges — where this recommendation came from */}
-                  <div className="flex flex-wrap items-center gap-1 mt-1">
-                    {d.sources.includes('commander') && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/90">
-                        <Crown className="w-2.5 h-2.5" /> New for {commanderName.split(',')[0]}
-                      </span>
-                    )}
-                    {d.matchedThemes.map(t => (
-                      <span key={t} className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/80">
-                        <Tags className="w-2.5 h-2.5" /> {t}
-                      </span>
-                    ))}
-                    {d.sources.includes('recent-set') && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-300/90">
-                        <CalendarDays className="w-2.5 h-2.5" /> Recent set
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant={added ? 'ghost' : 'outline'}
-                  size="sm"
-                  disabled={added}
-                  className="shrink-0"
-                  onClick={() => onAdd(d.name)}
-                >
-                  {added ? <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /> Added</> : <><Plus className="w-3.5 h-3.5 mr-1" /> Add</>}
-                </Button>
-              </div>
-
-              {/* Signals: fit meter + synergy + inclusion */}
-              <div className="flex items-center gap-3 text-[11px]">
-                <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-56" title="Summed lift between this card and the cards in your deck, scaled to the strongest candidate">
-                  <span className="text-muted-foreground/80 shrink-0">Deck fit</span>
-                  <div className="h-1.5 flex-1 rounded-full bg-border/40 overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-violet-500/60 to-violet-400" style={{ width: `${fitPct}%` }} />
-                  </div>
-                </div>
-                {typeof d.synergy === 'number' && (
-                  <span className="text-violet-300/80 shrink-0" title="EDHREC synergy: how much more this commander plays it than the average deck">
-                    {d.synergy >= 0 ? '+' : ''}{Math.round(d.synergy * 100)}% synergy
-                  </span>
-                )}
-                {d.inclusion > 0 && (
-                  <span className="text-muted-foreground/80 shrink-0">in {Math.round(d.inclusion)}% of decks</span>
-                )}
-              </div>
-
-              {/* Evidence: which of YOUR cards back it */}
-              {d.topEdges.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                  <span className="text-muted-foreground/70">Plays with your</span>
-                  {d.topEdges.map(e => (
-                    <button
-                      key={e.deckCard}
-                      type="button"
-                      onClick={() => onPreview(e.deckCard)}
-                      title={`Lift ${liftLabel(e.lift)} · together in ${e.numDecks.toLocaleString()} decks${e.numDecks < EDGE_CONFIDENCE_FLOOR ? ' (thin data)' : ''}`}
-                      className={`inline-flex items-center gap-1 rounded-full bg-accent/40 hover:bg-accent/70 border border-border/40 px-2 py-0.5 transition-colors ${e.numDecks < EDGE_CONFIDENCE_FLOOR ? 'text-foreground/60' : 'text-foreground/85'}`}
-                    >
-                      {e.deckCard}
-                      <span className="text-violet-300/80 font-medium">{liftLabel(e.lift)}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-muted-foreground/70">No lift data against your cards yet — too new for co-occurrence stats.</p>
-              )}
-            </div>
+      {state.phase === 'done' && sections.filter(s => s.details.length > 0).map(section => (
+        <div key={section.key} className="space-y-2">
+          <div className="flex items-baseline gap-2 pt-1">
+            <span className={`w-2 h-2 rounded-[3px] ${section.pole} shrink-0 self-center`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground/80">{section.title}</h4>
+            <span className="text-xs text-muted-foreground/60">{section.details.length}</span>
+            <span className="text-[11px] text-muted-foreground/70 truncate">{section.blurb}</span>
           </div>
-        );
-      })}
+          {viewMode === 'grid'
+            ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {section.details.map(renderGridTile)}
+              </div>
+            )
+            : section.details.map(renderListRow)}
+        </div>
+      ))}
     </div>
   );
 }

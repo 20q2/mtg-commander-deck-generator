@@ -221,6 +221,7 @@ export function swapCard(
     if (deck.partnerCommander) allNames.push(deck.partnerCommander.name);
     newBracketEstimation = estimateBracket(
       allNames,
+      new Set(newCategories.lands.map(c => c.name)),
       newDetectedCombos ?? undefined,
       newStats.averageCmc,
       newDeckScore,
@@ -374,6 +375,7 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
     if (deck.partnerCommander) allNames.push(deck.partnerCommander.name);
     newBracketEstimation = estimateBracket(
       allNames,
+      new Set(newCategories.lands.map(c => c.name)),
       newDetectedCombos ?? undefined,
       newStats.averageCmc,
       newDeckScore,
@@ -530,6 +532,7 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
     if (deck.partnerCommander) allNames.push(deck.partnerCommander.name);
     newBracketEstimation = estimateBracket(
       allNames,
+      new Set(newCategories.lands.map(c => c.name)),
       newDetectedCombos ?? undefined,
       newStats.averageCmc,
       newDeckScore,

@@ -69,6 +69,8 @@ export interface DeckOptimizerProps {
   /** Saved list backing this analysis (source.kind === 'list' only). Enables
    *  reading/persisting the list's declared themes from the Adjust popover. */
   sourceListId?: string;
+  /** The backing list's last-edit time (ms) — the New Cards tab's default "since when" baseline. */
+  sourceListUpdatedAt?: number;
 }
 
 export type TabKey = 'overview' | 'roles' | 'lands' | 'curve' | 'optimize' | 'bracket' | 'cost' | 'lift' | 'newCards';

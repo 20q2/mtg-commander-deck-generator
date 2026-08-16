@@ -21,6 +21,8 @@ export interface ScryfallCard {
   set: string;
   set_name: string;
   released_at?: string; // ISO "YYYY-MM-DD" — distinguishes not-yet-released (legal-soon) cards from permanently-illegal ones
+  /** True when this printing is a reprint — guards released_at from reading a late printing as "new". */
+  reprint?: boolean;
   edhrec_rank?: number;
   image_uris?: {
     small: string;

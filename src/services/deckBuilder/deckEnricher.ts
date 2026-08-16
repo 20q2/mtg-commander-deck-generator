@@ -124,6 +124,7 @@ export async function stampTaggerAndGameChangers(
     const avgCmc = nonLandCount > 0 ? parseFloat((cmcSum / nonLandCount).toFixed(2)) : 0;
     bracketEstimation = estimateBracket(
       cards.map(c => c.name),
+      new Set(categories.lands.map(c => c.name)),
       detectedCombos,
       avgCmc,
       undefined,
