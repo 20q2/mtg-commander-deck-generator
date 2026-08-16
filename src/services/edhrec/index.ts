@@ -8,6 +8,7 @@ export {
   formatCommanderNameForUrl,
   clearCommanderCache,
   fetchPartnerPopularity,
+  edhrecColorSegment,
 } from './client';
 
 export {

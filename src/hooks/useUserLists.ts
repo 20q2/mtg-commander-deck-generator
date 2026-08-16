@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { useStore } from '@/store';
+import { dropHistoryFor } from '@/services/deckHistory/storage';
 import type { UserCardList, ScryfallCard, DeckUpgradeState } from '@/types';
 
 const USER_LISTS_KEY = 'mtg-deck-builder-user-lists';
@@ -284,6 +285,8 @@ export function useUserLists() {
     updateShared(prev => prev.filter(l => l.id !== id));
     // Drop the quick-add shortcut if it pointed at the deleted list.
     if (sharedLastAddTarget?.listId === id) setSharedLastAddTarget(null);
+    // Take its edit history with it, so storage doesn't accumulate orphans.
+    dropHistoryFor(id);
     // Clean up orphaned applied list references in the store
     const { customization, updateCustomization } = useStore.getState();
     const includes = customization.appliedIncludeLists || [];

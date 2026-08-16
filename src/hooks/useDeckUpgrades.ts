@@ -58,6 +58,7 @@ export function useDeckUpgrades(list: UserCardList): DeckUpgradesResult {
       deckCardNames: [...new Set([list.commanderName, list.partnerCommanderName, ...list.cards].filter(Boolean) as string[])],
       themes,
       colorIdentity: list.cachedColorIdentity,
+      chosenColor: list.chosenColor,
     }).then(recs => {
       if (cancelled || recs.length === 0) return;
       const names = recs.map(r => r.name);

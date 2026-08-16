@@ -23,7 +23,7 @@ import type {
   CollectionStrategy,
 } from '@/types';
 import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
-import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
 import { blendArchetypeData, buildArchetypeSourceLabel } from './archetypeBlend';
 import {
   calculateTypeTargets,
@@ -53,6 +53,9 @@ interface GenerationContext {
   commander: ScryfallCard;
   partnerCommander: ScryfallCard | null;
   colorIdentity: string[];
+  /** Color picked for a "choose a color before the game begins" commander (Clara Oswald &c).
+   *  Selects EDHREC's per-identity page instead of the variant-aggregating base page. */
+  chosenColor?: string | null;
   customization: Customization;
   selectedThemes?: ThemeResult[];
   collectionNames?: Set<string>;
@@ -1952,9 +1955,14 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     commander,
     partnerCommander,
     colorIdentity,
+    chosenColor,
     customization,
     onProgress,
   } = context;
+
+  // EDHREC keeps a separate page per resulting identity for "choose a color" commanders;
+  // the base page blends every variant and would rank cards this deck can't legally play.
+  const colorSeg = edhrecColorSegment(colorIdentity, chosenColor);
 
   const format = customization.deckFormat;
   const usedNames = new Set<string>();
@@ -2352,8 +2360,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     try {
       const themeDataPromises = selectedThemesWithSlugs.map(theme =>
         partnerCommander
-          ? fetchPartnerThemeData(commander.name, partnerCommander.name, theme.slug!, budgetOption, bracketLevel)
-          : fetchCommanderThemeData(commander.name, theme.slug!, budgetOption, bracketLevel)
+          ? fetchPartnerThemeData(commander.name, partnerCommander.name, theme.slug!, budgetOption, bracketLevel, colorSeg)
+          : fetchCommanderThemeData(commander.name, theme.slug!, budgetOption, bracketLevel, colorSeg)
       );
 
       // Archetype cross-reference: color-filtered tag page per theme (e.g. /tags/pillow-fort/golgari).
@@ -2365,8 +2373,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // If hyper focus is on, also fetch base commander data in parallel to compare
       const baseDataPromise = customization.hyperFocus
         ? (partnerCommander
-            ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
-            : fetchCommanderData(commander.name, budgetOption, bracketLevel)
+            ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel, colorSeg)
+            : fetchCommanderData(commander.name, budgetOption, bracketLevel, colorSeg)
           ).catch(() => null)
         : Promise.resolve(null);
 
@@ -2389,8 +2397,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         console.warn('[DeckGen] FALLBACK: Theme endpoint lacks stats (numDecks=0), fetching base commander stats');
         try {
           const baseStatsData = partnerCommander
-            ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
-            : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+            ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel, colorSeg)
+            : await fetchCommanderData(commander.name, budgetOption, bracketLevel, colorSeg);
           representativeStats = baseStatsData.stats;
           console.log('[DeckGen] FALLBACK: Got stats from base commander+bracket');
         } catch {
@@ -2399,8 +2407,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             console.warn('[DeckGen] FALLBACK: Base commander+bracket stats failed, trying without bracket');
             try {
               const fallbackData = partnerCommander
-                ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption)
-                : await fetchCommanderData(commander.name, budgetOption);
+                ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, undefined, colorSeg)
+                : await fetchCommanderData(commander.name, budgetOption, undefined, colorSeg);
               representativeStats = fallbackData.stats;
               console.log('[DeckGen] FALLBACK: Got stats from base commander (no bracket)');
             } catch {
@@ -2443,8 +2451,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       // Fall back to base commander data (with bracket)
       try {
         edhrecData = partnerCommander
-          ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
-          : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+          ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel, colorSeg)
+          : await fetchCommanderData(commander.name, budgetOption, bracketLevel, colorSeg);
         dataSource = bracketLevel ? 'base+bracket' : 'base';
         console.log('[DeckGen] FALLBACK: Using base commander data (with bracket)');
         onProgress?.('Consulting ancient scrolls...', 12);
@@ -2454,8 +2462,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           console.warn('[DeckGen] FALLBACK: Base commander+bracket also failed, trying without bracket');
           try {
             edhrecData = partnerCommander
-              ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption)
-              : await fetchCommanderData(commander.name, budgetOption);
+              ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, undefined, colorSeg)
+              : await fetchCommanderData(commander.name, budgetOption, undefined, colorSeg);
             dataSource = 'base';
             console.log('[DeckGen] FALLBACK: Using base commander data (no bracket)');
             onProgress?.('Consulting ancient scrolls...', 12);
@@ -2474,8 +2482,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     onProgress?.('Consulting the wisdom of EDHREC...', 8);
     try {
       edhrecData = partnerCommander
-        ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
-        : await fetchCommanderData(commander.name, budgetOption, bracketLevel);
+        ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel, colorSeg)
+        : await fetchCommanderData(commander.name, budgetOption, bracketLevel, colorSeg);
       dataSource = bracketLevel ? 'base+bracket' : 'base';
       onProgress?.('Ancient knowledge acquired!', 12);
     } catch (error) {
@@ -2483,8 +2491,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       if (bracketLevel) {
         try {
           edhrecData = partnerCommander
-            ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption)
-            : await fetchCommanderData(commander.name, budgetOption);
+            ? await fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, undefined, colorSeg)
+            : await fetchCommanderData(commander.name, budgetOption, undefined, colorSeg);
           dataSource = 'base';
           console.log('[DeckGen] FALLBACK: Using base commander data (no bracket)');
           onProgress?.('Ancient knowledge acquired!', 12);

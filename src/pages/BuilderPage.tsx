@@ -16,7 +16,7 @@ import { useStore } from '@/store';
 import { generateDeck, type OwnedCardMeta } from '@/services/deckBuilder/deckGenerator';
 import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/services/scryfall/client';
 import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
-import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
+import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl, edhrecColorSegment } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import type { BracketLevel, BudgetOption, EDHRECTheme, GeneratedDeck, ThemeResult } from '@/types';
 import { Loader2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, Library, AlertTriangle } from 'lucide-react';
@@ -161,6 +161,10 @@ export function BuilderPage() {
     chosenColor,
     setChosenColor,
   } = useStore();
+
+  // EDHREC serves a separate page per resulting identity for "choose a color" commanders
+  // (Clara Oswald &c); '' for every normal commander, which keeps the existing endpoints.
+  const colorSeg = edhrecColorSegment(colorIdentity, chosenColor);
 
   const commanderTitle = [commander?.name, partnerCommander?.name].filter(Boolean).join(' & ');
   usePageTitle([commanderTitle, 'Build']);
@@ -520,10 +524,10 @@ export function BuilderPage() {
         let data;
         if (partnerCommander) {
           // Fetch partner-specific themes (budget doesn't affect theme lists)
-          data = await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracket);
+          data = await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracket, colorSeg);
         } else {
           // Fetch single commander themes
-          data = await fetchCommanderData(commander!.name, undefined, bracket);
+          data = await fetchCommanderData(commander!.name, undefined, bracket, colorSeg);
         }
         const themes = data.themes;
 
@@ -606,8 +610,8 @@ export function BuilderPage() {
         const bracketLevel = currentBracket !== 'all' ? currentBracket : undefined;
         const budgetOpt = currentBudget !== 'any' ? currentBudget : undefined;
         const data = partnerCommander
-          ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, budgetOpt, bracketLevel)
-          : await fetchCommanderData(commander!.name, budgetOpt, bracketLevel);
+          ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, budgetOpt, bracketLevel, colorSeg)
+          : await fetchCommanderData(commander!.name, budgetOpt, bracketLevel, colorSeg);
         const themes = data.themes;
 
         // When budget is active, EDHREC taglink counts don't change — but numDecks does.
@@ -616,8 +620,8 @@ export function BuilderPage() {
         let scaleFactor = 1;
         if (budgetOpt && data.stats.numDecks > 0) {
           const anyData = partnerCommander
-            ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracketLevel)
-            : await fetchCommanderData(commander!.name, undefined, bracketLevel);
+            ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracketLevel, colorSeg)
+            : await fetchCommanderData(commander!.name, undefined, bracketLevel, colorSeg);
           if (anyData.stats.numDecks > 0) {
             scaleFactor = data.stats.numDecks / anyData.stats.numDecks;
           }
@@ -729,7 +733,7 @@ export function BuilderPage() {
 
   const handleGenerate = async () => {
     // Read fresh from store to avoid stale closures (e.g. tempBannedCards just updated)
-    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
+    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, chosenColor: pickedColor, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
     if (!cmd) return;
     const isRegeneration = currentDeck !== null && !!genParam;
 
@@ -766,6 +770,7 @@ export function BuilderPage() {
         commander: cmd,
         partnerCommander: partner,
         colorIdentity: colors,
+        chosenColor: pickedColor,
         customization: cust,
         selectedThemes: themes,
         collectionNames,
@@ -791,7 +796,11 @@ export function BuilderPage() {
         const basePath = partner
           ? `/build/${encodeURIComponent(cmd.name)}/${encodeURIComponent(partner.name)}`
           : `/build/${encodeURIComponent(cmd.name)}`;
-        navigate(`${basePath}?g=${Date.now()}`);
+        // Carry the existing query forward — rebuilding it from scratch would drop
+        // ?color=, and the URL→store sync would then clear the chosen color.
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set('g', String(Date.now()));
+        navigate(`${basePath}?${nextParams}`);
       }
       // Scroll to top after view swaps from settings to deck display
       requestAnimationFrame(() => window.scrollTo({ top: 0 }));

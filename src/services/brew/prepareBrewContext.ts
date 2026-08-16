@@ -1,5 +1,5 @@
 import type { ScryfallCard, Customization, ThemeResult, EDHRECCommanderStats, EDHRECCombo } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos, fetchColorIdentityCombos, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderCombos, fetchColorIdentityCombos, fetchCommanderThemeData, fetchPartnerThemeData, edhrecColorSegment } from '@/services/edhrec/client';
 import { getCardsByNames, getGameChangerNames, getArenaLegalNames, getMtgCatalogs } from '@/services/scryfall/client';
 import { calculateTypeTargets, calculateCurveTargets } from '@/services/deckBuilder/curveUtils';
 import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckBuilder/roleTargets';
@@ -21,6 +21,8 @@ export interface PrepareBrewArgs {
   commander: ScryfallCard;
   partnerCommander: ScryfallCard | null;
   colorIdentity: string[];
+  /** Color picked for a "choose a color before the game begins" commander (Clara Oswald &c). */
+  chosenColor?: string | null;
   customization: Customization;
   selectedThemes?: ThemeResult[];
   collectionNames?: Set<string>;
@@ -35,11 +37,13 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
 
   const budgetOption = customization.budgetOption !== 'any' ? customization.budgetOption : undefined;
   const bracketLevel = customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined;
+  // "Choose a color" commanders (Clara Oswald &c) get EDHREC's per-identity page; '' otherwise.
+  const colorSeg = edhrecColorSegment(args.colorIdentity, args.chosenColor);
 
   const [edhrecData, combos, gameChangerNames, colorCombos] = await Promise.all([
     partnerCommander
-      ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel)
-      : fetchCommanderData(commander.name, budgetOption, bracketLevel),
+      ? fetchPartnerCommanderData(commander.name, partnerCommander.name, budgetOption, bracketLevel, colorSeg)
+      : fetchCommanderData(commander.name, budgetOption, bracketLevel, colorSeg),
     fetchCommanderCombos(commander.name).catch(() => [] as EDHRECCombo[]),
     getGameChangerNames().catch(() => new Set<string>()),
     // Color-identity combos broaden combo-piece knowledge for the combo pack + tagging. Best-effort:
@@ -131,8 +135,8 @@ export async function prepareBrewContext(args: PrepareBrewArgs): Promise<BrewCon
       themeNames[slug] = t.name;
       try {
         const data = partnerCommander
-          ? await fetchPartnerThemeData(commander.name, partnerCommander.name, slug, budgetOption, bracketLevel)
-          : await fetchCommanderThemeData(commander.name, slug, budgetOption, bracketLevel);
+          ? await fetchPartnerThemeData(commander.name, partnerCommander.name, slug, budgetOption, bracketLevel, colorSeg)
+          : await fetchCommanderThemeData(commander.name, slug, budgetOption, bracketLevel, colorSeg);
         membership.set(slug, new Set(data.cardlists.allNonLand.map(c => c.name)));
         themeSignatures[slug] = [...data.cardlists.allNonLand]
           .filter(c => typeof c.synergy === 'number')

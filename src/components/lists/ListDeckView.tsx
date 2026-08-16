@@ -49,6 +49,7 @@ import { Drawer } from '@/components/ui/drawer';
 import { MustIncludeCards } from '@/components/customization/MustIncludeCards';
 import { getMaxCopies } from '@/lib/utils';
 import { combineColorIdentity } from '@/lib/partnerUtils';
+import { edhrecColorSegment } from '@/services/edhrec/client';
 import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 
 interface ListDeckViewProps {
@@ -672,6 +673,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     [generatedDeck],
   );
   const colorIdentity = useStore(s => s.colorIdentity) || [];
+  // EDHREC page segment for "choose a color" commanders (Clara Oswald &c). Derived from the
+  // list rather than the store so it's stable inside the async load effects below; '' for
+  // every normal deck, which leaves the existing endpoints untouched.
+  // cachedColorIdentity is filled in asynchronously right after a deck is first saved — until
+  // it lands the union would be the chosen color alone and would resolve to the wrong mono
+  // page, so hold off and use the aggregate page for that one render.
+  const listColorSegment = useMemo(
+    () => (list.chosenColor && list.cachedColorIdentity?.length
+      ? edhrecColorSegment([...list.cachedColorIdentity, list.chosenColor], list.chosenColor)
+      : ''),
+    [list.cachedColorIdentity, list.chosenColor],
+  );
   // Color-identity violations — derive the commander's identity from the
   // loaded ScryfallCards so we don't show false positives during store rehydration.
   const colorIdentityViolations = useMemo(() => {
@@ -679,11 +692,14 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     const commanderCard = generatedDeck?.commander;
     const partnerCard = generatedDeck?.partnerCommander;
     if (!commanderCard) return [];
-    const allowed = new Set<string>(combineColorIdentity(
-      commanderCard,
-      list.partnerCommanderName ? partnerCard : null,
-      list.chosenColor,
-    ));
+    // The partner contributes colors, so judging before it lands flags every off-color card.
+    if (list.partnerCommanderName && !partnerCard) return [];
+    const allowed = new Set<string>([
+      ...combineColorIdentity(commanderCard, list.partnerCommanderName ? partnerCard : null),
+      // A persisted chosenColor is itself proof a "choose a color" commander is in the zone
+      // (the store only keeps one while that's true), so trust it without re-deriving.
+      ...(list.chosenColor ? [list.chosenColor] : []),
+    ]);
     const cards: ScryfallCard[] = generatedDeck ? Object.values(generatedDeck.categories).flat() : [];
     return cards.filter(c => (c.color_identity || []).some(color => !allowed.has(color)));
   }, [generatedDeck, list.commanderName, list.partnerCommanderName, list.chosenColor]);
@@ -1127,8 +1143,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         colorIdentity: colorArray,
         chosenColor: list.chosenColor ?? null,
         generatedDeck: syntheticDeck,
-        deckHistory: [],
       });
+      useStore.getState().setHistoryScope(list.id);
       if (colorArray.length > 0) applyCommanderTheme(colorArray);
       prevCardsRef.current = list.cards;
       isInitialLoadDone.current = true;
@@ -1220,8 +1236,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           stats,
           collectionBinderIds: list.collectionBinderIds,
         } as GeneratedDeck,
-        deckHistory: [],
       });
+      useStore.getState().setHistoryScope(list.id);
       if (colorArray.length > 0) applyCommanderTheme(colorArray);
       markPhaseDone('cards');
 
@@ -1329,6 +1345,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
         commanderCard.name,
         partnerCard?.name,
         list.themes,
+        listColorSegment,
       );
       if (cancelled) return;
       useStore.setState(state => ({
@@ -1468,6 +1485,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             commanderCard.name,
             partnerCard?.name,
             list.themes,
+            listColorSegment,
           );
           if (cancelled) return;
           swapsResult = await buildSwapCandidates(
@@ -1567,7 +1585,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
 
     return () => {
       cancelled = true;
-      useStore.setState({ generatedDeck: null, deckHistory: [] });
+      useStore.setState({ generatedDeck: null });
+      // Detach rather than wipe — the entries stay on disk for when we return.
+      useStore.getState().setHistoryScope(null);
       resetTheme();
     };
     // themesKey is deliberately NOT a dep: a themes-only change re-enriches in
@@ -1608,6 +1628,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
       currentDeck.commander?.name,
       currentDeck.partnerCommander?.name,
       list.themes,
+      listColorSegment,
     );
 
     useStore.setState({
@@ -2216,6 +2237,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                     commanderName={list.commanderName}
                     partnerCommanderName={list.partnerCommanderName}
                     deckCards={allDeckCards}
+                    colorSegment={listColorSegment}
                   />
                 )}
               </div>

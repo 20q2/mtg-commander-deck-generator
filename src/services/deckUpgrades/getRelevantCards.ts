@@ -3,6 +3,7 @@ import {
   fetchPartnerCommanderData,
   fetchCommanderThemeData,
   fetchPartnerThemeData,
+  edhrecColorSegment,
   fetchCardLiftPool,
 } from '@/services/edhrec/client';
 import { searchCards, getCardsByNames, isAnyLand } from '@/services/scryfall/client';
@@ -36,6 +37,9 @@ export interface RelevantCardsArgs {
   themes?: string[];
   /** Deck color identity — enables the Scryfall recent-set backfill when present. */
   colorIdentity?: string[];
+  /** Color picked for a "choose a color before the game begins" commander (Clara Oswald &c),
+   *  which selects EDHREC's per-identity page instead of the variant-aggregating base page. */
+  chosenColor?: string | null;
 }
 
 /**
@@ -124,7 +128,14 @@ type DetailDraft = UpgradeCandidate & { sources: UpgradeSource[]; matchedThemes:
  * inspector tab consumes it directly. Same caching + failure behavior.
  */
 export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<UpgradeDetail[]> {
-  const { commanderName, partnerName, deckCardNames, themes, colorIdentity } = args;
+  const { commanderName, partnerName, deckCardNames, themes, colorIdentity, chosenColor } = args;
+  // cachedColorIdentity is the union of the deck's card colors, so a chosen color with no
+  // cards yet would be missing from it — add it back before resolving EDHREC's color page.
+  // It's also populated asynchronously after a first save; without it the union would be the
+  // chosen color alone and would resolve to the wrong mono page, so fall back to the aggregate.
+  const colorSeg = colorIdentity?.length
+    ? edhrecColorSegment([...colorIdentity, ...(chosenColor ? [chosenColor] : [])], chosenColor)
+    : '';
   try {
     const deckSet = new Set(deckCardNames);
     // Deck card types (cached from the deck view) — used only to strip lands from
@@ -133,8 +144,8 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     // slips back into the evidence set.
     const deckTypesPromise = getCardsByNames(deckCardNames).catch(() => new Map());
     const data = partnerName
-      ? await fetchPartnerCommanderData(commanderName, partnerName)
-      : await fetchCommanderData(commanderName);
+      ? await fetchPartnerCommanderData(commanderName, partnerName, undefined, undefined, colorSeg)
+      : await fetchCommanderData(commanderName, undefined, undefined, colorSeg);
 
     // Scryfall recent-set backfill kicks off in parallel with the theme fetches below.
     const backfillPromise = colorIdentity && colorIdentity.length > 0
@@ -160,8 +171,8 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     const themeDatas = await Promise.all(slugs.map(async slug => {
       const themeName = data.themes.find(t => t.slug === slug)?.name ?? slug;
       const themeData = await (partnerName
-        ? fetchPartnerThemeData(commanderName, partnerName, slug)
-        : fetchCommanderThemeData(commanderName, slug)
+        ? fetchPartnerThemeData(commanderName, partnerName, slug, undefined, undefined, colorSeg)
+        : fetchCommanderThemeData(commanderName, slug, undefined, undefined, colorSeg)
       ).catch(() => null);
       return { themeName, themeData };
     }));

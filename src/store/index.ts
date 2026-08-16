@@ -4,6 +4,7 @@ import { isEuropean } from '@/lib/region';
 import { combineColorIdentity, needsChosenColor } from '@/lib/partnerUtils';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
 import { serializeBrew, deserializeBrew } from '@/services/brew/persistCodec';
+import { loadHistoryFor, saveHistoryFor, dropHistoryFor, MAX_ENTRIES_PER_DECK } from '@/services/deckHistory/storage';
 import { nextRoutes, openNode, buildPackNode, applyPick, undoLast, advanceAfterPick, isComplete, discoverFrom, discoverClustersFrom, nextQuestion, applyAnswer, nextEvent, applyEvent, gambleEvent, shouldOfferRelic, offerRelics, applyRelic, relicMult, MIN_MOMENT_GAP, commitImpact, commitSeeds, computeAffinityDelta, type BrewContext, type BrewRoute, type BrewOption, type BrewState, type BrewPick, type BrewAnswer, type BrewEvent, type BrewRelic, type BrewCelebration, type BrewHistoryEntry } from '@/services/brew/engine';
 
 /** Deck-fill fraction past which the whole-deck lift-cluster scan starts (a few packs in / foundation set). */
@@ -288,6 +289,7 @@ export const useStore = create<AppState>((set, get) => ({
   // Deck
   generatedDeck: null,
   deckHistory: [],
+  historyDeckId: null,
 
   // Brew session
   brewContext: null,
@@ -336,6 +338,9 @@ export const useStore = create<AppState>((set, get) => ({
       edhrecStats: null,
       userEditedLands: false,
       deckHistory: [],
+      // Drops the scope without deleting what's stored: a list's history
+      // survives until the list itself is deleted.
+      historyDeckId: null,
     };
   }),
 
@@ -360,6 +365,9 @@ export const useStore = create<AppState>((set, get) => ({
       edhrecNumDecks: null,
       edhrecStats: null,
       deckHistory: [],
+      // Drops the scope without deleting what's stored: a list's history
+      // survives until the list itself is deleted.
+      historyDeckId: null,
     };
   }),
 
@@ -374,6 +382,9 @@ export const useStore = create<AppState>((set, get) => ({
       colorIdentity: combineColorIdentity(state.commander, state.partnerCommander, chosenColor),
       generatedDeck: null,
       deckHistory: [],
+      // Drops the scope without deleting what's stored: a list's history
+      // survives until the list itself is deleted.
+      historyDeckId: null,
     };
   }),
 
@@ -470,13 +481,23 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  setHistoryScope: (deckId: string | null) => set((state) => {
+    if (state.historyDeckId === deckId) return {};
+    return {
+      historyDeckId: deckId,
+      deckHistory: deckId ? loadHistoryFor(deckId) : [],
+    };
+  }),
+
   pushDeckHistory: (entry) => set((state) => {
     const newEntry: DeckHistoryEntry = {
       ...entry,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: Date.now(),
     };
-    return { deckHistory: [newEntry, ...state.deckHistory].slice(0, 50) };
+    const next = [newEntry, ...state.deckHistory].slice(0, MAX_ENTRIES_PER_DECK);
+    if (state.historyDeckId) saveHistoryFor(state.historyDeckId, next);
+    return { deckHistory: next };
   }),
 
   popLatestHistoryEntries: (action: DeckHistoryAction, cardNames: string[]) => set((state) => {
@@ -493,10 +514,14 @@ export const useStore = create<AppState>((set, get) => ({
       }
       filtered.push(entry);
     }
+    if (state.historyDeckId) saveHistoryFor(state.historyDeckId, filtered);
     return { deckHistory: filtered };
   }),
 
-  clearDeckHistory: () => set({ deckHistory: [] }),
+  clearDeckHistory: () => set((state) => {
+    if (state.historyDeckId) dropHistoryFor(state.historyDeckId);
+    return { deckHistory: [] };
+  }),
 
   startBrewSession: (ctx: BrewContext) => {
     const state: BrewState = {
@@ -921,6 +946,7 @@ export const useStore = create<AppState>((set, get) => ({
     customization: state.customization,
     generatedDeck: null,
     deckHistory: [],
+    historyDeckId: null,
     isLoading: false,
     loadingMessage: '',
     error: null,

@@ -17,6 +17,8 @@ interface ThemePickerPopoverProps {
   partnerCommanderName?: string;
   /** Current mainboard cards — powers the archetype-data theme detection. */
   deckCards: ScryfallCard[];
+  /** EDHREC page segment for "choose a color" commanders (see edhrecColorSegment); '' otherwise. */
+  colorSegment?: string;
 }
 
 const MAX_THEMES = 2;            // matches the generator's theme limit
@@ -30,7 +32,7 @@ interface Detection {
   deckNonBasicCount: number;
 }
 
-export function ThemePickerPopover({ themes, onChange, commanderName, partnerCommanderName, deckCards }: ThemePickerPopoverProps) {
+export function ThemePickerPopover({ themes, onChange, commanderName, partnerCommanderName, deckCards, colorSegment = '' }: ThemePickerPopoverProps) {
   const [open, setOpen] = useState(false);
   const [detectionStarted, setDetectionStarted] = useState(false);
   const [detection, setDetection] = useState<Detection | null>(null);
@@ -55,8 +57,8 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
         for (const theme of candidates) {
           try {
             const data = partnerCommanderName
-              ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug)
-              : await fetchCommanderThemeData(commanderName, theme.slug);
+              ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug, undefined, undefined, colorSegment)
+              : await fetchCommanderThemeData(commanderName, theme.slug, undefined, undefined, colorSegment);
             themeDataMap.set(theme.slug, data);
           } catch { /* one theme page failing shouldn't kill detection */ }
         }

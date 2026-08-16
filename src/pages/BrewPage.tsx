@@ -47,7 +47,7 @@ export function BrewPage() {
   const navigate = useNavigate();
 
   const {
-    commander, partnerCommander, colorIdentity, customization, selectedThemes,
+    commander, partnerCommander, colorIdentity, chosenColor, customization, selectedThemes,
     setCommander, setPartnerCommander, setEdhrecStats, setEdhrecThemes, setSelectedThemes,
     setThemesLoading,
     brewContext, brewState, brewNode, brewQuestion, brewEvent, brewRelicOffer, startBrewSession, clearBrewSession,
@@ -234,7 +234,7 @@ export function BrewPage() {
         if (collectionNames.size === 0) { setError('Collection mode is on but your collection is empty.'); setProgress(null); return; }
       }
       const ctx = await prepareBrewContext({
-        commander, partnerCommander, colorIdentity, customization, selectedThemes,
+        commander, partnerCommander, colorIdentity, chosenColor, customization, selectedThemes,
         collectionNames, onProgress: (msg, pct) => setProgress({ msg, pct }),
       });
       // No opening ceremony — the run drops straight onto the first pack. The "set off" intro

@@ -669,6 +669,11 @@ export interface AppState {
   // Deck
   generatedDeck: GeneratedDeck | null;
   deckHistory: DeckHistoryEntry[];
+  /**
+   * User-list id the current history belongs to, or null for generated decks
+   * (which stay ephemeral). Determines where history is persisted.
+   */
+  historyDeckId: string | null;
 
   // Brew session (interactive brewing mode)
   brewContext: import('@/services/brew/engine').BrewContext | null;
@@ -710,6 +715,12 @@ export interface AppState {
   pushDeckHistory: (entry: Omit<DeckHistoryEntry, 'id' | 'timestamp'>) => void;
   popLatestHistoryEntries: (action: DeckHistoryAction, cardNames: string[]) => void;
   clearDeckHistory: () => void;
+  /**
+   * Points history at a deck, loading whatever was persisted for it. Pass null
+   * when leaving a list or working on a generated deck. Always use this instead
+   * of setting `deckHistory` directly, so state and storage can't drift apart.
+   */
+  setHistoryScope: (deckId: string | null) => void;
   setLoading: (loading: boolean, message?: string) => void;
   setError: (error: string | null) => void;
   setModifyMode: (on: boolean) => void;

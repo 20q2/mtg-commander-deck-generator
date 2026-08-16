@@ -192,6 +192,8 @@ export function AnalyzePage() {
           colorIdentity,
           generatedDeck: deck,
         });
+        // The Inspector edits this list directly, so its history belongs to it.
+        useStore.getState().setHistoryScope(list.id);
         setSource({ kind: 'list', listId: list.id, listName: list.name });
         trackEvent('analyze_deck_loaded', {
           source: 'list',
@@ -205,6 +207,10 @@ export function AnalyzePage() {
       })
       .finally(() => { setLoading(false); setLoadStage(null); });
   }, [listIdParam, lists]);
+
+  // Leaving the Inspector detaches history so a later generated deck can't
+  // write into this list's trail. The stored entries themselves are kept.
+  useEffect(() => () => { useStore.getState().setHistoryScope(null); }, []);
 
   // Detect bridge-from-Generate: if a deck is already in the store on mount
   // and no listId param and no source set yet, treat as 'generated'.

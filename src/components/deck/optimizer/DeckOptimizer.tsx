@@ -6,7 +6,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { persistListThemes } from '@/services/lists/listThemes';
@@ -81,7 +81,13 @@ export function DeckOptimizer({
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [addedCards, setAddedCards] = useState<Set<string>>(new Set());
+  // Derived from the live deck rather than tracked by hand: a card removed via
+  // any route the Inspector doesn't own (deck view, applied swap plan) used to
+  // leave a stale entry behind, which kept its "Added" button disabled.
+  const addedCards = useMemo(
+    () => new Set(currentCards.map(c => c.name)),
+    [currentCards],
+  );
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
@@ -276,7 +282,12 @@ export function DeckOptimizer({
   // Store subscriptions used inside the analysis handlers below — declared
   // here so handlers (and fetchThemeData) can reference them in dep arrays.
   const colorIdentity = useStore(s => s.colorIdentity);
+  const chosenColor = useStore(s => s.chosenColor);
   const pushDeckHistory = useStore(s => s.pushDeckHistory);
+  // EDHREC serves a page per resulting identity for "choose a color" commanders
+  // (Clara Oswald &c); '' for every normal commander. Held back until the identity is
+  // populated — the chosen color alone would resolve to the wrong mono page.
+  const colorSeg = colorIdentity?.length ? edhrecColorSegment(colorIdentity, chosenColor) : '';
 
   // Fetch theme data helper (cached). Commander+theme page first; when the commander
   // has no EDHREC page for the theme (403 = not found), fall back to the color-filtered
@@ -288,8 +299,8 @@ export function DeckOptimizer({
     if (!data) {
       try {
         data = partnerCommanderName
-          ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug)
-          : await fetchCommanderThemeData(commanderName, slug);
+          ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug, undefined, undefined, colorSeg)
+          : await fetchCommanderThemeData(commanderName, slug, undefined, undefined, colorSeg);
       } catch {
         const tagData = await fetchTagPageData(slug, colorIdentity ?? []);
         if (!tagData) throw new Error(`No EDHREC data for theme "${slug}"`);
@@ -308,7 +319,7 @@ export function DeckOptimizer({
       themeDataCacheRef.current.set(slug, data);
     }
     return data;
-  }, [commanderName, partnerCommanderName, colorIdentity]);
+  }, [commanderName, partnerCommanderName, colorIdentity, colorSeg]);
 
   // Notify parent (AnalyzePage) when the user's selected themes change so it can
   // tag cards with the matching theme chips in the visual stacks. BOTH themes'
@@ -690,8 +701,8 @@ export function DeckOptimizer({
       // ── Phase 1: Base analysis (blocking) ──
       await loadTaggerData();
       const edhrecData = partnerCommanderName
-        ? await fetchPartnerCommanderData(commanderName, partnerCommanderName)
-        : await fetchCommanderData(commanderName);
+        ? await fetchPartnerCommanderData(commanderName, partnerCommanderName, undefined, undefined, colorSeg)
+        : await fetchCommanderData(commanderName, undefined, undefined, colorSeg);
       cachedEdhrecDataRef.current = edhrecData;
 
       const effectiveInclusionMap = buildInclusionMap(edhrecData);
@@ -748,7 +759,6 @@ export function DeckOptimizer({
       detectedPacingRef.current = baseResult.pacing;
       fullAnalyzedCardKeyRef.current = currentCards.map(c => c.name).join('\0');
       setAnalysis(baseResult);
-      setAddedCards(new Set());
       setLoading(false); // Dashboard visible NOW
 
       // Emit grade to sidebar so both display the same result
@@ -768,8 +778,8 @@ export function DeckOptimizer({
       for (const theme of topThemes) {
         try {
           const data = partnerCommanderName
-            ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug)
-            : await fetchCommanderThemeData(commanderName, theme.slug);
+            ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug, undefined, undefined, colorSeg)
+            : await fetchCommanderThemeData(commanderName, theme.slug, undefined, undefined, colorSeg);
           themeDataMap.set(theme.slug, data);
         } catch (err) {
           console.warn(`[DeckOptimizer] Failed to fetch theme data for ${theme.slug}:`, err);
@@ -984,7 +994,6 @@ export function DeckOptimizer({
     const scrollY = window.scrollY;
     onAddCards([name], 'deck');
     pushDeckHistory({ action: 'add', cardName: name });
-    setAddedCards(prev => new Set([...prev, name]));
     // Adding a card can shrink a suggestions list (e.g. moving a card out
     // of "suggested"), shortening the page. If that happens while we're
     // scrolled deep in, the browser clamps scrollY to the new max, which
@@ -1210,12 +1219,10 @@ export function DeckOptimizer({
       case 'remove':
         onRemoveCards?.([name]);
         pushDeckHistory({ action: 'remove', cardName: name });
-        setAddedCards(prev => { const next = new Set(prev); next.delete(name); return next; });
         break;
       case 'addToDeck':
         onAddCards?.([name], 'deck');
         pushDeckHistory({ action: 'add', cardName: name });
-        setAddedCards(prev => new Set([...prev, name]));
         break;
       case 'sideboard': {
         if (sideboardNames?.includes(name)) {
@@ -1431,7 +1438,6 @@ export function DeckOptimizer({
       onAddCards?.(additions, 'deck');
       for (const name of additions) pushDeckHistory({ action: 'add', cardName: name });
     }
-    setAddedCards(new Set());
   }, [onRemoveCards, onAddCards, pushDeckHistory]);
 
   // Theme-coverage spokes for the Strategy radar: how many of the deck's cards appear in each of the
@@ -1850,10 +1856,7 @@ export function DeckOptimizer({
                     roleBreakdowns={blendedAnalysis!.roleBreakdowns}
                     activeRoleGroups={activeRoleGroups}
                     addedCards={addedCards}
-                    onAdd={(name: string) => {
-                      onAddCards?.([name], 'deck');
-                      setAddedCards(prev => new Set([...prev, name]));
-                    }}
+                    onAdd={handleAddCard}
                     onPreview={handlePreview}
                     onCardAction={handleCardAction}
                     menuProps={menuProps}

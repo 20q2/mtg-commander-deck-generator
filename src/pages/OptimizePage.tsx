@@ -11,7 +11,7 @@ import { ColorIdentity, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-
 import { useStore } from '@/store';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
 import { getCardByName, getCardImageUrl, getCardsByNames, getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl } from '@/services/edhrec';
+import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl, edhrecColorSegment } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { loadUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -44,6 +44,7 @@ export function OptimizePage() {
     themesLoading,
     setCommander,
     setPartnerCommander,
+    chosenColor,
     setChosenColor,
     updateCustomization,
     setEdhrecThemes,
@@ -57,6 +58,9 @@ export function OptimizePage() {
     setError,
     reset,
   } = useStore();
+
+  // See BuilderPage: '' unless a "choose a color" commander is in the command zone.
+  const colorSeg = edhrecColorSegment(colorIdentity, chosenColor);
 
   usePageTitle([optimizeList?.name || commander?.name, 'Upgrade']);
 
@@ -252,15 +256,15 @@ export function OptimizePage() {
         const bracketLevel = currentBracket !== 'all' ? currentBracket : undefined;
         const budgetOpt = currentBudget !== 'any' ? currentBudget : undefined;
         const data = partnerCommander
-          ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, budgetOpt, bracketLevel)
-          : await fetchCommanderData(commander!.name, budgetOpt, bracketLevel);
+          ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, budgetOpt, bracketLevel, colorSeg)
+          : await fetchCommanderData(commander!.name, budgetOpt, bracketLevel, colorSeg);
         const themes = data.themes;
 
         let scaleFactor = 1;
         if (budgetOpt && data.stats.numDecks > 0) {
           const anyData = partnerCommander
-            ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracketLevel)
-            : await fetchCommanderData(commander!.name, undefined, bracketLevel);
+            ? await fetchPartnerCommanderData(commander!.name, partnerCommander.name, undefined, bracketLevel, colorSeg)
+            : await fetchCommanderData(commander!.name, undefined, bracketLevel, colorSeg);
           if (anyData.stats.numDecks > 0) {
             scaleFactor = data.stats.numDecks / anyData.stats.numDecks;
           }
@@ -347,7 +351,7 @@ export function OptimizePage() {
   }, [toastMessage]);
 
   const handleGenerate = async () => {
-    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
+    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, chosenColor: pickedColor, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
     if (!cmd || !optimizeList) return;
     const isRegeneration = currentDeck !== null;
 
@@ -379,6 +383,7 @@ export function OptimizePage() {
         commander: cmd,
         partnerCommander: partner,
         colorIdentity: colors,
+        chosenColor: pickedColor,
         customization: cust,
         selectedThemes: themes,
         collectionNames,

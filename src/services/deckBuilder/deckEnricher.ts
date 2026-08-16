@@ -174,14 +174,15 @@ export async function buildEdhrecMaps(
   commanderName: string,
   partnerCommanderName: string | undefined,
   themes?: Array<{ name: string; slug: string }>,
+  colorSegment = '',
 ): Promise<EdhrecMapsResult> {
   let roleTargets: Record<string, number> = getBaseRoleTargets(deckSize);
   const { categories, roleCounts, rampSubtypeCounts, removalSubtypeCounts, boardwipeSubtypeCounts, cardDrawSubtypeCounts, protectionSubtypeCounts } = taggerResult;
 
   try {
     let edhrecData: EDHRECCommanderData = partnerCommanderName
-      ? await fetchPartnerCommanderData(commanderName, partnerCommanderName)
-      : await fetchCommanderData(commanderName);
+      ? await fetchPartnerCommanderData(commanderName, partnerCommanderName, undefined, undefined, colorSegment)
+      : await fetchCommanderData(commanderName, undefined, undefined, colorSegment);
 
     // Theme-aware enrichment: when the list has assigned themes, swap the card pool
     // for the blended commander-theme + archetype pool. Stats and role targets keep
@@ -194,8 +195,8 @@ export async function buildEdhrecMaps(
       const [themeResults, tagResults] = await Promise.all([
         Promise.all(themes.map(t =>
           (partnerCommanderName
-            ? fetchPartnerThemeData(commanderName, partnerCommanderName, t.slug)
-            : fetchCommanderThemeData(commanderName, t.slug)
+            ? fetchPartnerThemeData(commanderName, partnerCommanderName, t.slug, undefined, undefined, colorSegment)
+            : fetchCommanderThemeData(commanderName, t.slug, undefined, undefined, colorSegment)
           ).catch(() => null)
         )),
         Promise.all(themes.map(t => fetchTagPageData(t.slug, colorIdentity).catch(() => null))),
@@ -493,6 +494,7 @@ export async function enrichDeckCards(
   commanderName?: string,
   partnerCommanderName?: string,
   themes?: Array<{ name: string; slug: string }>,
+  colorSegment = '',
 ): Promise<EnrichResult> {
   const tagger = await stampTaggerAndGameChangers(cards, detectedCombos);
 
@@ -500,7 +502,7 @@ export async function enrichDeckCards(
   let swaps: SwapCandidatesResult = {};
 
   if (commanderName) {
-    edhrec = await buildEdhrecMaps(tagger, deckSize, detectedCombos, commanderName, partnerCommanderName, themes);
+    edhrec = await buildEdhrecMaps(tagger, deckSize, detectedCombos, commanderName, partnerCommanderName, themes, colorSegment);
     swaps = await buildSwapCandidates(cards, tagger, edhrec, commanderName, partnerCommanderName);
   }
 
