@@ -23,6 +23,7 @@ export type AnalyticsEventType =
   | 'analyze_deck_loaded'
   | 'analyze_deck_saved'
   | 'analyze_lane_switched'
+  | 'share_link_copied'
   | 'inspector_tab_viewed'
   | 'analyze_cta_clicked'
   | 'spellchroma_viewed'
@@ -99,6 +100,8 @@ export interface AnalyticsEventMetadata {
   analyze_deck_loaded: { source: 'paste' | 'list' | 'generated' | 'shared'; cardCount: number; hasCommander: boolean };
   analyze_deck_saved: { listName: string; cardCount: number; source: 'paste' | 'list' | 'generated' | 'shared' };
   analyze_lane_switched: { from: string; to: string };
+  /** A deck-carrying Inspector link was copied to the clipboard. */
+  share_link_copied: { tab: string; cardCount: number };
   /** An inspector analyzer tab became active (overview/roles/mana/tempo/optimize/bracket/cost/lift). */
   inspector_tab_viewed: { tab: string };
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };

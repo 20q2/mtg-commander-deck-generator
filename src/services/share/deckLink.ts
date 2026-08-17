@@ -158,21 +158,21 @@ export function readDeckHash(hash: string): string | null {
 }
 
 /**
- * Flatten a loaded deck into a shareable payload. Takes the minimal structural
- * shape rather than `GeneratedDeck` so callers holding only the individual
- * pieces (as DeckOptimizer does) can pass them without a cast.
+ * Build a shareable payload from a deck's cards plus its commanders. Takes the
+ * minimal structural shape rather than `GeneratedDeck` so callers can pass what
+ * they already hold — DeckOptimizer has a flat `currentCards` list, not the
+ * categories record.
+ *
+ * `cards` must exclude the commanders; they travel separately because
+ * `hydrateDeckForAnalysis` takes them separately.
  */
 export function deckToSharePayload(deck: {
-  categories: Record<string, { name: string }[]>;
+  cards: readonly { name: string }[];
   commander?: { name: string } | null;
   partnerCommander?: { name: string } | null;
 }): SharedDeckPayload {
-  const cardNames: string[] = [];
-  for (const cards of Object.values(deck.categories)) {
-    for (const c of cards) cardNames.push(c.name);
-  }
   return {
-    cardNames,
+    cardNames: deck.cards.map(c => c.name),
     ...(deck.commander ? { commanderName: deck.commander.name } : {}),
     ...(deck.partnerCommander ? { partnerCommanderName: deck.partnerCommander.name } : {}),
   };

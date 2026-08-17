@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Loader2, Sparkles, RefreshCw,
-  Zap, ArrowLeft, ExternalLink, Bookmark,
+  Zap, ArrowLeft, ExternalLink, Bookmark, Copy, Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -33,7 +33,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
 
-import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
+import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, TAB_SLUG_BY_KEY, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
+import { buildShareUrl, deckToSharePayload, DeckLinkError } from '@/services/share/deckLink';
+import { trackEvent } from '@/services/analytics';
 import { AdjustPopoverContent } from './OverviewTab';
 import { DashboardSummary, type ThemeCoverage } from './DashboardSummary';
 import { OverviewBento } from './dashboard/OverviewBento';
@@ -89,6 +91,8 @@ export function DeckOptimizer({
   const [analysis, setAnalysis] = useState<DeckAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [shareError, setShareError] = useState<string | null>(null);
   // Derived from the live deck rather than tracked by hand: a card removed via
   // any route the Inspector doesn't own (deck view, applied swap plan) used to
   // leave a stale entry behind, which kept its "Added" button disabled.
@@ -108,6 +112,31 @@ export function DeckOptimizer({
       document.dispatchEvent(new CustomEvent('analyze-set-sort', { detail: { sortKey: 'price' } }));
     }
   }, [onTabChange, controlledActiveTab]);
+
+  // The whole decklist rides in the link's fragment, so a share needs no
+  // backend — and the link reopens on whichever tab is being shared.
+  const handleCopyShareLink = useCallback(async () => {
+    try {
+      const url = await buildShareUrl(
+        TAB_SLUG_BY_KEY[activeTab],
+        deckToSharePayload({ cards: currentCards, commander, partnerCommander }),
+      );
+      await navigator.clipboard.writeText(url);
+      setShareState('copied');
+      setShareError(null);
+      trackEvent('share_link_copied', { tab: activeTab, cardCount: currentCards.length });
+      setTimeout(() => setShareState('idle'), 2000);
+    } catch (e) {
+      console.error('[DeckOptimizer] share link failed', e);
+      setShareState('error');
+      setShareError(
+        e instanceof DeckLinkError && e.reason === 'too-large'
+          ? 'This deck is too large to share as a link.'
+          : 'Could not copy the share link.',
+      );
+      setTimeout(() => setShareState('idle'), 3000);
+    }
+  }, [activeTab, commander, partnerCommander, currentCards]);
   // When a dashboard suggestion sends us to the optimize tab with a specific
   // card, stash it so OptimizeTabContent can pre-check the right tile.
   const [pendingOptimizeSelection, setPendingOptimizeSelection] =
@@ -1822,6 +1851,17 @@ export function DeckOptimizer({
                 Save as deck
               </button>
             ) : null}
+            <button
+              onClick={handleCopyShareLink}
+              title={shareError ?? 'Copy a link that opens this deck on this tab'}
+              aria-label="Copy share link"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {shareState === 'copied'
+                ? <Check className="w-3 h-3 text-emerald-400" />
+                : <Copy className="w-3 h-3" />}
+              {shareState === 'copied' ? 'Copied' : shareState === 'error' ? 'Failed' : 'Copy link'}
+            </button>
             {analysis && (
               <button
                 onClick={handleOptimize}
