@@ -9,6 +9,7 @@ import { ListsLane } from '@/components/analyze/ListsLane';
 import { GenerateLane } from '@/components/analyze/GenerateLane';
 import { type AnalyzeSource } from '@/components/analyze/CommanderStrip';
 import { hydrateDeckForAnalysis, type HydrateStage } from '@/components/analyze/analyzeHydration';
+import { readDeckHash, decodeDeckPayload, DeckLinkError } from '@/services/share/deckLink';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
 import { AnalyzeSplit } from '@/components/analyze/AnalyzeSplit';
@@ -52,14 +53,33 @@ function countCards(deck: GeneratedDeck): number {
   return commander + partner + body;
 }
 
+function shareLinkErrorMessage(e: unknown): string {
+  if (e instanceof DeckLinkError) {
+    switch (e.reason) {
+      case 'unsupported-version':
+        return 'This link was made by a newer version of the site.';
+      case 'unsupported-browser':
+        return 'Your browser can\'t open share links. Try a current Chrome, Firefox, or Safari.';
+      default:
+        return 'This share link is damaged or incomplete.';
+    }
+  }
+  return 'Could not analyze this deck. Check the card names and try again.';
+}
+
 export function AnalyzePage() {
   const [activeLane, setActiveLane] = useState<LaneKey>(() => {
     const stored = localStorage.getItem(LANE_STORAGE_KEY);
     if (stored === 'paste' || stored === 'lists' || stored === 'generate') return stored;
     return 'paste';
   });
-  const [loading, setLoading] = useState(false);
-  const [loadStage, setLoadStage] = useState<HydrateStage | null>(null);
+  // Read at first render, not in the effect, so the very first paint is already
+  // the loading view — a share-link recipient must never see the lane hub flash.
+  const [initialDeckHash] = useState(() => readDeckHash(window.location.hash));
+  const [loading, setLoading] = useState(!!initialDeckHash);
+  const [loadStage, setLoadStage] = useState<HydrateStage | null>(
+    initialDeckHash ? 'fetching-cards' : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [loadingListId, setLoadingListId] = useState<string | null>(null);
   const [source, setSource] = useState<AnalyzeSource | null>(null);
@@ -220,8 +240,13 @@ export function AnalyzePage() {
   // user may have generated it on /build and we don't want to lose their
   // work; the bridge effect below will re-attach it if they re-enter the
   // loaded view via /analyze/<tab>.
+  // A share fragment is itself an explicit request for the analyzer view, so a
+  // bare "/analyze#d=…" (a hand-trimmed link) must not be treated as the hub —
+  // otherwise the deck hydrates and is then immediately thrown away. Checked
+  // live rather than from the first render because handleChangeDeck's
+  // navigate('/analyze') drops the fragment, which is what releases this guard.
   useEffect(() => {
-    if (!listIdParam && !param1IsTab && source !== null) {
+    if (!listIdParam && !param1IsTab && source !== null && !readDeckHash(window.location.hash)) {
       setSource(null);
       hydratedListIdRef.current = null;
     }
@@ -287,6 +312,57 @@ export function AnalyzePage() {
     }
   }, [navigate, tabSlug]);
 
+  // ── Shared-link load ──
+  // A "#d=<payload>" fragment carries a whole decklist, so a link can reproduce
+  // this page on someone else's machine with no server involved. Guarded by a
+  // ref keyed on the payload so store updates can't re-trigger hydration.
+  const loadedShareHash = useRef<string | null>(null);
+  useEffect(() => {
+    const raw = readDeckHash(window.location.hash);
+    if (!raw || loadedShareHash.current === raw) return;
+    loadedShareHash.current = raw;
+
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadStage('fetching-cards');
+      setError(null);
+      try {
+        const payload = await decodeDeckPayload(raw);
+        const { deck, colorIdentity } = await hydrateDeckForAnalysis({
+          cardNames: payload.cardNames,
+          commanderName: payload.commanderName,
+          partnerCommanderName: payload.partnerCommanderName,
+          onProgress: setLoadStage,
+        });
+        if (cancelled) return;
+        useStore.setState({
+          commander: deck.commander,
+          partnerCommander: deck.partnerCommander,
+          colorIdentity,
+          generatedDeck: deck,
+        });
+        setSource({ kind: 'shared' });
+        trackEvent('analyze_deck_loaded', {
+          source: 'shared',
+          cardCount: countCards(deck),
+          hasCommander: !!deck.commander,
+        });
+      } catch (e) {
+        if (cancelled) return;
+        console.error('[AnalyzePage] shared-link hydration failed', e);
+        setError(shareLinkErrorMessage(e));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setLoadStage(null);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
   const handleListPick = useCallback(async (list: UserCardList) => {
     setLoading(true);
     setLoadStage('fetching-cards');
@@ -326,7 +402,8 @@ export function AnalyzePage() {
   }, [navigate, param1IsTab, tabSlug]);
 
   const handleChangeDeck = useCallback(() => {
-    if (source?.kind === 'paste') {
+    // 'shared' is as unsaved as 'paste' — the deck only exists in the link.
+    if (source?.kind === 'paste' || source?.kind === 'shared') {
       const ok = window.confirm("Discard this analysis? You haven't saved it.");
       if (!ok) return;
     }
