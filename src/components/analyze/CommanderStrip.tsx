@@ -10,7 +10,9 @@ import type { GeneratedDeck, ScryfallCard, UserCardList } from '@/types';
 export type AnalyzeSource =
   | { kind: 'paste' }
   | { kind: 'list'; listId: string; listName: string }
-  | { kind: 'generated' };
+  | { kind: 'generated' }
+  /** Loaded from a share link's "#d=" fragment — ephemeral, like 'paste'. */
+  | { kind: 'shared' };
 
 interface CommanderStripProps {
   deck: GeneratedDeck;
@@ -88,6 +90,7 @@ export function CommanderStrip({ deck, colorIdentity, source, onChangeDeck, onSa
     if (savedListId && savedDisplayName) return `From "${savedDisplayName}"`;
     if (source.kind === 'paste') return 'Pasted';
     if (source.kind === 'generated') return 'Generated';
+    if (source.kind === 'shared') return 'Shared deck';
     return `From "${source.listName}"`;
   })();
   const showSaveButton = (source.kind === 'paste' || source.kind === 'generated') && !savedListId;

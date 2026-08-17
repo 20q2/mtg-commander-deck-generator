@@ -620,6 +620,8 @@ export function AnalyzePage() {
       ? 'Pasted'
       : source.kind === 'generated'
       ? 'Generated'
+      : source.kind === 'shared'
+      ? 'Shared deck'
       : `From "${source.listName}"`;
 
     // Intended themes for the New Cards tab. Hierarchy: the user's explicit theme

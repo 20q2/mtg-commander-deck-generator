@@ -96,8 +96,8 @@ export interface AnalyticsEventMetadata {
   deck_optimized: { commanderName: string; partnerName?: string; listName: string; originalCardCount: number; deckFormat: number; themes: string[]; totalCards: number; isRegeneration: boolean };
   deck_imported: { source: string; cardCount: number; deckName: string };
   analyze_page_viewed: { source: 'direct' | 'from_generate' | 'from_list' };
-  analyze_deck_loaded: { source: 'paste' | 'list' | 'generated'; cardCount: number; hasCommander: boolean };
-  analyze_deck_saved: { listName: string; cardCount: number; source: 'paste' | 'list' | 'generated' };
+  analyze_deck_loaded: { source: 'paste' | 'list' | 'generated' | 'shared'; cardCount: number; hasCommander: boolean };
+  analyze_deck_saved: { listName: string; cardCount: number; source: 'paste' | 'list' | 'generated' | 'shared' };
   analyze_lane_switched: { from: string; to: string };
   /** An inspector analyzer tab became active (overview/roles/mana/tempo/optimize/bracket/cost/lift). */
   inspector_tab_viewed: { tab: string };
