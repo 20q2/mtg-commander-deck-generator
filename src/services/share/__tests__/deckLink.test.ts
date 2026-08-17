@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   encodeDeckPayload,
   decodeDeckPayload,
+  deckToSharePayload,
   readDeckHash,
   DeckLinkError,
   type SharedDeckPayload,
@@ -79,6 +80,49 @@ describe('deckLink codec', () => {
     await expect(encodeDeckPayload({ cardNames })).rejects.toMatchObject({
       reason: 'too-large',
     });
+  });
+});
+
+describe('deckToSharePayload', () => {
+  // Regression: hydrateDeckForAnalysis resolves the commander by looking
+  // commanderName up in the map built from cardNames. Leaving the commander out
+  // hydrated a deck with commander === null, and AnalyzeSplit is gated on
+  // generatedDeck.commander, so the recipient got a blank Inspector.
+  it('includes the commanders in cardNames', () => {
+    const payload = deckToSharePayload({
+      cards: [{ name: 'Sol Ring' }, { name: 'Forest' }],
+      commander: { name: 'Ghalta, Primal Hunger' },
+    });
+    expect(payload.cardNames).toContain('Ghalta, Primal Hunger');
+    expect(payload.commanderName).toBe('Ghalta, Primal Hunger');
+    expect(payload.cardNames).toHaveLength(3);
+  });
+
+  it('includes a partner commander too', () => {
+    const payload = deckToSharePayload({
+      cards: [{ name: 'Sol Ring' }],
+      commander: { name: 'Pir, Imaginative Rascal' },
+      partnerCommander: { name: 'Toothy, Imaginary Friend' },
+    });
+    expect(payload.cardNames).toEqual([
+      'Pir, Imaginative Rascal',
+      'Toothy, Imaginary Friend',
+      'Sol Ring',
+    ]);
+  });
+
+  it('survives a round trip with the commander intact', async () => {
+    const payload = deckToSharePayload({
+      cards: [{ name: 'Sol Ring' }, { name: 'Forest' }],
+      commander: { name: 'Ghalta, Primal Hunger' },
+    });
+    const decoded = await decodeDeckPayload(await encodeDeckPayload(payload));
+    expect(decoded).toEqual(payload);
+  });
+
+  it('omits commander keys entirely when there is no commander', () => {
+    const payload = deckToSharePayload({ cards: [{ name: 'Sol Ring' }] });
+    expect(payload).toEqual({ cardNames: ['Sol Ring'] });
   });
 });
 

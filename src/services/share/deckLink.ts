@@ -8,6 +8,14 @@
 // the server, keeping decklists out of request logs.
 
 export interface SharedDeckPayload {
+  /**
+   * Every card in the deck, INCLUDING the commanders, quantities expanded into
+   * repeats. Same contract as `PasteLaneResult.cardNames`, because
+   * `hydrateDeckForAnalysis` resolves the commander by looking `commanderName`
+   * up in the card map it builds from this list — a commander left out of here
+   * silently hydrates as a deck with no commander, which renders as a blank
+   * Inspector.
+   */
   cardNames: string[];
   commanderName?: string;
   partnerCommanderName?: string;
@@ -163,18 +171,26 @@ export function readDeckHash(hash: string): string | null {
  * they already hold — DeckOptimizer has a flat `currentCards` list, not the
  * categories record.
  *
- * `cards` must exclude the commanders; they travel separately because
- * `hydrateDeckForAnalysis` takes them separately.
+ * `cards` is the 99 (commanders excluded, as `GeneratedDeck.categories` has
+ * them). The commanders are prepended to `cardNames` so the payload satisfies
+ * the contract above; they are also named separately so the recipient knows
+ * which of those cards is the commander.
  */
 export function deckToSharePayload(deck: {
   cards: readonly { name: string }[];
   commander?: { name: string } | null;
   partnerCommander?: { name: string } | null;
 }): SharedDeckPayload {
+  const commanderName = deck.commander?.name;
+  const partnerCommanderName = deck.partnerCommander?.name;
   return {
-    cardNames: deck.cards.map(c => c.name),
-    ...(deck.commander ? { commanderName: deck.commander.name } : {}),
-    ...(deck.partnerCommander ? { partnerCommanderName: deck.partnerCommander.name } : {}),
+    cardNames: [
+      ...(commanderName ? [commanderName] : []),
+      ...(partnerCommanderName ? [partnerCommanderName] : []),
+      ...deck.cards.map(c => c.name),
+    ],
+    ...(commanderName ? { commanderName } : {}),
+    ...(partnerCommanderName ? { partnerCommanderName } : {}),
   };
 }
 

@@ -259,6 +259,11 @@ export function AnalyzePage() {
   // without having to click "Analyze a different deck" first.
   useEffect(() => {
     if (source !== null) return;
+    // A shared load owns the source. It writes the deck into Zustand (a
+    // synchronous, unbatched store update) just before setting source, so this
+    // effect can observe generatedDeck non-null while source is still null and
+    // mislabel a shared deck as 'generated'.
+    if (readDeckHash(window.location.hash)) return;
     if (generatedDeck && !listIdParam && param1IsTab) {
       setSource({ kind: 'generated' });
       trackEvent('analyze_deck_loaded', {
@@ -322,7 +327,11 @@ export function AnalyzePage() {
     if (!raw || loadedShareHash.current === raw) return;
     loadedShareHash.current = raw;
 
-    let cancelled = false;
+    // Deliberately no cancel-on-cleanup flag. StrictMode mounts this effect
+    // twice; the ref guard means only the FIRST run does the work, so a cleanup
+    // that cancelled it would discard the only real attempt and leave the page
+    // stuck loading forever. The ref alone already prevents double hydration,
+    // and React 18 tolerates a setState that lands after unmount.
     (async () => {
       setLoading(true);
       setLoadStage('fetching-cards');
@@ -335,7 +344,6 @@ export function AnalyzePage() {
           partnerCommanderName: payload.partnerCommanderName,
           onProgress: setLoadStage,
         });
-        if (cancelled) return;
         useStore.setState({
           commander: deck.commander,
           partnerCommander: deck.partnerCommander,
@@ -349,18 +357,13 @@ export function AnalyzePage() {
           hasCommander: !!deck.commander,
         });
       } catch (e) {
-        if (cancelled) return;
         console.error('[AnalyzePage] shared-link hydration failed', e);
         setError(shareLinkErrorMessage(e));
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setLoadStage(null);
-        }
+        setLoading(false);
+        setLoadStage(null);
       }
     })();
-
-    return () => { cancelled = true; };
   }, []);
 
   const handleListPick = useCallback(async (list: UserCardList) => {
@@ -627,8 +630,14 @@ export function AnalyzePage() {
 
   // Show a dedicated loading screen when arriving fresh via /analyze/<listId>
   // — the hub (paste/lists/generate) would be misleading while hydration runs.
+  // A share link is the same situation: the visitor asked for a specific deck,
+  // so showing them a "paste your deck" chooser for the seconds it takes to
+  // hydrate would read as the link having failed. Checked against the live URL
+  // rather than the first render, because handleChangeDeck drops the fragment
+  // and that has to release this gate.
+  const pendingShareLoad = !deckLoaded && !error && !!readDeckHash(window.location.hash);
   const pendingListLoad = !!listIdParam && !deckLoaded && !error;
-  if (pendingListLoad) {
+  if (pendingListLoad || pendingShareLoad) {
     const list = lists.find(l => l.id === listIdParam);
     const steps: { id: HydrateStage; label: string }[] = [
       { id: 'fetching-cards',   label: 'Fetching card data from Scryfall' },
@@ -644,7 +653,9 @@ export function AnalyzePage() {
           <Loader2 className="h-10 w-10 text-violet-300/80 animate-spin" />
           <div>
             <div className="text-base font-medium">
-              Loading {list?.name ? `"${list.name}"` : 'deck'}…
+              {pendingShareLoad
+                ? 'Loading shared deck…'
+                : `Loading ${list?.name ? `"${list.name}"` : 'deck'}…`}
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
               This takes a few seconds on first load.
