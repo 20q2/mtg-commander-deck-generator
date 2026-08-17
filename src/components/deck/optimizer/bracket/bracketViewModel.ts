@@ -1,10 +1,10 @@
 import type { BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 import type { DetectedCombo } from '@/types';
-import { BRACKET_COLORS, BRACKET_LABELS, BRACKET_DESCRIPTIONS } from '../constants';
+import { BRACKET_COLORS, BRACKET_LABELS } from '../constants';
 
 // ─── Raw color values ────────────────────────────────────────────────
-// The prototype views need real color strings for SVG strokes and
-// inline gradients, where Tailwind classes can't reach.
+// The view needs real color strings for inline gradients and tints,
+// where Tailwind classes can't reach.
 
 export const BRACKET_HEX: Record<number, string> = {
   1: '#34d399', // emerald-400
@@ -68,33 +68,10 @@ export interface Gate {
   cards: string[];
 }
 
-export interface Reason {
-  key: string;
-  mark: string;
-  tone: 'good' | 'warn' | 'neutral';
-  title: string;
-  body: string;
-}
-
 export interface LadderEntry {
   n: number;
   name: string;
-  desc: string;
   active: boolean;
-}
-
-export interface ReadingStep {
-  n: number;
-  title: string;
-  body: string;
-  chips: string[];
-}
-
-export interface NextMove {
-  /** e.g. "Up to Bracket 2" */
-  label: string;
-  body: string;
-  tone: 'up' | 'jump';
 }
 
 export interface BracketViewModel {
@@ -103,13 +80,10 @@ export interface BracketViewModel {
   bracketMax: number;
   /** True when the deck can only honestly be narrowed to two brackets (1 or 2). */
   isRange: boolean;
-  /** Compact form for big-number slots — "1" or "1–2". */
-  bracketDisplay: string;
   /** Prose form — "Bracket 3" or "Bracket 1 or 2". */
   bracketLabel: string;
   label: string;
-  description: string;
-  /** Raw hex for the active bracket — SVG strokes, gradients. */
+  /** Raw hex for the active bracket — gradients and inline tints. */
   accent: string;
   colors: (typeof BRACKET_COLORS)[number];
   /** Highest bracket forced by a hard-floor rule (1 when nothing forces one). */
@@ -126,23 +100,10 @@ export interface BracketViewModel {
   confidenceNote: string;
   criteria: SoftCriterion[];
   gates: Gate[];
-  reasons: Reason[];
   ladder: LadderEntry[];
-  steps: ReadingStep[];
-  nextMoves: NextMove[];
-  /** Monospace arithmetic for the "show the math" disclosure. */
-  mathLines: string[];
 }
 
 // ─── Copy tables ─────────────────────────────────────────────────────
-
-const LADDER_DESCS: Record<number, string> = {
-  1: 'Themes over winning',
-  2: 'A precon out of the box',
-  3: 'Tuned, a few heavy hitters',
-  4: 'Strongest cards, no limits',
-  5: 'Tournament play',
-};
 
 const HEADLINES: Record<number, string> = {
   1: 'A casual, theme-forward deck. It wins eventually, not quickly.',
@@ -334,138 +295,19 @@ export function buildBracketViewModel(
     ? `${unratedCombos} complete ${plural(unratedCombos, 'combo')} ${unratedCombos === 1 ? 'has' : 'have'} no community bracket rating, so the floor may be understated`
     : 'Every signal we check returned a clear answer';
 
-  // ── Reasons (1a) ──
-  const sortedByScore = criteria.slice().sort((x, y) => y.pct - x.pct);
-  const strongest = sortedByScore[0];
-  const weakest = sortedByScore[sortedByScore.length - 1];
-  const topFloor = est.hardFloors.slice().sort((x, y) => y.bracket - x.bracket)[0];
-
-  const reasons: Reason[] = [
-    est.hardFloors.length === 0
-      ? {
-          key: 'floor',
-          mark: '✓',
-          tone: 'good',
-          title: 'No card here forces a higher bracket',
-          body: 'Zero Game Changers, no complete two-card combo, no mass land denial, no extra turns. That keeps the floor at 1.',
-        }
-      : {
-          key: 'floor',
-          mark: '!',
-          tone: 'warn',
-          title: topFloor.reason,
-          body: `${topFloor.detail ?? ''} Floor ${topFloor.bracket}.`.trim(),
-        },
-    {
-      key: 'strongest',
-      mark: strongest.maxed ? '▲' : '·',
-      tone: 'neutral',
-      title: strongest.pct >= 50
-        ? `${strongest.name} is doing most of the work`
-        : 'Nothing here is scoring highly',
-      body: strongest.plain,
-    },
-    {
-      key: 'weakest',
-      mark: '·',
-      tone: 'neutral',
-      title: weakest.pct <= 25 ? `${weakest.name} is what holds it back` : `${weakest.name} is the softest signal`,
-      body: weakest.plain,
-    },
-  ];
-  if (wasElevated) {
-    reasons.push({
-      key: 'elevated',
-      mark: '↑',
-      tone: 'warn',
-      title: `Tuned enough to move up from ${floor}`,
-      body: `A soft score of ${soft} clears the ${floor >= 4 ? 80 : 66}-point line, so the estimate moves up to ${est.bracket}.`,
-    });
-  }
-
   // ── Ladder ──
   const ladder: LadderEntry[] = [1, 2, 3, 4, 5].map(n => ({
     n,
     name: BRACKET_LABELS[n],
-    desc: LADDER_DESCS[n],
     active: n >= est.bracket && n <= est.bracketMax,
   }));
-
-  // ── Reading steps (1c) ──
-  const chipCards = [
-    ...b.gameChangerNames.slice(0, 2),
-    ...b.fastManaNames.slice(0, 2),
-    ...b.tutorNames.slice(0, 2),
-  ].slice(0, 4);
-
-  const steps: ReadingStep[] = [
-    {
-      n: 1,
-      title: 'Checked for cards that force a bracket',
-      body: est.hardFloors.length === 0
-        ? 'Five hard checks — Game Changers, complete combos, mass land denial, extra turns, tutor density. All clear, so the floor stays at Bracket 1.'
-        : `Five hard checks — Game Changers, complete combos, mass land denial, extra turns, tutor density. ${est.hardFloors.length} ${plural(est.hardFloors.length, 'rule')} tripped, and the highest one sets the floor at Bracket ${floor}.`,
-      chips: [],
-    },
-    {
-      n: 2,
-      title: 'Scored how tuned the deck is',
-      body: `${soft} of 100. ${strongest.plain} ${weakest.plain}`,
-      chips: chipCards,
-    },
-    {
-      n: 3,
-      title: 'Applied the bump rule',
-      body: wasElevated
-        ? `A deck scoring ${floor >= 4 ? 80 : 66} or more moves up. At ${soft} it clears the line, so the floor of ${floor} becomes Bracket ${est.bracket}.`
-        : bumpTarget === null
-          ? `Already at the top of the scale — Bracket ${est.bracket}, ${est.label}.`
-          : `A deck scoring ${bumpTarget} or more moves up one bracket. At ${soft} it stays put. Final estimate: Bracket ${est.bracket}, ${est.label}.`,
-      chips: [],
-    },
-  ];
-
-  // ── What would move it (1c right rail) ──
-  const nextMoves: NextMove[] = [];
-  if (bumpTarget !== null && pointsToBump > 0) {
-    nextMoves.push({
-      label: floor >= 4 ? 'Up to Bracket 5' : `Up to Bracket ${Math.min(floor + 1, 4)}`,
-      tone: 'up',
-      body: `Add ~${pointsToBump} points of speed: more fast mana, more tutors, or pull the curve further under 3.5.`,
-    });
-  }
-  if (est.bracket < 3) {
-    nextMoves.push({
-      label: 'Straight to Bracket 3+',
-      tone: 'jump',
-      body: 'Any Game Changer, a complete two-card combo, mass land denial, or a stack of extra turns. These skip the score entirely.',
-    });
-  } else if (est.bracket < 4) {
-    nextMoves.push({
-      label: 'Straight to Bracket 4',
-      tone: 'jump',
-      body: 'Four or more Game Changers, two early-game combos, or any mass land denial. These skip the score entirely.',
-    });
-  }
-
-  // ── Math disclosure ──
-  const mathLines = [
-    `floor = ${floor} (${est.hardFloors.length === 0 ? 'no forcing cards' : `${est.hardFloors.length} ${plural(est.hardFloors.length, 'rule')} tripped`})`,
-    `soft = ${criteria.map(c => c.score).join(' + ')} = ${soft}`,
-    bumpTarget === null
-      ? 'already at bracket 5'
-      : `${soft} ${soft >= bumpTarget ? '≥' : '<'} ${bumpTarget} → ${wasElevated ? 'bump' : 'no bump'}`,
-    `final = bracket ${isRange ? `${est.bracket} or ${est.bracketMax}` : est.bracket}`,
-  ];
 
   return {
     bracket: est.bracket,
     bracketMax: est.bracketMax,
     isRange,
-    bracketDisplay: isRange ? `${est.bracket}–${est.bracketMax}` : String(est.bracket),
     bracketLabel: isRange ? `Bracket ${est.bracket} or ${est.bracketMax}` : `Bracket ${est.bracket}`,
     label: isRange ? `${BRACKET_LABELS[est.bracket]} or ${BRACKET_LABELS[est.bracketMax]}` : est.label,
-    description: BRACKET_DESCRIPTIONS[est.bracket],
     accent: BRACKET_HEX[est.bracket],
     colors: BRACKET_COLORS[est.bracket],
     floor,
@@ -478,10 +320,6 @@ export function buildBracketViewModel(
     confidenceNote,
     criteria,
     gates,
-    reasons,
     ladder,
-    steps,
-    nextMoves,
-    mathLines,
   };
 }

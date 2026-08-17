@@ -53,24 +53,26 @@ export function RefinedVerdictView({ vm, onPreview }: { vm: BracketViewModel; on
             </p>
           </div>
 
-          <div className="w-full lg:w-[250px] shrink-0 lg:pt-1.5">
-            <div className="flex gap-1">
-              {vm.ladder.map(l => (
-                <div key={l.n} className="flex-1 min-w-0">
-                  <div
-                    className={`h-[5px] rounded-sm ${l.active ? '' : 'bg-muted-foreground/30'}`}
-                    style={l.active ? { backgroundColor: vm.accent } : undefined}
-                  />
-                  <div className={`text-xs font-semibold mt-1.5 ${l.active ? '' : 'text-muted-foreground'}`}
-                       style={l.active ? { color: vm.accent } : undefined}>
-                    {l.n}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-[12.5px] leading-relaxed text-muted-foreground mt-2">
-              {vm.ladder.map(l => `${l.n} ${l.name}`).join(' · ')}
-            </p>
+          {/* The scale reads as a vertical list so the deck's own rung sits on
+              its label — and so a 1-or-2 range can highlight two adjacent rows. */}
+          <div className="w-full lg:w-[190px] shrink-0 space-y-0.5">
+            {vm.ladder.map(l => (
+              <div
+                key={l.n}
+                className="flex items-center gap-2.5 px-2 py-1 rounded-md"
+                style={l.active ? { backgroundColor: `${vm.accent}1f` } : undefined}
+              >
+                <span
+                  className={`w-3 text-center text-xs font-bold ${l.active ? '' : 'text-muted-foreground'}`}
+                  style={l.active ? { color: vm.accent } : undefined}
+                >
+                  {l.n}
+                </span>
+                <span className={`text-[12.5px] ${l.active ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                  {l.name}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

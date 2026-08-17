@@ -75,34 +75,6 @@ export function CardTile({ name, onPreview }: { name: string; onPreview: (name: 
   );
 }
 
-/** Compact horizontal variant — small art strip + name on one line. */
-export function CardRow({ name, onPreview }: { name: string; onPreview: (name: string) => void }) {
-  const { rect, handlers } = useHoverPreview();
-  return (
-    <>
-      <button
-        onClick={() => onPreview(name)}
-        {...handlers}
-        className="flex items-center gap-2 group text-left w-full"
-        title={name}
-      >
-        <span className="shrink-0 w-5 h-7 rounded-sm border border-border/40 bg-accent/20 overflow-hidden">
-          <img
-            src={scryfallImg(name)}
-            alt=""
-            className="w-full h-full object-cover object-[center_18%]"
-            loading="lazy"
-          />
-        </span>
-        <span className="text-[11px] text-foreground/75 group-hover:text-primary transition-colors truncate">
-          {name}
-        </span>
-      </button>
-      {rect && <FloatingCard name={name} rect={rect} />}
-    </>
-  );
-}
-
 /** Inline chip — art + name in a rounded pill. */
 export function CardPill({ name, onPreview }: { name: string; onPreview: (name: string) => void }) {
   const { rect, handlers } = useHoverPreview();
