@@ -66,6 +66,7 @@ import { trackEvent } from '@/services/analytics';
 import { useUserLists, useLastAddTarget } from '@/hooks/useUserLists';
 import { useBinders } from '@/hooks/useBinders';
 import { getCollectionNameSet, getCollectionBinderMap, getCollectionBinderEntries } from '@/services/collection/db';
+import { parseDeckLines, buildExportChips, filterDeckLines, targetKey, type ExportTarget } from '@/services/collection/deckExportFilter';
 import { Select } from '@/components/ui/select';
 import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/grouping';
 import { StacksColumn } from './visualGrid/StacksColumn';
@@ -1147,19 +1148,46 @@ interface ExportModalProps {
   onClose: () => void;
   generateDeckList: (excludeMustIncludes: boolean) => string;
   hasMustIncludes: boolean;
-  onExport: (format: 'clipboard' | 'download') => void;
+  onExport: (format: 'clipboard' | 'download', collectionFilter: 'all' | 'collection' | 'missing') => void;
   onSaveToList: (name: string, cards: string[]) => void;
   defaultListName: string;
+  /** Card name → the collections holding it, across every binder. Null while loading or
+   *  when no collection exists. Drives the per-collection export chips. */
+  collectionEntries?: Map<string, { id: string; name: string }[]> | null;
 }
 
-function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExport, onSaveToList, defaultListName }: ExportModalProps) {
+function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExport, onSaveToList, defaultListName, collectionEntries }: ExportModalProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showListNameInput, setShowListNameInput] = useState(false);
   const [listName, setListName] = useState('');
   const [excludeMustIncludes, setExcludeMustIncludes] = useState(false);
 
-  const deckList = useMemo(() => generateDeckList(excludeMustIncludes), [generateDeckList, excludeMustIncludes]);
+  const [exportTarget, setExportTarget] = useState<ExportTarget>({ kind: 'all' });
+
+  const fullList = useMemo(() => generateDeckList(excludeMustIncludes), [generateDeckList, excludeMustIncludes]);
+  const lines = useMemo(() => parseDeckLines(fullList), [fullList]);
+  const chips = useMemo(() => buildExportChips(lines, collectionEntries ?? null), [lines, collectionEntries]);
+  const fullCardCount = useMemo(() => lines.reduce((sum, l) => sum + l.quantity, 0), [lines]);
+
+  // Fall back to the full deck when the active chip disappears — collections finish
+  // loading, or excluding must-includes drops the chip's last card.
+  useEffect(() => {
+    if (exportTarget.kind === 'all') return;
+    if (!chips.some(c => targetKey(c.target) === targetKey(exportTarget))) {
+      setExportTarget({ kind: 'all' });
+    }
+  }, [chips, exportTarget]);
+
+  // Reset the chip when the modal closes so the next open starts on the full deck.
+  useEffect(() => {
+    if (!isOpen) setExportTarget({ kind: 'all' });
+  }, [isOpen]);
+
+  const deckList = useMemo(
+    () => (exportTarget.kind === 'all' ? fullList : filterDeckLines(lines, exportTarget, collectionEntries ?? new Map())),
+    [fullList, lines, exportTarget, collectionEntries]
+  );
 
   const cardCount = useMemo(() => {
     return deckList.split('\n').filter(l => l.trim()).reduce((sum, line) => {
@@ -1168,22 +1196,23 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
     }, 0);
   }, [deckList]);
 
+  // Save Deck ignores the active export chip — it always saves the whole deck.
   const parseCardNames = useCallback(() => {
-    return deckList.split('\n').filter(l => l.trim()).flatMap(line => {
+    return fullList.split('\n').filter(l => l.trim()).flatMap(line => {
       const match = line.match(/^(\d+)\s+(.+)/);
       if (!match) return [];
       const qty = parseInt(match[1], 10);
       const name = match[2].trim();
       return Array(qty).fill(name);
     });
-  }, [deckList]);
+  }, [fullList]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(deckList);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    onExport('clipboard');
-  }, [deckList, onExport]);
+    onExport('clipboard', exportTarget.kind);
+  }, [deckList, onExport, exportTarget.kind]);
 
   const handleDownload = useCallback(() => {
     const blob = new Blob([deckList], { type: 'text/plain' });
@@ -1193,8 +1222,8 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
     a.download = 'deck.txt';
     a.click();
     URL.revokeObjectURL(url);
-    onExport('download');
-  }, [deckList, onExport]);
+    onExport('download', exportTarget.kind);
+  }, [deckList, onExport, exportTarget.kind]);
 
   const handleSaveToList = useCallback(() => {
     if (!showListNameInput) {
@@ -1230,11 +1259,11 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
 
         <div className="p-4 space-y-4">
           <div className="grid grid-cols-3 gap-2">
-            <Button onClick={handleCopy} variant="outline" className="flex-col h-auto py-3">
+            <Button onClick={handleCopy} variant="outline" className="flex-col h-auto py-3" disabled={!deckList.trim()}>
               {copied ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Copy className="w-5 h-5 mb-1" />}
               <span className="text-xs">{copied ? `Copied ${cardCount} cards!` : 'Copy'}</span>
             </Button>
-            <Button onClick={handleDownload} variant="outline" className="flex-col h-auto py-3">
+            <Button onClick={handleDownload} variant="outline" className="flex-col h-auto py-3" disabled={!deckList.trim()}>
               <Download className="w-5 h-5 mb-1" />
               <span className="text-xs">Download</span>
             </Button>
@@ -1274,6 +1303,28 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
               />
               Exclude must-include cards
             </label>
+          )}
+
+          {chips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted-foreground mr-1">Export:</span>
+              {[{ target: { kind: 'all' } as ExportTarget, label: 'Full deck', count: fullCardCount }, ...chips].map(chip => {
+                const active = targetKey(chip.target) === targetKey(exportTarget);
+                return (
+                  <Button
+                    key={targetKey(chip.target)}
+                    type="button"
+                    size="sm"
+                    variant={active ? 'secondary' : 'ghost'}
+                    onClick={() => setExportTarget(active ? { kind: 'all' } : chip.target)}
+                    className="h-7 gap-1.5"
+                  >
+                    {chip.label}
+                    <span className={active ? 'text-foreground' : 'text-muted-foreground'}>{chip.count}</span>
+                  </Button>
+                );
+              })}
+            </div>
           )}
 
           <textarea
@@ -5238,8 +5289,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         onClose={() => setShowExportModal(false)}
         generateDeckList={generateDeckList}
         hasMustIncludes={!readOnly && customization.mustIncludeCards.length > 0}
-        onExport={(format) => {
-          if (commander) trackEvent('deck_exported', { commanderName: commander.name, format });
+        collectionEntries={binderEntriesTotal}
+        onExport={(format, collectionFilter) => {
+          if (commander) trackEvent('deck_exported', { commanderName: commander.name, format, collectionFilter });
         }}
         onSaveToList={(name, cards) => {
           // Build generation summary
