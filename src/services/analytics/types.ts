@@ -74,7 +74,12 @@ export interface AnalyticsEventMetadata {
     balancedRoles: boolean;
   };
   deck_generation_failed: { commanderName: string; error: string };
-  deck_exported: { commanderName: string; format: 'clipboard' | 'download' };
+  deck_exported: {
+    commanderName: string;
+    format: 'clipboard' | 'download';
+    /** Which export chip was active: the whole deck, one collection, or the cards in none. */
+    collectionFilter: 'all' | 'collection' | 'missing';
+  };
   theme_toggled: { commanderName: string; themeName: string; selected: boolean };
   collection_imported: { cardCount: number; added: number; updated: number };
   combos_viewed: {
