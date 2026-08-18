@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDeckLines, matchesTarget, buildExportChips, type DeckLine, type BinderEntries } from './deckExportFilter';
+import { parseDeckLines, matchesTarget, buildExportChips, filterDeckLines, type DeckLine, type BinderEntries } from './deckExportFilter';
 
 const entries: BinderEntries = new Map([
   ['Sol Ring', [{ id: 'b1', name: 'Collection1' }, { id: 'b2', name: 'Cube' }]],
@@ -124,5 +124,33 @@ describe('buildExportChips', () => {
 
   it('returns no chips when there are no collections at all', () => {
     expect(buildExportChips(parseDeckLines('1 Sol Ring'), new Map())).toEqual([]);
+  });
+});
+
+describe('filterDeckLines', () => {
+  const lines = parseDeckLines('9 Nazgûl\n1 Sol Ring\n1 Ancient Tomb\n12 Swamp');
+
+  it('keeps only cards in the named collection, at deck quantity', () => {
+    expect(filterDeckLines(lines, { kind: 'collection', binderId: 'b1' }, entries)).toBe(
+      '9 Nazgûl\n1 Sol Ring'
+    );
+  });
+
+  it('keeps only unowned non-basics for the missing target', () => {
+    expect(filterDeckLines(lines, { kind: 'missing' }, entries)).toBe('1 Ancient Tomb');
+  });
+
+  it('preserves the original line order', () => {
+    expect(filterDeckLines(lines, { kind: 'collection', binderId: 'b2' }, entries)).toBe('1 Sol Ring');
+  });
+
+  it('returns every line for the all target', () => {
+    expect(filterDeckLines(lines, { kind: 'all' }, entries)).toBe(
+      '9 Nazgûl\n1 Sol Ring\n1 Ancient Tomb\n12 Swamp'
+    );
+  });
+
+  it('returns an empty string when nothing matches', () => {
+    expect(filterDeckLines(lines, { kind: 'collection', binderId: 'nope' }, entries)).toBe('');
   });
 });

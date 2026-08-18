@@ -103,3 +103,13 @@ export function buildExportChips(lines: DeckLine[], entries: BinderEntries | nul
   }
   return chips;
 }
+
+/** Renders the lines matching `target` back to deck text, preserving input order and
+ *  quantities. Takes parsed lines rather than text so the caller parses once and derives
+ *  both the chips and the filtered output from the same data. */
+export function filterDeckLines(lines: DeckLine[], target: ExportTarget, entries: BinderEntries): string {
+  return lines
+    .filter(line => matchesTarget(line, target, entries))
+    .map(line => `${line.quantity} ${line.name}`)
+    .join('\n');
+}
