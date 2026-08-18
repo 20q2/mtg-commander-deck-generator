@@ -58,3 +58,48 @@ export function matchesTarget(line: DeckLine, target: ExportTarget, entries: Bin
   if (target.kind === 'collection') return holders.some(h => h.id === target.binderId);
   return holders.length === 0 && !isBasic(line.name);
 }
+
+export interface ExportChip {
+  target: ExportTarget;
+  label: string;
+  /** Sum of deck quantities matching this target. */
+  count: number;
+}
+
+/** Collection chips sorted by count desc (matching the stats-bar Owned popover order),
+ *  then the missing chip. Zero-count chips are omitted. Returns [] outright when no
+ *  collection chip survives, so a lone missing chip — which would just be the whole deck
+ *  under a confusing label — never renders. Does NOT include the "Full deck" chip; the
+ *  caller prepends that. */
+export function buildExportChips(lines: DeckLine[], entries: BinderEntries | null): ExportChip[] {
+  if (!entries || entries.size === 0) return [];
+
+  const counts = new Map<string, { id: string; name: string; count: number }>();
+  let missing = 0;
+
+  for (const line of lines) {
+    const holders = bindersFor(line.name, entries);
+    if (holders.length > 0) {
+      for (const h of holders) {
+        const cur = counts.get(h.id);
+        if (cur) cur.count += line.quantity;
+        else counts.set(h.id, { id: h.id, name: h.name, count: line.quantity });
+      }
+    } else if (!isBasic(line.name)) {
+      missing += line.quantity;
+    }
+  }
+
+  const collections = [...counts.values()].sort((a, b) => b.count - a.count);
+  if (collections.length === 0) return [];
+
+  const chips: ExportChip[] = collections.map(c => ({
+    target: { kind: 'collection', binderId: c.id },
+    label: c.name,
+    count: c.count,
+  }));
+  if (missing > 0) {
+    chips.push({ target: { kind: 'missing' }, label: 'Not in a collection', count: missing });
+  }
+  return chips;
+}

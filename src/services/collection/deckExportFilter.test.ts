@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDeckLines, matchesTarget, type DeckLine, type BinderEntries } from './deckExportFilter';
+import { parseDeckLines, matchesTarget, buildExportChips, type DeckLine, type BinderEntries } from './deckExportFilter';
 
 const entries: BinderEntries = new Map([
   ['Sol Ring', [{ id: 'b1', name: 'Collection1' }, { id: 'b2', name: 'Cube' }]],
@@ -82,5 +82,47 @@ describe('matchesTarget', () => {
 
   it('keeps an owned card out of the missing bucket', () => {
     expect(matchesTarget(line('Sol Ring'), { kind: 'missing' }, entries)).toBe(false);
+  });
+});
+
+describe('buildExportChips', () => {
+  it('counts deck quantities, not distinct cards', () => {
+    const lines = parseDeckLines('9 Nazgûl\n1 Sol Ring');
+    const chips = buildExportChips(lines, entries);
+    expect(chips.find(c => c.label === 'Collection1')?.count).toBe(10);
+  });
+
+  it('counts a card held in two collections under both', () => {
+    const chips = buildExportChips(parseDeckLines('1 Sol Ring'), entries);
+    expect(chips.find(c => c.label === 'Collection1')?.count).toBe(1);
+    expect(chips.find(c => c.label === 'Cube')?.count).toBe(1);
+  });
+
+  it('sorts collection chips by count descending, missing last', () => {
+    const lines = parseDeckLines('9 Nazgûl\n1 Sol Ring\n1 Ancient Tomb');
+    expect(buildExportChips(lines, entries).map(c => c.label)).toEqual([
+      'Collection1',
+      'Cube',
+      'Not in a collection',
+    ]);
+  });
+
+  it('omits the missing chip when every card is owned', () => {
+    const chips = buildExportChips(parseDeckLines('1 Sol Ring'), entries);
+    expect(chips.some(c => c.target.kind === 'missing')).toBe(false);
+  });
+
+  it('excludes basics from every chip', () => {
+    const chips = buildExportChips(parseDeckLines('1 Sol Ring\n12 Swamp'), entries);
+    expect(chips.find(c => c.label === 'Collection1')?.count).toBe(1);
+    expect(chips.some(c => c.target.kind === 'missing')).toBe(false);
+  });
+
+  it('returns no chips when no collection holds a deck card', () => {
+    expect(buildExportChips(parseDeckLines('1 Ancient Tomb\n1 Cabal Coffers'), entries)).toEqual([]);
+  });
+
+  it('returns no chips when there are no collections at all', () => {
+    expect(buildExportChips(parseDeckLines('1 Sol Ring'), new Map())).toEqual([]);
   });
 });
