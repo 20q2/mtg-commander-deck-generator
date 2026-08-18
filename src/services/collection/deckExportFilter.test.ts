@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDeckLines, matchesTarget, buildExportChips, filterDeckLines, type DeckLine, type BinderEntries } from './deckExportFilter';
+import { parseDeckLines, matchesTarget, buildExportChips, filterDeckLines, splitChipOverflow, type DeckLine, type BinderEntries, type ExportChip, type ExportTarget } from './deckExportFilter';
 
 const entries: BinderEntries = new Map([
   ['Sol Ring', [{ id: 'b1', name: 'Collection1' }, { id: 'b2', name: 'Cube' }]],
@@ -152,5 +152,58 @@ describe('filterDeckLines', () => {
 
   it('returns an empty string when nothing matches', () => {
     expect(filterDeckLines(lines, { kind: 'collection', binderId: 'nope' }, entries)).toBe('');
+  });
+});
+
+describe('splitChipOverflow', () => {
+  const collectionChip = (name: string, count: number): ExportChip => ({
+    target: { kind: 'collection', binderId: name },
+    label: name,
+    count,
+  });
+  const missingChip: ExportChip = { target: { kind: 'missing' }, label: 'Not in a collection', count: 41 };
+  const all: ExportTarget = { kind: 'all' };
+  const labels = (cs: ExportChip[]) => cs.map(c => c.label);
+
+  const three = [collectionChip('c1', 42), collectionChip('c2', 17), collectionChip('c3', 9)];
+  const five = [...three, collectionChip('c4', 6), collectionChip('c5', 2)];
+
+  it('keeps every chip inline when under the budget', () => {
+    const { visible, overflow } = splitChipOverflow(three, all);
+    expect(labels(visible)).toEqual(['c1', 'c2', 'c3']);
+    expect(overflow).toEqual([]);
+  });
+
+  it('never folds exactly one chip', () => {
+    const four = [...three, collectionChip('c4', 6)];
+    const { visible, overflow } = splitChipOverflow(four, all);
+    expect(labels(visible)).toEqual(['c1', 'c2', 'c3', 'c4']);
+    expect(overflow).toEqual([]);
+  });
+
+  it('folds the tail once two or more would overflow, preserving order', () => {
+    const { visible, overflow } = splitChipOverflow(five, all);
+    expect(labels(visible)).toEqual(['c1', 'c2', 'c3']);
+    expect(labels(overflow)).toEqual(['c4', 'c5']);
+  });
+
+  it('pins the missing chip inline without spending budget', () => {
+    const { visible, overflow } = splitChipOverflow([...five, missingChip], all);
+    expect(labels(visible)).toEqual(['c1', 'c2', 'c3', 'Not in a collection']);
+    expect(labels(overflow)).toEqual(['c4', 'c5']);
+  });
+
+  it('promotes an active tail chip into the last visible slot', () => {
+    const { visible, overflow } = splitChipOverflow(five, { kind: 'collection', binderId: 'c5' });
+    expect(labels(visible)).toEqual(['c1', 'c2', 'c5']);
+    // The displaced chip has the highest count left, so it heads the overflow list.
+    expect(labels(overflow)).toEqual(['c3', 'c4']);
+  });
+
+  it('promotes nothing for the all or missing targets', () => {
+    expect(labels(splitChipOverflow(five, all).visible)).toEqual(['c1', 'c2', 'c3']);
+    expect(labels(splitChipOverflow([...five, missingChip], { kind: 'missing' }).visible)).toEqual([
+      'c1', 'c2', 'c3', 'Not in a collection',
+    ]);
   });
 });

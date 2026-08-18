@@ -66,7 +66,7 @@ import { trackEvent } from '@/services/analytics';
 import { useUserLists, useLastAddTarget } from '@/hooks/useUserLists';
 import { useBinders } from '@/hooks/useBinders';
 import { getCollectionNameSet, getCollectionBinderMap, getCollectionBinderEntries } from '@/services/collection/db';
-import { parseDeckLines, buildExportChips, filterDeckLines, targetKey, type ExportTarget } from '@/services/collection/deckExportFilter';
+import { parseDeckLines, buildExportChips, filterDeckLines, splitChipOverflow, targetKey, type ExportTarget } from '@/services/collection/deckExportFilter';
 import { Select } from '@/components/ui/select';
 import { GROUP_OPTIONS, groupCardsBy, type GroupKey } from './visualGrid/grouping';
 import { StacksColumn } from './visualGrid/StacksColumn';
@@ -1164,10 +1164,16 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
   const [excludeMustIncludes, setExcludeMustIncludes] = useState(false);
 
   const [exportTarget, setExportTarget] = useState<ExportTarget>({ kind: 'all' });
+  const [chipMenuOpen, setChipMenuOpen] = useState(false);
 
   const fullList = useMemo(() => generateDeckList(excludeMustIncludes), [generateDeckList, excludeMustIncludes]);
   const lines = useMemo(() => parseDeckLines(fullList), [fullList]);
   const chips = useMemo(() => buildExportChips(lines, collectionEntries ?? null), [lines, collectionEntries]);
+  // Keep the row to one line: the top collections stay inline, the tail folds into a popover.
+  const { visible: visibleChips, overflow: overflowChips } = useMemo(
+    () => splitChipOverflow(chips, exportTarget),
+    [chips, exportTarget]
+  );
   const fullCardCount = useMemo(() => lines.reduce((sum, l) => sum + l.quantity, 0), [lines]);
 
   // Fall back to the full deck when the active chip disappears — collections finish
@@ -1181,7 +1187,10 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
 
   // Reset the chip when the modal closes so the next open starts on the full deck.
   useEffect(() => {
-    if (!isOpen) setExportTarget({ kind: 'all' });
+    if (!isOpen) {
+      setExportTarget({ kind: 'all' });
+      setChipMenuOpen(false);
+    }
   }, [isOpen]);
 
   const deckList = useMemo(
@@ -1307,8 +1316,8 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
 
           {chips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-muted-foreground mr-1">Export:</span>
-              {[{ target: { kind: 'all' } as ExportTarget, label: 'Full deck', count: fullCardCount }, ...chips].map(chip => {
+              <span className="text-xs text-muted-foreground mr-1">Collections:</span>
+              {[{ target: { kind: 'all' } as ExportTarget, label: 'Full deck', count: fullCardCount }, ...visibleChips].map(chip => {
                 const active = targetKey(chip.target) === targetKey(exportTarget);
                 return (
                   <Button
@@ -1324,6 +1333,37 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
                   </Button>
                 );
               })}
+              {overflowChips.length > 0 && (
+                <Popover open={chipMenuOpen} onOpenChange={setChipMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 text-muted-foreground">
+                      +{overflowChips.length} more
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-56 p-1">
+                    <div className="max-h-64 overflow-auto">
+                      {overflowChips.map(chip => {
+                        const active = targetKey(chip.target) === targetKey(exportTarget);
+                        return (
+                          <button
+                            key={targetKey(chip.target)}
+                            type="button"
+                            onClick={() => {
+                              setExportTarget(active ? { kind: 'all' } : chip.target);
+                              setChipMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs transition-colors ${active ? 'bg-primary/15 text-primary' : 'text-foreground hover:bg-accent/50'}`}
+                          >
+                            <span className="truncate">{chip.label}</span>
+                            <span className={`shrink-0 font-semibold ${active ? 'text-primary' : 'text-muted-foreground'}`}>{chip.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           )}
 

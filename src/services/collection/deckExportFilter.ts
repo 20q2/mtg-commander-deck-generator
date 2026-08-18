@@ -113,3 +113,44 @@ export function filterDeckLines(lines: DeckLine[], target: ExportTarget, entries
     .map(line => `${line.quantity} ${line.name}`)
     .join('\n');
 }
+
+/** Number of collection chips kept inline before the rest fold into the popover. */
+export const VISIBLE_COLLECTION_CHIPS = 3;
+
+/** Splits buildExportChips' output into an inline row and a popover tail, so the chip row
+ *  stays one line at any collection count.
+ *
+ *  `visible` is the inline row: up to `visibleCount` collection chips followed by the
+ *  missing chip, which is pinned — always inline, never counted against the budget.
+ *  `overflow` is the collection chips that did not fit, still in count-desc order.
+ *
+ *  Folding exactly one chip buys nothing, so a lone straggler stays inline. If `active`
+ *  names a chip that would overflow, it takes the last visible slot rather than being
+ *  re-sorted into place, so the row does not reshuffle as the selection moves; the chip it
+ *  displaces heads the overflow list, where its count already belongs.
+ *
+ *  Does NOT include the "Full deck" chip; the caller still prepends that. */
+export function splitChipOverflow(
+  chips: ExportChip[],
+  active: ExportTarget,
+  visibleCount: number = VISIBLE_COLLECTION_CHIPS,
+): { visible: ExportChip[]; overflow: ExportChip[] } {
+  const collections = chips.filter(c => c.target.kind === 'collection');
+  const pinned = chips.filter(c => c.target.kind === 'missing');
+
+  if (collections.length <= visibleCount + 1) {
+    return { visible: [...collections, ...pinned], overflow: [] };
+  }
+
+  const visible = collections.slice(0, visibleCount);
+  const overflow = collections.slice(visibleCount);
+
+  const activeIdx = overflow.findIndex(c => targetKey(c.target) === targetKey(active));
+  if (activeIdx !== -1 && visible.length > 0) {
+    const promoted = overflow.splice(activeIdx, 1)[0];
+    overflow.unshift(visible.pop()!);
+    visible.push(promoted);
+  }
+
+  return { visible: [...visible, ...pinned], overflow };
+}
