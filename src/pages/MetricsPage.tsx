@@ -83,6 +83,7 @@ const EVENT_LABELS: Record<string, string> = {
   spellchroma_deck_loaded: 'SpellChroma Decks Loaded',
   spellchroma_tag_selected: 'SpellChroma Tags Selected',
   spellchroma_card_added: 'SpellChroma Cards Added',
+  spellchroma_deck_saved: 'SpellChroma Decks Saved',
   // Builder / deck editing
   card_swapped: 'Card Swaps',
   cards_removed: 'Cards Removed',
@@ -444,6 +445,7 @@ export function MetricsPage() {
     { label: 'Deck Loaded', count: ev('spellchroma_deck_loaded') },
     { label: 'Tag Selected', count: ev('spellchroma_tag_selected') },
     { label: 'Card Added', count: ev('spellchroma_card_added') },
+    { label: 'Deck Saved', count: ev('spellchroma_deck_saved') },
   ];
 
   // Feature usage — which features are getting touched, ranked. `isNew` flags

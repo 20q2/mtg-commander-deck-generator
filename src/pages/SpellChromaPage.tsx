@@ -471,6 +471,25 @@ export function SpellChromaPage() {
   const isList = !!activeList && activeList.type !== 'deck';
   const targetNoun: 'deck' | 'list' = isList ? 'list' : 'deck';
   const boardsEnabled = activeList?.type === 'deck';
+
+  // Persist an ephemeral deck (pasted, generated, or assembled card-by-card in the
+  // explorer) into the library, then adopt it as the active deck. Adoption is the
+  // point: without it the next add wouldn't be written anywhere and would be lost
+  // on navigate. Mirrors handleDeckLoaded's listId branch.
+  const handleSaveAs = useCallback((name: string, type: 'deck' | 'list') => {
+    const cards = deck ?? [];
+    if (!cards.length) return;
+    const created = createList(name, cards.map(c => c.name), '', { type });
+    setActiveDeckId(created.id);
+    deckParamHandled.current = true;
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('deck', created.id);
+      return next;
+    }, { replace: true });
+    trackEvent('spellchroma_deck_saved', { type, cardCount: cards.length });
+    success(`Saved "${name}" to your ${type === 'deck' ? 'decks' : 'lists'}`);
+  }, [deck, createList, setSearchParams, success]);
   const [sideboardCards, setSideboardCards] = useState<ScryfallCard[]>([]);
   const [maybeboardCards, setMaybeboardCards] = useState<ScryfallCard[]>([]);
   const sideboardKey = (activeList?.sideboard ?? []).join('|');
@@ -681,6 +700,7 @@ export function SpellChromaPage() {
               noun={targetNoun}
               deckName={activeList?.name}
               onOpenDeck={activeList ? () => navigate(`/${activeList.type === 'deck' ? 'decks' : 'lists'}/${activeList.id}`) : undefined}
+              onSaveAs={activeDeckId ? undefined : handleSaveAs}
               topTags={topTags}
               selectedTags={selectedTags}
               onTagClick={addTag}

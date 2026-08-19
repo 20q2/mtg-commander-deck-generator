@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { X, ChevronDown, ChevronUp, LayoutGrid, Grid3x3, Columns3, Network, Tag, List, Table2, FileText, Filter, Copy, Check, ExternalLink, ZoomIn, Plus, Layers, Bookmark } from 'lucide-react';
+import { X, ChevronDown, ChevronUp, LayoutGrid, Grid3x3, Columns3, Network, Tag, List, Table2, Download, Filter, Copy, Check, ExternalLink, ZoomIn, Plus, Layers, Bookmark, Library } from 'lucide-react';
 import type { ScryfallCard, UserCardList, DetectedCombo } from '@/types';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { useStore } from '@/store';
@@ -86,6 +86,9 @@ interface DeckContextPanelProps {
   deckName?: string;
   /** Open the loaded deck/list's page — makes the name in the top-tags heading a link. */
   onOpenDeck?: () => void;
+  /** Save this unsaved deck to the library. Supplied ONLY when nothing saved is
+   *  loaded — its presence is what puts the save controls in the Export view. */
+  onSaveAs?: (name: string, type: 'deck' | 'list') => void;
   menuProps?: DeckPanelMenuProps;
   /** Card name → combos it appears in, for the preview modal's combo tab. */
   cardComboMap?: Map<string, DetectedCombo[]>;
@@ -128,7 +131,7 @@ function cardTags(card: ScryfallCard): string[] {
  * right-click for the context menu.
  */
 export function DeckContextPanel({
-  cards, sideboard, maybeboard, topTags, selectedTags, onTagClick, onRemoveTag, onCardAction, onBoardCardAction, colorIdentity = [], boardsEnabled = false, noun = 'deck', deckName, onOpenDeck, menuProps, cardComboMap, headerExtra,
+  cards, sideboard, maybeboard, topTags, selectedTags, onTagClick, onRemoveTag, onCardAction, onBoardCardAction, colorIdentity = [], boardsEnabled = false, noun = 'deck', deckName, onOpenDeck, onSaveAs, menuProps, cardComboMap, headerExtra,
 }: DeckContextPanelProps) {
   const mainBoardLabel = noun === 'list' ? 'List' : 'Deck';
   // Name the loaded deck/list in the top-tags heading (e.g. "Foo’s top tags");
@@ -372,7 +375,7 @@ export function DeckContextPanel({
             </div>
           )}
           <div className="shrink-0 flex items-center border border-border/50 rounded-md overflow-hidden">
-            {([['cards', 'Cards', LayoutGrid], ['list', 'List', List], ['table', 'Table', Table2], ['web', 'Web', Network], ['text', 'Text', FileText]] as const).map(([key, label, Icon], i) => (
+            {([['cards', 'Cards', LayoutGrid], ['list', 'List', List], ['table', 'Table', Table2], ['web', 'Web', Network], ['text', 'Export', Download]] as const).map(([key, label, Icon], i) => (
               <div key={key} className="contents">
                 {i > 0 && <div className="w-px h-4 bg-border/50" />}
                 <button type="button" onClick={() => selectView(key)} aria-pressed={view === key} title={label}
@@ -400,7 +403,7 @@ export function DeckContextPanel({
           <DeckTagGraph cards={visibleCards} selectedTags={selectedTags} onTagClick={onTagClick} />
         </div>
       ) : view === 'text' ? (
-        <DeckTextView cards={visibleCards} />
+        <DeckExportView cards={visibleCards} topTags={topTags} onSaveAs={onSaveAs} />
       ) : view === 'table' ? (
         <div className="flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
           {displayTags.length > 0 && (
@@ -961,9 +964,33 @@ function DeckTableView({ cards, selectedTags, onTagClick, onRemoveTag, onCardAct
   );
 }
 
-// Plain-text decklist (qty + name) for copy-out to Moxfield / Archidekt / etc.
-function DeckTextView({ cards }: { cards: ScryfallCard[] }) {
+/** Prefill for the save-name field: the deck's most common meaningful tag, so a
+ *  lifegain pile saves as "Lifegain" rather than something anonymous. */
+function suggestedDeckName(topTags: DeckTagCount[]): string {
+  const top = topTags.find(t => !t.ignored) ?? topTags[0];
+  if (!top) return 'Untitled';
+  return top.label.charAt(0).toUpperCase() + top.label.slice(1);
+}
+
+// Plain-text decklist (qty + name) for copy-out to Moxfield / Archidekt / etc.,
+// plus — when nothing saved is loaded — a way to keep the deck in the library.
+function DeckExportView({ cards, topTags, onSaveAs }: {
+  cards: ScryfallCard[];
+  topTags: DeckTagCount[];
+  onSaveAs?: (name: string, type: 'deck' | 'list') => void;
+}) {
   const [copied, setCopied] = useState(false);
+  const [name, setName] = useState(() => suggestedDeckName(topTags));
+  // Tags arrive asynchronously (the index loads lazily), so the suggestion can
+  // land after first render. Adopt it only while the field is untouched.
+  const [touched, setTouched] = useState(false);
+  const suggestion = suggestedDeckName(topTags);
+  const [prevSuggestion, setPrevSuggestion] = useState(suggestion);
+  if (suggestion !== prevSuggestion) {
+    setPrevSuggestion(suggestion);
+    if (!touched) setName(suggestion);
+  }
+
   const text = useMemo(() => {
     const map = new Map<string, number>();
     for (const c of cards) map.set(c.name, (map.get(c.name) ?? 0) + 1);
@@ -972,6 +999,10 @@ function DeckTextView({ cards }: { cards: ScryfallCard[] }) {
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
   };
+
+  const trimmed = name.trim();
+  const canSave = !!onSaveAs && trimmed.length > 0 && cards.length > 0;
+
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-2 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -987,6 +1018,34 @@ function DeckTextView({ cards }: { cards: ScryfallCard[] }) {
         onFocus={e => e.currentTarget.select()}
         className="flex-1 min-h-[200px] w-full text-xs font-mono rounded-md bg-background border border-border/60 p-3 resize-none focus:outline-none focus:ring-1 focus:ring-primary/50"
       />
+      {onSaveAs && (
+        <div className="shrink-0 rounded-md border border-border/60 bg-background/40 p-3 space-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+            <Library className="w-3.5 h-3.5 text-muted-foreground" />
+            Keep this {cards.length === 1 ? 'card' : 'deck'}
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            Nothing here is saved yet. Save it to your library and further edits stick.
+          </p>
+          <input
+            value={name}
+            onChange={e => { setTouched(true); setName(e.target.value); }}
+            placeholder="Name"
+            aria-label="Name"
+            className="w-full text-xs rounded-md bg-background border border-border/60 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" disabled={!canSave} onClick={() => onSaveAs(trimmed, 'deck')} className="flex-1 gap-1.5">
+              <Layers className="w-3.5 h-3.5" />
+              Save as Deck
+            </Button>
+            <Button variant="outline" size="sm" disabled={!canSave} onClick={() => onSaveAs(trimmed, 'list')} className="flex-1 gap-1.5">
+              <List className="w-3.5 h-3.5" />
+              Save as List
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
