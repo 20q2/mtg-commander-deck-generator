@@ -9,16 +9,31 @@ import type { ScryfallCard } from '@/types';
 
 export interface PasteLaneResult {
   cardNames: string[];
-  commanderName: string;
+  /** Absent only when the lane allows commander-less decks (see `requireCommander`). */
+  commanderName?: string;
   partnerCommanderName?: string;
 }
 
 interface PasteLaneProps {
-  onAnalyze: (result: PasteLaneResult) => void;
+  onSubmit: (result: PasteLaneResult) => void;
   loading: boolean;
+  ctaLabel?: string;
+  ctaLoadingLabel?: string;
+  /**
+   * Inspector analysis is meaningless without a commander, so it gates the CTA on
+   * one. Playtest doesn't: an empty command zone is a legal way to goldfish a
+   * partial list, so it opts out and lets the deck through commander-less.
+   */
+  requireCommander?: boolean;
 }
 
-export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
+export function PasteLane({
+  onSubmit,
+  loading,
+  ctaLabel = 'Inspect →',
+  ctaLoadingLabel = 'Inspecting…',
+  requireCommander = true,
+}: PasteLaneProps) {
   const [importedCards, setImportedCards] = useState<string[]>([]);
   const [legendaries, setLegendaries] = useState<ScryfallCard[]>([]);
   const [commanderCard, setCommanderCard] = useState<ScryfallCard | null>(null);
@@ -90,7 +105,7 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
 
   const showLegendaryPicker = legendaries.length > 1 && !commanderCard;
   const showFallback = importedCards.length > 0 && legendaries.length === 0 && !commanderCard;
-  const canAnalyze = importedCards.length > 0 && commanderCard !== null && !loading;
+  const canSubmit = importedCards.length > 0 && (!requireCommander || commanderCard !== null) && !loading;
 
   return (
     <div className="space-y-4">
@@ -116,7 +131,9 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
       {showFallback && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
           <p className="text-xs text-amber-400/90">
-            We couldn't find a commander in this list — pick one to analyze.
+            {requireCommander
+              ? "We couldn't find a commander in this list — pick one to analyze."
+              : "We couldn't find a commander in this list — pick one, or play without a command zone."}
           </p>
           <input
             type="text"
@@ -148,23 +165,33 @@ export function PasteLane({ onAnalyze, loading }: PasteLaneProps) {
       <div className="flex justify-end">
         <Button
           onClick={() => {
-            if (!commanderCard) return;
+            if (!canSubmit) return;
+            if (!commanderCard) {
+              onSubmit({ cardNames: importedCards });
+              return;
+            }
             const names = importedCards.includes(commanderCard.name)
               ? importedCards
               : [commanderCard.name, ...importedCards];
-            onAnalyze({ cardNames: names, commanderName: commanderCard.name });
+            onSubmit({ cardNames: names, commanderName: commanderCard.name });
           }}
-          disabled={!canAnalyze}
+          disabled={!canSubmit}
           className="btn-shimmer"
-          title={!commanderCard ? 'Pick a commander to inspect this list' : 'Inspect this deck'}
+          title={
+            requireCommander && !commanderCard
+              ? 'Pick a commander to inspect this list'
+              : importedCards.length === 0
+              ? 'Paste a decklist first'
+              : undefined
+          }
         >
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Inspecting…
+              {ctaLoadingLabel}
             </>
           ) : (
-            <>Inspect →</>
+            <>{ctaLabel}</>
           )}
         </Button>
       </div>

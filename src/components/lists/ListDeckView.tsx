@@ -2735,6 +2735,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                     existingNames={allListNames}
                     onAddCards={handleBulkImport}
                     label="Add Cards"
+                    showDragDropHint
                     onCancel={() => setShowHeaderBulkAdd(false)}
                   />
                 </div>
@@ -2849,6 +2850,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                         existingNames={allListNames}
                         onAddCards={handleBulkImport}
                         label="Bulk Add Cards"
+                        showDragDropHint
                         onCancel={() => setShowBulkAdd(false)}
                       />
                     </div>
@@ -2863,6 +2865,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                     existingNames={allListNames}
                     onAddCards={handleBulkImport}
                     label="Bulk Add Cards"
+                    showDragDropHint
                     onCancel={() => setShowBulkAdd(false)}
                   />
                 </div>

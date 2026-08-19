@@ -86,10 +86,21 @@ export interface PlaytestSnapshot {
 
 export type SourceInput =
   | { kind: 'list'; list: UserCardList }
-  | { kind: 'generated'; deck: GeneratedDeck };
+  | { kind: 'generated'; deck: GeneratedDeck }
+  // A decklist pasted into the playtest hub, or decoded from a share link, and
+  // never saved. Card names only — it rides in router state, so it has to stay
+  // serializable and small. `origin` exists so analytics can tell a hand-pasted
+  // deck from an opened share link; both load identically.
+  | {
+      kind: 'pasted';
+      cardNames: string[];
+      commanderName?: string;
+      partnerCommanderName?: string;
+      origin?: 'paste' | 'shared';
+    };
 
 export interface SourceMeta {
-  kind: 'list' | 'generated';
+  kind: 'list' | 'generated' | 'pasted' | 'shared';
   name: string;
   commanderNames: string[];
 }

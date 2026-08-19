@@ -2,23 +2,40 @@ import type { ComponentType } from 'react';
 import { ClipboardPaste, ListChecks } from 'lucide-react';
 import { LogoMark } from '@/components/ui/logo-mark';
 
-export type LaneKey = 'paste' | 'lists' | 'generate';
-
-const TABS: { key: LaneKey; label: string; icon: ComponentType<{ className?: string }> }[] = [
-  { key: 'paste',    label: 'Paste',     icon: ClipboardPaste },
-  { key: 'lists',    label: 'My Decks',  icon: ListChecks },
-  { key: 'generate', label: 'Assemble',  icon: LogoMark },
-];
-
-interface LaneTabsProps {
-  active: LaneKey;
-  onChange: (k: LaneKey) => void;
+export interface LaneTab<K extends string> {
+  key: K;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
 }
 
-export function LaneTabs({ active, onChange }: LaneTabsProps) {
+/** Inspector's hub: paste a list, pick a saved deck, or go generate one. */
+export type AnalyzeLaneKey = 'paste' | 'lists' | 'generate';
+export const ANALYZE_LANES: LaneTab<AnalyzeLaneKey>[] = [
+  { key: 'paste',    label: 'Paste',    icon: ClipboardPaste },
+  { key: 'lists',    label: 'My Decks', icon: ListChecks },
+  { key: 'generate', label: 'Assemble', icon: LogoMark },
+];
+
+/**
+ * Playtest's hub. No "Assemble" lane — generating a deck to goldfish it is the
+ * Foundry's job, and the generated-deck callout above the tabs covers that handoff.
+ */
+export type PlaytestLaneKey = 'paste' | 'lists';
+export const PLAYTEST_LANES: LaneTab<PlaytestLaneKey>[] = [
+  { key: 'paste', label: 'Paste',    icon: ClipboardPaste },
+  { key: 'lists', label: 'My Decks', icon: ListChecks },
+];
+
+interface LaneTabsProps<K extends string> {
+  tabs: LaneTab<K>[];
+  active: K;
+  onChange: (k: K) => void;
+}
+
+export function LaneTabs<K extends string>({ tabs, active, onChange }: LaneTabsProps<K>) {
   return (
     <div role="tablist" aria-label="Choose how to load a deck" className="flex items-center gap-1.5 justify-center mb-6">
-      {TABS.map(tab => {
+      {tabs.map(tab => {
         const isActive = active === tab.key;
         return (
           <button

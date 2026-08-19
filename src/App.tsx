@@ -726,6 +726,7 @@ function App() {
         <Route path="/playtest" element={<Layout><PlaytestLandingPage /></Layout>} />
         <Route path="/playtest/list/:listId" element={<PlaytestPage kind="list" />} />
         <Route path="/playtest/generated" element={<PlaytestPage kind="generated" />} />
+        <Route path="/playtest/pasted" element={<PlaytestPage kind="pasted" />} />
         {import.meta.env.DEV && MetricsPage && (
           <Route path="/metrics" element={<Layout><Suspense fallback={null}><MetricsPage /></Suspense></Layout>} />
         )}

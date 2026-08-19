@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, pointerWithin, rectIntersection, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent, type Modifier } from '@dnd-kit/core';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -43,14 +43,34 @@ const centerCreateOnCursor: Modifier = ({ activatorEvent, draggingNodeRect, tran
   };
 };
 
-export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
+/**
+ * A pasted deck exists only in the history entry that launched it — nothing is
+ * saved. `history.state` survives a reload, so a refresh on /playtest/pasted keeps
+ * the deck (the game itself restarts, same as a generated deck).
+ */
+export interface PastedPlaytestDeck {
+  cardNames: string[];
+  commanderName?: string;
+  partnerCommanderName?: string;
+  /** How the deck got here — hand-pasted, or decoded from a "#d=" share link. */
+  origin?: 'paste' | 'shared';
+}
+
+export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }) {
   usePlaytestHotkeys();
   const navigate = useNavigate();
   const params = useParams<{ listId: string }>();
+  const location = useLocation();
   const generatedDeck = useStore(s => s.generatedDeck);
   const { getListById } = useUserLists();
 
-  const playtestDeckName = kind === 'list' ? getListById(params.listId ?? '')?.name : generatedDeck?.commander?.name;
+  const pastedDeck = (location.state as { pastedDeck?: PastedPlaytestDeck } | null)?.pastedDeck ?? null;
+
+  const playtestDeckName = kind === 'list'
+    ? getListById(params.listId ?? '')?.name
+    : kind === 'pasted'
+    ? pastedDeck?.commanderName ?? (pastedDeck?.origin === 'shared' ? 'Shared deck' : 'Pasted deck')
+    : generatedDeck?.commander?.name;
   usePageTitle([playtestDeckName, 'Playtest']);
 
   const hydrate = usePlaytestStore(s => s.hydrate);
@@ -67,6 +87,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' }) {
     if (kind === 'generated') {
       if (!generatedDeck) { navigate('/'); return; }
       hydrate({ kind: 'generated', deck: generatedDeck });
+    } else if (kind === 'pasted') {
+      // No deck in history state means the URL was opened cold — send them back to
+      // the hub to paste again rather than showing an empty table.
+      if (!pastedDeck || pastedDeck.cardNames.length === 0) { navigate('/playtest'); return; }
+      hydrate({ kind: 'pasted', ...pastedDeck });
     } else {
       const list = params.listId ? getListById(params.listId) : null;
       if (!list) { navigate('/lists'); return; }

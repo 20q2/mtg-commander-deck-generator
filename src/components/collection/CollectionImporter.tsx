@@ -50,6 +50,13 @@ interface CollectionImporterProps {
   onProgressChange?: (progress: string) => void;
   /** Called with all legendary creatures found during import, for commander selection */
   onLegendariesDetected?: (legendaries: import('@/types').ScryfallCard[]) => void;
+  /**
+   * Mention drag-and-drop from EDHREC/Scryfall/Moxfield in the placeholder.
+   * Opt-in, because only the deck view actually accepts those drops — everywhere
+   * else the importer appears (collection, list create/edit, paste lanes) the tip
+   * would be advertising something that doesn't work there.
+   */
+  showDragDropHint?: boolean;
 }
 
 /**
@@ -136,7 +143,7 @@ export interface CollectionImporterHandle {
   hasPending: () => boolean;
 }
 
-export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID }, ref) {
+export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID, showDragDropHint = false }, ref) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, _setProgress] = useState('');
@@ -327,7 +334,10 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
           value={importText}
           onChange={(e) => { setImportText(e.target.value); onPendingChange?.(!!e.target.value.trim()); }}
           disabled={isImporting}
-          placeholder={"1 Sol Ring\n4 Forest\n1x Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports\nYou can also drag and drop cards from EDHRec, Scryfall, and Moxfield into your deck too!"}
+          placeholder={
+            "1 Sol Ring\n4 Forest\n1x Rhystic Study\n...\n\nAlso supports CSV, MTGA, and MTGGoldfish exports" +
+            (showDragDropHint ? "\nYou can also drag and drop cards from EDHRec, Scryfall, and Moxfield into your deck too!" : "")
+          }
           className={`w-full h-48 px-3 py-2 text-sm bg-background border border-border rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 ${textareaClassName ?? ''}`}
         />
 

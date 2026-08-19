@@ -9,19 +9,26 @@ interface ListsLaneProps {
   onPick: (list: UserCardList) => void;
   loading: boolean;
   loadingListId: string | null;
+  /**
+   * Which lists this hub can open. Defaults to Inspector's rule (anything with a
+   * commander); playtest narrows it to decks that actually have cards to shuffle.
+   */
+  filter?: (list: UserCardList) => boolean;
 }
 
-export function ListsLane({ onPick, loading, loadingListId }: ListsLaneProps) {
+const HAS_COMMANDER = (l: UserCardList) => !!l.commanderName;
+
+export function ListsLane({ onPick, loading, loadingListId, filter = HAS_COMMANDER }: ListsLaneProps) {
   const { lists } = useUserLists();
   const eligible = useMemo(
-    () => lists.filter(l => !!l.commanderName).sort((a, b) => b.updatedAt - a.updatedAt),
-    [lists],
+    () => lists.filter(filter).sort((a, b) => b.updatedAt - a.updatedAt),
+    [lists, filter],
   );
 
   if (eligible.length === 0) {
     return (
       <div className="text-center py-12 text-sm text-muted-foreground">
-        No saved decks yet. Paste a deck above, or{' '}
+        No saved decks yet. Use the Paste tab, or{' '}
         <Link to="/lists" className="text-primary hover:underline">
           build one
         </Link>{' '}
@@ -64,7 +71,9 @@ export function ListsLane({ onPick, loading, loadingListId }: ListsLaneProps) {
             </div>
             <div className="relative flex-1 min-w-0">
               <p className="text-sm font-semibold truncate">{list.name}</p>
-              <p className="text-xs text-muted-foreground truncate">{list.commanderName}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {list.commanderName ? `${list.commanderName} · ` : ''}{list.cards.length} cards
+              </p>
               {list.cachedColorIdentity && list.cachedColorIdentity.length > 0 && (
                 <div className="mt-1">
                   <ColorIdentity colors={list.cachedColorIdentity} size="sm" />

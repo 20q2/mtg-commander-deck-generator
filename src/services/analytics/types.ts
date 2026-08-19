@@ -135,8 +135,8 @@ export interface AnalyticsEventMetadata {
   strategy_selected: { strategy: string };
   playtest_started: {
     /** Where the playtest was launched from. */
-    source: 'list' | 'generated';
-    /** Deck name (commander name for generated, list name for lists). */
+    source: 'list' | 'generated' | 'pasted' | 'shared';
+    /** Deck name (commander name for generated, pasted and shared; list name for lists). */
     deckName: string;
     /** Commander(s) — concatenated with " // " for partner pairs. */
     commanderName?: string;

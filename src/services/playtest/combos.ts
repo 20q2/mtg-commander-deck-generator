@@ -5,27 +5,44 @@ import type { SourceInput } from '@/components/playtest/types';
 /**
  * Resolves the combos in this deck. For generated decks we already have a
  * `detectedCombos` array on the deck object (now includes off-commander combos).
- * For saved lists we re-run the same EDHREC commander-combo lookup + color-identity
- * combo lookup + deck-membership detection that ListDeckView uses, against the
- * union of every card name in the list.
+ * For saved lists and pasted decks we re-run the same EDHREC commander-combo lookup
+ * + color-identity combo lookup + deck-membership detection that ListDeckView uses,
+ * against the union of every card name in the deck.
+ *
+ * `colorIdentity` is the identity the playtest store derived from the resolved
+ * cards. A pasted deck has no cached identity to read, and a saved list's
+ * `cachedColorIdentity` can be missing, so the caller's value wins over both.
  */
-export async function resolveCombos(input: SourceInput): Promise<DetectedCombo[]> {
+export async function resolveCombos(input: SourceInput, colorIdentity?: string[]): Promise<DetectedCombo[]> {
   if (input.kind === 'generated') {
     return input.deck.detectedCombos ?? [];
   }
-  const list = input.list;
+  const { cardNames, commanderName, partnerCommanderName, colors } = input.kind === 'pasted'
+    ? {
+        cardNames: input.cardNames,
+        commanderName: input.commanderName,
+        partnerCommanderName: input.partnerCommanderName,
+        colors: colorIdentity ?? [],
+      }
+    : {
+        cardNames: input.list.cards,
+        commanderName: input.list.commanderName,
+        partnerCommanderName: input.list.partnerCommanderName,
+        colors: colorIdentity ?? input.list.cachedColorIdentity ?? [],
+      };
+
   const allNames = new Set<string>([
-    ...list.cards,
-    ...(list.commanderName ? [list.commanderName] : []),
-    ...(list.partnerCommanderName ? [list.partnerCommanderName] : []),
+    ...cardNames,
+    ...(commanderName ? [commanderName] : []),
+    ...(partnerCommanderName ? [partnerCommanderName] : []),
   ]);
   try {
     // No commander → pull combos for the deck's colors only (color-identity page).
     const [commanderRaw, colorRaw] = await Promise.all([
-      list.commanderName
-        ? fetchCommanderCombos(list.commanderName).catch(() => [] as EDHRECCombo[])
+      commanderName
+        ? fetchCommanderCombos(commanderName).catch(() => [] as EDHRECCombo[])
         : Promise.resolve([] as EDHRECCombo[]),
-      fetchColorIdentityCombos(list.cachedColorIdentity ?? []).catch(() => [] as EDHRECCombo[]),
+      fetchColorIdentityCombos(colors).catch(() => [] as EDHRECCombo[]),
     ]);
     const commanderCombos: EDHRECCombo[] = commanderRaw.map(c => ({ ...c, source: 'commander' as const }));
     const colorCombos: EDHRECCombo[] = colorRaw.map(c => ({ ...c, source: 'color-identity' as const }));
@@ -35,7 +52,7 @@ export async function resolveCombos(input: SourceInput): Promise<DetectedCombo[]
     for (const c of commanderCombos) byId.set(c.comboId, c);
     for (const c of colorCombos) if (!byId.has(c.comboId)) byId.set(c.comboId, c);
 
-    return detectCombosInDeck([...byId.values()], allNames, list.commanderName, list.partnerCommanderName);
+    return detectCombosInDeck([...byId.values()], allNames, commanderName, partnerCommanderName);
   } catch {
     return [];
   }

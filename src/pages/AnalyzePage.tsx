@@ -2,14 +2,14 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, Check, FlaskConical } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
-import { LaneTabs, type LaneKey } from '@/components/analyze/LaneTabs';
+import { LaneTabs, ANALYZE_LANES, type AnalyzeLaneKey } from '@/components/deck-source/LaneTabs';
 import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
-import { PasteLane, type PasteLaneResult } from '@/components/analyze/PasteLane';
-import { ListsLane } from '@/components/analyze/ListsLane';
+import { PasteLane, type PasteLaneResult } from '@/components/deck-source/PasteLane';
+import { ListsLane } from '@/components/deck-source/ListsLane';
 import { GenerateLane } from '@/components/analyze/GenerateLane';
 import { type AnalyzeSource } from '@/components/analyze/CommanderStrip';
 import { hydrateDeckForAnalysis, type HydrateStage } from '@/components/analyze/analyzeHydration';
-import { readDeckHash, decodeDeckPayload, DeckLinkError } from '@/services/share/deckLink';
+import { readDeckHash, decodeDeckPayload, shareLinkErrorMessage } from '@/services/share/deckLink';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
 import { AnalyzeSplit } from '@/components/analyze/AnalyzeSplit';
@@ -54,22 +54,8 @@ function countCards(deck: GeneratedDeck): number {
   return commander + partner + body;
 }
 
-function shareLinkErrorMessage(e: unknown): string {
-  if (e instanceof DeckLinkError) {
-    switch (e.reason) {
-      case 'unsupported-version':
-        return 'This link was made by a newer version of the site.';
-      case 'unsupported-browser':
-        return 'Your browser can\'t open share links. Try a current Chrome, Firefox, or Safari.';
-      default:
-        return 'This share link is damaged or incomplete.';
-    }
-  }
-  return 'Could not analyze this deck. Check the card names and try again.';
-}
-
 export function AnalyzePage() {
-  const [activeLane, setActiveLane] = useState<LaneKey>(() => {
+  const [activeLane, setActiveLane] = useState<AnalyzeLaneKey>(() => {
     const stored = localStorage.getItem(LANE_STORAGE_KEY);
     if (stored === 'paste' || stored === 'lists' || stored === 'generate') return stored;
     return 'paste';
@@ -162,7 +148,7 @@ export function AnalyzePage() {
     return `${import.meta.env.BASE_URL}${path}`;
   }, [listIdParam]);
 
-  const prevLaneRef = useRef<LaneKey>(activeLane);
+  const prevLaneRef = useRef<AnalyzeLaneKey>(activeLane);
   useEffect(() => {
     localStorage.setItem(LANE_STORAGE_KEY, activeLane);
     if (prevLaneRef.current !== activeLane) {
@@ -288,6 +274,9 @@ export function AnalyzePage() {
   }, [colorIdentityStore]);
 
   const handlePasteAnalyze = useCallback(async (result: PasteLaneResult) => {
+    // The lane gates its CTA on a commander for us (requireCommander defaults to
+    // true), so this is a type narrowing rather than a reachable branch.
+    if (!result.commanderName) return;
     setLoading(true);
     setLoadStage('fetching-cards');
     setError(null);
@@ -366,7 +355,7 @@ export function AnalyzePage() {
         });
       } catch (e) {
         console.error('[AnalyzePage] shared-link hydration failed', e);
-        setError(shareLinkErrorMessage(e));
+        setError(shareLinkErrorMessage(e, 'Could not analyze this deck. Check the card names and try again.'));
       } finally {
         setLoading(false);
         setLoadStage(null);
@@ -896,7 +885,7 @@ export function AnalyzePage() {
 
       <div className="relative">
         <div className="animate-enter-up" style={{ animationDelay: '90ms' }}>
-          <LaneTabs active={activeLane} onChange={setActiveLane} />
+          <LaneTabs tabs={ANALYZE_LANES} active={activeLane} onChange={setActiveLane} />
         </div>
 
         {error && (
@@ -913,7 +902,7 @@ export function AnalyzePage() {
           style={{ animationDelay: '170ms' }}
         >
           {activeLane === 'paste' && (
-            <PasteLane onAnalyze={handlePasteAnalyze} loading={loading} />
+            <PasteLane onSubmit={handlePasteAnalyze} loading={loading} />
           )}
           {activeLane === 'lists' && (
             <ListsLane onPick={handleListPick} loading={loading} loadingListId={loadingListId} />

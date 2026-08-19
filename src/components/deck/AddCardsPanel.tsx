@@ -23,6 +23,8 @@ export interface AddCardsPanelProps {
   onCancel?: () => void;
   textareaClassName?: string;
   autoFocus?: boolean;
+  /** Surface the drag-a-card-link tip — only true where the surface accepts those drops. */
+  showDragDropHint?: boolean;
 }
 
 /**
@@ -39,7 +41,7 @@ export interface AddCardsPanelProps {
  * the panel can flush pasted-but-un-imported text instead of dropping it.
  */
 export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelProps>(function AddCardsPanel(
-  { existingNames, onAddCards, onAddCard, label, hideLabel, updatedLabel = 'already in deck', onCancel, textareaClassName, autoFocus }, ref
+  { existingNames, onAddCards, onAddCard, label, hideLabel, updatedLabel = 'already in deck', onCancel, textareaClassName, autoFocus, showDragDropHint }, ref
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
   // Recomputed per render so a card added moments ago stops being suggested;
@@ -125,6 +127,7 @@ export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelP
         updatedLabel={updatedLabel}
         onCancel={onCancel}
         textareaClassName={textareaClassName}
+        showDragDropHint={showDragDropHint}
       />
     </div>
   );

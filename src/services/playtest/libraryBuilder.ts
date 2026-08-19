@@ -1,4 +1,4 @@
-import type { ScryfallCard, UserCardList, GeneratedDeck } from '@/types';
+import type { ScryfallCard, GeneratedDeck } from '@/types';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { fisherYates } from '@/components/playtest/utils';
 import type { SourceInput, Zones } from '@/components/playtest/types';
@@ -7,7 +7,7 @@ export interface BuildResult {
   zones: Zones;
   commanderNames: string[];
   name: string;
-  kind: 'list' | 'generated';
+  kind: 'list' | 'generated' | 'pasted' | 'shared';
 }
 
 const EMPTY_ZONES: Zones = { library: [], hand: [], graveyard: [], exile: [], command: [] };
@@ -16,7 +16,23 @@ export async function buildLibrary(input: SourceInput): Promise<BuildResult> {
   if (input.kind === 'generated') {
     return buildFromGenerated(input.deck);
   }
-  return buildFromList(input.list);
+  if (input.kind === 'pasted') {
+    return buildFromNames({
+      cardNames: input.cardNames,
+      commanderNames: [input.commanderName, input.partnerCommanderName].filter((n): n is string => !!n),
+      // A pasted deck has no name of its own; the commander is the best handle,
+      // and a commander-less paste is legal here (empty command zone).
+      name: input.commanderName ?? (input.origin === 'shared' ? 'Shared deck' : 'Pasted deck'),
+      kind: input.origin === 'shared' ? 'shared' : 'pasted',
+    });
+  }
+  const { list } = input;
+  return buildFromNames({
+    cardNames: list.cards,
+    commanderNames: [list.commanderName, list.partnerCommanderName].filter((n): n is string => !!n),
+    name: list.name,
+    kind: 'list',
+  });
 }
 
 function buildFromGenerated(deck: GeneratedDeck): BuildResult {
@@ -39,26 +55,33 @@ function buildFromGenerated(deck: GeneratedDeck): BuildResult {
   };
 }
 
-async function buildFromList(list: UserCardList): Promise<BuildResult> {
-  const commanderNames: string[] = [];
-  if (list.commanderName) commanderNames.push(list.commanderName);
-  if (list.partnerCommanderName) commanderNames.push(list.partnerCommanderName);
+/**
+ * Shared path for the two name-only sources (saved lists and pasted decks): fetch
+ * every card, split commanders into the command zone, shuffle the rest.
+ */
+async function buildFromNames(args: {
+  cardNames: string[];
+  commanderNames: string[];
+  name: string;
+  kind: 'list' | 'pasted' | 'shared';
+}): Promise<BuildResult> {
+  const { cardNames, commanderNames, name, kind } = args;
 
-  const allNames = Array.from(new Set([...list.cards, ...commanderNames]));
+  const allNames = Array.from(new Set([...cardNames, ...commanderNames]));
   const cardMap = await getCardsByNames(allNames);
 
   const command: ScryfallCard[] = [];
-  for (const name of commanderNames) {
-    const c = cardMap.get(name);
+  for (const commanderName of commanderNames) {
+    const c = cardMap.get(commanderName);
     if (c) command.push(c);
   }
 
   const commanderSet = new Set(commanderNames);
-  // list.cards stores card NAMES with duplicates as repeated entries (no quantity field)
+  // cardNames stores card NAMES with duplicates as repeated entries (no quantity field)
   const libraryPool: ScryfallCard[] = [];
-  for (const name of list.cards) {
-    if (commanderSet.has(name)) continue; // commanders go to command zone, not library
-    const c = cardMap.get(name);
+  for (const cardName of cardNames) {
+    if (commanderSet.has(cardName)) continue; // commanders go to command zone, not library
+    const c = cardMap.get(cardName);
     if (c) libraryPool.push(c);
   }
 
@@ -67,7 +90,7 @@ async function buildFromList(list: UserCardList): Promise<BuildResult> {
   return {
     zones: { ...EMPTY_ZONES, library, command },
     commanderNames,
-    name: list.name,
-    kind: 'list',
+    name,
+    kind,
   };
 }

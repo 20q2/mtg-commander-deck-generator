@@ -194,6 +194,25 @@ export function deckToSharePayload(deck: {
   };
 }
 
+/**
+ * User-facing copy for a failed share-link load. The reasons are about the link
+ * itself and read the same wherever a link is opened; `fallback` covers everything
+ * else (a hydration failure, a bad card name), which is page-specific.
+ */
+export function shareLinkErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof DeckLinkError) {
+    switch (e.reason) {
+      case 'unsupported-version':
+        return 'This link was made by a newer version of the site.';
+      case 'unsupported-browser':
+        return 'Your browser can\'t open share links. Try a current Chrome, Firefox, or Safari.';
+      default:
+        return 'This share link is damaged or incomplete.';
+    }
+  }
+  return fallback;
+}
+
 /** Build the absolute share URL for a tab slug plus deck payload. */
 export async function buildShareUrl(tabSlug: string, p: SharedDeckPayload): Promise<string> {
   const encoded = await encodeDeckPayload(p);

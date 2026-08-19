@@ -260,7 +260,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       });
       get().dealOpeningHand();
       // Resolve combos in the background — don't block initial render.
-      resolveCombos(input)
+      resolveCombos(input, colorIdentity)
         .then((combos) => {
           // Only apply if the user hasn't navigated away to another deck since.
           if (get().source?.name === built.name) set({ combos });
