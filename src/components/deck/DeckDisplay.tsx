@@ -2676,7 +2676,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
 
 export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, savedList, saveNudge, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
-  const { generatedDeck, commander, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
+  const { generatedDeck, commander, colorIdentity, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
   const formatConfig = getDeckFormatConfig(customization.deckFormat);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
@@ -3311,6 +3311,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
   }, [flatCardList]);
 
   const deckCardNames = useMemo(() => new Set(flatCardList.map(c => c.name)), [flatCardList]);
+
+  // Explicit in-deck context for the preview modal's similar-card filter. Memoized
+  // because the modal's filter memo depends on identity, not contents.
+  const previewInDeckNames = useMemo(() => flatCardList.map(c => c.name), [flatCardList]);
 
   const resolveCardByName = useCallback(async (name: string): Promise<ScryfallCard | undefined> => {
     const found = flatCardList.find(c => c.name === name);
@@ -5307,6 +5311,8 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         showPrice={showPrice}
         prevCardImage={prevCardImage}
         nextCardImage={nextCardImage}
+        inDeckNames={previewInDeckNames}
+        commanderColorIdentity={colorIdentity}
         onBuildDeck={(cardName) => navigate(`/build/${encodeURIComponent(cardName)}`)}
       />
       <ExportModal

@@ -835,6 +835,7 @@ export function AnalyzePage() {
                 onAddCard={handleAnalyzerAddCard}
                 cardInclusionMap={generatedDeck.cardInclusionMap}
                 cardRelevancyMap={generatedDeck.cardRelevancyMap}
+                commanderColorIdentity={colorIdentityStore}
               />
             }
           />

@@ -44,6 +44,9 @@ interface DeckBuildingAreaProps {
   cardInclusionMap?: Record<string, number> | null;
   /** Composite relevancy map — preferred rerank key for similar-card suggestions. */
   cardRelevancyMap?: Record<string, number> | null;
+  /** Commander color identity for the preview modal's similar-card filter. Without it
+   *  the modal applies no identity filter — it never reads the store. */
+  commanderColorIdentity?: string[];
   /** ?deck= reference so a card-preview tag click carries the whole deck into SpellChroma
    *  (a saved list id, or 'generated' for the ephemeral deck). Omit to seed just the card. */
   spellChromaDeckRef?: string;
@@ -291,7 +294,7 @@ const GROUP_STORAGE_KEY = 'analyze-play-area-group';
 const SORT_DIR_STORAGE_KEY = 'analyze-play-area-sort-dir';
 const DIM_ROLES_KEY = 'analyze-play-area-dim-roles';
 
-export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra, onSwapCard, onAddCard, cardInclusionMap, cardRelevancyMap, spellChromaDeckRef }: DeckBuildingAreaProps) {
+export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra, onSwapCard, onAddCard, cardInclusionMap, cardRelevancyMap, commanderColorIdentity, spellChromaDeckRef }: DeckBuildingAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -901,6 +904,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
         cardInclusionMap={cardInclusionMap}
         cardRelevancyMap={cardRelevancyMap}
         inDeckNames={inDeckNames}
+        commanderColorIdentity={commanderColorIdentity}
         spellChromaDeckRef={spellChromaDeckRef}
       />
     </div>
