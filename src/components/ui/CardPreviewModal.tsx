@@ -639,17 +639,11 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const filteredSimilarCards = useMemo<ScryfallCard[]>(() => {
     if (!card || !similarHydrated?.length) return [];
 
-    const inDeckNameSet = new Set<string>();
-    if (inDeckNames) {
-      for (const n of inDeckNames) inDeckNameSet.add(n);
-    } else if (generatedDeck) {
-      for (const cards of Object.values(generatedDeck.categories)) {
-        for (const c of cards) inDeckNameSet.add(c.name);
-      }
-    }
-
-    const identitySource = commanderColorIdentity ?? commander?.color_identity ?? [];
-    const cmdrIdentity = new Set(identitySource.map((c) => c.toUpperCase()));
+    // Filters apply ONLY to context the caller passed. No store fallback: `commander`
+    // and `generatedDeck` are in-memory and survive SPA navigation, so a deck built
+    // earlier in the session would silently filter unrelated surfaces.
+    const inDeckNameSet = new Set<string>(inDeckNames ?? []);
+    const cmdrIdentity = new Set((commanderColorIdentity ?? []).map((c) => c.toUpperCase()));
 
     const filtered = similarHydrated.filter((c) => {
       if (c.name === card.name) return false;
@@ -677,7 +671,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     unscored.sort((a, b) => a.idx - b.idx);
 
     return [...scored.map((x) => x.card), ...unscored.map((x) => x.card)].slice(0, 15);
-  }, [similarHydrated, card, generatedDeck, commander, cardInclusionMap, cardRelevancyMap, inDeckNames, commanderColorIdentity]);
+  }, [similarHydrated, card, cardInclusionMap, cardRelevancyMap, inDeckNames, commanderColorIdentity]);
 
   if (!card) return null;
 
