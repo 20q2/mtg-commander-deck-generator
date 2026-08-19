@@ -766,8 +766,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     return false;
   })();
   // Show direct-add button when the previewed card is not in the deck and a direct-add handler exists.
-  // Skip when a swap candidate is staged (the swap-bar Add covers that case).
-  const canDirectAdd = !!onAddCard && !cardInDeck && !swapPreview && !cardOverride;
+  // Skip when a swap candidate is staged (the swap-bar Add covers that case). A
+  // chain-browsed similar card IS addable — finding something worth adding is the
+  // whole point of browsing outward. Combo-pill cards keep their own add path.
+  const canDirectAdd = !!onAddCard && !cardInDeck && !swapPreview && cardOverride?.source !== 'combo';
 
   const hasNav = !!(onNavigate && canNavigate && !cardOverride);
 

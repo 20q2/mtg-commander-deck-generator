@@ -80,6 +80,13 @@ export function ExplorerGrid({
   // (mirrors the deck panel).
   const [preview, setPreview] = useState<ScryfallCard | null>(null);
   const previewCombos = useCardCombos(preview, deckNames, cardComboMap);
+  // Drives both the similar-card filter and whether the preview offers "Add to Deck"
+  // (a card already in the deck shouldn't). Undefined with no deck loaded, which is
+  // correct on both counts: nothing to exclude, and Add is always available.
+  const previewInDeckNames = useMemo(
+    () => (deckNames ? [...deckNames] : undefined),
+    [deckNames],
+  );
   // Springy reorder/add/remove for in-place changes (sort flip, text filter,
   // "load all"). A new search remounts the grid via `key`, so auto-animate stays
   // quiet there and the CSS deal-in handles the fresh wave.
@@ -263,6 +270,8 @@ export function ExplorerGrid({
         combos={previewCombos}
         cardComboMap={cardComboMap}
         commanderColorIdentity={colorIdentity}
+        inDeckNames={previewInDeckNames}
+        onAddCard={onCardAction ? (c) => onCardAction(c, { type: 'addToDeck' }) : undefined}
       />
     </div>
   );

@@ -454,6 +454,7 @@ export function DeckContextPanel({
         cardComboMap={cardComboMap}
         commanderColorIdentity={colorIdentity}
         inDeckNames={previewInDeckNames}
+        onAddCard={onCardAction ? (c) => onCardAction(c, { type: 'addToDeck' }) : undefined}
       />
     </div>
   );
