@@ -100,6 +100,8 @@ export function DeckOptimizer({
     () => new Set(currentCards.map(c => c.name)),
     [currentCards],
   );
+  // Explicit in-deck context for the preview modal's similar-card filter.
+  const previewInDeckNames = useMemo(() => currentCards.map(c => c.name), [currentCards]);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
@@ -2127,7 +2129,14 @@ export function DeckOptimizer({
         </div>
       </div>
 
-      <CardPreviewModal card={previewCard} onClose={() => setPreviewCard(null)} spellChromaDeckRef={sourceListId ?? 'generated'} />
+      <CardPreviewModal
+        card={previewCard}
+        onClose={() => setPreviewCard(null)}
+        spellChromaDeckRef={sourceListId ?? 'generated'}
+        inDeckNames={previewInDeckNames}
+        commanderColorIdentity={commanderColorIdentity}
+        cardInclusionMap={cardInclusionMap}
+      />
     </div>
   );
 }

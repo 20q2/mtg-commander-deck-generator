@@ -629,6 +629,7 @@ export function SpellChromaPage() {
       dealKey={`${selectedTags.join(',')}|${debouncedFilters.colorIdentity.join('')}|${debouncedFilters.colorMode}|${debouncedFilters.excludedColors.join('')}|${debouncedFilters.typeFilter.join(',')}`}
       deckNames={deckNames}
       collectionNames={collectionNames}
+      colorIdentity={colorIdentity}
       hideInDeck={hideInDeck}
       showHideInDeck={!!deck}
       onHideInDeckChange={setHideInDeck}

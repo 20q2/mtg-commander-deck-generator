@@ -227,6 +227,8 @@ export function DeckContextPanel({
   // Main-deck names (independent of the active board) — the add-card search drops
   // cards already in the deck from its suggestions.
   const mainDeckNames = useMemo(() => new Set(cards.map(c => c.name)), [cards]);
+  // Array form for the preview modal's similar-card filter.
+  const previewInDeckNames = useMemo(() => cards.map(c => c.name), [cards]);
   const previewCombos = useCardCombos(preview, deckNames, cardComboMap);
   // Top tags reflect whatever board is on screen, so the strip stays coherent
   // when you switch (the main deck keeps the already-computed prop).
@@ -450,6 +452,8 @@ export function DeckContextPanel({
         onTagClick={onTagClick}
         combos={previewCombos}
         cardComboMap={cardComboMap}
+        commanderColorIdentity={colorIdentity}
+        inDeckNames={previewInDeckNames}
       />
     </div>
   );

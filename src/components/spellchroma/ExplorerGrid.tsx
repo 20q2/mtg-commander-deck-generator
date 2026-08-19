@@ -68,11 +68,13 @@ interface ExplorerGridProps {
   menuProps?: DeckPanelMenuProps;
   /** Card name → combos it appears in, for the preview modal's combo tab. */
   cardComboMap?: Map<string, DetectedCombo[]>;
+  /** Active explorer color identity — scopes the preview modal's similar-card filter. */
+  colorIdentity?: string[];
 }
 
 export function ExplorerGrid({
   cards, total, hasMore, loading, loadingAll, error, hasTags, indexReady = false, textFilter, sort, dir = 'asc', dealKey, deckNames, collectionNames, hideInDeck = false, showHideInDeck = false, onHideInDeckChange, noun = 'deck', collectionOnly = false, showCollectionOnly = false, onCollectionOnlyChange, topTags, selectedTags, sticky = false, stickyTop = 52, onLoadAll, onTagClick, onRemoveTag,
-  onCardAction, boardsEnabled = false, menuProps, cardComboMap,
+  onCardAction, boardsEnabled = false, menuProps, cardComboMap, colorIdentity,
 }: ExplorerGridProps) {
   // Full-card preview opened by clicking the image inside a card's popover
   // (mirrors the deck panel).
@@ -260,6 +262,7 @@ export function ExplorerGrid({
         onTagClick={onTagClick}
         combos={previewCombos}
         cardComboMap={cardComboMap}
+        commanderColorIdentity={colorIdentity}
       />
     </div>
   );
