@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.3.31",
+    "notes": [
+      "Share a deck with a link — the Inspector now has a copy-link button that hands someone the exact deck you're looking at, no account or saving required",
+      "Export Deck can now filter your list down to a single collection, or to just the cards you're missing. The option will only be available if you're viewing which cards in your deck are in a collection.",
+      "Fixed decklist imports stating it only imported around 90 cards when it correctly imported the full 100",
+      "You can drag to reorder your collections, rename one straight from its title, and download a collection as a text file",
+      "Retired the 'Classic' build option, the current model is better in every way at this point"
+    ]
+  },
+  {
     "version": "1.3.30",
     "notes": [
       "Visual overhaul to the Inspectors bracket estimation page",

@@ -24,6 +24,37 @@ function isSectionHeader(line: string): boolean {
 }
 
 /**
+ * Record a parsed card, folding a repeated name into the entry already collected.
+ * Plenty of exports write each copy on its own line ("Forest" eight times) instead
+ * of "8 Forest", so repeats have to accumulate — dropping them silently loses cards.
+ */
+function addParsedCard(
+  result: ParsedCard[],
+  index: Map<string, number>,
+  name: string,
+  quantity: number,
+  isCommander?: boolean
+): void {
+  const key = name.toLowerCase();
+  const existingIdx = index.get(key);
+
+  if (existingIdx === undefined) {
+    result.push({ name, quantity, ...(isCommander && { isCommander: true }) });
+    index.set(key, result.length - 1);
+    return;
+  }
+
+  const existing = result[existingIdx];
+  // A commander echoed in the main deck section is the same physical card, not a
+  // second copy — keep it a singleton rather than doubling it.
+  if (existing.isCommander || isCommander) {
+    existing.isCommander = true;
+    return;
+  }
+  existing.quantity += quantity;
+}
+
+/**
  * Parse a collection list from text input.
  * Supports:
  * - One card per line: "Sol Ring"
@@ -51,7 +82,7 @@ export function parseCollectionList(input: string): ParsedCollectionResult {
 
   // Standard text parsing
   const result: ParsedCard[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
 
   // Split by newlines; only comma-split if the entire input is a single line
   const rawLines = trimmed.split('\n');
@@ -108,9 +139,8 @@ export function parseCollectionList(input: string): ParsedCollectionResult {
 
       cardName = stripSuffixes(cardName);
 
-      if (cardName && !seen.has(cardName.toLowerCase())) {
-        seen.add(cardName.toLowerCase());
-        result.push({ name: cardName, quantity, ...(isCommander && { isCommander: true }) });
+      if (cardName) {
+        addParsedCard(result, index, cardName, quantity, isCommander);
       }
     }
   }
@@ -134,7 +164,7 @@ function parseGoldfishSections(lines: string[]): ParsedCollectionResult {
   let deckName: string | undefined;
   let currentSection: string | null = null;
   const cards: ParsedCard[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -173,9 +203,8 @@ function parseGoldfishSections(lines: string[]): ParsedCollectionResult {
 
     cardName = stripSuffixes(cardName);
 
-    if (cardName && !seen.has(cardName.toLowerCase())) {
-      seen.add(cardName.toLowerCase());
-      cards.push({ name: cardName, quantity, ...(isCommander && { isCommander: true }) });
+    if (cardName) {
+      addParsedCard(cards, index, cardName, quantity, isCommander);
     }
   }
 
@@ -197,7 +226,7 @@ function parseCSV(lines: string[]): ParsedCard[] {
   if (nameIdx === -1) return [];
 
   const result: ParsedCard[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -223,9 +252,8 @@ function parseCSV(lines: string[]): ParsedCard[] {
 
     name = stripSuffixes(name);
 
-    if (name && !seen.has(name.toLowerCase())) {
-      seen.add(name.toLowerCase());
-      result.push({ name, quantity });
+    if (name) {
+      addParsedCard(result, index, name, quantity);
     }
   }
 

@@ -6,7 +6,7 @@ import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { getCardByName } from '@/services/scryfall/client';
 import {
-  Search, Trash2, Minus, Plus, Download, AlertTriangle,
+  Search, Trash2, Minus, Plus, Copy, Download, AlertTriangle,
   Grid3X3, List, ChevronDown, RefreshCw, Loader2,
   ChevronLeft, ChevronRight, X, Check,
   Sprout, Swords, Flame, BookOpen, Shield, type LucideIcon,
@@ -137,6 +137,11 @@ interface CollectionManagerProps {
   /** Controlled rarity filter set (empty = all). */
   selectedRarities: Set<string>;
   onSelectedRaritiesChange: (next: Set<string>) => void;
+  /** Controlled "2+ colors in identity" filter, so the Statistics tab can drive it. */
+  multicolorOnly: boolean;
+  onMulticolorOnlyChange: (next: boolean) => void;
+  /** Names the downloaded file. Falls back to "collection.txt". */
+  collectionName?: string;
 }
 
 export function CollectionManager({
@@ -149,6 +154,9 @@ export function CollectionManager({
   onSelectedTypesChange,
   selectedRarities,
   onSelectedRaritiesChange,
+  multicolorOnly,
+  onMulticolorOnlyChange,
+  collectionName,
 }: CollectionManagerProps) {
   const navigate = useNavigate();
 
@@ -158,7 +166,6 @@ export function CollectionManager({
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [colorFilterMode, setColorFilterMode] = useState<ColorFilterMode>('at-least');
   const [commandersOnly, setCommandersOnly] = useState(false);
-  const [multicolorOnly, setMulticolorOnly] = useState(false);
   const [selectedRoles, setSelectedRoles] = useState<Set<RoleKey>>(new Set());
   const [taggerReady, setTaggerReady] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -169,7 +176,7 @@ export function CollectionManager({
   // Reset to first page whenever an external filter request lands.
   useEffect(() => {
     setPage(1);
-  }, [selectedColors, selectedTypes, selectedRarities]);
+  }, [selectedColors, selectedTypes, selectedRarities, multicolorOnly]);
 
   // Load tagger data so role filtering (cardMatchesRole) works. The pills only render
   // once this resolves — if VITE_TAG_REPO_URL is unset or the fetch fails, they stay hidden.
@@ -293,7 +300,7 @@ export function CollectionManager({
     onSelectedTypesChange(new Set());
     onSelectedRaritiesChange(new Set());
     setCommandersOnly(false);
-    setMulticolorOnly(false);
+    onMulticolorOnlyChange(false);
     setSelectedRoles(new Set());
     setSearchQuery('');
     setPage(1);
@@ -309,8 +316,25 @@ export function CollectionManager({
     setPage(1);
   };
 
-  const handleExport = async () => {
-    const text = cards.map(c => `${c.quantity} ${c.name}`).join('\n');
+  /** One "<qty> <name>" line per card — the format the importer reads back. */
+  const buildExportText = () => cards.map(c => `${c.quantity} ${c.name}`).join('\n');
+
+  const handleDownload = () => {
+    const blob = new Blob([buildExportText()], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const slug = (collectionName ?? 'collection')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'collection';
+    a.download = `${slug}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopy = async () => {
+    const text = buildExportText();
     const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
     try {
       await navigator.clipboard.writeText(text);
@@ -380,9 +404,16 @@ export function CollectionManager({
             </button>
           )}
           <button
-            onClick={handleExport}
+            onClick={handleCopy}
             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             title="Copy collection to clipboard"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleDownload}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            title="Download collection as a text file"
           >
             <Download className="w-4 h-4" />
           </button>
@@ -588,7 +619,7 @@ export function CollectionManager({
 
         {/* Multicolor only */}
         <button
-          onClick={() => { setMulticolorOnly(v => !v); setPage(1); }}
+          onClick={() => { onMulticolorOnlyChange(!multicolorOnly); setPage(1); }}
           className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
             multicolorOnly
               ? 'border-primary bg-primary/10 text-violet-200'

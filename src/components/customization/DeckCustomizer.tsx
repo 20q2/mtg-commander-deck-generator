@@ -37,6 +37,80 @@ const RARITY_OPTIONS: { value: Rarity; label: string }[] = [
   { value: 'mythic', label: 'Mythic' },
 ];
 
+const COLLECTION_TYPES = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Planeswalker'] as const;
+const COLLECTION_COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
+const COLLECTION_COLOR_HEX: Record<string, string> = { W: '#C8C3B0', U: '#4B8BBE', B: '#9B7FBF', R: '#C75C5C', G: '#5A9A6E', C: '#6B7280' };
+
+/**
+ * Tween a number toward `target`, always resuming from wherever the last tween
+ * left off — so rapid binder toggles glide instead of snapping back to zero.
+ */
+function useTweenedNumber(target: number, duration = 450) {
+  const [displayed, setDisplayed] = useState(target);
+  const currentRef = useRef(target);
+
+  useEffect(() => {
+    const from = currentRef.current;
+    if (from === target) return;
+    const start = performance.now();
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+    let raf = requestAnimationFrame(function tick(now) {
+      const t = Math.min(1, (now - start) / duration);
+      const value = t < 1 ? from + (target - from) * ease(t) : target;
+      currentRef.current = value;
+      setDisplayed(value);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+
+  return displayed;
+}
+
+function TweenedCount({ value }: { value: number }) {
+  const displayed = useTweenedNumber(value);
+  return <>{Math.round(displayed).toLocaleString()}</>;
+}
+
+/**
+ * One type row of the collection visualizer. Every color segment stays mounted
+ * (width 0 when absent) so a binder change animates the bar rather than
+ * re-rendering a new set of blocks.
+ */
+function CollectionTypeBar({
+  type,
+  count,
+  maxCount,
+  colorCounts,
+}: {
+  type: (typeof COLLECTION_TYPES)[number];
+  count: number;
+  maxCount: number;
+  colorCounts: Record<string, number>;
+}) {
+  const fillPct = maxCount > 0 ? (count / maxCount) * 100 : 0;
+  const totalPips = COLLECTION_COLOR_ORDER.reduce((s, c) => s + (colorCounts[c] || 0), 0);
+
+  return (
+    <div className={`flex items-center gap-1.5 text-[11px] transition-opacity duration-300 ${count === 0 ? 'opacity-40' : ''}`}>
+      <span title={type} className="shrink-0"><CardTypeIcon type={type} size="sm" className="opacity-60" /></span>
+      <div className="flex-1 h-2 bg-border/30 rounded-full overflow-hidden flex">
+        {COLLECTION_COLOR_ORDER.map(c => (
+          <div
+            key={c}
+            className="h-full transition-[width] duration-500 ease-out"
+            style={{
+              width: `${totalPips > 0 ? ((colorCounts[c] || 0) / totalPips) * fillPct : 0}%`,
+              backgroundColor: COLLECTION_COLOR_HEX[c],
+            }}
+          />
+        ))}
+      </div>
+      <span className="text-muted-foreground tabular-nums w-5 text-right shrink-0"><TweenedCount value={count} /></span>
+    </div>
+  );
+}
+
 export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast, brewMode = false }: { advancedOpen?: boolean; onAdvancedClose?: () => void; onToast?: (msg: string) => void; brewMode?: boolean } = {}) {
   const { customization, updateCustomization, commander, partnerCommander, edhrecLandSuggestion, edhrecStats } = useStore();
   const { count: collectionCount } = useCollection();
@@ -70,7 +144,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
   const customFormatInputRef = useRef<HTMLInputElement>(null);
 
   const collectionStats = useMemo(() => {
-    if (!selectedCollectionCards || selectedCollectionCards.length === 0) return null;
+    if (!selectedCollectionCards) return null;
 
     const typeCounts: Record<string, number> = { Creature: 0, Instant: 0, Sorcery: 0, Artifact: 0, Enchantment: 0, Land: 0, Planeswalker: 0 };
     const typeColorCounts: Record<string, Record<string, number>> = {};
@@ -95,8 +169,14 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
       }
     }
 
-    return { typeCounts, typeColorCounts };
+    return { total: selectedCollectionCards.length, typeCounts, typeColorCounts };
   }, [selectedCollectionCards]);
+
+  // useLiveQuery re-resolves on every binder change; hold the last stats so the
+  // visualizer tweens from the old shape instead of blanking out mid-swap.
+  const lastCollectionStats = useRef(collectionStats);
+  if (collectionStats) lastCollectionStats.current = collectionStats;
+  const shownCollectionStats = collectionStats ?? lastCollectionStats.current;
 
   // CMC curve preview: EDHREC baseline ("expected") vs the curve after the
   // selected tempo pacing multipliers are applied ("adjusted"). Mirrors the
@@ -1256,7 +1336,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
               {/* Collection summary card */}
               <div className="rounded-lg border border-border/50 bg-accent/20 overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
-                  <span className="text-xs font-medium text-foreground">{(selectedCollectionCards?.length ?? 0).toLocaleString()} cards</span>
+                  <span className="text-xs font-medium text-foreground"><TweenedCount value={shownCollectionStats?.total ?? 0} /> cards</span>
                   <button
                     onClick={() => navigate('/collection')}
                     className="text-[10px] text-muted-foreground hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
@@ -1264,35 +1344,21 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
                     Manage
                   </button>
                 </div>
-                {collectionStats && (() => {
-                  const types = ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Planeswalker'] as const;
-                  const hasAny = types.some(t => collectionStats.typeCounts[t] > 0);
-                  if (!hasAny) return null;
-                  const maxCount = Math.max(...types.map(t => collectionStats.typeCounts[t]));
-                  const colorHex: Record<string, string> = { W: '#C8C3B0', U: '#4B8BBE', B: '#9B7FBF', R: '#C75C5C', G: '#5A9A6E', C: '#6B7280' };
-                  const colorOrder = ['W', 'U', 'B', 'R', 'G', 'C'];
+                {shownCollectionStats && (() => {
+                  // Every type row stays mounted across binder changes — a row that
+                  // drops to zero fades and drains rather than yanking the layout.
+                  const maxCount = Math.max(...COLLECTION_TYPES.map(t => shownCollectionStats.typeCounts[t]));
                   return (
                     <div className="px-3 py-2 grid grid-cols-2 gap-x-3 gap-y-1">
-                      {types.map(t => {
-                        const count = collectionStats.typeCounts[t];
-                        if (count === 0) return null;
-                        const fillPct = maxCount > 0 ? (count / maxCount) * 100 : 0;
-                        const cc = collectionStats.typeColorCounts[t];
-                        const totalPips = colorOrder.reduce((s, c) => s + (cc[c] || 0), 0);
-                        return (
-                          <div key={t} className="flex items-center gap-1.5 text-[11px]">
-                            <span title={t} className="shrink-0"><CardTypeIcon type={t} size="sm" className="opacity-60" /></span>
-                            <div className="flex-1 h-2 bg-border/30 rounded-full overflow-hidden flex">
-                              {totalPips > 0 && colorOrder.map(c => {
-                                const segPct = (cc[c] || 0) / totalPips * fillPct;
-                                if (segPct === 0) return null;
-                                return <div key={c} className="h-full" style={{ width: `${segPct}%`, backgroundColor: colorHex[c] }} />;
-                              })}
-                            </div>
-                            <span className="text-muted-foreground tabular-nums w-5 text-right shrink-0">{count}</span>
-                          </div>
-                        );
-                      })}
+                      {COLLECTION_TYPES.map(t => (
+                        <CollectionTypeBar
+                          key={t}
+                          type={t}
+                          count={shownCollectionStats.typeCounts[t]}
+                          maxCount={maxCount}
+                          colorCounts={shownCollectionStats.typeColorCounts[t]}
+                        />
+                      ))}
                     </div>
                   );
                 })()}

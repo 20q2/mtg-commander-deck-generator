@@ -1,3 +1,4 @@
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { CollectionCommanders } from '@/components/collection/CollectionCommanders';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { CollectionManager } from '@/components/collection/CollectionManager';
@@ -8,21 +9,29 @@ import { useBinders } from '@/hooks/useBinders';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { ALL_BINDERS_ID } from '@/services/collection/db';
-import { ArrowLeft, BarChart3, Crown, Info, Upload, Folder, FolderPlus, Pencil, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
+import type { Binder } from '@/services/collection/db';
+import { ArrowLeft, BarChart3, Crown, Info, Upload, Folder, FolderPlus, GripVertical, Pencil, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 type TopTab = 'import' | 'stats' | 'commanders';
+
+/** How long a reordered row takes to slide into its new slot. Shared by the auto-animate
+ *  config and the drag-over cooldown, which must not measure rects mid-flight. */
+const REORDER_ANIM_MS = 180;
 
 const RARITY_TO_PRETTY: Record<string, string> = {
   common: 'common', uncommon: 'uncommon', rare: 'rare', mythic: 'mythic',
 };
 
 export function CollectionPage() {
-  usePageTitle('Collection');
   const navigate = useNavigate();
-  const { binders, isLoading: bindersLoading, createBinder, renameBinder, deleteBinder } = useBinders();
+  const { binders, isLoading: bindersLoading, createBinder, renameBinder, deleteBinder, reorderBinders } = useBinders();
   const [selectedBinderId, setSelectedBinderId] = useState<string>(ALL_BINDERS_ID);
+  const selectedBinderName = selectedBinderId === ALL_BINDERS_ID
+    ? 'All collections'
+    : binders.find(b => b.id === selectedBinderId)?.name ?? 'Collection';
+  usePageTitle(selectedBinderId === ALL_BINDERS_ID ? 'Collection' : [selectedBinderName, 'Collection']);
   const {
     count, cards, removeCard, updateQuantity, clearCollection,
     needsEnrichment, isEnriching, enrichProgress, enrichCollection,
@@ -47,6 +56,7 @@ export function CollectionPage() {
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
   const [selectedRarities, setSelectedRarities] = useState<Set<string>>(new Set());
+  const [multicolorOnly, setMulticolorOnly] = useState(false);
 
   // Guarantee there's always at least one binder to import into.
   useEffect(() => {
@@ -70,12 +80,14 @@ export function CollectionPage() {
   // Stats click → filter the collection list below.
   const handleColorClick = (code: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'M') => {
     if (code === 'M') {
-      // Multicolor: clear single-color selection and use the "Exact" mode would be ideal,
-      // but for simplicity just clear filters and rely on the underlying chips for refinement.
+      // Multicolor isn't a color code, so it drives the list's Multicolor toggle instead of
+      // the WUBRG chips. Clear those, or the two would intersect into a narrower result than
+      // the slice that was clicked.
       setSelectedColors(new Set());
+      setMulticolorOnly(true);
     } else {
-      const next = new Set<string>([code]);
-      setSelectedColors(next);
+      setSelectedColors(new Set<string>([code]));
+      setMulticolorOnly(false);
     }
     scrollToManager();
   };
@@ -113,6 +125,27 @@ export function CollectionPage() {
     setEditingBinderName(currentName);
   };
 
+  // The heading renames the selected collection too. It keeps its own draft state rather than
+  // sharing the sidebar's, so editing up here doesn't also flip the sidebar row into an input.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const canRenameSelected = selectedBinderId !== ALL_BINDERS_ID;
+
+  const startTitleEdit = () => {
+    if (!canRenameSelected) return;
+    setTitleDraft(selectedBinderName);
+    setEditingTitle(true);
+  };
+
+  const commitTitleEdit = async () => {
+    const name = titleDraft.trim();
+    if (name && name !== selectedBinderName) await renameBinder(selectedBinderId, name);
+    setEditingTitle(false);
+  };
+
+  // Switching collections mid-rename would otherwise apply the draft to the new one.
+  useEffect(() => { setEditingTitle(false); }, [selectedBinderId]);
+
   const commitRenameBinder = async () => {
     const name = editingBinderName.trim();
     if (editingBinderId && name) {
@@ -126,6 +159,89 @@ export function CollectionPage() {
     await deleteBinder(id);
     if (selectedBinderId === id) setSelectedBinderId(ALL_BINDERS_ID);
     setConfirmDeleteId(null);
+  };
+
+  // --- Drag to reorder collections ---
+  // `dragOrder` is the optimistic id sequence shown while dragging (and until the live query
+  // catches up after a commit); null means "just use the DB order".
+  const [draggingBinderId, setDraggingBinderId] = useState<string | null>(null);
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const dragCommittedRef = useRef(false);
+  const dragHorizontalRef = useRef(false);
+  const lastReorderAtRef = useRef(0);
+
+  const orderedBinders = useMemo(() => {
+    if (!dragOrder) return binders;
+    const byId = new Map(binders.map(b => [b.id, b]));
+    const ordered = dragOrder.map(id => byId.get(id)).filter((b): b is Binder => !!b);
+    // Anything created since the drag started still shows up, at the end.
+    for (const b of binders) if (!dragOrder.includes(b.id)) ordered.push(b);
+    return ordered;
+  }, [binders, dragOrder]);
+
+  // Drop the optimistic order once the DB reflects it.
+  useEffect(() => {
+    if (!dragOrder || draggingBinderId) return;
+    if (binders.map(b => b.id).join('\n') === dragOrder.join('\n')) setDragOrder(null);
+  }, [binders, dragOrder, draggingBinderId]);
+
+  const handleBinderDragStart = (id: string) => (e: React.DragEvent) => {
+    setDraggingBinderId(id);
+    setDragOrder(orderedBinders.map(b => b.id));
+    dragCommittedRef.current = false;
+    lastReorderAtRef.current = 0;
+    // The list is a row on mobile and a column on lg — read which, once, for the midpoint test.
+    const list = e.currentTarget.parentElement;
+    dragHorizontalRef.current = !!list && getComputedStyle(list).flexDirection.startsWith('row');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id); // Firefox won't start a drag without data
+  };
+
+  // Reorder live as the pointer passes over each row, so the list previews the result.
+  const handleBinderDragOver = (overId: string) => (e: React.DragEvent) => {
+    if (!draggingBinderId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (overId === draggingBinderId) return;
+
+    // Rows are still sliding right after a swap, so their rects report where they're coming
+    // from, not where they'll land. Measuring then is what makes a held pointer oscillate.
+    if (performance.now() - lastReorderAtRef.current < REORDER_ANIM_MS) return;
+
+    const current = dragOrder ?? orderedBinders.map(b => b.id);
+    const from = current.indexOf(draggingBinderId);
+    const to = current.indexOf(overId);
+    if (from < 0 || to < 0 || from === to) return;
+
+    // Commit only once the pointer is past the hovered row's midpoint, in the direction of
+    // travel. Swapping on mere contact means a pointer held near a boundary swaps, gets
+    // re-hovered by the row that just moved under it, and swaps straight back.
+    const rect = e.currentTarget.getBoundingClientRect();
+    const horizontal = dragHorizontalRef.current;
+    const pointer = horizontal ? e.clientX : e.clientY;
+    const midpoint = horizontal ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
+    if (to > from ? pointer < midpoint : pointer > midpoint) return;
+
+    lastReorderAtRef.current = performance.now();
+    const next = [...current];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    setDragOrder(next);
+  };
+
+  const handleBinderDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!dragOrder) return;
+    dragCommittedRef.current = true;
+    void reorderBinders(dragOrder);
+  };
+
+  // Rows FLIP into their new slots as the order previews, so the landing spot is obvious.
+  const [binderListRef] = useAutoAnimate<HTMLDivElement>({ duration: REORDER_ANIM_MS, easing: 'ease-out' });
+
+  const handleBinderDragEnd = () => {
+    setDraggingBinderId(null);
+    // Dropped somewhere that isn't the list — revert to the stored order.
+    if (!dragCommittedRef.current) setDragOrder(null);
   };
 
   return (
@@ -172,7 +288,7 @@ export function CollectionPage() {
           {/* Binder sidebar */}
           {hasCollection && (
             <aside className="mb-4 lg:mb-0 lg:w-48 lg:shrink-0">
-              <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 border-b lg:border-b-0 lg:border-r border-border/40 lg:pr-3">
+              <div ref={binderListRef} className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0 border-b lg:border-b-0 lg:border-r border-border/40 lg:pr-3">
                 <button
                   onClick={() => setSelectedBinderId(ALL_BINDERS_ID)}
                   className={`shrink-0 flex items-center gap-2 px-3 py-2 text-sm rounded-md text-left transition-colors ${
@@ -185,8 +301,27 @@ export function CollectionPage() {
                   All
                 </button>
 
-                {binders.map(binder => (
-                  <div key={binder.id} className="group shrink-0 lg:min-w-0 flex items-center gap-1">
+                {orderedBinders.map(binder => (
+                  <div
+                    key={binder.id}
+                    draggable={editingBinderId !== binder.id && binders.length > 1}
+                    onDragStart={handleBinderDragStart(binder.id)}
+                    onDragOver={handleBinderDragOver(binder.id)}
+                    onDrop={handleBinderDrop}
+                    onDragEnd={handleBinderDragEnd}
+                    className={`group relative shrink-0 lg:min-w-0 flex items-center gap-1 rounded-md transition-[opacity,box-shadow,background-color] duration-150 ${
+                      draggingBinderId === binder.id
+                        ? 'opacity-60 bg-primary/10 ring-1 ring-primary/50 ring-inset'
+                        : ''
+                    }`}
+                  >
+                    {editingBinderId !== binder.id && binders.length > 1 && (
+                      // Sits in the name button's left padding, so it costs no label width.
+                      <GripVertical
+                        aria-hidden
+                        className="hidden lg:block absolute left-0 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                      />
+                    )}
                     {editingBinderId === binder.id ? (
                       <div className="flex items-center gap-1 px-2 py-1">
                         <input
@@ -212,12 +347,14 @@ export function CollectionPage() {
                         <span className="truncate">{binder.name}</span>
                       </button>
                     )}
+                    {/* Rename/delete overlay the right edge of the name rather than taking
+                        layout space, so long names get the full width before truncating. */}
                     {editingBinderId !== binder.id && (
-                      <div className="hidden lg:flex shrink-0 items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => startRenameBinder(binder.id, binder.name)} className="p-1 text-muted-foreground hover:text-foreground" title="Rename">
+                      <div className="hidden lg:flex lg:absolute right-0 top-0 bottom-0 pl-6 pr-0.5 shrink-0 items-center rounded-r-md pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-l from-background/95 via-background/85 to-transparent">
+                        <button onClick={() => startRenameBinder(binder.id, binder.name)} className="pointer-events-auto p-1 text-muted-foreground hover:text-foreground" title="Rename">
                           <Pencil className="w-3 h-3" />
                         </button>
-                        <button onClick={() => setConfirmDeleteId(binder.id)} className="p-1 text-muted-foreground hover:text-destructive" title="Delete">
+                        <button onClick={() => setConfirmDeleteId(binder.id)} className="pointer-events-auto p-1 text-muted-foreground hover:text-destructive" title="Delete">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
@@ -266,6 +403,42 @@ export function CollectionPage() {
           <div className="flex-1 min-w-0 space-y-8">
             {/* Top section — tabs when there's a collection; just the importer otherwise */}
             {hasCollection ? (
+              <div className="space-y-3">
+              {/* Names the scope everything below is showing, so the sidebar selection
+                  doesn't have to be re-read to know what you're looking at. */}
+              <div className="group flex items-baseline gap-2 min-w-0">
+                <Folder className="w-4 h-4 shrink-0 self-center text-muted-foreground" />
+                {editingTitle ? (
+                  <div className="flex items-center gap-1 min-w-0 flex-1">
+                    <input
+                      autoFocus
+                      value={titleDraft}
+                      onChange={(e) => setTitleDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') commitTitleEdit(); if (e.key === 'Escape') setEditingTitle(false); }}
+                      aria-label="Collection name"
+                      className="min-w-0 flex-1 max-w-xs px-1.5 py-0.5 text-lg font-semibold rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <button onClick={commitTitleEdit} className="p-1 text-muted-foreground hover:text-foreground" title="Save"><Check className="w-4 h-4" /></button>
+                    <button onClick={() => setEditingTitle(false)} className="p-1 text-muted-foreground hover:text-foreground" title="Cancel"><X className="w-4 h-4" /></button>
+                  </div>
+                ) : canRenameSelected ? (
+                  <button
+                    onClick={startTitleEdit}
+                    title="Rename collection"
+                    className="min-w-0 flex items-baseline gap-2 text-left rounded hover:text-foreground/80 transition-colors"
+                  >
+                    <h3 className="text-lg font-semibold truncate">{selectedBinderName}</h3>
+                    <Pencil className="w-3.5 h-3.5 shrink-0 self-center text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ) : (
+                  <h3 className="text-lg font-semibold truncate">{selectedBinderName}</h3>
+                )}
+                {!editingTitle && (
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {count} {count === 1 ? 'card' : 'cards'}
+                  </span>
+                )}
+              </div>
               <section className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
                 <div className="flex items-center border-b border-border/40 overflow-x-auto overflow-y-hidden">
                   <TabButton
@@ -316,6 +489,7 @@ export function CollectionPage() {
                   </div>
                 )}
               </section>
+              </div>
             ) : (
               <section className="p-4 rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm max-w-2xl">
                 <CollectionImporter />
@@ -345,6 +519,9 @@ export function CollectionPage() {
                   onSelectedTypesChange={setSelectedTypes}
                   selectedRarities={selectedRarities}
                   onSelectedRaritiesChange={setSelectedRarities}
+                  multicolorOnly={multicolorOnly}
+                  onMulticolorOnlyChange={setMulticolorOnly}
+                  collectionName={selectedBinderName}
                 />
               </section>
             )}

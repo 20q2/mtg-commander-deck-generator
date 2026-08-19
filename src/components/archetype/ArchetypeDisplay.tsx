@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useStore } from '@/store';
-import { ChevronDown, Crosshair, Zap, AlertTriangle } from 'lucide-react';
+import { ChevronDown, Crosshair, AlertTriangle } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
 interface ArchetypeDisplayProps {}
@@ -225,7 +225,9 @@ export function ArchetypeDisplay({}: ArchetypeDisplayProps) {
         </div>
       )}
 
-      {/* Build Modes accordion — pinned to bottom of card */}
+      {/* Build Modes accordion — pinned to bottom of card. Always shown, even with no theme
+          selected: Hyper Focus simply has nothing to focus on until one is picked, and hiding
+          the section made the feature undiscoverable. */}
       <div className={`mt-auto ${buildModesOpen ? 'pt-2 border-t border-border/50' : ''}`}>
         <button
           onClick={() => { const v = !buildModesOpen; setBuildModesOpen(v); localStorage.setItem('accordion-buildmodes', String(v)); }}
@@ -234,18 +236,9 @@ export function ArchetypeDisplay({}: ArchetypeDisplayProps) {
           <span className="font-medium flex items-center gap-2">
             <Crosshair className="w-4 h-4" />
             Build Modes
-            {!buildModesOpen && (customization.hyperFocus || !customization.balancedRoles) && (
-              <span className="flex gap-1">
-                {customization.hyperFocus && (
-                  <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
-                    Hyper Focus
-                  </span>
-                )}
-                {!customization.balancedRoles && (
-                  <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
-                    Classic Build
-                  </span>
-                )}
+            {!buildModesOpen && customization.hyperFocus && (
+              <span className="text-[10px] font-normal text-primary bg-primary/20 px-1.5 py-0.5 rounded-full">
+                Hyper Focus
               </span>
             )}
           </span>
@@ -263,62 +256,13 @@ export function ArchetypeDisplay({}: ArchetypeDisplayProps) {
         <div className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${buildModesOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
           <div className="overflow-hidden">
             <div className="mt-3 space-y-2">
-              {/* Hyper Focus — only relevant when themes are selected */}
-              {selectedThemes.some(t => t.isSelected) && (
-                <button
-                  type="button"
-                  onClick={() => updateCustomization({ hyperFocus: !customization.hyperFocus })}
-                  className={`
-                    w-full flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer
-                    ${customization.hyperFocus
-                      ? 'border-primary/50 bg-primary/10'
-                      : 'border-border/50 bg-accent/20 hover:border-primary/30'
-                    }
-                  `}
-                >
-                  <div className={`
-                    w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors
-                    ${customization.hyperFocus ? 'bg-primary/20 text-primary' : 'bg-accent text-muted-foreground'}
-                  `}>
-                    <Crosshair className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-sm font-medium ${customization.hyperFocus ? 'text-primary' : ''}`}>
-                        Hyper Focus
-                      </span>
-                      <InfoTooltip text="Experimental: Prioritizes cards unique to your selected themes and deprioritizes generic staples that appear across many archetypes. Great for discovering hidden gems specific to your strategy." />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
-                      Discover unique cards, avoid generic staples
-                    </p>
-                  </div>
-                  <div className={`
-                    w-9 h-5 rounded-full relative transition-colors shrink-0
-                    ${customization.hyperFocus ? 'bg-primary' : 'bg-muted'}
-                  `}>
-                    <div className={`
-                      absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform
-                      ${customization.hyperFocus ? 'translate-x-4' : 'translate-x-0.5'}
-                    `} />
-                  </div>
-                </button>
-              )}
-
-              {/* Classic Build — disables role balancing */}
+              {/* Hyper Focus */}
               <button
                 type="button"
-                onClick={() => {
-                  const newBalanced = !customization.balancedRoles;
-                  updateCustomization({ balancedRoles: newBalanced });
-                  trackEvent('build_mode_toggled', {
-                    commanderName: commander.name,
-                    mode: newBalanced ? 'balanced' : 'classic',
-                  });
-                }}
+                onClick={() => updateCustomization({ hyperFocus: !customization.hyperFocus })}
                 className={`
                   w-full flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer
-                  ${!customization.balancedRoles
+                  ${customization.hyperFocus
                     ? 'border-primary/50 bg-primary/10'
                     : 'border-border/50 bg-accent/20 hover:border-primary/30'
                   }
@@ -326,28 +270,28 @@ export function ArchetypeDisplay({}: ArchetypeDisplayProps) {
               >
                 <div className={`
                   w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors
-                  ${!customization.balancedRoles ? 'bg-primary/20 text-primary' : 'bg-accent text-muted-foreground'}
+                  ${customization.hyperFocus ? 'bg-primary/20 text-primary' : 'bg-accent text-muted-foreground'}
                 `}>
-                  <Zap className="w-4 h-4" />
+                  <Crosshair className="w-4 h-4" />
                 </div>
                 <div className="flex-1 text-left">
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-sm font-medium ${!customization.balancedRoles ? 'text-primary' : ''}`}>
-                      Classic Build
+                    <span className={`text-sm font-medium ${customization.hyperFocus ? 'text-primary' : ''}`}>
+                      Hyper Focus
                     </span>
-                    <InfoTooltip text="Legacy algorithm that pulls the top cards based on statistical analysis. Skips role balancing and picks cards purely by synergy and power level." />
+                    <InfoTooltip text="Experimental: Prioritizes cards unique to your selected themes and deprioritizes generic staples that appear across many archetypes. Great for discovering hidden gems specific to your strategy." />
                   </div>
                   <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
-                    Skip role balancing — pick cards purely by synergy and power
+                    Discover unique cards, avoid generic staples
                   </p>
                 </div>
                 <div className={`
                   w-9 h-5 rounded-full relative transition-colors shrink-0
-                  ${!customization.balancedRoles ? 'bg-primary' : 'bg-muted'}
+                  ${customization.hyperFocus ? 'bg-primary' : 'bg-muted'}
                 `}>
                   <div className={`
                     absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform
-                    ${!customization.balancedRoles ? 'translate-x-4' : 'translate-x-0.5'}
+                    ${customization.hyperFocus ? 'translate-x-4' : 'translate-x-0.5'}
                   `} />
                 </div>
               </button>

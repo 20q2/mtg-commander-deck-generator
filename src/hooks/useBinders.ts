@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, createBinder, renameBinder, deleteBinder } from '@/services/collection/db';
+import { db, createBinder, renameBinder, deleteBinder, reorderBinders } from '@/services/collection/db';
 import type { Binder } from '@/services/collection/db';
 
 export function useBinders() {
@@ -10,5 +10,6 @@ export function useBinders() {
     createBinder,
     renameBinder,
     deleteBinder,
+    reorderBinders,
   };
 }

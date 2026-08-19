@@ -10,6 +10,10 @@ export interface ImportResult {
   updated: number;
   updatedLabel?: string;
   notFound: string[];
+  /** Total card copies in the pasted list (quantities summed), including any that failed lookup. */
+  total?: number;
+  /** Copies of that list now present after the import — the number the user is looking for. */
+  imported?: number;
 }
 
 interface CollectionImporterProps {
@@ -48,8 +52,25 @@ interface CollectionImporterProps {
   onLegendariesDetected?: (legendaries: import('@/types').ScryfallCard[]) => void;
 }
 
+/**
+ * Headline for a finished import. Users care about one thing: did all the cards I
+ * pasted make it in? So we always report against the total they pasted rather than
+ * the internal added/updated split, which undercounts whenever copies merge into
+ * cards that are already there.
+ */
+function importHeadline(result: ImportResult): string | null {
+  const { total, imported } = result;
+  if (typeof total !== 'number' || typeof imported !== 'number' || total <= 0) return null;
+  const landed = Math.min(imported, total);
+  const noun = total === 1 ? 'card' : 'cards';
+  return landed >= total
+    ? `All ${total} ${noun} imported`
+    : `${landed} of ${total} ${noun} imported`;
+}
+
 export function ImportResultDisplay({ result, updatedLabel, progress }: { result: ImportResult | null; updatedLabel?: string; progress?: string }) {
   const updatedText = updatedLabel ?? 'cards updated';
+  const headline = result ? importHeadline(result) : null;
   return (
     <>
       {progress && (
@@ -64,12 +85,25 @@ export function ImportResultDisplay({ result, updatedLabel, progress }: { result
             <Check className="w-4 h-4 text-green-500" />
             Import Complete
           </div>
-          <p className="text-xs text-muted-foreground">
-            {result.added > 0 && `${result.added} cards added`}
-            {result.added > 0 && result.updated > 0 && ', '}
-            {result.updated > 0 && `${result.updated} ${updatedText}`}
-            {result.added === 0 && result.updated === 0 && 'No new cards added'}
-          </p>
+          {headline ? (
+            <>
+              <p className="text-sm text-foreground/90">{headline}</p>
+              {/* Secondary breakdown — only when the split says something the headline doesn't. */}
+              {result.updated > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {result.added > 0 && `${result.added} added, `}
+                  {result.updated} {updatedText}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {result.added > 0 && `${result.added} cards added`}
+              {result.added > 0 && result.updated > 0 && ', '}
+              {result.updated > 0 && `${result.updated} ${updatedText}`}
+              {result.added === 0 && result.updated === 0 && 'No new cards added'}
+            </p>
+          )}
           {result.notFound.length > 0 && (
             <div className="mt-2">
               <div className="flex items-center gap-1 text-xs text-amber-500">
@@ -141,7 +175,9 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
         onMetaDetected(meta);
       }
 
-      setProgress(`Parsed ${parsed.length} cards. Validating with Scryfall...`);
+      // Copies, not distinct names — "8 Forest" is eight cards to the person pasting it.
+      const totalCopies = parsed.reduce((sum, c) => sum + c.quantity, 0);
+      setProgress(`Parsed ${totalCopies} cards. Validating with Scryfall...`);
 
       // Batch validate names via Scryfall
       const names = parsed.map(c => c.name);
@@ -195,12 +231,15 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
           }
         }
         const counts = onImportCards(expandedNames);
-        finalResult = { ...counts, updatedLabel, notFound };
+        // Both buckets are copies of the paste that are now in the list — ones newly
+        // added, and ones that were already there. Together they're what landed.
+        finalResult = { ...counts, updatedLabel, notFound, total: totalCopies, imported: counts.added + counts.updated };
         setResult(finalResult);
       } else {
         // Default: import to collection DB
+        const validatedCopies = validatedParsed.reduce((sum, c) => sum + c.quantity, 0);
         if (validatedParsed.length > 0) {
-          setProgress(`Saving ${validatedParsed.length} cards...`);
+          setProgress(`Saving ${validatedCopies} cards...`);
           const bulkCards: BulkImportCard[] = validatedParsed.map(({ name, quantity, card }) => ({
             name,
             quantity,
@@ -212,8 +251,10 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
             imageUrl: getCardImageUrl(card, 'small'),
             edhrecRank: card.edhrec_rank,
           }));
+          // bulkImport counts card rows; every validated copy lands regardless of
+          // whether it created a row or bumped an existing one.
           const { added, updated } = await bulkImport(binderId, bulkCards);
-          finalResult = { added, updated, notFound };
+          finalResult = { added, updated, notFound, total: totalCopies, imported: validatedCopies };
           setResult(finalResult);
           trackEvent('collection_imported', {
             cardCount: validatedParsed.length + notFound.length,
@@ -221,7 +262,7 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
             updated,
           });
         } else {
-          finalResult = { added: 0, updated: 0, notFound };
+          finalResult = { added: 0, updated: 0, notFound, total: totalCopies, imported: 0 };
           setResult(finalResult);
         }
       }

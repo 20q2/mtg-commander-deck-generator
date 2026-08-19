@@ -305,6 +305,21 @@ export async function renameBinder(id: string, name: string): Promise<void> {
   await db.binders.update(id, { name });
 }
 
+/** Rewrites `order` to match the given id sequence. Ids not present in the list keep their
+ *  relative position after the reordered ones (e.g. a binder created mid-drag). */
+export async function reorderBinders(orderedIds: string[]): Promise<void> {
+  await db.transaction('rw', db.binders, async () => {
+    const all = await db.binders.orderBy('order').toArray();
+    const ranked = [
+      ...orderedIds.filter(id => all.some(b => b.id === id)),
+      ...all.filter(b => !orderedIds.includes(b.id)).map(b => b.id),
+    ];
+    for (let i = 0; i < ranked.length; i++) {
+      await db.binders.update(ranked[i], { order: i });
+    }
+  });
+}
+
 /** Deletes a binder and every card inside it. */
 export async function deleteBinder(id: string): Promise<void> {
   await db.transaction('rw', db.binders, db.cards, async () => {
