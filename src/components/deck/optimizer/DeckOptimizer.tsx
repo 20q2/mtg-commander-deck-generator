@@ -6,7 +6,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment, fetchAllTags } from '@/services/edhrec/client';
 import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { persistListThemes } from '@/services/lists/listThemes';
@@ -20,7 +20,9 @@ import {
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
-import { getCardByName, getCardsByNames, getCardPrice, WUBRG } from '@/services/scryfall/client';
+import { getCardByName, getCardsByNames, getCardPrice, WUBRG, getMtgCatalogs } from '@/services/scryfall/client';
+import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
+import { buildThemeModel, scoreThemesForDeck, survivingThemes, loadThemeCharTags, SHORTLIST_SIZE, type ThemeScore } from '@/services/themes';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
@@ -454,7 +456,7 @@ export function DeckOptimizer({
 
       const dummyMatch = (slug: string) => {
         const t = allThemes.find(th => th.slug === slug);
-        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, keywordHits: 0, score: 0 } : null;
+        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, memberCount: 0, basis: 'none' as const, score: 0 } : null;
       };
       const matchedThemes = [primary, secondary].filter(Boolean).map(s => dummyMatch(s!)).filter(Boolean) as import('@/services/deckBuilder/themeDetector').ThemeMatchResult[];
       const strategyLabel = primary ? generateStrategyLabel(allThemes.find(t => t.slug === primary)?.name || '') : prev.strategyLabel;
@@ -898,9 +900,46 @@ export function DeckOptimizer({
 
       setThemeLoading(true);
 
+      // ── Phase 2a: derived membership, entirely local ──
+      // Scores the WHOLE ~400-tag EDHREC taxonomy against the deck without a single page fetch,
+      // because the membership test reads the cards themselves. That's what lets a theme outside
+      // the commander's top 8 be found at all — and it decides which pages are worth fetching
+      // below, instead of the fetch list being fixed in advance.
+      //
+      // Entirely best-effort: any failure here leaves membershipScores undefined and detection
+      // falls back to the two EDHREC signals. See /theme-lab (dev) to inspect these numbers.
+      let membershipScores: Map<string, ThemeScore> | undefined;
+      let extraThemes: import('@/types').EDHRECTheme[] = [];
+      try {
+        const [allTags, catalogs] = await Promise.all([
+          fetchAllTags(), getMtgCatalogs(), loadTagIndex(),
+        ]);
+        if (allTags.length > 0 && catalogs.creatureTypes.size > 0) {
+          const table = loadThemeCharTags();
+          const models = allTags.map(t => buildThemeModel(t, catalogs, table.themes));
+          const commanderSlugs = new Set((edhrecData.themes || []).map(t => t.slug));
+          const scored = scoreThemesForDeck(
+            currentCards, models,
+            c => (c.oracle_id ? tagsForOracleId(c.oracle_id) : []),
+            commanderSlugs,
+          );
+          membershipScores = new Map(scored.map(s => [s.model.slug, s]));
+
+          // Off-list themes strong enough to deserve a page fetch. Capped so a long tail of
+          // near-miss tags can't turn detection into a fetch storm.
+          const known = new Set(topThemes.map(t => t.slug));
+          extraThemes = survivingThemes(scored)
+            .filter(s => !known.has(s.model.slug))
+            .slice(0, SHORTLIST_SIZE - Math.min(topThemes.length, SHORTLIST_SIZE))
+            .map(s => ({ name: s.model.name, slug: s.model.slug, count: s.model.numDecks, url: '' }));
+        }
+      } catch (err) {
+        console.warn('[DeckOptimizer] membership scoring unavailable — EDHREC signals only:', err);
+      }
+
       // Fetch theme-specific EDHREC data (sequential for rate limiting)
       const themeDataMap = new Map<string, import('@/types').EDHRECCommanderData>();
-      for (const theme of topThemes) {
+      for (const theme of [...topThemes, ...extraThemes]) {
         try {
           const data = partnerCommanderName
             ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug, undefined, undefined, colorSeg)
@@ -922,11 +961,12 @@ export function DeckOptimizer({
 
       // Run detection
       const detection = detectThemes(
-        topThemes,
+        [...topThemes, ...extraThemes],
         themeDataMap,
         currentCards,
         baseResult.curveAnalysis,
         commanderName,
+        membershipScores,
       );
       setThemeDetection(detection);
 

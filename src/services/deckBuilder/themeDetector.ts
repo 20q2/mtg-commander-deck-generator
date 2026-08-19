@@ -1,7 +1,10 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, EDHRECTheme } from '@/types';
 import type { CurveSlot } from './deckAnalyzer';
-import { getKeywordsForTheme } from '@/services/edhrec/themeMapper';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import {
+  MEMBERSHIP_WEIGHT, OVERLAP_WEIGHT, INCLUSION_WEIGHT,
+  type ThemeScore, type ThemeKind,
+} from '@/services/themes';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -14,7 +17,10 @@ export interface ThemeMatchResult {
   themePoolSize: number;
   weightedOverlap: number;
   synergySum: number;
-  keywordHits: number;
+  /** Deck cards belonging to this theme by the derived membership test. */
+  memberCount: number;
+  /** How membership was established: a literal card attribute, or characteristic oracle tags. */
+  basis: 'literal' | 'tag' | 'none';
   /** Composite 0-100 */
   score: number;
 }
@@ -108,9 +114,8 @@ export function scoreThemeMatch(
   theme: EDHRECTheme,
   themeData: EDHRECCommanderData,
   currentCards: ScryfallCard[],
+  membership?: ThemeScore,
 ): ThemeMatchResult {
-  const keywords = getKeywordsForTheme(theme.name);
-
   // Build lookup from the theme's cardlists
   const themeCardMap = new Map<string, EDHRECCard>();
   for (const card of themeData.cardlists.allNonLand) {
@@ -130,10 +135,13 @@ export function scoreThemeMatch(
   const deckNonBasicCount = nonBasicCards.length;
 
   if (deckNonBasicCount === 0) {
-    return { theme, cardOverlap: 0, themePoolSize, weightedOverlap: 0, synergySum: 0, keywordHits: 0, score: 0 };
+    return {
+      theme, cardOverlap: 0, themePoolSize, weightedOverlap: 0, synergySum: 0,
+      memberCount: 0, basis: 'none', score: 0,
+    };
   }
 
-  // Signal 1: Card Overlap (40%)
+  // Signal 1: Card Overlap
   let cardOverlap = 0;
   let weightedOverlap = 0;
   let synergySum = 0;
@@ -156,29 +164,30 @@ export function scoreThemeMatch(
   const overlapRatio = cardOverlap / deckNonBasicCount;
   const overlapScore = Math.min(overlapRatio * 150, 100); // 67% overlap → 100
 
-  // Signal 2: Weighted Inclusion (30%)
+  // Signal 2: Weighted Inclusion
   const inclusionNormalizer = cardOverlap > 0 ? cardOverlap * 50 : 1;
   const weightedScore = Math.min((weightedOverlap / inclusionNormalizer) * 100, 100);
 
-  // Signal 3: Keyword Hits (30%)
-  let keywordHits = 0;
-  if (keywords.length > 0) {
-    const lowerKeywords = keywords.map(k => k.toLowerCase());
-    for (const card of nonBasicCards) {
-      const oracle = (card.oracle_text || '').toLowerCase();
-      const typeLine = (card.type_line || '').toLowerCase();
-      for (const kw of lowerKeywords) {
-        if (oracle.includes(kw) || typeLine.includes(kw)) {
-          keywordHits++;
-          break;
-        }
-      }
-    }
-  }
-  const keywordRatio = keywordHits / deckNonBasicCount;
-  const keywordScore = Math.min(keywordRatio * 150, 100);
+  // Signal 3: Derived membership — how many of the deck's cards actually belong to this theme by
+  // its own definition (a literal card attribute for tribal/mechanic/subtype themes, characteristic
+  // oracle tags for archetypes). This is the signal that sees cards EDHREC's page never listed, and
+  // the one that replaced a 530-line hand-maintained keyword map.
+  //
+  // Both EDHREC signals are popularity-biased in opposite directions — a goodstuff pile overlaps
+  // every theme page, a budget Elves deck overlaps none — so membership corrects both. It is
+  // weighted deliberately light for now; /theme-lab is where that weight gets earned.
+  const membershipScore = membership?.membershipScore ?? 0;
 
-  const score = overlapScore * 0.40 + weightedScore * 0.30 + keywordScore * 0.30;
+  // Renormalize when membership is unavailable, so its absence doesn't silently deflate every score
+  // (which would drag confident decks below the detection threshold).
+  const totalWeight = membership
+    ? OVERLAP_WEIGHT + INCLUSION_WEIGHT + MEMBERSHIP_WEIGHT
+    : OVERLAP_WEIGHT + INCLUSION_WEIGHT;
+  const score = (
+    overlapScore * OVERLAP_WEIGHT
+    + weightedScore * INCLUSION_WEIGHT
+    + membershipScore * (membership ? MEMBERSHIP_WEIGHT : 0)
+  ) / totalWeight;
 
   return {
     theme,
@@ -186,7 +195,8 @@ export function scoreThemeMatch(
     themePoolSize,
     weightedOverlap,
     synergySum,
-    keywordHits,
+    memberCount: membership?.members ?? 0,
+    basis: membership?.memberCards[0]?.basis ?? 'none',
     score: Math.round(score * 10) / 10,
   };
 }
@@ -255,34 +265,23 @@ const STRATEGY_LABEL_MAP: Record<string, string> = {
   'experience counters': 'an experience counter strategy',
 };
 
-const TRIBAL_TYPES = new Set([
-  'elves', 'goblins', 'zombies', 'vampires', 'dragons', 'angels', 'demons',
-  'wizards', 'warriors', 'rogues', 'clerics', 'soldiers', 'knights', 'merfolk',
-  'spirits', 'dinosaurs', 'pirates', 'cats', 'dogs', 'beasts', 'elementals',
-  'slivers', 'allies', 'humans', 'faeries', 'eldrazi', 'horrors', 'insects',
-  'tyranids', 'hydras', 'werewolves', 'wolves', 'rats', 'squirrels', 'birds',
-  'phoenixes', 'sphinxes', 'minotaurs', 'ninjas', 'samurai', 'fungi', 'treefolk',
-  'apes', 'bears', 'snakes', 'spiders', 'shamans', 'druids', 'monks',
-]);
-
-export function generateStrategyLabel(themeName: string): string {
+/**
+ * Phrase a theme as a strategy.
+ *
+ * The map above stays because "an aristocrats sacrifice strategy" reads better than what any rule
+ * would generate. Everything else is derived: `kind` comes from Scryfall's own catalogs, so every
+ * creature type in Magic gets a correct tribal phrasing rather than the 45 that used to be listed
+ * here by hand — and a Praetors or Tyranid deck reads as well as an Elves one.
+ */
+export function generateStrategyLabel(themeName: string, kind?: ThemeKind): string {
   const lower = themeName.toLowerCase().trim();
 
   const mapped = STRATEGY_LABEL_MAP[lower];
   if (mapped) return mapped;
 
-  if (TRIBAL_TYPES.has(lower)) {
-    const singular = lower.endsWith('ves')
-      ? lower.slice(0, -3) + 'f'
-      : lower.endsWith('ies')
-        ? lower.slice(0, -3) + 'y'
-        : lower.endsWith('xes') || lower.endsWith('ses')
-          ? lower.slice(0, -2)
-          : lower.endsWith('s')
-            ? lower.slice(0, -1)
-            : lower;
-    return `${singular} tribal synergy`;
-  }
+  // `match` is already Scryfall's singular form ("elf", "sliver"), so no de-pluralizing guesswork.
+  if (kind?.kind === 'tribal') return `${kind.match} tribal synergy`;
+  if (kind?.kind === 'subtype' || kind?.kind === 'cardType') return `a ${kind.match}-focused strategy`;
 
   return `${lower} synergy`;
 }
@@ -320,18 +319,24 @@ export function buildDetectionMessage(
 
 // ─── Main Orchestrator ───────────────────────────────────────────────
 
+/**
+ * @param membershipScores Phase A results by slug — derived membership, computed locally over the
+ *        whole EDHREC taxonomy with no network. Optional: when absent (the tag index or Scryfall
+ *        catalogs failed to load) detection falls back to the two EDHREC signals alone.
+ */
 export function detectThemes(
   themes: EDHRECTheme[],
   themeDataMap: Map<string, EDHRECCommanderData>,
   currentCards: ScryfallCard[],
   curveAnalysis: CurveSlot[],
   commanderName: string,
+  membershipScores?: ReadonlyMap<string, ThemeScore>,
 ): DetectedThemeResult {
   const evaluatedThemes: ThemeMatchResult[] = [];
   for (const theme of themes) {
     const data = themeDataMap.get(theme.slug);
     if (!data) continue;
-    evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards));
+    evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards, membershipScores?.get(theme.slug)));
   }
 
   evaluatedThemes.sort((a, b) => b.score - a.score);
@@ -357,7 +362,10 @@ export function detectThemes(
   const { pacing, label: pacingLabel } = detectPacing(currentCards, curveAnalysis);
 
   const strategyLabel = matchedThemes.length > 0
-    ? generateStrategyLabel(matchedThemes[0].theme.name)
+    ? generateStrategyLabel(
+        matchedThemes[0].theme.name,
+        membershipScores?.get(matchedThemes[0].theme.slug)?.model.kind,
+      )
     : 'a unique strategy';
 
   const detectionMessage = buildDetectionMessage(
