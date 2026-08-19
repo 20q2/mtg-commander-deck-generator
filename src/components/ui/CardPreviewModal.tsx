@@ -74,12 +74,15 @@ interface CardPreviewModalProps {
   prevCardImage?: string | null;
   /** Image URL for the next card in the list (for peek preview) */
   nextCardImage?: string | null;
-  /** Override for the "in deck/list" name set used to filter similar-card suggestions.
-   *  Falls back to the Zustand-store generatedDeck when not provided. */
+  /** "In deck/list" names dropped from similar-card suggestions. Omit and no
+   *  deck filter is applied — there is no store fallback, by design. */
   inDeckNames?: string[];
-  /** Override for the commander color identity used to filter similar-card suggestions.
-   *  Falls back to the Zustand-store commander when not provided. */
+  /** Color identity that similar-card suggestions must fit inside. Omit and no
+   *  identity filter is applied — there is no store fallback, by design. */
   commanderColorIdentity?: string[];
+  /** Show the EDHREC "Similar Cards" grid. Default true — callers opt OUT.
+   *  Independent of onSwapCard: discovery is not an edit capability. */
+  showSimilarCards?: boolean;
   /** Progressive load phases — when 'swaps' is missing, render placeholder in Replacements panel. */
   phasesDone?: Set<LoadPhase>;
   /** SpellChroma: called with a tag slug when a tag chip is clicked in the Tags tab (modal then closes).
@@ -242,7 +245,7 @@ function ComboEntry({
   );
 }
 
-export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, phasesDone, onTagClick, spellChromaDeckRef }: CardPreviewModalProps) {
+export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, cardTypeMap, cardComboMap, deckOnly, hideMustInclude, swapCandidates, onSwapCard, onAddCard, initialSideTab, onRegenerate, onNavigate, canNavigate, cardIndex, totalCards, cardInclusionMap, cardRelevancyMap, showPrice, prevCardImage, nextCardImage, inDeckNames, commanderColorIdentity, showSimilarCards = true, phasesDone, onTagClick, spellChromaDeckRef }: CardPreviewModalProps) {
   const swapsReady = !phasesDone || phasesDone.has('swaps');
   const navigate = useNavigate();
   const commander = useStore((s) => s.commander);
@@ -539,13 +542,18 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  // Lazy-fetch EDHREC similar cards when the user opens the Replacements section
-  // on a real card. One HTTP request per card per 5 min (cache lives in client.ts).
+  // The card the Similar Cards grid is anchored to. Normally the focused card; on a
+  // non-swappable surface the user can chain-browse into a similar card, which then
+  // becomes the anchor. Combo-pill overrides are not a real focus and never anchor.
+  const similarAnchor = cardOverride?.source === 'similar' ? cardOverride.card : card;
+
+  // Lazy-fetch EDHREC similar cards when the section is expanded. One HTTP request
+  // per card per 5 min (cache lives in client.ts), so a collapsed section costs nothing.
   useEffect(() => {
-    if (!card) return;
+    if (!similarAnchor) return;
+    if (!showSimilarCards) return;
     if (!showSwaps) return;
-    if (cardOverride) return; // viewing combo pill card, not a real focus
-    if (!onSwapCard) return; // no swap callback, no point fetching
+    if (cardOverride?.source === 'combo') return; // combo pill, not a real focus
 
     let cancelled = false;
     setSimilarHydrated(null);
@@ -553,7 +561,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
 
     (async () => {
       try {
-        const names = await fetchSimilarCards(card.name);
+        const names = await fetchSimilarCards(similarAnchor.name);
         if (cancelled || names.length === 0) {
           if (!cancelled) setSimilarHydrated([]);
           return;
@@ -575,7 +583,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     return () => {
       cancelled = true;
     };
-  }, [card?.name, showSwaps, cardOverride, onSwapCard]);
+  }, [similarAnchor?.name, showSwaps, showSimilarCards, cardOverride?.source]);
 
   // Lazy-fetch Scryfall rulings for the card the side panel represents. This
   // tracks cardOverride ?? card — the same source the combo sections use — so
@@ -641,7 +649,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   // Rerank: inclusion % in this commander's umbrella, descending. Cards without
   // inclusion data sink to the end and keep EDHREC's native order among themselves.
   const filteredSimilarCards = useMemo<ScryfallCard[]>(() => {
-    if (!card || !similarHydrated?.length) return [];
+    if (!similarAnchor || !similarHydrated?.length) return [];
 
     // Filters apply ONLY to context the caller passed. No store fallback: `commander`
     // and `generatedDeck` are in-memory and survive SPA navigation, so a deck built
@@ -650,7 +658,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     const cmdrIdentity = new Set((commanderColorIdentity ?? []).map((c) => c.toUpperCase()));
 
     const filtered = similarHydrated.filter((c) => {
-      if (c.name === card.name) return false;
+      if (c.name === similarAnchor.name) return false;
       if (inDeckNameSet.has(c.name)) return false;
       if (cmdrIdentity.size > 0 && c.color_identity?.length) {
         if (!c.color_identity.every((col) => cmdrIdentity.has(col.toUpperCase()))) {
@@ -675,7 +683,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     unscored.sort((a, b) => a.idx - b.idx);
 
     return [...scored.map((x) => x.card), ...unscored.map((x) => x.card)].slice(0, 15);
-  }, [similarHydrated, card, cardInclusionMap, cardRelevancyMap, inDeckNames, commanderColorIdentity]);
+  }, [similarHydrated, similarAnchor, cardInclusionMap, cardRelevancyMap, inDeckNames, commanderColorIdentity]);
 
   if (!card) return null;
 
@@ -701,12 +709,11 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const isInMustInclude = mustIncludeCards.includes(currentCardName) || tempMustIncludeCards.includes(currentCardName);
   const hasRoleBucket = !!(swapCandidates && swapCandidates.length > 0);
   const hasSimilarBucket = filteredSimilarCards.length > 0 || similarLoading;
-  const hasSwapSection = !!(
-    (hasRoleBucket || hasSimilarBucket) &&
-    onSwapCard &&
-    !cardOverride &&
-    !card.isMustInclude
-  );
+  // Role replacements are an edit affordance: they need a swap handler, and they're
+  // meaningless on a pinned card. Similar Cards is discovery and needs neither.
+  const showRoleBucket = !!(hasRoleBucket && onSwapCard && !card.isMustInclude);
+  const showSimilarBucket = !!(showSimilarCards && hasSimilarBucket);
+  const hasSwapSection = (showRoleBucket || showSimilarBucket) && cardOverride?.source !== 'combo';
   const comboCount = deckCombos.length + (deckOnly ? 0 : knownCombos.length);
   // Resolve rulings synchronously from the client cache (keyed off cardOverride ?? card,
   // matching the fetch effect). `undefined` means "not fetched yet" → still loading.
@@ -1189,7 +1196,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 )}
 
                 {/* Similar Cards (EDHREC per-card list, reranked by inclusion %) */}
-                {(filteredSimilarCards.length > 0 || similarLoading) && (
+                {showSimilarBucket && (
                   <div className="mb-4">
                     <div className="flex items-center gap-1.5 mb-3">
                       <Sparkles className="w-3.5 h-3.5 text-violet-300" />
@@ -1266,7 +1273,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 )}
 
                 {/* Role/subtype bucket — original card highlight + candidates */}
-                {!swapsReady && !hasRoleBucket && (
+                {onSwapCard && !swapsReady && !hasRoleBucket && (
                   <div className="space-y-2 mb-3">
                     <div className="text-[11px] text-muted-foreground">Loading suggestions…</div>
                     <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
@@ -1276,7 +1283,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                     </div>
                   </div>
                 )}
-                {hasRoleBucket && (
+                {showRoleBucket && (
                 <div className="flex items-center gap-1.5 mb-3">
                   <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-400" />
                   <span className="text-[11px] font-bold text-cyan-300 tracking-wide uppercase">
@@ -1296,7 +1303,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                   </span>
                 </div>
                 )}
-                {hasRoleBucket && (
+                {showRoleBucket && (
                 <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
                   {/* Original card — highlighted */}
                   {(() => {
