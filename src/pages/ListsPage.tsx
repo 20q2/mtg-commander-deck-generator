@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -16,6 +16,7 @@ import { TagFilterStrip } from '@/components/lists/TagFilterStrip';
 import { trackEvent } from '@/services/analytics';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import { AuroraThemed } from '@/components/ui/AuroraThemed';
+import { readDeckHash, decodeDeckPayload, shareLinkErrorMessage, type SharedDeckPayload } from '@/services/share/deckLink';
 import type { BanList, UserCardList } from '@/types';
 
 type SortKey = 'updatedAt' | 'name' | 'size' | 'tag';
@@ -71,6 +72,28 @@ export function ListsPage() {
     if (kind === 'deck') return { view: 'deck-view' as const, kind, listId };
     return { view: 'detail' as const, kind, listId };
   }, [splat, location.pathname]);
+
+  // Shared-link load for /decks/create#d=… — same fragment Analyze and Playtest read.
+  // Captured on first render so the form never flashes empty before the payload lands.
+  const [sharedHash] = useState(() => {
+    const onCreateDeck =
+      location.pathname.startsWith('/decks') &&
+      (splat || '').split('/').filter(Boolean)[0] === 'create';
+    return onCreateDeck ? readDeckHash(window.location.hash) : null;
+  });
+  const [sharedDeck, setSharedDeck] = useState<SharedDeckPayload | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const loadedShareHash = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sharedHash || loadedShareHash.current === sharedHash) return;
+    loadedShareHash.current = sharedHash;
+    decodeDeckPayload(sharedHash)
+      .then(setSharedDeck)
+      .catch(e => {
+        console.error('[ListsPage] shared-link decode failed', e);
+        setShareError(shareLinkErrorMessage(e, 'Could not load this deck. Check the card names and try again.'));
+      });
+  }, [sharedHash]);
 
   const laneLabel = currentView.kind === 'deck' ? 'My Decks' : 'My Lists';
   const openList = 'listId' in currentView && currentView.listId ? getListById(currentView.listId) : undefined;
@@ -651,11 +674,29 @@ export function ListsPage() {
   // Create view
   if (currentView.view === 'create') {
     const createMode = currentView.kind === 'deck' ? 'deck' : 'list';
+    if (createMode === 'deck' && sharedHash && !sharedDeck && !shareError) {
+      return (
+        <main className="flex-1 flex items-center justify-center px-4 py-16">
+          <div className="flex flex-col items-center gap-4 text-center animate-fade-in">
+            <Loader2 className="h-10 w-10 text-violet-300/80 animate-spin" />
+            <div className="text-base font-medium">Loading shared deck…</div>
+          </div>
+        </main>
+      );
+    }
     return (
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl lg:max-w-5xl">
         <div className="aurora-bg" />
+        {shareError && createMode === 'deck' ? (
+          <div className="mb-4 px-3 py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-400">
+            {shareError}
+          </div>
+        ) : null}
         <ListCreateEditForm
           mode={createMode}
+          initialCards={createMode === 'deck' ? sharedDeck?.cardNames : undefined}
+          initialCommander={createMode === 'deck' ? sharedDeck?.commanderName : undefined}
+          initialPartner={createMode === 'deck' ? sharedDeck?.partnerCommanderName : undefined}
           onSave={(name, cards, description, commanderOptions) => {
             const newList = createList(name, cards, description, {
               type: createMode === 'deck' || commanderOptions?.commanderName ? 'deck' : 'list',

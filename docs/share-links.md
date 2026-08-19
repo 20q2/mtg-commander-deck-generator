@@ -5,7 +5,9 @@ end turns it back into a deck. There is no backend involved at any point: **the 
 storage.**
 
 Read this before touching [`src/services/share/deckLink.ts`](../src/services/share/deckLink.ts)
-or the shared-load path in [`src/pages/AnalyzePage.tsx`](../src/pages/AnalyzePage.tsx).
+or the shared-load path in [`src/pages/AnalyzePage.tsx`](../src/pages/AnalyzePage.tsx),
+[`src/pages/PlaytestLandingPage.tsx`](../src/pages/PlaytestLandingPage.tsx), or
+[`src/pages/ListsPage.tsx`](../src/pages/ListsPage.tsx) (`/decks/create`).
 
 ---
 
@@ -20,6 +22,9 @@ https://manafoundry.gg/analyze/overview#d=1.q1ZKzs8rSc0rUbBVSkosSsxLzUlVyMxLK1FI
                           │        └─ Inspector tab slug — the link reopens where you shared from
                           └─ route
 ```
+
+The same `#d=` fragment is also read on `/playtest` (drops onto the table) and `/decks/create`
+(pre-fills the create form; the user still saves).
 
 Two independent pieces:
 
