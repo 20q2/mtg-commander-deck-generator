@@ -14,8 +14,15 @@ export const SHORTLIST_SIZE = 6;
 // A theme must clear BOTH to be considered at all. Scoring ~400 themes means ~400 chances to be
 // wrong, and the long tail is where the embarrassing false positives live.
 
-/** Absolute member count. Three Praetors is not a Praetors deck. */
-export const MIN_MEMBERS = 8;
+/**
+ * Absolute member count. Three Praetors is not a Praetors deck.
+ *
+ * At a full 99 this is nearly redundant with MIN_RATIO (12% of ~65 non-lands ≈ 8), so it exists
+ * mainly to stop thin partial lists — which the Inspector accepts — from detecting on 2-3 cards.
+ * Measured at 6 because textbook Aristocrats and Blink lists scored 7 members and were being
+ * thrown away by a floor of 8.
+ */
+export const MIN_MEMBERS = 6;
 /** Members as a share of non-land cards. */
 export const MIN_RATIO = 0.12;
 
@@ -46,8 +53,15 @@ export const INCLUSION_WEIGHT = 0.25;
  * appear. Also caps how enormous a rare theme's lift can get from a single lucky match.
  */
 export const EXPECTED_RATE_FLOOR = 0.02;
-/** Ceiling on the observed/expected multiplier, so one obscure tag can't run away with the ranking. */
-export const MAX_LIFT = 8;
+/**
+ * Ceiling on the observed/expected multiplier, so one obscure tag can't run away with the ranking.
+ *
+ * Set at 8 initially, which turned out to saturate: on a test Aristocrats deck the top four themes
+ * all pinned at exactly the cap and tied at 65.0, leaving the real winner indistinguishable from
+ * noise. Raised to give the top of the ranking room to separate — the cap should be a guard against
+ * runaway rare themes, not the value everything lands on.
+ */
+export const MAX_LIFT = 20;
 
 // ─── Nesting suppression ──────────────────────────────────────────────
 

@@ -1,5 +1,4 @@
 import type { ScryfallCard } from '@/types';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { testMembership, type ThemeModel, type MembershipResult } from './membership';
 import { DEFAULT_TUNING, type ThemeTuning } from './tuning';
 
@@ -32,8 +31,14 @@ export interface ThemeScore {
   onCommanderList: boolean;
 }
 
+/**
+ * Front-face card types only — the words before the em-dash, first face. Deliberately not importing
+ * scryfall/client's helper: that module is browser-coupled (import.meta.env), and keeping this file
+ * dependency-free is what lets the same scoring run under Node in the build script and in tests.
+ */
 function isLand(card: ScryfallCard): boolean {
-  return getFrontFaceTypeLine(card).toLowerCase().includes('land');
+  const line = card.card_faces?.[0]?.type_line ?? card.type_line ?? '';
+  return line.split('—')[0].toLowerCase().includes('land');
 }
 
 /**

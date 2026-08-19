@@ -53,6 +53,12 @@ const MetricsPage = import.meta.env.DEV
   ? lazy(() => import('@/pages/MetricsPage').then(m => ({ default: m.MetricsPage })))
   : null;
 
+// Same treatment for the theme-scoring debug page — it exposes raw score components and tag slugs,
+// which are developer data, not product UI.
+const ThemeLabPage = import.meta.env.DEV
+  ? lazy(() => import('@/pages/ThemeLabPage').then(m => ({ default: m.ThemeLabPage })))
+  : null;
+
 // Get art crop URL for background
 function getArtCropUrl(card: ScryfallCard | null): string | null {
   if (!card) return null;
@@ -384,6 +390,14 @@ function Layout({ children }: { children: React.ReactNode }) {
                       className="text-xs text-amber-500/80 hover:text-amber-400 transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
                     >
                       Metrics
+                    </Link>
+                  )}
+                  {import.meta.env.DEV && (
+                    <Link
+                      to="/theme-lab"
+                      className="text-xs text-amber-500/80 hover:text-amber-400 transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
+                    >
+                      Theme Lab
                     </Link>
                   )}
                   <Link
@@ -729,6 +743,9 @@ function App() {
         <Route path="/playtest/pasted" element={<PlaytestPage kind="pasted" />} />
         {import.meta.env.DEV && MetricsPage && (
           <Route path="/metrics" element={<Layout><Suspense fallback={null}><MetricsPage /></Suspense></Layout>} />
+        )}
+        {import.meta.env.DEV && ThemeLabPage && (
+          <Route path="/theme-lab" element={<Layout><Suspense fallback={null}><ThemeLabPage /></Suspense></Layout>} />
         )}
       </Routes>
     </BrowserRouter>
