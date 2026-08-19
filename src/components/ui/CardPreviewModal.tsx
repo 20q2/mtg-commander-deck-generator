@@ -1143,11 +1143,11 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
           <div className="mt-4">
               <div className="text-left">
                 {/* Floating Swap button — sits above both sections so it stays visible regardless of which section the preview comes from */}
-                {swapPreview && (
+                {(swapPreview || cardOverride?.source === 'similar') && (
                   <div className="flex justify-end gap-2 mb-3">
                     <button
                       type="button"
-                      onClick={() => setSwapPreview(null)}
+                      onClick={() => { setSwapPreview(null); setCardOverride(null); }}
                       aria-label={`Back to ${card.name}`}
                       title={`Back to ${card.name}`}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-white/80 hover:text-white text-xs font-medium transition-colors animate-fade-in max-w-[200px]"
@@ -1155,7 +1155,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                       <ArrowLeft className="w-3 h-3 shrink-0" />
                       <span className="truncate">{card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name}</span>
                     </button>
-                    {onAddCard && (
+                    {swapPreview && onAddCard && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1174,24 +1174,26 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                         Add
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSwapCard!(card, swapPreview);
-                        trackEvent('card_swapped', {
-                          commanderName: commander?.name ?? 'unknown',
-                          oldCardName: card.name,
-                          newCardName: swapPreview.name,
-                          swapType: card.deckRole ?? 'type',
-                        });
-                        setToastMessage(`Swapped "${card.name}" for "${swapPreview.name}"`);
-                        setSwapPreview(null);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors animate-fade-in"
-                    >
-                      <ArrowLeftRight className="w-3 h-3" />
-                      Swap
-                    </button>
+                    {swapPreview && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSwapCard!(card, swapPreview);
+                          trackEvent('card_swapped', {
+                            commanderName: commander?.name ?? 'unknown',
+                            oldCardName: card.name,
+                            newCardName: swapPreview.name,
+                            swapType: card.deckRole ?? 'type',
+                          });
+                          setToastMessage(`Swapped "${card.name}" for "${swapPreview.name}"`);
+                          setSwapPreview(null);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors animate-fade-in"
+                      >
+                        <ArrowLeftRight className="w-3 h-3" />
+                        Swap
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1229,7 +1231,18 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                             <button
                               key={candidate.id}
                               type="button"
-                              onClick={() => setSwapPreview(candidate)}
+                              onClick={() => {
+                                // Swappable surface: stage a comparison against the
+                                // incumbent (grid stays anchored, Swap bar appears).
+                                // Otherwise re-focus on the clicked card and let the
+                                // user keep browsing outward from it.
+                                if (onSwapCard) {
+                                  setSwapPreview(candidate);
+                                } else {
+                                  setSwapPreview(null);
+                                  setCardOverride({ card: candidate, source: 'similar' });
+                                }
+                              }}
                               className={`group text-center transition-opacity ${
                                 swapPreview && !isPreviewing ? 'opacity-60 hover:opacity-100' : ''
                               }`}
