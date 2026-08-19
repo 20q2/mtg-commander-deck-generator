@@ -123,8 +123,14 @@ interface TagDictEntry { s: string; l: string; d: string; p?: string[] }
  *
  * Deliberately narrow. Adding `removal` and `card-advantage` also tests clean on the obvious cases
  * but strips Wheels and Impulse Draw of their real definitions, so they stay in.
+ *
+ * `life-payment` and `fun-ruling` are here for the same reason, one category over. Paying life is a
+ * COST ("Cards that cost life to use"), not a plan — it put Phyrexian Arena, Read the Bones and
+ * Golgari Signet into Combo's definition, so any black deck matched. `fun-ruling` ("rulings where
+ * the rules manager is having fun with us") is pure trivia. Excluding the roots takes their
+ * subtrees too, so `alternate-cost-life` goes with `life-payment`.
  */
-const ROLE_TAG_ROOTS = new Set(['tutor', 'ramp', 'cost-reducer']);
+const ROLE_TAG_ROOTS = new Set(['tutor', 'ramp', 'cost-reducer', 'life-payment', 'fun-ruling']);
 
 function buildTagResolver(dict: TagDictEntry[], index: Record<string, number[]>) {
   const bySlug = new Map(dict.map(e => [e.s, e]));
