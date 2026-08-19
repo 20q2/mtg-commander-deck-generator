@@ -7,6 +7,8 @@ import { BrewSpecialPack } from '@/components/brew/BrewSpecialPack';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RefreshCw, Flame, Sprout, Crosshair, Bomb, BookOpen, Shield, Zap, Sparkles, Crown, Info, Link2, Dices, Star, X, Check, type LucideIcon } from 'lucide-react';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
+import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
+import { useUserLists } from '@/hooks/useUserLists';
 import { operationTheme, routeKey, PACK_FLAVOR } from '@/components/brew/brewVisuals';
 import { BrewComboDetails } from '@/components/brew/BrewComboDetails';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -47,8 +49,15 @@ const isSynergyChip = (kind: string) => kind === 'lift' || kind === 'discovery';
 
 
 export function BrewNode({ onFinish }: { onFinish: () => void }) {
-  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, customization, brewState, brewContext, setBrewPreview } = useStore();
+  const { brewNode, applyBrewOption, backToBrewFork, rerollBrew, killBrewCard, customization, brewState, brewContext, setBrewPreview } = useStore();
   const [chosenId, setChosenId] = useState<string | null>(null);
+  // Cards struck from the run by right-click (the ☠ menu entry). Like the pack fan, the mark is
+  // deferred: the card greys out and can't be taken, and the actual run-ban lands when this screen
+  // resolves (take / commit / pass) — so a mis-click is one more click to undo.
+  const [cutNames, setCutNames] = useState<Set<string>>(() => new Set());
+  // Which card's context menu is force-open (card name).
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const { lists: userLists, updateList, createList } = useUserLists();
   // Headliner: multi-select. The set of option ids the player has toggled on, plus a commit flag
   // that fires the fly-to-deck animation once they lock in their picks.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -190,8 +199,40 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
     flavor: isCombo ? 'combo' : routeKey(brewNode.routeId) === 'synergy' ? 'discovery' : undefined,
   };
 
+  /** Land any ☠ marks made on this screen — called on every path that leaves it. */
+  function flushCuts() {
+    for (const name of cutNames) killBrewCard(name);
+  }
+
+  /** Brew has no working deck, so the card menu only saves to one of the player's lists. */
+  function handleCardAction(card: ScryfallCard, action: CardAction) {
+    if (action.type === 'addToList') {
+      const target = userLists.find(l => l.id === action.listId);
+      if (target && !target.cards.includes(card.name)) updateList(action.listId, { cards: [...target.cards, card.name] });
+    } else if (action.type === 'createListAndAdd') {
+      createList(action.listName, [card.name]);
+    }
+  }
+
+  /** Toggle a card's cut mark, and make sure a cut card isn't also selected. */
+  function toggleCut(option: BrewOption, name: string) {
+    if (exiting) return;
+    setCutNames(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+    setSelectedIds(prev => {
+      if (!prev.has(option.id)) return prev;
+      const next = new Set(prev);
+      next.delete(option.id);
+      return next;
+    });
+  }
+
   function choose(option: BrewOption) {
     if (exiting) return;                          // ignore clicks once a card is on its way out
+    flushCuts();
     const taken = new Set(option.cards.map(c => c.name));
     const passed = allShown.filter(n => !taken.has(n));
     setChosenId(option.id);                        // play the fly-to-deck / melt-away animation…
@@ -249,6 +290,7 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
   // (it starts empty and has its own Pass).
   function commitSelection() {
     if (exiting || !brewNode || (selectedIds.size === 0 && !isHeadliner)) return;
+    flushCuts();
     const chosen = brewNode.options.filter(o => selectedIds.has(o.id));
     const combined: BrewOption = {
       id: chosen.length === 1 ? chosen[0].id : 'draft:multi',
@@ -348,13 +390,24 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
         )}
         {brewNode.options.map((option, idx) => {
           const isSelected = isMultiSelect && selectedIds.has(option.id);
+          // A cut is only offered on single-card options — a combo option is a package, so striking
+          // "one of its two halves" would be incoherent (its own Pass already declines the whole thing).
+          const cuttable = option.cards.length === 1 ? option.cards[0] : null;
+          const isCutCard = !!cuttable && cutNames.has(cuttable.name);
           // Headliner only: a card struck off the bill — it stays visible but visibly leaving. Hidden
-          // Synergy starts empty, so an unselected card there reads as plain, not "dropped".
-          const isDropped = isHeadliner && !isSelected;
+          // Synergy starts empty, so an unselected card there reads as plain, not "dropped". A ☠ cut
+          // borrows the same sliced-in-two treatment on every node type.
+          const isDropped = (isHeadliner && !isSelected) || isCutCard;
           return (
+          <div key={option.id} className="group/opt relative">
           <button
-            key={option.id}
-            onClick={() => (isMultiSelect ? toggleSelect(option.id) : choose(option))}
+            onClick={() => { if (isCutCard) return; isMultiSelect ? toggleSelect(option.id) : choose(option); }}
+            onContextMenu={(e: MouseEvent<HTMLElement>) => {
+              if (exiting) return;
+              e.preventDefault();
+              setHover(null);
+              setMenuFor(option.cards[0]?.name ?? null);
+            }}
             disabled={exiting}
             aria-pressed={isMultiSelect ? isSelected : undefined}
             style={exiting ? undefined : { animationDelay: `${idx * 70}ms` }}
@@ -546,6 +599,25 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
               })}
             </div>
           </button>
+          {/* Card menu (right-click anywhere on the card, or the ⋮ that fades in on hover) — sibling of
+              the card button, never nested inside it. */}
+          {!exiting && cuttable && (
+            <div className={`absolute bottom-1 right-1 z-30 transition-opacity ${
+              menuFor === cuttable.name ? 'opacity-100' : 'opacity-0 group-hover/opt:opacity-100 focus-within:opacity-100'
+            }`}>
+              <CardContextMenu
+                card={cuttable.scryfall}
+                onAction={handleCardAction}
+                hideDeckActions
+                userLists={userLists}
+                onCut={() => toggleCut(option, cuttable.name)}
+                isCut={isCutCard}
+                forceOpen={menuFor === cuttable.name}
+                onForceClose={() => setMenuFor(null)}
+              />
+            </div>
+          )}
+          </div>
           );
         })}
       </div>
@@ -586,12 +658,15 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
           wayfindingCracked): its crack only reveals the finds, so Back / Show different stay live. */}
       {(!wayfindingCracked || brewNode.canPass) && (
       <div className="flex items-center justify-center gap-2 mt-9 text-muted-foreground">
+        {/* Every exit lands the ☠ marks: a cut is a statement about the CARD, not about this route, so
+            leaving by Back / Show different / Pass must still honour it (reroll especially — "different
+            cards, and never that one again"). */}
         {!wayfindingCracked && (<>
-        <Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
+        <Button variant="ghost" size="sm" disabled={exiting} onClick={() => { flushCuts(); backToBrewFork(); }}><ArrowLeft className="w-4 h-4 mr-1.5" /> Back</Button>
         <span className="w-1 h-1 rotate-45 bg-border" />
-        <Button variant="ghost" size="sm" disabled={exiting} onClick={rerollBrew}><RefreshCw className="w-4 h-4 mr-1.5" /> Show different</Button>
+        <Button variant="ghost" size="sm" disabled={exiting} onClick={() => { flushCuts(); rerollBrew(); }}><RefreshCw className="w-4 h-4 mr-1.5" /> Show different</Button>
         </>)}
-        {brewNode.canPass && (<>{!wayfindingCracked && <span className="w-1 h-1 rotate-45 bg-border" />}<Button variant="ghost" size="sm" disabled={exiting} onClick={backToBrewFork}>Pass</Button></>)}
+        {brewNode.canPass && (<>{!wayfindingCracked && <span className="w-1 h-1 rotate-45 bg-border" />}<Button variant="ghost" size="sm" disabled={exiting} onClick={() => { flushCuts(); backToBrewFork(); }}>Pass</Button></>)}
       </div>
       )}
 

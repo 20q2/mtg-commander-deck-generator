@@ -49,6 +49,7 @@ import {
   Tag,
   History,
   Telescope,
+  Skull,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
@@ -372,13 +373,19 @@ export interface CardContextMenuProps {
   hasCreateCombo?: boolean;
   /** Commander row — hide deck-management actions (remove/board/must-include/exclude), keep Create combo + Add to list/deck. */
   isCommander?: boolean;
+  /** Same hiding as isCommander, for contexts with no working deck at all (brew's packs). */
+  hideDeckActions?: boolean;
   userLists: UserCardList[];
   forceOpen?: boolean;
   onForceClose?: () => void;
   onFocus?: () => void;   // optional "Focus on graph" action (Lift Web); shown at the top when provided
+  /** Optional destructive action, shown at the top (brew: cut the card from the rest of the run). */
+  onCut?: () => void;
+  /** Whether `onCut` is currently marked, so the entry reads as a toggle. */
+  isCut?: boolean;
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, isCommander, userLists, noun = 'deck', forceOpen, onForceClose, onFocus }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, isCommander, hideDeckActions, userLists, noun = 'deck', forceOpen, onForceClose, onFocus, onCut, isCut }: CardContextMenuProps) {
   const workingNoun = noun === 'list' ? 'List' : 'Deck';
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
@@ -431,7 +438,16 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
             <div className="h-px bg-border my-1" />
           </>
         )}
-        {!isCommander && (
+        {onCut && (
+          <>
+            <button className={menuBtn} onClick={() => { onCut(); handleOpenChange(false); }}>
+              <Skull className={`w-3.5 h-3.5 transition-colors ${isCut ? 'text-rose-400' : 'text-muted-foreground group-hover/item:text-rose-400'}`} />
+              {isCut ? 'Un-cut — keep it in the running' : 'Cut from this run'}
+            </button>
+            <div className="h-px bg-border my-1" />
+          </>
+        )}
+        {!isCommander && !hideDeckActions && (
           <>
             {hasAddToDeck && (
               <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>

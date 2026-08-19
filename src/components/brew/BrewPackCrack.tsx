@@ -11,6 +11,8 @@ import type { ScryfallCard } from '@/types';
 import type { PackSceneAPI } from '@/components/brew/packScene';
 import { PACK_FLAVOR, themeColor, legibleText, routeKey, CARD_TYPE_MS } from '@/components/brew/brewVisuals';
 import { RoleBadges } from '@/components/brew/RoleBadges';
+import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
+import { useUserLists } from '@/hooks/useUserLists';
 import { Check, Crown, Link2, Sparkles, Star, Package, Lightbulb, ArrowLeft, Skull, RotateCcw } from 'lucide-react';
 
 /**
@@ -185,6 +187,8 @@ export function PackBody({ option, packColor, brand = true, artOverride }: { opt
 
 export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boolean) => void; onBack?: () => void }) {
   const { brewNode, brewState, applyBrewOption, killBrewCard, customization, setBrewPreview } = useStore();
+  // Fan cards get the shared card menu on right-click; "Add to list" needs the user's lists.
+  const { lists: userLists, updateList, createList } = useUserLists();
   // The staged pack (option id): others are falling, this one is flying to center and looming.
   const [staged, setStaged] = useState<string | null>(null);
   // Which pack was cracked — drives the fan phase.
@@ -199,6 +203,8 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   const [committing, setCommitting] = useState(false);
   // Hovering a fan card pops a full, readable preview beside it (mirrors the old pack behavior).
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
+  // Right-clicked fan card (name) → its context menu is force-opened. One at a time.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   // Suggestions on/off — the fan highlights the engine's top pick(s) when on. The toggle itself now
   // lives in the HUD (BrewHealthStrip); we just read the shared, persisted value here.
   const [suggestOn] = useBrewSuggest();
@@ -400,6 +406,18 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     });
   }
 
+  // The fan's context-menu actions. Brew has no working deck, so the only entries are the cut
+  // (handled by onCut, not an action) and saving the card to one of the player's lists — a card you
+  // pass on can still be remembered.
+  function handleCardAction(card: ScryfallCard, action: CardAction) {
+    if (action.type === 'addToList') {
+      const target = userLists.find(l => l.id === action.listId);
+      if (target && !target.cards.includes(card.name)) updateList(action.listId, { cards: [...target.cards, card.name] });
+    } else if (action.type === 'createListAndAdd') {
+      createList(action.listName, [card.name]);
+    }
+  }
+
   // Lock in the kept cards as one decision. The synthetic option keeps the pack's identity
   // (id/label/flavor/engineScore → affinity, Rival, and pack-window bookkeeping all still work);
   // a kept foil stays on `goldCard` so the store's windfall moment + Treasury hook fire as before.
@@ -482,15 +500,25 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
               ? 'ring-2 ring-fuchsia-300/80 shadow-[0_0_26px_-4px_rgba(232,121,249,0.7),0_6px_18px_rgba(0,0,0,0.55)]'
               : 'ring-2 ring-amber-300/80 shadow-[0_0_26px_-4px_rgba(251,191,36,0.7),0_6px_18px_rgba(0,0,0,0.55)]';
             return (
+              // The card is a <button>, so its context menu can't live inside it (nested buttons).
+              // This wrapper owns the width and hosts the menu as a sibling overlay.
+              <div key={card.name} className="group/fan relative w-[172px] sm:w-[200px]">
               <button
-                key={card.name}
                 data-fan-card
                 onClick={() => { if (!isCut) toggleKeep(card.name); }}
+                onContextMenu={(e: ReactMouseEvent<HTMLElement>) => {
+                  // Right-click opens the card menu instead of the browser's — the only way to cut a
+                  // card that hasn't repeated yet.
+                  if (committing) return;
+                  e.preventDefault();
+                  setHover(null);
+                  setMenuFor(card.name);
+                }}
                 onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
                 onMouseLeave={canHover ? () => setHover(null) : undefined}
                 disabled={committing}
                 aria-pressed={kept}
-                className={`group relative w-[172px] sm:w-[200px] rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
+                className={`group relative w-full rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   committing
                     ? (kept ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
                     : ghost ? 'brew-card-shoot'
@@ -625,6 +653,26 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   )}
                 </span>
               </button>
+              {/* The card menu: reachable by right-click anywhere on the card, plus a ⋮ that fades in
+                  on hover/keyboard focus so touch users (no right-click) and keyboard users can get
+                  to it too. The foil bonus is never cuttable — it's a reward, not a recurring offer. */}
+              {!committing && (
+                <div className={`absolute bottom-0 right-0 z-30 transition-opacity ${
+                  menuFor === card.name ? 'opacity-100' : 'opacity-0 group-hover/fan:opacity-100 focus-within:opacity-100'
+                }`}>
+                  <CardContextMenu
+                    card={card.scryfall}
+                    onAction={handleCardAction}
+                    hideDeckActions
+                    userLists={userLists}
+                    onCut={isFoil ? undefined : () => cutCard(card.name)}
+                    isCut={isCut}
+                    forceOpen={menuFor === card.name}
+                    onForceClose={() => setMenuFor(null)}
+                  />
+                </div>
+              )}
+              </div>
             );
           })}
         </div>
