@@ -714,6 +714,14 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const showRoleBucket = !!(hasRoleBucket && onSwapCard && !card.isMustInclude);
   const showSimilarBucket = !!(showSimilarCards && hasSimilarBucket);
   const hasSwapSection = (showRoleBucket || showSimilarBucket) && cardOverride?.source !== 'combo';
+  // "Replacements" is an editing word — only honest where a role bucket exists.
+  // Elsewhere the section IS the similar list, so name it that.
+  const similarCount = filteredSimilarCards.length;
+  const toggleLabel = showRoleBucket ? 'Replacements' : 'Similar Cards';
+  const toggleCount = showRoleBucket ? (swapCandidates?.length ?? 0) + similarCount : similarCount;
+  // While the first fetch is in flight the list is empty but the bucket is "present";
+  // rendering the badge then would flash a "Similar Cards 0" on every preview open.
+  const showToggleCount = !(similarLoading && similarCount === 0);
   const comboCount = deckCombos.length + (deckOnly ? 0 : knownCombos.length);
   // Resolve rulings synchronously from the client cache (keyed off cardOverride ?? card,
   // matching the fetch effect). `undefined` means "not fetched yet" → still loading.
@@ -975,10 +983,12 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
                 }`}
               >
                 <ArrowLeftRight className="w-3.5 h-3.5" />
-                Replacements
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/5 text-white/40">
-                  {(swapCandidates?.length ?? 0) + filteredSimilarCards.length}
-                </span>
+                {toggleLabel}
+                {showToggleCount && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/5 text-white/40">
+                    {toggleCount}
+                  </span>
+                )}
               </button>
             )}
           </div>
