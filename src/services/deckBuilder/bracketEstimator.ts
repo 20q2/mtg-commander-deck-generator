@@ -50,6 +50,18 @@ const BRACKET_LABELS: Record<number, string> = {
   5: 'cEDH',
 };
 
+/**
+ * Prose name for an estimate's bracket. A deck that trips no hard floor can only
+ * honestly be narrowed to "1 or 2" (see `bracketMax` and the calibration note on
+ * it), so the label is a range in that case and a single number otherwise.
+ *
+ * Shared by the Bracket tab and the Overview headline so the two can never name
+ * the same deck differently.
+ */
+export function bracketLabelFor(bracket: number, bracketMax: number): string {
+  return bracketMax > bracket ? `Bracket ${bracket} or ${bracketMax}` : `Bracket ${bracket}`;
+}
+
 /** Fast mana sources — small, stable list that rarely changes. */
 const FAST_MANA = new Set([
   'Sol Ring',

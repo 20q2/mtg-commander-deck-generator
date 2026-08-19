@@ -1,4 +1,4 @@
-import type { BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
+import { bracketLabelFor, type BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 import type { DetectedCombo } from '@/types';
 import { BRACKET_COLORS, BRACKET_LABELS } from '../constants';
 
@@ -56,6 +56,19 @@ export interface SoftCriterion {
  */
 export type GateStatus = 'absent' | 'present' | 'measured';
 
+/**
+ * A set of cards that only means anything together — the two halves of a combo,
+ * not two separate findings. Rendered as one bordered unit so it's clear which
+ * card goes with which; a flat pill row can't say that.
+ */
+export interface GateCardGroup {
+  cards: string[];
+  /** Short note under the cards, e.g. "Bracket 3" or "Bracket unknown". */
+  note?: string;
+  /** True when this group doesn't move the floor — rendered without the tint. */
+  muted?: boolean;
+}
+
 export interface Gate {
   key: string;
   name: string;
@@ -66,6 +79,11 @@ export interface Gate {
   /** Bracket this check forces when it trips (0 when it never forces one). */
   forcesBracket: number;
   cards: string[];
+  /**
+   * Set when the evidence is grouped rather than a flat list — the disclosure
+   * renders these instead of `cards`, which stays populated as the flat union.
+   */
+  cardGroups?: GateCardGroup[];
 }
 
 export interface LadderEntry {
@@ -117,17 +135,26 @@ const HEADLINES: Record<number, string> = {
 
 const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
-/** Card names belonging to complete combos in a bracket band. */
-function comboCards(combos: DetectedCombo[] | undefined, min: number, max: number): string[] {
-  if (!combos) return [];
-  const names = new Set<string>();
-  for (const combo of combos) {
-    if (!combo.isComplete) continue;
-    const b = parseInt(combo.bracket, 10);
-    if (isNaN(b) || b < min || b > max) continue;
-    for (const card of combo.cards) names.add(card);
-  }
-  return [...names];
+/**
+ * One group per complete combo, highest bracket requirement first, unrated last.
+ *
+ * The estimator only counts combos carrying a numeric EDHREC bracket vote (see
+ * estimateBracket's combo loop), so an unrated one is real but doesn't move the
+ * floor. It's still listed — silently dropping it made this panel disagree with
+ * the combo list in Card Fit, which counts every complete combo it found.
+ */
+function comboGroups(combos: DetectedCombo[] | undefined): GateCardGroup[] {
+  return (combos ?? [])
+    .filter(c => c.isComplete)
+    .map(c => ({ combo: c, bracket: parseInt(c.bracket, 10) }))
+    .sort((a, bb) => (isNaN(bb.bracket) ? -1 : bb.bracket) - (isNaN(a.bracket) ? -1 : a.bracket))
+    .map(({ combo, bracket }) => ({
+      cards: combo.cards,
+      note: isNaN(bracket) ? 'Bracket unknown' : `Bracket ${bracket}`,
+      // Below 3 is as unusable as no vote at all: the estimator's floor rules
+      // start at 3, so neither reaches them.
+      muted: isNaN(bracket) || bracket < 3,
+    }));
 }
 
 // ─── Builder ─────────────────────────────────────────────────────────
@@ -199,7 +226,31 @@ export function buildBracketViewModel(
   // ── Hard-floor gates ──
   const earlyCombos = b.earlyComboCount;
   const lateCombos = b.lateComboCount;
-  const totalCombos = earlyCombos + lateCombos;
+  /** Complete combos the estimator could act on — only these set the floor. */
+  const floorCombos = earlyCombos + lateCombos;
+  const comboEvidence = comboGroups(combos);
+  /** Complete, but unusable as a floor: no community vote, or one below 3. */
+  const uncountedCombos = comboEvidence.filter(g => g.muted).length;
+  /** The subset with no vote at all — the reason confidence drops to medium. */
+  const unratedCombos = (combos ?? []).filter(
+    c => c.isComplete && isNaN(parseInt(c.bracket, 10)),
+  ).length;
+
+  // Said in two parts: what the floor rules made of the combos, then what they
+  // had to ignore. The second half exists because the count here read lower
+  // than Card Fit's and gave no hint why.
+  const comboDetail = (floorCombos === 0
+    ? uncountedCombos === 0
+      ? 'A combo that needs setup is fine from Bracket 3 up; one that wins cheaply in the first few turns belongs in Bracket 4. We scanned every pair in the deck and found no complete loop.'
+      : `${uncountedCombos} complete ${plural(uncountedCombos, 'combo')} in the deck, but ${uncountedCombos === 1 ? 'it has' : 'none has'} a community bracket rating we can act on, so ${uncountedCombos === 1 ? 'it doesn\'t' : 'they don\'t'} set a floor. The real floor may be higher than this reading.`
+    : earlyCombos > 1
+      ? `${earlyCombos} early-game ${plural(earlyCombos, 'combo')} — several ways to win before opponents set up. Bracket 3 permits none of these, so the floor is 4.`
+      : earlyCombos === 1
+        ? 'One combo that can win cheaply inside the first few turns. Bracket 3 permits none, so a single one puts the floor at 4.'
+        : `${lateCombos} late-game ${plural(lateCombos, 'combo')}. Combos that need setup are expected from Bracket 3 up, but they rule out 1 and 2.`)
+    + (floorCombos > 0 && uncountedCombos > 0
+      ? ` ${uncountedCombos} more ${plural(uncountedCombos, 'combo')} ${uncountedCombos === 1 ? 'is' : 'are'} complete but ${uncountedCombos === 1 ? 'carries' : 'carry'} no bracket rating — listed below, not counted toward the floor, so the floor may be understated.`
+      : '');
 
   const gates: Gate[] = [
     {
@@ -218,19 +269,17 @@ export function buildBracketViewModel(
     {
       key: 'combos',
       name: 'Two-card infinite combos',
-      countLabel: totalCombos === 0
+      // Every complete combo counts here, rated or not, so this number matches
+      // the combo list in Card Fit. Which of them actually moved the floor is
+      // spelled out in the detail and on each group's note.
+      countLabel: comboEvidence.length === 0
         ? 'none found'
-        : `${totalCombos} complete`,
-      status: totalCombos === 0 ? 'absent' : 'present',
+        : `${comboEvidence.length} complete`,
+      status: comboEvidence.length === 0 ? 'absent' : 'present',
       forcesBracket: earlyCombos > 0 ? 4 : lateCombos > 0 ? 3 : 0,
-      detail: totalCombos === 0
-        ? 'A combo that needs setup is fine from Bracket 3 up; one that wins cheaply in the first few turns belongs in Bracket 4. We scanned every pair in the deck and found no complete loop.'
-        : earlyCombos > 1
-          ? `${earlyCombos} early-game ${plural(earlyCombos, 'combo')} — several ways to win before opponents set up. Bracket 3 permits none of these, so the floor is 4.`
-          : earlyCombos === 1
-            ? 'One combo that can win cheaply inside the first few turns. Bracket 3 permits none, so a single one puts the floor at 4.'
-            : `${lateCombos} late-game ${plural(lateCombos, 'combo')}. Combos that need setup are expected from Bracket 3 up, but they rule out 1 and 2.`,
-      cards: comboCards(combos, 3, 99),
+      detail: comboDetail,
+      cards: [...new Set(comboEvidence.flatMap(g => g.cards))],
+      cardGroups: comboEvidence,
     },
     {
       key: 'landDenial',
@@ -287,9 +336,6 @@ export function buildBracketViewModel(
   const headline = `${HEADLINES[est.bracket]} ${floorSentence}${rangeSentence}`;
 
   // ── Confidence ──
-  const unratedCombos = (combos ?? []).filter(
-    c => c.isComplete && isNaN(parseInt(c.bracket, 10)),
-  ).length;
   const confidence: 'high' | 'medium' = unratedCombos > 0 ? 'medium' : 'high';
   const confidenceNote = unratedCombos > 0
     ? `${unratedCombos} complete ${plural(unratedCombos, 'combo')} ${unratedCombos === 1 ? 'has' : 'have'} no community bracket rating, so the floor may be understated`
@@ -306,7 +352,7 @@ export function buildBracketViewModel(
     bracket: est.bracket,
     bracketMax: est.bracketMax,
     isRange,
-    bracketLabel: isRange ? `Bracket ${est.bracket} or ${est.bracketMax}` : `Bracket ${est.bracket}`,
+    bracketLabel: bracketLabelFor(est.bracket, est.bracketMax),
     label: isRange ? `${BRACKET_LABELS[est.bracket]} or ${BRACKET_LABELS[est.bracketMax]}` : est.label,
     accent: BRACKET_HEX[est.bracket],
     colors: BRACKET_COLORS[est.bracket],
