@@ -1,6 +1,6 @@
 import type { ScryfallCard, EDHRECCard, EDHRECCombo, Customization } from '@/types';
 import type { RoleKey } from '@/services/tagger/client';
-import type { ThemeKind } from './themeKind';
+import type { ThemeKind } from '@/services/themes';
 
 /** A single scored card in the brew candidate pool. */
 export interface BrewCandidate {

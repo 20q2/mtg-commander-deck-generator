@@ -6,10 +6,9 @@ import { getDynamicRoleTargets, estimatePacingFromStats } from '@/services/deckB
 import { getCardRole, getCardSubtype, loadTaggerData } from '@/services/tagger/client';
 import { loadTagIndex, loadTagDictionary, tagsForOracleId, allTags } from '@/services/spellchroma/tagIndex';
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
-import { computeThemeCharTags } from './chromaTags';
+import { computeThemeCharTags, classifyTheme, type ThemeKind } from '@/services/themes';
 import { payoffRank } from './combos';
 import { bannedNameSet } from './banned';
-import { classifyTheme, type ThemeKind } from './themeKind';
 import type { BrewContext, BrewCandidate } from './brewTypes';
 
 // Tag candidates with the commander's top-N themes so the player has lots of directions to lean

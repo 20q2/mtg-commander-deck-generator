@@ -1,4 +1,12 @@
-import type { BrewCandidate } from './brewTypes';
+/**
+ * The only shape this module needs from a card: its mechanical oracle tags and the theme slugs it
+ * belongs to. Brew's `BrewCandidate` satisfies it structurally, as does the build script's own row
+ * type — which is the point, so the lift math has exactly one implementation.
+ */
+export interface TaggedPoolCard {
+  chromaTags?: string[];
+  themeTags: string[];
+}
 
 // A tag counts as "characteristic" of a theme when it appears in the theme's pool at least this many
 // times MORE than its baseline rate across the whole candidate pool, AND enough distinct cards carry
@@ -9,7 +17,7 @@ export const CHAR_TAG_MIN_CARRIERS = 3;
 export const CHAR_TAG_MAX_PER_THEME = 8;
 
 /** Fraction of `cards` carrying `tag` (0 when the list is empty). */
-function freq(tag: string, cards: BrewCandidate[]): number {
+function freq(tag: string, cards: TaggedPoolCard[]): number {
   if (cards.length === 0) return 0;
   let n = 0;
   for (const c of cards) if (c.chromaTags?.includes(tag)) n++;
@@ -27,7 +35,7 @@ function freq(tag: string, cards: BrewCandidate[]): number {
  *          tag get an empty array (caller treats empty like "no data for this theme").
  */
 export function computeThemeCharTags(
-  candidates: BrewCandidate[],
+  candidates: TaggedPoolCard[],
   themeSlugs: string[],
 ): Record<string, string[]> {
   const out: Record<string, string[]> = {};
@@ -60,4 +68,45 @@ export function computeThemeCharTags(
     out[slug] = scored.slice(0, CHAR_TAG_MAX_PER_THEME).map(s => s.tag);
   }
   return out;
+}
+
+// ─── The committed table ──────────────────────────────────────────────
+
+import charTagTable from '@/data/themeCharTags.json';
+
+export interface ThemeTableEntry {
+  /** Characteristic tag slugs. Populated for ARCHETYPE themes only — deterministic kinds have a
+   *  literal card-attribute test and would double-count themselves if they also carried tags. */
+  charTags: string[];
+  /**
+   * Fraction of all commander-legal cards that belong to this theme, measured over Scryfall's bulk
+   * data. This is the denominator for observed-over-expected: 10 Humans in a deck is unremarkable
+   * because Humans' base rate is enormous, while 6 Praetors is not.
+   *
+   * Caveat, deliberately accepted for v1: this is measured across ALL colors, so it slightly
+   * over-penalizes themes concentrated in a deck's own colors. `/theme-lab` shows the raw ratio
+   * alongside the lift so the effect is visible rather than hidden.
+   */
+  baseRate: number;
+}
+
+export interface ThemeCharTagTable {
+  /** ISO timestamp of the build run, or null when the table has never been generated. */
+  generatedAt: string | null;
+  /** theme slug → entry. Missing slugs are normal and degrade softly. */
+  themes: Record<string, ThemeTableEntry>;
+}
+
+/**
+ * The precomputed archetype definitions, built by `npm run build:theme-tags` and committed to the
+ * repo. Bundled rather than fetched: it's a few KB, it never goes stale on its own (theme
+ * definitions don't drift — new cards get classified BY them), and unlike the S3 tag index it works
+ * in local dev and offline.
+ *
+ * An empty `themes` map is a valid, expected state: every consumer degrades to "archetype themes
+ * have no tag signal, and every theme falls back to the expected-rate floor" while deterministic
+ * themes keep working.
+ */
+export function loadThemeCharTags(): ThemeCharTagTable {
+  return charTagTable as ThemeCharTagTable;
 }

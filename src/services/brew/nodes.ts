@@ -11,7 +11,7 @@ import { detectNearMissCombos } from './combos';
 import { relicBudgetCap } from './relics';
 import { computeDeficits, matchesDeficit } from './routes';
 import { CLUSTER_MIN_CONN } from './discovery';
-import { themeKindMatches, type ThemeKind } from './themeKind';
+import { themeKindMatches, type ThemeKind } from '@/services/themes';
 import { detectThemeSynergy, type LeaningTheme, type ThemeSynergy } from './themeSynergy';
 
 const REASON_CAP = 5;

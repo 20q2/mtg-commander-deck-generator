@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import type { RoleKey } from '@/services/tagger/client';
-import { themeKindMatches, type ThemeKind } from './themeKind';
+import { themeKindMatches, type ThemeKind } from '@/services/themes';
 
 /**
  * A theme the deck is leaning into, resolved to its concrete kind — the input the synergy detectors
