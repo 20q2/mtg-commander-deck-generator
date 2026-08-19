@@ -20,6 +20,13 @@ export const CURATED_MECHANICS: Record<string, RegExp> = {
   '+1/+1 counters': /\+1\/\+1 counter/i,
   '-1/-1 counters': /-1\/-1 counter/i,
   'tokens': /\bcreates?\b[^.]*\btokens?\b/i,
+  // "Commander Matters" cannot be learned from its EDHREC page: that page lists 294 cards, of which
+  // only 8 reference a commander at all. It's full of legendary creatures (Kaalia, Nick Fury) —
+  // commanders people BUILD AROUND, not cards that care about yours. Left to the tag-lift path it
+  // resolved to `pp-counters-matter`, so every +1/+1 counters deck read as Commander Matters.
+  // The literal test is unambiguous and catches the real payoffs: the free-spell cycle (Deadly
+  // Rollick, Fierce Guardianship, Deflecting Swat), Jeska's Will, Commander ninjutsu, Lieutenant.
+  'commander matters': /\bcommander(?:'s)?\b/i,
 };
 
 /**

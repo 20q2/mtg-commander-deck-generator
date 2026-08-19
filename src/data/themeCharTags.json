@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T22:25:50.490Z",
+  "generatedAt": "2026-08-19T22:59:49.700Z",
   "themes": {
     "tokens": {
       "charTags": [],
@@ -476,11 +476,8 @@
       "baseRate": 0.03264964420259523
     },
     "commander-matters": {
-      "charTags": [
-        "pp-counters-matter",
-        "free-cast-another"
-      ],
-      "baseRate": 0.03571926887121529
+      "charTags": [],
+      "baseRate": 0.011162271522254779
     },
     "humans": {
       "charTags": [],
