@@ -253,7 +253,11 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const updateCustomization = useStore((s) => s.updateCustomization);
   const sym = currency === 'EUR' ? '€' : '$';
   const [showBack, setShowBack] = useState(false);
-  const [cardOverride, setCardOverride] = useState<ScryfallCard | null>(null);
+  // Tagged with the feature that set it: combo pills and (below) similar-card
+  // chain-browsing both borrow this slot but want opposite fetch behavior.
+  const [cardOverride, setCardOverride] = useState<
+    { card: ScryfallCard; source: 'combo' | 'similar' } | null
+  >(null);
   // When the user clicks a combo pill, remember which combo's card list they're
   // navigating so arrow keys / swipes can cycle through that combo's other cards.
   const [activeComboCards, setActiveComboCards] = useState<string[] | null>(null);
@@ -347,7 +351,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   // (entered by clicking a pill in the side panel).
   const navigateCombo = useCallback(async (direction: 'prev' | 'next') => {
     if (!cardOverride || !activeComboCards || activeComboCards.length < 2) return;
-    const currentIdx = activeComboCards.indexOf(cardOverride.name);
+    const currentIdx = activeComboCards.indexOf(cardOverride.card.name);
     if (currentIdx === -1) return;
     const len = activeComboCards.length;
     const nextIdx = direction === 'next'
@@ -358,7 +362,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       const fetched = await getCardByName(nextName);
       if (fetched) {
         slideDirectionRef.current = direction;
-        setCardOverride(fetched);
+        setCardOverride({ card: fetched, source: 'combo' });
         setShowBack(false);
         setSlideClass(direction === 'next' ? 'animate-card-slide-from-right' : 'animate-card-slide-from-left');
       }
@@ -485,7 +489,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
     try {
       const fetched = await getCardByName(name);
       if (fetched) {
-        setCardOverride(fetched);
+        setCardOverride({ card: fetched, source: 'combo' });
         setActiveComboCards(comboCards ?? null);
         setShowBack(false);
         setHoverPreview(null);
@@ -579,7 +583,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   // candidate doesn't (the panel still reflects the focused card). Cached per
   // oracle_id in the client, so re-views are free.
   useEffect(() => {
-    const target = cardOverride ?? card;
+    const target = cardOverride?.card ?? card;
     if (!target) return;
     // Already cached → render reads it synchronously, no fetch/re-render needed.
     if (getCachedRulings(target) !== undefined) return;
@@ -588,7 +592,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
       .then(() => { if (!cancelled) bumpRulings((t) => t + 1); })
       .catch(() => { if (!cancelled) bumpRulings((t) => t + 1); });
     return () => { cancelled = true; };
-  }, [cardOverride?.id, card?.id]);
+  }, [cardOverride?.card.id, card?.id]);
 
   // Lazily load the SpellChroma tag index so the Tags tab works in every context
   // the preview opens (not just SpellChroma, which loads it eagerly). Cached after
@@ -675,7 +679,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
 
   if (!card) return null;
 
-  const displayCard = cardOverride ?? swapPreview ?? card;
+  const displayCard = cardOverride?.card ?? swapPreview ?? card;
   const isDfc = isDoubleFacedCard(displayCard);
   const backUrl = isDfc ? getCardBackFaceUrl(displayCard, 'large') : null;
   const imgUrl = showBack && backUrl ? backUrl : getCardImageUrl(displayCard, 'large');
@@ -706,7 +710,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
   const comboCount = deckCombos.length + (deckOnly ? 0 : knownCombos.length);
   // Resolve rulings synchronously from the client cache (keyed off cardOverride ?? card,
   // matching the fetch effect). `undefined` means "not fetched yet" → still loading.
-  const rulingsTarget = cardOverride ?? card;
+  const rulingsTarget = cardOverride?.card ?? card;
   const cachedRulings = rulingsTarget ? getCachedRulings(rulingsTarget) : undefined;
   const rulingsLoading = !!rulingsTarget && cachedRulings === undefined;
   const rulingsList = cachedRulings ?? [];
