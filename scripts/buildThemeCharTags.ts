@@ -106,6 +106,26 @@ function parsePageCardNames(raw: RawPage): string[] {
 
 interface TagDictEntry { s: string; l: string; d: string; p?: string[] }
 
+/**
+ * Tag roots whose entire subtree describes a card's JOB rather than a deck's strategy.
+ *
+ * This is `ROLE_THEME_NAMES` one level down. That list exists because "Ramp" and "Card Draw" are
+ * roles, not strategies, and their EDHREC pages list what such decks *play*; the same is true of the
+ * tags. A ramp spell reads "search your library for a land and put it onto the battlefield", so
+ * `tutor-to-battlefield` matched every ramp card in the format and made Birthing Pod — whose page
+ * is naturally tutor-heavy — the top theme for any deck running Cultivate and Rampant Growth.
+ *
+ * Kept to three ROOTS rather than a list of tags because the tag dictionary's own parent links do
+ * the work: `tutor-mv`, `tutor-card`, `tutor-to-battlefield` and `tutor-land-basic` all descend
+ * from `tutor`, and `mana-dork` from `mana-producer` from `ramp`. Frequency filtering cannot
+ * substitute — `tutor-land-basic` appears in exactly one definition, so it is not ubiquitous, just
+ * wrong for that theme.
+ *
+ * Deliberately narrow. Adding `removal` and `card-advantage` also tests clean on the obvious cases
+ * but strips Wheels and Impulse Draw of their real definitions, so they stay in.
+ */
+const ROLE_TAG_ROOTS = new Set(['tutor', 'ramp', 'cost-reducer']);
+
 function buildTagResolver(dict: TagDictEntry[], index: Record<string, number[]>) {
   const bySlug = new Map(dict.map(e => [e.s, e]));
   const ancestors = (slug: string, out: Set<string>): void => {
@@ -129,7 +149,16 @@ function buildTagResolver(dict: TagDictEntry[], index: Record<string, number[]>)
     // printed, not what it does. They're murder on lift: staples appear on nearly every theme page
     // while the pool is dominated by long-tail single-theme cards, so a shockland looks wildly
     // "characteristic" of every archetype at once. Brew filters these too.
-    return [...out].filter(s => !isIgnoredTag(s));
+    //
+    // Role-subtree tags go with them: a card's job is not a deck's strategy (see ROLE_TAG_ROOTS).
+    const roleTagged = (slug: string): boolean => {
+      if (ROLE_TAG_ROOTS.has(slug)) return true;
+      const up = new Set<string>();
+      ancestors(slug, up);
+      for (const a of up) if (ROLE_TAG_ROOTS.has(a)) return true;
+      return false;
+    };
+    return [...out].filter(s => !isIgnoredTag(s) && !roleTagged(s));
   };
 }
 

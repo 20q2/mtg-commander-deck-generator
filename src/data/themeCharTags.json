@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T22:02:15.156Z",
+  "generatedAt": "2026-08-19T22:16:59.886Z",
   "themes": {
     "tokens": {
       "charTags": [],
@@ -16,15 +16,15 @@
     "combo": {
       "charTags": [
         "alternate-cost-life",
-        "tutor-mv",
         "full-refund",
-        "tutor-card",
         "manaless-value",
-        "tutor-creature",
-        "mana-dork",
-        "mana-producer"
+        "refund",
+        "untapper",
+        "life-payment",
+        "fun-ruling",
+        "drain-life"
       ],
-      "baseRate": 0.06767127110366959
+      "baseRate": 0.10729733500767406
     },
     "aggro": {
       "charTags": [
@@ -33,11 +33,11 @@
         "curiosity",
         "curiosity-like",
         "gives-indestructible",
-        "mana-dork",
         "attacking-matters",
-        "gives-trample"
+        "gives-trample",
+        "keyword-anthem"
       ],
-      "baseRate": 0.1279475373238454
+      "baseRate": 0.1280870657178736
     },
     "lifegain": {
       "charTags": [
@@ -57,13 +57,13 @@
         "young-pyromancer-ability",
         "magecraft",
         "synergy-copy",
-        "cost-reducer-instant-sorcery",
-        "cost-reducer-instant",
-        "cost-reducer-sorcery",
         "synergy-noncreature",
-        "synergy-instant"
+        "synergy-instant",
+        "synergy-sorcery",
+        "copy-instant",
+        "copy-sorcery"
       ],
-      "baseRate": 0.03153341705036975
+      "baseRate": 0.03453327752197572
     },
     "reanimator": {
       "charTags": [
@@ -97,25 +97,25 @@
         "draw-hate",
         "prevent-cast",
         "manaless-value",
-        "tutor-mv",
         "toll",
         "tax",
-        "inverted-effects"
+        "inverted-effects",
+        "synergy-noncreature"
       ],
-      "baseRate": 0.05357890330682294
+      "baseRate": 0.05936933165899261
     },
     "lands-matter": {
       "charTags": [
         "crucible-of-worlds",
-        "play-additional-land",
         "reanimate-land",
         "recursion-land",
-        "tutor-land-any",
         "landfall",
         "sacrifice-outlet-land",
-        "extra-land"
+        "lands-matter",
+        "land-count-matters",
+        "animate-land"
       ],
-      "baseRate": 0.028742849169806056
+      "baseRate": 0.03174270964141203
     },
     "burn": {
       "charTags": [
@@ -126,9 +126,9 @@
         "burn-player",
         "synergy-sorcery",
         "synergy-instant",
-        "extra-land"
+        "cast-trigger-you"
       ],
-      "baseRate": 0.11008790288823776
+      "baseRate": 0.12941258546114134
     },
     "equipment": {
       "charTags": [],
@@ -140,12 +140,12 @@
         "reanimate-enchantment",
         "enchantmentfall",
         "synergy-enchantment",
-        "tutor-enchantment",
         "recursion-enchantment",
         "copy-enchantment",
-        "synergy-aura"
+        "synergy-aura",
+        "thingfall"
       ],
-      "baseRate": 0.020510673922143157
+      "baseRate": 0.06132272917538719
     },
     "voltron": {
       "charTags": [
@@ -163,15 +163,14 @@
     "midrange": {
       "charTags": [
         "manaless-value",
-        "tutor-mv",
         "face-commander",
-        "tutor-creature",
         "fun-ruling",
-        "mana-dork",
-        "tutor-to-battlefield",
-        "mana-producer"
+        "counterspell",
+        "curiosity-like",
+        "refund",
+        "life-payment"
       ],
-      "baseRate": 0.09739081903167295
+      "baseRate": 0.11490163248221014
     },
     "mill": {
       "charTags": [],
@@ -184,15 +183,15 @@
     "cedh": {
       "charTags": [
         "alternate-cost-life",
-        "tutor-card",
         "full-refund",
-        "ritual",
-        "tutor-mv",
         "prevent-cast",
         "manaless-value",
-        "tutor-creature"
+        "hate-counterspell",
+        "fun-ruling",
+        "refund",
+        "life-payment"
       ],
-      "baseRate": 0.03481233431003209
+      "baseRate": 0.08085670433933305
     },
     "sacrifice": {
       "charTags": [],
@@ -236,10 +235,10 @@
         "gives-vigilance",
         "gives-indestructible",
         "keyword-anthem",
-        "cost-reducer",
-        "reanimate-creature"
+        "reanimate-creature",
+        "repeatable-pure-draw"
       ],
-      "baseRate": 0.09620482768243338
+      "baseRate": 0.14197014092367796
     },
     "discard": {
       "charTags": [],
@@ -338,10 +337,10 @@
         "synergy-red",
         "untapper-creature",
         "untapper",
-        "combat-ramp",
-        "synergy-equipment"
+        "synergy-equipment",
+        "attacking-matters"
       ],
-      "baseRate": 0.05281149713966792
+      "baseRate": 0.08880982279893958
     },
     "big-mana": {
       "charTags": [
@@ -390,14 +389,14 @@
       "charTags": [
         "alternate-cost-life",
         "manaless-value",
-        "tutor-card",
-        "tutor-mv",
-        "tutor-creature",
-        "mana-dork",
         "fun-ruling",
-        "life-payment"
+        "life-payment",
+        "synergy-legendary",
+        "counterspell",
+        "cost-ignorer",
+        "free-cast-another"
       ],
-      "baseRate": 0.07736849448862844
+      "baseRate": 0.11315752755685782
     },
     "group-hug": {
       "charTags": [
@@ -436,15 +435,15 @@
     "birthing-pod": {
       "charTags": [
         "birthing-pod",
-        "tutor-mv",
         "manaless-value",
         "full-refund",
         "meme",
-        "tutor-card",
-        "tutor-creature",
-        "tutor-to-battlefield"
+        "offcolor-ability",
+        "fun-ruling",
+        "sacrifice-outlet-creature",
+        "sacrifice-outlet"
       ],
-      "baseRate": 0.04618389842332915
+      "baseRate": 0.07799637226175526
     },
     "forced-combat": {
       "charTags": [
@@ -482,11 +481,10 @@
     },
     "commander-matters": {
       "charTags": [
-        "mana-dork",
         "pp-counters-matter",
         "free-cast-another"
       ],
-      "baseRate": 0.053997488488907494
+      "baseRate": 0.03571926887121529
     },
     "humans": {
       "charTags": [],
@@ -498,16 +496,16 @@
     },
     "toolbox": {
       "charTags": [
-        "tutor-mv",
-        "tutor-creature",
         "manaless-value",
-        "tutor-to-battlefield",
-        "tutor",
-        "tutor-to",
         "green-effect",
-        "tutor-to-hand"
+        "fun-ruling",
+        "face-commander",
+        "reanimate-creature",
+        "repeatable-sacrifice-outlet",
+        "counterspell",
+        "sacrifice-outlet-creature"
       ],
-      "baseRate": 0.05895074647690805
+      "baseRate": 0.1133668201479001
     },
     "eldrazi": {
       "charTags": [],
@@ -573,13 +571,13 @@
         "hatebear",
         "kismet-effect",
         "prevent-cast",
-        "tutor-mv",
         "hate-artifact",
         "manaless-value",
-        "tutor-creature",
-        "drain-life"
+        "drain-life",
+        "inverted-effects",
+        "counterspell"
       ],
-      "baseRate": 0.04562578484721641
+      "baseRate": 0.05329984651876657
     },
     "dinosaurs": {
       "charTags": [],
@@ -589,14 +587,14 @@
       "charTags": [
         "manaless-value",
         "full-refund",
-        "tutor-mv",
-        "tutor-creature",
         "theft-cast",
         "curiosity-like",
         "curiosity",
-        "fun-ruling"
+        "fun-ruling",
+        "synergy-noncreature",
+        "activate-from-hand"
       ],
-      "baseRate": 0.06167155016045765
+      "baseRate": 0.07422910562299428
     },
     "topdeck": {
       "charTags": [
@@ -640,15 +638,15 @@
     "spell-copy": {
       "charTags": [
         "synergy-copy",
-        "cost-reducer-instant-sorcery",
         "copy-instant",
         "young-pyromancer-ability",
-        "cost-reducer-instant",
-        "cost-reducer-sorcery",
         "copy-sorcery",
-        "copy-spell"
+        "copy-spell",
+        "synergy-instant",
+        "synergy-sorcery",
+        "synergy-noncreature"
       ],
-      "baseRate": 0.014650481372959398
+      "baseRate": 0.03774243058462397
     },
     "stompy": {
       "charTags": [
@@ -658,10 +656,9 @@
         "sneak",
         "cost-ignorer",
         "power-matters",
-        "cost-reducer",
-        "land-ramp"
+        "free-cast-another"
       ],
-      "baseRate": 0.11915724850006977
+      "baseRate": 0.09899539556299707
     },
     "dredge": {
       "charTags": [],
@@ -730,27 +727,27 @@
       "charTags": [
         "mass-land-denial",
         "crucible-of-worlds",
-        "play-additional-land",
         "reanimate-land",
         "sacrifice-outlet-land",
         "recursion-land",
         "hate-nonbasic-land",
-        "landfall"
+        "landfall",
+        "removal-land"
       ],
-      "baseRate": 0.02595228128924236
+      "baseRate": 0.03299846518766569
     },
     "attack-triggers": {
       "charTags": [
         "extra-combat-phase",
         "phase-manipulation",
         "extra-untap",
-        "combat-ramp",
         "attacking-matters",
         "temporary-token",
         "curiosity",
-        "synergy-token"
+        "synergy-token",
+        "curiosity-like"
       ],
-      "baseRate": 0.09453048695409516
+      "baseRate": 0.0905539277242919
     },
     "affinity": {
       "charTags": [],
@@ -797,10 +794,9 @@
         "synergy-low-power",
         "drawback",
         "hate-high-pt",
-        "creature-count-matters",
-        "mana-dork"
+        "creature-count-matters"
       ],
-      "baseRate": 0.07667085251848751
+      "baseRate": 0.059020510673922146
     },
     "merfolk": {
       "charTags": [],
@@ -832,16 +828,16 @@
     },
     "counterspells": {
       "charTags": [
-        "cost-reducer-instant-sorcery",
-        "cost-reducer-instant",
-        "cost-reducer-sorcery",
         "synergy-blue",
         "synergy-instant",
         "synergy-sorcery",
         "manaless-value",
-        "counterspell"
+        "counterspell",
+        "synergy-noncreature",
+        "toll",
+        "cast-trigger-you"
       ],
-      "baseRate": 0.05078833542625925
+      "baseRate": 0.09906515976001116
     },
     "rats": {
       "charTags": [],
@@ -875,11 +871,11 @@
         "synergy-red",
         "synergy-green",
         "synergy-blue",
-        "tutor-card",
         "synergy-white",
-        "green-effect"
+        "green-effect",
+        "synergy-enchantment"
       ],
-      "baseRate": 0.036347146644342125
+      "baseRate": 0.040742291056229944
     },
     "pingers": {
       "charTags": [
@@ -924,14 +920,13 @@
       "charTags": [
         "synergy-activated-ability",
         "copy-ability",
-        "mana-dork",
         "pp-counters-matter",
         "untapper",
         "bottomless-mana-sink",
         "untapper-creature",
-        "mana-producer"
+        "mana-sink"
       ],
-      "baseRate": 0.10248360541370169
+      "baseRate": 0.08448444258406586
     },
     "politics": {
       "charTags": [
@@ -952,16 +947,16 @@
     },
     "modified-creatures": {
       "charTags": [
-        "cost-reducer-equip-ability",
         "synergy-equipment",
-        "cost-reducer-activated-ability",
         "synergy-modified",
         "synergy-aura",
         "quick-equip",
         "quick-attach",
-        "gives-double-strike"
+        "gives-double-strike",
+        "scales-with-damage-dealt",
+        "gives-indestructible"
       ],
-      "baseRate": 0.028394028184735593
+      "baseRate": 0.04555602065020232
     },
     "birds": {
       "charTags": [],
@@ -1004,15 +999,15 @@
     "dungeon": {
       "charTags": [
         "synergy-dungeon",
-        "take-the-initiative",
         "synergy-party",
         "typal-cleric",
         "typal-wizard",
         "typal-warrior",
         "typal-rogue",
-        "tutor-land-basic"
+        "scry",
+        "dnd"
       ],
-      "baseRate": 0.026161573880284637
+      "baseRate": 0.040184177480117204
     },
     "triggered-abilities": {
       "charTags": [
@@ -1021,37 +1016,35 @@
         "face-commander",
         "drain-life",
         "inverted-effects",
-        "mana-dork",
-        "group-slug",
-        "mana-producer"
+        "group-slug"
       ],
-      "baseRate": 0.09634435607646157
+      "baseRate": 0.057276405748569834
     },
     "ad-nauseam": {
       "charTags": [
-        "tutor-card",
         "manaless-value",
         "full-refund",
         "prevent-cast",
-        "tutor-mv",
         "hate-counterspell",
-        "tutor-creature",
-        "mana-producer"
+        "black-effect",
+        "fun-ruling",
+        "life-payment",
+        "refund"
       ],
-      "baseRate": 0.07471745500209293
+      "baseRate": 0.10011162271522255
     },
     "zoo": {
       "charTags": [
         "ferocious",
         "power-matters-individual",
         "manaless-value",
-        "tutor-creature",
-        "mana-dork",
-        "mana-producer",
         "cost-ignorer",
-        "tutor-to-battlefield"
+        "curiosity-like",
+        "scales-with-power",
+        "power-matters",
+        "gives-trample"
       ],
-      "baseRate": 0.10359983256592717
+      "baseRate": 0.12418027068508442
     },
     "discover": {
       "charTags": [],
@@ -1164,11 +1157,11 @@
         "power-matters-individual",
         "scales-with-power",
         "power-matters",
-        "cost-reducer",
         "sacrifice-outlet-creature",
-        "anthem"
+        "anthem",
+        "curiosity-like"
       ],
-      "baseRate": 0.12187805218361937
+      "baseRate": 0.12104088181945026
     },
     "eggs": {
       "charTags": [],
@@ -1240,11 +1233,11 @@
         "prevent-cast",
         "draw-hate",
         "mass-land-denial",
-        "tutor-mv",
-        "tutor-card",
-        "hate-counterspell"
+        "hate-counterspell",
+        "symmetrical",
+        "passive-ability"
       ],
-      "baseRate": 0.02595228128924236
+      "baseRate": 0.04695130459048416
     },
     "allies": {
       "charTags": [],
@@ -1256,16 +1249,16 @@
     },
     "dragons-approach": {
       "charTags": [
-        "cost-reducer-instant-sorcery",
-        "cost-reducer-instant",
-        "cost-reducer-sorcery",
         "typal-dragon",
         "synergy-burn",
         "synergy-sorcery",
         "synergy-instant",
-        "rummage"
+        "rummage",
+        "ditch-hand",
+        "non-mana-ability-mana",
+        "red-effect"
       ],
-      "baseRate": 0.038230779963722615
+      "baseRate": 0.06536905260220455
     },
     "party": {
       "charTags": [
@@ -1316,12 +1309,12 @@
         "synergy-color-each",
         "charm",
         "synergy-legendary",
-        "extra-land",
         "modal",
         "unique-mana-cost",
-        "mana-dork"
+        "removal-enchantment",
+        "cost-ignorer"
       ],
-      "baseRate": 0.08692618947955909
+      "baseRate": 0.11552951025533696
     },
     "impulse-draw": {
       "charTags": [
@@ -1332,22 +1325,22 @@
         "repeatable-impulsive-draw",
         "impulsive-draw",
         "synergy-graveyard-cast",
-        "play-additional-land"
+        "draw-hate"
       ],
-      "baseRate": 0.018975861587833123
+      "baseRate": 0.019394446769917677
     },
     "cheerios": {
       "charTags": [
         "manaless-value",
         "full-refund",
-        "play-additional-land",
-        "ritual",
-        "tutor-mv",
         "egg",
-        "tutor-card",
-        "extra-land"
+        "cast-trigger-self",
+        "synergy-artifact",
+        "synergy-noncreature",
+        "refund",
+        "sacrifice-self"
       ],
-      "baseRate": 0.041928282405469516
+      "baseRate": 0.12145946700153482
     },
     "curses": {
       "charTags": [],
@@ -1425,38 +1418,38 @@
         "blood-artist-ability",
         "mass-reanimation",
         "synergy-black",
-        "tutor-card",
         "drain-life",
         "removal-sacrifice",
-        "inverted-effects"
+        "inverted-effects",
+        "life-payment"
       ],
-      "baseRate": 0.04534672805916004
+      "baseRate": 0.06369471187386633
     },
     "rock": {
       "charTags": [
-        "tutor-mv",
         "manaless-value",
         "copy-artifact",
         "passive-ability",
         "green-effect",
         "synergy-artifact",
-        "tutor-creature",
-        "mana-producer"
+        "sacrifice-outlet-artifact",
+        "face-commander",
+        "refund"
       ],
-      "baseRate": 0.11071578066136459
+      "baseRate": 0.10039067950327892
     },
     "guildgates": {
       "charTags": [
         "synergy-gate",
         "synergy-shrine",
-        "tutor-land-any",
-        "play-additional-land",
-        "extra-land",
         "5c-set-mechanic-commander",
-        "sneak-land",
-        "reanimate-land"
+        "reanimate-land",
+        "green-effect",
+        "recursion-land",
+        "landfall",
+        "land-count-matters"
       ],
-      "baseRate": 0.018836333193804938
+      "baseRate": 0.03125436026231338
     },
     "gods": {
       "charTags": [],
@@ -1529,14 +1522,14 @@
       "charTags": [
         "eldrazi-titan",
         "synergy-colorless",
-        "tutor-land-any",
-        "tutor-artifact",
         "cda-color",
         "cast-trigger-self",
         "green-effect",
-        "full-refund"
+        "full-refund",
+        "untaps-self",
+        "removal-permanent"
       ],
-      "baseRate": 0.027905678805636946
+      "baseRate": 0.03432398493093344
     },
     "land-animation": {
       "charTags": [
@@ -1544,12 +1537,12 @@
         "earthbend",
         "animate-land",
         "crucible-of-worlds",
-        "play-additional-land",
         "reanimate-land",
         "landfall",
-        "recursion-land"
+        "recursion-land",
+        "sacrifice-outlet-land"
       ],
-      "baseRate": 0.021975722059439096
+      "baseRate": 0.02441746895493233
     },
     "treefolk": {
       "charTags": [],
@@ -1584,13 +1577,13 @@
     "primal-surge": {
       "charTags": [
         "power-matters-individual",
-        "mana-dork",
         "keyword-anthem",
         "impulse",
         "cost-ignorer",
         "gives-trample",
         "unexile",
-        "castable-from-exile"
+        "castable-from-exile",
+        "gives-haste"
       ],
       "baseRate": 0.13206362494767684
     },
@@ -1604,12 +1597,12 @@
         "consult-onto-battlefield",
         "sneak-from-library",
         "consult",
-        "tutor-card",
         "swap-removal",
         "manaless-value",
-        "cost-ignorer"
+        "cost-ignorer",
+        "fun-ruling"
       ],
-      "baseRate": 0.051485977396400165
+      "baseRate": 0.05916003906795033
     },
     "attractions": {
       "charTags": [],
@@ -1744,11 +1737,11 @@
         "synergy-instant",
         "synergy-sorcery",
         "synergy-noncreature",
-        "cost-reducer",
         "gives-indestructible",
-        "mana-producer"
+        "refund",
+        "cast-trigger-you"
       ],
-      "baseRate": 0.1033207757778708
+      "baseRate": 0.10994837449420958
     },
     "outlaws": {
       "charTags": [
@@ -1875,10 +1868,10 @@
         "synergy-black",
         "name-matters",
         "plunder",
-        "utility-mana-rock",
-        "creature-count-matters"
+        "creature-count-matters",
+        "removal-toughness"
       ],
-      "baseRate": 0.053718431700851124
+      "baseRate": 0.05504395144411888
     },
     "time-counters": {
       "charTags": [
@@ -1911,13 +1904,13 @@
         "synergy-desert",
         "crucible-of-worlds",
         "reanimate-land",
-        "play-additional-land",
         "recursion-land",
         "sacrifice-outlet-land",
-        "tutor-land-any",
-        "extra-land"
+        "landfall",
+        "lands-matter",
+        "land-count-matters"
       ],
-      "baseRate": 0.01974326775498814
+      "baseRate": 0.027975443002651038
     },
     "enrage": {
       "charTags": [],
@@ -2021,9 +2014,9 @@
         "synergy-sorcery",
         "synergy-instant",
         "name-matters",
-        "cost-reducer"
+        "counters-matter"
       ],
-      "baseRate": 0.07548486116924794
+      "baseRate": 0.0922980326496442
     },
     "airbending": {
       "charTags": [
@@ -2104,14 +2097,14 @@
       "charTags": [
         "hate-counterspell",
         "consult-cast",
-        "extra-land",
-        "tutor-land-to-battlefield",
         "power-matters-individual",
         "ferocious",
-        "land-ramp",
-        "multi-land-ramp"
+        "consult",
+        "free-cast-another",
+        "unique-mana-cost",
+        "mini-refund"
       ],
-      "baseRate": 0.04806753174270964
+      "baseRate": 0.06243895632761267
     },
     "turtles": {
       "charTags": [],
@@ -2143,13 +2136,13 @@
         "mini-refund",
         "refund",
         "burn-player",
-        "utility-mana-rock",
         "pinger",
         "egg",
-        "mana-producer",
-        "group-slug"
+        "group-slug",
+        "impulsive-draw",
+        "burn"
       ],
-      "baseRate": 0.13220315334170504
+      "baseRate": 0.14685363471466442
     },
     "vanilla": {
       "charTags": [
@@ -2177,24 +2170,24 @@
         "synergy-planeswalker",
         "synergy-instant",
         "synergy-sorcery",
-        "tutor-land-to-battlefield",
         "face-commander",
-        "free-cast-another"
+        "free-cast-another",
+        "cast-trigger-you"
       ],
-      "baseRate": 0.07981024138412167
+      "baseRate": 0.0959955350913911
     },
     "blue-moon": {
       "charTags": [
         "color-break",
         "mass-land-denial",
         "full-refund",
-        "tutor-mv",
         "manaless-value",
         "untapper-artifact",
         "synergy-blue",
-        "tutor-creature"
+        "counterspell",
+        "fun-ruling"
       ],
-      "baseRate": 0.038509836751778985
+      "baseRate": 0.055323008232175244
     },
     "time-lords": {
       "charTags": [],
@@ -2203,15 +2196,15 @@
     "stoneblade": {
       "charTags": [
         "sword-of-x-and-y",
-        "tutor-artifact-equipment",
-        "cost-reducer-activated-ability",
         "synergy-equipment",
         "gives-protection",
-        "tutor-artifact",
         "quick-equip",
-        "quick-attach"
+        "quick-attach",
+        "repeated-keyword",
+        "repeated-effect",
+        "synergy-aura"
       ],
-      "baseRate": 0.025882517092228267
+      "baseRate": 0.0283242639877215
     },
     "landwalk": {
       "charTags": [],
@@ -2224,15 +2217,15 @@
     "mana-dorks": {
       "charTags": [
         "typal-elf",
-        "mana-dork",
         "untapper-creature",
-        "mana-producer",
         "manaless-value",
         "untapper",
         "power-matters-individual",
-        "tutor-creature"
+        "creature-count-matters",
+        "pp-counters-matter",
+        "creaturefall"
       ],
-      "baseRate": 0.09173991907353146
+      "baseRate": 0.09850704618389843
     },
     "villainous-choice": {
       "charTags": [
@@ -2355,24 +2348,24 @@
         "saboteur",
         "nightveil-theft",
         "unblockable",
-        "combat-ramp",
         "force-attacker",
-        "theft-cast"
+        "theft-cast",
+        "scales-with-damage-dealt"
       ],
-      "baseRate": 0.06822938467978233
+      "baseRate": 0.06243895632761267
     },
     "lurrus-companion": {
       "charTags": [
         "manaless-value",
-        "tutor-card",
         "low-mana-value-matters",
         "sacrifice-outlet-artifact",
         "toll",
         "reanimate-creature",
         "sacrifice-outlet-creature",
-        "sacrifice-outlet"
+        "sacrifice-outlet",
+        "egg"
       ],
-      "baseRate": 0.0895074647690805
+      "baseRate": 0.09543742151527836
     },
     "color-hack": {
       "charTags": [
@@ -2469,16 +2462,16 @@
     },
     "self-destruct": {
       "charTags": [
-        "play-additional-land",
         "sacrifice-outlet-land",
         "reanimate-land",
         "recursion-land",
         "enrage",
-        "extra-land",
         "your-sacrifice-matters",
-        "sacrifice-matters"
+        "sacrifice-matters",
+        "free-sacrifice-outlet",
+        "landfall"
       ],
-      "baseRate": 0.027905678805636946
+      "baseRate": 0.035509976280173015
     },
     "warp": {
       "charTags": [],
@@ -2603,15 +2596,15 @@
     "rube-goldberg": {
       "charTags": [
         "full-refund",
-        "tutor-card",
-        "tutor-mv",
-        "extra-land",
         "sacrifice-outlet-artifact",
         "synergy-artifact",
         "refund",
-        "tutor-to"
+        "repeatable-sacrifice-outlet",
+        "synergy-instant",
+        "synergy-sorcery",
+        "sacrifice-outlet"
       ],
-      "baseRate": 0.11762243616575974
+      "baseRate": 0.12243616575973211
     },
     "griffins": {
       "charTags": [],
@@ -2631,16 +2624,16 @@
     },
     "turbo": {
       "charTags": [
-        "ritual",
-        "tutor-card",
         "manaless-value",
         "full-refund",
         "meme",
-        "tutor-mv",
-        "tutor-creature",
-        "ditch-hand"
+        "ditch-hand",
+        "fun-ruling",
+        "non-mana-ability-mana",
+        "life-payment",
+        "black-effect"
       ],
-      "baseRate": 0.041370168829356777
+      "baseRate": 0.0850425561601786
     },
     "all-spells": {
       "charTags": [
@@ -2661,16 +2654,16 @@
     },
     "towns": {
       "charTags": [
-        "play-additional-land",
-        "tutor-land-any",
         "living-weapon",
         "landfall",
         "mixed-subtypes",
-        "extra-land",
         "reanimate-land",
-        "lands-matter"
+        "lands-matter",
+        "recursion-land",
+        "land-count-matters",
+        "quick-equip"
       ],
-      "baseRate": 0.038230779963722615
+      "baseRate": 0.03725408120552533
     },
     "skulk": {
       "charTags": [],
@@ -2801,28 +2794,27 @@
     "zirda-companion": {
       "charTags": [
         "synergy-activated-ability",
-        "mana-dork",
         "bottomless-mana-sink",
         "untapper-creature",
         "mana-sink",
         "untapper",
-        "mana-producer",
-        "activate-from-hand"
+        "activate-from-hand",
+        "cost-ignorer",
+        "impulse"
       ],
-      "baseRate": 0.11525045346728059
+      "baseRate": 0.11838984233291475
     },
     "mana-rocks": {
       "charTags": [
         "green-effect",
-        "utility-mana-rock",
         "refund",
-        "mana-producer",
         "egg",
         "synergy-artifact",
         "mini-refund",
-        "untapper"
+        "untapper",
+        "free-cast-another"
       ],
-      "baseRate": 0.12459885586716897
+      "baseRate": 0.11936654109111204
     },
     "goats": {
       "charTags": [],
@@ -2883,16 +2875,16 @@
     },
     "doomsday": {
       "charTags": [
-        "tutor-card",
         "alternate-cost-life",
         "manaless-value",
         "discarded-type-matters",
         "mill-any",
         "life-payment",
         "repeatable-loot",
-        "gives-castable-from-graveyard"
+        "gives-castable-from-graveyard",
+        "black-effect"
       ],
-      "baseRate": 0.05916003906795033
+      "baseRate": 0.0750662759871634
     },
     "miracle": {
       "charTags": [
@@ -2926,15 +2918,15 @@
     "caves": {
       "charTags": [
         "synergy-cave",
-        "tutor-land-any",
         "recursion-land",
         "lifegain-matters",
         "green-effect",
-        "extra-land",
-        "tutor-land-to-battlefield",
-        "multi-land-ramp"
+        "landfall",
+        "lands-matter",
+        "drain-life",
+        "opponent-loses-life"
       ],
-      "baseRate": 0.04332356634575136
+      "baseRate": 0.07255476489465607
     },
     "cephalids": {
       "charTags": [
@@ -3103,16 +3095,16 @@
     },
     "value-vintage": {
       "charTags": [
-        "tutor-card",
         "imprint",
         "mill-any",
-        "extra-land",
         "landfall",
         "mill-opponent",
         "lands-matter",
-        "land-ramp"
+        "copy-self",
+        "sneak",
+        "black-effect"
       ],
-      "baseRate": 0.06788056369471188
+      "baseRate": 0.09187944746755965
     }
   }
 }
