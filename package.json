@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:theme-tags": "node --experimental-strip-types scripts/buildThemeCharTags.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

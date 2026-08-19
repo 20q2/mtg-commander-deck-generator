@@ -1,7 +1,7 @@
 import type { ScryfallCard, EDHRECTag } from '@/types';
 import type { MtgCatalogs } from '@/services/scryfall/client';
 import { classifyTheme, themeKindMatches, type ThemeKind } from './themeKind';
-import type { ThemeTableEntry } from './charTags';
+import type { ThemeTableEntry } from './charTagTable';
 
 /**
  * A theme resolved to everything needed to test a card against it. Built once per theme per session;

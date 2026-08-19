@@ -47,3 +47,4 @@ coverage
 # CDK
 cdk.out
 *.d.ts.map
+.cache/
