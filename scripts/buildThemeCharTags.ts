@@ -144,6 +144,13 @@ interface ScryCard {
   card_faces?: { name?: string; type_line?: string; oracle_text?: string }[];
 }
 
+/** Is any face of this card a land? Card types are the words before the em-dash. */
+function isLandCard(c: ScryCard): boolean {
+  const lines = [c.type_line ?? '', ...(c.card_faces ?? []).map(f => f.type_line ?? '')];
+  // The combined type_line of a DFC is "Front // Back", so split on // as well as the em-dash.
+  return lines.some(l => l.split('//').some(part => part.split('—')[0].toLowerCase().includes('land')));
+}
+
 async function fetchCatalogs() {
   const cat = async (p: string): Promise<string[]> => {
     const j = await getJson<{ data?: string[] }>(`${SCRYFALL}/catalog/${p}`);
@@ -299,7 +306,12 @@ async function main() {
     // Dual lands sit on nearly every theme page while the pool is mostly long-tail spells, so
     // "shockland" otherwise reads as characteristic of Aristocrats, Voltron and Blink alike. A
     // manabase is not what makes a deck a theme, and the deck-side ratio is non-land too.
-    if ((card.type_line ?? '').split('—')[0].toLowerCase().includes('land')) continue;
+    //
+    // EVERY face, not just the front: the Zendikar Rising modal DFCs (Kazandu Mammoth, Glasspool
+    // Mimic, …) are creatures on the front and lands on the back, and they carry their back face's
+    // manabase tags. Checking only the front let `tapland` and `boltland` through — which is how
+    // they ended up in the definition of All-Spells, an archetype that runs no lands at all.
+    if (isLandCard(card)) continue;
     const cardTags = tagsFor(card.oracle_id);
     pool.push({ chromaTags: cardTags, themeTags });
     resolved.push({ card, tags: cardTags });
