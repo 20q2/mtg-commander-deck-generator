@@ -6,6 +6,7 @@ export type ThemeKind =
   | { kind: 'mechanic'; match: string }   // match = keyword (lowercase); test card.keywords
   | { kind: 'tribal'; match: string }     // match = creature subtype (lowercase); test type_line subtypes
   | { kind: 'subtype'; match: string }    // match = permanent subtype, e.g. equipment/aura (lowercase); test type_line subtypes
+  | { kind: 'cardType'; match: string }   // match = card TYPE, e.g. battle/planeswalker (lowercase); test type_line types
   | { kind: 'curated'; match: string }    // match = CURATED_MECHANICS key; test oracle text
   | { kind: 'role'; match: RoleKey }      // functional category (Ramp, Card Draw…) → NOT a theme pack
   | { kind: 'archetype' };                // no concrete card attribute → statistical (tag-lift) gate
@@ -36,6 +37,19 @@ export const ROLE_THEME_NAMES: Record<string, RoleKey> = {
   'protection': 'protection',
 };
 
+/**
+ * MTG's card TYPES — a closed, near-static set (Battle was the last addition, 2023). Scryfall
+ * publishes catalogs for sub-types but not for card types, so this is the second hand-maintained
+ * list, kept just as small as CURATED_MECHANICS. Without it a "Battles" theme falls through to
+ * `archetype`, whose co-occurrence membership yields the cards battle decks PLAY and not a single
+ * Battle — the same failure the `role` kind fixed for "Ramp".
+ *
+ * Deliberately excludes the broad types (creature, land, instant, sorcery): those name a card's
+ * shape rather than a strategy, and making them deterministic would let the cross-theme guard
+ * (belongsToOtherKind) strip every creature out of the round's other packs.
+ */
+export const CARD_TYPES = new Set(['artifact', 'battle', 'enchantment', 'planeswalker']);
+
 /** Singular candidates for a plural theme name, to match Scryfall's singular creature types. */
 function singulars(n: string): string[] {
   return [n, n.replace(/ies$/, 'y'), n.replace(/ves$/, 'f'), n.replace(/s$/, ''), n.replace(/es$/, '')];
@@ -53,6 +67,9 @@ export function classifyTheme(
   if (n in ROLE_THEME_NAMES) return { kind: 'role', match: ROLE_THEME_NAMES[n] };
   if (n in CURATED_MECHANICS) return { kind: 'curated', match: n };
   if (mechanics.has(n)) return { kind: 'mechanic', match: n };
+  // Card types before subtypes: a "Battles"/"Planeswalkers" theme must ship the literal type, and no
+  // card type collides with a keyword or creature type.
+  for (const cand of singulars(n)) if (CARD_TYPES.has(cand)) return { kind: 'cardType', match: cand };
   for (const cand of singulars(n)) if (creatureTypes.has(cand)) return { kind: 'tribal', match: cand };
   // Non-creature permanent subtypes (Equipment, Aura, Vehicle, Saga…): an "Equipment" theme should
   // ship Equipment, not the tag-lift co-occurrence pile — gate it on the literal type line like a tribe.
@@ -68,6 +85,12 @@ function hasSubtype(sc: ScryfallCard, sub: string): boolean {
   const after = (sc.type_line ?? '').toLowerCase().split('—')[1] ?? '';
   return new RegExp(`\\b${sub.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(after);
 }
+function hasCardType(sc: ScryfallCard, type: string): boolean {
+  // Card types are the words BEFORE the em-dash ("Battle — Siege", "Legendary Creature — Elf").
+  // Check every face so an MDFC battle (Invasion of …) counts on either side.
+  const lines = [sc.type_line ?? '', ...(sc.card_faces ?? []).map(f => f.type_line ?? '')];
+  return lines.some(l => new RegExp(`\\b${type}\\b`).test(l.toLowerCase().split('—')[0] ?? ''));
+}
 function matchesCurated(sc: ScryfallCard, key: string): boolean {
   const re = CURATED_MECHANICS[key];
   if (!re) return false;
@@ -81,6 +104,7 @@ export function themeKindMatches(kind: ThemeKind, sc: ScryfallCard): boolean {
     case 'mechanic': return hasKeyword(sc, kind.match);
     case 'tribal': return hasSubtype(sc, kind.match);
     case 'subtype': return hasSubtype(sc, kind.match);
+    case 'cardType': return hasCardType(sc, kind.match);
     case 'curated': return matchesCurated(sc, kind.match);
     // 'role' needs the tagger's role (BrewCandidate.role), which a ScryfallCard alone can't give —
     // and role themes never become theme packs, so no card-attribute test is meaningful here.

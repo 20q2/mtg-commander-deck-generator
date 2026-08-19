@@ -80,6 +80,9 @@ export function AnalyzePage() {
   const [loadStage, setLoadStage] = useState<HydrateStage | null>(
     initialDeckHash ? 'fetching-cards' : null,
   );
+  // "12 / 100 cards" under the fetch step — the Scryfall pass is the long one and
+  // a bare spinner reads as hung on a cold cache.
+  const [cardProgress, setCardProgress] = useState<{ fetched: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingListId, setLoadingListId] = useState<string | null>(null);
   const [source, setSource] = useState<AnalyzeSource | null>(null);
@@ -204,6 +207,7 @@ export function AnalyzePage() {
       partnerCommanderName: list.partnerCommanderName,
       deckSize: list.deckSize ?? list.cards.length,
       onProgress: setLoadStage,
+      onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
     })
       .then(({ deck, colorIdentity }) => {
         useStore.setState({
@@ -225,7 +229,7 @@ export function AnalyzePage() {
         console.error('[AnalyzePage] listId hydration failed', e);
         setError('Could not load this list. Please try again.');
       })
-      .finally(() => { setLoading(false); setLoadStage(null); });
+      .finally(() => { setLoading(false); setLoadStage(null); setCardProgress(null); });
   }, [listIdParam, lists]);
 
   // Leaving the Inspector detaches history so a later generated deck can't
@@ -292,6 +296,7 @@ export function AnalyzePage() {
         commanderName: result.commanderName,
         partnerCommanderName: result.partnerCommanderName,
         onProgress: setLoadStage,
+        onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
       useStore.setState({
         commander: deck.commander,
@@ -314,6 +319,7 @@ export function AnalyzePage() {
     } finally {
       setLoading(false);
       setLoadStage(null);
+      setCardProgress(null);
     }
   }, [navigate, tabSlug]);
 
@@ -343,6 +349,7 @@ export function AnalyzePage() {
           commanderName: payload.commanderName,
           partnerCommanderName: payload.partnerCommanderName,
           onProgress: setLoadStage,
+          onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
         });
         useStore.setState({
           commander: deck.commander,
@@ -362,6 +369,7 @@ export function AnalyzePage() {
       } finally {
         setLoading(false);
         setLoadStage(null);
+        setCardProgress(null);
       }
     })();
   }, []);
@@ -378,6 +386,7 @@ export function AnalyzePage() {
         partnerCommanderName: list.partnerCommanderName,
         deckSize: list.deckSize ?? list.cards.length,
         onProgress: setLoadStage,
+        onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
       useStore.setState({
         commander: deck.commander,
@@ -400,6 +409,7 @@ export function AnalyzePage() {
     } finally {
       setLoading(false);
       setLoadStage(null);
+      setCardProgress(null);
       setLoadingListId(null);
     }
   }, [navigate, param1IsTab, tabSlug]);
@@ -666,24 +676,46 @@ export function AnalyzePage() {
             {steps.map((step, i) => {
               const done = i < currentIdx;
               const active = i === currentIdx;
+              // Card counter only on the Scryfall step, and only while it's the
+              // running one — a stale "100/100" under a later step reads as stuck.
+              const showCount = active && step.id === 'fetching-cards'
+                && !!cardProgress && cardProgress.total > 0;
+              const pct = showCount
+                ? Math.round((cardProgress.fetched / cardProgress.total) * 100)
+                : 0;
               return (
-                <li key={step.id} className="flex items-center gap-2.5">
-                  <span className="h-5 w-5 flex items-center justify-center flex-shrink-0">
-                    {done ? (
-                      <Check className="h-4 w-4 text-emerald-400" />
-                    ) : active ? (
-                      <Loader2 className="h-4 w-4 text-violet-300 animate-spin" />
-                    ) : (
-                      <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
+                <li key={step.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="h-5 w-5 flex items-center justify-center flex-shrink-0">
+                      {done ? (
+                        <Check className="h-4 w-4 text-emerald-400" />
+                      ) : active ? (
+                        <Loader2 className="h-4 w-4 text-violet-300 animate-spin" />
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
+                      )}
+                    </span>
+                    <span className={
+                      done ? 'text-zinc-400 line-through decoration-emerald-500/40'
+                      : active ? 'text-zinc-100'
+                      : 'text-zinc-500'
+                    }>
+                      {step.label}
+                    </span>
+                    {showCount && (
+                      <span className="ml-auto pl-3 text-xs tabular-nums text-zinc-500">
+                        {cardProgress.fetched}/{cardProgress.total} cards
+                      </span>
                     )}
-                  </span>
-                  <span className={
-                    done ? 'text-zinc-400 line-through decoration-emerald-500/40'
-                    : active ? 'text-zinc-100'
-                    : 'text-zinc-500'
-                  }>
-                    {step.label}
-                  </span>
+                  </div>
+                  {showCount && (
+                    <div className="ml-[30px] h-1 rounded-full bg-zinc-800 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-violet-400/70 transition-[width] duration-300"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}

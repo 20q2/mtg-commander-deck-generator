@@ -17,6 +17,11 @@ const CURVE_COLORS: Record<number, string> = {
   4: '#7c3aed', 5: '#6d28d9', 6: '#5b21b6', 7: '#4c1d95',
 };
 
+// Slider ceilings. normalizeToHundred caps against these, so they must stay in sync with
+// the `max` props on the curve/type SliderRows.
+const CURVE_SLIDER_MAX = 50;
+const TYPE_SLIDER_MAX = 80;
+
 const CURVE_LABELS: Record<number, string> = {
   0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7+',
 };
@@ -41,9 +46,51 @@ const FALLBACK_CURVE: Record<number, number> = {
   0: 2, 1: 12, 2: 20, 3: 25, 4: 18, 5: 12, 6: 6, 7: 5,
 };
 
+// Must sum to 100 — anything less opens the panel already showing an off-target total
+// and a "Fix" button on a deck the user never customized.
 const FALLBACK_TYPES: Record<string, number> = {
-  creature: 45, instant: 12, sorcery: 12, artifact: 12, enchantment: 12, planeswalker: 3,
+  creature: 49, instant: 12, sorcery: 12, artifact: 12, enchantment: 12, planeswalker: 3,
 };
+
+/**
+ * Scale values so they sum to exactly 100 while respecting each slider's max.
+ *
+ * Largest-remainder apportionment: floor everything, then hand the leftover whole points
+ * to the largest fractional parts. The previous round-then-patch version only redistributed
+ * when rounding fell *short* of 100, so an overshoot was never corrected — and some totals
+ * (e.g. 26/17/17/19/9/13 = 101%) were fixed points where "Fix" did nothing at all.
+ */
+function normalizeToHundred<K extends string | number>(
+  values: Record<K, number>,
+  max: number
+): Record<K, number> {
+  const keys = Object.keys(values) as K[];
+  const total = keys.reduce((s, k) => s + values[k], 0);
+  if (total <= 0) return values;
+
+  const result = {} as Record<K, number>;
+  const fraction = {} as Record<K, number>;
+  for (const k of keys) {
+    const scaled = Math.min(max, (values[k] / total) * 100);
+    result[k] = Math.floor(scaled);
+    fraction[k] = scaled - result[k];
+  }
+
+  // Capping can hold the floored total below 100, so keep passing until it lands or
+  // every slider is pinned at its max.
+  let remaining = 100 - keys.reduce((s, k) => s + result[k], 0);
+  const byFraction = [...keys].sort((a, b) => fraction[b] - fraction[a]);
+  while (remaining > 0) {
+    const eligible = byFraction.filter(k => result[k] < max);
+    if (eligible.length === 0) break;
+    for (const k of eligible) {
+      if (remaining === 0) break;
+      result[k] += 1;
+      remaining -= 1;
+    }
+  }
+  return result;
+}
 
 // --- Sub-components ---
 
@@ -297,91 +344,12 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
 
   const normalizeCurve = useCallback(() => {
     if (curveTotal === 0) return;
-    const MAX = 50; // slider max for curve
-    const keys = Object.keys(curveValues).map(Number).sort((a, b) => a - b);
-    const normalized: Record<number, number> = {};
-
-    // First pass: scale proportionally and cap at max
-    let capped = 0;
-    let uncappedTotal = 0;
-    for (const k of keys) {
-      const scaled = Math.round((curveValues[k] / curveTotal) * 100);
-      if (scaled > MAX) {
-        normalized[k] = MAX;
-        capped += MAX;
-      } else {
-        normalized[k] = scaled;
-        uncappedTotal += scaled;
-      }
-    }
-
-    // Second pass: distribute remainder from capped values to uncapped ones
-    const remainder = 100 - capped - uncappedTotal;
-    if (remainder > 0 && uncappedTotal > 0) {
-      const uncappedKeys = keys.filter(k => normalized[k] < MAX);
-      let distributed = 0;
-      for (const k of uncappedKeys) {
-        const share = Math.round((normalized[k] / uncappedTotal) * remainder);
-        normalized[k] = Math.min(MAX, normalized[k] + share);
-        distributed += share;
-      }
-      // Fix rounding leftovers
-      const leftover = remainder - distributed;
-      if (leftover !== 0 && uncappedKeys.length > 0) {
-        const target = uncappedKeys.reduce((m, k) => normalized[k] > normalized[m] ? k : m, uncappedKeys[0]);
-        normalized[target] = Math.min(MAX, normalized[target] + leftover);
-      }
-    }
-
-    commitToStore({ curvePercentages: normalized });
+    commitToStore({ curvePercentages: normalizeToHundred(curveValues, CURVE_SLIDER_MAX) });
   }, [curveValues, curveTotal, commitToStore]);
 
   const normalizeTypes = useCallback(() => {
     if (typeTotal === 0) return;
-    const MAX = 80; // slider max for types
-    const keys = Object.keys(typeValues);
-    const normalized: Record<string, number> = {};
-
-    // First pass: scale proportionally and cap at max
-    let capped = 0;
-    let uncappedTotal = 0;
-    for (const k of keys) {
-      const scaled = Math.round((typeValues[k] / typeTotal) * 100);
-      if (scaled > MAX) {
-        normalized[k] = MAX;
-        capped += MAX;
-      } else {
-        normalized[k] = scaled;
-        uncappedTotal += scaled;
-      }
-    }
-
-    // Second pass: distribute remainder to uncapped sliders
-    const remainder = 100 - capped - uncappedTotal;
-    if (remainder > 0 && uncappedTotal > 0) {
-      const uncappedKeys = keys.filter(k => normalized[k] < MAX);
-      let distributed = 0;
-      for (const k of uncappedKeys) {
-        const share = Math.round((normalized[k] / uncappedTotal) * remainder);
-        normalized[k] = Math.min(MAX, normalized[k] + share);
-        distributed += share;
-      }
-      const leftover = remainder - distributed;
-      if (leftover !== 0 && uncappedKeys.length > 0) {
-        normalized[uncappedKeys[0]] = Math.min(MAX, normalized[uncappedKeys[0]] + leftover);
-      }
-    } else if (remainder > 0) {
-      // All sliders at max or zero — spread evenly to zero sliders
-      const zeroKeys = keys.filter(k => normalized[k] === 0);
-      if (zeroKeys.length > 0) {
-        const each = Math.floor(remainder / zeroKeys.length);
-        let given = 0;
-        for (const k of zeroKeys) { normalized[k] = each; given += each; }
-        normalized[zeroKeys[0]] += remainder - given;
-      }
-    }
-
-    commitToStore({ typePercentages: normalized });
+    commitToStore({ typePercentages: normalizeToHundred(typeValues, TYPE_SLIDER_MAX) });
   }, [typeValues, typeTotal, commitToStore]);
 
   // Average CMC from curve percentages (weighted average)
@@ -527,7 +495,7 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
                   key={type}
                   label={TYPE_LABELS[type]}
                   value={typeValues[type] ?? 0}
-                  min={0} max={80}
+                  min={0} max={TYPE_SLIDER_MAX}
                   color={TYPE_COLORS[type]}
                   icon={<CardTypeIcon type={type} size="sm" className="opacity-80" />}
                   cardCount={typeTotal > 0 ? Math.round(((typeValues[type] ?? 0) / typeTotal) * nonLandCards) : 0}
@@ -559,7 +527,7 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
                   key={cmc}
                   label=""
                   value={curveValues[cmc] ?? 0}
-                  min={0} max={50}
+                  min={0} max={CURVE_SLIDER_MAX}
                   color={CURVE_COLORS[cmc]}
                   icon={<span className="text-xs font-semibold text-muted-foreground">{cmc <= 6 ? cmc : '7+'}</span>}
                   cardCount={curveTotal > 0 ? Math.round(((curveValues[cmc] ?? 0) / curveTotal) * nonLandCards) : 0}

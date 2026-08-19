@@ -1146,8 +1146,7 @@ function FloatingPreview({ card, rowRect, showBack }: FloatingPreviewProps) {
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  generateDeckList: (excludeMustIncludes: boolean) => string;
-  hasMustIncludes: boolean;
+  generateDeckList: () => string;
   onExport: (format: 'clipboard' | 'download', collectionFilter: 'all' | 'collection' | 'missing') => void;
   onSaveToList: (name: string, cards: string[]) => void;
   defaultListName: string;
@@ -1156,17 +1155,16 @@ interface ExportModalProps {
   collectionEntries?: Map<string, { id: string; name: string }[]> | null;
 }
 
-function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExport, onSaveToList, defaultListName, collectionEntries }: ExportModalProps) {
+function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList, defaultListName, collectionEntries }: ExportModalProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showListNameInput, setShowListNameInput] = useState(false);
   const [listName, setListName] = useState('');
-  const [excludeMustIncludes, setExcludeMustIncludes] = useState(false);
 
   const [exportTarget, setExportTarget] = useState<ExportTarget>({ kind: 'all' });
   const [chipMenuOpen, setChipMenuOpen] = useState(false);
 
-  const fullList = useMemo(() => generateDeckList(excludeMustIncludes), [generateDeckList, excludeMustIncludes]);
+  const fullList = useMemo(() => generateDeckList(), [generateDeckList]);
   const lines = useMemo(() => parseDeckLines(fullList), [fullList]);
   const chips = useMemo(() => buildExportChips(lines, collectionEntries ?? null), [lines, collectionEntries]);
   // Keep the row to one line: the top collections stay inline, the tail folds into a popover.
@@ -1176,8 +1174,8 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
   );
   const fullCardCount = useMemo(() => lines.reduce((sum, l) => sum + l.quantity, 0), [lines]);
 
-  // Fall back to the full deck when the active chip disappears — collections finish
-  // loading, or excluding must-includes drops the chip's last card.
+  // Fall back to the full deck when the active chip disappears — e.g. collections
+  // finish loading and reshuffle the chip set.
   useEffect(() => {
     if (exportTarget.kind === 'all') return;
     if (!chips.some(c => targetKey(c.target) === targetKey(exportTarget))) {
@@ -1300,18 +1298,6 @@ function ExportModal({ isOpen, onClose, generateDeckList, hasMustIncludes, onExp
                 Cancel
               </Button>
             </div>
-          )}
-
-          {hasMustIncludes && (
-            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={excludeMustIncludes}
-                onChange={(e) => setExcludeMustIncludes(e.target.checked)}
-                className="rounded border-border accent-purple-500"
-              />
-              Exclude must-include cards
-            </label>
           )}
 
           {chips.length > 0 && (
@@ -4024,14 +4010,13 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     }
   };
 
-  const generateDeckList = useCallback((excludeMustIncludes: boolean = false) => {
+  const generateDeckList = useCallback(() => {
     const lines: string[] = [];
 
     TYPE_ORDER.forEach((type) => {
       const cards = groupedCards[type];
       if (cards && cards.length > 0) {
         cards.forEach(({ card, quantity }) => {
-          if (excludeMustIncludes && card.isMustInclude) return;
           lines.push(`${quantity} ${card.name}`);
         });
       }
@@ -5328,7 +5313,6 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         generateDeckList={generateDeckList}
-        hasMustIncludes={!readOnly && customization.mustIncludeCards.length > 0}
         collectionEntries={showIcons && showOwnedIndicators && showCollectionChecks ? binderEntriesTotal : null}
         onExport={(format, collectionFilter) => {
           if (commander) trackEvent('deck_exported', { commanderName: commander.name, format, collectionFilter });

@@ -64,6 +64,10 @@ export interface HydrateDeckInput {
   partnerCommanderName?: string;
   deckSize?: number;
   onProgress?: (stage: HydrateStage) => void;
+  /** Card-resolution progress during 'fetching-cards', counted over the whole
+   *  requested list (cache hits included) so the number the user sees matches
+   *  their decklist rather than the network-miss subset. */
+  onCardProgress?: (fetched: number, total: number) => void;
 }
 
 export interface HydrateDeckResult {
@@ -120,9 +124,18 @@ function computeStatsFromCards(allCards: ScryfallCard[]): DeckStats {
 }
 
 export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<HydrateDeckResult> {
-  const { cardNames, commanderName, partnerCommanderName, onProgress } = input;
+  const { cardNames, commanderName, partnerCommanderName, onProgress, onCardProgress } = input;
   onProgress?.('fetching-cards');
-  const cardMap = await getCardsByNames(cardNames);
+  // getCardsByNames already batches through /cards/collection (75 identifiers per
+  // request, behind the shared rate limiter), so this is one request per ~75 cards
+  // — never one per card. Its progress callback counts only names that missed both
+  // caches, so add the cache hits back in to report against the full decklist.
+  const total = cardNames.length;
+  onCardProgress?.(0, total);
+  const cardMap = await getCardsByNames(cardNames, (fetched, networkTotal) => {
+    onCardProgress?.(Math.min(total - networkTotal + fetched, total), total);
+  });
+  onCardProgress?.(total, total);
   const cards: ScryfallCard[] = [];
   for (const name of cardNames) {
     const c = cardMap.get(name);

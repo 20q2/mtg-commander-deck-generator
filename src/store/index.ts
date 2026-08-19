@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppState, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry, DeckHistoryAction } from '@/types';
+import type { AppState, AdvancedTargets, Customization, BanList, AppliedList, ScryfallCard, GeneratedDeck, EDHRECTheme, ThemeResult, DeckHistoryEntry, DeckHistoryAction } from '@/types';
 import { isEuropean } from '@/lib/region';
 import { combineColorIdentity, needsChosenColor } from '@/lib/partnerUtils';
 import { swapCard, addCard } from '@/services/deckBuilder/cardSwap';
@@ -230,6 +230,21 @@ function saveArenaOnly(value: boolean): void {
   }
 }
 
+/**
+ * Deck Tuning starts from the commander's own EDHREC framework, and touching a single
+ * slider snapshots the whole set into the store. That snapshot therefore can't outlive
+ * the commander it was derived from — otherwise every later deck silently inherits the
+ * first commander's ratios (and strict-curve mode, which also disables tempo pacing and
+ * the dead-CMC fixup). Cleared alongside edhrecStats wherever the commander changes.
+ */
+const freshAdvancedTargets = (): AdvancedTargets => ({
+  curvePercentages: null,
+  typePercentages: null,
+  roleTargets: null,
+  edhrecBlendWeight: null,
+  edhrecInclusionThreshold: null,
+});
+
 const defaultCustomization: Customization = {
   deckFormat: 99,
   landCount: 37,
@@ -259,7 +274,7 @@ const defaultCustomization: Customization = {
   currency: loadCurrency(),
   appliedExcludeLists: loadAppliedExcludeLists(),
   appliedIncludeLists: loadAppliedIncludeLists(),
-  advancedTargets: { curvePercentages: null, typePercentages: null, roleTargets: null, edhrecBlendWeight: null, edhrecInclusionThreshold: null },
+  advancedTargets: freshAdvancedTargets(),
   tempoAutoDetect: true,
   tempoPacing: 'balanced' as const,
 };
@@ -326,7 +341,12 @@ export const useStore = create<AppState>((set, get) => ({
       commander: card,
       colorIdentity: combined,
       chosenColor,
-      ...(sameCommander ? {} : { generatedDeck: null }), // Reset deck when commander changes
+      ...(sameCommander ? {} : {
+        generatedDeck: null, // Reset deck when commander changes
+        // Deck Tuning is derived from this commander's EDHREC stats, which we clear just
+        // below — so the override has to go with them. See freshAdvancedTargets.
+        customization: { ...state.customization, advancedTargets: freshAdvancedTargets() },
+      }),
       // Reset theme state when commander changes
       edhrecThemes: [],
       selectedThemes: [],
@@ -355,7 +375,11 @@ export const useStore = create<AppState>((set, get) => ({
       partnerCommander: card,
       colorIdentity: combined,
       chosenColor,
-      ...(samePartner ? {} : { generatedDeck: null }),
+      ...(samePartner ? {} : {
+        generatedDeck: null,
+        // Partners change the blended EDHREC framework too — see setCommander.
+        customization: { ...state.customization, advancedTargets: freshAdvancedTargets() },
+      }),
       // Reset theme state when partner changes
       edhrecThemes: [],
       selectedThemes: [],
@@ -942,8 +966,9 @@ export const useStore = create<AppState>((set, get) => ({
     edhrecNumDecks: null,
     pendingStrategySlug: null,
     userEditedLands: false,
-    // Preserve all customization settings when switching commanders
-    customization: state.customization,
+    // Preserve customization when switching commanders — except Deck Tuning, which is a
+    // snapshot of the outgoing commander's framework rather than a standing preference.
+    customization: { ...state.customization, advancedTargets: freshAdvancedTargets() },
     generatedDeck: null,
     deckHistory: [],
     historyDeckId: null,

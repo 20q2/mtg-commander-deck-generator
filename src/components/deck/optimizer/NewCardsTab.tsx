@@ -186,7 +186,9 @@ export function NewCardsTab({
     localStorage.setItem(baselineStoreKey, k);
     _setBaselineKey(k);
   };
-  const baselineDate = baselineMs(baselineKey, lastEditedAt);
+  // Memoized: baselineMs reads Date.now(), so computing it inline would mint a new
+  // value every render — and as an effect dep that meant an infinite refetch loop.
+  const baselineDate = useMemo(() => baselineMs(baselineKey, lastEditedAt), [baselineKey, lastEditedAt]);
 
   const deckCardNames = useMemo(
     () => [...new Set([commanderName, partnerCommanderName, ...currentCards.map(c => c.name)].filter(Boolean) as string[])],
