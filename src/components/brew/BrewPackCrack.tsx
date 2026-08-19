@@ -393,6 +393,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   // also be kept, so marking one clears it from `keep`.
   function cutCard(name: string) {
     if (committing) return;
+    setHover(null);   // drop any open preview of the card being struck
     setCut(prev => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
@@ -514,7 +515,9 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   setHover(null);
                   setMenuFor(card.name);
                 }}
-                onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
+                // A cut card gets no preview: floating a big pristine copy of the card you just struck
+                // reads as a duplicate of it, and there's nothing left to inspect.
+                onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => { if (!isCut) setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }); } : undefined}
                 onMouseLeave={canHover ? () => setHover(null) : undefined}
                 disabled={committing}
                 aria-pressed={kept}
@@ -586,11 +589,15 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   <img
                     src={getCardImageUrl(card.scryfall, 'normal')}
                     alt={card.name}
+                    // NOTE: the plain-card branch's resting opacity is applied ONLY when the card
+                    // isn't cut. `opacity-90 hover:opacity-100` and `opacity-0` are both one-class
+                    // selectors, so the stylesheet's order decides — opacity-90 wins and the intact
+                    // card stays visible behind the sliced halves (worst on hover, which forces 100).
                     className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${isCut ? 'opacity-0' : ''} ${
                       isFoil ? bonusRing
                         : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
                         : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
-                        : 'ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] opacity-90 hover:opacity-100'
+                        : `ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] ${isCut ? '' : 'opacity-90 hover:opacity-100'}`
                     } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
                   />
                   {/* The cut mark: grey, sliced in two (the Headliner's brew-cut-piece / -top / -bottom

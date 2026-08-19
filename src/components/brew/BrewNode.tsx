@@ -543,7 +543,9 @@ export function BrewNode({ onFinish }: { onFinish: () => void }) {
                         src={getCardImageUrl(c.scryfall, imgSize)}
                         alt={c.name}
                         loading="lazy"
-                        {...hoverPreview(c.scryfall)}
+                        // A ☠-cut card gets no preview (nothing left to inspect); a merely deselected
+                        // Headliner card keeps its own — you might put it back.
+                        {...(isCutCard ? {} : hoverPreview(c.scryfall))}
                         className={`block w-full h-auto rounded-[4.8%] shadow-[0_6px_18px_rgba(0,0,0,0.55)] ring-1 group-hover:shadow-[0_18px_44px_var(--op-soft)] group-hover:ring-[color:var(--op)] ${
                           isSelected ? 'ring-[color:var(--op)] shadow-[0_10px_34px_var(--op-soft)]' : 'ring-black/60'
                         } ${isDropped ? 'opacity-0' : ''}`}
