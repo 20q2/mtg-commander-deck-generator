@@ -93,7 +93,9 @@ export function PasteLane({
   const renderCommanderChip = useCallback((card: ScryfallCard, onClick: () => void) => (
     <button
       key={card.name}
-      onClick={onClick}
+      // Dismiss the preview here, not just on mouse-leave: picking a commander unmounts the whole
+      // chip row, so onMouseLeave never fires and the floating image would hang around forever.
+      onClick={() => { setHoverPreview(null); onClick(); }}
       onMouseEnter={(e) => handleChipHover(card, e)}
       onMouseLeave={() => setHoverPreview(null)}
       className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border/50 hover:bg-accent hover:border-primary/50 transition-colors"
