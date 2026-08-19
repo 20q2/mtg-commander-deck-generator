@@ -38,6 +38,7 @@ export function computeThemeCharTags(
   candidates: TaggedPoolCard[],
   themeSlugs: string[],
   maxPerTheme: number = CHAR_TAG_MAX_PER_THEME,
+  minCarriers: number = CHAR_TAG_MIN_CARRIERS,
 ): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   if (candidates.length === 0) return out;
@@ -59,7 +60,7 @@ export function computeThemeCharTags(
     }
     const scored: { tag: string; lift: number }[] = [];
     for (const [tag, carriers] of memberCarriers) {
-      if (carriers < CHAR_TAG_MIN_CARRIERS) continue;
+      if (carriers < minCarriers) continue;
       const base = baseFreq.get(tag) ?? 0;
       if (base <= 0) continue;
       const lift = freq(tag, members) / base;

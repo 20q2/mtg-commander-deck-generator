@@ -327,7 +327,18 @@ async function main() {
   // to be near-universal, then truncate. Dropping noise promotes the real tags beneath it.
   const WIDE = 20;
   const UBIQUITY_LIMIT = 0.2;
-  const wide = computeThemeCharTags(pool, archetypeSlugs, WIDE);
+
+  // brew's CHAR_TAG_MIN_CARRIERS default is 3, tuned against a few-hundred-card per-commander pool.
+  // That is far too permissive here: over a 14k-card global pool it left 39% of all (theme, tag)
+  // pairs resting on four or fewer cards, which is noise, not a definition. It is how six incidental
+  // ramp cards on Umori Companion's page made `tutor-land-to-battlefield` part of its identity, so
+  // any deck running Cultivate and Rampant Growth read as Umori.
+  //
+  // Swept 3/5/8/12/16 against a dozen known-good definitions: 8 is where the false positive dies
+  // while every known-good theme keeps its full definition. Past 12 it degrades in the other
+  // direction — precise narrow tags fall below the bar and broader generic ones take their slots.
+  const MIN_CARRIERS = 8;
+  const wide = computeThemeCharTags(pool, archetypeSlugs, WIDE, MIN_CARRIERS);
   const themeCount = Object.values(wide).filter(t => t.length > 0).length || 1;
   const appearsIn = new Map<string, number>();
   for (const list of Object.values(wide)) {
