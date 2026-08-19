@@ -274,11 +274,27 @@ async function main() {
       if (list) list.push(slug); else themesByCard.set(n, [slug]);
     }
   }
+  // Format staples carry no theme information and actively poison lift. A card sitting on most
+  // theme pages is "in-theme" for all of them while the pool baseline is diluted by thousands of
+  // long-tail single-theme cards, so its tags earn spurious lift everywhere — that's how `burn-you`
+  // (which means "this card damages YOU", i.e. the Talisman cycle) ended up defining Zoo.
+  //
+  // Safe by construction: a card that genuinely defines a theme appears on FEW pages, so this can
+  // only ever remove non-defining cards. The Talismans sit on 39-70% of pages; Arcane Signet, 99%.
+  const STAPLE_PAGE_SHARE = 0.3;
+  const pageCount = new Map<string, number>();
+  for (const names of themeCards.values()) for (const n of names) pageCount.set(n, (pageCount.get(n) ?? 0) + 1);
+  const staples = new Set(
+    [...pageCount].filter(([, c]) => c / themeCards.size > STAPLE_PAGE_SHARE).map(([n]) => n),
+  );
+  console.log(`     excluding ${staples.size} format staples (on >${STAPLE_PAGE_SHARE * 100}% of theme pages)`);
+
   const pool: TaggedPoolCard[] = [];
   const resolved: { card: ScryCard; tags: string[] }[] = [];
   for (const [name, themeTags] of themesByCard) {
     const card = cards.get(name);
     if (!card?.oracle_id) continue;
+    if (staples.has(name)) continue;
     // Lands are excluded from the whole computation, matching brew's non-land candidate pool.
     // Dual lands sit on nearly every theme page while the pool is mostly long-tail spells, so
     // "shockland" otherwise reads as characteristic of Aristocrats, Voltron and Blink alike. A
