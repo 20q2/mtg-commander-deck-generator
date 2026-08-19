@@ -2,11 +2,7 @@
   {
     "version": "1.3.34",
     "notes": [
-      "You can now playtest a deck without saving it — paste or upload any decklist on the Playtest page and go straight to the table",
-      "Playtesting no longer requires a commander, so partial lists and half-finished brews can be goldfished too",
-      "The Playtest page now has the same Paste / My Decks picker as the Inspector, with card counts on every deck",
-      "Combos now show up while playtesting saved and pasted decks, not just freshly generated ones",
-      "The tip about dragging cards in from EDHRec, Scryfall, and Moxfield now only appears on the deck view, where dropping cards actually works"
+      "The playtest page can now by pasting a deck in - there's no obvious way to get to it yet though",            
     ]
   },
   {
