@@ -33,6 +33,51 @@ describe('parseCollectionList — Archidekt category annotations', () => {
   });
 });
 
+describe('parseCollectionList — #hashtag tags', () => {
+  it('strips trailing #Tags with and without set codes', () => {
+    const input = [
+      'Access Tunnel #Evade #Land',
+      'Aggressive Mammoth (FDN) #Evade #Overrun',
+      "Alrund's Epiphany (KHM) #Extra",
+      "An Offer You Can't Refuse (SNC) #Removal",
+      'Arcane Denial (SOC) #Removal',
+      'Arcane Signet #Ramp',
+      'Beastmaster Ascension (NCC) #Overrun',
+      'Brainstorm (5ED) #Draw',
+      'Breeding Pool (EOE) #Land',
+    ].join('\n');
+
+    expect(names(input)).toEqual([
+      'Access Tunnel',
+      'Aggressive Mammoth',
+      "Alrund's Epiphany",
+      "An Offer You Can't Refuse",
+      'Arcane Denial',
+      'Arcane Signet',
+      'Beastmaster Ascension',
+      'Brainstorm',
+      'Breeding Pool',
+    ]);
+  });
+
+  it('strips #Tags alongside a quantity prefix and collector number', () => {
+    expect(names('2x Sol Ring (cmm) 368 #Ramp #Artifact')).toEqual(['Sol Ring']);
+    expect(parseCollectionList('2x Sol Ring (cmm) 368 #Ramp').cards[0].quantity).toBe(2);
+  });
+
+  it('mixes #Tags and [Category] annotations', () => {
+    expect(names('Cyclonic Rift (mm3) 43 [Removal] #Wincon')).toEqual(['Cyclonic Rift']);
+  });
+
+  it('keeps a bare #collector number', () => {
+    expect(names('Sol Ring #472')).toEqual(['Sol Ring']);
+  });
+
+  it('leaves names without tags untouched', () => {
+    expect(names('Korvold, Fae-Cursed King (eld) 329')).toEqual(['Korvold, Fae-Cursed King']);
+  });
+});
+
 describe('parseCollectionList — non-numeric collector numbers', () => {
   it('strips The List / promo collector numbers (alphanumeric + hyphen)', () => {
     const input = [

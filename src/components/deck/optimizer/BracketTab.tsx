@@ -14,8 +14,10 @@ export function BracketTabContent({ onPreview }: { onPreview: (name: string) => 
   );
 
   if (!vm) {
+    // Carries its own inset — the tab runs this one flush (see DeckOptimizer's
+    // tab-content padding), and an empty-state card wants a margin around it.
     return (
-      <div className="bg-card/60 border border-border/30 rounded-lg p-6 text-center">
+      <div className="m-3 sm:m-4 bg-card/60 border border-border/30 rounded-lg p-6 text-center">
         <Gauge className="w-6 h-6 text-muted-foreground/40 mx-auto mb-2" />
         <p className="text-xs text-muted-foreground">Generate a deck to see bracket analysis</p>
       </div>

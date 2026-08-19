@@ -5,6 +5,7 @@ import {
   fetchPartnerThemeData,
   edhrecColorSegment,
   fetchCardLiftPool,
+  fetchSimilarCards,
 } from '@/services/edhrec/client';
 import { searchCards, getCardsByNames, isAnyLand } from '@/services/scryfall/client';
 import { isFormatStaple } from '@/lib/constants/staples';
@@ -301,13 +302,20 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     // Candidate card objects back the pairing (type class, price, release date) and the
     // era chip. One cached batch fetch — the tab re-requests the same names for art.
     const candidateCards = await getCardsByNames(candidates.map(c => c.name)).catch(() => new Map());
+    // Commanders are excluded as pairing incumbents — "an upgrade of your commander"
+    // is a different deck, not an upgrade.
     const deckCardObjs = [...new Set(deckCardNames)]
+      .filter(n => n !== commanderName && n !== partnerName)
       .map(n => deckTypes.get(n))
       .filter((c): c is ScryfallCard => !!c);
     await taggerPromise;
 
     const scored = await Promise.all(candidates.map(async draft => {
-      const pool = await fetchCardLiftPool(draft.name);
+      // Same EDHREC card page backs both — the similar list rides the pool's cache.
+      const [pool, similar] = await Promise.all([
+        fetchCardLiftPool(draft.name),
+        fetchSimilarCards(draft.name),
+      ]);
       const edges = deckLiftEdges(pool, liftDeckSet);
       const card = candidateCards.get(draft.name);
       const candidate: UpgradeDetail = {
@@ -322,6 +330,7 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
             themes: draft.matchedThemes.length > 0 ? draft.matchedThemes : (themeMembership.get(draft.name) ?? []),
           },
           candidatePool: pool,
+          similarNames: new Set(similar),
           deckCards: deckCardObjs,
           incumbentStats,
           themeMembership,
@@ -334,7 +343,16 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     // Backfill cards with zero lift evidence have zero signal of any kind — cut them.
     const kept = scored.filter(s => !backfillNames.has(s.candidate.name) || s.liftFit > 0);
 
-    return rankUpgradeCandidates(kept).slice(0, MAX_RECOMMENDATIONS);
+    // One pair per incumbent: several candidates can independently claim the same deck
+    // card ("3 upgrades for Reyhan") — only the best-ranked candidate keeps the claim.
+    const ranked = rankUpgradeCandidates(kept).slice(0, MAX_RECOMMENDATIONS);
+    const claimedIncumbents = new Set<string>();
+    for (const c of ranked) {
+      if (!c.pairedWith) continue;
+      if (claimedIncumbents.has(c.pairedWith.deckCard)) c.pairedWith = undefined;
+      else claimedIncumbents.add(c.pairedWith.deckCard);
+    }
+    return ranked;
   } catch {
     return [];
   }

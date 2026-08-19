@@ -21,7 +21,11 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
   /** Reserved for future identity-aware hinting; suggestions are name-based today. */
   colorIdentity?: string[];
   boardsEnabled?: boolean;
-  /** Names already in the main deck — filtered out of the suggestions. */
+  /**
+   * Names to keep out of the suggestions. Pass the cards that can't take another
+   * copy — `namesAtCopyLimit` in lib/utils — not every name in the deck, or the
+   * multi-copy cards (Nazgûl &c) become unaddable after the first.
+   */
   deckNames: Set<string>;
   onCardAction: (card: ScryfallCard, action: CardAction) => void;
 }) {

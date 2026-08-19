@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { ScryfallCard, PlanScore, Misfit, GapAnalysisCard, DetectedCombo } from '@/types';
 import type { RoleBreakdown, CurvePhaseAnalysis, OptimizeCard, OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { TABS, type TabKey } from '../constants';
+import type { BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 
 // Map TabKey → its sidebar icon (so suggestion nav buttons look like the tabs they open)
 const TAB_ICONS: Partial<Record<TabKey, LucideIcon>> = Object.fromEntries(
@@ -36,6 +37,10 @@ export interface NextBestMoveProps {
    * optimize tab always recommend the exact same card.
    */
   baseSwaps?: OptimizeSwaps | null;
+  /** Bracket estimate — gates the low-bracket Card Fit tip. */
+  bracketEstimation?: BracketEstimation;
+  /** Detected plan name, e.g. "+1/+1 Counters" — named in the low-bracket tip. */
+  planName?: string | null;
   /**
    * Rendered in place of `null` when there are no visible suggestions (e.g. the
    * Overview's Cost + Lift bento). Lets the dashboard fill the slot once the
@@ -56,13 +61,19 @@ interface Suggestion {
   message: React.ReactNode;
   navigateTo?: TabKey;
   navLabel?: string;
+  /**
+   * True for rows that are a notice or an invitation rather than a next step.
+   * These still render in the list, but they don't suppress the Cost + Lift bento
+   * the way an actionable suggestion does.
+   */
+  informational?: boolean;
 }
 
 function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
   const {
     planScore, misfits, gapAnalysis, roleBreakdowns, curvePhases, detectedCombos, deckExcess,
     manaVerdict, currentLands, suggestedLands, limitedData,
-    baseSwaps,
+    baseSwaps, bracketEstimation, planName,
   } = props;
   if (!planScore) return [];
 
@@ -379,11 +390,40 @@ function buildSuggestions(props: NextBestMoveProps): Suggestion[] {
     });
   }
 
+  // Low-bracket headroom (tier 3, invitation).
+  //
+  // True for a real reason: the plan score measures distance from EDHREC
+  // population averages, and low-bracket decks sit further from that average, so
+  // that is genuinely where the most headroom is. Deliberately does NOT claim the
+  // swaps are upgrades (the ADD column is gap analysis, not verified
+  // improvements) and does NOT imply Card Fit changes the bracket — it doesn't.
+  const bracketAddCount = baseSwaps?.additions?.length ?? 0;
+  if (bracketEstimation && bracketEstimation.bracket <= 2 && bracketAddCount > 0) {
+    candidates.push({
+      id: 'bracket-headroom',
+      tier: 3,
+      informational: true,
+      message: (
+        <>
+          Low-bracket decks have the most room to move — Card Fit lined up{' '}
+          <strong className="text-violet-300">
+            {bracketAddCount} card{bracketAddCount !== 1 ? 's' : ''}
+          </strong>{' '}
+          worth considering
+          {planName && <> for the <strong className="text-foreground">{planName}</strong> plan</>}.
+        </>
+      ),
+      navigateTo: 'optimize',
+      navLabel: 'Card Fit',
+    });
+  }
+
   // limited data (tier 3, info)
   if (limitedData) {
     candidates.push({
       id: 'limited-data',
       tier: 3,
+      informational: true,
       message: <>Limited EDHREC data for this commander — some sub-scores excluded.</>,
     });
   }
@@ -406,13 +446,19 @@ const BADGE_STYLE = 'bg-violet-500/20 text-violet-200';
 
 export function NextBestMove(props: NextBestMoveProps) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  // Card Fit suggestions (everything routing to the optimize tab — trim/fill,
-  // cardFit/strategy picks, near-miss combos) are intentionally excluded: their
-  // card-quality recommendations aren't dependable enough to surface here yet.
-  // What's left is structural — Mana, Roles, Tempo, limited-data notices.
-  const allSuggestions = buildSuggestions(props).filter(s => s.navigateTo !== 'optimize');
+  // Card Fit suggestions that name a specific card (trim/fill, cardFit/strategy
+  // picks, near-miss combos) stay excluded: their card-quality recommendations
+  // aren't dependable enough to surface here yet. Card-free tips routing to the
+  // same tab are fine — they promise nothing about an individual card.
+  const allSuggestions = buildSuggestions(props).filter(
+    s => !(s.navigateTo === 'optimize' && s.cardName),
+  );
   const visible = allSuggestions.filter(s => !dismissed.has(s.id)).slice(0, MAX_SHOWN);
-  if (visible.length === 0) return props.fallback ? <>{props.fallback}</> : null;
+  // The bento is the "no real next steps left" state. Informational rows don't
+  // count against that, so a notice or an invitation no longer hides it.
+  const actionable = visible.filter(s => !s.informational);
+  const fallback = actionable.length === 0 && props.fallback ? <>{props.fallback}</> : null;
+  if (visible.length === 0) return fallback;
 
   const dismiss = (id: string) => {
     setDismissed(prev => {
@@ -423,6 +469,7 @@ export function NextBestMove(props: NextBestMoveProps) {
   };
 
   return (
+    <>
     <div className="rounded-xl border border-violet-500/40 bg-gradient-to-br from-violet-500/10 via-violet-500/5 to-transparent p-4 animate-fade-in">
       <div className="flex items-center gap-1.5 mb-3">
         <Lightbulb className="w-3.5 h-3.5 text-violet-300" />
@@ -491,5 +538,7 @@ export function NextBestMove(props: NextBestMoveProps) {
         ))}
       </div>
     </div>
+    {fallback}
+    </>
   );
 }

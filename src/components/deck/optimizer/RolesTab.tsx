@@ -86,9 +86,11 @@ export function RoleCardGroups({ cards, role, onPreview, onCardAction, menuProps
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(ac);
     }
-    const other = map.get('Other');
-    if (other) { map.delete('Other'); map.set('Other', other); }
-    return [...map.entries()];
+    // Order groups by ROLE_KNOWN_SUBTYPES order (specific → generic) rather than whichever card
+    // happened to sort first; 'Other' always trails.
+    const order = knownSubtypes ? [...knownSubtypes] : [];
+    const rank = (label: string) => (label === 'Other' ? order.length + 1 : order.indexOf(label));
+    return [...map.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
   }, [cards, knownSubtypes]);
 
   const groups: CollapsibleGroup[] = groupEntries.map(([label, groupCards]) => ({

@@ -336,7 +336,8 @@ export interface PlanScore {
   bandLabel: string;
   /** Hero copy. Cites the plan; format: "Your X deck executes its plan at Y%." */
   headline: string;
-  /** Data-lineage byline. Format: "Based on N decklists." Omit number if unknown. */
+  /** Data-lineage byline. Format: "Compared to the average X deck. (N decklists)".
+   *  The decklist count is omitted when the sample size is unknown. */
   byline: string;
   /** Per-area sub-scores. */
   subscores: Record<SubScoreKey, SubScore>;

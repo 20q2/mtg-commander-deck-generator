@@ -131,16 +131,35 @@ function partitionSections(details: UpgradeDetail[], commanderShortName: string)
 const fmtPrice = (p: number) => (p >= 10 ? `$${Math.round(p)}` : `$${p.toFixed(2)}`);
 const fmtSynergy = (s: number) => `${s >= 0 ? '+' : ''}${Math.round(s * 100)}%`;
 
-/** The pairing receipts line: shared job, price compare, synergy compare, mutual lift. */
-function PairBanner({ pair }: { pair: PairReceipt }) {
+/** The pairing receipts line: what vouches for the pair, shared job, price/synergy compares. */
+function PairBanner({ pair, onNameClick, onNameHover }: {
+  pair: PairReceipt;
+  onNameClick: (name: string) => void;
+  /** rect = show the floating card preview for this deck card; null = hide it. */
+  onNameHover: (name: string, rect: DOMRect | null) => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 px-2 py-1 text-[11px]">
       <span className="inline-flex items-center gap-1 font-medium text-emerald-300">
-        <ArrowUpRight className="w-3 h-3" /> Possible upgrade of your {pair.deckCard}
+        <ArrowUpRight className="w-3 h-3" /> Possible upgrade of your{' '}
+        <button
+          type="button"
+          className="underline decoration-dotted underline-offset-2 hover:text-emerald-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 rounded-sm"
+          onClick={() => onNameClick(pair.deckCard)}
+          onMouseEnter={e => onNameHover(pair.deckCard, e.currentTarget.getBoundingClientRect())}
+          onMouseLeave={() => onNameHover(pair.deckCard, null)}
+        >
+          {pair.deckCard}
+        </button>
       </span>
-      <span className="text-muted-foreground/80">
-        {pair.basis === 'role' ? `both: ${pair.sharedLabel}` : `same plan: ${pair.sharedLabel}`}
+      <span className="text-muted-foreground/80" title={pair.basis === 'similar'
+        ? 'EDHREC\'s own similar-cards list for this card names yours'
+        : 'How much more often the pair appears together than chance'}>
+        {pair.basis === 'similar'
+          ? 'EDHREC lists them as similar'
+          : `played together ${liftLabel(pair.mutualLift ?? 0)}`}
       </span>
+      {pair.sharedLabel && <span className="text-muted-foreground/80">both: {pair.sharedLabel}</span>}
       {pair.candidatePrice !== undefined && pair.incumbentPrice !== undefined && (
         <span className={pair.axis === 'cheaper' ? 'text-emerald-300 font-medium' : 'text-muted-foreground/80'}>
           {fmtPrice(pair.candidatePrice)} vs {fmtPrice(pair.incumbentPrice)}
@@ -151,7 +170,7 @@ function PairBanner({ pair }: { pair: PairReceipt }) {
           {fmtSynergy(pair.candidateSynergy)} vs {fmtSynergy(pair.incumbentSynergy)} synergy
         </span>
       )}
-      {pair.mutualLift !== undefined && (
+      {pair.basis === 'similar' && pair.mutualLift !== undefined && (
         <span className="text-muted-foreground/80" title="How much more often the pair appears together than chance">
           played together {liftLabel(pair.mutualLift)}
         </span>
@@ -194,6 +213,20 @@ export function NewCardsTab({
     () => [...new Set([commanderName, partnerCommanderName, ...currentCards.map(c => c.name)].filter(Boolean) as string[])],
     [commanderName, partnerCommanderName, currentCards],
   );
+
+  // Floating full-card preview for the pair banner's incumbent name (deck cards
+  // arrive with card data on currentCards, so no extra fetch is needed).
+  const deckCardByName = useMemo(() => {
+    const m = new Map<string, ScryfallCard>();
+    for (const c of currentCards) m.set(c.name, c);
+    return m;
+  }, [currentCards]);
+  const [hoverPreview, setHoverPreview] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
+  const handlePairNameHover = (name: string, rect: DOMRect | null) => {
+    if (!rect) { setHoverPreview(null); return; }
+    const card = deckCardByName.get(name);
+    if (card) setHoverPreview({ card, rect });
+  };
 
   const themesKey = (intendedThemes ?? []).join('|');
   useEffect(() => {
@@ -286,7 +319,9 @@ export function NewCardsTab({
           </div>
 
           {/* The pairing receipts — why this reads as an upgrade of a card you run */}
-          {d.pairedWith && <PairBanner pair={d.pairedWith} />}
+          {d.pairedWith && (
+            <PairBanner pair={d.pairedWith} onNameClick={onPreview} onNameHover={handlePairNameHover} />
+          )}
 
           {/* Signals: fit meter + synergy + inclusion */}
           <div className="flex items-center gap-3 text-[11px]">
@@ -366,11 +401,21 @@ export function NewCardsTab({
             )}
           </span>
         </button>
-        {d.pairedWith && (
-          <p className="text-[10px] leading-tight text-emerald-300/90 truncate" title={`Possible upgrade of your ${d.pairedWith.deckCard}`}>
-            <ArrowUpRight className="w-2.5 h-2.5 inline mr-0.5" />upgrade of {d.pairedWith.deckCard}
-          </p>
-        )}
+        {d.pairedWith && (() => {
+          const pair = d.pairedWith;
+          return (
+            <button
+              type="button"
+              className="text-[10px] leading-tight text-emerald-300/90 truncate text-left hover:text-emerald-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 rounded-sm"
+              title={`Possible upgrade of your ${pair.deckCard}`}
+              onClick={() => onPreview(pair.deckCard)}
+              onMouseEnter={e => handlePairNameHover(pair.deckCard, e.currentTarget.getBoundingClientRect())}
+              onMouseLeave={() => handlePairNameHover(pair.deckCard, null)}
+            >
+              <ArrowUpRight className="w-2.5 h-2.5 inline mr-0.5" />upgrade of {pair.deckCard}
+            </button>
+          );
+        })()}
         <div
           className="flex items-center gap-1.5"
           title={`Deck fit ${fitPct}%${typeof d.synergy === 'number' ? ` · ${d.synergy >= 0 ? '+' : ''}${Math.round(d.synergy * 100)}% synergy` : ''}${d.inclusion > 0 ? ` · in ${Math.round(d.inclusion)}% of decks` : ''}${d.topEdges.length > 0 ? ` · plays with ${d.topEdges.map(e => e.deckCard).join(', ')}` : ''}`}
@@ -394,14 +439,14 @@ export function NewCardsTab({
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="bg-card/60 border border-border/30 rounded-lg p-4 sm:p-5">
-        <div className="flex items-center gap-2.5">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/25 shrink-0">
-            <Newspaper className="w-4 h-4" />
+      {/* Header — full-bleed strip, matching the other Inspector tabs' top bars */}
+      <div className="-mx-3 sm:-mx-4 -mt-3 sm:-mt-4 px-3 sm:px-4 pt-4 pb-4 border-b border-border/30 bg-background/80 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/25 shrink-0">
+            <Newspaper className="w-5 h-5" />
           </span>
           <div className="leading-tight min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-foreground">New cards for this deck</h3>
+            <h3 className="text-base font-semibold text-foreground">New cards for this deck</h3>
             <p className="text-xs text-muted-foreground/80">
               {state.phase === 'done'
                 ? <>Since <span className="text-foreground/90">{baselineNarrative(baselineKey, lastEditedAt)}</span>, {total === 0 ? 'nothing new has shown up for this deck.' : <>{total} card{total === 1 ? '' : 's'} worth a look — from EDHREC's data for {commanderName}{intendedThemes && intendedThemes.length > 0 ? ` and your ${intendedThemes.join(' + ')} theme${intendedThemes.length > 1 ? 's' : ''}` : ''}, ranked by fit with your cards.</>}</>
@@ -484,6 +529,21 @@ export function NewCardsTab({
             : section.details.map(renderListRow)}
         </div>
       ))}
+
+      {/* Floating full-card preview (desktop only) — anchored to the hovered pair name,
+          flipping left when it would overflow the right viewport edge. */}
+      {hoverPreview && (() => {
+        const W = 256, PAD = 12;
+        let left = hoverPreview.rect.right + PAD;
+        if (left + W > window.innerWidth) left = hoverPreview.rect.left - W - PAD;
+        const top = Math.min(Math.max(hoverPreview.rect.top + hoverPreview.rect.height / 2 - 180, 8), window.innerHeight - 380);
+        const img = getCardImageUrl(hoverPreview.card, 'normal');
+        return img ? (
+          <div className="fixed z-[100] pointer-events-none hidden lg:block" style={{ left, top }}>
+            <img src={img} alt={hoverPreview.card.name} className="w-64 rounded-lg shadow-2xl border border-border/50" />
+          </div>
+        ) : null;
+      })()}
     </div>
   );
 }

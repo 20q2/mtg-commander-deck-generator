@@ -257,11 +257,21 @@ export function buildCostPlan(
   }[] = [];
 
   let currentTotal = 0;
+  const seenNames = new Set<string>();
 
   for (const card of cards) {
     const priceRaw = getCardPrice(card, opts.currency);
     const price = parsePrice(priceRaw);
     if (price != null) currentTotal += price;
+
+    // The deck total wants every copy; everything below is per distinct card.
+    // Cards legal in multiples (Nazgûl, Relentless Rats, Dragon's Approach) and
+    // repeats in a pasted list arrive here once per copy, and a second row for
+    // the same name is worse than redundant: rows are keyed by `current.name`,
+    // so the copies share one checkbox and one alternative pick, and applying
+    // them asks to remove the same card twice for two different additions.
+    if (seenNames.has(card.name)) continue;
+    seenNames.add(card.name);
 
     if (card.name === commanderName) {
       protectedList.push({ name: card.name, reason: 'commander' });

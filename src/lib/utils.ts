@@ -32,6 +32,26 @@ export function getMaxCopies(card: ScryfallCard): number {
   return 1;
 }
 
+/**
+ * Names that can't take another copy — what an "add a card" surface should keep
+ * out of its suggestions.
+ *
+ * Not the same thing as "names already in the deck". Singleton is the rule for
+ * almost everything, but basics and the cards that say so in their own text
+ * (Nazgûl, Relentless Rats, Dragon's Approach, Shadowborn Apostle …) stay
+ * addable until they reach their personal cap, which {@link getMaxCopies} reads
+ * off the oracle text rather than a hardcoded list.
+ */
+export function namesAtCopyLimit(cards: ScryfallCard[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const card of cards) counts.set(card.name, (counts.get(card.name) ?? 0) + 1);
+  const atLimit = new Set<string>();
+  for (const card of cards) {
+    if ((counts.get(card.name) ?? 0) >= getMaxCopies(card)) atLimit.add(card.name);
+  }
+  return atLimit;
+}
+
 /** Format a timestamp as a relative time string (e.g., "just now", "3m ago") */
 export function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;

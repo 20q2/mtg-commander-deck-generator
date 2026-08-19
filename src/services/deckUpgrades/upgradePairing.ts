@@ -9,14 +9,18 @@ import type { LiftPoolEntry } from './deckUpgrades';
  *
  *   1. Same type class (creature / instant+sorcery / other permanent) — a cheap
  *      sanity bound on "does the same kind of job".
- *   2. Shared function, via either
- *        a. a narrow tagger oracle-tag both cards carry (allowlist below — broad
- *           roles like plain removal/ramp/card-advantage are excluded on purpose:
- *           "both are removal" pairs Swords to Plowshares with Desert Twister), or
- *        b. membership in the same intended-theme page PLUS a strong lift edge
- *           between the two cards — same plan, and the format actually plays them
- *           together (this branch catches Doubling Season → Branching Evolution,
- *           which carries none of the 18 tagger tags).
+ *   2. The incumbent appears in the candidate's EDHREC "similar cards" list —
+ *      functional analogues, EDHREC's own call. This is the ONLY accepted basis:
+ *        - Shared tagger tags are too coarse ("protection" paired Vigor with
+ *          Daring Fiendbonder: both protect, in unrelated ways). Tags and shared
+ *          themes only LABEL a pair that already qualified. Finer subtag sync
+ *          (protects-creature, gives-indestructible, damage-prevention…) is the
+ *          future avenue if tag-basis pairing is ever wanted again.
+ *        - High mutual lift is NOT basis either: in a dense archetype every
+ *          staple lifts hard with every other — lift says "same deck", not
+ *          "same job" (it flooded a Skullbriar deck with Reyhan "upgrades").
+ *      Plus: a cheap incumbent with strong commander synergy is thriving and is
+ *      never a pairing target — an upgrade claim needs a weakness to address.
  *   3. An upgrade axis: meaningfully cheaper, better adopted (synergy), or newer
  *      with higher inclusion.
  *
@@ -24,8 +28,8 @@ import type { LiftPoolEntry } from './deckUpgrades';
  * trust than ten missed ones. Pure module: all data arrives as arguments.
  */
 
-/** Narrow tagger tags that identify a specific job. Key = oracle tag, value = chip label. */
-const PAIRING_TAGS: ReadonlyArray<readonly [string, string]> = [
+/** Narrow tagger tags used to LABEL a shared job (never to justify a pair). */
+const LABEL_TAGS: ReadonlyArray<readonly [string, string]> = [
   ['counterspell', 'Counterspell'],
   ['boardwipe', 'Board wipe'],
   ['tutor', 'Tutor'],
@@ -40,28 +44,28 @@ const PAIRING_TAGS: ReadonlyArray<readonly [string, string]> = [
   ['cost-reducer', 'Cost reducer'],
 ];
 
-/** Theme-lift branch: minimum lift + shared-deck sample between candidate and incumbent. */
-const MIN_PAIR_LIFT = 2;
-const MIN_PAIR_DECKS = 50;
 /** "Cheaper" axis: candidate ≤ 60% of the incumbent's price, incumbent worth at least $5. */
 const PRICE_UPGRADE_RATIO = 0.6;
 const MIN_INCUMBENT_PRICE = 5;
 /** "Adopted" axis: candidate synergy must beat the incumbent's by this margin. */
 const SYNERGY_MARGIN = 0.05;
+/** A cheap incumbent at or above this commander synergy is thriving — nothing to upgrade. */
+const THRIVING_SYNERGY = 0.1;
 
 export interface PairReceipt {
   /** The deck card this candidate could replace. */
   deckCard: string;
-  basis: 'role' | 'theme-lift';
-  /** Human label for the shared function ("Sacrifice outlet", "Counters (+1/+1)"). */
-  sharedLabel: string;
+  /** What vouches for the equivalence: EDHREC's similar-cards list, or very high lift. */
+  basis: 'similar' | 'high-lift';
+  /** Optional label for the shared job ("Sacrifice outlet", a shared theme name). */
+  sharedLabel?: string;
   /** The strongest upgrade axis that held. */
   axis: 'cheaper' | 'adopted' | 'newer';
   candidatePrice?: number;
   incumbentPrice?: number;
   candidateSynergy?: number;
   incumbentSynergy?: number;
-  /** Lift between the pair (theme-lift basis only). */
+  /** Lift between the pair, when the pool has an edge. */
   mutualLift?: number;
 }
 
@@ -76,6 +80,8 @@ export interface FindPairArgs {
   };
   /** The candidate's full (unfiltered) lift pool. */
   candidatePool: LiftPoolEntry[];
+  /** EDHREC's "similar cards" for the candidate (its card page's own list). */
+  similarNames: Set<string>;
   /** Deck cards with card data (lands and unknowns are skipped internally). */
   deckCards: ScryfallCard[];
   /** Commander-page stats for deck cards (synergy/inclusion) — absent = no adopted axis. */
@@ -133,7 +139,7 @@ function upgradeAxis(
  * O(deck × tags) with map lookups — no fetches.
  */
 export function findUpgradePair(args: FindPairArgs): PairReceipt | null {
-  const { candidate, candidatePool, deckCards, incumbentStats, themeMembership } = args;
+  const { candidate, candidatePool, similarNames, deckCards, incumbentStats, themeMembership } = args;
   if (!candidate.card) return null;
   const candClass = typeClass(candidate.card);
   if (candClass === 'land') return null;
@@ -148,36 +154,36 @@ export function findUpgradePair(args: FindPairArgs): PairReceipt | null {
     if (isFormatStaple(incumbent.name)) continue;
     if (typeClass(incumbent) !== candClass) continue;
 
-    // Gate 2a: shared narrow tag.
-    let basis: PairReceipt['basis'] | null = null;
-    let sharedLabel = '';
-    let mutualLift: number | undefined;
-    for (const [tag, label] of PAIRING_TAGS) {
-      if (hasTag(candidate.name, tag) && hasTag(incumbent.name, tag)) {
-        basis = 'role';
-        sharedLabel = label;
-        break;
-      }
-    }
+    // Gate 2: EDHREC's similar-cards list must vouch for the equivalence. High mutual
+    // lift is deliberately NOT a basis: in a dense archetype (Skullbriar counters),
+    // every staple lifts hard with every other — lift says "same deck", not "same job".
+    // The edge is kept as corroborating display only.
+    const edge = poolByName.get(incumbent.name);
+    if (!similarNames.has(incumbent.name)) continue;
+    const basis: PairReceipt['basis'] = 'similar';
 
-    // Gate 2b: same intended theme + strong mutual lift.
-    if (!basis && candThemes.size > 0) {
-      const sharedTheme = (themeMembership.get(incumbent.name) ?? []).find(t => candThemes.has(t));
-      const edge = sharedTheme ? poolByName.get(incumbent.name) : undefined;
-      if (sharedTheme && edge && edge.lift >= MIN_PAIR_LIFT && edge.numDecks >= MIN_PAIR_DECKS) {
-        basis = 'theme-lift';
-        sharedLabel = sharedTheme;
-        mutualLift = edge.lift;
-      }
+    // A cheap incumbent with strong commander synergy is doing its job well — an
+    // "upgrade" claim needs a weakness to address (price, or being out-adopted).
+    const stat = incumbentStats.get(incumbent.name);
+    const incPrice = usdPrice(incumbent);
+    const thriving = typeof stat?.synergy === 'number' && stat.synergy >= THRIVING_SYNERGY
+      && (incPrice === undefined || incPrice < MIN_INCUMBENT_PRICE);
+    if (thriving) continue;
+
+    // Label the shared job when we can name it (context only, not a gate).
+    let sharedLabel: string | undefined;
+    for (const [tag, label] of LABEL_TAGS) {
+      if (hasTag(candidate.name, tag) && hasTag(incumbent.name, tag)) { sharedLabel = label; break; }
     }
-    if (!basis) continue;
+    if (!sharedLabel && candThemes.size > 0) {
+      sharedLabel = (themeMembership.get(incumbent.name) ?? []).find(t => candThemes.has(t));
+    }
 
     // Gate 3: an upgrade axis must hold.
-    const incumbentStat = incumbentStats.get(incumbent.name);
-    const axis = upgradeAxis(candidate, incumbent, incumbentStat);
+    const axis = upgradeAxis(candidate, incumbent, stat);
     if (!axis) continue;
 
-    const score = (basis === 'role' ? 1.5 : 1) + (mutualLift ?? 0) / 10 + axis.weight;
+    const score = axis.weight + (edge?.lift ?? 0) / 10;
     if (best && score <= best.score) continue;
     best = {
       score,
@@ -187,10 +193,10 @@ export function findUpgradePair(args: FindPairArgs): PairReceipt | null {
         sharedLabel,
         axis: axis.axis,
         candidatePrice: usdPrice(candidate.card),
-        incumbentPrice: usdPrice(incumbent),
+        incumbentPrice: incPrice,
         candidateSynergy: candidate.synergy,
-        incumbentSynergy: incumbentStat?.synergy,
-        mutualLift,
+        incumbentSynergy: stat?.synergy,
+        mutualLift: edge?.lift,
       },
     };
   }

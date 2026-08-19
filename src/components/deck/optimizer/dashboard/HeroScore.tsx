@@ -7,6 +7,9 @@ import { Pencil, ExternalLink, FlaskConical } from 'lucide-react';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { formatCommanderNameForUrl } from '@/services/edhrec/client';
+import { BRACKET_COLORS } from '../constants';
+import { bracketLabelFor, type BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
+import { headlineFor, bylineFor } from '@/services/deckBuilder/planScore';
 import type { PlanScore, ScryfallCard } from '@/types';
 import type { ReactNode } from 'react';
 
@@ -20,6 +23,14 @@ export interface HeroScoreProps {
   planName?: string | null;
   /** Display text for the secondary plan, if one is selected. */
   secondaryPlanName?: string | null;
+  /** Bracket estimate for this deck. When present the headline names the bracket;
+   *  when absent the stored `planScore.headline` is used unchanged. */
+  bracketEstimation?: BracketEstimation;
+  /** EDHREC decklist count backing the score — cited in the byline. */
+  sampleSize?: number | null;
+  /** Opens the Bracket tab. When set, the bracket phrase in the headline becomes
+   *  a link to the evidence behind it. */
+  onNavigateToBracket?: () => void;
   /** Adjust popover content. */
   adjustContent?: ReactNode;
   onOpenInDeckView?: () => void;
@@ -33,12 +44,58 @@ export function HeroScore({
   sourceLabel,
   planName,
   secondaryPlanName,
+  bracketEstimation,
+  sampleSize,
+  onNavigateToBracket,
   adjustContent,
   onOpenInDeckView,
 }: HeroScoreProps) {
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   const target = Math.max(0, Math.min(100, planScore.overall));
   const [displayed, setDisplayed] = useState(0);
+
+  // The bracket is a second, independent fact about the deck, not a scope on the
+  // score — see headlineFor's contract. Falls back to the stored headline when
+  // the deck has no estimate (e.g. a list the tagger hasn't enriched).
+  const bracketPhrase = bracketEstimation
+    ? bracketLabelFor(bracketEstimation.bracket, bracketEstimation.bracketMax)
+    : null;
+  const headline = bracketPhrase
+    ? headlineFor(planScore.overall, planName, bracketPhrase)
+    : planScore.headline;
+
+  // Short name only — "the average Skullbriar deck", not "the average
+  // Skullbriar, the Walking Grave deck".
+  const commanderLabel = [commander, partnerCommander]
+    .filter((c): c is ScryfallCard => !!c)
+    .map(c => c.name.split(',')[0].trim())
+    .join(' + ');
+  const byline = bylineFor(sampleSize, commanderLabel);
+
+  // The bracket phrase links to the tab that justifies it. headlineFor inserts
+  // the phrase verbatim exactly once, so splitting on it yields [before, after];
+  // anything else means the contract changed, so fall back to plain text rather
+  // than render a mangled sentence.
+  const headlineContent = (() => {
+    if (!bracketPhrase || !onNavigateToBracket) return headline;
+    const parts = headline.split(bracketPhrase);
+    if (parts.length !== 2) return headline;
+    const tint = bracketEstimation ? BRACKET_COLORS[bracketEstimation.bracket]?.text : undefined;
+    return (
+      <>
+        {parts[0]}
+        <button
+          type="button"
+          onClick={onNavigateToBracket}
+          title="See how this bracket was estimated"
+          className={`cursor-pointer hover:opacity-75 transition-opacity ${tint ?? ''}`}
+        >
+          {bracketPhrase}
+        </button>
+        {parts[1]}
+      </>
+    );
+  })();
 
   useEffect(() => {
     let raf: number;
@@ -229,9 +286,9 @@ export function HeroScore({
           </div>
           <div className="flex-1 min-w-0 text-left">
             <h2 className="text-base sm:text-xl font-semibold leading-snug text-foreground">
-              {planScore.headline}
+              {headlineContent}
             </h2>
-            <p className="mt-1.5 sm:mt-2 text-xs text-muted-foreground/70">{planScore.byline}</p>
+            <p className="mt-1.5 sm:mt-2 text-xs text-muted-foreground/70">{byline}</p>
             {planScore.limitedData && (
               <p className="mt-1 text-[11px] text-amber-400/70">
                 Limited data — some sub-scores excluded.

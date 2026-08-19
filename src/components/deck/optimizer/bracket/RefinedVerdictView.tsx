@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { ChevronDown } from 'lucide-react';
-import type { BracketViewModel, Gate, SoftCriterion } from './bracketViewModel';
+import { ChevronDown, ChevronsUp } from 'lucide-react';
+import type { BracketViewModel, Gate, GateCardGroup, SoftCriterion } from './bracketViewModel';
+import { BRACKET_HEX } from './bracketViewModel';
 import { CardTile, CardPill } from './CardTile';
 import { GateBracketChip, gateTint } from './GateMarker';
 import { GATE_ICON, CRITERION_ICON } from './bracketIcons';
@@ -23,11 +24,19 @@ const REVEAL = { duration: 200, easing: 'ease-out' } as const;
  */
 export function RefinedVerdictView({ vm, onPreview }: { vm: BracketViewModel; onPreview: (name: string) => void }) {
   const present = vm.gates.filter(g => g.status === 'present').length;
+  // An element can be present without requiring anything — an unrated combo is
+  // in the deck but names no bracket — so the headline counts what actually set
+  // the floor, not everything the deck contains.
+  const setting = vm.gates.filter(g => g.forcesBracket > 0).length;
   const forcing = vm.gates.filter(g => g.status !== 'measured').length;
   const bumpsTo = vm.floor >= 4 ? 5 : Math.min(vm.floor + 1, 4);
 
   return (
-    <div className="rounded-xl border border-border/30 bg-card/60 overflow-hidden">
+    // Full-bleed: no card border or radius of its own, and the tab strips its
+    // padding for this tab. The panel *is* the page, so the section gutters
+    // below are the page's gutters — a card frame inside them read as a box
+    // floating in a box.
+    <div className="bg-card/60">
 
       {/* ── One statement of the bracket ── */}
       <div
@@ -81,9 +90,9 @@ export function RefinedVerdictView({ vm, onPreview }: { vm: BracketViewModel; on
       <div className="px-7 pt-6 pb-2">
         <div className="flex items-baseline gap-3 flex-wrap">
           <h4 className="text-[15px] font-semibold text-foreground">
-            {present === 0
+            {setting === 0
               ? 'Nothing in the deck sets a floor'
-              : `${present === 1 ? 'One element sets' : `${present} elements set`} the floor at Bracket ${vm.floor}`}
+              : `${setting === 1 ? 'One element sets' : `${setting} elements set`} the floor at Bracket ${vm.floor}`}
           </h4>
           <span className="text-[13px] text-muted-foreground">
             {present} of {forcing} present
@@ -101,22 +110,10 @@ export function RefinedVerdictView({ vm, onPreview }: { vm: BracketViewModel; on
 
       {/* ── Tier two: how tuned it is inside that floor ── */}
       <div className="px-7 pt-6 pb-7">
-        <div className="flex items-baseline gap-3 flex-wrap">
-          <h4 className="text-[15px] font-semibold text-foreground">
-            How tuned it is, inside Bracket {vm.floor}
-          </h4>
-          <span className="text-[13px] text-muted-foreground tabular-nums">{vm.softScore} / 100</span>
-        </div>
-        <p className="text-[13px] leading-relaxed text-muted-foreground mt-1.5 max-w-[72ch]">
-          Four measures of speed and consistency. The filled part of each row is how much of that
-          measure your deck uses.
-          {vm.bumpTarget !== null && vm.pointsToBump > 0 && (
-            <> <span className="text-amber-400">{vm.pointsToBump} more</span> would read as a Bracket {bumpsTo} deck.</>
-          )}
-          {vm.wasElevated && <> That was enough to lift this deck above its floor of {vm.floor}.</>}
-        </p>
-
-        <div className="mt-4 rounded-[11px] border border-border/30 overflow-hidden">
+        <h4 className="text-[15px] font-semibold text-foreground">
+          How tuned it is, inside Bracket {vm.floor}
+        </h4>
+        <div className="mt-3.5 rounded-[11px] border border-border/30 overflow-hidden">
           {vm.criteria.map((c, i) => (
             <CriterionRow
               key={c.key}
@@ -126,6 +123,7 @@ export function RefinedVerdictView({ vm, onPreview }: { vm: BracketViewModel; on
             />
           ))}
         </div>
+        <BottomLine vm={vm} bumpsTo={bumpsTo} />
       </div>
     </div>
   );
@@ -172,13 +170,98 @@ function GateCard({ gate, onPreview }: { gate: Gate; onPreview: (name: string) =
       {open && (
         <div className="px-3.5 pb-3.5 pl-[40px]">
           <p className="text-[13px] leading-relaxed text-foreground/75">{gate.detail}</p>
-          {gate.cards.length > 0 && (
+          {gate.cardGroups?.length ? (
+            <div className="flex flex-wrap gap-2 mt-2.5">
+              {gate.cardGroups.map((g, i) => <CardGroupBox key={i} group={g} onPreview={onPreview} />)}
+            </div>
+          ) : gate.cards.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2.5">
               {gate.cards.map(n => <CardPill key={n} name={n} onPreview={onPreview} />)}
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Cards that only mean something together, boxed as one unit.
+ *
+ * A flat row of pills can't say which card pairs with which — with two combos
+ * sharing Sol Ring it read as three loose findings. So each combo gets its own
+ * container, its halves joined by the same "+" the Card Fit combo list uses, and
+ * a note saying what bracket it asks for. A group that didn't move the floor is
+ * outlined dashed rather than hidden: it's in the deck, it just isn't evidence.
+ */
+function CardGroupBox({ group, onPreview }: { group: GateCardGroup; onPreview: (name: string) => void }) {
+  return (
+    <div
+      className={`rounded-[9px] border bg-background/50 px-2 pt-2 pb-1.5 ${
+        group.muted ? 'border-dashed border-border/50' : 'border-border/40'
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        {group.cards.map((n, i) => (
+          <Fragment key={n}>
+            {i > 0 && <span className="text-[11px] text-muted-foreground/70">+</span>}
+            <CardPill name={n} onPreview={onPreview} />
+          </Fragment>
+        ))}
+      </div>
+      {group.note && (
+        <p className={`text-[10.5px] mt-1.5 ${group.muted ? 'text-muted-foreground/70 italic' : 'text-muted-foreground'}`}>
+          {group.note}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The bottom line under the tuning table — the total, and what it would buy.
+ *
+ * Deliberately not a fifth row: no border, no fill, no card background, so it
+ * reads as the sum of the table rather than another thing being measured. It
+ * keeps the rows' column grid so the total lands under the four scores and the
+ * climb lands under the four "Why this matters" links — read down either column
+ * and the last line answers it.
+ */
+function BottomLine({ vm, bumpsTo }: { vm: BracketViewModel; bumpsTo: number }) {
+  const reaching = vm.bumpTarget !== null && vm.pointsToBump > 0;
+  const atCeiling = vm.bumpTarget === null;
+  const hex = BRACKET_HEX[reaching ? bumpsTo : vm.bracket];
+
+  const climb = reaching
+    ? `${vm.pointsToBump} more for Bracket ${bumpsTo}`
+    : atCeiling
+      ? 'Top of the scale'
+      : `Enough for Bracket ${vm.bracket}`;
+
+  const Climb = (
+    <span
+      className="text-[12.5px] font-semibold whitespace-nowrap"
+      style={{ color: atCeiling ? undefined : hex }}
+    >
+      {!atCeiling && (
+        <ChevronsUp className="inline w-3.5 h-3.5 -mt-0.5 mr-1" strokeWidth={2.25} />
+      )}
+      {climb}
+    </span>
+  );
+
+  return (
+    // mx-px absorbs the table's 1px border so the columns still line up.
+    <div className="mx-px mt-3 grid grid-cols-[1fr_auto] md:grid-cols-[170px_1fr_74px_auto_14px] gap-x-4 gap-y-1.5 items-baseline px-4">
+      <span className="hidden md:block" />
+      <span className="text-[13px] text-muted-foreground">Tuning score</span>
+      <span className="text-right text-sm font-semibold text-foreground tabular-nums">
+        {vm.softScore} / 100
+      </span>
+      {/* Spans the links column and the chevron gutter, so it ends flush with
+          the rows' right edge rather than stopping short of it. */}
+      <span className={`hidden md:block md:col-span-2 text-right ${atCeiling ? 'text-muted-foreground' : ''}`}>{Climb}</span>
+      <span className={`md:hidden col-span-2 text-right ${atCeiling ? 'text-muted-foreground' : ''}`}>{Climb}</span>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import {
-  Sparkles, Sprout, Swords, Flame, BookOpen, Shield,
+  Sparkles, Sprout, Swords, Flame, BookOpen, Shield, ShieldHalf,
   LayoutDashboard, Mountain, BarChart3, Zap, Target, Crown,
   MapPin, Clock, Gauge, DollarSign, Wand2, ChartNetwork, Newspaper,
 } from 'lucide-react';
@@ -192,7 +192,6 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
   'Cost Reducer': 'bg-emerald-500/15 text-emerald-400/80',
   'Ramp': 'bg-emerald-500/15 text-emerald-400/80',
   'Ramp Land': 'bg-emerald-500/15 text-emerald-400/80',
-  'Counter': 'bg-rose-500/15 text-rose-400/80',
   'Bounce': 'bg-rose-500/15 text-rose-400/80',
   'Spot Removal': 'bg-rose-500/15 text-rose-400/80',
   'Removal': 'bg-rose-500/15 text-rose-400/80',
@@ -203,6 +202,9 @@ export const SUBTYPE_BADGE_COLORS: Record<string, string> = {
   'Cantrip': 'bg-sky-500/15 text-sky-400/80',
   'Card Draw': 'bg-sky-500/15 text-sky-400/80',
   'Card Advantage': 'bg-sky-500/15 text-sky-400/80',
+  // Protection subtypes — counterspells live on the protection axis (see cardMatchesRole), so
+  // 'Counter' wears the protection hue, not removal's rose.
+  'Counter': 'bg-yellow-500/15 text-yellow-400/80',
   'Protection': 'bg-yellow-500/15 text-yellow-400/80',
   // Land classification tags
   'Utility': 'bg-violet-500/15 text-violet-400/80',
@@ -222,7 +224,6 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   'Cost Reducer': Sprout as typeof Sparkles,
   'Ramp Land': MapPin as typeof Sparkles,
   // Removal subtypes
-  'Counter': Swords as typeof Sparkles,
   'Bounce': Swords as typeof Sparkles,
   'Spot Removal': Swords as typeof Sparkles,
   // Boardwipe subtypes
@@ -233,6 +234,8 @@ export const ROLE_LABEL_ICONS: Record<string, typeof Sparkles> = {
   'Wheel': BookOpen as typeof Sparkles,
   'Cantrip': BookOpen as typeof Sparkles,
   'Card Draw': BookOpen as typeof Sparkles,
+  // Protection subtypes
+  'Counter': ShieldHalf as typeof Sparkles,
   // Land classification tags
   'Utility': MapPin as typeof Sparkles,
   'Tapland': Clock as typeof Sparkles,
@@ -308,11 +311,15 @@ export function tileGradeStyles(letter: string) {
 
 // ─── Role Known Subtypes ─────────────────────────────────────────────
 
+// Insertion order is display order in the Roles tab's grouped card list — an unrecognized label
+// falls through to 'Other', which always sorts last. A role missing from this map groups its whole
+// card list under 'Other', which is how protection used to read before it got an entry here.
 export const ROLE_KNOWN_SUBTYPES: Record<string, Set<string>> = {
-  ramp: new Set(['Mana Dork', 'Mana Rock', 'Cost Reducer', 'Ramp', 'Ramp Land']),
-  removal: new Set(['Counter', 'Bounce', 'Spot Removal', 'Removal']),
+  ramp: new Set(['Mana Dork', 'Mana Rock', 'Cost Reducer', 'Ramp Land', 'Ramp']),
+  removal: new Set(['Bounce', 'Spot Removal', 'Removal']),
   boardwipe: new Set(['Bounce Wipe', 'Board Wipe']),
   cardDraw: new Set(['Tutor', 'Wheel', 'Cantrip', 'Card Draw', 'Card Advantage']),
+  protection: new Set(['Counter', 'Protection']),
 };
 
 // ─── Collapsible Group Interface ─────────────────────────────────────

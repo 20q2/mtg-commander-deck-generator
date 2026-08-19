@@ -11,6 +11,7 @@ import type {
   ScryfallCard, EDHRECCommanderData, DashboardWarning, SubScoreKey, DetectedCombo,
 } from '@/types';
 import type { DeckAnalysis, RoleBreakdown, CurvePhaseAnalysis, OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
+import type { BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
 import type { TabKey } from './constants';
 import type { ReactNode } from 'react';
@@ -96,6 +97,8 @@ export interface DashboardSummaryProps {
   primaryThemeData?: EDHRECCommanderData | null;
   planName?: string | null;
   sampleSize?: number | null;
+  /** Bracket estimate from the store — drives the headline and the low-bracket tip. */
+  bracketEstimation?: BracketEstimation;
   warnings: DashboardWarning[];
   adjustContent?: ReactNode;
   onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove' } | { liftView: 'islands' }) => void;
@@ -131,7 +134,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
   const {
     commander, partnerCommander, colorIdentity, sourceLabel,
     analysis, cards, themeMembership, primaryThemeData, planName,
-    sampleSize, adjustContent, onNavigate,
+    sampleSize, bracketEstimation, adjustContent, onNavigate,
     onOpenInDeckView,
     cardSynergyMap,
     detectedCombos, deckTarget,
@@ -240,6 +243,9 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         sourceLabel={sourceLabel}
         planName={planName}
         secondaryPlanName={themeMembership?.themes?.[1]?.name ?? null}
+        bracketEstimation={bracketEstimation}
+        sampleSize={sampleSize}
+        onNavigateToBracket={() => onNavigate('bracket')}
         adjustContent={adjustContent}
         onOpenInDeckView={onOpenInDeckView}
       />
@@ -259,6 +265,8 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         limitedData={planScore.limitedData}
         baseSwaps={baseSwaps ?? null}
         fallback={bentoSlot}
+        bracketEstimation={bracketEstimation}
+        planName={planName}
       />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-stretch">
         {(Object.keys(SUBSCORE_META) as ScoredKey[]).map((key, i) => {

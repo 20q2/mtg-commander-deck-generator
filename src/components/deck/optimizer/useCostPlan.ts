@@ -66,11 +66,16 @@ function resolveInputs(
   opts: { mustIncludeNames: Set<string>; currency: 'USD' | 'EUR'; chosenColor?: string | null },
 ): CostPlanInputs {
   const eligible: { name: string; price: number; isLand: boolean }[] = [];
+  const seenNames = new Set<string>();
   for (const card of cards) {
     if (card.name === commanderName) continue;
     if (partnerCommanderName && card.name === partnerCommanderName) continue;
     if (opts.mustIncludeNames.has(card.name)) continue;
     if (BASIC_LAND_NAMES.has(card.name)) continue;
+    // One entry per distinct card: a deck running four Nazgûl would otherwise
+    // spend four of the TOP_N slots on it and crowd out other pricey cards.
+    if (seenNames.has(card.name)) continue;
+    seenNames.add(card.name);
     const price = parsePrice(getCardPrice(card, opts.currency));
     if (price == null || price < PRICE_FLOOR) continue;
     eligible.push({ name: card.name, price, isLand: isAnyLand(card) });

@@ -1346,7 +1346,8 @@ export function DeckOptimizer({
   const updateCustomization = useStore(s => s.updateCustomization);
   const storeSelectedThemes = useStore(s => s.selectedThemes);
   const usedThemes = useStore(s => s.generatedDeck?.usedThemes);
-  const bracketLevel = useStore(s => s.generatedDeck?.bracketEstimation?.bracket);
+  const bracketEstimation = useStore(s => s.generatedDeck?.bracketEstimation);
+  const bracketLevel = bracketEstimation?.bracket;
   const displayThemeNames = useMemo(() => {
     // 1. If user selected themes in the optimizer, show those
     if (primaryThemeSlug || secondaryThemeSlug) {
@@ -1884,7 +1885,8 @@ export function DeckOptimizer({
         )}
 
         {/* Tab Content */}
-        <div className={`flex-1 min-h-0 overflow-y-auto ${activeTab === 'optimize' ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''} ${activeTab === 'cost' ? 'pt-0 sm:pt-0' : ''}`}>
+        {/* Tabs that lay themselves out full-bleed opt out of the gutter entirely. */}
+        <div className={`flex-1 min-h-0 overflow-y-auto ${['optimize', 'bracket', 'cost'].includes(activeTab) ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''}`}>
 
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && commander && (
@@ -1899,6 +1901,7 @@ export function DeckOptimizer({
             primaryThemeData={dashboardPrimaryThemeData}
             planName={dashboardThemeMembership?.themes?.[0]?.name ?? null}
             sampleSize={cachedEdhrecDataRef.current?.stats?.numDecks ?? null}
+            bracketEstimation={bracketEstimation}
             warnings={buildDashboardWarnings({
               analysis,
               cards: currentCards,

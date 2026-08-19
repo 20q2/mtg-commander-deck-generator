@@ -21,6 +21,7 @@ import { getCategoryForCard } from '@/services/deckBuilder/cardSwap';
 import { parseIntendedThemes } from '@/services/deckUpgrades/deckUpgrades';
 import { stampRoleSubtypes } from '@/services/deckBuilder/deckGenerator';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
+import { getMaxCopies } from '@/lib/utils';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, GeneratedDeck, ScryfallCard } from '@/types';
 import type { CardAction } from '@/components/deck/DeckDisplay';
@@ -118,7 +119,7 @@ export function AnalyzePage() {
 
   const generatedDeck = useStore(s => s.generatedDeck);
   const colorIdentityStore = useStore(s => s.colorIdentity);
-  const { lists, updateList, createList } = useUserLists();
+  const { lists, updateList, createList, getListById } = useUserLists();
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
   const { param1, param2 } = useParams<{ param1?: string; param2?: string }>();
@@ -447,24 +448,28 @@ export function AnalyzePage() {
     const deck = useStore.getState().generatedDeck;
     if (!deck) return;
 
-    const existing = new Set<string>();
+    // Copies per name, not mere presence: the limit is 1 for almost everything,
+    // but basics and the cards whose own text permits duplicates (Nazgûl,
+    // Relentless Rats, Dragon's Approach …) allow more, and a presence check
+    // made the second copy of those silently impossible to add.
+    const copies = new Map<string, number>();
+    const countCopy = (n: string) => copies.set(n, (copies.get(n) ?? 0) + 1);
     for (const arr of Object.values(deck.categories)) {
-      for (const c of arr) existing.add(c.name);
+      for (const c of arr) countCopy(c.name);
     }
-    if (deck.commander) existing.add(deck.commander.name);
-    if (deck.partnerCommander) existing.add(deck.partnerCommander.name);
+    if (deck.commander) countCopy(deck.commander.name);
+    if (deck.partnerCommander) countCopy(deck.partnerCommander.name);
 
     const newCategories = { ...deck.categories };
     const addedNames: string[] = [];
     for (const name of names) {
       const card = getCachedCard(name);
       if (!card) continue;
-      // Basic lands may have multiple copies; everything else is singleton.
-      if (!isBasicLand(card) && existing.has(name)) continue;
+      if ((copies.get(name) ?? 0) >= getMaxCopies(card)) continue;
       stampRoleSubtypes(card);
       const cat = getCategoryForCard(card);
       newCategories[cat] = [...newCategories[cat], card];
-      existing.add(name);
+      countCopy(name);
       addedNames.push(name);
     }
     if (addedNames.length === 0) return;
@@ -496,7 +501,11 @@ export function AnalyzePage() {
     document.dispatchEvent(new CustomEvent('analyze-cards-added', { detail: { names: addedNames } }));
 
     if (source?.kind === 'list') {
-      const list = lists.find(l => l.id === source.listId);
+      // getListById reads the module-level list store, NOT this render's `lists`
+      // snapshot. That matters: Card Fit's Apply calls remove-then-add in one
+      // tick, so a snapshot read here would still hold the pre-removal cards and
+      // this write would resurrect every card the removal just persisted away.
+      const list = getListById(source.listId);
       if (list) {
         // Allow duplicate basic-land entries; everything else stays singleton.
         const listExisting = new Set(list.cards);
@@ -513,7 +522,7 @@ export function AnalyzePage() {
         }
       }
     }
-  }, [source, lists, updateList]);
+  }, [source, getListById, updateList]);
 
   const handleRemoveCardsFromAnalyzerDeck = useCallback((names: string[]) => {
     const deck = useStore.getState().generatedDeck;
@@ -564,7 +573,9 @@ export function AnalyzePage() {
     });
 
     if (source?.kind === 'list') {
-      const list = lists.find(l => l.id === source.listId);
+      // Fresh read from the shared store, not this render's `lists` — see the
+      // note in handleAddCardsToAnalyzerDeck.
+      const list = getListById(source.listId);
       if (list) {
         // Remove one list entry per removed copy (basics may appear multiple times).
         const removeBudget = new Map<string, number>();
@@ -581,7 +592,7 @@ export function AnalyzePage() {
         });
       }
     }
-  }, [source, lists, updateList]);
+  }, [source, getListById, updateList]);
 
   // Swap/add from the card preview modal's "Similar Cards" panel (EDHREC-powered),
   // mirroring the deck-view preview. Swap = remove the previewed card, add the pick.
@@ -616,7 +627,7 @@ export function AnalyzePage() {
         break;
       }
       case 'addToList': {
-        const list = lists.find(l => l.id === action.listId);
+        const list = getListById(action.listId);
         if (list && !list.cards.includes(name)) {
           updateList(action.listId, { cards: [...list.cards, name] });
         }
@@ -626,7 +637,7 @@ export function AnalyzePage() {
         createList(action.listName, [name]);
         break;
     }
-  }, [handleRemoveCardsFromAnalyzerDeck, handleAddCardsToAnalyzerDeck, customization, updateCustomization, lists, updateList, createList]);
+  }, [handleRemoveCardsFromAnalyzerDeck, handleAddCardsToAnalyzerDeck, customization, updateCustomization, getListById, updateList, createList]);
 
   const analyzerMenuProps = useMemo(() => ({
     userLists: lists,

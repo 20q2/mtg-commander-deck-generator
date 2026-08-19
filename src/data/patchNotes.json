@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.3.33",
+    "notes": [
+      "Better suport for Relentless Rats and other multi-copy cards across the app",
+      "Fixed a pretty major bug where removals made in the Card Fit tab of the Inspector wouldn't persist after a refresh",
+      "Style, QoL improvements, and a few other extra goodies across the Inspector",
+      "Some visual and wording clarification in the Inspectors Bracket Estimator",      
+      "Updated suggestions algorithm within the Inspectors New Cards tab",
+      "Most card previews in the app will now show similar cards, as well as allow you to add them to your deck",
+      "Made a distinction where many bounce spells were being read as Removal"
+    ]
+  },
+  {
     "version": "1.3.32",
     "notes": [
       "Opening a shared or saved deck in the Inspector now shows how many cards have loaded, so a slow first load no longer looks stuck",
@@ -10,7 +22,7 @@
   {
     "version": "1.3.31",
     "notes": [
-      "Share a deck with a link — the Inspector now has a copy-link button that hands someone the exact deck you're looking at, no account or saving required (thank you Alin Hassan for the feature submission)",
+      "Share a deck with a link — the Inspector now has a copy-link button that hands someone the exact deck you're looking at, no account or saving required",
       "Export Deck can now filter your list down to a single collection, or to just the cards you're missing. The option will only be available if you're viewing which cards in your deck are in a collection.",
       "Fixed decklist imports stating it only imported around 90 cards when it correctly imported the full 100",
       "You can drag to reorder your collections, rename one straight from its title, and download a collection as a text file",

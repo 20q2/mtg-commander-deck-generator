@@ -16,6 +16,7 @@ import { computeSpillover } from './columnSpillover';
 import { useStore } from '@/store';
 import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 import { AddCardPopover } from '@/components/spellchroma/AddCardPopover';
+import { namesAtCopyLimit } from '@/lib/utils';
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
@@ -299,9 +300,10 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
   );
-  // Names already in the deck — feeds the manual add-card popover so it can
-  // filter out cards that are already present.
-  const deckNames = useMemo(() => new Set(currentCards.map(c => c.name)), [currentCards]);
+  // Feeds the manual add-card popover. Deliberately "at their copy limit" rather
+  // than "already in the deck": a lone Nazgûl (or Swamp) is still addable, and
+  // filtering on mere presence made those cards impossible to add a second time.
+  const deckNames = useMemo(() => namesAtCopyLimit(currentCards), [currentCards]);
   const deckFormat = useStore(s => s.customization.deckFormat);
   const partnerCommander = useStore(s => s.partnerCommander);
   const targetDeckSize = deckFormat - (partnerCommander ? 1 : 0);

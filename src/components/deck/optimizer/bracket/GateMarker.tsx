@@ -16,6 +16,16 @@ import { BRACKET_HEX, type Gate } from './bracketViewModel';
  */
 export function GateBracketChip({ gate }: { gate: Gate }) {
   if (gate.status !== 'present') return null;
+  // Present, but with nothing to require — complete combos that carry no usable
+  // community bracket rating land here. Naming a bracket would be a guess, so
+  // the chip says what we actually know instead.
+  if (!gate.forcesBracket) {
+    return (
+      <span className="shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap bg-muted/50 text-muted-foreground">
+        No floor set
+      </span>
+    );
+  }
   const hex = BRACKET_HEX[gate.forcesBracket];
   return (
     <span
@@ -30,6 +40,8 @@ export function GateBracketChip({ gate }: { gate: Gate }) {
 /** Card chrome for a gate row — tinted with its bracket hue only when present. */
 export function gateTint(gate: Gate) {
   if (gate.status !== 'present') return { className: 'border-border/30 bg-background/40', style: undefined };
+  // No bracket to borrow a hue from — sits a step above absent, below forcing.
+  if (!gate.forcesBracket) return { className: 'border-border/50 bg-background/70', style: undefined };
   const hex = BRACKET_HEX[gate.forcesBracket];
   return { className: '', style: { borderColor: `${hex}55`, backgroundColor: `${hex}0f` } };
 }

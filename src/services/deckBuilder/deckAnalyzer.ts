@@ -1,6 +1,6 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, DetectedCombo, PlanScore, Misfit, GapAnalysisCard } from '@/types';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
-import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
+import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, getProtectionSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 import { detectPacing, type Pacing } from './themeDetector';
@@ -2126,16 +2126,24 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     'cantrip': 'Cantrip',
     'card-draw': 'Card Draw',
     'card-advantage': 'Card Advantage',
+    'counterspell': 'Counter',
+    'protection': 'Protection',
   };
 
   function makeAnalyzedCard(card: ScryfallCard, targetRole?: string): AnalyzedCard {
     let subtype: string | undefined;
     switch (targetRole) {
-      case 'cardDraw':  subtype = card.cardDrawSubtype  || card.rampSubtype || card.removalSubtype || card.boardwipeSubtype; break;
-      case 'removal':   subtype = card.removalSubtype   || card.boardwipeSubtype || card.rampSubtype || card.cardDrawSubtype; break;
-      case 'boardwipe': subtype = card.boardwipeSubtype || card.removalSubtype  || card.rampSubtype || card.cardDrawSubtype; break;
-      case 'ramp':      subtype = card.rampSubtype      || card.cardDrawSubtype || card.removalSubtype || card.boardwipeSubtype; break;
-      default:          subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype; break;
+      case 'cardDraw':  subtype = card.cardDrawSubtype  || card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.protectionSubtype; break;
+      case 'removal':   subtype = card.removalSubtype   || card.boardwipeSubtype || card.rampSubtype || card.cardDrawSubtype || card.protectionSubtype; break;
+      case 'boardwipe': subtype = card.boardwipeSubtype || card.removalSubtype  || card.rampSubtype || card.cardDrawSubtype || card.protectionSubtype; break;
+      case 'ramp':      subtype = card.rampSubtype      || card.cardDrawSubtype || card.removalSubtype || card.boardwipeSubtype || card.protectionSubtype; break;
+      // Protection leads with its own subtype so a counterspell reads "Counter", not the ramp/draw
+      // badge it also happens to earn (Fierce Guardianship, Three Steps Ahead). deckEnricher only
+      // stamps the PRIMARY role's subtype, so a protection card whose primary role is
+      // removal/draw arrives unstamped on that path — ask the tagger directly rather than
+      // falling back to a label the protection panel doesn't recognize (→ 'Other').
+      case 'protection': subtype = card.protectionSubtype || getProtectionSubtype(card.name) || undefined; break;
+      default:          subtype = card.rampSubtype || card.removalSubtype || card.boardwipeSubtype || card.cardDrawSubtype || card.protectionSubtype; break;
     }
     let subtypeLabel = subtype ? SUBTYPE_LABELS[subtype] || subtype : undefined;
     // Lands with ramp role get their own subcategory

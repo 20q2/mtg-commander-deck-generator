@@ -82,31 +82,62 @@ export function bandFor(score: number): string {
   return 'Thin';
 }
 
-export function headlineFor(score: number, planName?: string | null): string {
+/**
+ * The Overview splash sentence.
+ *
+ * `bracketPhrase` is joined additively ("and sits at Bracket 3"), never as a
+ * scope ("at Bracket 3"). The score is absolute — every subscore measures
+ * distance from EDHREC aggregates for this commander, and none takes a bracket
+ * as input — so a phrasing that implied "N out of 100 *for that bracket*" would
+ * be false.
+ */
+export function headlineFor(
+  score: number,
+  planName?: string | null,
+  bracketPhrase?: string | null,
+): string {
   const plan = planName?.trim() || null;
+  const at = bracketPhrase ? ` and sits at ${bracketPhrase}` : '';
+
   if (score >= 90) {
     return plan
-      ? `Your deck masterfully executes the ${plan} plan.`
-      : 'Your deck is performing optimally.';
+      ? `Your deck masterfully executes the ${plan} plan${at}.`
+      : `Your deck is performing optimally${at}.`;
   }
   if (score >= 75) {
     return plan
-      ? `Your deck reliably executes the ${plan} plan, with a little room to grow.`
-      : 'Your deck is performing well, with a little room to grow.';
+      ? `Your deck reliably executes the ${plan} plan${at}, with a little room to grow.`
+      : `Your deck is performing well${at}, with a little room to grow.`;
   }
   if (score >= 60) {
     return plan
-      ? `Your deck solidly follows the ${plan} plan, with clear room for improvement.`
-      : 'Your deck is solid, with clear room for improvement.';
+      ? `Your deck solidly follows the ${plan} plan${at}, with clear room for improvement.`
+      : `Your deck is solid${at}, with clear room for improvement.`;
   }
   if (score >= 40) {
     return plan
-      ? `Your deck has the foundation of the ${plan} plan, but needs some tuning.`
-      : 'Your deck has the foundation, but needs some tuning.';
+      ? `Your deck has the foundation of the ${plan} plan${at}, but needs some tuning.`
+      : `Your deck has the foundation${at}, but needs some tuning.`;
   }
   return plan
-    ? `Your deck is missing key pieces of the ${plan} plan.`
-    : 'Your deck is missing key pieces of its plan.';
+    ? `Your deck is missing key pieces of the ${plan} plan${at}.`
+    : `Your deck is missing key pieces of its plan${at}.`;
+}
+
+/**
+ * Data-lineage line under the splash headline.
+ *
+ * Names the reference class explicitly. The old copy ("Based on N decklists")
+ * said where the data came from but not what the deck was being compared
+ * against, which is the thing that makes a 0-100 legible — and it matters more
+ * now that the headline states a bracket beside the score.
+ */
+export function bylineFor(sampleSize?: number | null, commanderLabel?: string | null): string {
+  const who = commanderLabel?.trim()
+    ? `the average ${commanderLabel} deck`
+    : 'the average deck for this commander';
+  const n = sampleSize && sampleSize > 0 ? ` (${sampleSize.toLocaleString()} decklists)` : '';
+  return `Compared to ${who}.${n}`;
 }
 
 // Roles: how close are we to per-role targets, weighted by role criticality.
@@ -223,9 +254,9 @@ export function composePlanScore(inputs: ComposePlanScoreInputs): PlanScore {
   const overall = Math.round(weightTotal > 0 ? weighted / weightTotal : 0);
   const bandLabel = bandFor(overall);
   const headline = headlineFor(overall, inputs.planName);
-  const byline = inputs.sampleSize && inputs.sampleSize > 0
-    ? `Based on ${inputs.sampleSize.toLocaleString()} decklists.`
-    : 'Based on aggregated EDHREC data.';
+  // No commander name at this layer — HeroScore re-derives the byline with one.
+  // This is the fallback for any other consumer.
+  const byline = bylineFor(inputs.sampleSize);
 
   return { overall, bandLabel, headline, byline, subscores, limitedData };
 }

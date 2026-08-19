@@ -94,14 +94,21 @@ export type ProtectionSubtype = 'counterspell' | 'protection';
 /**
  * The tagger tags that make a card count toward each role — the single source of truth for "what
  * counts as X" when crunching role numbers. Every subcategory tag is listed under its parent so the
- * parent always subsumes it: a `bounce` / `spot-removal` card is removal, a `mana-dork` / `mana-rock`
+ * parent always subsumes it: a `spot-removal` card is removal, a `mana-dork` / `mana-rock`
  * is ramp, a `counterspell` is protection, and so on. Add a new subcategory tag here and it counts
  * toward its parent everywhere at once. (Counterspell lives under protection, not removal — see the
  * exclusion in cardMatchesRole.)
+ *
+ * `bounce` is deliberately NOT a removal member tag. Bounce can be removal, but not all bounce is:
+ * `otag:bounce` is the parent tag and subsumes `bounce-self` / `rescue` — Karoo lands, ninjutsu
+ * enablers, Temur Sabertooth, Whitemane Lion, all of which only return permanents *you* control.
+ * Roughly half of `otag:bounce` (434 of 913) lacks `otag:removal`. Cards that bounce someone else's
+ * stuff (Man-o'-War, Cyclonic Rift) carry `otag:removal` + `otag:spot-removal` on their own, so
+ * removal membership stays complete without it.
  */
 const ROLE_MEMBER_TAGS: Record<RoleKey, string[]> = {
   ramp: ['ramp', 'cost-reducer', 'mana-dork', 'mana-rock'],
-  removal: ['removal', 'bounce', 'spot-removal'],
+  removal: ['removal', 'spot-removal'],
   boardwipe: ['boardwipe'],
   cardDraw: ['card-advantage', 'tutor', 'draw', 'wheel', 'cantrip'],
   protection: ['protection', 'counterspell'],
@@ -173,13 +180,17 @@ export function getRampSubtype(cardName: string): RampSubtype | null {
   return null;
 }
 
-/** For cards with the 'removal' role, return the specific subtype. */
+/**
+ * For cards with the 'removal' role, return the specific subtype. Callers (stampRoleSubtypes) hit
+ * this for every card regardless of role, so it gates on removal membership first — otherwise every
+ * self-bouncer would wear a Bounce badge. Only a card Scryfall calls removal can be Bounce here.
+ */
 export function getRemovalSubtype(cardName: string): RemovalSubtype | null {
   if (!tagSets) return null;
+  if (!tagSets['removal']?.has(cardName) && !tagSets['spot-removal']?.has(cardName)) return null;
   if (tagSets['bounce']?.has(cardName)) return 'bounce';
   if (tagSets['spot-removal']?.has(cardName)) return 'spot-removal';
-  if (tagSets['removal']?.has(cardName)) return 'removal';
-  return null;
+  return 'removal';
 }
 
 /** For cards with the 'boardwipe' role, return the specific subtype via cross-referencing. */

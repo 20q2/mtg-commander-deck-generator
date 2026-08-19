@@ -158,11 +158,16 @@ export function CostTab({
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col gap-4 p-4">
+      {/* Full-bleed: the tab strips its gutter for this one, so the sections span
+          the panel and carry their own inner padding. */}
+      <div className="flex flex-col gap-4">
 
-        {/* ── Sticky budget controls (totals, potential-savings note, apply) ── */}
-        <div className="sticky top-0 z-20 -mx-7 sm:-mx-8 -mt-4 mb-4 px-4 pt-4 pb-3 bg-background/80 backdrop-blur-md border-b border-border/40 flex flex-col gap-3">
-        <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-2.5 flex items-center gap-4 flex-wrap">
+        {/* ── Sticky budget controls: the totals and the apply button, nothing else ──
+            One container, no card inside it. The band's own background and bottom
+            border are the frame; a bordered panel within them was a box in a box.
+            Reaches the panel edges on its own now — it used negative margins to
+            claw back out of the padding that used to sit outside it. */}
+        <div className="sticky top-0 z-20 px-4 pt-4 pb-3 bg-background/80 backdrop-blur-md border-b border-border/40 flex items-center gap-4 flex-wrap">
           <div className="flex items-baseline gap-2 flex-shrink-0">
             <span className="text-sm text-zinc-400">Current</span>
             <span className="text-lg font-semibold text-zinc-100 tabular-nums">{formatPrice(plan.currentTotal, currency)}</span>
@@ -178,28 +183,34 @@ export function CostTab({
           )}
 
           {hasVisibleRows ? (
-            <>
-              <p className="text-sm text-zinc-400 flex-1 min-w-[180px]">
-                Apply every suggestion to save up to{' '}
-                <span className="font-semibold text-emerald-300 tabular-nums">{formatPrice(potentialSavings, currency)}</span>
-                {' '}across {allRows.length} card{allRows.length === 1 ? '' : 's'}.
-              </p>
-              <Button
-                onClick={applyPlan}
-                disabled={checked.size === 0}
-                className="btn-shimmer flex-shrink-0"
-              >
-                Apply plan ({checked.size} swap{checked.size === 1 ? '' : 's'}, save {formatPrice(totalSavings, currency)})
-              </Button>
-            </>
+            <Button
+              onClick={applyPlan}
+              disabled={checked.size === 0}
+              className="btn-shimmer flex-shrink-0 ml-auto"
+            >
+              Apply plan ({checked.size} swap{checked.size === 1 ? '' : 's'}, save {formatPrice(totalSavings, currency)})
+            </Button>
           ) : refreshing ? null : (
             <span className="text-sm text-zinc-400 ml-auto">No cheaper alternatives found for any card in this deck.</span>
           )}
-        </section>
         </div>
 
+        {/* The plan's headline number, as a hint strip. It was competing with the
+            totals and the button for the sticky row; it's context you read once,
+            so it scrolls away with the list rather than holding space up top.
+            Wears the band's own background and butts against it (`-mt-4` eats the
+            column gap) so it reads as a second tier of the header, not a stray
+            line of body copy. */}
+        {hasVisibleRows && (
+          <p className="-mb-4 -mt-4 px-4 py-1.5 bg-background/80 text-xs text-zinc-500">
+            Apply every suggestion to save up to{' '}
+            <span className="font-semibold text-emerald-300/90 tabular-nums">{formatPrice(potentialSavings, currency)}</span>
+            {' '}across {allRows.length} card{allRows.length === 1 ? '' : 's'}.
+          </p>
+        )}
+
         {!hasVisibleRows && refreshing && (
-          <div className="flex items-center gap-2 text-sm text-zinc-400 px-1">
+          <div className="flex items-center gap-2 text-sm text-zinc-400 px-4">
             <Loader2 className="h-4 w-4 animate-spin" /> Updating cost plan…
           </div>
         )}
@@ -260,7 +271,10 @@ function Section({
   title, count, emptyMsg, subtitle, children,
 }: { title: string; count: number; emptyMsg: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+    // A full-bleed band rather than a rounded card: the page has no gutter to
+    // float a card in, and rounded corners against the panel edge read as a
+    // mistake. `px-4` lines its content up with the sticky bar above.
+    <section className="border-y border-zinc-800 bg-zinc-900/30 px-4 py-3">
       <h3 className="text-sm font-medium text-zinc-300 mb-0.5">
         {title} <span className="text-zinc-500 font-normal">({count} suggestion{count === 1 ? '' : 's'})</span>
       </h3>
