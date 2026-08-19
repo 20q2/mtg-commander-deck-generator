@@ -5329,7 +5329,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         onClose={() => setShowExportModal(false)}
         generateDeckList={generateDeckList}
         hasMustIncludes={!readOnly && customization.mustIncludeCards.length > 0}
-        collectionEntries={binderEntriesTotal}
+        collectionEntries={showIcons && showOwnedIndicators && showCollectionChecks ? binderEntriesTotal : null}
         onExport={(format, collectionFilter) => {
           if (commander) trackEvent('deck_exported', { commanderName: commander.name, format, collectionFilter });
         }}
