@@ -32,7 +32,9 @@ export function ThemeScoreTable({ scores }: Props) {
   const rows = useMemo(() => {
     let r = scores.filter(s => s.members > 0);
     if (kindFilter) r = r.filter(s => s.model.kind.kind === kindFilter);
-    if (onlySurviving) r = r.filter(s => s.passedFloor && !s.suppressedBy);
+    // Mirrors survivingThemes exactly, anchors included — the filter should show what could
+    // actually be declared, not merely what cleared the numeric guards.
+    if (onlySurviving) r = r.filter(s => s.passedFloor && !s.suppressedBy && !s.anchorMissing);
     return r.slice(0, 200);
   }, [scores, kindFilter, onlySurviving]);
 
@@ -120,7 +122,11 @@ export function ThemeScoreTable({ scores }: Props) {
                       <div className="p-2 text-right">{s.observedOverExpected.toFixed(1)}×</div>
                       <div className="p-2 text-right text-muted-foreground">{s.prior.toFixed(2)}</div>
                       <div className="p-2">
-                        {s.suppressedBy ? (
+                        {s.anchorMissing ? (
+                          <span className="text-sky-400/80" title={`needs ${s.anchorMissing} in the deck`}>
+                            needs {s.anchorMissing.split(',')[0]}
+                          </span>
+                        ) : s.suppressedBy ? (
                           <span className="text-amber-400/80" title={`absorbed by ${s.suppressedBy}`}>
                             ⊂ {s.suppressedBy}
                           </span>

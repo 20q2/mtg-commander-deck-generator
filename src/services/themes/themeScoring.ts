@@ -28,6 +28,12 @@ export interface ThemeScore {
   passedFloor: boolean;
   /** Set when nesting suppression dropped this theme, naming the theme that absorbed it. */
   suppressedBy?: string;
+  /**
+   * The theme requires a specific card the deck doesn't have, so it may not be DECLARED — but it is
+   * still scored and still visible, because the data is genuinely informative. An all-creature deck
+   * really does satisfy Umori's restriction; it just isn't an Umori deck without Umori.
+   */
+  anchorMissing?: string;
   onCommanderList: boolean;
 }
 
@@ -67,6 +73,14 @@ export function scoreThemesForDeck(
   const tagCache = new Map<ScryfallCard, readonly string[]>();
   for (const c of nonLand) tagCache.set(c, tagsFor(c));
 
+  // Anchor presence is checked against the FULL list, not just non-lands — and against front-face
+  // names too, so a DFC written either way still counts.
+  const present = new Set<string>();
+  for (const c of cards) {
+    present.add(c.name.toLowerCase());
+    if (c.name.includes(' // ')) present.add(c.name.split(' // ')[0].toLowerCase());
+  }
+
   const scored: ThemeScore[] = [];
   for (const model of models) {
     const memberCards: ThemeMemberCard[] = [];
@@ -86,11 +100,16 @@ export function scoreThemesForDeck(
     const rawMembershipScore = (observedOverExpected / tuning.maxLift) * 100;
     const passedFloor = members >= tuning.minMembers && ratio >= tuning.minRatio;
 
+    // Scored normally either way — only declaration is gated.
+    const anchorMissing = model.anchor && !present.has(model.anchor.toLowerCase())
+      ? model.anchor
+      : undefined;
+
     scored.push({
       model, memberCards, members, ratio, observedOverExpected, prior,
       rawMembershipScore,
       membershipScore: rawMembershipScore * prior,
-      passedFloor, onCommanderList,
+      passedFloor, anchorMissing, onCommanderList,
     });
   }
 
@@ -123,7 +142,12 @@ function suppressNested(scored: ThemeScore[], ratio: number): void {
   }
 }
 
-/** Themes that survived every guard, best first — what detection and the shortlist actually use. */
+/**
+ * Themes that survived every guard, best first — what detection and the shortlist actually use.
+ *
+ * Anchor-missing themes are excluded here and only here: they keep their score and stay in the full
+ * `scored` list for inspection, they just can't be declared as the deck's theme.
+ */
 export function survivingThemes(scored: ThemeScore[]): ThemeScore[] {
-  return scored.filter(s => s.passedFloor && !s.suppressedBy);
+  return scored.filter(s => s.passedFloor && !s.suppressedBy && !s.anchorMissing);
 }

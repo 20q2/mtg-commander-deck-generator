@@ -415,7 +415,25 @@ async function main() {
     charTags[slug] = list.filter(t => !ubiquitous.has(t)).slice(0, 8);
   }
 
-  const out: Record<string, { charTags: string[]; baseRate: number }> = {};
+  // ANCHOR CARDS. A companion theme can't be declared without its companion actually in the deck:
+  // an all-creature pile really does satisfy Umori's restriction, and its theme data is useful for
+  // scoring, but it isn't an Umori deck without Umori.
+  //
+  // Derived from Scryfall's own `Companion` keyword — the ten companion cards carry it, and the
+  // theme name's leading word says which one ("Umori Companion" → "Umori, the Collector"). No list.
+  const companionCards = [...cards.values()]
+    .filter(c => (c.keywords ?? []).some(k => k.toLowerCase() === 'companion'));
+  const anchors: Record<string, string> = {};
+  for (const t of tags) {
+    const m = /^(.*?)\s+companion$/i.exec(t.name.trim());
+    if (!m) continue;
+    const lead = m[1].trim().toLowerCase();
+    const card = companionCards.find(c => c.name.toLowerCase().startsWith(lead));
+    if (card) anchors[t.slug] = card.name;
+  }
+  console.log(`     ${Object.keys(anchors).length} anchor-gated themes: ${Object.entries(anchors).map(([s, c]) => `${s}→${c.split(',')[0]}`).join(', ')}`);
+
+  const out: Record<string, { charTags: string[]; baseRate: number; anchor?: string }> = {};
   const denom = resolved.length || 1;
   for (const t of tags) {
     const kind = kinds.get(t.slug);
@@ -432,7 +450,7 @@ async function main() {
     } else {
       for (const r of resolved) if (themeKindMatches(kind, r.card as never)) members++;
     }
-    out[t.slug] = { charTags: tagsForTheme, baseRate: members / denom };
+    out[t.slug] = { charTags: tagsForTheme, baseRate: members / denom, ...(anchors[t.slug] ? { anchor: anchors[t.slug] } : {}) };
   }
 
   writeFileSync(OUT, JSON.stringify({

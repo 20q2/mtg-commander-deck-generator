@@ -14,6 +14,17 @@ export interface ThemeTableEntry {
    * alongside the lift so the effect is visible rather than hidden.
    */
   baseRate: number;
+  /**
+   * A card the deck must actually contain for this theme to be DECLARED.
+   *
+   * Companion themes are the clear case: an all-creature deck genuinely satisfies Umori's
+   * restriction and its theme data is useful for scoring, but it is not an Umori deck unless Umori
+   * is in it. So the theme keeps scoring and stays visible; it just can't be the answer.
+   *
+   * Resolved from Scryfall's own `Companion` keyword rather than a hardcoded list — the ten
+   * companion cards carry it, and the theme name's leading word identifies which.
+   */
+  anchor?: string;
 }
 
 export interface ThemeCharTagTable {

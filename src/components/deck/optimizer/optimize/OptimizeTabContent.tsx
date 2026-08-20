@@ -93,11 +93,14 @@ export function OptimizeTabContent({
   const highlightTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
 
-  const handleToggleRemove = useCallback((name: string) => {
-    setActiveRemoveName(curr => (curr === name ? null : name));
+  // Explicit set, not a toggle — the column's tile click and Radix's popover
+  // trigger both report the intended state for the same click, so toggling here
+  // would flip twice and the drill-down would never close.
+  const handleSetActiveRemove = useCallback((name: string | null) => {
+    setActiveRemoveName(name);
   }, []);
-  const handleToggleAdd = useCallback((name: string) => {
-    setActiveAddName(curr => (curr === name ? null : name));
+  const handleSetActiveAdd = useCallback((name: string | null) => {
+    setActiveAddName(name);
   }, []);
 
   useEffect(() => {
@@ -177,7 +180,7 @@ export function OptimizeTabContent({
             uncheckedNames={plan.uncheckedRemovals}
             activeName={activeRemoveName}
             totalCount={plan.removals.length}
-            onTileClick={handleToggleRemove}
+            onSetActive={handleSetActiveRemove}
             onToggleChecked={plan.toggleRemoval}
             onSelectAll={plan.selectAllRemovals}
             onDeselectAll={plan.deselectAllRemovals}
@@ -218,7 +221,7 @@ export function OptimizeTabContent({
                 <Package className="w-3 h-3" /> In collection
               </button>
             ) : undefined}
-            onTileClick={handleToggleAdd}
+            onSetActive={handleSetActiveAdd}
             onToggleChecked={plan.toggleAddition}
             onSelectAll={plan.selectAllAdditions}
             onDeselectAll={plan.deselectAllAdditions}

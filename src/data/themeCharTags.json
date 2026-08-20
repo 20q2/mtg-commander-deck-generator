@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T05:01:04.912Z",
+  "generatedAt": "2026-08-20T14:38:44.068Z",
   "themes": {
     "tokens": {
       "charTags": [],
@@ -1703,7 +1703,8 @@
         "toughness-boost-to-all",
         "power-boost-to-all"
       ],
-      "baseRate": 0.0703920747872192
+      "baseRate": 0.0703920747872192,
+      "anchor": "Kaheera, the Orphanguard"
     },
     "fungi": {
       "charTags": [
@@ -2124,7 +2125,8 @@
         "typal-choose",
         "protects-all"
       ],
-      "baseRate": 0.031952002232454306
+      "baseRate": 0.031952002232454306,
+      "anchor": "Jegantha, the Wellspring"
     },
     "monks": {
       "charTags": [],
@@ -2141,7 +2143,8 @@
         "unique-mana-cost",
         "mini-refund"
       ],
-      "baseRate": 0.06243895632761267
+      "baseRate": 0.06243895632761267,
+      "anchor": "Keruga, the Macrosage"
     },
     "turtles": {
       "charTags": [],
@@ -2170,7 +2173,8 @@
         "impulsive-draw",
         "burn"
       ],
-      "baseRate": 0.14685363471466442
+      "baseRate": 0.14685363471466442,
+      "anchor": "Obosh, the Preypiercer"
     },
     "vanilla": {
       "charTags": [
@@ -2393,7 +2397,8 @@
         "sacrifice-outlet",
         "egg"
       ],
-      "baseRate": 0.09543742151527836
+      "baseRate": 0.09543742151527836,
+      "anchor": "Lurrus of the Dream-Den"
     },
     "color-hack": {
       "charTags": [
@@ -2427,7 +2432,8 @@
         "reanimate",
         "virtual-vanilla"
       ],
-      "baseRate": 0.16017859634435608
+      "baseRate": 0.16017859634435608,
+      "anchor": "Umori, the Collector"
     },
     "horses": {
       "charTags": [],
@@ -2655,7 +2661,8 @@
         "reanimate-creature",
         "recursion-creature"
       ],
-      "baseRate": 0.06250872052462676
+      "baseRate": 0.06250872052462676,
+      "anchor": "Gyruda, Doom of Depths"
     },
     "rube-goldberg": {
       "charTags": [
@@ -2866,7 +2873,8 @@
         "cost-ignorer",
         "impulse"
       ],
-      "baseRate": 0.11838984233291475
+      "baseRate": 0.11838984233291475,
+      "anchor": "Zirda, the Dawnwaker"
     },
     "mana-rocks": {
       "charTags": [

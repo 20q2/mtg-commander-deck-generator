@@ -84,7 +84,10 @@ export interface OptimizeColumnProps {
   uncheckedNames: Set<string>;
   activeName: string | null;
   totalCount: number;
-  onTileClick: (name: string) => void;
+  /** Set the open drill-down explicitly — a card name to open, `null` to close.
+      Must NOT be a toggle: one tile click fires both the tile's handler and
+      Radix's trigger handler, and two toggles would cancel out. */
+  onSetActive: (name: string | null) => void;
   onToggleChecked: (name: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
@@ -121,7 +124,7 @@ const SIDE_HEADER: Record<TileSide, {
 
 export function OptimizeColumn({
   side, cards, uncheckedNames, activeName, totalCount,
-  onTileClick, onToggleChecked, onSelectAll, onDeselectAll,
+  onSetActive, onToggleChecked, onSelectAll, onDeselectAll,
   onSelectGroup, onDeselectGroup, headerExtra, renderDrilldown,
 }: OptimizeColumnProps) {
   const labelFn = side === 'remove' ? getRemovalCategoryLabel : getAdditionCategoryLabel;
@@ -190,7 +193,7 @@ export function OptimizeColumn({
                 <Popover
                   key={card.name}
                   open={isActive}
-                  onOpenChange={(open) => { if (!open && isActive) onTileClick(card.name); }}
+                  onOpenChange={(open) => onSetActive(open ? card.name : null)}
                 >
                   <PopoverTrigger asChild>
                     <OptimizeTile
@@ -198,7 +201,10 @@ export function OptimizeColumn({
                       side={side}
                       checked={!uncheckedNames.has(card.name)}
                       active={isActive}
-                      onClick={() => onTileClick(card.name)}
+                      // Clicking the open tile closes it. Both this handler and
+                      // Radix's trigger handler run on the same click, so each
+                      // states the target rather than flipping it.
+                      onClick={() => onSetActive(isActive ? null : card.name)}
                       onToggleChecked={() => onToggleChecked(card.name)}
                     />
                   </PopoverTrigger>

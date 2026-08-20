@@ -18,6 +18,8 @@ export interface ThemeModel {
   baseRate: number;
   /** How many EDHREC decks carry this tag; used as a sanity signal against long-tail noise. */
   numDecks: number;
+  /** Card the deck must contain before this theme may be DECLARED. See ThemeTableEntry.anchor. */
+  anchor?: string;
 }
 
 /** Why a card counted (or didn't), so every consumer can explain itself. */
@@ -60,6 +62,7 @@ export function buildThemeModel(
     charTags: kind.kind === 'archetype' ? (entry?.charTags ?? []) : [],
     baseRate: entry?.baseRate ?? 0,
     numDecks: tag.numDecks,
+    anchor: entry?.anchor,
   };
 }
 

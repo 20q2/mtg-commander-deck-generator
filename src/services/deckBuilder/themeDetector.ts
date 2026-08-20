@@ -336,7 +336,13 @@ export function detectThemes(
   for (const theme of themes) {
     const data = themeDataMap.get(theme.slug);
     if (!data) continue;
-    evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards, membershipScores?.get(theme.slug)));
+    const membership = membershipScores?.get(theme.slug);
+    // A theme requiring a card the deck doesn't have cannot be declared. Companion themes are the
+    // case that matters: an all-creature deck satisfies Umori's restriction but is not an Umori
+    // deck without Umori. Dropped from evaluation entirely so it can't become the answer, while
+    // remaining in the membership scores for anything that wants the signal.
+    if (membership?.anchorMissing) continue;
+    evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards, membership));
   }
 
   evaluatedThemes.sort((a, b) => b.score - a.score);
