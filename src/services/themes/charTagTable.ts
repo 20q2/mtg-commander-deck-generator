@@ -21,6 +21,19 @@ export interface ThemeCharTagTable {
   generatedAt: string | null;
   /** theme slug → entry. Missing slugs are normal and degrade softly. */
   themes: Record<string, ThemeTableEntry>;
+  /**
+   * Keywords that actually appear in some card's `keywords` field.
+   *
+   * Scryfall's keyword-actions catalog lists `discard`, `sacrifice`, `exile` and `vote`, but those
+   * never show up in `card.keywords` — only 51 of 79 actions ever do. A theme classified `mechanic`
+   * on a dead keyword can never match a card, and being non-archetype it gets no tag layer either,
+   * so Discard, Sacrifice, Exile and Voting were completely inert: a textbook Nath discard deck
+   * could not detect Discard at all.
+   *
+   * Recorded here because only the build script sees enough cards to know. Absent on an ungenerated
+   * table, in which case nothing is downgraded and behaviour is unchanged.
+   */
+  liveKeywords?: string[];
 }
 
 /**

@@ -298,6 +298,23 @@ async function main() {
     throw new Error(`only ${cards.size}/${universe.size} cards resolved — refusing to build on a broken pool`);
   }
 
+  // Keywords that actually appear on cards. Scryfall's keyword-actions catalog contains entries that
+  // never reach `card.keywords` (discard, sacrifice, exile, vote), so a theme classified `mechanic`
+  // on one of them can never match and — being non-archetype — gets no tag layer either. Downgrade
+  // those to archetype so the statistical path can carry them.
+  const liveKeywords = new Set<string>();
+  for (const c of cards.values()) for (const k of c.keywords ?? []) liveKeywords.add(k.toLowerCase());
+  const downgraded: string[] = [];
+  for (const [slug, kind] of kinds) {
+    if (kind.kind === 'mechanic' && !liveKeywords.has(kind.match)) {
+      kinds.set(slug, { kind: 'archetype' });
+      downgraded.push(`${slug}(→${kind.match})`);
+    }
+  }
+  if (downgraded.length > 0) {
+    console.log(`     downgraded ${downgraded.length} dead-keyword mechanics to archetype: ${downgraded.join(', ')}`);
+  }
+
   console.log('5/6  SpellChroma tag index…');
   const dictFile = await getJson<{ tags: TagDictEntry[] }>(`${CHROMA}/spellchroma-tag-dictionary.json`);
   const indexFile = await getJson<{ index: Record<string, number[]> }>(`${CHROMA}/spellchroma-tag-index.json`);
@@ -438,7 +455,11 @@ async function main() {
     out[t.slug] = { charTags: tagsForTheme, baseRate: members / denom };
   }
 
-  writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), themes: out }, null, 2) + '\n');
+  writeFileSync(OUT, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    themes: out,
+    liveKeywords: [...liveKeywords].sort(),
+  }, null, 2) + '\n');
   console.log(`\nWrote ${Object.keys(out).length} themes → src/data/themeCharTags.json`);
 
   const withTags = Object.values(out).filter(e => e.charTags.length > 0).length;

@@ -49,7 +49,8 @@ export function ThemeLabPage() {
       if (tags.length === 0) throw new Error('EDHREC tag taxonomy came back empty');
 
       const table = loadThemeCharTags();
-      const models = tags.map(t => buildThemeModel(t, catalogs, table.themes));
+      const live = new Set(table.liveKeywords ?? []);
+      const models = tags.map(t => buildThemeModel(t, catalogs, table.themes, live));
 
       // The commander's own EDHREC themes are the prior. Non-fatal: without it every theme is
       // simply treated as off-list, which is worth seeing rather than failing over.

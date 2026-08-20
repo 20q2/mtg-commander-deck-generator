@@ -916,7 +916,8 @@ export function DeckOptimizer({
         ]);
         if (allTags.length > 0 && catalogs.creatureTypes.size > 0) {
           const table = loadThemeCharTags();
-          const models = allTags.map(t => buildThemeModel(t, catalogs, table.themes));
+          const live = new Set(table.liveKeywords ?? []);
+          const models = allTags.map(t => buildThemeModel(t, catalogs, table.themes, live));
           const commanderSlugs = new Set((edhrecData.themes || []).map(t => t.slug));
           const scored = scoreThemesForDeck(
             currentCards, models,
