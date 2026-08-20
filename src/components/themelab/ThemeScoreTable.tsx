@@ -114,7 +114,7 @@ export function ThemeScoreTable({ scores }: Props) {
                         </Badge>
                       </div>
                       <div className="p-2 text-right font-semibold text-violet-300/90">{s.membershipScore.toFixed(1)}</div>
-                      <div className="p-2 text-right" title={`${s.literalMembers} by keyword/type, ${s.tagMembers} by tag (weighted ${s.weightedMembers.toFixed(1)})`}>{s.literalMembers > 0 && s.tagMembers > 0 ? <span>{s.literalMembers}<span className="text-violet-300/60">+{s.tagMembers}</span></span> : s.members}</div>
+                      <div className="p-2 text-right">{s.members}</div>
                       <div className="p-2 text-right">{(s.ratio * 100).toFixed(0)}%</div>
                       <div className="p-2 text-right text-muted-foreground">{(s.model.baseRate * 100).toFixed(1)}%</div>
                       <div className="p-2 text-right">{s.observedOverExpected.toFixed(1)}×</div>
@@ -136,17 +136,24 @@ export function ThemeScoreTable({ scores }: Props) {
                       <div className="px-9 pb-3 pt-1 bg-card/20 space-y-2">
                         {/* Always say how membership was decided. Deterministic kinds test the card
                             itself, so name the literal test; archetypes have only the tag list. */}
-                        <div className="text-[11px] text-muted-foreground">
-                          Definition:{' '}
-                          {describeThemeTest(s.model.kind)
-                            ? <code className="px-1 rounded bg-emerald-500/10 text-emerald-300/90">
-                                {describeThemeTest(s.model.kind)}
-                              </code>
-                            : s.model.charTags.length > 0
-                              ? s.model.charTags.map(t => (
-                                  <code key={t} className="mr-1 px-1 rounded bg-violet-500/10 text-violet-300/90">{t}</code>
-                                ))
-                              : <span className="text-amber-400/70">no characteristic tags — run npm run build:theme-tags</span>}
+                        {/* Show EVERY test a theme uses, not just the first. Rendering only the
+                            literal one hid the fact that Battles was also matching cantrips through
+                            `hand-neutral` — the breakdown claimed 'card type "battle"' while the
+                            matched cards told a different story. */}
+                        <div className="text-[11px] text-muted-foreground space-x-1">
+                          <span>Definition:</span>
+                          {describeThemeTest(s.model.kind) && (
+                            <code className="px-1 rounded bg-emerald-500/10 text-emerald-300/90">
+                              {describeThemeTest(s.model.kind)}
+                            </code>
+                          )}
+                          {describeThemeTest(s.model.kind) && s.model.charTags.length > 0 && <span>+</span>}
+                          {s.model.charTags.map(t => (
+                            <code key={t} className="px-1 rounded bg-violet-500/10 text-violet-300/90">{t}</code>
+                          ))}
+                          {!describeThemeTest(s.model.kind) && s.model.charTags.length === 0 && (
+                            <span className="text-amber-400/70">nothing — run npm run build:theme-tags</span>
+                          )}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
                           {s.memberCards.length} matching card{s.memberCards.length === 1 ? '' : 's'}:

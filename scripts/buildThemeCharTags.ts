@@ -8,27 +8,24 @@
  * browser is that it costs ~400 EDHREC page fetches.
  *
  * What it produces, per theme:
- *   - `charTags`: the oracle tags over-represented among the theme's cards relative to the whole
- *     playable pool. Computed for every non-role theme, not just archetypes — kinds are exclusive
- *     for CLASSIFICATION but additive for MEMBERSHIP. Waterbending is a keyword AND an EDHREC
- *     archetype: the keyword catches the benders, the tags catch the payoffs and support cards that
- *     care about bending without printing the word.
+ *   - `charTags`: for ARCHETYPE themes only, the oracle tags over-represented among the theme's
+ *     cards relative to the whole playable pool. This is the theme's working definition.
  *   - `baseRate`: what fraction of the playable pool belongs to the theme at all — the denominator
  *     for observed-over-expected at deck-scoring time, so "10 Humans" reads as unremarkable while
- *     "6 Praetors" reads as enormous. Mirrors testMembership exactly (literal OR tags), or lift
- *     would compare a numerator and denominator built from different rules.
+ *     "6 Praetors" reads as enormous.
  *
  * The comparison universe is the union of all EDHREC tag pages, i.e. cards that actually show up in
  * Commander decks — deliberately NOT every card ever printed. "Over-represented among cards people
  * play" is the question we mean to ask, and it also spares us a 160MB bulk download.
  *
+ * Deterministic themes (tribal / mechanic / subtype / cardType / curated) get a baseRate but no
+ * charTags: they already have an exact card-attribute test, and tags would double-count them.
  * Role themes ("Ramp", "Card Draw") are skipped entirely — they name a job, not a strategy.
  */
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { classifyTheme, themeKindMatches, type ThemeKind } from '../src/services/themes/themeKind.ts';
 import { computeThemeCharTags, type TaggedPoolCard } from '../src/services/themes/charTags.ts';
-import { TAG_MEMBER_WEIGHT } from '../src/services/themes/tuning.ts';
 import { isIgnoredTag } from '../src/services/spellchroma/ignoredTags.ts';
 
 const EDHREC = 'https://json.edhrec.com';
@@ -361,32 +358,6 @@ async function main() {
   );
   console.log(`     excluding ${staples.size} format staples (on >${STAPLE_PAGE_SHARE * 100}% of theme pages)`);
 
-  // A theme's SEED SET — the cards lift is measured over.
-  //
-  // For a deterministic theme this is the cards that literally match, NOT the cards on its EDHREC
-  // page. That distinction is the whole ballgame. Learning from the page reintroduced every bug we
-  // just fixed: Commander Matters' page is legendary creatures, so it re-learned
-  // `pp-counters-matter`; Experience Counters' page re-learned `cda-color`; and Waterbending's page
-  // overlaps Earthbending's so heavily that it re-learned `earthbend`.
-  //
-  // Seeding from the literal matches instead asks the right question — "what do waterbend cards
-  // actually DO?" — so the tags extend the keyword rather than contradicting it, and no card
-  // outside the mechanic can contribute. This is brew's signature-halo idea: the literal test seeds,
-  // the tags widen. Archetypes have no literal test, so they still seed from the page.
-  const seedFor = (name: string, card: ScryCard, pageSlugs: string[]): string[] => {
-    const out: string[] = [];
-    for (const t of tags) {
-      const kind = kinds.get(t.slug);
-      if (!kind || kind.kind === 'role') continue;
-      if (kind.kind === 'archetype') {
-        if (pageSlugs.includes(t.slug)) out.push(t.slug);
-      } else if (themeKindMatches(kind, card as never)) {
-        out.push(t.slug);
-      }
-    }
-    return out;
-  };
-
   const pool: TaggedPoolCard[] = [];
   const resolved: { card: ScryCard; tags: string[] }[] = [];
   for (const [name, themeTags] of themesByCard) {
@@ -404,15 +375,12 @@ async function main() {
     // they ended up in the definition of All-Spells, an archetype that runs no lands at all.
     if (isLandCard(card)) continue;
     const cardTags = tagsFor(card.oracle_id);
-    pool.push({ chromaTags: cardTags, themeTags: seedFor(name, card, themeTags) });
+    pool.push({ chromaTags: cardTags, themeTags });
     resolved.push({ card, tags: cardTags });
   }
   console.log(`     pool: ${pool.length} non-land cards`);
 
-  // Every non-role theme, not just archetypes. Kinds are exclusive for classification but additive
-  // for membership: Waterbending is a keyword AND an EDHREC archetype, so the literal test catches
-  // the benders while the tags catch the payoffs that care about bending without printing the word.
-  const taggableSlugs = [...themeCards.keys()].filter(s => kinds.get(s)?.kind !== 'role');
+  const archetypeSlugs = [...themeCards.keys()].filter(s => kinds.get(s)?.kind === 'archetype');
 
   // Two-pass. Lift alone still lets format-wide staples through: "cast-tax" and
   // "mana-ability-with-extra-effect" landed in >50% of theme definitions on the first run, because
@@ -432,7 +400,7 @@ async function main() {
   // while every known-good theme keeps its full definition. Past 12 it degrades in the other
   // direction — precise narrow tags fall below the bar and broader generic ones take their slots.
   const MIN_CARRIERS = 8;
-  const wide = computeThemeCharTags(pool, taggableSlugs, WIDE, MIN_CARRIERS);
+  const wide = computeThemeCharTags(pool, archetypeSlugs, WIDE, MIN_CARRIERS);
   const themeCount = Object.values(wide).filter(t => t.length > 0).length || 1;
   const appearsIn = new Map<string, number>();
   for (const list of Object.values(wide)) {
@@ -454,13 +422,15 @@ async function main() {
     if (!kind || kind.kind === 'role') continue;
     if (!themeCards.has(t.slug)) continue;
 
-    // baseRate must mirror testMembership exactly — literal OR tags — or the observed/expected
-    // denominator disagrees with the numerator and lift comes out wrong.
-    const tagsForTheme = charTags[t.slug] ?? [];
     let members = 0;
-    for (const r of resolved) {
-      if (kind.kind !== 'archetype' && themeKindMatches(kind, r.card as never)) members += 1;
-      else if (tagsForTheme.length > 0 && tagsForTheme.some(x => r.tags.includes(x))) members += TAG_MEMBER_WEIGHT;
+    let tagsForTheme: string[] = [];
+    if (kind.kind === 'archetype') {
+      tagsForTheme = charTags[t.slug] ?? [];
+      if (tagsForTheme.length > 0) {
+        for (const r of resolved) if (tagsForTheme.some(x => r.tags.includes(x))) members++;
+      }
+    } else {
+      for (const r of resolved) if (themeKindMatches(kind, r.card as never)) members++;
     }
     out[t.slug] = { charTags: tagsForTheme, baseRate: members / denom };
   }
@@ -473,7 +443,7 @@ async function main() {
   console.log(`\nWrote ${Object.keys(out).length} themes → src/data/themeCharTags.json`);
 
   const withTags = Object.values(out).filter(e => e.charTags.length > 0).length;
-  console.log(`  ${withTags} themes have characteristic tags`);
+  console.log(`  ${withTags} archetype themes have characteristic tags`);
   console.log('\nSpot-check:');
   for (const slug of ['aristocrats', 'voltron', 'blink', 'elves', 'lifegain', 'spellslinger', 'humans', 'tokens']) {
     const e = out[slug];

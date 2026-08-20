@@ -1,57 +1,30 @@
 {
-  "generatedAt": "2026-08-20T02:50:12.286Z",
+  "generatedAt": "2026-08-20T05:01:04.912Z",
   "themes": {
     "tokens": {
-      "charTags": [
-        "young-pyromancer-ability",
-        "repeatable-treasures",
-        "token-errata",
-        "unprinted-token",
-        "repeatable-enchantment-tokens",
-        "tokenlink",
-        "copy-token",
-        "donate-token"
-      ],
+      "charTags": [],
       "baseRate": 0.17734058880982279
     },
     "plus-1-plus-1-counters": {
-      "charTags": [
-        "counter-fuel-pp",
-        "pp-counters-matter",
-        "gives-pp-counters-to-all",
-        "slith-ability",
-        "support",
-        "mana-gorger",
-        "vigor-effect",
-        "monstrosity"
-      ],
+      "charTags": [],
       "baseRate": 0.12090135342542208
     },
     "artifacts": {
-      "charTags": [
-        "french-vanilla-equipment",
-        "type-addition-book",
-        "sword-of-x-and-y",
-        "alternative-crewing",
-        "egg",
-        "crew",
-        "bring-your-own-crew",
-        "crewless-vehicle"
-      ],
+      "charTags": [],
       "baseRate": 0.13052881261336682
     },
     "combo": {
       "charTags": [
         "full-refund",
         "manaless-value",
-        "adds-multiple-mana",
         "refund",
         "untapper",
         "drain-life",
         "counterspell",
-        "repeatable-sacrifice-outlet"
+        "repeatable-sacrifice-outlet",
+        "untapper-creature"
       ],
-      "baseRate": 0.06414817915445793
+      "baseRate": 0.11566903864936515
     },
     "aggro": {
       "charTags": [
@@ -64,7 +37,7 @@
         "gives-trample",
         "keyword-anthem"
       ],
-      "baseRate": 0.0640435328589368
+      "baseRate": 0.1280870657178736
     },
     "lifegain": {
       "charTags": [
@@ -77,7 +50,7 @@
         "synergy-food",
         "drain-life"
       ],
-      "baseRate": 0.016115529510255338
+      "baseRate": 0.032231059020510676
     },
     "spellslinger": {
       "charTags": [
@@ -90,7 +63,7 @@
         "copy-instant",
         "copy-sorcery"
       ],
-      "baseRate": 0.01726663876098786
+      "baseRate": 0.03453327752197572
     },
     "reanimator": {
       "charTags": [
@@ -103,7 +76,7 @@
         "recursion-creature",
         "reanimate"
       ],
-      "baseRate": 0.029300962745918795
+      "baseRate": 0.05860192549183759
     },
     "aristocrats": {
       "charTags": [
@@ -116,7 +89,7 @@
         "synergy-token",
         "repeatable-sacrifice-outlet"
       ],
-      "baseRate": 0.027731268313101715
+      "baseRate": 0.05546253662620343
     },
     "control": {
       "charTags": [
@@ -129,7 +102,7 @@
         "synergy-noncreature",
         "drain-life"
       ],
-      "baseRate": 0.029126552253383564
+      "baseRate": 0.05825310450676713
     },
     "lands-matter": {
       "charTags": [
@@ -142,7 +115,7 @@
         "land-count-matters",
         "animate-land"
       ],
-      "baseRate": 0.015871354820706014
+      "baseRate": 0.03174270964141203
     },
     "burn": {
       "charTags": [
@@ -155,20 +128,11 @@
         "synergy-instant",
         "cast-trigger-you"
       ],
-      "baseRate": 0.06470629273057067
+      "baseRate": 0.12941258546114134
     },
     "equipment": {
-      "charTags": [
-        "auto-equip",
-        "french-vanilla-equipment",
-        "living-weapon",
-        "sword-of-x-and-y",
-        "vanilla-equipment",
-        "alternate-equip-cost",
-        "quick-equip",
-        "quick-attach"
-      ],
-      "baseRate": 0.0283242639877215
+      "charTags": [],
+      "baseRate": 0.026440630668341007
     },
     "enchantress": {
       "charTags": [
@@ -181,7 +145,7 @@
         "synergy-aura",
         "thingfall"
       ],
-      "baseRate": 0.030661364587693595
+      "baseRate": 0.06132272917538719
     },
     "voltron": {
       "charTags": [
@@ -194,44 +158,25 @@
         "quick-equip",
         "quick-attach"
       ],
-      "baseRate": 0.019499093065438816
+      "baseRate": 0.03899818613087763
     },
     "midrange": {
       "charTags": [
         "manaless-value",
         "face-commander",
-        "adds-multiple-mana",
         "counterspell",
         "curiosity-like",
         "refund"
       ],
-      "baseRate": 0.047648946560625086
+      "baseRate": 0.08176363890051626
     },
     "mill": {
-      "charTags": [
-        "mill-any",
-        "mill-each",
-        "mill-opponent",
-        "mill-self",
-        "synergy-mill",
-        "mill",
-        "repeatable-mulch",
-        "mulch"
-      ],
-      "baseRate": 0.034149574438398216
+      "charTags": [],
+      "baseRate": 0.021696665271382726
     },
     "treasure": {
-      "charTags": [
-        "repeatable-treasures",
-        "pillage-effect",
-        "synergy-treasure",
-        "repeatable-noncreature-tokens",
-        "donate-mana",
-        "repeatable-artifact-tokens",
-        "mana-storage",
-        "typal-pirate"
-      ],
-      "baseRate": 0.028742849169806056
+      "charTags": [],
+      "baseRate": 0.017510813450537184
     },
     "cedh": {
       "charTags": [
@@ -239,12 +184,12 @@
         "prevent-cast",
         "manaless-value",
         "hate-counterspell",
-        "adds-multiple-mana",
         "refund",
         "untapper",
-        "black-effect"
+        "black-effect",
+        "counterspell"
       ],
-      "baseRate": 0.056718292172457094
+      "baseRate": 0.11622715222547789
     },
     "sacrifice": {
       "charTags": [
@@ -257,7 +202,7 @@
         "repeatable-plunder",
         "sacrifice-outlet-land"
       ],
-      "baseRate": 0.012662201758057766
+      "baseRate": 0.02532440351611553
     },
     "blink": {
       "charTags": [
@@ -270,20 +215,11 @@
         "homeward-effect",
         "hate-theft"
       ],
-      "baseRate": 0.004813729593972373
+      "baseRate": 0.009627459187944746
     },
     "auras": {
-      "charTags": [
-        "perpetual-aura",
-        "unique-enchant-target",
-        "french-vanilla-aura",
-        "dehydration-with-set-mechanic",
-        "pacifism",
-        "lockdown-creature",
-        "lockdown",
-        "humble"
-      ],
-      "baseRate": 0.03052183619366541
+      "charTags": [],
+      "baseRate": 0.02860332077577787
     },
     "wheels": {
       "charTags": [
@@ -296,7 +232,7 @@
         "hand-size-increase",
         "ditch-hand"
       ],
-      "baseRate": 0.012662201758057766
+      "baseRate": 0.02532440351611553
     },
     "legends": {
       "charTags": [
@@ -309,7 +245,7 @@
         "reanimate-creature",
         "repeatable-pure-draw"
       ],
-      "baseRate": 0.07098507046183898
+      "baseRate": 0.14197014092367796
     },
     "discard": {
       "charTags": [
@@ -322,7 +258,7 @@
         "hate-discard",
         "hand-size-hate"
       ],
-      "baseRate": 0.01562718013115669
+      "baseRate": 0.03125436026231338
     },
     "graveyard": {
       "charTags": [
@@ -335,7 +271,7 @@
         "undergrowth",
         "gives-castable-from-graveyard"
       ],
-      "baseRate": 0.010115808567043394
+      "baseRate": 0.020231617134086787
     },
     "clones": {
       "charTags": [
@@ -348,46 +284,19 @@
         "temporary-token",
         "multi-copy"
       ],
-      "baseRate": 0.013604018417748012
+      "baseRate": 0.027208036835496024
     },
     "flying": {
-      "charTags": [
-        "phoenix-with-set-s-mechanic",
-        "hatebird",
-        "wingman",
-        "typal-faerie",
-        "counterspell-sacrifice",
-        "typal-angel",
-        "evasion",
-        "specter-ability"
-      ],
-      "baseRate": 0.128401004604437
+      "charTags": [],
+      "baseRate": 0.09906515976001116
     },
     "dragons": {
-      "charTags": [
-        "typal-dragon",
-        "dnd-monster",
-        "firebreathing",
-        "dnd",
-        "deprecated-legend-type",
-        "deprecated-card-types",
-        "evasion",
-        "repeatable-treasures"
-      ],
-      "baseRate": 0.10129761406446212
+      "charTags": [],
+      "baseRate": 0.01444118878191712
     },
     "landfall": {
-      "charTags": [
-        "landfall",
-        "lands-matter",
-        "thingfall",
-        "animate-land",
-        "animate",
-        "gives-haste",
-        "repeatable-pp-counters",
-        "repeatable-creature-tokens"
-      ],
-      "baseRate": 0.10764615599274452
+      "charTags": [],
+      "baseRate": 0.007604297474536068
     },
     "group-slug": {
       "charTags": [
@@ -400,7 +309,7 @@
         "group-hug",
         "toll"
       ],
-      "baseRate": 0.030835775080228826
+      "baseRate": 0.06167155016045765
     },
     "historic": {
       "charTags": [
@@ -413,7 +322,7 @@
         "synergy-artifact",
         "repeatable-treasures"
       ],
-      "baseRate": 0.03816101576670852
+      "baseRate": 0.07632203153341705
     },
     "stax": {
       "charTags": [
@@ -426,27 +335,15 @@
         "white-effect",
         "kismet-effect"
       ],
-      "baseRate": 0.00429049811636668
+      "baseRate": 0.00858099623273336
     },
     "storm": {
-      "charTags": [
-        "cast-trigger-self",
-        "copy-self",
-        "copy",
-        "cast-trigger"
-      ],
-      "baseRate": 0.050718571229245155
+      "charTags": [],
+      "baseRate": 0.0012557555462536626
     },
     "infect": {
-      "charTags": [
-        "poisonous",
-        "poison-mechanics",
-        "type-addition-phyrexian",
-        "gives-mm-counters",
-        "type-errata-addition",
-        "type-errata"
-      ],
-      "baseRate": 0.0260569275847635
+      "charTags": [],
+      "baseRate": 0.0011859913492395702
     },
     "extra-combats": {
       "charTags": [
@@ -459,7 +356,7 @@
         "synergy-equipment",
         "attacking-matters"
       ],
-      "baseRate": 0.04440491139946979
+      "baseRate": 0.08880982279893958
     },
     "big-mana": {
       "charTags": [
@@ -472,7 +369,7 @@
         "ferocious",
         "unique-mana-cost"
       ],
-      "baseRate": 0.026580159062369192
+      "baseRate": 0.053160318124738384
     },
     "theft": {
       "charTags": [
@@ -485,7 +382,7 @@
         "theft-cast",
         "theft"
       ],
-      "baseRate": 0.014999302358029858
+      "baseRate": 0.029998604716059717
     },
     "self-mill": {
       "charTags": [
@@ -498,32 +395,22 @@
         "mulch",
         "mill-any"
       ],
-      "baseRate": 0.010534393749127947
+      "baseRate": 0.021068787498255893
     },
     "elves": {
-      "charTags": [
-        "typal-elf",
-        "synergy-scry",
-        "multiple-species-types",
-        "dnd-character",
-        "force-blocker",
-        "synergy-green",
-        "adds-multiple-mana",
-        "creaturefall"
-      ],
-      "baseRate": 0.051485977396400165
+      "charTags": [],
+      "baseRate": 0.021905957862425003
     },
     "good-stuff": {
       "charTags": [
         "manaless-value",
-        "adds-multiple-mana",
         "synergy-legendary",
         "counterspell",
         "cost-ignorer",
         "free-cast-another",
         "black-effect"
       ],
-      "baseRate": 0.06432258964699317
+      "baseRate": 0.11050648807032232
     },
     "group-hug": {
       "charTags": [
@@ -536,20 +423,11 @@
         "selective-group-hug",
         "alternate-win-condition"
       ],
-      "baseRate": 0.01618529370726943
+      "baseRate": 0.03237058741453886
     },
     "zombies": {
-      "charTags": [
-        "typal-zombie",
-        "type-addition-phyrexian",
-        "recursion-self",
-        "reanimate-self",
-        "activate-from-graveyard",
-        "death-trigger-self",
-        "sacrifice-outlet-creature",
-        "death-trigger"
-      ],
-      "baseRate": 0.060101855727640575
+      "charTags": [],
+      "baseRate": 0.011650620901353425
     },
     "chaos": {
       "charTags": [
@@ -562,20 +440,11 @@
         "cast-trigger-self",
         "mill-exile"
       ],
-      "baseRate": 0.019952560346030417
+      "baseRate": 0.039905120692060835
     },
     "planeswalkers": {
-      "charTags": [
-        "eponymous-planeswalker",
-        "unique-planeswalker-type",
-        "four-loyalty-abilities",
-        "planeswalker-deck-face-card",
-        "passive-ability",
-        "overrun",
-        "synergy-planeswalker",
-        "repeatable-impulse"
-      ],
-      "baseRate": 0.025812752895214175
+      "charTags": [],
+      "baseRate": 0.01772010604157946
     },
     "birthing-pod": {
       "charTags": [
@@ -585,10 +454,10 @@
         "meme",
         "offcolor-ability",
         "sacrifice-outlet-creature",
-        "adds-multiple-mana",
-        "sacrifice-outlet"
+        "sacrifice-outlet",
+        "repeatable-sacrifice-outlet"
       ],
-      "baseRate": 0.04109111204130041
+      "baseRate": 0.06606669457234547
     },
     "forced-combat": {
       "charTags": [
@@ -601,33 +470,15 @@
         "hate-attacker",
         "protects-planeswalker"
       ],
-      "baseRate": 0.017336402958001953
+      "baseRate": 0.034672805916003906
     },
     "vehicles": {
-      "charTags": [
-        "alternative-crewing",
-        "crew",
-        "bring-your-own-crew",
-        "animate-self",
-        "tap-fuel-power",
-        "animate",
-        "tap-fuel-creature",
-        "tap-outlet"
-      ],
-      "baseRate": 0.026859215850425562
+      "charTags": [],
+      "baseRate": 0.008790288823775638
     },
     "vampires": {
-      "charTags": [
-        "typal-vampire",
-        "synergy-blood",
-        "repeatable-blood",
-        "madness",
-        "repeatable-rummage",
-        "hate-discard",
-        "rummage",
-        "lifegain-matters"
-      ],
-      "baseRate": 0.02441746895493233
+      "charTags": [],
+      "baseRate": 0.011859913492395702
     },
     "x-spells": {
       "charTags": [
@@ -640,33 +491,15 @@
         "pp-counters-matter",
         "40k-model"
       ],
-      "baseRate": 0.016324822101297615
+      "baseRate": 0.03264964420259523
     },
     "commander-matters": {
-      "charTags": [
-        "preexisting-dnd-background",
-        "recasting-commander-matters",
-        "synergy-commander",
-        "commander-matters",
-        "unique-planeswalker-type",
-        "dnd-mechanic",
-        "pair-commander",
-        "dnd-character"
-      ],
-      "baseRate": 0.018627040602762664
+      "charTags": [],
+      "baseRate": 0.011162271522254779
     },
     "humans": {
-      "charTags": [
-        "type-addition-human",
-        "werewolf-mechanic",
-        "catch-22",
-        "day-night",
-        "typal-rebel",
-        "typal-samurai",
-        "transform-improvement",
-        "synergy-lesson"
-      ],
-      "baseRate": 0.13433096135063485
+      "charTags": [],
+      "baseRate": 0.13324961629691642
     },
     "exile": {
       "charTags": [
@@ -679,7 +512,7 @@
         "synergy-library-cast",
         "trigger-from-exile"
       ],
-      "baseRate": 0.009487930793916561
+      "baseRate": 0.018975861587833123
     },
     "toolbox": {
       "charTags": [
@@ -692,20 +525,11 @@
         "sacrifice-outlet-creature",
         "sacrifice-outlet"
       ],
-      "baseRate": 0.05305567182921725
+      "baseRate": 0.1061113436584345
     },
     "eldrazi": {
-      "charTags": [
-        "eldrazi-titan",
-        "cda-color",
-        "synergy-colorless",
-        "cast-trigger-self",
-        "removal-permanent",
-        "characteristic-defining-ability",
-        "removal-land",
-        "removal-sacrifice"
-      ],
-      "baseRate": 0.02724291893400307
+      "charTags": [],
+      "baseRate": 0.005371843170085112
     },
     "cantrips": {
       "charTags": [
@@ -718,7 +542,7 @@
         "cantrip",
         "selective-group-hug"
       ],
-      "baseRate": 0.03505650899958142
+      "baseRate": 0.07011301799916284
     },
     "lifedrain": {
       "charTags": [
@@ -731,59 +555,23 @@
         "opponent-loses-life",
         "toll"
       ],
-      "baseRate": 0.029231198548904703
+      "baseRate": 0.058462397097809406
     },
     "cascade": {
-      "charTags": [
-        "consult-cast",
-        "cast-trigger-self",
-        "consult",
-        "free-cast-another",
-        "gives-castable-from-exile",
-        "gives-castable-from-nonhand",
-        "cast-trigger",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.09613506348541928
+      "charTags": [],
+      "baseRate": 0.0023719826984791403
     },
     "minus-1-minus-1-counters": {
-      "charTags": [
-        "mm-counters-matter",
-        "removes-mm-counters-self",
-        "gains-mm-counters",
-        "removes-mm-counters",
-        "persist",
-        "gives-mm-counters",
-        "mm-counter-cost",
-        "counter-fuel-any"
-      ],
-      "baseRate": 0.009278638202874286
+      "charTags": [],
+      "baseRate": 0.008511232035719268
     },
     "angels": {
-      "charTags": [
-        "typal-angel",
-        "lifegain-matters",
-        "evasion",
-        "virtual-french-vanilla",
-        "repeatable-lifegain",
-        "keyword-anthem",
-        "lifegain",
-        "recursion-creature"
-      ],
-      "baseRate": 0.147272219896749
+      "charTags": [],
+      "baseRate": 0.008371703641691083
     },
     "goblins": {
-      "charTags": [
-        "typal-goblin",
-        "repeatable-treasures",
-        "martyr",
-        "enters-in-company",
-        "pinger",
-        "noncreature-typal",
-        "repeatable-sacrifice-outlet",
-        "sacrifice-outlet-creature"
-      ],
-      "baseRate": 0.08347286172736151
+      "charTags": [],
+      "baseRate": 0.011650620901353425
     },
     "pillow-fort": {
       "charTags": [
@@ -796,7 +584,7 @@
         "combat-manipulation",
         "group-hug"
       ],
-      "baseRate": 0.023091949211664575
+      "baseRate": 0.04618389842332915
     },
     "hatebears": {
       "charTags": [
@@ -809,20 +597,11 @@
         "inverted-effects",
         "counterspell"
       ],
-      "baseRate": 0.026649923259383285
+      "baseRate": 0.05329984651876657
     },
     "dinosaurs": {
-      "charTags": [
-        "typal-dinosaur",
-        "enrage",
-        "activate-from-hand",
-        "virtual-french-vanilla",
-        "free-cast-another",
-        "flavors-of-vanilla",
-        "repeatable-removal",
-        "cast-on-resolution"
-      ],
-      "baseRate": 0.09725129063764476
+      "charTags": [],
+      "baseRate": 0.008929817217803823
     },
     "tempo": {
       "charTags": [
@@ -831,11 +610,11 @@
         "theft-cast",
         "curiosity-like",
         "curiosity",
-        "adds-multiple-mana",
         "synergy-noncreature",
-        "activate-from-hand"
+        "activate-from-hand",
+        "counterspell"
       ],
-      "baseRate": 0.03955629970699037
+      "baseRate": 0.07799637226175526
     },
     "topdeck": {
       "charTags": [
@@ -848,7 +627,7 @@
         "top-deck-manipulation",
         "library-manipulation"
       ],
-      "baseRate": 0.019882796149016325
+      "baseRate": 0.03976559229803265
     },
     "toughness-matters": {
       "charTags": [
@@ -861,7 +640,7 @@
         "drawback",
         "mill-opponent"
       ],
-      "baseRate": 0.0320217664294684
+      "baseRate": 0.0640435328589368
     },
     "extra-turns": {
       "charTags": [
@@ -869,12 +648,12 @@
         "full-refund",
         "manaless-value",
         "synergy-noncreature",
-        "adds-multiple-mana",
         "free-cast-another",
         "blue-effect",
-        "refund"
+        "refund",
+        "synergy-instant"
       ],
-      "baseRate": 0.062020371145528115
+      "baseRate": 0.12683131017161992
     },
     "spell-copy": {
       "charTags": [
@@ -887,7 +666,7 @@
         "synergy-sorcery",
         "synergy-noncreature"
       ],
-      "baseRate": 0.018871215292311984
+      "baseRate": 0.03774243058462397
     },
     "stompy": {
       "charTags": [
@@ -899,7 +678,7 @@
         "power-matters",
         "free-cast-another"
       ],
-      "baseRate": 0.04949769778149853
+      "baseRate": 0.09899539556299707
     },
     "dredge": {
       "charTags": [
@@ -912,7 +691,7 @@
         "sacrifice-outlet-land",
         "mass-reanimation"
       ],
-      "baseRate": 0.008790288823775638
+      "baseRate": 0.017580577647551276
     },
     "etb": {
       "charTags": [
@@ -925,7 +704,7 @@
         "hate-theft",
         "temporary-token"
       ],
-      "baseRate": 0.010115808567043394
+      "baseRate": 0.020231617134086787
     },
     "self-damage": {
       "charTags": [
@@ -938,7 +717,7 @@
         "unnoted-tracked-information",
         "drain-life"
       ],
-      "baseRate": 0.02431282265941119
+      "baseRate": 0.04862564531882238
     },
     "energy": {
       "charTags": [
@@ -951,67 +730,27 @@
         "counters-matter",
         "face-commander"
       ],
-      "baseRate": 0.031359006557834516
+      "baseRate": 0.06271801311566903
     },
     "ninjutsu": {
-      "charTags": [
-        "ninjutsu",
-        "sneak-self",
-        "rescue-creature",
-        "sneak",
-        "rescue",
-        "activate-from-hand",
-        "cost-ignorer",
-        "bounce"
-      ],
-      "baseRate": 0.03244035161155295
+      "charTags": [],
+      "baseRate": 0.002023161713408679
     },
     "proliferate": {
-      "charTags": [
-        "poisonous",
-        "mix-and-match",
-        "poison-mechanics",
-        "counters-matter",
-        "modal"
-      ],
-      "baseRate": 0.0507534533277522
+      "charTags": [],
+      "baseRate": 0.0057206641551555745
     },
     "populate": {
-      "charTags": [
-        "copy-token",
-        "synergy-token-creature",
-        "synergy-token",
-        "copy",
-        "repeatable-creature-tokens",
-        "repeatable-token-generator"
-      ],
-      "baseRate": 0.0654039347007116
+      "charTags": [],
+      "baseRate": 0.001325519743267755
     },
     "wizards": {
-      "charTags": [
-        "typal-wizard",
-        "rescue-land",
-        "young-pyromancer-ability",
-        "man-o-war",
-        "repeatable-rescue",
-        "typal-merfolk",
-        "type-errata-genericise",
-        "typal-zombie"
-      ],
-      "baseRate": 0.045451374354681176
+      "charTags": [],
+      "baseRate": 0.036068089856285755
     },
     "sagas": {
-      "charTags": [
-        "doctor-who-episode-saga",
-        "doctor-who-episode-name",
-        "mixed-subtypes",
-        "exile-self-dfc-transform",
-        "legendify",
-        "intervening-if-clause",
-        "hate-tapped",
-        "non-mana-ability-mana"
-      ],
-      "baseRate": 0.053439374912794754
+      "charTags": [],
+      "baseRate": 0.012278498674480257
     },
     "land-destruction": {
       "charTags": [
@@ -1024,7 +763,7 @@
         "landfall",
         "removal-land"
       ],
-      "baseRate": 0.016499232593832847
+      "baseRate": 0.03299846518766569
     },
     "attack-triggers": {
       "charTags": [
@@ -1037,72 +776,27 @@
         "synergy-token",
         "curiosity-like"
       ],
-      "baseRate": 0.04527696386214595
+      "baseRate": 0.0905539277242919
     },
     "affinity": {
-      "charTags": [
-        "affinity-for-artifacts",
-        "affinity",
-        "affinity-for-creature-type",
-        "discount-self",
-        "cheaper-than-mv",
-        "synergy-artifact",
-        "noncreature-typal",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.11552951025533696
+      "charTags": [],
+      "baseRate": 0.0027905678805636948
     },
     "pirates": {
-      "charTags": [
-        "typal-pirate",
-        "repeatable-treasures",
-        "repeatable-noncreature-tokens",
-        "repeatable-artifact-tokens",
-        "per-player",
-        "theft",
-        "saboteur",
-        "control-changing-effects"
-      ],
-      "baseRate": 0.05919492116645737
+      "charTags": [],
+      "baseRate": 0.0054416073670992045
     },
     "food": {
-      "charTags": [
-        "repeatable-food",
-        "synergy-food",
-        "repeatable-noncreature-tokens",
-        "repeatable-artifact-tokens",
-        "lifegain",
-        "sacrifice-outlet-artifact",
-        "lifegain-matters",
-        "punny-name"
-      ],
-      "baseRate": 0.06931072973350076
+      "charTags": [],
+      "baseRate": 0.00676712711036696
     },
     "demons": {
-      "charTags": [
-        "40k-model",
-        "life-loss-matters",
-        "removal-sacrifice",
-        "black-effect",
-        "repeatable-sacrifice-outlet",
-        "drawback",
-        "sacrifice-outlet-creature",
-        "opponent-loses-life"
-      ],
-      "baseRate": 0.0758336821543184
+      "charTags": [],
+      "baseRate": 0.0082321752476629
     },
     "cats": {
-      "charTags": [
-        "typal-cat",
-        "alt-commander",
-        "pp-counters-matter",
-        "enters-in-company",
-        "toughness-boost-to-all",
-        "repeatable-lifegain",
-        "power-boost-to-all",
-        "death-trigger-self"
-      ],
-      "baseRate": 0.08898423329147481
+      "charTags": [],
+      "baseRate": 0.009069345611832008
     },
     "monarch": {
       "charTags": [
@@ -1115,18 +809,11 @@
         "commander-set-booster-cards",
         "selective-group-hug"
       ],
-      "baseRate": 0.016778289381889213
+      "baseRate": 0.033556578763778426
     },
     "clues": {
-      "charTags": [
-        "egg",
-        "sacrifice-self",
-        "hand-neutral",
-        "pure-draw",
-        "draw",
-        "card-advantage"
-      ],
-      "baseRate": 0.13108692618947956
+      "charTags": [],
+      "baseRate": 0.0009069345611832008
     },
     "defenders": {
       "charTags": [
@@ -1138,93 +825,35 @@
         "hate-high-pt",
         "creature-count-matters"
       ],
-      "baseRate": 0.029510255336961073
+      "baseRate": 0.059020510673922146
     },
     "merfolk": {
-      "charTags": [
-        "typal-merfolk",
-        "noncreature-typal",
-        "anthem",
-        "top-deck-manipulation",
-        "library-manipulation",
-        "typal-creature",
-        "typal",
-        "peek-library"
-      ],
-      "baseRate": 0.08720524626761546
+      "charTags": [],
+      "baseRate": 0.008999581414817916
     },
     "faeries": {
-      "charTags": [
-        "typal-faerie",
-        "virtual-french-vanilla",
-        "castable-from-exile",
-        "unexile",
-        "evasion",
-        "castable-from-nonhand",
-        "cast-trigger-you",
-        "exile-self"
-      ],
-      "baseRate": 0.12857541509697223
+      "charTags": [],
+      "baseRate": 0.005232314776056928
     },
     "morph": {
-      "charTags": [
-        "turn-face-up-trigger-self",
-        "face-up-face-down-effects",
-        "more-expensive-than-mv",
-        "cheaper-than-mv",
-        "type-errata",
-        "staple-with-set-s-mechanic"
-      ],
-      "baseRate": 0.0900306962466862
+      "charTags": [],
+      "baseRate": 0.0021626901074368633
     },
     "cycling": {
-      "charTags": [
-        "activate-from-hand",
-        "synergy-cycling",
-        "hand-neutral",
-        "cheaper-than-mv",
-        "pure-draw",
-        "draw",
-        "removal-exile",
-        "staple-with-set-s-mechanic"
-      ],
-      "baseRate": 0.1481093902609181
+      "charTags": [],
+      "baseRate": 0.009208874005860193
     },
     "slivers": {
-      "charTags": [
-        "sliver-stackable",
-        "typal-sliver",
-        "keyword-anthem",
-        "typal-creature",
-        "typal",
-        "symmetrical",
-        "noncreature-typal",
-        "power-boost-to-all"
-      ],
-      "baseRate": 0.09526301102274312
+      "charTags": [],
+      "baseRate": 0.004813729593972373
     },
     "assassins": {
-      "charTags": [
-        "typal-assassin",
-        "reflexive-trigger",
-        "saboteur",
-        "death-trigger",
-        "synergy-artifact"
-      ],
-      "baseRate": 0.0764266778289382
+      "charTags": [],
+      "baseRate": 0.006348541928282406
     },
     "knights": {
-      "charTags": [
-        "typal-knight",
-        "synergy-solo-attack",
-        "synergy-aura",
-        "synergy-equipment",
-        "anthem",
-        "toughness-boost-to-all",
-        "power-boost-to-all",
-        "keyword-anthem"
-      ],
-      "baseRate": 0.05657876377842891
+      "charTags": [],
+      "baseRate": 0.013673782614762105
     },
     "counterspells": {
       "charTags": [
@@ -1237,46 +866,19 @@
         "toll",
         "cast-trigger-you"
       ],
-      "baseRate": 0.04953257988000558
+      "baseRate": 0.09906515976001116
     },
     "rats": {
-      "charTags": [
-        "typal-rat",
-        "threshold",
-        "cards-in-graveyard-matter",
-        "bounce",
-        "mill-self",
-        "mill",
-        "noncreature-typal",
-        "saboteur"
-      ],
-      "baseRate": 0.09390260918096832
+      "charTags": [],
+      "baseRate": 0.004046323426817358
     },
     "phyrexians": {
-      "charTags": [
-        "type-addition-phyrexian",
-        "typal-golem",
-        "poisonous",
-        "oil-counters-matter",
-        "typal-phyrexian",
-        "counter-fuel-oil",
-        "poison-mechanics",
-        "type-errata-addition"
-      ],
-      "baseRate": 0.024905818334030976
+      "charTags": [],
+      "baseRate": 0.015766708525184876
     },
     "deathtouch": {
-      "charTags": [
-        "synergy-deathtouch",
-        "gives-deathtouch",
-        "virtual-french-vanilla",
-        "repeatable-lifegain",
-        "flavors-of-vanilla",
-        "opponent-loses-life",
-        "cards-in-graveyard-matter",
-        "saboteur"
-      ],
-      "baseRate": 0.12013394725826705
+      "charTags": [],
+      "baseRate": 0.015138830752058043
     },
     "anthems": {
       "charTags": [
@@ -1289,7 +891,7 @@
         "power-boost-to-all",
         "hate-typal"
       ],
-      "baseRate": 0.03502162690107437
+      "baseRate": 0.07004325380214874
     },
     "devotion": {
       "charTags": [
@@ -1302,7 +904,7 @@
         "green-effect",
         "synergy-enchantment"
       ],
-      "baseRate": 0.020371145528114972
+      "baseRate": 0.040742291056229944
     },
     "pingers": {
       "charTags": [
@@ -1315,7 +917,7 @@
         "burn-player",
         "synergy-instant"
       ],
-      "baseRate": 0.052637086647132694
+      "baseRate": 0.10527417329426539
     },
     "snow": {
       "charTags": [
@@ -1328,7 +930,7 @@
         "tapper-artifact",
         "mana-spent-matters"
       ],
-      "baseRate": 0.01799916282963583
+      "baseRate": 0.03599832565927166
     },
     "tap-untap": {
       "charTags": [
@@ -1341,20 +943,19 @@
         "tapper-artifact",
         "untapper-land"
       ],
-      "baseRate": 0.011580856704339334
+      "baseRate": 0.023161713408678668
     },
     "activated-abilities": {
       "charTags": [
         "synergy-activated-ability",
         "copy-ability",
-        "adds-multiple-mana",
         "pp-counters-matter",
         "untapper",
         "bottomless-mana-sink",
         "untapper-creature",
         "mana-sink"
       ],
-      "baseRate": 0.05057904283521697
+      "baseRate": 0.08448444258406586
     },
     "politics": {
       "charTags": [
@@ -1367,17 +968,11 @@
         "selective-group-hug",
         "group-hug"
       ],
-      "baseRate": 0.013569136319240966
+      "baseRate": 0.027138272638481932
     },
     "mutate": {
-      "charTags": [
-        "gives-flying",
-        "cheaper-than-mv",
-        "more-expensive-than-mv",
-        "gives-evasion",
-        "recursion"
-      ],
-      "baseRate": 0.10359983256592717
+      "charTags": [],
+      "baseRate": 0.0023719826984791403
     },
     "modified-creatures": {
       "charTags": [
@@ -1390,39 +985,19 @@
         "scales-with-damage-dealt",
         "gives-indestructible"
       ],
-      "baseRate": 0.02277801032510116
+      "baseRate": 0.04555602065020232
     },
     "birds": {
-      "charTags": [
-        "typal-bird",
-        "synergy-flying",
-        "evasion",
-        "gives-flying",
-        "virtual-french-vanilla"
-      ],
-      "baseRate": 0.09596065299288405
+      "charTags": [],
+      "baseRate": 0.009069345611832008
     },
     "spirits": {
-      "charTags": [
-        "typal-spirit",
-        "synergy-arcane",
-        "gains-indestructible",
-        "cda-toughness",
-        "alt-commander",
-        "cda-power",
-        "evasion",
-        "death-trigger-self"
-      ],
-      "baseRate": 0.10918096832705455
+      "charTags": [],
+      "baseRate": 0.016743407283382167
     },
     "prowess": {
-      "charTags": [
-        "synergy-noncreature",
-        "cast-trigger-you",
-        "cast-trigger",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.07621738523789591
+      "charTags": [],
+      "baseRate": 0.0023719826984791403
     },
     "unnatural": {
       "charTags": [
@@ -1435,7 +1010,7 @@
         "curiosity",
         "quick-equip"
       ],
-      "baseRate": 0.031847355936933164
+      "baseRate": 0.06369471187386633
     },
     "unblockable": {
       "charTags": [
@@ -1448,7 +1023,7 @@
         "rescue-creature",
         "saboteur"
       ],
-      "baseRate": 0.030940421375749965
+      "baseRate": 0.06188084275149993
     },
     "dungeon": {
       "charTags": [
@@ -1461,7 +1036,7 @@
         "scry",
         "dnd"
       ],
-      "baseRate": 0.020092088740058602
+      "baseRate": 0.040184177480117204
     },
     "triggered-abilities": {
       "charTags": [
@@ -1470,10 +1045,9 @@
         "face-commander",
         "drain-life",
         "inverted-effects",
-        "group-slug",
-        "adds-multiple-mana"
+        "group-slug"
       ],
-      "baseRate": 0.037951723175666245
+      "baseRate": 0.057276405748569834
     },
     "ad-nauseam": {
       "charTags": [
@@ -1481,12 +1055,11 @@
         "full-refund",
         "prevent-cast",
         "hate-counterspell",
-        "adds-multiple-mana",
         "black-effect",
         "refund",
         "counterspell"
       ],
-      "baseRate": 0.05417189898144272
+      "baseRate": 0.09494907213617972
     },
     "zoo": {
       "charTags": [
@@ -1495,110 +1068,43 @@
         "manaless-value",
         "cost-ignorer",
         "curiosity-like",
-        "adds-multiple-mana",
         "scales-with-power",
-        "power-matters"
+        "power-matters",
+        "gives-trample"
       ],
-      "baseRate": 0.061462257569415375
+      "baseRate": 0.12418027068508442
     },
     "discover": {
-      "charTags": [
-        "consult-cast",
-        "consult",
-        "free-cast-another",
-        "cast-on-resolution",
-        "gives-castable-from-exile",
-        "gives-castable-from-nonhand",
-        "card-advantage"
-      ],
-      "baseRate": 0.1348193107297335
+      "charTags": [],
+      "baseRate": 0.001325519743267755
     },
     "hydras": {
-      "charTags": [
-        "pp-counters-matter",
-        "gains-pp-counters",
-        "counters-matter",
-        "repeatable-pp-counters"
-      ],
-      "baseRate": 0.06383424026789451
+      "charTags": [],
+      "baseRate": 0.003418445653690526
     },
     "soldiers": {
-      "charTags": [
-        "typal-soldier",
-        "typal-human",
-        "heroic",
-        "type-addition-human",
-        "synergy-target",
-        "deprecated-legend-type",
-        "deprecated-card-types",
-        "gives-first-strike"
-      ],
-      "baseRate": 0.03924236082042696
+      "charTags": [],
+      "baseRate": 0.02448723315194642
     },
     "ninjas": {
-      "charTags": [
-        "ninjutsu",
-        "sneak-self",
-        "typal-ninja",
-        "rescue-creature",
-        "rescue",
-        "sneak",
-        "vertical-cycle",
-        "activate-from-hand"
-      ],
-      "baseRate": 0.023440770196735034
+      "charTags": [],
+      "baseRate": 0.005650899958141482
     },
     "elementals": {
-      "charTags": [
-        "typal-elemental",
-        "cda-toughness",
-        "land-count-matters",
-        "cda-power",
-        "landfall",
-        "temporary-token",
-        "mana-spent-matters",
-        "lands-matter"
-      ],
-      "baseRate": 0.03488209850704618
+      "charTags": [],
+      "baseRate": 0.014580717175945305
     },
     "fight": {
-      "charTags": [
-        "removal-fight",
-        "burn-creature",
-        "removal-burn",
-        "burn",
-        "multiple-targets",
-        "reflexive-trigger",
-        "removal-creature",
-        "removal"
-      ],
-      "baseRate": 0.11849448862843588
+      "charTags": [],
+      "baseRate": 0.0069764197014092364
     },
     "horrors": {
-      "charTags": [
-        "type-addition-phyrexian",
-        "type-errata-addition",
-        "cards-in-graveyard-matter",
-        "type-errata",
-        "dnd",
-        "characteristic-defining-ability",
-        "mill-opponent",
-        "repeatable-sacrifice-outlet"
-      ],
-      "baseRate": 0.07035719268871216
+      "charTags": [],
+      "baseRate": 0.009557694990930654
     },
     "flash": {
-      "charTags": [
-        "keyword-errata-flash",
-        "gives-flash",
-        "auto-equip",
-        "keyword-errata",
-        "haven",
-        "humble",
-        "combat-trick",
-        "gives-hexproof"
-      ],
-      "baseRate": 0.03840519045625785
+      "charTags": [],
+      "baseRate": 0.02085949490721362
     },
     "rat-colony": {
       "charTags": [
@@ -1611,20 +1117,11 @@
         "creature-count-matters",
         "name-matters"
       ],
-      "baseRate": 0.033068229384679786
+      "baseRate": 0.06613645876935957
     },
     "flashback": {
-      "charTags": [
-        "castable-from-graveyard",
-        "castable-from-nonhand",
-        "synergy-graveyard-cast",
-        "more-expensive-than-mv",
-        "exile-self",
-        "copy-creature",
-        "multiple-bodies",
-        "single-target-instant-sorcery"
-      ],
-      "baseRate": 0.11402958001953398
+      "charTags": [],
+      "baseRate": 0.007046183898423329
     },
     "saprolings": {
       "charTags": [
@@ -1637,20 +1134,11 @@
         "creature-count-matters",
         "aesthetic-counter"
       ],
-      "baseRate": 0.020964141202734758
+      "baseRate": 0.041928282405469516
     },
     "shapeshifters": {
-      "charTags": [
-        "changeling",
-        "cda-subtype",
-        "clone",
-        "shapesharing",
-        "characteristic-defining-ability",
-        "copy-creature",
-        "copy",
-        "type-change"
-      ],
-      "baseRate": 0.055357890330682294
+      "charTags": [],
+      "baseRate": 0.006627598716338775
     },
     "donate": {
       "charTags": [
@@ -1663,20 +1151,11 @@
         "selective-group-hug",
         "group-hug"
       ],
-      "baseRate": 0.011999441886423887
+      "baseRate": 0.023998883772847774
     },
     "warriors": {
-      "charTags": [
-        "typal-warrior",
-        "typal-elf",
-        "token-versions-of-cards",
-        "typal-ally",
-        "typal-goblin",
-        "40k-model",
-        "synergy-equipment",
-        "offcolor-ability"
-      ],
-      "baseRate": 0.053160318124738384
+      "charTags": [],
+      "baseRate": 0.03425422073391935
     },
     "self-discard": {
       "charTags": [
@@ -1689,7 +1168,7 @@
         "rummage",
         "repeatable-loot"
       ],
-      "baseRate": 0.017336402958001953
+      "baseRate": 0.034672805916003906
     },
     "sea-creatures": {
       "charTags": [
@@ -1702,18 +1181,11 @@
         "ferocious",
         "freeze"
       ],
-      "baseRate": 0.007395004883493791
+      "baseRate": 0.014790009766987583
     },
     "frogs": {
-      "charTags": [
-        "creaturefall",
-        "gains-pp-counters",
-        "virtual-vanilla",
-        "thingfall",
-        "repeatable-pp-counters",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.10527417329426539
+      "charTags": [],
+      "baseRate": 0.004255616017859634
     },
     "power": {
       "charTags": [
@@ -1726,7 +1198,7 @@
         "anthem",
         "curiosity-like"
       ],
-      "baseRate": 0.06052044090972513
+      "baseRate": 0.12104088181945026
     },
     "eggs": {
       "charTags": [
@@ -1739,19 +1211,11 @@
         "artifactfall",
         "synergy-artifact"
       ],
-      "baseRate": 0.029370726942932888
+      "baseRate": 0.058741453885865776
     },
     "insects": {
-      "charTags": [
-        "cards-in-graveyard-matter",
-        "lands-matter",
-        "death-trigger-self",
-        "mill-self",
-        "death-trigger",
-        "counters-matter",
-        "gains-pp-counters"
-      ],
-      "baseRate": 0.10366959676294125
+      "charTags": [],
+      "baseRate": 0.006906655504395145
     },
     "counters-matter": {
       "charTags": [
@@ -1764,7 +1228,7 @@
         "gives-mm-counters",
         "pp-counters-matter"
       ],
-      "baseRate": 0.030207897307101994
+      "baseRate": 0.06041579461420399
     },
     "aikido": {
       "charTags": [
@@ -1777,31 +1241,15 @@
         "selective-group-hug",
         "protects-planeswalker"
       ],
-      "baseRate": 0.017580577647551276
+      "baseRate": 0.03516115529510255
     },
     "spiders": {
-      "charTags": [
-        "typal-spider",
-        "synergy-tapped",
-        "multiple-species-types",
-        "rescue-creature",
-        "rescue",
-        "bounce",
-        "virtual-french-vanilla",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.0626133668201479
+      "charTags": [],
+      "baseRate": 0.005929956746197851
     },
     "squirrels": {
-      "charTags": [
-        "typal-squirrel",
-        "synergy-food",
-        "graveyard-fuel",
-        "noncreature-typal",
-        "typal-creature",
-        "typal"
-      ],
-      "baseRate": 0.06868285196037394
+      "charTags": [],
+      "baseRate": 0.0021626901074368633
     },
     "bounce": {
       "charTags": [
@@ -1814,33 +1262,15 @@
         "rescue",
         "bounce"
       ],
-      "baseRate": 0.017894516534114693
+      "baseRate": 0.035789033068229385
     },
     "haste": {
-      "charTags": [
-        "trigger-from-graveyard",
-        "reanimate-self",
-        "recursion-self",
-        "repeatable-treasures",
-        "multi-character-card",
-        "reanimate-cast",
-        "attacking-matters-self",
-        "scales-with-damage-dealt"
-      ],
-      "baseRate": 0.06711315752755685
+      "charTags": [],
+      "baseRate": 0.023510534393749127
     },
     "rogues": {
-      "charTags": [
-        "typal-rogue",
-        "unblockable",
-        "nightveil-theft",
-        "unheroic",
-        "theft-cast",
-        "type-errata-genericise",
-        "mill-exile",
-        "repeatable-treasures"
-      ],
-      "baseRate": 0.03460304171898981
+      "charTags": [],
+      "baseRate": 0.01890609739081903
     },
     "prison": {
       "charTags": [
@@ -1853,20 +1283,11 @@
         "symmetrical",
         "passive-ability"
       ],
-      "baseRate": 0.02347565229524208
+      "baseRate": 0.04695130459048416
     },
     "allies": {
-      "charTags": [
-        "typal-ally",
-        "synergy-lesson",
-        "earthbend",
-        "animate-land",
-        "tap-fuel-artifact",
-        "cheat-death",
-        "creaturefall",
-        "non-mana-ability-mana"
-      ],
-      "baseRate": 0.033556578763778426
+      "charTags": [],
+      "baseRate": 0.008301939444676991
     },
     "myr": {
       "charTags": [],
@@ -1883,7 +1304,7 @@
         "non-mana-ability-mana",
         "red-effect"
       ],
-      "baseRate": 0.032684526301102274
+      "baseRate": 0.06536905260220455
     },
     "party": {
       "charTags": [
@@ -1896,17 +1317,11 @@
         "typal-rogue",
         "affinity-for-creature-type"
       ],
-      "baseRate": 0.0058601925491837585
+      "baseRate": 0.011720385098367517
     },
     "foretell": {
-      "charTags": [
-        "castable-from-exile",
-        "unexile",
-        "castable-from-nonhand",
-        "exile-self",
-        "cheaper-than-mv"
-      ],
-      "baseRate": 0.051799916282963585
+      "charTags": [],
+      "baseRate": 0.0028603320775777872
     },
     "keywords": {
       "charTags": [
@@ -1919,7 +1334,7 @@
         "synergy-reach",
         "synergy-lifelink"
       ],
-      "baseRate": 0.0006976419701409237
+      "baseRate": 0.0013952839402818474
     },
     "sunforger": {
       "charTags": [
@@ -1932,7 +1347,7 @@
         "toll",
         "combat-trick"
       ],
-      "baseRate": 0.04028882377563834
+      "baseRate": 0.08057764755127668
     },
     "multicolor-matters": {
       "charTags": [
@@ -1945,7 +1360,7 @@
         "removal-enchantment",
         "cost-ignorer"
       ],
-      "baseRate": 0.05776475512766848
+      "baseRate": 0.11552951025533696
     },
     "impulse-draw": {
       "charTags": [
@@ -1958,77 +1373,40 @@
         "synergy-graveyard-cast",
         "draw-hate"
       ],
-      "baseRate": 0.009697223384958839
+      "baseRate": 0.019394446769917677
     },
     "cheerios": {
       "charTags": [
         "manaless-value",
         "full-refund",
         "egg",
-        "adds-multiple-mana",
         "cast-trigger-self",
         "synergy-artifact",
         "synergy-noncreature",
-        "refund"
+        "refund",
+        "sacrifice-self"
       ],
-      "baseRate": 0.0571717594530487
+      "baseRate": 0.12145946700153482
     },
     "curses": {
-      "charTags": [
-        "multiplayer",
-        "attacking-matters",
-        "attack-trigger"
-      ],
-      "baseRate": 0.06345053718431701
+      "charTags": [],
+      "baseRate": 0.0027208036835496023
     },
     "mutants": {
-      "charTags": [
-        "typal-mutant",
-        "vertical-cycle",
-        "synergy-mill",
-        "multi-character-card",
-        "rescue-creature",
-        "rescue",
-        "mill-opponent",
-        "pp-counters-matter"
-      ],
-      "baseRate": 0.03641691084135622
+      "charTags": [],
+      "baseRate": 0.00858099623273336
     },
     "earthbending": {
-      "charTags": [
-        "earthbend",
-        "animate-land",
-        "cheat-death",
-        "animate",
-        "gives-haste",
-        "delayed-trigger",
-        "type-change",
-        "enters-in-company"
-      ],
-      "baseRate": 0.06582251988279615
+      "charTags": [],
+      "baseRate": 0.002232454304450956
     },
     "werewolves": {
-      "charTags": [
-        "werewolf-mechanic",
-        "catch-22",
-        "day-night",
-        "transform-improvement",
-        "typal-werewolf",
-        "typal-lupine",
-        "typal-wolf",
-        "typal-coupling"
-      ],
-      "baseRate": 0.011441328310311149
+      "charTags": [],
+      "baseRate": 0.0030696246686200642
     },
     "dwarves": {
-      "charTags": [
-        "typal-dwarf",
-        "repeatable-treasures",
-        "repeatable-artifact-tokens",
-        "repeatable-noncreature-tokens",
-        "anthem"
-      ],
-      "baseRate": 0.03069624668620064
+      "charTags": [],
+      "baseRate": 0.005929956746197851
     },
     "coin-flip": {
       "charTags": [
@@ -2041,77 +1419,35 @@
         "repeatable-treasures",
         "dnd"
       ],
-      "baseRate": 0.022080368354960234
+      "baseRate": 0.04416073670992047
     },
     "clerics": {
-      "charTags": [
-        "soul-warden-ability",
-        "typal-cleric",
-        "pridemate",
-        "lifegain-matters",
-        "type-addition-human",
-        "repeatable-lifegain",
-        "low-mana-value-matters",
-        "reanimate-creature"
-      ],
-      "baseRate": 0.061497139667922425
+      "charTags": [],
+      "baseRate": 0.0164643504953258
     },
     "rabbits": {
       "charTags": [],
       "baseRate": 0.002023161713408679
     },
     "modular": {
-      "charTags": [
-        "counter-preservation-self",
-        "type-addition-from-none",
-        "synergy-artifact-creature",
-        "pp-counters-matter",
-        "death-trigger-self",
-        "counters-matter",
-        "death-trigger",
-        "type-errata-addition"
-      ],
-      "baseRate": 0.05992744523510534
+      "charTags": [],
+      "baseRate": 0.0015348123343100321
     },
     "scry": {
-      "charTags": [
-        "scry",
-        "bottom-deck-manipulation",
-        "peek-library",
-        "top-deck-manipulation",
-        "library-manipulation",
-        "peek",
-        "cantrip",
-        "dnd"
-      ],
-      "baseRate": 0.043532858936793636
+      "charTags": [],
+      "baseRate": 0.01388307520580438
     },
     "dogs": {
-      "charTags": [
-        "type-errata-hound",
-        "type-errata",
-        "gains-pp-counters",
-        "repeatable-pp-counters",
-        "attacking-matters-self",
-        "counters-matter"
-      ],
-      "baseRate": 0.10544858378680061
+      "charTags": [],
+      "baseRate": 0.003976559229803265
     },
     "bears": {
-      "charTags": [
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.04586995953676573
+      "charTags": [],
+      "baseRate": 0.0034882098507046182
     },
     "snakes": {
-      "charTags": [
-        "type-errata-naga",
-        "type-errata-genericise",
-        "type-errata",
-        "saboteur",
-        "counters-matter"
-      ],
-      "baseRate": 0.0699386075066276
+      "charTags": [],
+      "baseRate": 0.005929956746197851
     },
     "shadowborn-apostles": {
       "charTags": [
@@ -2124,7 +1460,7 @@
         "inverted-effects",
         "opponent-loses-life"
       ],
-      "baseRate": 0.02888237756383424
+      "baseRate": 0.05776475512766848
     },
     "rock": {
       "charTags": [
@@ -2133,11 +1469,11 @@
         "passive-ability",
         "green-effect",
         "synergy-artifact",
-        "adds-multiple-mana",
         "sacrifice-outlet-artifact",
-        "face-commander"
+        "face-commander",
+        "refund"
       ],
-      "baseRate": 0.04607925212780801
+      "baseRate": 0.10039067950327892
     },
     "guildgates": {
       "charTags": [
@@ -2150,27 +1486,15 @@
         "landfall",
         "land-count-matters"
       ],
-      "baseRate": 0.01562718013115669
+      "baseRate": 0.03125436026231338
     },
     "gods": {
-      "charTags": [
-        "deanimate-self",
-        "restricted-attacker",
-        "restricted-blocker",
-        "drawback",
-        "type-change",
-        "recursion-self",
-        "bottomless-mana-sink",
-        "mana-sink"
-      ],
-      "baseRate": 0.06749686061113437
+      "charTags": [],
+      "baseRate": 0.0057206641551555745
     },
     "beasts": {
-      "charTags": [
-        "gives-trample",
-        "type-errata"
-      ],
-      "baseRate": 0.04056788056369471
+      "charTags": [],
+      "baseRate": 0.010325101158085671
     },
     "persistent-petitioners": {
       "charTags": [
@@ -2183,20 +1507,11 @@
         "mill",
         "mill-self"
       ],
-      "baseRate": 0.029370726942932888
+      "baseRate": 0.058741453885865776
     },
     "amass": {
-      "charTags": [
-        "typal-army",
-        "gives-pp-counters",
-        "typal-coupling",
-        "enters-in-company",
-        "typal-creature",
-        "typal",
-        "repeatable-pp-counters",
-        "multiple-bodies"
-      ],
-      "baseRate": 0.1165410911120413
+      "charTags": [],
+      "baseRate": 0.003976559229803265
     },
     "die-roll": {
       "charTags": [
@@ -2209,7 +1524,7 @@
         "synergy-treasure",
         "dnd-item"
       ],
-      "baseRate": 0.00603460304171899
+      "baseRate": 0.01206920608343798
     },
     "weenies": {
       "charTags": [
@@ -2222,51 +1537,23 @@
         "drain-life",
         "out-of-color-token"
       ],
-      "baseRate": 0.04799776754569555
+      "baseRate": 0.0959955350913911
     },
     "madness": {
-      "charTags": [
-        "madness",
-        "hate-discard",
-        "self-discard-matters",
-        "discard-matters",
-        "castable-from-exile",
-        "unexile",
-        "cast-on-resolution",
-        "castable-from-nonhand"
-      ],
-      "baseRate": 0.03125436026231338
+      "charTags": [],
+      "baseRate": 0.004185851820845542
     },
     "wolves": {
-      "charTags": [
-        "typal-lupine",
-        "typal-wolf",
-        "typal-werewolf",
-        "typal-coupling",
-        "gains-pp-counters"
-      ],
-      "baseRate": 0.03945165341146924
+      "charTags": [],
+      "baseRate": 0.0027208036835496023
     },
     "otters": {
-      "charTags": [
-        "synergy-noncreature",
-        "cast-trigger-you",
-        "cast-trigger"
-      ],
-      "baseRate": 0.03502162690107437
+      "charTags": [],
+      "baseRate": 0.0016045765313241244
     },
     "convoke": {
-      "charTags": [
-        "convoke",
-        "synergy-color-share",
-        "synergy-white",
-        "discount-self",
-        "synergy-blue",
-        "synergy-green",
-        "tap-fuel-creature",
-        "tap-outlet"
-      ],
-      "baseRate": 0.032196176922003626
+      "charTags": [],
+      "baseRate": 0.004743965396958281
     },
     "tron": {
       "charTags": [
@@ -2279,7 +1566,7 @@
         "untaps-self",
         "removal-permanent"
       ],
-      "baseRate": 0.01716199246546672
+      "baseRate": 0.03432398493093344
     },
     "land-animation": {
       "charTags": [
@@ -2292,18 +1579,11 @@
         "recursion-land",
         "sacrifice-outlet-land"
       ],
-      "baseRate": 0.012208734477466164
+      "baseRate": 0.02441746895493233
     },
     "treefolk": {
-      "charTags": [
-        "typal-treefolk",
-        "toughness-matters",
-        "noncreature-typal",
-        "death-trigger",
-        "typal-creature",
-        "typal"
-      ],
-      "baseRate": 0.08755406725268593
+      "charTags": [],
+      "baseRate": 0.00411608762383145
     },
     "the-ring": {
       "charTags": [
@@ -2316,7 +1596,7 @@
         "repeatable-food",
         "synergy-legendary"
       ],
-      "baseRate": 0.01234826287149435
+      "baseRate": 0.0246965257429887
     },
     "fling": {
       "charTags": [
@@ -2329,7 +1609,7 @@
         "burn-any",
         "repeatable-sacrifice-outlet"
       ],
-      "baseRate": 0.05745081624110507
+      "baseRate": 0.11490163248221014
     },
     "primal-surge": {
       "charTags": [
@@ -2342,20 +1622,11 @@
         "castable-from-exile",
         "gives-haste"
       ],
-      "baseRate": 0.06603181247383842
+      "baseRate": 0.13206362494767684
     },
     "lizards": {
-      "charTags": [
-        "type-errata-viashino",
-        "type-errata-genericise",
-        "life-loss-matters",
-        "pinger",
-        "type-errata",
-        "burn-player",
-        "gains-pp-counters",
-        "virtual-french-vanilla"
-      ],
-      "baseRate": 0.09344914190037673
+      "charTags": [],
+      "baseRate": 0.005371843170085112
     },
     "polymorph": {
       "charTags": [
@@ -2368,7 +1639,7 @@
         "cost-ignorer",
         "synergy-instant"
       ],
-      "baseRate": 0.0337658713548207
+      "baseRate": 0.0675317427096414
     },
     "attractions": {
       "charTags": [
@@ -2381,7 +1652,7 @@
         "counter-increaser",
         "dnd"
       ],
-      "baseRate": 0.013150551137156411
+      "baseRate": 0.026301102274312822
     },
     "experience-counters": {
       "charTags": [],
@@ -2398,20 +1669,11 @@
         "synergy-legendary",
         "landfall"
       ],
-      "baseRate": 0.032475233710059996
+      "baseRate": 0.06495046742011999
     },
     "artificers": {
-      "charTags": [
-        "typal-golem",
-        "copy-artifact",
-        "synergy-artifact-creature",
-        "synergy-artifact",
-        "type-addition-phyrexian",
-        "repeatable-artifact-tokens",
-        "sacrifice-outlet-artifact",
-        "enters-in-company"
-      ],
-      "baseRate": 0.05186968047997768
+      "charTags": [],
+      "baseRate": 0.009627459187944746
     },
     "power-matters": {
       "charTags": [
@@ -2424,17 +1686,11 @@
         "burst-draw",
         "sacrifice-outlet-creature"
       ],
-      "baseRate": 0.054520719966513184
+      "baseRate": 0.10904143993302637
     },
     "firebending": {
-      "charTags": [
-        "non-mana-ability-mana",
-        "adds-multiple-mana",
-        "attacking-matters-self",
-        "attack-trigger",
-        "mana-sink"
-      ],
-      "baseRate": 0.07415934142598019
+      "charTags": [],
+      "baseRate": 0.0016045765313241244
     },
     "kaheera-companion": {
       "charTags": [
@@ -2447,7 +1703,7 @@
         "toughness-boost-to-all",
         "power-boost-to-all"
       ],
-      "baseRate": 0.0351960373936096
+      "baseRate": 0.0703920747872192
     },
     "fungi": {
       "charTags": [
@@ -2460,30 +1716,15 @@
         "synergy-token-creature",
         "sacrifice-outlet-creature"
       ],
-      "baseRate": 0.026859215850425562
+      "baseRate": 0.053718431700851124
     },
     "bats": {
-      "charTags": [
-        "lifegain-matters",
-        "evasion",
-        "lifegain",
-        "repeatable-lifegain",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.14256313659829775
+      "charTags": [],
+      "baseRate": 0.0023022185014650483
     },
     "surveil": {
-      "charTags": [
-        "keyword-errata-surveil",
-        "surveil",
-        "keyword-errata",
-        "peek-library",
-        "top-deck-manipulation",
-        "library-manipulation",
-        "mill-self",
-        "peek"
-      ],
-      "baseRate": 0.037184317008511235
+      "charTags": [],
+      "baseRate": 0.007255476489465606
     },
     "mice": {
       "charTags": [
@@ -2496,49 +1737,23 @@
         "donate-token",
         "synergy-aura"
       ],
-      "baseRate": 0.025917399190735314
+      "baseRate": 0.05183479838147063
     },
     "shrines": {
-      "charTags": [
-        "synergy-shrine"
-      ],
-      "baseRate": 0.0016743407283382169
+      "charTags": [],
+      "baseRate": 0.0015348123343100321
     },
     "connive": {
-      "charTags": [
-        "discarded-type-matters",
-        "repeatable-loot",
-        "loot",
-        "discard-outlet",
-        "blue-effect",
-        "repeatable-pp-counters",
-        "gains-pp-counters",
-        "gives-pp-counters"
-      ],
-      "baseRate": 0.09418166596902469
+      "charTags": [],
+      "baseRate": 0.002232454304450956
     },
     "tyranids": {
-      "charTags": [
-        "high-x-matters",
-        "40k-model",
-        "cantrip",
-        "gains-pp-counters",
-        "intervening-if-clause",
-        "hand-neutral",
-        "flavors-of-vanilla",
-        "pure-draw"
-      ],
-      "baseRate": 0.1636668061950607
+      "charTags": [],
+      "baseRate": 0.0025812752895214178
     },
     "oozes": {
-      "charTags": [
-        "pp-counters-matter",
-        "gains-pp-counters",
-        "repeatable-pp-counters",
-        "copy",
-        "counters-matter"
-      ],
-      "baseRate": 0.08514720245569973
+      "charTags": [],
+      "baseRate": 0.0033486814566764337
     },
     "sneak-attack": {
       "charTags": [
@@ -2551,33 +1766,15 @@
         "impulse-creature",
         "sneak-from-library"
       ],
-      "baseRate": 0.021871075763917957
+      "baseRate": 0.043742151527835914
     },
     "samurai": {
-      "charTags": [
-        "bushido",
-        "typal-neo-solo-attack",
-        "typal-samurai",
-        "synergy-blocker-self",
-        "block-trigger",
-        "hate-blocker",
-        "typal-warrior",
-        "synergy-solo-attack"
-      ],
-      "baseRate": 0.013499372122226874
+      "charTags": [],
+      "baseRate": 0.004046323426817358
     },
     "giants": {
-      "charTags": [
-        "typal-giant",
-        "titan-trigger",
-        "castable-from-exile",
-        "unexile",
-        "castable-from-nonhand",
-        "virtual-vanilla",
-        "burn-planeswalker",
-        "attacking-matters-self"
-      ],
-      "baseRate": 0.07970559508860053
+      "charTags": [],
+      "baseRate": 0.00676712711036696
     },
     "glass-cannon": {
       "charTags": [
@@ -2585,12 +1782,12 @@
         "synergy-red",
         "synergy-instant",
         "synergy-sorcery",
-        "adds-multiple-mana",
         "synergy-noncreature",
         "gives-indestructible",
-        "refund"
+        "refund",
+        "cast-trigger-you"
       ],
-      "baseRate": 0.04695130459048416
+      "baseRate": 0.10994837449420958
     },
     "outlaws": {
       "charTags": [
@@ -2603,41 +1800,19 @@
         "typal-assassin",
         "synergy-theft"
       ],
-      "baseRate": 0.005092786382028743
+      "baseRate": 0.010185572764057486
     },
     "rad-counters": {
-      "charTags": [
-        "mill-opponent",
-        "mill",
-        "mill-self"
-      ],
-      "baseRate": 0.022987302916143437
+      "charTags": [],
+      "baseRate": 0.0014650481372959396
     },
     "suspend": {
-      "charTags": [
-        "recurring-suspend",
-        "trigger-from-exile",
-        "spell-with-no-casting-cost",
-        "exile-on-resolution",
-        "castable-from-exile",
-        "unexile",
-        "cast-on-resolution",
-        "gains-haste"
-      ],
-      "baseRate": 0.02661504116087624
+      "charTags": [],
+      "baseRate": 0.0025115110925073253
     },
     "charge-counters": {
-      "charTags": [
-        "gives-charge-counter",
-        "counter-fuel-charge",
-        "gains-flying",
-        "converge",
-        "animate-self",
-        "color-spent-matters",
-        "tap-fuel-power",
-        "counter-fuel"
-      ],
-      "baseRate": 0.02532440351611553
+      "charTags": [],
+      "baseRate": 0.006069485140226036
     },
     "crime": {
       "charTags": [
@@ -2650,19 +1825,11 @@
         "typal-pirate",
         "typal-rogue"
       ],
-      "baseRate": 0.00896469931631087
+      "baseRate": 0.01792939863262174
     },
     "devoid": {
-      "charTags": [
-        "cda-color",
-        "characteristic-defining-ability",
-        "cast-trigger-self",
-        "enters-in-company",
-        "refund",
-        "multiple-bodies",
-        "cast-trigger"
-      ],
-      "baseRate": 0.07196176922003628
+      "charTags": [],
+      "baseRate": 0.0029998604716059717
     },
     "blood": {
       "charTags": [
@@ -2675,46 +1842,19 @@
         "typal-choose",
         "hand-negative"
       ],
-      "baseRate": 0.011929677689409795
+      "baseRate": 0.02385935537881959
     },
     "heroes": {
-      "charTags": [
-        "typal-hero",
-        "exhaust",
-        "synergy-tapped",
-        "misnomer",
-        "multiple-species-types",
-        "synergy-noncreature",
-        "multi-character-card",
-        "rescue-creature"
-      ],
-      "baseRate": 0.029300962745918795
+      "charTags": [],
+      "baseRate": 0.012906376447607087
     },
     "explore": {
-      "charTags": [
-        "surveil",
-        "peek-library",
-        "top-deck-manipulation",
-        "library-manipulation",
-        "mill-self",
-        "peek",
-        "mill",
-        "gives-pp-counters"
-      ],
-      "baseRate": 0.06903167294544439
+      "charTags": [],
+      "baseRate": 0.0019533975163945863
     },
     "annihilator": {
-      "charTags": [
-        "removal-permanent",
-        "removal-land",
-        "removal-sacrifice",
-        "removal-spacecraft",
-        "removal-aura",
-        "removal-vehicle",
-        "removal-equipment",
-        "removal-battle"
-      ],
-      "baseRate": 0.019708385656481094
+      "charTags": [],
+      "baseRate": 0.0006976419701409237
     },
     "thopters": {
       "charTags": [
@@ -2727,57 +1867,27 @@
         "energy-generator",
         "counter-fuel-energy"
       ],
-      "baseRate": 0.03177759173991907
+      "baseRate": 0.06355518347983814
     },
     "halflings": {
-      "charTags": [
-        "synergy-food",
-        "repeatable-noncreature-tokens",
-        "repeatable-artifact-tokens",
-        "repeatable-lifegain",
-        "gives-evasion",
-        "lifegain",
-        "repeatable-token-generator"
-      ],
-      "baseRate": 0.10161155295102553
+      "charTags": [],
+      "baseRate": 0.0031393888656341567
     },
     "orcs": {
-      "charTags": [
-        "attacking-matters-self",
-        "attack-trigger",
-        "repeatable-token-generator",
-        "repeatable-creature-tokens",
-        "typal-creature",
-        "typal"
-      ],
-      "baseRate": 0.12711036695967629
+      "charTags": [],
+      "baseRate": 0.0032091530626482487
     },
     "myriad": {
-      "charTags": [
-        "multi-copy",
-        "temporary-token",
-        "copy-self",
-        "per-player",
-        "multiplayer",
-        "delayed-trigger",
-        "copy",
-        "attacking-matters-self"
-      ],
-      "baseRate": 0.07733361239012139
+      "charTags": [],
+      "baseRate": 0.001325519743267755
     },
     "apes": {
-      "charTags": [
-        "removal-artifact",
-        "removal-destroy",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.0763569136319241
+      "charTags": [],
+      "baseRate": 0.002232454304450956
     },
     "wurms": {
-      "charTags": [
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.04618389842332915
+      "charTags": [],
+      "baseRate": 0.00411608762383145
     },
     "delver": {
       "charTags": [
@@ -2790,20 +1900,11 @@
         "mulch",
         "mill-self"
       ],
-      "baseRate": 0.02075484861169248
+      "baseRate": 0.04150969722338496
     },
     "villains": {
-      "charTags": [
-        "typal-villain",
-        "discarded-type-matters",
-        "misnomer",
-        "self-discard-matters",
-        "discard-matters",
-        "repeatable-loot",
-        "loot",
-        "castable-from-graveyard"
-      ],
-      "baseRate": 0.0283242639877215
+      "charTags": [],
+      "baseRate": 0.00858099623273336
     },
     "relentless-rats": {
       "charTags": [
@@ -2816,20 +1917,11 @@
         "creature-count-matters",
         "removal-toughness"
       ],
-      "baseRate": 0.02752197572205944
+      "baseRate": 0.05504395144411888
     },
     "time-counters": {
-      "charTags": [
-        "gives-suspend",
-        "recurring-suspend",
-        "trigger-from-exile",
-        "synergy-suspend",
-        "spell-with-no-casting-cost",
-        "cast-on-resolution",
-        "exile-on-resolution",
-        "gains-haste"
-      ],
-      "baseRate": 0.021975722059439096
+      "charTags": [],
+      "baseRate": 0.0057206641551555745
     },
     "adventures": {
       "charTags": [
@@ -2842,7 +1934,7 @@
         "castable-from-nonhand",
         "synergy-graveyard-cast"
       ],
-      "baseRate": 0.02058043811915725
+      "baseRate": 0.0411608762383145
     },
     "deserts": {
       "charTags": [
@@ -2855,27 +1947,15 @@
         "lands-matter",
         "land-count-matters"
       ],
-      "baseRate": 0.013987721501325519
+      "baseRate": 0.027975443002651038
     },
     "enrage": {
-      "charTags": [
-        "enrage",
-        "repeatable-removal"
-      ],
-      "baseRate": 0.03034742570113018
+      "charTags": [],
+      "baseRate": 0.0016045765313241244
     },
     "constructs": {
-      "charTags": [
-        "type-addition-from-none",
-        "pp-counters-matter",
-        "type-errata-addition",
-        "counter-fuel",
-        "remove-counters-you",
-        "remove-counters",
-        "virtual-french-vanilla",
-        "type-errata"
-      ],
-      "baseRate": 0.055985768103809126
+      "charTags": [],
+      "baseRate": 0.0051625505790428355
     },
     "hand-size": {
       "charTags": [
@@ -2888,41 +1968,23 @@
         "hand-size-hate",
         "force-draw"
       ],
-      "baseRate": 0.013778428910283243
+      "baseRate": 0.027556857820566487
     },
     "golems": {
-      "charTags": [
-        "type-errata-addition",
-        "synergy-artifact",
-        "type-errata"
-      ],
-      "baseRate": 0.04231198548904702
+      "charTags": [],
+      "baseRate": 0.0031393888656341567
     },
     "scarecrows": {
-      "charTags": [
-        "gives-mm-counters"
-      ],
-      "baseRate": 0.00631365982977536
+      "charTags": [],
+      "baseRate": 0.0032789172596623412
     },
     "sphinxes": {
-      "charTags": [
-        "tax",
-        "virtual-french-vanilla",
-        "evasion",
-        "peek",
-        "repeatable-pure-draw",
-        "hand-positive",
-        "draw-engine",
-        "repeatable-draw"
-      ],
-      "baseRate": 0.15501604576531325
+      "charTags": [],
+      "baseRate": 0.004255616017859634
     },
     "raccoons": {
-      "charTags": [
-        "amount-spent-matters",
-        "mana-spent-matters"
-      ],
-      "baseRate": 0.0054416073670992045
+      "charTags": [],
+      "baseRate": 0.0014650481372959396
     },
     "extra-upkeeps": {
       "charTags": [
@@ -2935,7 +1997,7 @@
         "exile-on-resolution",
         "extra-untap"
       ],
-      "baseRate": 0.01252267336402958
+      "baseRate": 0.02504534672805916
     },
     "looting": {
       "charTags": [
@@ -2948,7 +2010,7 @@
         "rummage",
         "loot"
       ],
-      "baseRate": 0.018138691223664016
+      "baseRate": 0.03627738244732803
     },
     "lessons": {
       "charTags": [
@@ -2961,7 +2023,7 @@
         "animate-land",
         "non-mana-ability-mana"
       ],
-      "baseRate": 0.013185433235663457
+      "baseRate": 0.026370866471326915
     },
     "life-exchange": {
       "charTags": [
@@ -2974,20 +2036,11 @@
         "unnoted-tracked-information",
         "opponent-loses-life"
       ],
-      "baseRate": 0.029370726942932888
+      "baseRate": 0.058741453885865776
     },
     "robots": {
-      "charTags": [
-        "crewless-vehicle",
-        "synergy-artifact-creature",
-        "mix-and-match",
-        "synergy-artifact",
-        "counter-fuel",
-        "remove-counters-you",
-        "remove-counters",
-        "counters-matter"
-      ],
-      "baseRate": 0.05277661504116088
+      "charTags": [],
+      "baseRate": 0.00530207897307102
     },
     "slime-against-humanity": {
       "charTags": [
@@ -3000,86 +2053,35 @@
         "name-matters",
         "counters-matter"
       ],
-      "baseRate": 0.0461490163248221
+      "baseRate": 0.0922980326496442
     },
     "airbending": {
-      "charTags": [
-        "exile-with-tax",
-        "haven",
-        "removal-exile",
-        "cost-ignorer",
-        "gives-castable-from-exile",
-        "gives-castable-from-nonhand",
-        "spot-removal",
-        "removal-creature"
-      ],
-      "baseRate": 0.1188781917120134
+      "charTags": [],
+      "baseRate": 0.0009069345611832008
     },
     "exalted": {
-      "charTags": [
-        "exalted",
-        "synergy-solo-attack",
-        "attacking-matters",
-        "attack-trigger",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.0927514999302358
+      "charTags": [],
+      "baseRate": 0.002092925910422771
     },
     "spacecraft": {
-      "charTags": [
-        "gains-flying",
-        "tap-fuel-power",
-        "animate-self",
-        "animate",
-        "tap-fuel-creature",
-        "tap-outlet",
-        "type-change",
-        "power-matters"
-      ],
-      "baseRate": 0.05936933165899261
+      "charTags": [],
+      "baseRate": 0.0018836333193804938
     },
     "skeletons": {
-      "charTags": [
-        "regenerates-self",
-        "activate-from-graveyard",
-        "regrowth-self",
-        "reanimate-self",
-        "recursion-self",
-        "drawback",
-        "reanimate",
-        "regrowth"
-      ],
-      "baseRate": 0.056229942793358446
+      "charTags": [],
+      "baseRate": 0.0046044370029300966
     },
     "indestructible": {
-      "charTags": [
-        "creature-ability-noncreature",
-        "deanimate-self",
-        "restricted-blocker",
-        "restricted-attacker",
-        "synergy-green",
-        "drawback",
-        "gives-indestructible",
-        "type-change"
-      ],
-      "baseRate": 0.05134644900237198
+      "charTags": [],
+      "baseRate": 0.0058601925491837585
     },
     "minotaurs": {
-      "charTags": [
-        "attacking-matters-self"
-      ],
-      "baseRate": 0.03181247383842612
+      "charTags": [],
+      "baseRate": 0.004255616017859634
     },
     "necrons": {
-      "charTags": [
-        "40k-model",
-        "reanimate",
-        "synergy-artifact",
-        "delayed-trigger",
-        "recursion",
-        "evasion"
-      ],
-      "baseRate": 0.14503976559229803
+      "charTags": [],
+      "baseRate": 0.0016045765313241244
     },
     "hare-apparent": {
       "charTags": [
@@ -3092,7 +2094,7 @@
         "flicker-creature",
         "flicker"
       ],
-      "baseRate": 0.014197014092367797
+      "baseRate": 0.028394028184735593
     },
     "rooms": {
       "charTags": [
@@ -3105,19 +2107,11 @@
         "untapper-creature",
         "type-change"
       ],
-      "baseRate": 0.05685782056648528
+      "baseRate": 0.11371564113297056
     },
     "evoke": {
-      "charTags": [
-        "virtual-french-vanilla",
-        "cheaper-than-mv",
-        "intervening-if-clause",
-        "flavors-of-vanilla",
-        "spot-removal",
-        "removal",
-        "removal-creature"
-      ],
-      "baseRate": 0.17088740058601926
+      "charTags": [],
+      "baseRate": 0.0012557555462536626
     },
     "jegantha-companion": {
       "charTags": [
@@ -3130,19 +2124,11 @@
         "typal-choose",
         "protects-all"
       ],
-      "baseRate": 0.015976001116227153
+      "baseRate": 0.031952002232454306
     },
     "monks": {
-      "charTags": [
-        "synergy-noncreature",
-        "cast-trigger-you",
-        "cast-trigger",
-        "gives-castable-from-exile",
-        "repeatable-lifegain",
-        "namesake-spell",
-        "gives-castable-from-nonhand"
-      ],
-      "baseRate": 0.10164643504953258
+      "charTags": [],
+      "baseRate": 0.004813729593972373
     },
     "keruga-companion": {
       "charTags": [
@@ -3155,56 +2141,23 @@
         "unique-mana-cost",
         "mini-refund"
       ],
-      "baseRate": 0.031219478163806335
+      "baseRate": 0.06243895632761267
     },
     "turtles": {
-      "charTags": [
-        "vertical-cycle",
-        "multi-character-card",
-        "rescue-creature",
-        "rescue",
-        "bounce",
-        "attacking-matters",
-        "counters-matter",
-        "repeatable-pp-counters"
-      ],
-      "baseRate": 0.093658434491419
+      "charTags": [],
+      "baseRate": 0.0037672666387609877
     },
     "waterbending": {
-      "charTags": [
-        "tap-fuel-artifact",
-        "tap-fuel-creature",
-        "tap-outlet",
-        "synergy-artifact",
-        "more-expensive-than-mv"
-      ],
-      "baseRate": 0.052044090972512905
+      "charTags": [],
+      "baseRate": 0.0016743407283382169
     },
     "druids": {
-      "charTags": [
-        "typal-elf",
-        "adds-multiple-mana",
-        "restricted-mana",
-        "type-addition-human",
-        "untapper-land",
-        "landfall",
-        "lands-matter",
-        "power-matters-self"
-      ],
-      "baseRate": 0.04723036137854053
+      "charTags": [],
+      "baseRate": 0.01562718013115669
     },
     "devils": {
-      "charTags": [
-        "pinger",
-        "burn-any",
-        "burn-battle",
-        "burn-planeswalker",
-        "burn-player",
-        "removal-planeswalker",
-        "burn",
-        "removal-burn"
-      ],
-      "baseRate": 0.057799637226175524
+      "charTags": [],
+      "baseRate": 0.0023022185014650483
     },
     "obosh-companion": {
       "charTags": [
@@ -3217,7 +2170,7 @@
         "impulsive-draw",
         "burn"
       ],
-      "baseRate": 0.07342681735733221
+      "baseRate": 0.14685363471466442
     },
     "vanilla": {
       "charTags": [
@@ -3228,28 +2181,15 @@
         "power-matters",
         "burst-draw"
       ],
-      "baseRate": 0.06564810939026092
+      "baseRate": 0.13129621878052183
     },
     "freerunning": {
-      "charTags": [
-        "typal-assassin",
-        "synergy-commander",
-        "attacking-matters",
-        "cheaper-than-mv",
-        "typal-creature",
-        "typal"
-      ],
-      "baseRate": 0.10802985907632204
+      "charTags": [],
+      "baseRate": 0.0007674061671550161
     },
     "lhurgoyfs": {
-      "charTags": [
-        "lhurgoyf",
-        "cda-toughness",
-        "cda-power",
-        "characteristic-defining-ability",
-        "cards-in-graveyard-matter"
-      ],
-      "baseRate": 0.016324822101297615
+      "charTags": [],
+      "baseRate": 0.0011859913492395702
     },
     "creatureless": {
       "charTags": [
@@ -3262,7 +2202,7 @@
         "free-cast-another",
         "cast-trigger-you"
       ],
-      "baseRate": 0.04799776754569555
+      "baseRate": 0.0959955350913911
     },
     "blue-moon": {
       "charTags": [
@@ -3275,15 +2215,11 @@
         "counterspell",
         "removal-bounce"
       ],
-      "baseRate": 0.026998744244453747
+      "baseRate": 0.053997488488907494
     },
     "time-lords": {
-      "charTags": [
-        "the-doctor",
-        "pair-commander",
-        "copy"
-      ],
-      "baseRate": 0.028742849169806056
+      "charTags": [],
+      "baseRate": 0.002023161713408679
     },
     "stoneblade": {
       "charTags": [
@@ -3296,15 +2232,11 @@
         "repeated-effect",
         "synergy-aura"
       ],
-      "baseRate": 0.01416213199386075
+      "baseRate": 0.0283242639877215
     },
     "landwalk": {
-      "charTags": [
-        "french-vanilla-walker",
-        "evasion",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.10897167573601228
+      "charTags": [],
+      "baseRate": 0.0025115110925073253
     },
     "crabs": {
       "charTags": [],
@@ -3313,15 +2245,15 @@
     "mana-dorks": {
       "charTags": [
         "typal-elf",
-        "adds-multiple-mana",
         "untapper-creature",
         "manaless-value",
         "untapper",
         "power-matters-individual",
         "creature-count-matters",
-        "pp-counters-matter"
+        "pp-counters-matter",
+        "creaturefall"
       ],
-      "baseRate": 0.04555602065020232
+      "baseRate": 0.09850704618389843
     },
     "villainous-choice": {
       "charTags": [
@@ -3334,43 +2266,23 @@
         "opponent-chooses",
         "dilemma"
       ],
-      "baseRate": 0.007848472164085392
+      "baseRate": 0.015696944328170783
     },
     "transform": {
-      "charTags": [
-        "exile-self-dfc-transform",
-        "werewolf-mechanic",
-        "transform-improvement",
-        "synergy-transform",
-        "catch-22",
-        "day-night",
-        "typal-phyrexian",
-        "typal-werewolf"
-      ],
-      "baseRate": 0.0191851541788754
+      "charTags": [],
+      "baseRate": 0.01820845542067811
     },
     "plants": {
-      "charTags": [
-        "lands-matter",
-        "drawback",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.06822938467978233
+      "charTags": [],
+      "baseRate": 0.0030696246686200642
     },
     "delirium": {
-      "charTags": [
-        "card-types-in-graveyard-matter",
-        "card-types-matter",
-        "cards-in-graveyard-matter",
-        "intervening-if-clause"
-      ],
-      "baseRate": 0.047369889772568716
+      "charTags": [],
+      "baseRate": 0.0025812752895214178
     },
     "illusions": {
-      "charTags": [
-        "evasion"
-      ],
-      "baseRate": 0.07918236361099484
+      "charTags": [],
+      "baseRate": 0.002092925910422771
     },
     "speed": {
       "charTags": [
@@ -3383,7 +2295,7 @@
         "draw-matters",
         "animate"
       ],
-      "baseRate": 0.02166178317287568
+      "baseRate": 0.04332356634575136
     },
     "voting": {
       "charTags": [
@@ -3396,7 +2308,7 @@
         "opponent-chooses",
         "dilemma"
       ],
-      "baseRate": 0.007918236361099484
+      "baseRate": 0.015836472722198968
     },
     "old-school": {
       "charTags": [
@@ -3409,24 +2321,15 @@
         "type-errata",
         "disenchant-naturalize"
       ],
-      "baseRate": 0.032684526301102274
+      "baseRate": 0.06536905260220455
     },
     "monkeys": {
       "charTags": [],
       "baseRate": 0.0009069345611832008
     },
     "phoenixes": {
-      "charTags": [
-        "phoenix-with-set-s-mechanic",
-        "trigger-from-graveyard",
-        "reanimate-self",
-        "recursion-self",
-        "regrowth-self",
-        "reanimate",
-        "regrowth",
-        "recursion"
-      ],
-      "baseRate": 0.042625924375610434
+      "charTags": [],
+      "baseRate": 0.002092925910422771
     },
     "ltb-effects": {
       "charTags": [
@@ -3439,7 +2342,7 @@
         "sacrifice-outlet-creature",
         "synergy-token"
       ],
-      "baseRate": 0.027801032510115807
+      "baseRate": 0.055602065020231614
     },
     "turbo-fog": {
       "charTags": [
@@ -3452,39 +2355,19 @@
         "damage-prevention-you",
         "draw-hate"
       ],
-      "baseRate": 0.01105762522673364
+      "baseRate": 0.02211525045346728
     },
     "offspring": {
-      "charTags": [
-        "has-identical-token",
-        "creates-token-of-a-card",
-        "token-versions-of-cards",
-        "copy-self",
-        "enters-in-company",
-        "more-expensive-than-mv",
-        "multiple-bodies",
-        "copy"
-      ],
-      "baseRate": 0.05504395144411888
+      "charTags": [],
+      "baseRate": 0.001325519743267755
     },
     "reach": {
-      "charTags": [
-        "hate-flying",
-        "land-count-matters",
-        "synergy-blocker-self",
-        "virtual-french-vanilla",
-        "disenchant-naturalize",
-        "flavors-of-vanilla",
-        "tax",
-        "cards-in-graveyard-matter"
-      ],
-      "baseRate": 0.08131017161992465
+      "charTags": [],
+      "baseRate": 0.015557415934142598
     },
     "praetors": {
-      "charTags": [
-        "inverted-effects"
-      ],
-      "baseRate": 0.009906515976001116
+      "charTags": [],
+      "baseRate": 0.001116227152225478
     },
     "saboteurs": {
       "charTags": [
@@ -3497,7 +2380,7 @@
         "theft-cast",
         "scales-with-damage-dealt"
       ],
-      "baseRate": 0.031219478163806335
+      "baseRate": 0.06243895632761267
     },
     "lurrus-companion": {
       "charTags": [
@@ -3510,7 +2393,7 @@
         "sacrifice-outlet",
         "egg"
       ],
-      "baseRate": 0.04771871075763918
+      "baseRate": 0.09543742151527836
     },
     "color-hack": {
       "charTags": [
@@ -3523,28 +2406,15 @@
         "hate-red",
         "hate-color"
       ],
-      "baseRate": 0.008092646853634715
+      "baseRate": 0.01618529370726943
     },
     "spore-counters": {
-      "charTags": [
-        "typal-saproling",
-        "counter-fuel-aesthetic",
-        "free-sacrifice-outlet",
-        "aesthetic-counter",
-        "counter-fuel",
-        "remove-counters-you",
-        "remove-counters",
-        "repeatable-sacrifice-outlet"
-      ],
-      "baseRate": 0.028568438677270824
+      "charTags": [],
+      "baseRate": 0.0012557555462536626
     },
     "nightmares": {
-      "charTags": [
-        "mill",
-        "repeatable-lifegain",
-        "lifegain"
-      ],
-      "baseRate": 0.06648527975443003
+      "charTags": [],
+      "baseRate": 0.004185851820845542
     },
     "umori-companion": {
       "charTags": [
@@ -3557,27 +2427,15 @@
         "reanimate",
         "virtual-vanilla"
       ],
-      "baseRate": 0.08008929817217804
+      "baseRate": 0.16017859634435608
     },
     "horses": {
-      "charTags": [
-        "attacking-matters-self",
-        "attack-trigger"
-      ],
-      "baseRate": 0.047648946560625086
+      "charTags": [],
+      "baseRate": 0.0029300962745918793
     },
     "archers": {
-      "charTags": [
-        "hate-flying",
-        "hate-attacker",
-        "hate-blocker",
-        "pinger",
-        "repeatable-removal",
-        "burn-creature",
-        "removal-burn",
-        "burn"
-      ],
-      "baseRate": 0.06781079949769778
+      "charTags": [],
+      "baseRate": 0.004743965396958281
     },
     "type-hack": {
       "charTags": [
@@ -3590,24 +2448,15 @@
         "typal-sliver",
         "hate-typal"
       ],
-      "baseRate": 0.012278498674480257
+      "baseRate": 0.024556997348960514
     },
     "unicorns": {
-      "charTags": [
-        "lifegain"
-      ],
-      "baseRate": 0.044300265103948654
+      "charTags": [],
+      "baseRate": 0.002092925910422771
     },
     "avatars": {
-      "charTags": [
-        "titan-trigger",
-        "unique-mana-cost",
-        "discount-self",
-        "cheaper-than-mv",
-        "control-changing-effects",
-        "theft"
-      ],
-      "baseRate": 0.05968327054555602
+      "charTags": [],
+      "baseRate": 0.007046183898423329
     },
     "day-night": {
       "charTags": [
@@ -3620,27 +2469,15 @@
         "transform-improvement",
         "typal-coupling"
       ],
-      "baseRate": 0.009801869680479977
+      "baseRate": 0.019603739360959955
     },
     "mounts": {
-      "charTags": [
-        "tap-fuel-power",
-        "tap-fuel-creature",
-        "tap-outlet",
-        "attacking-matters-self",
-        "power-matters",
-        "attack-trigger"
-      ],
-      "baseRate": 0.07761266917817776
+      "charTags": [],
+      "baseRate": 0.0016045765313241244
     },
     "advisors": {
-      "charTags": [
-        "tax",
-        "group-hug",
-        "counters-matter",
-        "multiplayer"
-      ],
-      "baseRate": 0.06132272917538719
+      "charTags": [],
+      "baseRate": 0.007325240686479699
     },
     "self-destruct": {
       "charTags": [
@@ -3653,18 +2490,11 @@
         "free-sacrifice-outlet",
         "landfall"
       ],
-      "baseRate": 0.017754988140086508
+      "baseRate": 0.035509976280173015
     },
     "warp": {
-      "charTags": [
-        "castable-from-exile",
-        "unexile",
-        "castable-from-nonhand",
-        "delayed-trigger",
-        "exile-self",
-        "cheaper-than-mv"
-      ],
-      "baseRate": 0.06672945444397935
+      "charTags": [],
+      "baseRate": 0.0015348123343100321
     },
     "lure": {
       "charTags": [
@@ -3677,84 +2507,35 @@
         "fog",
         "enlarge"
       ],
-      "baseRate": 0.014127249895353704
+      "baseRate": 0.028254499790707408
     },
     "kithkin": {
-      "charTags": [
-        "typal-kithkin",
-        "virtual-vanilla",
-        "noncreature-typal",
-        "typal-creature",
-        "typal"
-      ],
-      "baseRate": 0.07625226733640296
+      "charTags": [],
+      "baseRate": 0.003906795032789173
     },
     "heroic": {
-      "charTags": [
-        "heroic",
-        "synergy-target",
-        "cast-trigger-you",
-        "cast-trigger"
-      ],
-      "baseRate": 0.03530068368913074
+      "charTags": [],
+      "baseRate": 0.0011859913492395702
     },
     "detectives": {
-      "charTags": [
-        "repeatable-clues",
-        "synergy-clue",
-        "repeatable-noncreature-tokens",
-        "repeatable-artifact-tokens",
-        "draw-engine",
-        "repeatable-pure-draw",
-        "repeatable-draw",
-        "repeatable-token-generator"
-      ],
-      "baseRate": 0.08535649504674202
+      "charTags": [],
+      "baseRate": 0.003976559229803265
     },
     "rebels": {
-      "charTags": [
-        "typal-rebel",
-        "type-addition-human",
-        "low-mana-value-matters",
-        "type-errata-addition",
-        "hate-color",
-        "type-errata",
-        "mana-value-matters",
-        "noncreature-typal"
-      ],
-      "baseRate": 0.0758336821543184
+      "charTags": [],
+      "baseRate": 0.004255616017859634
     },
     "mayhem": {
-      "charTags": [
-        "self-discard-matters",
-        "discard-matters",
-        "castable-from-graveyard",
-        "castable-from-nonhand",
-        "cheaper-than-mv",
-        "card-names"
-      ],
-      "baseRate": 0.1575624389563276
+      "charTags": [],
+      "baseRate": 0.0009069345611832008
     },
     "plot": {
-      "charTags": [
-        "castable-from-exile",
-        "unexile",
-        "castable-from-nonhand",
-        "exile-self",
-        "draw"
-      ],
-      "baseRate": 0.10691363192409656
+      "charTags": [],
+      "baseRate": 0.0016045765313241244
     },
     "sneak": {
-      "charTags": [
-        "rescue-creature",
-        "rescue",
-        "bounce",
-        "attacking-matters",
-        "cheaper-than-mv",
-        "namesake-spell"
-      ],
-      "baseRate": 0.08664713269150272
+      "charTags": [],
+      "baseRate": 0.0018836333193804938
     },
     "daleks": {
       "charTags": [
@@ -3767,7 +2548,7 @@
         "copy-artifact",
         "pair-commander"
       ],
-      "baseRate": 0.016952699874424444
+      "baseRate": 0.03390539974884889
     },
     "paradox": {
       "charTags": [
@@ -3780,7 +2561,7 @@
         "doctor-who-episode-name",
         "synergy-graveyard-cast"
       ],
-      "baseRate": 0.004430026510394865
+      "baseRate": 0.00886005302078973
     },
     "hellbent": {
       "charTags": [
@@ -3793,29 +2574,15 @@
         "hand-size-hate",
         "self-discard-matters"
       ],
-      "baseRate": 0.008197293149155854
+      "baseRate": 0.016394586298311708
     },
     "battles": {
-      "charTags": [
-        "exile-self-dfc-transform",
-        "castable-from-exile",
-        "unexile",
-        "castable-from-nonhand",
-        "exile-self",
-        "draft-signpost",
-        "removal-planeswalker",
-        "hand-neutral"
-      ],
-      "baseRate": 0.09665829496302497
+      "charTags": [],
+      "baseRate": 0.0025115110925073253
     },
     "banding": {
-      "charTags": [
-        "type-addition-human",
-        "type-errata-addition",
-        "type-errata",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.06107855448583787
+      "charTags": [],
+      "baseRate": 0.0014650481372959396
     },
     "phasing": {
       "charTags": [
@@ -3828,13 +2595,11 @@
         "flicker-creature",
         "consult"
       ],
-      "baseRate": 0.01855727640574857
+      "baseRate": 0.03711455281149714
     },
     "descend": {
-      "charTags": [
-        "cards-in-graveyard-matter"
-      ],
-      "baseRate": 0.009418166596902469
+      "charTags": [],
+      "baseRate": 0.0006976419701409237
     },
     "arcane": {
       "charTags": [
@@ -3847,7 +2612,7 @@
         "death-trigger-self",
         "cast-trigger"
       ],
-      "baseRate": 0.055881121808287984
+      "baseRate": 0.11176224361657597
     },
     "stun": {
       "charTags": [
@@ -3860,20 +2625,11 @@
         "pseudo-fog",
         "tapper-land"
       ],
-      "baseRate": 0.013708664713269151
+      "baseRate": 0.027417329426538302
     },
     "kicker": {
-      "charTags": [
-        "offcolor-additional-cost",
-        "more-expensive-than-mv",
-        "self-replacement-effect",
-        "virtual-vanilla",
-        "intervening-if-clause",
-        "staple-with-set-s-mechanic",
-        "virtual-french-vanilla",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.11758755406725269
+      "charTags": [],
+      "baseRate": 0.008092646853634715
     },
     "web-slinging": {
       "charTags": [
@@ -3886,7 +2642,7 @@
         "tap-fuel-creature",
         "bounce"
       ],
-      "baseRate": 0.03683549602344077
+      "baseRate": 0.07367099204688154
     },
     "gyruda-companion": {
       "charTags": [
@@ -3899,7 +2655,7 @@
         "reanimate-creature",
         "recursion-creature"
       ],
-      "baseRate": 0.03125436026231338
+      "baseRate": 0.06250872052462676
     },
     "rube-goldberg": {
       "charTags": [
@@ -3907,39 +2663,24 @@
         "sacrifice-outlet-artifact",
         "synergy-artifact",
         "refund",
-        "adds-multiple-mana",
         "repeatable-sacrifice-outlet",
         "synergy-instant",
-        "synergy-sorcery"
+        "synergy-sorcery",
+        "sacrifice-outlet"
       ],
-      "baseRate": 0.06083437979628854
+      "baseRate": 0.12243616575973211
     },
     "griffins": {
-      "charTags": [
-        "evasion",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.10928561462257569
+      "charTags": [],
+      "baseRate": 0.0032789172596623412
     },
     "gorgons": {
-      "charTags": [
-        "flavors-of-vanilla",
-        "hate",
-        "removal-creature",
-        "spot-removal"
-      ],
-      "baseRate": 0.15881819450258128
+      "charTags": [],
+      "baseRate": 0.0017441049253523091
     },
     "improvise": {
-      "charTags": [
-        "improvise",
-        "tap-fuel-artifact",
-        "discount-self",
-        "tap-outlet",
-        "synergy-artifact",
-        "cheaper-than-mv"
-      ],
-      "baseRate": 0.06055532300823217
+      "charTags": [],
+      "baseRate": 0.0008371703641691084
     },
     "satyrs": {
       "charTags": [],
@@ -3951,12 +2692,12 @@
         "full-refund",
         "meme",
         "ditch-hand",
-        "adds-multiple-mana",
         "non-mana-ability-mana",
         "black-effect",
-        "refund"
+        "refund",
+        "egg"
       ],
-      "baseRate": 0.047962885447188505
+      "baseRate": 0.09397237337798242
     },
     "all-spells": {
       "charTags": [
@@ -3969,7 +2710,7 @@
         "synergy-noncreature",
         "copy-spell"
       ],
-      "baseRate": 0.03226594111901772
+      "baseRate": 0.06453188223803544
     },
     "foxes": {
       "charTags": [],
@@ -3986,23 +2727,15 @@
         "land-count-matters",
         "quick-equip"
       ],
-      "baseRate": 0.018627040602762664
+      "baseRate": 0.03725408120552533
     },
     "skulk": {
-      "charTags": [
-        "skulk",
-        "hate-high-pt",
-        "hate",
-        "evasion"
-      ],
-      "baseRate": 0.12561043672387331
+      "charTags": [],
+      "baseRate": 0.0008371703641691084
     },
     "drakes": {
-      "charTags": [
-        "evasion",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.10886702944049113
+      "charTags": [],
+      "baseRate": 0.002441746895493233
     },
     "cybermen": {
       "charTags": [
@@ -4015,24 +2748,15 @@
         "synergy-artifact",
         "pair-commander"
       ],
-      "baseRate": 0.034149574438398216
+      "baseRate": 0.06829914887679643
     },
     "shamans": {
-      "charTags": [
-        "virtual-vanilla",
-        "pinger",
-        "synergy-instant",
-        "synergy-sorcery",
-        "noncreature-typal",
-        "martyr"
-      ],
-      "baseRate": 0.08389144690944607
+      "charTags": [],
+      "baseRate": 0.01472024556997349
     },
     "astartes": {
-      "charTags": [
-        "40k-model"
-      ],
-      "baseRate": 0.005127668480535789
+      "charTags": [],
+      "baseRate": 0.0015348123343100321
     },
     "gnomes": {
       "charTags": [],
@@ -4049,40 +2773,19 @@
         "anthem",
         "toughness-boost-to-all"
       ],
-      "baseRate": 0.03401004604437003
+      "baseRate": 0.06802009208874006
     },
     "atogs": {
-      "charTags": [
-        "shade-pump",
-        "free-sacrifice-outlet",
-        "repeatable-sacrifice-outlet",
-        "sacrifice-outlet"
-      ],
-      "baseRate": 0.025603460304171897
+      "charTags": [],
+      "baseRate": 0.0008371703641691084
     },
     "oil-counters": {
-      "charTags": [
-        "oil-counters-matter",
-        "counter-fuel-oil",
-        "counter-fuel-aesthetic",
-        "counter-fuel",
-        "remove-counters-you",
-        "remove-counters",
-        "aesthetic-counter",
-        "counters-matter"
-      ],
-      "baseRate": 0.030870657178735873
+      "charTags": [],
+      "baseRate": 0.0032789172596623412
     },
     "moonfolk": {
-      "charTags": [
-        "rescue-land",
-        "repeatable-rescue",
-        "rescue",
-        "bounce",
-        "evasion",
-        "repeatable-crime"
-      ],
-      "baseRate": 0.13265662062229663
+      "charTags": [],
+      "baseRate": 0.0018138691223664016
     },
     "stickers": {
       "charTags": [
@@ -4095,7 +2798,7 @@
         "synergy-dice",
         "flicker-creature"
       ],
-      "baseRate": 0.00767406167155016
+      "baseRate": 0.01534812334310032
     },
     "bobbleheads": {
       "charTags": [
@@ -4108,33 +2811,15 @@
         "copy-enchantment",
         "animate-artifact"
       ],
-      "baseRate": 0.007708943770057207
+      "baseRate": 0.015417887540114413
     },
     "mercenaries": {
-      "charTags": [
-        "typal-mercenary",
-        "type-addition-human",
-        "low-mana-value-matters",
-        "type-errata-addition",
-        "type-errata",
-        "noncreature-typal",
-        "mana-value-matters",
-        "typal-creature"
-      ],
-      "baseRate": 0.09655364866750384
+      "charTags": [],
+      "baseRate": 0.004046323426817358
     },
     "elders": {
-      "charTags": [
-        "synergy-instant",
-        "synergy-sorcery",
-        "drawback",
-        "evasion",
-        "reanimate",
-        "saboteur",
-        "attacking-matters-self",
-        "repeatable-lifegain"
-      ],
-      "baseRate": 0.16377145249058184
+      "charTags": [],
+      "baseRate": 0.004046323426817358
     },
     "templar-knights": {
       "charTags": [
@@ -4147,20 +2832,15 @@
         "synergy-legendary",
         "creature-count-matters"
       ],
-      "baseRate": 0.027905678805636946
+      "baseRate": 0.05581135761127389
     },
     "elephants": {
-      "charTags": [
-        "virtual-vanilla",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.04621878052183619
+      "charTags": [],
+      "baseRate": 0.00411608762383145
     },
     "whales": {
-      "charTags": [
-        "evasion"
-      ],
-      "baseRate": 0.07838007534533277
+      "charTags": [],
+      "baseRate": 0.0012557555462536626
     },
     "pegasi": {
       "charTags": [
@@ -4173,7 +2853,7 @@
         "synergy-token",
         "creature-count-matters"
       ],
-      "baseRate": 0.038509836751778985
+      "baseRate": 0.07701967350355797
     },
     "zirda-companion": {
       "charTags": [
@@ -4182,24 +2862,23 @@
         "untapper-creature",
         "mana-sink",
         "untapper",
-        "adds-multiple-mana",
         "activate-from-hand",
-        "cost-ignorer"
+        "cost-ignorer",
+        "impulse"
       ],
-      "baseRate": 0.06055532300823217
+      "baseRate": 0.11838984233291475
     },
     "mana-rocks": {
       "charTags": [
         "green-effect",
         "refund",
-        "adds-multiple-mana",
         "egg",
         "synergy-artifact",
         "mini-refund",
         "untapper",
         "free-cast-another"
       ],
-      "baseRate": 0.06596204827682434
+      "baseRate": 0.11936654109111204
     },
     "goats": {
       "charTags": [],
@@ -4216,62 +2895,31 @@
         "synergy-enchantment",
         "exile-self-dfc-transform"
       ],
-      "baseRate": 0.013185433235663457
+      "baseRate": 0.026370866471326915
     },
     "craft": {
-      "charTags": [
-        "graveyard-fuel-artifact",
-        "graveyard-fuel",
-        "exile-self",
-        "synergy-artifact"
-      ],
-      "baseRate": 0.050125575554625365
+      "charTags": [],
+      "baseRate": 0.0015348123343100321
     },
     "berserkers": {
-      "charTags": [
-        "gains-haste",
-        "attacking-matters-self",
-        "gains-pp-counters",
-        "delayed-trigger",
-        "castable-from-nonhand",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.12592437561043673
+      "charTags": [],
+      "baseRate": 0.005650899958141482
     },
     "barbarians": {
-      "charTags": [
-        "type-addition-human",
-        "type-errata-addition",
-        "type-errata",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.06209013534254221
+      "charTags": [],
+      "baseRate": 0.002441746895493233
     },
     "incubate": {
-      "charTags": [
-        "typal-phyrexian",
-        "repeatable-pp-counters",
-        "typal-creature",
-        "typal"
-      ],
-      "baseRate": 0.08999581414817916
+      "charTags": [],
+      "baseRate": 0.002092925910422771
     },
     "sharks": {
       "charTags": [],
       "baseRate": 0.0012557555462536626
     },
     "menace": {
-      "charTags": [
-        "gives-menace",
-        "evasion",
-        "titan-trigger",
-        "alt-commander",
-        "power-matters-self",
-        "virtual-french-vanilla",
-        "black-effect",
-        "attacking-matters-self"
-      ],
-      "baseRate": 0.1335286730849728
+      "charTags": [],
+      "baseRate": 0.015208594949072136
     },
     "bloodthirst": {
       "charTags": [
@@ -4284,7 +2932,7 @@
         "group-slug",
         "pinger"
       ],
-      "baseRate": 0.036626203432398495
+      "baseRate": 0.07325240686479699
     },
     "exploit": {
       "charTags": [
@@ -4297,32 +2945,15 @@
         "inverted-effects",
         "death-trigger"
       ],
-      "baseRate": 0.05797404771871076
+      "baseRate": 0.11594809543742152
     },
     "clash": {
-      "charTags": [
-        "clash-like",
-        "scry-like",
-        "peek-library",
-        "top-deck-manipulation",
-        "library-manipulation",
-        "peek",
-        "mana-value-matters"
-      ],
-      "baseRate": 0.03857960094879308
+      "charTags": [],
+      "baseRate": 0.0009766987581972932
     },
     "sunburst": {
-      "charTags": [
-        "sunburst",
-        "converge",
-        "color-spent-matters",
-        "mana-spent-matters",
-        "counter-fuel",
-        "remove-counters-you",
-        "remove-counters",
-        "counters-matter"
-      ],
-      "baseRate": 0.029649783730989258
+      "charTags": [],
+      "baseRate": 0.001116227152225478
     },
     "doomsday": {
       "charTags": [
@@ -4335,7 +2966,7 @@
         "mill-opponent",
         "loot"
       ],
-      "baseRate": 0.0398004743965397
+      "baseRate": 0.0796009487930794
     },
     "miracle": {
       "charTags": [
@@ -4348,25 +2979,15 @@
         "synergy-instant",
         "synergy-sorcery"
       ],
-      "baseRate": 0.032126412724989534
+      "baseRate": 0.06425282544997907
     },
     "kor": {
-      "charTags": [
-        "synergy-equipment",
-        "repeatable-lifegain"
-      ],
-      "baseRate": 0.03624250034882098
+      "charTags": [],
+      "baseRate": 0.0036975024417468957
     },
     "specters": {
-      "charTags": [
-        "specter-ability",
-        "discard",
-        "hand-disruption",
-        "black-effect",
-        "saboteur",
-        "evasion"
-      ],
-      "baseRate": 0.10478582391516673
+      "charTags": [],
+      "baseRate": 0.0018836333193804938
     },
     "servos": {
       "charTags": [
@@ -4379,19 +3000,11 @@
         "tap-fuel-artifact",
         "synergy-artifact"
       ],
-      "baseRate": 0.0265103948653551
+      "baseRate": 0.0530207897307102
     },
     "squad": {
-      "charTags": [
-        "multi-copy",
-        "copy-self",
-        "enters-in-company",
-        "more-expensive-than-mv",
-        "multiple-bodies",
-        "copy",
-        "intervening-if-clause"
-      ],
-      "baseRate": 0.08528673084972792
+      "charTags": [],
+      "baseRate": 0.0009069345611832008
     },
     "caves": {
       "charTags": [
@@ -4404,7 +3017,7 @@
         "drain-life",
         "opponent-loses-life"
       ],
-      "baseRate": 0.03627738244732803
+      "baseRate": 0.07255476489465607
     },
     "cephalids": {
       "charTags": [
@@ -4417,78 +3030,39 @@
         "type-errata-genericise",
         "removal-bounce"
       ],
-      "baseRate": 0.00858099623273336
+      "baseRate": 0.01716199246546672
     },
     "horsemanship": {
-      "charTags": [
-        "deprecated-legend-type",
-        "deprecated-card-types",
-        "type-errata",
-        "evasion",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.12337798241942236
+      "charTags": [],
+      "baseRate": 0.0012557555462536626
     },
     "kavu": {
-      "charTags": [
-        "virtual-vanilla",
-        "flavors-of-vanilla",
-        "gains-pp-counters"
-      ],
-      "baseRate": 0.07154318403795172
+      "charTags": [],
+      "baseRate": 0.003627738244732803
     },
     "minions": {
-      "charTags": [
-        "type-addition-human",
-        "type-addition-phyrexian",
-        "type-errata-addition",
-        "type-errata",
-        "drawback",
-        "black-effect",
-        "repeatable-removal",
-        "repeatable-crime"
-      ],
-      "baseRate": 0.101960373936096
+      "charTags": [],
+      "baseRate": 0.00265103948653551
     },
     "symbiotes": {
       "charTags": [],
       "baseRate": 0.0007674061671550161
     },
     "ogres": {
-      "charTags": [
-        "virtual-vanilla",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.04702106878749825
+      "charTags": [],
+      "baseRate": 0.004883493790986466
     },
     "shades": {
-      "charTags": [
-        "shade-pump",
-        "bottomless-mana-sink",
-        "mana-sink"
-      ],
-      "baseRate": 0.02256871773405888
+      "charTags": [],
+      "baseRate": 0.002232454304450956
     },
     "bards": {
-      "charTags": [
-        "synergy-instant",
-        "synergy-sorcery",
-        "cast-trigger-you",
-        "cast-trigger"
-      ],
-      "baseRate": 0.04217245709501884
+      "charTags": [],
+      "baseRate": 0.004674201199944189
     },
     "repartee": {
-      "charTags": [
-        "unheroic",
-        "heroic",
-        "synergy-target",
-        "synergy-instant",
-        "synergy-sorcery",
-        "cast-trigger-you",
-        "cast-trigger"
-      ],
-      "baseRate": 0.04039347007115948
+      "charTags": [],
+      "baseRate": 0.0008371703641691084
     },
     "hippos": {
       "charTags": [
@@ -4501,7 +3075,7 @@
         "hate-attacker",
         "tax"
       ],
-      "baseRate": 0.03669596762941259
+      "baseRate": 0.07339193525882517
     },
     "custom-cards": {
       "charTags": [
@@ -4512,7 +3086,7 @@
         "repeatable-card-advantage",
         "pure-draw"
       ],
-      "baseRate": 0.1215292311985489
+      "baseRate": 0.2430584623970978
     },
     "paradigm": {
       "charTags": [
@@ -4525,7 +3099,7 @@
         "unexile",
         "free-cast-another"
       ],
-      "baseRate": 0.04143993302637087
+      "baseRate": 0.08287986605274174
     },
     "cid": {
       "charTags": [
@@ -4538,23 +3112,15 @@
         "tap-fuel-power",
         "curiosity-like"
       ],
-      "baseRate": 0.04276545276963862
+      "baseRate": 0.08553090553927724
     },
     "job-select": {
-      "charTags": [
-        "living-weapon",
-        "quick-equip",
-        "quick-attach",
-        "type-change"
-      ],
-      "baseRate": 0.029300962745918795
+      "charTags": [],
+      "baseRate": 0.001325519743267755
     },
     "level-up": {
-      "charTags": [
-        "leveler",
-        "mana-sink"
-      ],
-      "baseRate": 0.020999023301241804
+      "charTags": [],
+      "baseRate": 0.0017441049253523091
     },
     "premodern": {
       "charTags": [
@@ -4563,29 +3129,15 @@
         "type-errata",
         "removal-destroy"
       ],
-      "baseRate": 0.04541649225617413
+      "baseRate": 0.09083298451234827
     },
     "retrace": {
-      "charTags": [
-        "discard-outlet-land",
-        "castable-from-graveyard",
-        "castable-from-nonhand",
-        "discard-outlet"
-      ],
-      "baseRate": 0.03694014231896191
+      "charTags": [],
+      "baseRate": 0.0007674061671550161
     },
     "books": {
-      "charTags": [
-        "type-addition-book",
-        "tome",
-        "type-errata-addition",
-        "type-errata",
-        "draw-engine",
-        "repeatable-pure-draw",
-        "repeatable-draw",
-        "namesake-spell"
-      ],
-      "baseRate": 0.08765871354820706
+      "charTags": [],
+      "baseRate": 0.0029300962745918793
     },
     "increment": {
       "charTags": [
@@ -4598,20 +3150,11 @@
         "gains-pp-counters",
         "cast-trigger"
       ],
-      "baseRate": 0.11870378121947817
+      "baseRate": 0.23740756243895633
     },
     "nobles": {
-      "charTags": [
-        "type-addition-noble",
-        "typal-vampire",
-        "non-mana-ability-mana",
-        "scry",
-        "face-commander",
-        "bottom-deck-manipulation",
-        "adds-multiple-mana",
-        "attacking-matters-self"
-      ],
-      "baseRate": 0.06205525324403516
+      "charTags": [],
+      "baseRate": 0.011999441886423887
     },
     "opus": {
       "charTags": [
@@ -4624,18 +3167,15 @@
         "cast-on-resolution",
         "cast-trigger-you"
       ],
-      "baseRate": 0.05047439653969583
+      "baseRate": 0.10094879307939165
     },
     "toys": {
       "charTags": [],
       "baseRate": 0.0007674061671550161
     },
     "crocodiles": {
-      "charTags": [
-        "drawback",
-        "flavors-of-vanilla"
-      ],
-      "baseRate": 0.05888098227989396
+      "charTags": [],
+      "baseRate": 0.002441746895493233
     },
     "european-highlander": {
       "charTags": [
@@ -4648,7 +3188,7 @@
         "cast-on-resolution",
         "synergy-instant"
       ],
-      "baseRate": 0.0356495046742012
+      "baseRate": 0.0712990093484024
     },
     "planechase": {
       "charTags": [
@@ -4661,7 +3201,7 @@
         "roll-d20",
         "punisher"
       ],
-      "baseRate": 0.009069345611832008
+      "baseRate": 0.018138691223664016
     },
     "dandan": {
       "charTags": [
@@ -4674,14 +3214,11 @@
         "deprecated-mechanics",
         "copy-artifact"
       ],
-      "baseRate": 0.010848332635691363
+      "baseRate": 0.021696665271382726
     },
     "dash": {
-      "charTags": [
-        "gains-haste",
-        "delayed-trigger"
-      ],
-      "baseRate": 0.024836054137016884
+      "charTags": [],
+      "baseRate": 0.0008371703641691084
     },
     "value-vintage": {
       "charTags": [
@@ -4694,7 +3231,7 @@
         "sneak",
         "black-effect"
       ],
-      "baseRate": 0.04593972373377982
+      "baseRate": 0.09187944746755965
     }
   },
   "forceArchetype": [
