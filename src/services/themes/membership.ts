@@ -1,6 +1,7 @@
 import type { ScryfallCard, EDHRECTag } from '@/types';
 import type { MtgCatalogs } from '@/services/scryfall/client';
 import { classifyTheme, themeKindMatches, type ThemeKind } from './themeKind';
+import { REQUIRED_TAGS } from './gates';
 import type { ThemeTableEntry } from './charTagTable';
 
 /**
@@ -20,6 +21,11 @@ export interface ThemeModel {
   numDecks: number;
   /** Card the deck must contain before this theme may be DECLARED. See ThemeTableEntry.anchor. */
   anchor?: string;
+  /**
+   * Oracle tag SOME card in the deck must carry before this theme may be DECLARED — the theme names
+   * an effect, and without the effect there's no deck. See REQUIRED_TAGS.
+   */
+  requiredTag?: string;
 }
 
 /** Why a card counted (or didn't), so every consumer can explain itself. */
@@ -63,6 +69,7 @@ export function buildThemeModel(
     baseRate: entry?.baseRate ?? 0,
     numDecks: tag.numDecks,
     anchor: entry?.anchor,
+    requiredTag: REQUIRED_TAGS[tag.slug],
   };
 }
 

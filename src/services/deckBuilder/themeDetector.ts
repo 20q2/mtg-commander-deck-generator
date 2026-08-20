@@ -337,11 +337,12 @@ export function detectThemes(
     const data = themeDataMap.get(theme.slug);
     if (!data) continue;
     const membership = membershipScores?.get(theme.slug);
-    // A theme requiring a card the deck doesn't have cannot be declared. Companion themes are the
-    // case that matters: an all-creature deck satisfies Umori's restriction but is not an Umori
-    // deck without Umori. Dropped from evaluation entirely so it can't become the answer, while
+    // A theme whose hard requirement the deck doesn't meet cannot be declared: a companion theme
+    // without its companion (an all-creature deck satisfies Umori's restriction but isn't an Umori
+    // deck without Umori), or an effect theme without the effect (a sacrifice deck isn't a Birthing
+    // Pod deck without a pod). Dropped from evaluation entirely so it can't become the answer, while
     // remaining in the membership scores for anything that wants the signal.
-    if (membership?.anchorMissing) continue;
+    if (membership?.gateMissing) continue;
     evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards, membership));
   }
 

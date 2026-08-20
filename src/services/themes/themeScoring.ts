@@ -1,5 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { testMembership, type ThemeModel, type MembershipResult } from './membership';
+import type { ThemeGate } from './gates';
 import { DEFAULT_TUNING, type ThemeTuning } from './tuning';
 
 /** One card's membership in one theme, kept so the debug page can show the evidence. */
@@ -31,11 +32,12 @@ export interface ThemeScore {
   /** Set when nesting suppression dropped this theme, naming the theme that absorbed it. */
   suppressedBy?: string;
   /**
-   * The theme requires a specific card the deck doesn't have, so it may not be DECLARED — but it is
-   * still scored and still visible, because the data is genuinely informative. An all-creature deck
-   * really does satisfy Umori's restriction; it just isn't an Umori deck without Umori.
+   * A hard requirement the deck doesn't meet, so the theme may not be DECLARED — but it is still
+   * scored and still visible, because the data is genuinely informative. An all-creature deck really
+   * does satisfy Umori's restriction; it just isn't an Umori deck without Umori. A sacrifice deck
+   * really does look like a pod deck; it just isn't one without a pod effect.
    */
-  anchorMissing?: string;
+  gateMissing?: ThemeGate;
   onCommanderList: boolean;
 }
 
@@ -71,17 +73,21 @@ export function scoreThemesForDeck(
   const denom = nonLand.length || 1;
 
   // Tags resolved once per card rather than once per (card, theme) — 400 themes makes that a
-  // 400x difference on the hot path.
+  // 400x difference on the hot path. Cached over ALL cards, not just non-lands: membership still
+  // only reads the non-land entries, but the tag gate below has to see the whole deck.
   const tagCache = new Map<ScryfallCard, readonly string[]>();
-  for (const c of nonLand) tagCache.set(c, tagsFor(c));
+  for (const c of cards) tagCache.set(c, tagsFor(c));
 
-  // Anchor presence is checked against the FULL list, not just non-lands — and against front-face
-  // names too, so a DFC written either way still counts.
+  // Gate evidence, both checked against the FULL list — a requirement can be met by a land, and
+  // "is it in the deck" was never a question about the playable subset. Front-face names count too,
+  // so a DFC written either way still satisfies a card gate.
   const present = new Set<string>();
   for (const c of cards) {
     present.add(c.name.toLowerCase());
     if (c.name.includes(' // ')) present.add(c.name.split(' // ')[0].toLowerCase());
   }
+  const tagsPresent = new Set<string>();
+  for (const c of cards) for (const t of tagCache.get(c) ?? []) tagsPresent.add(t);
 
   const scored: ThemeScore[] = [];
   for (const model of models) {
@@ -103,15 +109,18 @@ export function scoreThemesForDeck(
     const passedFloor = members >= tuning.minMembers && ratio >= tuning.minRatio;
 
     // Scored normally either way — only declaration is gated.
-    const anchorMissing = model.anchor && !present.has(model.anchor.toLowerCase())
-      ? model.anchor
-      : undefined;
+    let gateMissing: ThemeGate | undefined;
+    if (model.anchor && !present.has(model.anchor.toLowerCase())) {
+      gateMissing = { kind: 'card', subject: model.anchor };
+    } else if (model.requiredTag && !tagsPresent.has(model.requiredTag)) {
+      gateMissing = { kind: 'tag', subject: model.requiredTag };
+    }
 
     scored.push({
       model, memberCards, members, ratio, observedOverExpected, prior,
       rawMembershipScore,
       membershipScore: rawMembershipScore * prior,
-      confidence: 0, passedFloor, anchorMissing, onCommanderList,
+      confidence: 0, passedFloor, gateMissing, onCommanderList,
     });
   }
 
@@ -173,7 +182,7 @@ const SEPARATION_FULL = 25;
 const TAG_ONLY_CEILING = 0.75;
 
 export function assignConfidence(scored: ThemeScore[]): void {
-  const surviving = scored.filter(s => s.passedFloor && !s.suppressedBy && !s.anchorMissing);
+  const surviving = scored.filter(s => s.passedFloor && !s.suppressedBy && !s.gateMissing);
   const leader = surviving[0];
   for (const s of scored) {
     if (s.members === 0) { s.confidence = 0; continue; }
@@ -181,7 +190,7 @@ export function assignConfidence(scored: ThemeScore[]): void {
     const liftTerm = Math.min(s.observedOverExpected / 8, 1);
     const coverageTerm = Math.min(s.ratio / COVERAGE_FULL, 1);
 
-    const isSurvivor = s.passedFloor && !s.suppressedBy && !s.anchorMissing;
+    const isSurvivor = s.passedFloor && !s.suppressedBy && !s.gateMissing;
     let separationTerm: number;
     if (isSurvivor) {
       const rival = surviving.find(o => o !== s);
@@ -207,5 +216,5 @@ export function assignConfidence(scored: ThemeScore[]): void {
  * `scored` list for inspection, they just can't be declared as the deck's theme.
  */
 export function survivingThemes(scored: ThemeScore[]): ThemeScore[] {
-  return scored.filter(s => s.passedFloor && !s.suppressedBy && !s.anchorMissing);
+  return scored.filter(s => s.passedFloor && !s.suppressedBy && !s.gateMissing);
 }

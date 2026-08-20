@@ -16,6 +16,13 @@ const KIND_COLORS: Record<string, string> = {
 
 const KINDS = ['tribal', 'mechanic', 'subtype', 'cardType', 'curated', 'counterType', 'archetype', 'role'] as const;
 
+/**
+ * ONE column template, shared by the header and every row. This was a `<table>` with a `<thead>`
+ * over rows that were grids inside a colSpan'd cell — two independent layout systems, so the
+ * headers never sat above the values they named. Divs on a single template can't drift.
+ */
+const GRID = 'grid grid-cols-[24px_minmax(110px,1fr)_86px_58px_52px_72px_56px_56px_52px_50px_58px_96px] items-center';
+
 interface Props {
   scores: ThemeScore[];
   /** slug → EDHREC decks pairing this commander with this theme. */
@@ -34,9 +41,9 @@ export function ThemeScoreTable({ scores, deckCounts }: Props) {
   const rows = useMemo(() => {
     let r = scores.filter(s => s.members > 0);
     if (kindFilter) r = r.filter(s => s.model.kind.kind === kindFilter);
-    // Mirrors survivingThemes exactly, anchors included — the filter should show what could
-    // actually be declared, not merely what cleared the numeric guards.
-    if (onlySurviving) r = r.filter(s => s.passedFloor && !s.suppressedBy && !s.anchorMissing);
+    // Mirrors survivingThemes exactly, declaration gates included — the filter should show what
+    // could actually be declared, not merely what cleared the numeric guards.
+    if (onlySurviving) r = r.filter(s => s.passedFloor && !s.suppressedBy && !s.gateMissing);
     return r.slice(0, 200);
   }, [scores, kindFilter, onlySurviving]);
 
@@ -83,33 +90,30 @@ export function ThemeScoreTable({ scores, deckCounts }: Props) {
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-border/40">
-        <table className="w-full text-xs">
-          <thead className="bg-card/50 text-muted-foreground">
-            <tr className="text-left">
-              <th className="p-2 w-6" />
-              <th className="p-2">Theme</th>
-              <th className="p-2">Kind</th>
-              <th className="p-2 text-right" title="Final Phase A score, after the prior">Score</th>
-              <th className="p-2 text-right" title="lift x coverage x separation x evidence quality">Conf</th>
-              <th className="p-2 text-right" title="Cards in the deck belonging to this theme">Members</th>
-              <th className="p-2 text-right" title="members / non-land cards">Ratio</th>
-              <th className="p-2 text-right" title="Share of the playable pool in this theme">Base</th>
-              <th className="p-2 text-right" title="ratio ÷ base rate, capped">Lift</th>
-              <th className="p-2 text-right" title="Commander-list prior">Prior</th>
-              <th className="p-2 text-right" title="EDHREC decks pairing this commander with this theme">Decks</th>
-              <th className="p-2">Status</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div className="min-w-[820px] text-xs">
+          <div className={`${GRID} bg-card/50 text-muted-foreground whitespace-nowrap`}>
+            <div className="p-2" />
+            <div className="p-2">Theme</div>
+            <div className="p-2">Kind</div>
+            <div className="p-2 text-right" title="Final Phase A score, after the prior">Score</div>
+            <div className="p-2 text-right" title="lift x coverage x separation x evidence quality">Conf</div>
+            <div className="p-2 text-right" title="Cards in the deck belonging to this theme">Members</div>
+            <div className="p-2 text-right" title="members / non-land cards">Ratio</div>
+            <div className="p-2 text-right" title="Share of the playable pool in this theme">Base</div>
+            <div className="p-2 text-right" title="ratio ÷ base rate, capped">Lift</div>
+            <div className="p-2 text-right" title="Commander-list prior">Prior</div>
+            <div className="p-2 text-right" title="EDHREC decks pairing this commander with this theme">Decks</div>
+            <div className="p-2">Status</div>
+          </div>
+          <div>
             {rows.map(s => {
               const open = expanded === s.model.slug;
               return (
-                <tr key={s.model.slug} className="border-t border-border/30 align-top">
-                  <td colSpan={12} className="p-0">
-                    <div
-                      onClick={() => setExpanded(open ? null : s.model.slug)}
-                      className="grid grid-cols-[24px_minmax(110px,1fr)_86px_56px_56px_64px_54px_54px_50px_48px_56px_90px] gap-0 cursor-pointer hover:bg-accent/30 transition-colors items-center"
-                    >
+                <div key={s.model.slug} className="border-t border-border/30">
+                  <div
+                    onClick={() => setExpanded(open ? null : s.model.slug)}
+                    className={`${GRID} cursor-pointer hover:bg-accent/30 transition-colors`}
+                  >
                       <div className="p-2 text-muted-foreground">
                         {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                       </div>
@@ -147,9 +151,18 @@ export function ThemeScoreTable({ scores, deckCounts }: Props) {
                         {deckCounts?.get(s.model.slug) ?? '—'}
                       </div>
                       <div className="p-2">
-                        {s.anchorMissing ? (
-                          <span className="text-sky-400/80" title={`needs ${s.anchorMissing} in the deck`}>
-                            needs {s.anchorMissing.split(',')[0]}
+                        {s.gateMissing ? (
+                          <span
+                            className="text-sky-400/80"
+                            title={s.gateMissing.kind === 'card'
+                              ? `needs ${s.gateMissing.subject} in the deck`
+                              : `no card in this deck carries the "${s.gateMissing.subject}" effect`}
+                          >
+                            {/* Card gates name the card ("needs Umori"); effect gates can't, because
+                                sixteen different cards satisfy the pod gate. */}
+                            needs {s.gateMissing.kind === 'card'
+                              ? s.gateMissing.subject.split(',')[0]
+                              : 'the effect'}
                           </span>
                         ) : s.suppressedBy ? (
                           <span className="text-amber-400/80" title={`absorbed by ${s.suppressedBy}`}>
@@ -201,15 +214,14 @@ export function ThemeScoreTable({ scores, deckCounts }: Props) {
                         </div>
                       </div>
                     )}
-                  </td>
-                </tr>
+                  </div>
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={12} className="p-6 text-center text-muted-foreground">No themes matched.</td></tr>
+              <div className="p-6 text-center text-muted-foreground">No themes matched.</div>
             )}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
     </div>
   );
