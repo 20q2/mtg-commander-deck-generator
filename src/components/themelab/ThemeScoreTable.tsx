@@ -18,13 +18,15 @@ const KINDS = ['tribal', 'mechanic', 'subtype', 'cardType', 'curated', 'counterT
 
 interface Props {
   scores: ThemeScore[];
+  /** slug → EDHREC decks pairing this commander with this theme. */
+  deckCounts?: Map<string, number>;
 }
 
 /**
  * The ranked theme table. Every score component is shown separately rather than rolled up, because
  * the whole point of this page is deciding which term is misbehaving.
  */
-export function ThemeScoreTable({ scores }: Props) {
+export function ThemeScoreTable({ scores, deckCounts }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<string | null>(null);
   const [onlySurviving, setOnlySurviving] = useState(true);
@@ -88,11 +90,13 @@ export function ThemeScoreTable({ scores }: Props) {
               <th className="p-2">Theme</th>
               <th className="p-2">Kind</th>
               <th className="p-2 text-right" title="Final Phase A score, after the prior">Score</th>
+              <th className="p-2 text-right" title="lift x coverage x separation x evidence quality">Conf</th>
               <th className="p-2 text-right" title="Cards in the deck belonging to this theme">Members</th>
               <th className="p-2 text-right" title="members / non-land cards">Ratio</th>
               <th className="p-2 text-right" title="Share of the playable pool in this theme">Base</th>
               <th className="p-2 text-right" title="ratio ÷ base rate, capped">Lift</th>
               <th className="p-2 text-right" title="Commander-list prior">Prior</th>
+              <th className="p-2 text-right" title="EDHREC decks pairing this commander with this theme">Decks</th>
               <th className="p-2">Status</th>
             </tr>
           </thead>
@@ -101,10 +105,10 @@ export function ThemeScoreTable({ scores }: Props) {
               const open = expanded === s.model.slug;
               return (
                 <tr key={s.model.slug} className="border-t border-border/30 align-top">
-                  <td colSpan={10} className="p-0">
+                  <td colSpan={12} className="p-0">
                     <div
                       onClick={() => setExpanded(open ? null : s.model.slug)}
-                      className="grid grid-cols-[24px_minmax(120px,1fr)_90px_60px_70px_60px_60px_55px_55px_90px] gap-0 cursor-pointer hover:bg-accent/30 transition-colors items-center"
+                      className="grid grid-cols-[24px_minmax(110px,1fr)_86px_56px_56px_64px_54px_54px_50px_48px_56px_90px] gap-0 cursor-pointer hover:bg-accent/30 transition-colors items-center"
                     >
                       <div className="p-2 text-muted-foreground">
                         {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -116,11 +120,32 @@ export function ThemeScoreTable({ scores }: Props) {
                         </Badge>
                       </div>
                       <div className="p-2 text-right font-semibold text-violet-300/90">{s.membershipScore.toFixed(1)}</div>
+                      <div
+                        className={`p-2 text-right font-semibold ${
+                          s.confidence >= 60 ? 'text-emerald-300'
+                          : s.confidence >= 30 ? 'text-amber-300'
+                          : 'text-muted-foreground'
+                        }`}
+                        title="lift × coverage × separation × evidence quality"
+                      >
+                        {s.confidence}%
+                      </div>
                       <div className="p-2 text-right">{s.members}</div>
                       <div className="p-2 text-right">{(s.ratio * 100).toFixed(0)}%</div>
                       <div className="p-2 text-right text-muted-foreground">{(s.model.baseRate * 100).toFixed(1)}%</div>
                       <div className="p-2 text-right">{s.observedOverExpected.toFixed(1)}×</div>
                       <div className="p-2 text-right text-muted-foreground">{s.prior.toFixed(2)}</div>
+                      {/* Population sanity check: a theme EDHREC pairs with this commander across
+                          hundreds of decks is a real archetype; four decks is a coincidence. Blank
+                          when the theme isn't on the commander's page at all. */}
+                      <div
+                        className="p-2 text-right text-muted-foreground"
+                        title={deckCounts?.has(s.model.slug)
+                          ? `${deckCounts.get(s.model.slug)} EDHREC decks pair this commander with ${s.model.name}`
+                          : `not on this commander's EDHREC page (${s.model.numDecks} decks run the theme overall)`}
+                      >
+                        {deckCounts?.get(s.model.slug) ?? '—'}
+                      </div>
                       <div className="p-2">
                         {s.anchorMissing ? (
                           <span className="text-sky-400/80" title={`needs ${s.anchorMissing} in the deck`}>
@@ -181,7 +206,7 @@ export function ThemeScoreTable({ scores }: Props) {
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">No themes matched.</td></tr>
+              <tr><td colSpan={12} className="p-6 text-center text-muted-foreground">No themes matched.</td></tr>
             )}
           </tbody>
         </table>

@@ -1,0 +1,65 @@
+{
+  "note": "Fixtures for /theme-lab (dev only). Each deck is hand-authored to be an unambiguous example of its archetype, with `expect` naming the theme slug(s) that SHOULD bubble to the top. Lands are mostly omitted: detection scores over non-land cards, so the manabase only dilutes the ratio uniformly. These are deliberately NOT EDHREC average decks — using our own data source as the test input would make the overlap signal circular.",
+  "decks": [
+    {
+      "name": "Krenko — Goblins",
+      "commander": "Krenko, Mob Boss",
+      "expect": ["goblins"],
+      "cards": ["Krenko, Mob Boss", "Goblin Chieftain", "Goblin King", "Goblin Warchief", "Goblin Matron", "Goblin Recruiter", "Goblin Chirurgeon", "Mogg War Marshal", "Skirk Prospector", "Goblin Rabblemaster", "Legion Loyalist", "Goblin Bushwhacker", "Pashalik Mons", "Goblin Trashmaster", "Muxus, Goblin Grandee", "Goblin Piledriver", "Beetleback Chief", "Krenko's Command", "Dragon Fodder", "Goblin Instigator", "Purphoros, God of the Forge", "Impact Tremors", "Shared Animosity", "Coat of Arms", "Skullclamp", "Sol Ring", "Arcane Signet", "Lightning Bolt", "Chaos Warp", "Blasphemous Act", "Goblin Bombardment", "Thousand-Year Elixir", "Umbral Mantle", "Ashnod's Altar"]
+    },
+    {
+      "name": "Meren — Aristocrats",
+      "commander": "Meren of Clan Nel Toth",
+      "expect": ["aristocrats", "sacrifice"],
+      "cards": ["Meren of Clan Nel Toth", "Blood Artist", "Zulaport Cutthroat", "Bastion of Remembrance", "Viscera Seer", "Carrion Feeder", "Woe Strider", "Fleshbag Marauder", "Merciless Executioner", "Plaguecrafter", "Grave Pact", "Dictate of Erebos", "Butcher of Malakir", "Pitiless Plunderer", "Mazirek, Kraul Death Priest", "Poison-Tip Archer", "Sakura-Tribe Elder", "Sifter Wurm", "Village Rites", "Victimize", "Eldritch Evolution", "Reanimate", "Animate Dead", "Attrition", "Ashnod's Altar", "Skullclamp", "Sol Ring", "Arcane Signet", "Cultivate", "Kodama's Reach", "Beast Within", "Putrefy", "Blasphemous Act", "Grim Haruspex"]
+    },
+    {
+      "name": "Brago — Blink",
+      "commander": "Brago, King Eternal",
+      "expect": ["blink", "etb"],
+      "cards": ["Brago, King Eternal", "Ephemerate", "Ghostly Flicker", "Cloudshift", "Displacer Kitten", "Deadeye Navigator", "Conjurer's Closet", "Panharmonicon", "Blade Splicer", "Restoration Angel", "Mulldrifter", "Reflector Mage", "Cloudblazer", "Wall of Omens", "Solemn Simulacrum", "Sun Titan", "Karmic Guide", "Eternal Witness", "Reveillark", "Recruiter of the Guard", "Stonehorn Dignitary", "Angel of Serenity", "Sphinx of Uthuun", "Thassa's Oracle", "Sol Ring", "Arcane Signet", "Swords to Plowshares", "Path to Exile", "Counterspell", "Rhystic Study", "Smothering Tithe", "Fabricate", "Whitemane Lion", "Emiel the Blessed"]
+    },
+    {
+      "name": "Ezuri — +1/+1 Counters",
+      "commander": "Ezuri, Claw of Progress",
+      "expect": ["plus-1-plus-1-counters", "counters-matter"],
+      "cards": ["Ezuri, Claw of Progress", "Corpsejack Menace", "Hardened Scales", "Branching Evolution", "Forgotten Ancient", "Kalonian Hydra", "Vastwood Hydra", "Fungal Behemoth", "Gyre Sage", "Mycoloth", "Champion of Lambholt", "Managorger Hydra", "Herald of Secret Streams", "Simic Ascendancy", "Inspiring Call", "Solidarity of Heroes", "Ordeal of Nylea", "Cathars' Crusade", "Doubling Season", "Zegana, Utopian Speaker", "Rishkar, Peema Renegade", "Master Biomancer", "Fathom Mage", "Bloodspore Thrinax", "Sol Ring", "Arcane Signet", "Cultivate", "Kodama's Reach", "Beast Within", "Counterspell", "Rhystic Study", "Eternal Witness", "Skullclamp", "Blasphemous Act"]
+    },
+    {
+      "name": "Titania — Lands Matter",
+      "commander": "Titania, Protector of Argoth",
+      "expect": ["lands-matter", "landfall"],
+      "cards": ["Titania, Protector of Argoth", "Crucible of Worlds", "Ramunap Excavator", "Splendid Reclamation", "Life from the Loam", "World Shaper", "Aftermath Analyst", "Springbloom Druid", "Sylvan Safekeeper", "The Gitrog Monster", "Constant Mists", "Zuran Orb", "Harrow", "Exploration", "Azusa, Lost but Seeking", "Wayward Swordtooth", "Tireless Provisioner", "Scute Swarm", "Avenger of Zendikar", "Nissa, Vastwood Seer", "Courser of Kruphix", "Perilous Forays", "Ancient Greenwarden", "Gaea's Cradle", "Sol Ring", "Arcane Signet", "Cultivate", "Kodama's Reach", "Beast Within", "Eternal Witness", "Skullclamp", "Blasphemous Act", "Realms Uncharted", "Elvish Reclaimer"]
+    },
+    {
+      "name": "Nath — Discard",
+      "commander": "Nath of the Gilt-Leaf",
+      "expect": ["discard", "elves"],
+      "cards": ["Nath of the Gilt-Leaf", "Oppression", "Bottomless Pit", "Necrogen Mists", "Words of Waste", "Megrim", "Waste Not", "Raiders' Wake", "Torment of Scarabs", "Painful Quandary", "Creeping Dread", "Quest for the Nihil Stone", "Geth's Grimoire", "Delirium Skeins", "Dark Deal", "Smallpox", "Pox", "Death Cloud", "Mind Slash", "Sadistic Hypnotist", "Asylum Visitor", "Cabal Interrogator", "Llanowar Elves", "Elvish Mystic", "Fyndhorn Elves", "Priest of Titania", "Imperious Perfect", "Elvish Harbinger", "Wirewood Herald", "Shaman of the Pack", "Skullclamp", "Sol Ring", "Golgari Signet", "Attrition"]
+    },
+    {
+      "name": "Talrand — Spellslinger",
+      "commander": "Talrand, Sky Summoner",
+      "expect": ["spellslinger", "cantrips"],
+      "cards": ["Talrand, Sky Summoner", "Ponder", "Preordain", "Brainstorm", "Opt", "Serum Visions", "Consider", "Counterspell", "Swan Song", "An Offer You Can't Refuse", "Arcane Denial", "Cyclonic Rift", "Pongify", "Rapid Hybridization", "Reality Shift", "Windfall", "Whirlwind Denial", "Archmage Emeritus", "Murmuring Mystic", "Docent of Perfection", "Metallurgic Summonings", "Young Pyromancer", "Baral, Chief of Compliance", "Primal Amulet", "Mystic Remora", "Rhystic Study", "Sol Ring", "Arcane Signet", "Thassa's Oracle", "Thought Scour", "Frantic Search", "Turnabout", "Reins of Power", "Aetherize"]
+    },
+    {
+      "name": "Sram — Equipment Voltron",
+      "commander": "Sram, Senior Edificer",
+      "expect": ["equipment", "voltron"],
+      "cards": ["Sram, Senior Edificer", "Colossus Hammer", "Sigarda's Aid", "Puresteel Paladin", "Danitha Capashen, Paragon", "Bruenor Battlehammer", "Umezawa's Jitte", "Sword of Feast and Famine", "Sword of Fire and Ice", "Sword of Light and Shadow", "Batterskull", "Loxodon Warhammer", "Shadowspear", "Lightning Greaves", "Swiftfoot Boots", "Whispersilk Cloak", "Argentum Armor", "Sigarda's Splendor", "Stoneforge Mystic", "Steelshaper's Gift", "Open the Armory", "Leonin Shikari", "Ardenn, Intrepid Archaeologist", "Balan, Wandering Knight", "Sol Ring", "Arcane Signet", "Swords to Plowshares", "Path to Exile", "Enlightened Tutor", "Mask of Memory", "Boots of Speed", "Grafted Wargear", "Cranial Plating", "Nettlecyst"]
+    },
+    {
+      "name": "Niv-Mizzet — Wheels",
+      "commander": "Niv-Mizzet, Parun",
+      "expect": ["wheels"],
+      "cards": ["Niv-Mizzet, Parun", "Windfall", "Wheel of Fortune", "Wheel of Fate", "Time Reversal", "Dark Deal", "Molten Psyche", "Whispering Madness", "Reforge the Soul", "Incendiary Command", "Notion Thief", "Consecrated Sphinx", "Kess, Dissident Mage", "Fate Unraveler", "Underworld Dreams", "Kederekt Parasite", "Nekusar, the Mindrazer", "Alms of the Vein", "Teferi's Puzzle Box", "Howling Mine", "Temple Bell", "Font of Mythos", "Rhystic Study", "Mystic Remora", "Sol Ring", "Arcane Signet", "Counterspell", "Cyclonic Rift", "Brainstorm", "Ponder", "Curiosity", "Ophidian Eye", "Niv-Mizzet, the Firemind", "Chandra's Ignition"]
+    },
+    {
+      "name": "Sidisi — Self-Mill Reanimator",
+      "commander": "Sidisi, Brood Tyrant",
+      "expect": ["self-mill", "reanimator"],
+      "cards": ["Sidisi, Brood Tyrant", "Stitcher's Supplier", "Hedron Crab", "Undercity Informer", "Altar of Dementia", "Mesmeric Orb", "Dread Return", "Reanimate", "Animate Dead", "Necromancy", "Victimize", "Living Death", "Rise of the Dark Realms", "Eternal Witness", "Splinterfright", "Nyx Weaver", "Gravecrawler", "Jarad, Golgari Lich Lord", "Lord of Extinction", "Golgari Grave-Troll", "Life from the Loam", "Buried Alive", "Entomb", "Satyr Wayfinder", "Grisly Salvage", "Sol Ring", "Arcane Signet", "Cultivate", "Beast Within", "Putrefy", "Skullclamp", "Blasphemous Act", "World Shaper", "Perpetual Timepiece"]
+    }
+  ]
+}

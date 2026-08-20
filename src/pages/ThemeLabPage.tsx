@@ -10,10 +10,13 @@ import { getCardsByNames, getMtgCatalogs, type MtgCatalogs } from '@/services/sc
 import { fetchAllTags, fetchCommanderThemes } from '@/services/edhrec/client';
 import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
 import {
-  buildThemeModel, scoreThemesForDeck, loadThemeCharTags,
-  DEFAULT_TUNING, TUNING_FIELDS, type ThemeTuning, type ThemeModel,
+  buildThemeModel, scoreThemesForDeck, loadThemeCharTags, survivingThemes,
+  DEFAULT_TUNING, TUNING_FIELDS, type ThemeTuning, type ThemeModel, type ThemeScore,
 } from '@/services/themes';
+import themeTestDecks from '@/data/themeTestDecks.json';
 import type { ScryfallCard } from '@/types';
+
+interface TestDeck { name: string; commander: string; expect: string[]; cards: string[] }
 
 /** Everything the scorer needs, gathered once per pasted deck so tuning re-runs stay local. */
 interface LabInput {
@@ -21,10 +24,15 @@ interface LabInput {
   cards: ScryfallCard[];
   models: ThemeModel[];
   commanderThemeSlugs: Set<string>;
+  /** slug → how many EDHREC decks pair this commander with this theme. */
+  commanderThemeCounts: Map<string, number>;
   tagIndexLoaded: boolean;
   catalogs: MtgCatalogs;
   tableGeneratedAt: string | null;
   taggedCards: number;
+  /** Theme slugs the fixture says SHOULD win, when a preset deck was loaded. */
+  expected?: string[];
+  fixtureName?: string;
 }
 
 export function ThemeLabPage() {
@@ -36,7 +44,10 @@ export function ThemeLabPage() {
   const [tuning, setTuning] = useState<ThemeTuning>(DEFAULT_TUNING);
   const [tab, setTab] = useState<'themes' | 'cards'>('themes');
 
-  const handleSubmit = useCallback(async (result: PasteLaneResult) => {
+  const handleSubmit = useCallback(async (
+    result: PasteLaneResult,
+    fixture?: { name: string; expect: string[] },
+  ) => {
     setLoading(true);
     setError(null);
     try {
@@ -55,10 +66,14 @@ export function ThemeLabPage() {
       // The commander's own EDHREC themes are the prior. Non-fatal: without it every theme is
       // simply treated as off-list, which is worth seeing rather than failing over.
       let commanderThemeSlugs = new Set<string>();
+      const commanderThemeCounts = new Map<string, number>();
       if (result.commanderName) {
         try {
           const themes = await fetchCommanderThemes(result.commanderName);
           commanderThemeSlugs = new Set(themes.map(t => t.slug));
+          // How many EDHREC decks actually pair this commander with this theme — the sanity check on
+          // a detection. "Nath + Discard, 312 decks" is a real archetype; 4 decks is a coincidence.
+          for (const t of themes) commanderThemeCounts.set(t.slug, t.count);
         } catch { /* prior unavailable — every theme reads as off-list */ }
       }
 
@@ -68,10 +83,13 @@ export function ThemeLabPage() {
         cards,
         models,
         commanderThemeSlugs,
+        commanderThemeCounts,
         tagIndexLoaded,
         catalogs,
         tableGeneratedAt: table.generatedAt,
         taggedCards: cards.filter(c => c.oracle_id && tagsForOracleId(c.oracle_id).length > 0).length,
+        expected: fixture?.expect,
+        fixtureName: fixture?.name,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -91,7 +109,7 @@ export function ThemeLabPage() {
     );
   }, [input, tuning]);
 
-  const survivors = scores.filter(s => s.passedFloor && !s.suppressedBy);
+  const survivors = survivingThemes(scores);
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
@@ -104,7 +122,37 @@ export function ThemeLabPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-sm">Drop a deck in</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle className="text-sm">Test decks</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Ten hand-built decks, each an unambiguous example of one archetype. Click one to score it
+            and check the expected theme against what actually surfaces.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(themeTestDecks.decks as TestDeck[]).map(d => (
+              <button
+                key={d.name}
+                disabled={loading}
+                onClick={() => handleSubmit(
+                  { cardNames: d.cards, commanderName: d.commander },
+                  { name: d.name, expect: d.expect },
+                )}
+                className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors disabled:opacity-40 ${
+                  input?.fixtureName === d.name
+                    ? 'bg-accent border-primary/50'
+                    : 'border-border/50 hover:bg-accent/50'
+                }`}
+                title={`expects: ${d.expect.join(', ')}`}
+              >
+                {d.name}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="text-sm">…or drop your own in</CardTitle></CardHeader>
         <CardContent>
           <PasteLane
             onSubmit={handleSubmit}
@@ -130,6 +178,7 @@ export function ThemeLabPage() {
 
       {input && (
         <>
+          {input.expected && <Verdict input={input} survivors={survivors} />}
           <HealthStrip input={input} />
 
           <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
@@ -160,11 +209,43 @@ export function ThemeLabPage() {
               </div>
 
               {tab === 'themes'
-                ? <ThemeScoreTable scores={scores} />
+                ? <ThemeScoreTable scores={scores} deckCounts={input.commanderThemeCounts} />
                 : <CardThemeTable scores={scores} />}
             </div>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Expected vs. actual for a fixture deck. PASS means an expected theme is the top survivor; PARTIAL
+ * means it surfaced but not first, which is usually the interesting case; MISS means it didn't
+ * clear the guards at all.
+ */
+function Verdict({ input, survivors }: { input: LabInput; survivors: ThemeScore[] }) {
+  const expected = input.expected ?? [];
+  const top = survivors[0]?.model.slug;
+  const rank = survivors.findIndex(s => expected.includes(s.model.slug));
+  const state = expected.includes(top ?? '') ? 'PASS' : rank >= 0 ? 'PARTIAL' : 'MISS';
+  const tone = state === 'PASS'
+    ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-300'
+    : state === 'PARTIAL'
+      ? 'border-amber-500/40 bg-amber-500/5 text-amber-300'
+      : 'border-red-500/40 bg-red-500/5 text-red-300';
+  return (
+    <div className={`rounded-lg border px-3 py-2 text-xs flex flex-wrap items-center gap-x-4 gap-y-1 ${tone}`}>
+      <span className="font-semibold">{state}</span>
+      <span>{input.fixtureName}</span>
+      <span className="text-muted-foreground">
+        expected <strong>{expected.join(' or ')}</strong>
+      </span>
+      <span className="text-muted-foreground">
+        got <strong>{survivors.slice(0, 3).map(s => `${s.model.name} (${s.confidence}%)`).join(', ') || 'nothing'}</strong>
+      </span>
+      {state === 'PARTIAL' && (
+        <span className="text-muted-foreground">expected theme ranked #{rank + 1}</span>
       )}
     </div>
   );
