@@ -47,9 +47,11 @@ export function buildThemeModel(
     slug: tag.slug,
     name: tag.name,
     kind,
-    // Only archetypes consult the tag list: a deterministic kind that ALSO had tags would
-    // double-count itself, and its literal test is strictly more precise anyway.
-    charTags: kind.kind === 'archetype' ? (entry?.charTags ?? []) : [],
+    // Kinds are exclusive for CLASSIFICATION but additive for MEMBERSHIP. Waterbending is both a
+    // keyword and an EDHREC archetype: the keyword catches the benders, the tags catch the payoffs
+    // and support that care about bending without printing the word. Role themes get nothing —
+    // they're a job, not a strategy, so neither test is meaningful.
+    charTags: kind.kind === 'role' ? [] : (entry?.charTags ?? []),
     baseRate: entry?.baseRate ?? 0,
     numDecks: tag.numDecks,
   };
@@ -72,8 +74,10 @@ export function testMembership(
 ): MembershipResult {
   if (model.kind.kind === 'role') return NOT_A_MEMBER;
 
-  if (model.kind.kind !== 'archetype') {
-    if (!themeKindMatches(model.kind, card)) return NOT_A_MEMBER;
+  // Literal first — it's the higher-precision evidence, and reporting `basis: 'literal'` lets the UI
+  // say "Elf" rather than a tag list. Falls through to tags rather than returning, so a theme that
+  // is both a keyword and an archetype keeps its payoff cards.
+  if (model.kind.kind !== 'archetype' && themeKindMatches(model.kind, card)) {
     return { member: true, basis: 'literal', matched: [model.kind.match] };
   }
 

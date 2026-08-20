@@ -10,6 +10,21 @@
 /** How many themes from local Phase A scoring get promoted to an EDHREC page fetch. */
 export const SHORTLIST_SIZE = 6;
 
+/**
+ * What a TAG match is worth relative to a LITERAL match, when a theme has both.
+ *
+ * A theme can be a keyword and an EDHREC archetype at once — Waterbending is both. The keyword is
+ * near-certain evidence; the page-derived tags are softer, and exist to catch the synergy pieces and
+ * payoffs that support the mechanic without printing the word. So both count, but the keyword rings
+ * out: a card carrying `waterbend` is a full member, one merely carrying a characteristic tag counts
+ * for less.
+ *
+ * Note: the table's baseRate is precomputed with this same default, so moving it in /theme-lab makes
+ * lift slightly inconsistent until `npm run build:theme-tags` is re-run. Fine for exploring, worth a
+ * rebuild before trusting an exact number.
+ */
+export const TAG_MEMBER_WEIGHT = 0.5;
+
 // ─── Floors ───────────────────────────────────────────────────────────
 // A theme must clear BOTH to be considered at all. Scoring ~400 themes means ~400 chances to be
 // wrong, and the long tail is where the embarrassing false positives live.
@@ -84,6 +99,7 @@ export interface ThemeTuning {
   expectedRateFloor: number;
   maxLift: number;
   nestSuppressRatio: number;
+  tagMemberWeight: number;
 }
 
 export const DEFAULT_TUNING: ThemeTuning = {
@@ -98,12 +114,15 @@ export const DEFAULT_TUNING: ThemeTuning = {
   expectedRateFloor: EXPECTED_RATE_FLOOR,
   maxLift: MAX_LIFT,
   nestSuppressRatio: NEST_SUPPRESS_RATIO,
+  tagMemberWeight: TAG_MEMBER_WEIGHT,
 };
 
 /** Human labels + sane input bounds for the debug page's tuning panel. */
 export const TUNING_FIELDS: {
   key: keyof ThemeTuning; label: string; min: number; max: number; step: number; hint: string;
 }[] = [
+  { key: 'tagMemberWeight', label: 'Tag vs keyword', min: 0, max: 1, step: 0.05,
+    hint: 'What a tag match is worth when a theme also has a literal keyword test' },
   { key: 'membershipWeight', label: 'Membership weight', min: 0, max: 1, step: 0.05,
     hint: 'How much derived card membership counts vs. EDHREC signals' },
   { key: 'overlapWeight', label: 'Overlap weight', min: 0, max: 1, step: 0.05,

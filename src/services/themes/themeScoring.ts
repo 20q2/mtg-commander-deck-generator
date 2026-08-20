@@ -14,8 +14,15 @@ export interface ThemeScore {
   model: ThemeModel;
   /** Cards in the deck belonging to this theme. */
   memberCards: ThemeMemberCard[];
+  /** Raw card count, for display. */
   members: number;
-  /** members / non-land card count. */
+  /** Cards matched by the theme's literal test (keyword, type line, oracle regex). */
+  literalMembers: number;
+  /** Cards matched only by a characteristic tag — the softer, page-derived evidence. */
+  tagMembers: number;
+  /** literalMembers + tagMembers × tagMemberWeight. What scoring actually uses. */
+  weightedMembers: number;
+  /** weightedMembers / non-land card count. */
   ratio: number;
   /** ratio ÷ base rate, floored and capped — "how surprising is this concentration". */
   observedOverExpected: number;
@@ -74,8 +81,13 @@ export function scoreThemesForDeck(
       const r = testMembership(model, card, tagCache.get(card) ?? []);
       if (r.member) memberCards.push({ name: card.name, basis: r.basis, matched: r.matched });
     }
+    // The keyword rings out. A literal match is near-certain evidence; a tag match is the softer
+    // page-derived signal that catches synergy pieces, so it counts for less rather than equally.
     const members = memberCards.length;
-    const ratio = members / denom;
+    const literalMembers = memberCards.filter(m => m.basis === 'literal').length;
+    const tagMembers = members - literalMembers;
+    const weightedMembers = literalMembers + tagMembers * tuning.tagMemberWeight;
+    const ratio = weightedMembers / denom;
 
     const expected = Math.max(model.baseRate, tuning.expectedRateFloor);
     const observedOverExpected = Math.min(ratio / expected, tuning.maxLift);
@@ -84,10 +96,10 @@ export function scoreThemesForDeck(
     const prior = onCommanderList ? tuning.commanderListPrior : tuning.offListPrior;
 
     const rawMembershipScore = (observedOverExpected / tuning.maxLift) * 100;
-    const passedFloor = members >= tuning.minMembers && ratio >= tuning.minRatio;
+    const passedFloor = weightedMembers >= tuning.minMembers && ratio >= tuning.minRatio;
 
     scored.push({
-      model, memberCards, members, ratio, observedOverExpected, prior,
+      model, memberCards, members, literalMembers, tagMembers, weightedMembers, ratio, observedOverExpected, prior,
       rawMembershipScore,
       membershipScore: rawMembershipScore * prior,
       passedFloor, onCommanderList,

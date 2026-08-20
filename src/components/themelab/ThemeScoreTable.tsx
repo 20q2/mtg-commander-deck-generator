@@ -114,7 +114,7 @@ export function ThemeScoreTable({ scores }: Props) {
                         </Badge>
                       </div>
                       <div className="p-2 text-right font-semibold text-violet-300/90">{s.membershipScore.toFixed(1)}</div>
-                      <div className="p-2 text-right">{s.members}</div>
+                      <div className="p-2 text-right" title={`${s.literalMembers} by keyword/type, ${s.tagMembers} by tag (weighted ${s.weightedMembers.toFixed(1)})`}>{s.literalMembers > 0 && s.tagMembers > 0 ? <span>{s.literalMembers}<span className="text-violet-300/60">+{s.tagMembers}</span></span> : s.members}</div>
                       <div className="p-2 text-right">{(s.ratio * 100).toFixed(0)}%</div>
                       <div className="p-2 text-right text-muted-foreground">{(s.model.baseRate * 100).toFixed(1)}%</div>
                       <div className="p-2 text-right">{s.observedOverExpected.toFixed(1)}×</div>
