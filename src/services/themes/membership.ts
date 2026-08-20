@@ -38,16 +38,16 @@ export function buildThemeModel(
   tag: EDHRECTag,
   catalogs: MtgCatalogs,
   table: Record<string, ThemeTableEntry>,
-  /** Keywords observed on real cards; a mechanic on anything else is downgraded. See liveKeywords. */
-  liveKeywords?: ReadonlySet<string>,
+  /** Slugs whose literal test covers too few real cards to use. See table.forceArchetype. */
+  forceArchetype?: ReadonlySet<string>,
 ): ThemeModel {
   let kind = classifyTheme(
     tag.name, catalogs.mechanics, catalogs.creatureTypes, catalogs.permanentSubtypes,
   );
-  // A mechanic whose keyword never appears in card.keywords can't match anything, and as a
-  // non-archetype it would get no tag layer either — leaving the theme entirely inert. Downgrading
-  // to archetype gives it the statistical path instead, which is the only signal available.
-  if (kind.kind === 'mechanic' && liveKeywords && !liveKeywords.has(kind.match)) {
+  // A literal test that matches (almost) no real card leaves the theme inert, because a
+  // non-archetype gets no tag layer either. The statistical path is then the only signal available,
+  // so take it. Role themes are excluded deliberately and stay inert.
+  if (kind.kind !== 'role' && kind.kind !== 'archetype' && forceArchetype?.has(tag.slug)) {
     kind = { kind: 'archetype' };
   }
   const entry = table[tag.slug];

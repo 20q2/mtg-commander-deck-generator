@@ -298,21 +298,31 @@ async function main() {
     throw new Error(`only ${cards.size}/${universe.size} cards resolved — refusing to build on a broken pool`);
   }
 
-  // Keywords that actually appear on cards. Scryfall's keyword-actions catalog contains entries that
-  // never reach `card.keywords` (discard, sacrifice, exile, vote), so a theme classified `mechanic`
-  // on one of them can never match and — being non-archetype — gets no tag layer either. Downgrade
-  // those to archetype so the statistical path can carry them.
-  const liveKeywords = new Set<string>();
-  for (const c of cards.values()) for (const k of c.keywords ?? []) liveKeywords.add(k.toLowerCase());
-  const downgraded: string[] = [];
+  // COVERAGE ASSERTION. A deterministic theme whose literal test matches (almost) no real card is
+  // inert, and — this is the part that made it dangerous — indistinguishable at runtime from "this
+  // deck happens to have none of them". Nothing checked, so Discard shipped matching zero cards.
+  //
+  // Measured against the actual pool rather than reasoned about, because the causes are varied:
+  // keyword actions that never reach card.keywords (discard, sacrifice, exile, vote), token-only
+  // types with no cards to match (servo, blood), and keywords too rare in the pool to seed a
+  // definition (phasing, dredge). Anything under the bar becomes an archetype so the statistical
+  // path can carry it.
+  const MIN_LITERAL_COVERAGE = 10;
+  const nonLandCards = [...cards.values()].filter(c => !isLandCard(c));
+  const forceArchetype: string[] = [];
   for (const [slug, kind] of kinds) {
-    if (kind.kind === 'mechanic' && !liveKeywords.has(kind.match)) {
+    if (kind.kind === 'role' || kind.kind === 'archetype') continue;
+    let hits = 0;
+    for (const c of nonLandCards) {
+      if (themeKindMatches(kind, c as never) && ++hits >= MIN_LITERAL_COVERAGE) break;
+    }
+    if (hits < MIN_LITERAL_COVERAGE) {
+      forceArchetype.push(slug);
       kinds.set(slug, { kind: 'archetype' });
-      downgraded.push(`${slug}(→${kind.match})`);
     }
   }
-  if (downgraded.length > 0) {
-    console.log(`     downgraded ${downgraded.length} dead-keyword mechanics to archetype: ${downgraded.join(', ')}`);
+  if (forceArchetype.length > 0) {
+    console.log(`     ${forceArchetype.length} themes have <${MIN_LITERAL_COVERAGE} literal matches → archetype: ${forceArchetype.join(', ')}`);
   }
 
   console.log('5/6  SpellChroma tag index…');
@@ -458,7 +468,7 @@ async function main() {
   writeFileSync(OUT, JSON.stringify({
     generatedAt: new Date().toISOString(),
     themes: out,
-    liveKeywords: [...liveKeywords].sort(),
+    forceArchetype: forceArchetype.sort(),
   }, null, 2) + '\n');
   console.log(`\nWrote ${Object.keys(out).length} themes → src/data/themeCharTags.json`);
 

@@ -22,18 +22,22 @@ export interface ThemeCharTagTable {
   /** theme slug → entry. Missing slugs are normal and degrade softly. */
   themes: Record<string, ThemeTableEntry>;
   /**
-   * Keywords that actually appear in some card's `keywords` field.
+   * Themes whose literal test covers too few real cards to be usable, so they must fall back to the
+   * statistical path. This is the coverage assertion whose absence let themes fail silently: a test
+   * that matches nothing looks exactly like "this deck happens to have none".
    *
-   * Scryfall's keyword-actions catalog lists `discard`, `sacrifice`, `exile` and `vote`, but those
-   * never show up in `card.keywords` — only 51 of 79 actions ever do. A theme classified `mechanic`
-   * on a dead keyword can never match a card, and being non-archetype it gets no tag layer either,
-   * so Discard, Sacrifice, Exile and Voting were completely inert: a textbook Nath discard deck
-   * could not detect Discard at all.
+   * Three distinct causes, all found by measuring rather than guessing:
+   *  - Keyword ACTIONS never reach `card.keywords` (only 51 of 79 do), so Discard, Sacrifice, Exile
+   *    and Voting matched zero cards — a textbook Nath discard deck could not detect Discard.
+   *  - TOKEN-only types have no cards to match. Nothing has "Servo" or "Blood" on its type line;
+   *    cards merely create those tokens.
+   *  - Some keywords are real but too rare in the playable pool (Phasing, Dredge) to seed a
+   *    definition, since lift needs a minimum number of carriers.
    *
    * Recorded here because only the build script sees enough cards to know. Absent on an ungenerated
    * table, in which case nothing is downgraded and behaviour is unchanged.
    */
-  liveKeywords?: string[];
+  forceArchetype?: string[];
 }
 
 /**
