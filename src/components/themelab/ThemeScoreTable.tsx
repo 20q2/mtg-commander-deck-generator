@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { ThemeScore } from '@/services/themes';
+import { describeThemeTest, type ThemeScore } from '@/services/themes';
 
 const KIND_COLORS: Record<string, string> = {
   tribal: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -9,11 +9,12 @@ const KIND_COLORS: Record<string, string> = {
   subtype: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
   cardType: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
   curated: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  counterType: 'bg-lime-500/15 text-lime-300 border-lime-500/30',
   archetype: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
   role: 'bg-muted text-muted-foreground border-border/50',
 };
 
-const KINDS = ['tribal', 'mechanic', 'subtype', 'cardType', 'curated', 'archetype', 'role'] as const;
+const KINDS = ['tribal', 'mechanic', 'subtype', 'cardType', 'curated', 'counterType', 'archetype', 'role'] as const;
 
 interface Props {
   scores: ThemeScore[];
@@ -133,16 +134,20 @@ export function ThemeScoreTable({ scores }: Props) {
 
                     {open && (
                       <div className="px-9 pb-3 pt-1 bg-card/20 space-y-2">
-                        {s.model.kind.kind === 'archetype' && (
-                          <div className="text-[11px] text-muted-foreground">
-                            Definition:{' '}
-                            {s.model.charTags.length > 0
+                        {/* Always say how membership was decided. Deterministic kinds test the card
+                            itself, so name the literal test; archetypes have only the tag list. */}
+                        <div className="text-[11px] text-muted-foreground">
+                          Definition:{' '}
+                          {describeThemeTest(s.model.kind)
+                            ? <code className="px-1 rounded bg-emerald-500/10 text-emerald-300/90">
+                                {describeThemeTest(s.model.kind)}
+                              </code>
+                            : s.model.charTags.length > 0
                               ? s.model.charTags.map(t => (
                                   <code key={t} className="mr-1 px-1 rounded bg-violet-500/10 text-violet-300/90">{t}</code>
                                 ))
                               : <span className="text-amber-400/70">no characteristic tags — run npm run build:theme-tags</span>}
-                          </div>
-                        )}
+                        </div>
                         <div className="text-[11px] text-muted-foreground">
                           {s.memberCards.length} matching card{s.memberCards.length === 1 ? '' : 's'}:
                         </div>

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T00:08:19.674Z",
+  "generatedAt": "2026-08-20T00:19:22.184Z",
   "themes": {
     "tokens": {
       "charTags": [],
@@ -16,15 +16,15 @@
     "combo": {
       "charTags": [
         "full-refund",
-        "manaless-value",
         "refund",
         "untapper",
         "drain-life",
         "counterspell",
         "repeatable-sacrifice-outlet",
-        "untapper-creature"
+        "untapper-creature",
+        "sacrifice-outlet-creature"
       ],
-      "baseRate": 0.11566903864936515
+      "baseRate": 0.11957583368215431
     },
     "aggro": {
       "charTags": [
@@ -95,14 +95,14 @@
       "charTags": [
         "draw-hate",
         "prevent-cast",
-        "manaless-value",
         "toll",
         "tax",
         "inverted-effects",
         "synergy-noncreature",
-        "drain-life"
+        "drain-life",
+        "curiosity-like"
       ],
-      "baseRate": 0.05825310450676713
+      "baseRate": 0.06683410073950048
     },
     "lands-matter": {
       "charTags": [
@@ -162,13 +162,12 @@
     },
     "midrange": {
       "charTags": [
-        "manaless-value",
         "face-commander",
         "counterspell",
         "curiosity-like",
         "refund"
       ],
-      "baseRate": 0.08176363890051626
+      "baseRate": 0.07485698339612111
     },
     "mill": {
       "charTags": [],
@@ -182,14 +181,13 @@
       "charTags": [
         "full-refund",
         "prevent-cast",
-        "manaless-value",
         "hate-counterspell",
         "refund",
         "untapper",
         "black-effect",
         "counterspell"
       ],
-      "baseRate": 0.11622715222547789
+      "baseRate": 0.10959955350913911
     },
     "sacrifice": {
       "charTags": [],
@@ -300,11 +298,11 @@
         "typal-assassin",
         "synergy-legendary",
         "synergy-commander",
-        "manaless-value",
         "synergy-artifact",
-        "repeatable-treasures"
+        "repeatable-treasures",
+        "face-commander"
       ],
-      "baseRate": 0.07632203153341705
+      "baseRate": 0.07904283521696666
     },
     "stax": {
       "charTags": [
@@ -385,14 +383,13 @@
     },
     "good-stuff": {
       "charTags": [
-        "manaless-value",
         "synergy-legendary",
         "counterspell",
         "cost-ignorer",
         "free-cast-another",
         "black-effect"
       ],
-      "baseRate": 0.11050648807032232
+      "baseRate": 0.10394865355099762
     },
     "group-hug": {
       "charTags": [
@@ -431,15 +428,15 @@
     "birthing-pod": {
       "charTags": [
         "birthing-pod",
-        "manaless-value",
         "full-refund",
         "meme",
         "offcolor-ability",
         "sacrifice-outlet-creature",
         "sacrifice-outlet",
-        "repeatable-sacrifice-outlet"
+        "repeatable-sacrifice-outlet",
+        "counterspell"
       ],
-      "baseRate": 0.06606669457234547
+      "baseRate": 0.07653132412445933
     },
     "forced-combat": {
       "charTags": [
@@ -489,16 +486,16 @@
     },
     "toolbox": {
       "charTags": [
-        "manaless-value",
         "green-effect",
         "face-commander",
         "reanimate-creature",
         "repeatable-sacrifice-outlet",
         "counterspell",
         "sacrifice-outlet-creature",
-        "sacrifice-outlet"
+        "sacrifice-outlet",
+        "refund"
       ],
-      "baseRate": 0.1061113436584345
+      "baseRate": 0.126133668201479
     },
     "eldrazi": {
       "charTags": [],
@@ -565,12 +562,12 @@
         "kismet-effect",
         "prevent-cast",
         "hate-artifact",
-        "manaless-value",
         "drain-life",
         "inverted-effects",
-        "counterspell"
+        "counterspell",
+        "symmetrical"
       ],
-      "baseRate": 0.05329984651876657
+      "baseRate": 0.07332217106181108
     },
     "dinosaurs": {
       "charTags": [],
@@ -578,7 +575,6 @@
     },
     "tempo": {
       "charTags": [
-        "manaless-value",
         "full-refund",
         "theft-cast",
         "curiosity-like",
@@ -587,7 +583,7 @@
         "activate-from-hand",
         "counterspell"
       ],
-      "baseRate": 0.07799637226175526
+      "baseRate": 0.0712990093484024
     },
     "topdeck": {
       "charTags": [
@@ -619,14 +615,14 @@
       "charTags": [
         "extra-turn",
         "full-refund",
-        "manaless-value",
         "synergy-noncreature",
         "free-cast-another",
         "blue-effect",
         "refund",
-        "synergy-instant"
+        "synergy-instant",
+        "synergy-sorcery"
       ],
-      "baseRate": 0.12683131017161992
+      "baseRate": 0.12048276824333752
     },
     "spell-copy": {
       "charTags": [
@@ -677,11 +673,11 @@
         "life-loss-matters",
         "lifegain-matters",
         "burn-you",
-        "manaless-value",
         "unnoted-tracked-information",
-        "drain-life"
+        "drain-life",
+        "inverted-effects"
       ],
-      "baseRate": 0.04862564531882238
+      "baseRate": 0.04450955769499093
     },
     "energy": {
       "charTags": [
@@ -824,13 +820,13 @@
         "synergy-blue",
         "synergy-instant",
         "synergy-sorcery",
-        "manaless-value",
         "counterspell",
         "synergy-noncreature",
         "toll",
-        "cast-trigger-you"
+        "cast-trigger-you",
+        "blue-effect"
       ],
-      "baseRate": 0.09906515976001116
+      "baseRate": 0.1197851262731966
     },
     "rats": {
       "charTags": [],
@@ -968,13 +964,13 @@
         "typal-choose",
         "synergy-equipment",
         "synergy-aura",
-        "manaless-value",
         "synergy-enchantment",
         "face-commander",
         "curiosity",
-        "quick-equip"
+        "quick-equip",
+        "gives-indestructible"
       ],
-      "baseRate": 0.06369471187386633
+      "baseRate": 0.06739221431561322
     },
     "unblockable": {
       "charTags": [
@@ -1015,7 +1011,6 @@
     },
     "ad-nauseam": {
       "charTags": [
-        "manaless-value",
         "full-refund",
         "prevent-cast",
         "hate-counterspell",
@@ -1023,20 +1018,20 @@
         "refund",
         "counterspell"
       ],
-      "baseRate": 0.09494907213617972
+      "baseRate": 0.08825170922282685
     },
     "zoo": {
       "charTags": [
         "ferocious",
         "power-matters-individual",
-        "manaless-value",
         "cost-ignorer",
         "curiosity-like",
         "scales-with-power",
         "power-matters",
-        "gives-trample"
+        "gives-trample",
+        "creaturefall"
       ],
-      "baseRate": 0.12418027068508442
+      "baseRate": 0.1378540532998465
     },
     "discover": {
       "charTags": [],
@@ -1323,16 +1318,16 @@
     },
     "cheerios": {
       "charTags": [
-        "manaless-value",
         "full-refund",
         "egg",
         "cast-trigger-self",
         "synergy-artifact",
         "synergy-noncreature",
         "refund",
-        "sacrifice-self"
+        "sacrifice-self",
+        "synergy-legendary"
       ],
-      "baseRate": 0.12145946700153482
+      "baseRate": 0.1234128645179294
     },
     "curses": {
       "charTags": [],
@@ -1343,17 +1338,8 @@
       "baseRate": 0.00858099623273336
     },
     "earthbending": {
-      "charTags": [
-        "earthbend",
-        "exile-with-tax",
-        "synergy-creatureland",
-        "animate-land",
-        "haven",
-        "tap-fuel-artifact",
-        "typal-ally",
-        "cheat-death"
-      ],
-      "baseRate": 0.02567322450118599
+      "charTags": [],
+      "baseRate": 0.002232454304450956
     },
     "werewolves": {
       "charTags": [],
@@ -1370,11 +1356,11 @@
         "roll-d20",
         "dice-roll",
         "full-refund",
-        "manaless-value",
         "repeatable-treasures",
-        "dnd"
+        "dnd",
+        "burn-any"
       ],
-      "baseRate": 0.04416073670992047
+      "baseRate": 0.05602065020231617
     },
     "clerics": {
       "charTags": [],
@@ -1419,16 +1405,16 @@
     },
     "rock": {
       "charTags": [
-        "manaless-value",
         "copy-artifact",
         "passive-ability",
         "green-effect",
         "synergy-artifact",
         "sacrifice-outlet-artifact",
         "face-commander",
-        "refund"
+        "refund",
+        "egg"
       ],
-      "baseRate": 0.10039067950327892
+      "baseRate": 0.10094879307939165
     },
     "guildgates": {
       "charTags": [
@@ -1590,11 +1576,11 @@
         "sneak-from-library",
         "consult",
         "swap-removal",
-        "manaless-value",
         "cost-ignorer",
-        "synergy-instant"
+        "synergy-instant",
+        "synergy-noncreature"
       ],
-      "baseRate": 0.0675317427096414
+      "baseRate": 0.06941537602902191
     },
     "attractions": {
       "charTags": [],
@@ -1975,17 +1961,8 @@
       "baseRate": 0.0922980326496442
     },
     "airbending": {
-      "charTags": [
-        "earthbend",
-        "exile-with-tax",
-        "typal-ally",
-        "tap-fuel-artifact",
-        "animate-land",
-        "haven",
-        "cheat-death",
-        "non-mana-ability-mana"
-      ],
-      "baseRate": 0.03425422073391935
+      "charTags": [],
+      "baseRate": 0.0009069345611832008
     },
     "exalted": {
       "charTags": [],
@@ -2067,17 +2044,8 @@
       "baseRate": 0.0037672666387609877
     },
     "waterbending": {
-      "charTags": [
-        "earthbend",
-        "exile-with-tax",
-        "synergy-lesson",
-        "typal-ally",
-        "tap-fuel-artifact",
-        "animate-land",
-        "haven",
-        "cheat-death"
-      ],
-      "baseRate": 0.026440630668341007
+      "charTags": [],
+      "baseRate": 0.0016743407283382169
     },
     "druids": {
       "charTags": [],
@@ -2137,13 +2105,13 @@
         "color-break",
         "mass-land-denial",
         "full-refund",
-        "manaless-value",
         "untapper-artifact",
         "synergy-blue",
         "counterspell",
-        "removal-bounce"
+        "removal-bounce",
+        "untapper"
       ],
-      "baseRate": 0.053997488488907494
+      "baseRate": 0.06767127110366959
     },
     "time-lords": {
       "charTags": [],
@@ -2174,14 +2142,13 @@
       "charTags": [
         "typal-elf",
         "untapper-creature",
-        "manaless-value",
         "untapper",
         "power-matters-individual",
         "creature-count-matters",
         "pp-counters-matter",
         "creaturefall"
       ],
-      "baseRate": 0.09850704618389843
+      "baseRate": 0.09097251290637645
     },
     "villainous-choice": {
       "charTags": [
@@ -2226,17 +2193,8 @@
       "baseRate": 0.04332356634575136
     },
     "voting": {
-      "charTags": [
-        "synergy-vote",
-        "voting",
-        "secretly-choose",
-        "bribery",
-        "named-choice",
-        "minigame",
-        "opponent-chooses",
-        "dilemma"
-      ],
-      "baseRate": 0.015836472722198968
+      "charTags": [],
+      "baseRate": 0
     },
     "old-school": {
       "charTags": [
@@ -2312,16 +2270,16 @@
     },
     "lurrus-companion": {
       "charTags": [
-        "manaless-value",
         "low-mana-value-matters",
         "sacrifice-outlet-artifact",
         "toll",
         "reanimate-creature",
         "sacrifice-outlet-creature",
         "sacrifice-outlet",
-        "egg"
+        "egg",
+        "drain-life"
       ],
-      "baseRate": 0.09543742151527836
+      "baseRate": 0.10136737826147621
     },
     "color-hack": {
       "charTags": [
@@ -2571,29 +2529,29 @@
     },
     "turbo": {
       "charTags": [
-        "manaless-value",
         "full-refund",
         "meme",
         "ditch-hand",
         "non-mana-ability-mana",
         "black-effect",
         "refund",
-        "egg"
+        "egg",
+        "synergy-instant"
       ],
-      "baseRate": 0.09397237337798242
+      "baseRate": 0.10673922143156132
     },
     "all-spells": {
       "charTags": [
-        "manaless-value",
         "consult-cast",
         "synergy-instant",
         "synergy-sorcery",
         "consult",
         "free-cast-another",
         "synergy-noncreature",
-        "copy-spell"
+        "copy-spell",
+        "cast-on-resolution"
       ],
-      "baseRate": 0.06453188223803544
+      "baseRate": 0.06795032789172596
     },
     "foxes": {
       "charTags": [],
@@ -2813,16 +2771,16 @@
     },
     "doomsday": {
       "charTags": [
-        "manaless-value",
         "discarded-type-matters",
         "mill-any",
         "repeatable-loot",
         "gives-castable-from-graveyard",
         "black-effect",
         "mill-opponent",
-        "loot"
+        "loot",
+        "discard-matters"
       ],
-      "baseRate": 0.0796009487930794
+      "baseRate": 0.08029859076322031
     },
     "miracle": {
       "charTags": [

@@ -92,6 +92,19 @@ function singulars(n: string): string[] {
 }
 
 /**
+ * Stem candidates for a theme named as a gerund. Scryfall's own catalog is inconsistent about this:
+ * it lists `waterbend`, `airbend` and `earthbend` as bare stems but `firebending` with the -ing. So
+ * Firebending classified as a mechanic while its three siblings fell through to `archetype` and got
+ * near-identical junk tag-lift definitions (Waterbending's included `earthbend`).
+ *
+ * Also rescues Voting → `vote`. The exact spelling is tried first, so a theme whose name IS a
+ * keyword ("Cycling", "Training") never reaches the stem.
+ */
+function stems(n: string): string[] {
+  return [n, n.replace(/ing$/, ''), n.replace(/ing$/, 'e')];
+}
+
+/**
  * Classify one theme. Order: curated (our small exception list) → mechanic (Scryfall keywords) →
  * tribal (Scryfall creature types, matched on a singularized name) → archetype (fallback).
  */
@@ -105,7 +118,7 @@ export function classifyTheme(
   // Before the keyword check: "Time Counters" must read as the counter, not as a "time" mechanic.
   const counterKind = counterTypeFromName(n);
   if (counterKind) return { kind: 'counterType', match: counterKind };
-  if (mechanics.has(n)) return { kind: 'mechanic', match: n };
+  for (const cand of stems(n)) if (mechanics.has(cand)) return { kind: 'mechanic', match: cand };
   // Card types before subtypes: a "Battles"/"Planeswalkers" theme must ship the literal type, and no
   // card type collides with a keyword or creature type.
   for (const cand of singulars(n)) if (CARD_TYPES.has(cand)) return { kind: 'cardType', match: cand };
@@ -140,6 +153,24 @@ function matchesCurated(sc: ScryfallCard, key: string): boolean {
 }
 function matchesCounterType(sc: ScryfallCard, kind: string): boolean {
   return new RegExp(`\\b${escapeRe(kind)}\\s+counter`, 'i').test(oracleText(sc));
+}
+
+/**
+ * Plain-language description of the test a theme uses to decide membership, so any surface can say
+ * WHY rather than only WHAT. Archetype themes have no literal test — their evidence is the
+ * characteristic-tag list on the model — so they return null and the caller shows the tags instead.
+ */
+export function describeThemeTest(kind: ThemeKind): string | null {
+  switch (kind.kind) {
+    case 'mechanic': return `keyword "${kind.match}"`;
+    case 'tribal': return `creature type "${kind.match}" on the type line`;
+    case 'subtype': return `subtype "${kind.match}" on the type line`;
+    case 'cardType': return `card type "${kind.match}"`;
+    case 'curated': return `oracle text matches ${CURATED_MECHANICS[kind.match]?.source ?? kind.match}`;
+    case 'counterType': return `oracle text mentions a "${kind.match} counter"`;
+    case 'role': return `functional role (${kind.match}) — never treated as a theme`;
+    default: return null;
+  }
 }
 
 /** Does this card deterministically belong to a mechanic/tribal/curated theme? (archetype/role → false). */
