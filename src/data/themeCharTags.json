@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T22:59:49.700Z",
+  "generatedAt": "2026-08-20T00:08:19.674Z",
   "themes": {
     "tokens": {
       "charTags": [],
@@ -1601,17 +1601,8 @@
       "baseRate": 0
     },
     "experience-counters": {
-      "charTags": [
-        "cda-color",
-        "characteristic-defining-ability",
-        "synergy-legendary",
-        "refund",
-        "aesthetic-counter",
-        "mini-refund",
-        "pp-counters-matter",
-        "counters-matter"
-      ],
-      "baseRate": 0.11106460164643504
+      "charTags": [],
+      "baseRate": 0.001116227152225478
     },
     "wraiths": {
       "charTags": [],
@@ -1749,34 +1740,16 @@
       "baseRate": 0.010185572764057486
     },
     "rad-counters": {
-      "charTags": [
-        "mill-each",
-        "synergy-mill",
-        "reanimate-land",
-        "mill-any",
-        "mill-opponent",
-        "recursion-land",
-        "counter-increaser",
-        "mill"
-      ],
-      "baseRate": 0.0539277242918934
+      "charTags": [],
+      "baseRate": 0.0014650481372959396
     },
     "suspend": {
       "charTags": [],
       "baseRate": 0.0025115110925073253
     },
     "charge-counters": {
-      "charTags": [
-        "gives-charge-counter",
-        "counter-fuel-charge",
-        "gains-flying",
-        "counter-increaser",
-        "untapper-artifact",
-        "counter-doubler",
-        "synergy-artifact",
-        "synergy-artifact-creature"
-      ],
-      "baseRate": 0.05916003906795033
+      "charTags": [],
+      "baseRate": 0.006069485140226036
     },
     "crime": {
       "charTags": [
@@ -1866,17 +1839,8 @@
       "baseRate": 0.05504395144411888
     },
     "time-counters": {
-      "charTags": [
-        "gives-suspend",
-        "recurring-suspend",
-        "synergy-suspend",
-        "trigger-from-exile",
-        "spell-with-no-casting-cost",
-        "the-doctor",
-        "doctor-who-episode-name",
-        "exile-on-resolution"
-      ],
-      "baseRate": 0.011720385098367517
+      "charTags": [],
+      "baseRate": 0.0057206641551555745
     },
     "adventures": {
       "charTags": [
@@ -2373,17 +2337,8 @@
       "baseRate": 0.01618529370726943
     },
     "spore-counters": {
-      "charTags": [
-        "typal-saproling",
-        "typal-fungus",
-        "counter-fuel-aesthetic",
-        "free-sacrifice-outlet",
-        "counter-increaser",
-        "aesthetic-counter",
-        "synergy-token",
-        "synergy-token-creature"
-      ],
-      "baseRate": 0.03509139109808846
+      "charTags": [],
+      "baseRate": 0.0012557555462536626
     },
     "nightmares": {
       "charTags": [],
@@ -2708,17 +2663,8 @@
       "baseRate": 0.0008371703641691084
     },
     "oil-counters": {
-      "charTags": [
-        "oil-counters-matter",
-        "counter-fuel-oil",
-        "poison-opponents",
-        "typal-phyrexian",
-        "synergy-poison",
-        "poison-mechanics",
-        "counter-fuel-aesthetic",
-        "poisonous"
-      ],
-      "baseRate": 0.012906376447607087
+      "charTags": [],
+      "baseRate": 0.0032789172596623412
     },
     "moonfolk": {
       "charTags": [],

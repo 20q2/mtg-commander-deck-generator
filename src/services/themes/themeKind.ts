@@ -8,6 +8,7 @@ export type ThemeKind =
   | { kind: 'subtype'; match: string }    // match = permanent subtype, e.g. equipment/aura (lowercase); test type_line subtypes
   | { kind: 'cardType'; match: string }   // match = card TYPE, e.g. battle/planeswalker (lowercase); test type_line types
   | { kind: 'curated'; match: string }    // match = CURATED_MECHANICS key; test oracle text
+  | { kind: 'counterType'; match: string } // match = counter kind ("experience"); test oracle text
   | { kind: 'role'; match: RoleKey }      // functional category (Ramp, Card Draw…) → NOT a theme pack
   | { kind: 'archetype' };                // no concrete card attribute → statistical (tag-lift) gate
 
@@ -57,6 +58,34 @@ export const ROLE_THEME_NAMES: Record<string, RoleKey> = {
  */
 export const CARD_TYPES = new Set(['artifact', 'battle', 'enchantment', 'planeswalker']);
 
+/** Escape a string for literal use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * "<Kind> Counters" themes name a counter that is literally printed on cards, so the theme is
+ * DERIVED from its own name rather than curated: "Experience Counters" → /\bexperience\s+counter/.
+ *
+ * Worth a rule rather than more CURATED_MECHANICS entries because it generalises — it already
+ * covers Experience (16 cards), Rad (21), Charge (87), Time (82), Spore (18) and Oil (47), and any
+ * counter type printed in a future set works without a code change.
+ *
+ * Left to tag-lift these were badly wrong: Experience Counters resolved to cda-color /
+ * synergy-legendary / refund / pp-counters-matter, so it matched Arcane Signet, The Great Henge and
+ * every +1/+1 counters card while missing Ezuri, Mizzix and Meren entirely.
+ *
+ * Returns null for +1/+1 and -1/-1, whose names start with a non-word character so `\b` cannot
+ * anchor — those two stay in CURATED_MECHANICS, which is checked first anyway.
+ */
+function counterTypeFromName(name: string): string | null {
+  const m = /^(.+?)\s+counters?$/i.exec(name.trim());
+  if (!m) return null;
+  const kind = m[1].trim();
+  if (!/^[a-z]/i.test(kind)) return null;
+  return kind.toLowerCase();
+}
+
 /** Singular candidates for a plural theme name, to match Scryfall's singular creature types. */
 function singulars(n: string): string[] {
   return [n, n.replace(/ies$/, 'y'), n.replace(/ves$/, 'f'), n.replace(/s$/, ''), n.replace(/es$/, '')];
@@ -73,6 +102,9 @@ export function classifyTheme(
   // Functional categories first — so a "Protection" theme reads as the role, never the keyword ability.
   if (n in ROLE_THEME_NAMES) return { kind: 'role', match: ROLE_THEME_NAMES[n] };
   if (n in CURATED_MECHANICS) return { kind: 'curated', match: n };
+  // Before the keyword check: "Time Counters" must read as the counter, not as a "time" mechanic.
+  const counterKind = counterTypeFromName(n);
+  if (counterKind) return { kind: 'counterType', match: counterKind };
   if (mechanics.has(n)) return { kind: 'mechanic', match: n };
   // Card types before subtypes: a "Battles"/"Planeswalkers" theme must ship the literal type, and no
   // card type collides with a keyword or creature type.
@@ -98,11 +130,16 @@ function hasCardType(sc: ScryfallCard, type: string): boolean {
   const lines = [sc.type_line ?? '', ...(sc.card_faces ?? []).map(f => f.type_line ?? '')];
   return lines.some(l => new RegExp(`\\b${type}\\b`).test(l.toLowerCase().split('—')[0] ?? ''));
 }
+function oracleText(sc: ScryfallCard): string {
+  return `${sc.oracle_text ?? ''} ${(sc.card_faces ?? []).map(f => f.oracle_text ?? '').join(' ')}`;
+}
 function matchesCurated(sc: ScryfallCard, key: string): boolean {
   const re = CURATED_MECHANICS[key];
   if (!re) return false;
-  const text = `${sc.oracle_text ?? ''} ${(sc.card_faces ?? []).map(f => f.oracle_text ?? '').join(' ')}`;
-  return re.test(text);
+  return re.test(oracleText(sc));
+}
+function matchesCounterType(sc: ScryfallCard, kind: string): boolean {
+  return new RegExp(`\\b${escapeRe(kind)}\\s+counter`, 'i').test(oracleText(sc));
 }
 
 /** Does this card deterministically belong to a mechanic/tribal/curated theme? (archetype/role → false). */
@@ -113,6 +150,7 @@ export function themeKindMatches(kind: ThemeKind, sc: ScryfallCard): boolean {
     case 'subtype': return hasSubtype(sc, kind.match);
     case 'cardType': return hasCardType(sc, kind.match);
     case 'curated': return matchesCurated(sc, kind.match);
+    case 'counterType': return matchesCounterType(sc, kind.match);
     // 'role' needs the tagger's role (BrewCandidate.role), which a ScryfallCard alone can't give —
     // and role themes never become theme packs, so no card-attribute test is meaningful here.
     default: return false;
