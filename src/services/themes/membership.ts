@@ -31,10 +31,11 @@ export interface ThemeModel {
    */
   requiredTag?: string;
   /**
-   * Word that must appear on SOME card in the deck before this theme may be DECLARED — you can't
-   * have a Saproling deck with no Saproling in it. See REQUIRED_WORDS.
+   * Word that must appear on at least `min` cards before this theme may be DECLARED — you can't have
+   * a Saproling deck with no Saproling in it, or a dredge deck with one dredge card. See
+   * REQUIRED_WORDS.
    */
-  requiredWord?: string;
+  requiredWord?: { word: string; min: number };
 }
 
 /** Why a card counted (or didn't), so every consumer can explain itself. */

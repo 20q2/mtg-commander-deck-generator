@@ -15,11 +15,14 @@ export interface ThemeGate {
   /**
    * 'card' — this exact card must be in the deck.
    * 'tag'  — some card must carry this oracle tag.
-   * 'text' — some card must mention this word in its name, type line or oracle text.
+   * 'text' — enough cards must mention this word in name, type line or oracle text.
    */
   kind: 'card' | 'tag' | 'text';
   /** The card name, the tag slug, or the word. */
   subject: string;
+  /** Text gates only: how many cards were required, and how many the deck has. */
+  need?: number;
+  have?: number;
 }
 
 /**
@@ -103,8 +106,20 @@ export const REQUIRED_TAGS: Readonly<Record<string, string>> = {
  * "vote"; "Eggs", "Paradigm", "Increment" and "Paradox" are EDHREC nicknames appearing on no card;
  * and substring matching makes "Opus" match Octopus. A derived rule would silence real themes.
  */
-export const REQUIRED_WORDS: Readonly<Record<string, string>> = {
-  saprolings: 'saproling',
-  servos: 'servo',
-  thopters: 'thopter',
+export const REQUIRED_WORDS: Readonly<Record<string, { word: string; min: number }>> = {
+  saprolings: { word: 'saproling', min: 1 },
+  servos: { word: 'servo', min: 1 },
+  thopters: { word: 'thopter', min: 1 },
+
+  // MECHANICS need a count, not merely presence. Dredge is a keyword, so if the word never appears
+  // the deck plainly isn't a dredge deck — but one Life from the Loam doesn't make it one either. A
+  // Titania lands deck holding exactly one dredge card scored Dredge at 65.0 with 15 tag members,
+  // because forceArchetype sent it down the statistical path and lift handed it lands-and-graveyard
+  // vocabulary: leaves-graveyard-trigger, crucible-of-worlds, reanimate-land, recursion-land.
+  // A mechanic that's really the plan shows up on more than one card.
+  dredge: { word: 'dredge', min: 3 },
+  // Same argument, and the same Titania deck: Deserts' definition is generic lands vocabulary
+  // (crucible-of-worlds, reanimate-land, landfall, lands-matter) plus synergy-desert, so it scores on
+  // any lands deck. A single incidental Desert in a manabase is not a Deserts deck.
+  deserts: { word: 'desert', min: 3 },
 };

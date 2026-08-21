@@ -24,11 +24,22 @@ const KINDS = ['tribal', 'mechanic', 'subtype', 'cardType', 'curated', 'counterT
 const GRID = 'grid grid-cols-[24px_minmax(110px,1fr)_86px_58px_52px_72px_56px_56px_52px_50px_58px_96px] items-center';
 
 /** Why a theme can't be declared, spelled out — the Status column only has room for a hint. */
-const GATE_TITLE: Record<ThemeGate['kind'], (subject: string) => string> = {
-  card: s => `needs ${s} in the deck`,
-  tag: s => `no card in this deck carries the "${s}" effect`,
-  text: s => `no card in this deck mentions "${s}" — it can't be a ${s} deck without one`,
-};
+function gateTitle(g: ThemeGate): string {
+  if (g.kind === 'card') return `needs ${g.subject} in the deck`;
+  if (g.kind === 'tag') return `no card in this deck carries the "${g.subject}" effect`;
+  const need = g.need ?? 1;
+  return need === 1
+    ? `no card in this deck mentions "${g.subject}" — it can't be a ${g.subject} deck without one`
+    : `only ${g.have ?? 0} card${g.have === 1 ? '' : 's'} in this deck mention "${g.subject}"; `
+      + `a ${g.subject} theme needs at least ${need} — one is an inclusion, not a plan`;
+}
+
+/** The Status column is 96px, so name the card when a card is what's missing and abbreviate else. */
+function gateLabel(g: ThemeGate): string {
+  if (g.kind === 'card') return g.subject.split(',')[0];
+  if (g.kind === 'tag') return 'the effect';
+  return (g.need ?? 1) > 1 ? `${g.need} ${g.subject}` : `a ${g.subject}`;
+}
 
 interface Props {
   scores: ThemeScore[];
@@ -161,13 +172,9 @@ export function ThemeScoreTable({ scores, deckCounts }: Props) {
                         {s.gateMissing ? (
                           <span
                             className="text-sky-400/80"
-                            title={GATE_TITLE[s.gateMissing.kind](s.gateMissing.subject)}
+                            title={gateTitle(s.gateMissing)}
                           >
-                            {/* Card gates name the card ("needs Umori"); effect gates can't, because
-                                sixteen different cards satisfy the pod gate. */}
-                            needs {s.gateMissing.kind === 'card' ? s.gateMissing.subject.split(',')[0]
-                              : s.gateMissing.kind === 'text' ? `a ${s.gateMissing.subject}`
-                              : 'the effect'}
+                            needs {gateLabel(s.gateMissing)}
                           </span>
                         ) : s.suppressedBy ? (
                           <span className="text-amber-400/80" title={`absorbed by ${s.suppressedBy}`}>

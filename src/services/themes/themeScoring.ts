@@ -90,17 +90,16 @@ export function scoreThemesForDeck(
   const tagsPresent = new Set<string>();
   for (const c of cards) for (const t of tagCache.get(c) ?? []) tagsPresent.add(t);
 
-  // Word gates ask "does ANY card mention this", so one blob for the whole deck answers it. Tested
-  // once per distinct word rather than once per theme — only a handful of themes carry a word gate,
-  // but the deck text is large enough that repeating the scan 400 times would be silly.
-  const deckText = cards.map(cardSearchText).join('\n');
-  const wordPresent = new Map<string, boolean>();
+  // Word gates count CARDS, not occurrences — "three cards mention dredge" is the claim, and one
+  // card saying it twice isn't three. Counted once per distinct word rather than once per theme.
+  const texts = cards.map(cardSearchText);
+  const wordCount = new Map<string, number>();
   for (const m of models) {
-    if (!m.requiredWord || wordPresent.has(m.requiredWord)) continue;
-    // Prefix-anchored, unterminated: "saproling" must start a word (so Octopus can't satisfy
-    // "opus") but may continue into "saprolings".
-    const re = new RegExp(`\\b${m.requiredWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
-    wordPresent.set(m.requiredWord, re.test(deckText));
+    if (!m.requiredWord || wordCount.has(m.requiredWord.word)) continue;
+    // Whole word, optional plural. Both ends anchored so "opus" can't be satisfied by Octopus and
+    // "dredge" can't be satisfied by Canal Dredger; the `s?` still lets "saprolings" match.
+    const re = new RegExp(`\\b${m.requiredWord.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}s?\\b`, 'i');
+    wordCount.set(m.requiredWord.word, texts.filter(t => re.test(t)).length);
   }
 
   const scored: ThemeScore[] = [];
@@ -128,8 +127,11 @@ export function scoreThemesForDeck(
       gateMissing = { kind: 'card', subject: model.anchor };
     } else if (model.requiredTag && !tagsPresent.has(model.requiredTag)) {
       gateMissing = { kind: 'tag', subject: model.requiredTag };
-    } else if (model.requiredWord && !wordPresent.get(model.requiredWord)) {
-      gateMissing = { kind: 'text', subject: model.requiredWord };
+    } else if (model.requiredWord) {
+      const have = wordCount.get(model.requiredWord.word) ?? 0;
+      if (have < model.requiredWord.min) {
+        gateMissing = { kind: 'text', subject: model.requiredWord.word, need: model.requiredWord.min, have };
+      }
     }
 
     scored.push({
@@ -154,6 +156,10 @@ export function scoreThemesForDeck(
  * Mutates in place, setting `suppressedBy`. Only themes that cleared the floor can absorb others —
  * a theme too thin to be reported shouldn't be able to silence a rival.
  */
+/** Share of its members a theme can claim on its own vocabulary before it counts as independent. */
+const RIDING_OVERLAP = 0.1;
+const STANDS_ALONE = 0.25;
+
 function suppressNested(scored: ThemeScore[], ratio: number): void {
   const survivors: ThemeScore[] = [];
   // Evidence outranks score when deciding who absorbs whom. A theme testing the cards themselves
@@ -168,6 +174,12 @@ function suppressNested(scored: ThemeScore[], ratio: number): void {
   });
   for (const s of order) {
     if (!s.passedFloor || s.members === 0) continue;
+    // A theme that cannot be DECLARED must not silence one that can. Gated themes were still being
+    // allowed to absorb: on a Titania lands deck, Dredge and Deserts each matched ~20 cards through
+    // generic lands vocabulary, failed their own gates, and took Lands Matter down with them — the
+    // deck reported Tron. Skipped entirely rather than marked, since `gateMissing` already explains
+    // them and the Status column shows the gate in preference to the nesting.
+    if (s.gateMissing) continue;
     const names = new Set(s.memberCards.map(m => m.name));
     const absorber = survivors.find(prev => {
       const prevNames = new Set(prev.memberCards.map(m => m.name));
@@ -175,9 +187,40 @@ function suppressNested(scored: ThemeScore[], ratio: number): void {
       for (const n of names) if (prevNames.has(n)) shared++;
       return shared / names.size >= ratio;
     });
-    if (absorber) s.suppressedBy = absorber.model.name;
-    else survivors.push(s);
+    if (!absorber) { survivors.push(s); continue; }
+    // Score alone picks the wrong survivor among near-duplicates. On a Titania lands deck, Land
+    // Destruction (62.7), Lands Matter (62.1) and Land Animation (61.6) share six of eight tags;
+    // Land Destruction led by 0.6 and absorbed both — yet exactly ONE of its 21 members matched a
+    // tag the others lack, while Lands Matter had ten. It was winning purely on shared vocabulary.
+    //
+    // Framed as a GUARD, not a comparison. "More distinctive evidence wins" overrides far too often:
+    // it handed Wheels to Hippos and Equipment to Stoneblade, because a theme with idiosyncratic junk
+    // in its definition always has tags the rival lacks. The real signal on Titania was that Land
+    // Destruction had almost NO independent evidence — 1 of 21 — while its rival had half. So the
+    // override fires only when the absorber is riding the overlap and the challenger clearly is not.
+    const absorberOwn = distinctiveMembers(absorber, s) / absorber.members;
+    const challengerOwn = distinctiveMembers(s, absorber) / s.members;
+    if (absorberOwn <= RIDING_OVERLAP && challengerOwn >= STANDS_ALONE) {
+      absorber.suppressedBy = s.model.name;
+      survivors[survivors.indexOf(absorber)] = s;
+    } else {
+      s.suppressedBy = absorber.model.name;
+    }
   }
+}
+
+/**
+ * How many of this theme's members it can claim on evidence the rival doesn't share.
+ *
+ * A literal match always counts: the card itself says Elf, which no amount of rival tag overlap
+ * explains away. Tag matches count only when at least one matched tag is absent from the rival's
+ * definition.
+ */
+function distinctiveMembers(s: ThemeScore, rival: ThemeScore): number {
+  const rivalTags = new Set(rival.model.charTags);
+  return s.memberCards.filter(
+    m => m.basis === 'literal' || m.matched.some(t => !rivalTags.has(t)),
+  ).length;
 }
 
 /**
