@@ -1,7 +1,7 @@
 import type { ScryfallCard, EDHRECTag } from '@/types';
 import type { MtgCatalogs } from '@/services/scryfall/client';
 import { classifyTheme, themeKindMatches, type ThemeKind } from './themeKind';
-import { REQUIRED_TAGS } from './gates';
+import { REQUIRED_TAGS, REQUIRED_WORDS } from './gates';
 import type { ThemeTableEntry } from './charTagTable';
 
 /**
@@ -26,6 +26,11 @@ export interface ThemeModel {
    * an effect, and without the effect there's no deck. See REQUIRED_TAGS.
    */
   requiredTag?: string;
+  /**
+   * Word that must appear on SOME card in the deck before this theme may be DECLARED — you can't
+   * have a Saproling deck with no Saproling in it. See REQUIRED_WORDS.
+   */
+  requiredWord?: string;
 }
 
 /** Why a card counted (or didn't), so every consumer can explain itself. */
@@ -70,6 +75,7 @@ export function buildThemeModel(
     numDecks: tag.numDecks,
     anchor: entry?.anchor,
     requiredTag: REQUIRED_TAGS[tag.slug],
+    requiredWord: REQUIRED_WORDS[tag.slug],
   };
 }
 

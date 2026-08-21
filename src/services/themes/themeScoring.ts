@@ -1,5 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { testMembership, type ThemeModel, type MembershipResult } from './membership';
+import { cardSearchText } from './themeKind';
 import type { ThemeGate } from './gates';
 import { DEFAULT_TUNING, type ThemeTuning } from './tuning';
 
@@ -89,6 +90,19 @@ export function scoreThemesForDeck(
   const tagsPresent = new Set<string>();
   for (const c of cards) for (const t of tagCache.get(c) ?? []) tagsPresent.add(t);
 
+  // Word gates ask "does ANY card mention this", so one blob for the whole deck answers it. Tested
+  // once per distinct word rather than once per theme — only a handful of themes carry a word gate,
+  // but the deck text is large enough that repeating the scan 400 times would be silly.
+  const deckText = cards.map(cardSearchText).join('\n');
+  const wordPresent = new Map<string, boolean>();
+  for (const m of models) {
+    if (!m.requiredWord || wordPresent.has(m.requiredWord)) continue;
+    // Prefix-anchored, unterminated: "saproling" must start a word (so Octopus can't satisfy
+    // "opus") but may continue into "saprolings".
+    const re = new RegExp(`\\b${m.requiredWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+    wordPresent.set(m.requiredWord, re.test(deckText));
+  }
+
   const scored: ThemeScore[] = [];
   for (const model of models) {
     const memberCards: ThemeMemberCard[] = [];
@@ -114,6 +128,8 @@ export function scoreThemesForDeck(
       gateMissing = { kind: 'card', subject: model.anchor };
     } else if (model.requiredTag && !tagsPresent.has(model.requiredTag)) {
       gateMissing = { kind: 'tag', subject: model.requiredTag };
+    } else if (model.requiredWord && !wordPresent.get(model.requiredWord)) {
+      gateMissing = { kind: 'text', subject: model.requiredWord };
     }
 
     scored.push({

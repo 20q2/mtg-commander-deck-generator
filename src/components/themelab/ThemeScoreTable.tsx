@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { describeThemeTest, type ThemeScore } from '@/services/themes';
+import { describeThemeTest, type ThemeGate, type ThemeScore } from '@/services/themes';
 
 const KIND_COLORS: Record<string, string> = {
   tribal: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -22,6 +22,13 @@ const KINDS = ['tribal', 'mechanic', 'subtype', 'cardType', 'curated', 'counterT
  * headers never sat above the values they named. Divs on a single template can't drift.
  */
 const GRID = 'grid grid-cols-[24px_minmax(110px,1fr)_86px_58px_52px_72px_56px_56px_52px_50px_58px_96px] items-center';
+
+/** Why a theme can't be declared, spelled out — the Status column only has room for a hint. */
+const GATE_TITLE: Record<ThemeGate['kind'], (subject: string) => string> = {
+  card: s => `needs ${s} in the deck`,
+  tag: s => `no card in this deck carries the "${s}" effect`,
+  text: s => `no card in this deck mentions "${s}" — it can't be a ${s} deck without one`,
+};
 
 interface Props {
   scores: ThemeScore[];
@@ -154,14 +161,12 @@ export function ThemeScoreTable({ scores, deckCounts }: Props) {
                         {s.gateMissing ? (
                           <span
                             className="text-sky-400/80"
-                            title={s.gateMissing.kind === 'card'
-                              ? `needs ${s.gateMissing.subject} in the deck`
-                              : `no card in this deck carries the "${s.gateMissing.subject}" effect`}
+                            title={GATE_TITLE[s.gateMissing.kind](s.gateMissing.subject)}
                           >
                             {/* Card gates name the card ("needs Umori"); effect gates can't, because
                                 sixteen different cards satisfy the pod gate. */}
-                            needs {s.gateMissing.kind === 'card'
-                              ? s.gateMissing.subject.split(',')[0]
+                            needs {s.gateMissing.kind === 'card' ? s.gateMissing.subject.split(',')[0]
+                              : s.gateMissing.kind === 'text' ? `a ${s.gateMissing.subject}`
                               : 'the effect'}
                           </span>
                         ) : s.suppressedBy ? (

@@ -146,6 +146,18 @@ function hasCardType(sc: ScryfallCard, type: string): boolean {
 function oracleText(sc: ScryfallCard): string {
   return `${sc.oracle_text ?? ''} ${(sc.card_faces ?? []).map(f => f.oracle_text ?? '').join(' ')}`;
 }
+
+/**
+ * Everything on a card a word could appear in — name, type line and rules text, every face. Used by
+ * the text declaration gate to answer "does this deck contain any Saproling card at all".
+ */
+export function cardSearchText(sc: ScryfallCard): string {
+  const faces = sc.card_faces ?? [];
+  return [
+    sc.name ?? '', sc.type_line ?? '', sc.oracle_text ?? '',
+    ...faces.flatMap(f => [f.name ?? '', f.type_line ?? '', f.oracle_text ?? '']),
+  ].join(' ').toLowerCase();
+}
 function matchesCurated(sc: ScryfallCard, key: string): boolean {
   const re = CURATED_MECHANICS[key];
   if (!re) return false;
