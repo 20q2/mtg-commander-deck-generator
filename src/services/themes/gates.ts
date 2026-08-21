@@ -37,6 +37,46 @@ export interface ThemeGate {
  * measurement tells you that a theme names a specific effect. Keyed by theme slug → the oracle tag
  * that effect carries. Adding one is a line; the tag must exist in SpellChroma's dictionary.
  */
+/**
+ * Themes that are ONE named card, gated on that exact card. Keyed by theme slug → card name.
+ *
+ * The distinction from REQUIRED_TAGS is whether the theme has substitutes. A pod deck has sixteen
+ * cards that can be its engine, so gating Birthing Pod on the card would be wrong. Shadowborn
+ * Apostles has none: exactly one card in the format contains the phrase, and the deck is thirty
+ * copies of it. Gating on the effect tag instead would be the loose version of a tight requirement.
+ *
+ * Left ungated it was pure Aristocrats noise. Nothing about the theme's name makes it inert, so it
+ * classifies as an archetype and lift hands it the vocabulary of the decks that play it:
+ * `blood-artist-ability`, `drain-life`, `opponent-loses-life`, `removal-sacrifice`, `typal-demon`.
+ * That's a description of every black sacrifice deck ever built.
+ *
+ * Merged with the companion anchors the build script derives from Scryfall's `Companion` keyword —
+ * those are measured, these are judgement, and both end up in ThemeModel.anchor.
+ */
+export const REQUIRED_CARDS: Readonly<Record<string, string>> = {
+  'shadowborn-apostles': 'Shadowborn Apostle',
+  // The rest of the "deck is thirty copies of one card" family, found by intersecting the taxonomy
+  // with Scryfall's card-name catalog: 46 themes share a name with a real card, and these are the
+  // ones with no substitute. Each was matching any deck of its colour or strategy — Persistent
+  // Petitioners on `mill`/`mill-self`/`synergy-blue` would ride along on every mill deck built,
+  // Slime Against Humanity on `counter-doubler`/`counters-matter` on every +1/+1 deck, Sunforger on
+  // `synergy-equipment`/`combat-trick` on every equipment deck.
+  'rat-colony': 'Rat Colony',
+  'relentless-rats': 'Relentless Rats',
+  'persistent-petitioners': 'Persistent Petitioners',
+  'dragons-approach': "Dragon's Approach",
+  'slime-against-humanity': 'Slime Against Humanity',
+  'hare-apparent': 'Hare Apparent',
+  'sunforger': 'Sunforger',
+  'primal-surge': 'Primal Surge',
+  // Deliberately NOT gated, though they also share a name with a card: Sneak Attack, Ad Nauseam,
+  // Polymorph, Donate and Fling name EFFECTS with real substitutes (Through the Breach, Bolas's
+  // Citadel, Proteus Staff, Harmless Offering, Thud), so a card gate would be too tight — they
+  // belong in REQUIRED_TAGS if they need anything. Blink, Clones, Sacrifice, Exile, Dredge, Crime,
+  // Deserts and Counterspells merely happen to collide with a card name; gating them would be
+  // nonsense.
+};
+
 export const REQUIRED_TAGS: Readonly<Record<string, string>> = {
   'birthing-pod': 'birthing-pod',
 };

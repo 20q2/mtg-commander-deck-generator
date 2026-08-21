@@ -1,7 +1,7 @@
 import type { ScryfallCard, EDHRECTag } from '@/types';
 import type { MtgCatalogs } from '@/services/scryfall/client';
 import { classifyTheme, themeKindMatches, type ThemeKind } from './themeKind';
-import { REQUIRED_TAGS, REQUIRED_WORDS } from './gates';
+import { REQUIRED_CARDS, REQUIRED_TAGS, REQUIRED_WORDS } from './gates';
 import type { ThemeTableEntry } from './charTagTable';
 
 /**
@@ -19,7 +19,11 @@ export interface ThemeModel {
   baseRate: number;
   /** How many EDHREC decks carry this tag; used as a sanity signal against long-tail noise. */
   numDecks: number;
-  /** Card the deck must contain before this theme may be DECLARED. See ThemeTableEntry.anchor. */
+  /**
+   * Card the deck must contain before this theme may be DECLARED. Two sources, same meaning: the
+   * companion anchors the build script derives (see ThemeTableEntry.anchor) and the curated
+   * one-card themes in REQUIRED_CARDS.
+   */
   anchor?: string;
   /**
    * Oracle tag SOME card in the deck must carry before this theme may be DECLARED — the theme names
@@ -73,7 +77,7 @@ export function buildThemeModel(
     charTags: kind.kind === 'archetype' ? (entry?.charTags ?? []) : [],
     baseRate: entry?.baseRate ?? 0,
     numDecks: tag.numDecks,
-    anchor: entry?.anchor,
+    anchor: entry?.anchor ?? REQUIRED_CARDS[tag.slug],
     requiredTag: REQUIRED_TAGS[tag.slug],
     requiredWord: REQUIRED_WORDS[tag.slug],
   };
