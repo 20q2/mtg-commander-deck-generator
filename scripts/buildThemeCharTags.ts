@@ -410,9 +410,75 @@ async function main() {
     [...appearsIn].filter(([, n]) => n / themeCount > UBIQUITY_LIMIT).map(([t]) => t),
   );
   console.log(`     dropped ${ubiquitous.size} near-universal tags: ${[...ubiquitous].slice(0, 8).join(', ')}`);
+
+  // SIGNATURE VOCABULARY. A deterministic theme is tested against the card itself and so carries no
+  // charTags — which meant nothing stopped an ARCHETYPE from claiming the tag that means the same
+  // thing. X Spells' definition held `pp-counters-matter`, `counter-doubler` and `counter-increaser`,
+  // the vocabulary of "+1/+1 Counters". On an Ezuri counters deck all 19 of its members matched
+  // through those and not one through `x-cost-matters`: it scored 85.6 on a deck containing zero X
+  // spells, and reported 75% confidence while the real theme reported 21%.
+  //
+  // So let each deterministic theme claim its own vocabulary. A tag that describes most of the cards
+  // passing a literal test, and hardly any card outside it, belongs to that theme; archetypes may
+  // not use it. They keep every tag describing what their cards DO, which is what an archetype is.
+  //
+  // This is the general form of bugs previously gated one theme at a time: `typal-demon` in
+  // Shadowborn Apostles, `typal-rat` in Rat Colony, `typal-dragon` in Dragon's Approach,
+  // `synergy-token`/`token-doubler` in Hare Apparent. Fixing the definitions fixes the class.
+  //
+  // Filtered BEFORE truncation to 8, like the ubiquity pass, so removing a stolen tag promotes the
+  // real tag underneath it rather than leaving a hole.
+  // Ownership is a question of PRECISION, not recall: are the tag's carriers overwhelmingly this
+  // theme's cards? Testing coverage instead ("does the tag describe most Demons") fails, because
+  // these tags are sparse by design — `typal-demon` sits on ~24 cards while the format has hundreds
+  // of Demons. It means "relevant to Demon decks", not "is a Demon". Precision catches it; recall
+  // never will.
+  // Precision alone lets a BROAD theme claim everything. "Tokens" is a curated regex covering 17.7%
+  // of the pool, so 80% of a tag's carriers making tokens is barely news — it claimed
+  // `young-pyromancer-ability` off Spellslinger, because Young Pyromancer, Murmuring Mystic and
+  // Docent of Perfection all make tokens. That tag is about CASTING SPELLS; tokens are its
+  // consequence. A theme covering more than one card in eight is an ambient mechanic, not a
+  // vocabulary owner, so it may claim nothing.
+  const SIG_PRECISION = 0.8;
+  const SIG_MAX_BREADTH = 0.125;
+  const tagCarriers = new Map<string, string[]>();
+  for (const r of resolved) for (const t of r.tags) {
+    const list = tagCarriers.get(t);
+    if (list) list.push(r.card.name); else tagCarriers.set(t, [r.card.name]);
+  }
+  const signatures = new Map<string, string>();
+  const tooBroad: string[] = [];
+  for (const [slug, kind] of kinds) {
+    if (kind.kind === 'archetype' || kind.kind === 'role') continue;
+    const own = new Set(
+      resolved.filter(r => themeKindMatches(kind, r.card as never)).map(r => r.card.name),
+    );
+    if (own.size < MIN_CARRIERS) continue;
+    if (own.size / resolved.length > SIG_MAX_BREADTH) {
+      tooBroad.push(`${slug} ${(own.size / resolved.length * 100).toFixed(1)}%`);
+      continue;
+    }
+    for (const [t, carriers] of tagCarriers) {
+      if (carriers.length < MIN_CARRIERS || signatures.has(t)) continue;
+      const inside = carriers.filter(n => own.has(n)).length;
+      if (inside / carriers.length >= SIG_PRECISION) signatures.set(t, slug);
+    }
+  }
+  console.log(`     ${tooBroad.length} themes too broad to own vocabulary: ${tooBroad.join(', ')}`);
+  console.log(`     ${signatures.size} tags claimed by deterministic themes, barred from archetypes`);
+  for (const [t, owner] of [...signatures].slice(0, 12)) console.log(`        ${t} → ${owner}`);
+
+  // PROVENANCE. Tags describing where a card came from rather than what it does. Lift loves them
+  // because they mark small, rare sets, so a couple of carriers on one theme page earns a huge
+  // ratio — that's how `40k-model` became part of X Spells' identity. Root tags with no parents, so
+  // there's no subtree to exclude; the list is short and explicit.
+  const PROVENANCE = new Set(['40k-model', 'meme', 'draft-signpost', 'custom-cards']);
+
   const charTags: Record<string, string[]> = {};
   for (const [slug, list] of Object.entries(wide)) {
-    charTags[slug] = list.filter(t => !ubiquitous.has(t)).slice(0, 8);
+    charTags[slug] = list
+      .filter(t => !ubiquitous.has(t) && !PROVENANCE.has(t) && !signatures.has(t))
+      .slice(0, 8);
   }
 
   // ANCHOR CARDS. A companion theme can't be declared without its companion actually in the deck:

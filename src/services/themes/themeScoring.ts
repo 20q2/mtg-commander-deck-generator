@@ -156,7 +156,17 @@ export function scoreThemesForDeck(
  */
 function suppressNested(scored: ThemeScore[], ratio: number): void {
   const survivors: ThemeScore[] = [];
-  for (const s of scored) {
+  // Evidence outranks score when deciding who absorbs whom. A theme testing the cards themselves
+  // knows its members; one matching inferred tags is guessing, however high it scored. On an Ezuri
+  // deck "Energy" claimed 19 cards through the generic counter vocabulary (counters-matter,
+  // counter-fuel, remove-counters — tags that also cover loyalty and charge counters, so +1/+1
+  // Counters can't claim them), outscored +1/+1 Counters by one point, and absorbed 19 of its 23
+  // literal members. The deck then reported Energy and never mentioned counters at all.
+  const order = [...scored].sort((a, b) => {
+    const lit = (s: ThemeScore) => (s.memberCards.some(m => m.basis === 'literal') ? 1 : 0);
+    return lit(b) - lit(a) || b.membershipScore - a.membershipScore;
+  });
+  for (const s of order) {
     if (!s.passedFloor || s.members === 0) continue;
     const names = new Set(s.memberCards.map(m => m.name));
     const absorber = survivors.find(prev => {
@@ -171,57 +181,49 @@ function suppressNested(scored: ThemeScore[], ratio: number): void {
 }
 
 /**
- * Confidence that a theme is genuinely THE deck's theme, 0-100.
+ * Confidence that this theme is PRESENT in the deck, 0-100.
  *
- * Deliberately not a restatement of the score. The score answers "how concentrated is this theme
- * relative to chance". Confidence answers "how sure should a reader be", which needs two things the
- * score alone can't see:
+ * Present, not winning. The first version multiplied in a separation term — the gap to the top
+ * surviving theme — and that made the number answer the wrong question. On an Ezuri counters deck it
+ * reported +1/+1 Counters at 21% and X Spells at 75%, even though +1/+1 Counters had 23 members
+ * whose own text says "+1/+1 counter" (evidence 1.00) and X Spells had 19 members resting entirely
+ * on inferred tags (evidence 0.75). The runner-up was floored at 0.3 for not leading, and that
+ * penalty swamped the whole evidence range. A deck 68% composed of counter cards IS a counters deck
+ * regardless of what outranks it, so ranking is left to the score, where it belongs.
  *
- *  - **Coverage.** A theme explaining 40% of the deck is a stronger claim than one explaining 12%,
- *    at identical lift. Full credit at COVERAGE_FULL.
- *  - **Separation.** A winner three points clear of the runner-up is a coin flip; forty points clear
- *    is not. Measured against the next SURVIVING theme, since a suppressed sibling isn't a real
- *    rival — it's the same cards under another name.
+ * What remains is evidence about this theme alone, and the terms MULTIPLY so a theme can't be
+ * confident on one strength while failing another — enormous lift across four cards is still a guess:
  *
- * Evidence quality also matters: a literal card-attribute match ("this card says Elf") is
- * near-certain, while a tag match is inferred from aggregate co-occurrence and can be wrong. So a
- * theme resting entirely on tags is capped below one backed by literal matches.
+ *  - **Lift.** How surprising the concentration is against the theme's base rate.
+ *  - **Coverage.** A theme explaining 40% of the deck is a stronger claim than one explaining 12% at
+ *    identical lift. Full credit at COVERAGE_FULL.
+ *  - **Evidence quality.** A literal card-attribute match ("this card says Elf") is near-certain,
+ *    while a tag match is inferred from aggregate co-occurrence and can be wrong. A theme resting
+ *    entirely on tags is capped at TAG_ONLY_CEILING.
  *
- * The terms MULTIPLY rather than average, so a theme can't be confident on one strength while
- * failing another — enormous lift across four cards is still a guess.
+ * Undeclarable themes still get a real number rather than a suppressed one. A gated theme's evidence
+ * is exactly as good as it was; what it lacks is permission, and `gateMissing` already says so.
+ * Zeroing the confidence too would hide the informative half of "this looks like a pod deck but has
+ * no pod".
  *
- * Assigned after sorting and suppression so it can see the ranking. Deliberately not tunable: this
- * is a reporting figure for a human reader, and a confidence you can dial is not a confidence.
+ * Deliberately not tunable: this is a reporting figure for a human reader, and a confidence you can
+ * dial is not a confidence.
  */
 const COVERAGE_FULL = 0.4;
-const SEPARATION_FULL = 25;
+const LIFT_FULL = 8;
 const TAG_ONLY_CEILING = 0.75;
 
 export function assignConfidence(scored: ThemeScore[]): void {
-  const surviving = scored.filter(s => s.passedFloor && !s.suppressedBy && !s.gateMissing);
-  const leader = surviving[0];
   for (const s of scored) {
     if (s.members === 0) { s.confidence = 0; continue; }
 
-    const liftTerm = Math.min(s.observedOverExpected / 8, 1);
+    const liftTerm = Math.min(s.observedOverExpected / LIFT_FULL, 1);
     const coverageTerm = Math.min(s.ratio / COVERAGE_FULL, 1);
-
-    const isSurvivor = s.passedFloor && !s.suppressedBy && !s.gateMissing;
-    let separationTerm: number;
-    if (isSurvivor) {
-      const rival = surviving.find(o => o !== s);
-      const gap = s.membershipScore - (rival?.membershipScore ?? 0);
-      // Floor of 0.3 so a clear winner with a close second isn't reported as near-zero.
-      separationTerm = Math.min(Math.max(gap, 0) / SEPARATION_FULL, 1) * 0.7 + 0.3;
-    } else {
-      // Can't be declared at all, so whatever its numbers say, a reader shouldn't act on it.
-      separationTerm = leader && leader !== s ? 0.25 : 0.3;
-    }
 
     const literalCount = s.memberCards.filter(m => m.basis === 'literal').length;
     const evidence = TAG_ONLY_CEILING + (1 - TAG_ONLY_CEILING) * (literalCount / s.members);
 
-    s.confidence = Math.round(liftTerm * coverageTerm * separationTerm * evidence * 100);
+    s.confidence = Math.round(liftTerm * coverageTerm * evidence * 100);
   }
 }
 
