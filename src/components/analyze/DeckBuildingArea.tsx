@@ -6,7 +6,7 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard } from '@/types';
 import { buildCurveBuckets } from './DeckBuildingArea.buckets';
 import { getCardImageUrl, getCardPrice, isBasicLand, isMdfcLand, isChannelLand } from '@/services/scryfall/client';
-import { isUtilityLand, isTapland, loadTaggerData } from '@/services/tagger/client';
+import { isUtilityLand, isTapland, loadTaggerData, cardMatchesRole, type RoleKey } from '@/services/tagger/client';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import type { CardRowMenuProps } from '@/components/deck/optimizer/shared';
@@ -17,6 +17,22 @@ import { useStore } from '@/store';
 import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 import { AddCardPopover } from '@/components/spellchroma/AddCardPopover';
 import { namesAtCopyLimit } from '@/lib/utils';
+
+/**
+ * Does this card fill `role`? Mirrors the Roles tab's own membership test
+ * (deckAnalyzer's roleBreakdowns) so the tab's list and this panel's
+ * dim/hide filter can't disagree.
+ *
+ * `card.deckRole` alone is not enough: getCardRole stamps ONE primary role by
+ * priority (boardwipe → counterspell → removal → ramp → cardDraw → protection),
+ * so a card that protects *and* draws is stamped 'cardDraw' and a card that
+ * protects *and* ramps is stamped 'ramp'. Testing `deckRole === role` hid every
+ * such card from the panel while the Roles tab still counted it — e.g. clicking
+ * PROTECTION (6) lit up only the 3 cards whose primary role was protection.
+ */
+function fillsRole(card: ScryfallCard, role: string): boolean {
+  return card.deckRole === role || cardMatchesRole(card.name, role as RoleKey);
+}
 
 interface DeckBuildingAreaProps {
   currentCards: ScryfallCard[];
@@ -408,6 +424,8 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   // Predicate matching the current dim/hide filter.
   const matchesActiveFilter = useCallback((card: ScryfallCard): boolean => {
     const role = card.deckRole;
+    // The curve/tempo filter stays on the single primary role on purpose — a card
+    // has to land in exactly one phase bucket or the curve totals double-count.
     if (activeCmcRange != null || activeRoleGroup != null) {
       const cardCmc = Math.min(Math.floor(card.cmc ?? 0), 7);
       const cmcOk = !activeCmcRange || (cardCmc >= activeCmcRange[0] && cardCmc <= activeCmcRange[1]);
@@ -418,7 +436,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
         || (activeRoleGroup === 'other' && (!role || role === 'protection'));
       return cmcOk && groupOk;
     }
-    return activeRole ? role === activeRole : !!role;
+    return activeRole ? fillsRole(card, activeRole) : !!role;
   }, [activeRole, activeCmcRange, activeRoleGroup]);
 
   // Flat creature / noncreature lists derived from the bucket result —
@@ -1019,7 +1037,7 @@ function CurveCell({ cards, onHover, onSelect, dimNonRoles, activeRole, activeCm
           || (activeRoleGroup === 'cardDraw' && role === 'cardDraw')
           || (activeRoleGroup === 'other' && (!role || role === 'protection'));
         const dimForCurve = dimNonRoles && (activeCmcRange != null || activeRoleGroup != null) && !(cmcMatches && groupMatches);
-        const dimForRole = dimNonRoles && activeCmcRange == null && activeRoleGroup == null && (activeRole ? role !== activeRole : !role);
+        const dimForRole = dimNonRoles && activeCmcRange == null && activeRoleGroup == null && (activeRole ? !fillsRole(card, activeRole) : !role);
         return (
           <CurveCard
             key={stableKey}
