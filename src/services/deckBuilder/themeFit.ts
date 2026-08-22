@@ -1,5 +1,11 @@
 import type { ScryfallCard } from '@/types';
-import { testMembership, type ThemeModel, type MembershipResult } from '@/services/themes';
+import {
+  buildThemeModel, loadThemeCharTags, testMembership,
+  type ThemeModel, type MembershipResult,
+} from '@/services/themes';
+import { getMtgCatalogs } from '@/services/scryfall/client';
+import { fetchAllTags } from '@/services/edhrec/client';
+import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
 
 /**
  * Why a card counts toward the deck's selected themes.
@@ -94,4 +100,53 @@ export function literalThemeMembers(fit: ThemeFit | null | undefined): Set<strin
   if (!fit) return out;
   for (const [key, v] of fit.byCard) if (v.basis === 'literal') out.add(key);
   return out;
+}
+
+/**
+ * Resolve the user's selected themes into testable models. Four dependencies, all cached after the
+ * first call: Scryfall's vocabularies, EDHREC's tag taxonomy (for the display name and deck count),
+ * the committed characteristic-tag table, and SpellChroma's oracle-tag index.
+ *
+ * Fails soft to `[]`. Every consumer treats an empty model list as "no theme evidence available",
+ * which is exactly the pre-existing behavior — so a dependency outage degrades rather than breaks.
+ */
+export async function resolveThemeModels(
+  themes: ReadonlyArray<{ slug: string; name: string }>,
+): Promise<ThemeModel[]> {
+  if (themes.length === 0) return [];
+  try {
+    const [tags, catalogs] = await Promise.all([
+      fetchAllTags(),
+      getMtgCatalogs(),
+      loadTagIndex(),
+    ]);
+    const table = loadThemeCharTags();
+    const forceArchetype = new Set(table.forceArchetype ?? []);
+    const bySlug = new Map(tags.map(t => [t.slug, t]));
+
+    const models: ThemeModel[] = [];
+    for (const theme of themes) {
+      const tag = bySlug.get(theme.slug);
+      if (!tag) continue;
+      models.push(buildThemeModel(tag, catalogs, table.themes, forceArchetype));
+    }
+    return models;
+  } catch {
+    return [];
+  }
+}
+
+/** The `tagsFor` callback `computeThemeFit` expects, backed by SpellChroma's index. */
+export function oracleTagsFor(card: ScryfallCard): readonly string[] {
+  return card.oracle_id ? tagsForOracleId(card.oracle_id) : [];
+}
+
+/** One call: resolve models for the selected themes, then fit the deck's cards against them. */
+export async function buildThemeFit(
+  cards: ScryfallCard[],
+  themes: ReadonlyArray<{ slug: string; name: string }>,
+): Promise<ThemeFit> {
+  const models = await resolveThemeModels(themes);
+  if (models.length === 0) return EMPTY_THEME_FIT;
+  return computeThemeFit(cards, models, oracleTagsFor);
 }
