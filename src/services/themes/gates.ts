@@ -107,19 +107,20 @@ export const REQUIRED_TAGS: Readonly<Record<string, string>> = {
  * and substring matching makes "Opus" match Octopus. A derived rule would silence real themes.
  */
 export const REQUIRED_WORDS: Readonly<Record<string, { word: string; min: number }>> = {
+  // Saprolings has one printed creature in the pool, so it can only be found statistically — and its
+  // definition is half generic token vocabulary (synergy-token, creature-count-matters), which every
+  // token deck in the format carries. A Krenko goblins list scored it on exactly that.
   saprolings: { word: 'saproling', min: 1 },
-  servos: { word: 'servo', min: 1 },
-  thopters: { word: 'thopter', min: 1 },
 
-  // MECHANICS need a count, not merely presence. Dredge is a keyword, so if the word never appears
-  // the deck plainly isn't a dredge deck — but one Life from the Loam doesn't make it one either. A
-  // Titania lands deck holding exactly one dredge card scored Dredge at 65.0 with 15 tag members,
-  // because forceArchetype sent it down the statistical path and lift handed it lands-and-graveyard
-  // vocabulary: leaves-graveyard-trigger, crucible-of-worlds, reanimate-land, recursion-land.
-  // A mechanic that's really the plan shows up on more than one card.
-  dredge: { word: 'dredge', min: 3 },
-  // Same argument, and the same Titania deck: Deserts' definition is generic lands vocabulary
+  // A count, not mere presence. Deserts' definition is generic lands vocabulary
   // (crucible-of-worlds, reanimate-land, landfall, lands-matter) plus synergy-desert, so it scores on
-  // any lands deck. A single incidental Desert in a manabase is not a Deserts deck.
+  // any lands deck — it beat Lands Matter on a Titania list holding no Desert at all. And one
+  // incidental Desert in a manabase still isn't a Deserts deck; a theme that's really the plan shows
+  // up on more than one card.
   deserts: { word: 'desert', min: 3 },
+
+  // Dredge, Thopters and Servos were here and no longer need to be. Lowering the build script's
+  // literal-coverage bar from 10 to 3 gave Dredge and Thopters back their precise literal tests, and
+  // the own-vocabulary check left Servos inert, so none of the three can match on borrowed
+  // vocabulary any more. The durable guard is in the build script, not here.
 };

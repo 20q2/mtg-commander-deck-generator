@@ -304,7 +304,18 @@ async function main() {
   // types with no cards to match (servo, blood), and keywords too rare in the pool to seed a
   // definition (phasing, dredge). Anything under the bar becomes an archetype so the statistical
   // path can carry it.
-  const MIN_LITERAL_COVERAGE = 10;
+  // The bar was 10, which conflated two different problems. "Matches nothing" is inert; "matches a
+  // few" is just a NARROW test, and a narrow literal test beats a statistical one every time.
+  // Measured over the pool, the 25 themes it was demoting split cleanly: 8 match exactly zero
+  // (keyword actions that never reach card.keywords — discard, sacrifice, exile, voting; subtypes
+  // that only exist as tokens — servo, blood, attraction, room), while daleks(4) through exploit(9)
+  // are perfectly testable. Demoting those replaced a precise test with a guess: Dredge got
+  // lands-and-graveyard vocabulary and scored 65.0 on a deck holding one dredge card.
+  //
+  // 3 rather than 1, because a type that exists almost exclusively as TOKENS still needs the
+  // statistical path — Saprolings has one printed creature in the pool and a real deck of them would
+  // match nothing at all.
+  const MIN_LITERAL_COVERAGE = 3;
   const nonLandCards = [...cards.values()].filter(c => !isLandCard(c));
   const forceArchetype: string[] = [];
   for (const [slug, kind] of kinds) {
@@ -510,6 +521,26 @@ async function main() {
     let tagsForTheme: string[] = [];
     if (kind.kind === 'archetype') {
       tagsForTheme = charTags[t.slug] ?? [];
+      // OWN-VOCABULARY CHECK, for demoted themes only. A theme demoted here names a concrete thing —
+      // a creature type, a subtype, a keyword — so if lift found no tag that even mentions it, lift
+      // did not describe the theme. It described whatever deck happens to play it, and shipping that
+      // makes a confident detector for the wrong strategy.
+      //
+      // Hippos is the case that proves it. EDHREC's Hippos page is dominated by Phelddagrif, so its
+      // definition came out `group-hug, force-draw, toll, donate-token, selective-group-hug,
+      // symmetrical, hate-attacker, tax` — an entire group-hug deck, no hippo anywhere. It matched 18
+      // cards on a Niv-Mizzet WHEELS list (Howling Mine, Temple Bell, Font of Mythos) and absorbed
+      // Wheels outright. Better inert and undetectable than confidently wrong.
+      //
+      // Not applied to genuine archetypes: "Aristocrats" has no tag containing "aristocrat" and
+      // never will, because the name is a nickname rather than a thing printed on cards.
+      if (forceArchetype.includes(t.slug)) {
+        const stem = t.slug.replace(/ies$/, 'y').replace(/s$/, '');
+        if (!tagsForTheme.some(x => x.includes(stem))) {
+          console.log(`     ${t.slug}: no tag mentions "${stem}" → inert (was ${tagsForTheme.join(', ')})`);
+          tagsForTheme = [];
+        }
+      }
       if (tagsForTheme.length > 0) {
         for (const r of resolved) if (tagsForTheme.some(x => r.tags.includes(x))) members++;
       }
