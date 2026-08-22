@@ -6,7 +6,7 @@ import type {
   Misfit,
   MisfitReason,
 } from '@/types';
-import type { ThemeMembership } from '@/components/analyze/themeMembership';
+import { isLiteralThemeMember, type ThemeMembership } from '@/components/analyze/themeMembership';
 import { ROLE_LABELS } from './roleTargets';
 import { getCardRole } from '../tagger/client';
 import { isAnyLand } from '../scryfall/client';
@@ -74,6 +74,17 @@ export function computeMisfits(inputs: MisfitInputs): Misfit[] {
 
   for (const card of cards) {
     if (isAnyLand(card)) continue; // lands evaluated separately, not as misfits here
+
+    // A card whose own type line, keyword or rules text carries a selected theme's mechanic fits
+    // the plan by construction. "Misfit" means doesn't-fit-the-plan, which is false here however
+    // thin the aggregate data is — routine for a new commander or a new set, where a card can be
+    // absent from EDHREC's page entirely and still obviously belong. Cutting for role excess and
+    // cutting to hit deck size are separate categories and still apply.
+    //
+    // Only 'literal' evidence qualifies: EDHREC page presence and oracle-tag co-occurrence are
+    // aggregate signals that can be wrong about any individual card, and a wrong keep costs the
+    // user as much as a wrong cut.
+    if (isLiteralThemeMember(themeMembership, card.name)) continue;
 
     const reasons: MisfitReason[] = [];
 
