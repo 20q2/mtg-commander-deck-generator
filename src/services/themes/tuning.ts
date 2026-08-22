@@ -137,9 +137,11 @@ export function popularityPrior(
  *
  * Swept 0 to 1.5. Gains plateau at 0.15-0.3 and are modest but free: archetype top-1 29.0% -> 32.5%
  * and weighted accuracy +0.6, for 0.9 of deterministic top-1 and no fixture change. Past 0.5 it
- * starts trading real deterministic accuracy for archetype accuracy, so it stays low.
+ * starts trading real deterministic accuracy for archetype accuracy, so it stays low. Re-swept with
+ * the pruned definitions: 0.15 is now the corner rather than 0.3, worth 0.4 on every page-sweep
+ * metric at identical fixtures. The knobs interact, so both were re-searched together.
  */
-export const COVERAGE_WEIGHT = 0.3;
+export const COVERAGE_WEIGHT = 0.15;
 
 // ─── Nesting suppression ──────────────────────────────────────────────
 
@@ -154,7 +156,7 @@ export const COVERAGE_WEIGHT = 0.3;
  * 1.8 points there -- and top-3 is the metric that matters for finding an unusual deck's theme at
  * all, so 0.7 is the corner.
  */
-export const NEST_SUPPRESS_RATIO = 0.7;
+export const NEST_SUPPRESS_RATIO = 0.75;
 
 /** The full knob set, as data — this is what `/theme-lab` edits and passes back in. */
 export interface ThemeTuning {
