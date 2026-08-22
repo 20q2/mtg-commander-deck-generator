@@ -86,8 +86,12 @@ export const RARE_MIN_LIFT = 12;
  * all pinned at exactly the cap and tied at 65.0, leaving the real winner indistinguishable from
  * noise. Raised to give the top of the ranking room to separate — the cap should be a guard against
  * runaway rare themes, not the value everything lands on.
+ *
+ * Re-swept at 12/16/20/26/32: 26 is where it plateaus, and moving 20 -> 26 gains half a point of
+ * deterministic top-1 and a full point of archetype top-1 by leaving more room at the top of the
+ * ranking before everything pins to the cap. 32 measures identically, so 26 is the corner.
  */
-export const MAX_LIFT = 20;
+export const MAX_LIFT = 26;
 
 // ─── Popularity prior ─────────────────────────────────────────────────
 
@@ -143,7 +147,14 @@ export const COVERAGE_WEIGHT = 0.3;
  * If theme B's members are mostly a subset of stronger theme A's, drop B. Stops an Elf Druid deck
  * reporting both "Elves" and "Druids", and stops "Humans" riding along on every creature deck.
  */
-export const NEST_SUPPRESS_RATIO = 0.8;
+/*
+ * Swept 0.6-1.0. Lower means suppression fires more readily, and more readily is better: 0.7 gains
+ * 1.3 points of deterministic top-1 over 0.8 by collapsing sibling archetypes and leaving the
+ * literal theme on top. Below 0.7 it keeps gaining top-1 but starts costing top-3 -- 0.6 gives up
+ * 1.8 points there -- and top-3 is the metric that matters for finding an unusual deck's theme at
+ * all, so 0.7 is the corner.
+ */
+export const NEST_SUPPRESS_RATIO = 0.7;
 
 /** The full knob set, as data — this is what `/theme-lab` edits and passes back in. */
 export interface ThemeTuning {
