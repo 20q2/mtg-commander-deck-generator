@@ -89,6 +89,54 @@ export const RARE_MIN_LIFT = 12;
  */
 export const MAX_LIFT = 20;
 
+// ─── Popularity prior ─────────────────────────────────────────────────
+
+/**
+ * A theme's total EDHREC deck count is the best available answer to "is this a real archetype people
+ * build, or just a tag with a page?" — and it was being carried on every model and never used.
+ *
+ * The themes that win other themes' decks are overwhelmingly tiny. Blue Moon has 484 decks in the
+ * entire format and a definition of generic blue vocabulary (synergy-blue, counterspell,
+ * manaless-value, removal-bounce); it beat 12 themes on their own cards, including Spellslinger,
+ * which has 87,716. Summons has 94. Turbo-Fog 384. Druids 534. Looting 790. Delver 934.
+ *
+ * The existing off-list prior gestures at this but can't see it: a rare theme that happens to sit on
+ * the commander's page still gets 1.0. Popularity is the calibrated version. Log-scaled, because the
+ * difference between 94 and 900 decks matters far more than between 40,000 and 80,000.
+ *
+ * Swept against both benchmarks. The floor trades long-tail accuracy for mainstream accuracy, so the
+ * two metrics move in opposite directions: deck-count-WEIGHTED accuracy (how often a real user gets
+ * the right answer) climbs 40.5% -> 47.0% as the floor falls from 1.0 to 0.15, while unweighted
+ * per-theme accuracy falls 64.0% -> 56.6%. 0.60 is the efficient point: it captures most of the
+ * weighted gain (+4.1) for the same 1.3-point tail cost as a much gentler 0.75, and 0.45 buys only
+ * +0.3 more for twice the tail loss. Identifying strange decks matters, so the tail is not for sale.
+ */
+export const POPULARITY_FLOOR = 0.60;
+export const POPULARITY_FULL_AT = 20000;
+
+/** Multiplier in [POPULARITY_FLOOR, 1] for how established a theme is. */
+export function popularityPrior(
+  numDecks: number, floor = POPULARITY_FLOOR, fullAt = POPULARITY_FULL_AT,
+): number {
+  if (fullAt <= 1) return 1;
+  const t = Math.min(1, Math.log10(Math.max(0, numDecks) + 1) / Math.log10(fullAt));
+  return floor + (1 - floor) * t;
+}
+
+/**
+ * How much COVERAGE counts in the ranking, as an exponent on (ratio / COVERAGE_FULL).
+ *
+ * 0 reproduces the original lift-only score. Lift answers 'how surprising is this concentration';
+ * coverage answers 'how much of the deck does this actually explain'. A theme accounting for 60% of
+ * the cards is a stronger claim than one accounting for 15% at the same lift, and the ranking could
+ * not see the difference.
+ *
+ * Swept 0 to 1.5. Gains plateau at 0.15-0.3 and are modest but free: archetype top-1 29.0% -> 32.5%
+ * and weighted accuracy +0.6, for 0.9 of deterministic top-1 and no fixture change. Past 0.5 it
+ * starts trading real deterministic accuracy for archetype accuracy, so it stays low.
+ */
+export const COVERAGE_WEIGHT = 0.2;
+
 // ─── Nesting suppression ──────────────────────────────────────────────
 
 /**
@@ -111,6 +159,9 @@ export interface ThemeTuning {
   maxLift: number;
   rareMinMembers: number;
   rareMinLift: number;
+  popularityFloor: number;
+  popularityFullAt: number;
+  coverageWeight: number;
   nestSuppressRatio: number;
 }
 
@@ -127,6 +178,9 @@ export const DEFAULT_TUNING: ThemeTuning = {
   maxLift: MAX_LIFT,
   rareMinMembers: RARE_MIN_MEMBERS,
   rareMinLift: RARE_MIN_LIFT,
+  popularityFloor: POPULARITY_FLOOR,
+  popularityFullAt: POPULARITY_FULL_AT,
+  coverageWeight: COVERAGE_WEIGHT,
   nestSuppressRatio: NEST_SUPPRESS_RATIO,
 };
 

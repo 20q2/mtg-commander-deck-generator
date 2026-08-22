@@ -2,7 +2,7 @@ import type { ScryfallCard } from '@/types';
 import { testMembership, type ThemeModel, type MembershipResult } from './membership';
 import { cardSearchText } from './themeKind';
 import type { ThemeGate } from './gates';
-import { DEFAULT_TUNING, type ThemeTuning } from './tuning';
+import { DEFAULT_TUNING, popularityPrior, type ThemeTuning } from './tuning';
 
 /** One card's membership in one theme, kept so the debug page can show the evidence. */
 export interface ThemeMemberCard {
@@ -47,6 +47,9 @@ export interface ThemeScore {
  * scryfall/client's helper: that module is browser-coupled (import.meta.env), and keeping this file
  * dependency-free is what lets the same scoring run under Node in the build script and in tests.
  */
+/** Coverage that counts as "explains the whole deck", shared by the score and the confidence. */
+const COVERAGE_FULL = 0.4;
+
 function isLand(card: ScryfallCard): boolean {
   const line = card.card_faces?.[0]?.type_line ?? card.type_line ?? '';
   return line.split('—')[0].toLowerCase().includes('land');
@@ -127,10 +130,26 @@ export function scoreThemesForDeck(
       ? Math.min(ratio / model.baseRate, tuning.maxLift)
       : observedOverExpected;
 
+    // Two independent priors, multiplied. The list prior asks "does EDHREC associate this theme with
+    // THIS commander"; the popularity prior asks "is this a theme people actually build". A rare tag
+    // sitting on the commander's page used to get a free 1.0 from the first while the second didn't
+    // exist — which is how Blue Moon (484 decks in the format) beat Spellslinger (87,716).
     const onCommanderList = commanderThemeSlugs.has(model.slug);
-    const prior = onCommanderList ? tuning.commanderListPrior : tuning.offListPrior;
+    const listPrior = onCommanderList ? tuning.commanderListPrior : tuning.offListPrior;
+    const prior = listPrior * popularityPrior(
+      model.numDecks, tuning.popularityFloor, tuning.popularityFullAt,
+    );
 
-    const rawMembershipScore = (observedOverExpected / tuning.maxLift) * 100;
+    // Lift alone decided the ranking, which means coverage — how much of the deck a theme actually
+    // explains — had no vote. Two themes at identical lift rank identically whether one accounts for
+    // 60% of the deck or 15% of it, and "the deck's theme" is exactly a claim about how much it
+    // explains. Blended geometrically so a theme needs both; coverageWeight 0 reproduces the old
+    // lift-only behaviour exactly.
+    const coverageFactor = Math.min(ratio / COVERAGE_FULL, 1);
+    const rawMembershipScore = (observedOverExpected / tuning.maxLift) * 100
+      * (tuning.coverageWeight > 0
+        ? Math.pow(Math.max(coverageFactor, 1e-6), tuning.coverageWeight)
+        : 1);
     // Two ways through. The main floor is calibrated for themes that span a deck; the second exists
     // because a real Storm deck runs three Storm cards, since that is all that exist. Restricted to
     // literal evidence — the card itself says "Dredge 3", which tag co-occurrence can't match for
@@ -273,7 +292,7 @@ function distinctiveMembers(s: ThemeScore, rival: ThemeScore): number {
  * Deliberately not tunable: this is a reporting figure for a human reader, and a confidence you can
  * dial is not a confidence.
  */
-const COVERAGE_FULL = 0.4;
+
 const LIFT_FULL = 8;
 const TAG_ONLY_CEILING = 0.75;
 

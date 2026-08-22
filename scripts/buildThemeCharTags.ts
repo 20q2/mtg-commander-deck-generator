@@ -398,8 +398,8 @@ async function main() {
   // staples sit on many theme pages while the pool is mostly long-tail cards. A tag characteristic
   // of most themes is characteristic of none, so compute a wider list, drop the tags that turn out
   // to be near-universal, then truncate. Dropping noise promotes the real tags beneath it.
-  const WIDE = 20;
-  const UBIQUITY_LIMIT = 0.2;
+  const WIDE = Number(process.env.WIDE ?? 20);
+  const UBIQUITY_LIMIT = Number(process.env.UBIQUITY_LIMIT ?? 0.2);
 
   // brew's CHAR_TAG_MIN_CARRIERS default is 3, tuned against a few-hundred-card per-commander pool.
   // That is far too permissive here: over a 14k-card global pool it left 39% of all (theme, tag)
@@ -410,7 +410,7 @@ async function main() {
   // Swept 3/5/8/12/16 against a dozen known-good definitions: 8 is where the false positive dies
   // while every known-good theme keeps its full definition. Past 12 it degrades in the other
   // direction — precise narrow tags fall below the bar and broader generic ones take their slots.
-  const MIN_CARRIERS = 8;
+  const MIN_CARRIERS = Number(process.env.MIN_CARRIERS ?? 8);
   const wide = computeThemeCharTags(pool, archetypeSlugs, WIDE, MIN_CARRIERS);
   const themeCount = Object.values(wide).filter(t => t.length > 0).length || 1;
   const appearsIn = new Map<string, number>();
@@ -450,8 +450,19 @@ async function main() {
   // Docent of Perfection all make tokens. That tag is about CASTING SPELLS; tokens are its
   // consequence. A theme covering more than one card in eight is an ambient mechanic, not a
   // vocabulary owner, so it may claim nothing.
-  const SIG_PRECISION = 0.8;
-  const SIG_MAX_BREADTH = 0.125;
+  const SIG_PRECISION = Number(process.env.SIG_PRECISION ?? 0.8);
+  // Effectively a backstop now that ownership is lift-based; only Tokens-scale themes reach it.
+  const SIG_MAX_BREADTH = Number(process.env.SIG_MAX_BREADTH ?? 0.25);
+  // Swept 4-10 against both benchmarks. 10 is the winner at 47.5% weighted vs 44.6% below it, and
+  // the whole gap comes from ONE decision: whether +1/+1 Counters (12.1% of the pool) gets to bar
+  // the counter family from every archetype. Barring it costs 2.9 points, because counter-doubler,
+  // counter-increaser and pp-counters-matter are real vocabulary for many popular themes.
+  //
+  // Safe to leave unbarred, and structurally so rather than by luck: every card carrying those tags
+  // also matches the '+1/+1 counter' regex literally, so evidence-first suppression always hands the
+  // deck to the literal theme. Verified on Ezuri -- X Spells (19 members) and Energy (19) are both
+  // absorbed by +1/+1 Counters, which survives alone at 70%.
+  const SIG_MIN_LIFT = Number(process.env.SIG_MIN_LIFT ?? 10);
   const tagCarriers = new Map<string, string[]>();
   for (const r of resolved) for (const t of r.tags) {
     const list = tagCarriers.get(t);
@@ -465,14 +476,23 @@ async function main() {
       resolved.filter(r => themeKindMatches(kind, r.card as never)).map(r => r.card.name),
     );
     if (own.size < MIN_CARRIERS) continue;
-    if (own.size / resolved.length > SIG_MAX_BREADTH) {
-      tooBroad.push(`${slug} ${(own.size / resolved.length * 100).toFixed(1)}%`);
+    const breadth = own.size / resolved.length;
+    if (breadth > SIG_MAX_BREADTH) {
+      tooBroad.push(`${slug} ${(breadth * 100).toFixed(1)}%`);
       continue;
     }
     for (const [t, carriers] of tagCarriers) {
       if (carriers.length < MIN_CARRIERS || signatures.has(t)) continue;
-      const inside = carriers.filter(n => own.has(n)).length;
-      if (inside / carriers.length >= SIG_PRECISION) signatures.set(t, slug);
+      const precision = carriers.filter(n => own.has(n)).length / carriers.length;
+      if (precision < SIG_PRECISION) continue;
+      // Precision alone rewards BREADTH: 80% of a tag's carriers making tokens is barely news when
+      // 17.7% of the pool makes tokens. Dividing by the theme's own breadth asks the real question --
+      // how much more concentrated in this theme is the tag than chance would give. It separates
+      // `pp-counters-matter` (precision ~1.0 over a 12.1% theme, lift 8.3) from
+      // `young-pyromancer-ability` (~0.9 over a 17.7% theme, lift 5.1), which a single breadth
+      // ceiling cannot: any cutoff admitting the first also admits the second.
+      if (precision / breadth < SIG_MIN_LIFT) continue;
+      signatures.set(t, slug);
     }
   }
   console.log(`     ${tooBroad.length} themes too broad to own vocabulary: ${tooBroad.join(', ')}`);
@@ -489,7 +509,7 @@ async function main() {
   for (const [slug, list] of Object.entries(wide)) {
     charTags[slug] = list
       .filter(t => !ubiquitous.has(t) && !PROVENANCE.has(t) && !signatures.has(t))
-      .slice(0, 8);
+      .slice(0, Number(process.env.MAX_TAGS ?? 8));
   }
 
   // ANCHOR CARDS. A companion theme can't be declared without its companion actually in the deck:
