@@ -63,6 +63,14 @@ export interface HydrateDeckInput {
   commanderName?: string;
   partnerCommanderName?: string;
   deckSize?: number;
+  /** Themes assigned to the source list. Passing these switches the enricher from the bare
+   *  commander page to the blended commander-theme + color-filtered archetype pool — the only
+   *  source that knows about cards EDHREC hasn't listed on a thin commander page. Without them
+   *  every such card lands at 0% inclusion and reads as the worst card in the deck. Omit for a
+   *  themeless analysis (pasted decklist, share link). */
+  themes?: Array<{ name: string; slug: string }>;
+  /** EDHREC color segment for "choose a color" commanders. Defaults to the aggregate page. */
+  colorSegment?: string;
   onProgress?: (stage: HydrateStage) => void;
   /** Card-resolution progress during 'fetching-cards', counted over the whole
    *  requested list (cache hits included) so the number the user sees matches
@@ -205,6 +213,8 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     detectedCombos,
     commanderCard?.name,
     partnerCard?.name,
+    input.themes,
+    input.colorSegment ?? '',
   );
 
   const deck: GeneratedDeck = {

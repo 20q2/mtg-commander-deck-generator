@@ -23,11 +23,25 @@ import { stampRoleSubtypes } from '@/services/deckBuilder/deckGenerator';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { getMaxCopies } from '@/lib/utils';
 import { trackEvent } from '@/services/analytics';
+import { edhrecColorSegment } from '@/services/edhrec/client';
 import type { UserCardList, GeneratedDeck, ScryfallCard } from '@/types';
 import type { CardAction } from '@/components/deck/DeckDisplay';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
 
 const LANE_STORAGE_KEY = 'analyze-active-lane';
+
+/**
+ * EDHREC color segment for a "choose a color" commander, mirroring ListDeckView's listColorSegment.
+ *
+ * cachedColorIdentity is filled in asynchronously after a list is first saved; until it lands the
+ * union would be the chosen color alone and would resolve to the wrong mono page, so fall back to
+ * the aggregate page rather than guessing.
+ */
+function listSegment(list: UserCardList): string {
+  return list.chosenColor && list.cachedColorIdentity?.length
+    ? edhrecColorSegment([...list.cachedColorIdentity, list.chosenColor], list.chosenColor)
+    : '';
+}
 
 // Recompute isComplete/missingCards on the stored detected combos by checking
 // each combo's card list against the deck's current names. The raw combos list
@@ -193,6 +207,8 @@ export function AnalyzePage() {
       commanderName: list.commanderName,
       partnerCommanderName: list.partnerCommanderName,
       deckSize: list.deckSize ?? list.cards.length,
+      themes: list.themes,
+      colorSegment: listSegment(list),
       onProgress: setLoadStage,
       onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
     })
@@ -375,6 +391,8 @@ export function AnalyzePage() {
         commanderName: list.commanderName,
         partnerCommanderName: list.partnerCommanderName,
         deckSize: list.deckSize ?? list.cards.length,
+        themes: list.themes,
+        colorSegment: listSegment(list),
         onProgress: setLoadStage,
         onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
