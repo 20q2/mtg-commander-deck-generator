@@ -2,12 +2,22 @@ import type { RecommendedCard } from '@/services/deckBuilder/deckAnalyzer';
 import type { ScryfallCard } from '@/types';
 import { clusterScore, isStaple, type LiftCandidate } from './liftClusters';
 import { getCardRole, getAllCardRoles, isUtilityLand, isTapland } from '@/services/tagger/client';
+import { hasLiteralThemeMatch, type ThemeFit } from '@/services/deckBuilder/themeFit';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 
 /** How loud the cluster signal is on the recommendation score scale (role boost ~= 75, inclusion <= 100).
  *  At 90 a top cluster-only card (+15 deficit) reaches ~105 — able to out-rank many inclusion picks so it
  *  actually surfaces, not just re-order silently. */
 export const CLUSTER_WEIGHT = 90;
+/**
+ * How loud card-intrinsic theme fit is on the same scale.
+ *
+ * Below CLUSTER_WEIGHT and below a top inclusion pick on purpose: being on-theme should lift a card
+ * past its off-theme peers, not past a card that two-thirds of decks with this commander actually
+ * play. Only `literal` evidence earns it — the card's own type line, keyword or rules text carries
+ * the mechanic. A tag match is inferred from aggregate co-occurrence and can be wrong.
+ */
+export const THEME_WEIGHT = 60;
 /** A synthesized cluster-only card whose role is under target gets this nudge (mirrors role-fit in scoreRecommendation). */
 const CLUSTER_ROLE_DEFICIT_BONUS = 15;
 /** Only breadth clusters drive the blend — single-anchor "bombs" are excluded (design: high cluster over high lift). */
@@ -22,6 +32,9 @@ export interface BlendOptions {
   excludeNames?: Set<string>;
   /** Cap the output length (default 30). */
   limit?: number;
+  /** Classifier theme fit for the deck's selected themes. Lift candidates carry full ScryfallCards,
+   *  so this costs no fetch. Omit to disable the theme term entirely. */
+  themeFit?: ThemeFit | null;
 }
 
 function scryfallImage(card: ScryfallCard): string | undefined {
@@ -50,32 +63,43 @@ export function blendClusterIntoRecommendations(
   candidates: LiftCandidate[],
   opts: BlendOptions = {},
 ): RecommendedCard[] {
-  const { roleFilter, deficitRoles, excludeNames, limit = 30 } = opts;
+  const { roleFilter, deficitRoles, excludeNames, limit = 30, themeFit } = opts;
 
   // Eligible clusters: breadth-gated, staples removed (deck-specific tech only).
   const eligible = candidates.filter(
     c => c.connectionCount >= MIN_CLUSTER_CONNECTIONS && !isStaple(c.edges),
   );
   const maxCluster = eligible.reduce((m, c) => Math.max(m, clusterScore(c)), 0);
-  if (maxCluster <= 0) return recommendations.slice(0, limit);
+  // No early return when maxCluster is 0: there may still be a theme term to apply, and hitByName
+  // simply stays empty. Returning here skipped theme fit entirely for decks with no lift clusters.
+
+  const themeBonus = (name: string) =>
+    hasLiteralThemeMatch(themeFit, name) ? THEME_WEIGHT : 0;
 
   const hitByName = new Map<string, { bonus: number; connections: number; cluster: number; card: ScryfallCard }>();
   for (const c of eligible) {
     const cluster = clusterScore(c);
     hitByName.set(c.card.name, {
-      bonus: CLUSTER_WEIGHT * (cluster / maxCluster),
+      // Guarded: maxCluster is 0 only when every eligible cluster scored 0, which would divide by
+      // zero and poison every downstream sort with NaN.
+      bonus: maxCluster > 0 ? CLUSTER_WEIGHT * (cluster / maxCluster) : 0,
       connections: c.connectionCount,
       cluster,
       card: c.card,
     });
   }
 
-  // 1. Re-score existing recommendations that are also clusters.
+  // 1. Re-score existing recommendations that are also clusters and/or on theme.
   const existingNames = new Set(recommendations.map(r => r.name));
   const rescored: RecommendedCard[] = recommendations.map(r => {
     const hit = hitByName.get(r.name);
-    if (!hit) return r;
-    return { ...r, score: (r.score ?? 0) + hit.bonus, clusterConnections: hit.connections, clusterScore: hit.cluster };
+    const theme = themeBonus(r.name);
+    if (!hit && theme === 0) return r;
+    return {
+      ...r,
+      score: (r.score ?? 0) + (hit?.bonus ?? 0) + theme,
+      ...(hit ? { clusterConnections: hit.connections, clusterScore: hit.cluster } : {}),
+    };
   });
 
   // 2. Synthesize cluster-only cards the commander list never surfaced.
@@ -99,7 +123,7 @@ export function blendClusterIntoRecommendations(
       primaryType: frontType(hit.card),
       imageUrl: scryfallImage(hit.card),
       price: scryfallPrice(hit.card),
-      score: hit.bonus + (fillsDeficit ? CLUSTER_ROLE_DEFICIT_BONUS : 0),
+      score: hit.bonus + (fillsDeficit ? CLUSTER_ROLE_DEFICIT_BONUS : 0) + themeBonus(name),
       cmc: hit.card.cmc,
       isUtilityLand: isUtilityLand(name) || undefined,
       isTapland: isTapland(name) || undefined,

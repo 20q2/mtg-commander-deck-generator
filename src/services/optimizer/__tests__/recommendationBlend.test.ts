@@ -12,6 +12,7 @@ import { blendClusterIntoRecommendations } from '../recommendationBlend';
 import type { LiftCandidate } from '../liftClusters';
 import type { RecommendedCard } from '@/services/deckBuilder/deckAnalyzer';
 import type { ScryfallCard } from '@/types';
+import type { ThemeFit } from '@/services/deckBuilder/themeFit';
 
 const rec = (name: string, score: number, extra: Partial<RecommendedCard> = {}): RecommendedCard => ({
   name, inclusion: 50, synergy: 0, fillsDeficit: false, primaryType: 'Creature', score, ...extra,
@@ -104,5 +105,61 @@ describe('blendClusterIntoRecommendations', () => {
       { excludeNames: new Set(['Banned']) },
     );
     expect(out.find(c => c.name === 'Banned')).toBeUndefined();
+  });
+});
+
+describe('theme fit in the blend', () => {
+  const themeFit: ThemeFit = {
+    themes: [{ slug: 'landfall', name: 'Landfall' }],
+    byCard: new Map([
+      ['on theme', { indices: [0], basis: 'literal' as const, matched: ['landfall'] }],
+      ['tag only', { indices: [0], basis: 'tag' as const, matched: ['lands-matter'] }],
+    ]),
+  };
+
+  it('ranks an on-theme cluster card above an equal off-theme one', () => {
+    const cands = [
+      cand('On Theme', [edge('S1', 8, 20), edge('S2', 7, 18)]),
+      cand('Off Theme', [edge('S1', 8, 20), edge('S2', 7, 18)]),
+    ];
+    const out = blendClusterIntoRecommendations([], cands, { themeFit });
+
+    expect(out[0].name).toBe('On Theme');
+    expect(out[0].score!).toBeGreaterThan(out[1].score!);
+  });
+
+  it('boosts an existing recommendation that is on theme', () => {
+    const out = blendClusterIntoRecommendations(
+      [rec('On Theme', 100), rec('Off Theme', 100)], [], { themeFit },
+    );
+    expect(out[0].name).toBe('On Theme');
+    expect(out[0].score!).toBeGreaterThan(100);
+  });
+
+  it('gives a tag-basis match no boost — inferred evidence is not proof', () => {
+    const out = blendClusterIntoRecommendations(
+      [rec('Tag Only', 100), rec('Off Theme', 100)], [], { themeFit },
+    );
+    expect(out[0].score).toBe(out[1].score);
+  });
+
+  it('keeps the theme bonus bounded below a top inclusion pick', () => {
+    const out = blendClusterIntoRecommendations(
+      [rec('Top', 200), rec('On Theme', 100)], [], { themeFit },
+    );
+    expect(out[0].name).toBe('Top');
+  });
+
+  it('applies the theme term even when there are no eligible clusters', () => {
+    // Guards the maxCluster <= 0 early return, which used to skip the theme term entirely.
+    const out = blendClusterIntoRecommendations(
+      [rec('On Theme', 100), rec('Off Theme', 100)], [], { themeFit },
+    );
+    expect(out[0].score!).toBeGreaterThan(out[1].score!);
+  });
+
+  it('is a no-op when no themeFit is supplied', () => {
+    const out = blendClusterIntoRecommendations([rec('On Theme', 100)], []);
+    expect(out[0].score).toBe(100);
   });
 });

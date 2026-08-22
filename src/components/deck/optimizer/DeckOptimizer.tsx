@@ -1563,8 +1563,11 @@ export function DeckOptimizer({
       deficitRoles: deficitRoleSet,
       excludeNames: menuProps.bannedNames,
       limit: 40,
+      themeFit: themeFitRef.current,
     });
-  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames]);
+    // themeFitVersion, not themeFitRef: the ref's identity never changes, so the version counter is
+    // what tells this memo the classifier fit has resolved.
+  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames, themeFitVersion]);
 
   const blendedRoleBreakdowns = useMemo(() => {
     if (!analysis || !liftCandidates) return null;
@@ -1577,9 +1580,10 @@ export function DeckOptimizer({
         deficitRoles: deficitRoleSet,
         excludeNames: menuProps.bannedNames,
         limit: rb.suggestedReplacements.length + 8,
+        themeFit: themeFitRef.current,
       }),
     }));
-  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames]);
+  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames, themeFitVersion]);
 
   const blendedAnalysis = useMemo(() => {
     if (!analysis || !blendedRecommendations || !blendedRoleBreakdowns) return null;
