@@ -20,8 +20,16 @@ const TYPE_KEYS = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 
  * Cards lacking EDHREC data (no entry in cardInclusionMap) get a score of 0 —
  * matches the generator/enricher behavior. Pre-existing entries for cards not
  * in the deck (swap candidates, gap analysis cards) are preserved.
+ *
+ * @param literalThemeMembers Lowercased names of cards that provably carry a selected theme's
+ *        mechanic. These are scored through the theme-priority branch even with no EDHREC data,
+ *        because keepScore sorts ascending — a zero here makes a card the first cut on every
+ *        surface that ranks cuts, which is the opposite of what "it's core to your theme" means.
  */
-export function rebuildRelevancyMap(deck: GeneratedDeck): Record<string, number> {
+export function rebuildRelevancyMap(
+  deck: GeneratedDeck,
+  literalThemeMembers?: ReadonlySet<string>,
+): Record<string, number> {
   const inclusionMap = deck.cardInclusionMap ?? {};
   const synergyMap = deck.cardSynergyMap ?? {};
   const metaMap = deck.cardEdhrecMetaMap ?? {};
@@ -90,16 +98,19 @@ export function rebuildRelevancyMap(deck: GeneratedDeck): Record<string, number>
   for (const card of allCards) {
     if (BASIC_LAND_NAMES.has(card.name)) continue;
     const inclusion = inclusionMap[card.name];
-    if (inclusion === undefined) { relMap[card.name] = 0; continue; }
+    const isThemeMember = literalThemeMembers?.has(card.name.toLowerCase()) ?? false;
+    if (inclusion === undefined && !isThemeMember) { relMap[card.name] = 0; continue; }
     const meta = metaMap[card.name] ?? {};
     const pseudoEc: EDHRECCard = {
       name: card.name,
       sanitized: card.name,
       primary_type: meta.primary_type ?? '',
-      inclusion,
+      inclusion: inclusion ?? 0,
       num_decks: 0,
       synergy: synergyMap[card.name] ?? 0,
-      isThemeSynergyCard: meta.isThemeSynergyCard,
+      // Card-intrinsic theme membership earns the same priority branch as EDHREC's high-synergy
+      // lists: both mean "this card is here for the strategy", not "lots of decks happen to run it".
+      isThemeSynergyCard: meta.isThemeSynergyCard || isThemeMember,
       isNewCard: meta.isNewCard,
       cmc: meta.cmc ?? card.cmc,
     };

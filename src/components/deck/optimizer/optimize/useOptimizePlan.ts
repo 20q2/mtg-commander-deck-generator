@@ -7,6 +7,7 @@ import {
   type OptimizeSwaps,
 } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardPrice, getCachedCard, getCardsByNames } from '@/services/scryfall/client';
+import type { ThemeMembership } from '@/components/analyze/themeMembership';
 
 export interface UseOptimizePlanOptions {
   analysis: DeckAnalysis;
@@ -32,6 +33,10 @@ export interface UseOptimizePlanOptions {
   collectionOnly?: boolean;
   /** Owned-card names — required for `collectionOnly` to filter anything. */
   collectionNames?: Set<string>;
+  /** Theme membership for the active themes, forwarded to computeOptimizeSwaps so the local
+   *  fallback path exempts literal theme members from low-inclusion cuts too. Unused when
+   *  `baseSwaps` is supplied — DeckOptimizer has already applied it there. */
+  themeMembership?: ThemeMembership | null;
 }
 
 export interface OptimizePlanTotals {
@@ -60,6 +65,7 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
     onApply, highlightRemovals = true,
     baseSwaps: sharedSwaps,
     collectionOnly = false, collectionNames,
+    themeMembership,
   } = opts;
 
   const [extraAdditions, setExtraAdditions] = useState<OptimizeCard[]>([]);
@@ -77,8 +83,9 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
       analysis, currentCards, cardInclusionMap,
       commanderName, partnerCommanderName,
       mustIncludeNames, bannedNames, detectedCombos,
+      themeMembership,
     }),
-    [sharedSwaps, analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos],
+    [sharedSwaps, analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, mustIncludeNames, bannedNames, detectedCombos, themeMembership],
   );
   const baseSwaps = localSwaps;
 

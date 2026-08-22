@@ -1,5 +1,5 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, DetectedCombo, PlanScore, Misfit, GapAnalysisCard } from '@/types';
-import type { ThemeMembership } from '@/components/analyze/themeMembership';
+import { isLiteralThemeMember, type ThemeMembership } from '@/components/analyze/themeMembership';
 import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, getProtectionSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
@@ -1078,6 +1078,12 @@ export interface ComputeOptimizeSwapsOptions {
    *  spell cut-ranking is re-weighted so synergy outliers sort toward the cut.
    *  Absent (scan not yet loaded) → pure relevancy ranking, same as planTrim. */
   connectivityMap?: Record<string, number>;
+  /** Theme membership for the active themes — same option name and type analyzeDeck takes, so
+   *  callers pass the object they already built. Cards with `literal` basis (the card's own type
+   *  line, keyword or rules text carries a selected theme's mechanic) are exempt from the
+   *  low-inclusion and low-synergy cut categories: EDHREC not having seen a card with this
+   *  commander is not evidence against it. Role excess and deck-size balance still apply. */
+  themeMembership?: ThemeMembership | null;
 }
 
 export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): OptimizeSwaps {
@@ -1091,6 +1097,7 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     bannedNames,
     detectedCombos,
   } = opts;
+  const themeMembership = opts.themeMembership ?? null;
   const BASIC_LANDS = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes']);
   const inclusionMap = cardInclusionMap ?? {};
   const currentCardNames = new Set(currentCards.map(c => c.name));
@@ -1211,6 +1218,11 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     }
 
     // ── General non-land, non-excess-role cuts ──
+    // Mirrors the isThemeSynergyCard guard above: a card carrying a selected theme's mechanic is
+    // not a "low inclusion" or "low synergy" cut. It can still leave via role excess or deck-size
+    // balance, which are handled in their own buckets.
+    if (isLiteralThemeMember(themeMembership, card.name)) continue;
+
     const INCLUSION_FLOOR = 70;
     if ((inclusion ?? 0) >= INCLUSION_FLOOR) continue;
 

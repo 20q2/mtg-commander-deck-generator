@@ -34,6 +34,7 @@ import { RecsLoadingState } from './shared';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
+import { buildThemeFit, EMPTY_THEME_FIT, type ThemeFit } from '@/services/deckBuilder/themeFit';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, TAB_SLUG_BY_KEY, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
 import { buildShareUrl, deckToSharePayload, DeckLinkError } from '@/services/share/deckLink';
@@ -320,6 +321,23 @@ export function DeckOptimizer({
   const [themesTouched, setThemesTouched] = useState(boot.themesTouched ?? false);
   const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
   const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
+  // Classifier theme fit, refreshed whenever the selected themes or the deck's cards change. Held
+  // in a ref for the same reason themeDataCacheRef is: every consumer reads it inside a computation
+  // that already has its own dependency list, and a re-render per resolve would thrash the analyze
+  // pipeline. themeFitVersion below is what tells those memos it changed.
+  const themeFitRef = useRef<ThemeFit>(EMPTY_THEME_FIT);
+  const [themeFitVersion, setThemeFitVersion] = useState(0);
+
+  /** The ONLY place this component builds membership. Every call site routes through here so the
+   *  classifier evidence can never be attached at some surfaces and missing at others. */
+  const membershipFor = useCallback(
+    (
+      primary: { slug: string; name: string } | null,
+      secondary: { slug: string; name: string } | null,
+    ) => buildThemeMembership(primary, secondary, themeDataCacheRef.current, themeFitRef.current),
+    // themeFitVersion is not read here — it exists so consumers re-run when the ref is replaced.
+    [themeFitVersion],
+  );
 
   // Full EDHREC taxonomy — resolves names for themes outside the commander's
   // taglinks (custom picks, saved off-list themes). One cached fetch.
@@ -400,10 +418,21 @@ export function DeckOptimizer({
         [primary, secondary].filter(Boolean).map(t => fetchThemeData(t!.slug).catch(() => null)),
       );
       if (cancelled) return;
-      onThemeMembershipChange(buildThemeMembership(primary, secondary, themeDataCacheRef.current));
+
+      // Classifier fit first: membership unions it with the EDHREC page lists, so it has to be in
+      // the ref before any membership is built from it. Bumping the version is what makes the
+      // cut/recommendation memos re-run with the fit attached.
+      themeFitRef.current = await buildThemeFit(
+        currentCards,
+        [primary, secondary].filter((t): t is { slug: string; name: string } => !!t),
+      );
+      if (cancelled) return;
+      setThemeFitVersion(v => v + 1);
+
+      onThemeMembershipChange(membershipFor(primary, secondary));
     })();
     return () => { cancelled = true; };
-  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange, fetchThemeData]);
+  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange, fetchThemeData, currentCards]);
 
   // Emit the misfit name set so the deck-building area can highlight matching cards.
   useEffect(() => {
@@ -681,7 +710,7 @@ export function DeckOptimizer({
     const storedDeck = useStore.getState().generatedDeck;
     const themeContext = {
       themeMembership: (primaryInfo || secondaryInfo)
-        ? buildThemeMembership(primaryInfo, secondaryInfo, themeDataCacheRef.current)
+        ? membershipFor(primaryInfo, secondaryInfo)
         : undefined,
       primaryThemeData: themeEnhancedDataRef.current ?? undefined,
       planName: primaryInfo?.name ?? undefined,
@@ -1018,7 +1047,7 @@ export function DeckOptimizer({
           // must work for off-detection slugs, hence resolveThemeInfo.
           const primaryThemeInfo = resolveThemeInfo(appliedPrimary) ?? { slug: appliedPrimary, name: appliedPrimary };
           const secondaryThemeInfo = resolveThemeInfo(appliedSecondary);
-          const themeMembershipForScore = buildThemeMembership(primaryThemeInfo, secondaryThemeInfo, themeDataCacheRef.current);
+          const themeMembershipForScore = membershipFor(primaryThemeInfo, secondaryThemeInfo);
           const storedDeckForTheme = useStore.getState().generatedDeck;
 
           const themeInclusionMap = buildInclusionMap(bestThemeData);
@@ -1251,7 +1280,7 @@ export function DeckOptimizer({
       // Resolve theme info (name) for plan scoring
       const primaryThemeInfo = resolveThemeInfo(primary);
       const secondaryThemeInfo = resolveThemeInfo(secondary);
-      const themeMembershipForScore = buildThemeMembership(primaryThemeInfo, secondaryThemeInfo, themeDataCacheRef.current);
+      const themeMembershipForScore = membershipFor(primaryThemeInfo, secondaryThemeInfo);
       const planNameForScore = primaryThemeInfo?.name ?? null;
 
       const primaryResult = analyzeDeck({
@@ -1505,8 +1534,12 @@ export function DeckOptimizer({
       bannedNames: menuProps.bannedNames,
       detectedCombos: detectedCombosForSwaps,
       connectivityMap: swapConnectivity ?? undefined,
+      themeMembership: membershipFor(
+        resolveThemeInfo(primaryThemeSlug),
+        resolveThemeInfo(secondaryThemeSlug),
+      ),
     });
-  }, [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity]);
+  }, [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity, membershipFor, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug]);
 
   // Deck-wide lift scan (shared cache) → cluster-aware recommendations. The three rec surfaces
   // (Optimize / Curve / Roles) wait for this before rendering suggestions, per design.
@@ -1715,10 +1748,9 @@ export function DeckOptimizer({
   // ═════════════════════════════════════════════════════════════════════
   // Derived values for DashboardSummary
   // ═════════════════════════════════════════════════════════════════════
-  const dashboardThemeMembership = buildThemeMembership(
+  const dashboardThemeMembership = membershipFor(
     resolveThemeInfo(primaryThemeSlug),
     resolveThemeInfo(secondaryThemeSlug),
-    themeDataCacheRef.current,
   );
   const dashboardPrimaryThemeData = primaryThemeSlug
     ? (themeDataCacheRef.current.get(primaryThemeSlug) ?? null)
