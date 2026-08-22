@@ -574,6 +574,13 @@ async function main() {
     generatedAt: new Date().toISOString(),
     themes: out,
     forceArchetype: forceArchetype.sort(),
+    // Emitted so deck scoring can exclude the same cards the definitions excluded. They were only
+    // filtered on the definition side, which left the two halves inconsistent: a card carrying no
+    // theme information was barred from DEFINING a theme but still allowed to be EVIDENCE for one.
+    // A deck of nothing but staples therefore scored Tron at 61% confidence, because Tron's
+    // definition (synergy-colorless, refund, untaps-self) is an accurate description of every mana
+    // rock in the format.
+    staples: [...staples].sort(),
   }, null, 2) + '\n');
   console.log(`\nWrote ${Object.keys(out).length} themes → src/data/themeCharTags.json`);
 

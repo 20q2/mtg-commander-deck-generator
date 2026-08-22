@@ -72,9 +72,24 @@ export function scoreThemesForDeck(
   tagsFor: (card: ScryfallCard) => readonly string[],
   commanderThemeSlugs: ReadonlySet<string>,
   tuning: ThemeTuning = DEFAULT_TUNING,
+  /** Format staples to treat as neutral. See ThemeCharTagTable.staples. */
+  staples?: ReadonlySet<string>,
 ): ThemeScore[] {
   const nonLand = cards.filter(c => !isLand(c));
   const denom = nonLand.length || 1;
+
+  // Format staples carry no STATISTICAL theme information — that is exactly why the build script
+  // excludes them when mining definitions — but they were still allowed to be evidence at scoring
+  // time. A deck of nothing but staples scored Tron at 61% confidence, Tron's definition
+  // (synergy-colorless, refund, untaps-self) being a fair description of every mana rock printed.
+  //
+  // Suppressed for TAG membership only, not literal. Sol Ring genuinely is an Artifact and Skullclamp
+  // genuinely is Equipment; a card-attribute test is true regardless of how many theme pages the card
+  // appears on. Excluding staples from literal tests too was measured and cost 2.2 points of
+  // deterministic top-1 for no extra precision.
+  const isStaple = staples?.size
+    ? (c: ScryfallCard) => staples.has(c.name) || staples.has(c.name.split(' // ')[0])
+    : () => false;
 
   // Tags resolved once per card rather than once per (card, theme) — 400 themes makes that a
   // 400x difference on the hot path. Cached over ALL cards, not just non-lands: membership still
@@ -108,7 +123,9 @@ export function scoreThemesForDeck(
   const scored: ThemeScore[] = [];
   for (const model of models) {
     const memberCards: ThemeMemberCard[] = [];
+    const tagBased = model.kind.kind === 'archetype';
     for (const card of nonLand) {
+      if (tagBased && isStaple(card)) continue;
       const r = testMembership(model, card, tagCache.get(card) ?? []);
       if (r.member) memberCards.push({ name: card.name, basis: r.basis, matched: r.matched });
     }

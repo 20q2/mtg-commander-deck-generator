@@ -29,6 +29,8 @@ interface LabInput {
   tagIndexLoaded: boolean;
   catalogs: MtgCatalogs;
   tableGeneratedAt: string | null;
+  /** Format staples, neutral evidence for archetype themes. */
+  staples: Set<string>;
   taggedCards: number;
   /** Theme slugs the fixture says SHOULD win, when a preset deck was loaded. */
   expected?: string[];
@@ -87,6 +89,7 @@ export function ThemeLabPage() {
         tagIndexLoaded,
         catalogs,
         tableGeneratedAt: table.generatedAt,
+        staples: new Set(table.staples ?? []),
         taggedCards: cards.filter(c => c.oracle_id && tagsForOracleId(c.oracle_id).length > 0).length,
         expected: fixture?.expect,
         fixtureName: fixture?.name,
@@ -105,7 +108,7 @@ export function ThemeLabPage() {
     return scoreThemesForDeck(
       input.cards, input.models,
       c => (c.oracle_id ? tagsForOracleId(c.oracle_id) : []),
-      input.commanderThemeSlugs, tuning,
+      input.commanderThemeSlugs, tuning, input.staples,
     );
   }, [input, tuning]);
 

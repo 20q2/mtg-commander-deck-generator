@@ -49,6 +49,19 @@ export interface ThemeCharTagTable {
    * table, in which case nothing is downgraded and behaviour is unchanged.
    */
   forceArchetype?: string[];
+  /**
+   * Format staples — cards on >30% of all EDHREC theme pages, so they carry no theme information.
+   *
+   * Already excluded when building definitions; emitted so deck scoring can exclude them too. Leaving
+   * the two halves inconsistent meant a card barred from DEFINING a theme was still allowed to be
+   * EVIDENCE for one, and a deck of pure staples scored Tron at 61% confidence — Tron's definition
+   * (synergy-colorless, refund, untaps-self) being a fair description of every mana rock printed.
+   *
+   * Excluded from the ratio DENOMINATOR as well as the numerator, matching the definition side, where
+   * base rates are computed over a pool with staples removed. Treating them as neutral rather than as
+   * negative evidence is the consistent choice: Sol Ring says nothing either way.
+   */
+  staples?: string[];
 }
 
 /**

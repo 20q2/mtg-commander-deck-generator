@@ -951,7 +951,10 @@ export function DeckOptimizer({
           const scored = scoreThemesForDeck(
             currentCards, models,
             c => (c.oracle_id ? tagsForOracleId(c.oracle_id) : []),
-            commanderSlugs,
+            commanderSlugs, undefined,
+            // Format staples are neutral evidence for archetypes. Without this a goodstuff pile
+            // reported Tron at 61% confidence off nothing but mana rocks.
+            new Set(table.staples ?? []),
           );
           membershipScores = new Map(scored.map(s => [s.model.slug, s]));
 
