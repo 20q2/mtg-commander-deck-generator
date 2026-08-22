@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-08-22T21:19:45.829Z",
+  "generatedAt": "2026-08-22T21:31:49.618Z",
   "themes": {
     "tokens": {
       "charTags": [],
-      "baseRate": 0.17734058880982279
+      "baseRate": 0.15606250872052463
     },
     "plus-1-plus-1-counters": {
       "charTags": [],
-      "baseRate": 0.12090135342542208
+      "baseRate": 0.10025115110925073
     },
     "artifacts": {
       "charTags": [],
@@ -479,7 +479,7 @@
     },
     "commander-matters": {
       "charTags": [],
-      "baseRate": 0.011162271522254779
+      "baseRate": 0.0091391098088461
     },
     "humans": {
       "charTags": [],
@@ -547,7 +547,7 @@
     },
     "minus-1-minus-1-counters": {
       "charTags": [],
-      "baseRate": 0.008511232035719268
+      "baseRate": 0.004534672805916004
     },
     "angels": {
       "charTags": [],
@@ -1191,10 +1191,10 @@
         "counter-increaser",
         "keyword-counter",
         "counters-matter",
-        "pp-counters-matter",
-        "mix-and-match"
+        "gives-mm-counters",
+        "pp-counters-matter"
       ],
-      "baseRate": 0.06160178596344356
+      "baseRate": 0.06041579461420399
     },
     "aikido": {
       "charTags": [
@@ -1778,7 +1778,7 @@
     },
     "charge-counters": {
       "charTags": [],
-      "baseRate": 0.006069485140226036
+      "baseRate": 0.004395144411887819
     },
     "suspend": {
       "charTags": [],
@@ -1861,7 +1861,7 @@
     },
     "time-counters": {
       "charTags": [],
-      "baseRate": 0.0057206641551555745
+      "baseRate": 0.003627738244732803
     },
     "deserts": {
       "charTags": [

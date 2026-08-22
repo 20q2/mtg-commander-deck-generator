@@ -143,8 +143,22 @@ function hasCardType(sc: ScryfallCard, type: string): boolean {
   const lines = [sc.type_line ?? '', ...(sc.card_faces ?? []).map(f => f.type_line ?? '')];
   return lines.some(l => new RegExp(`\\b${type}\\b`).test(l.toLowerCase().split('—')[0] ?? ''));
 }
+/**
+ * Oracle text with REMINDER TEXT stripped — anything parenthesised.
+ *
+ * Scryfall includes a keyword's reminder text in `oracle_text`, and reminder text describes the
+ * keyword rather than the card. Every Infect creature reads "Infect (This creature deals damage to
+ * creatures in the form of -1/-1 counters and to players in the form of poison counters.)", so the
+ * "-1/-1 counters" curated regex matched all fourteen infect cards in an Atraxa deck and reported
+ * -1/-1 Counters at 100% confidence, absorbing Infect itself.
+ *
+ * The same trap is waiting in most reminder text: Dredge mentions the graveyard, Cascade mentions
+ * exile, Fabricate mentions +1/+1 counters and tokens. Matching a card's own rules is the intent;
+ * matching the rulebook's gloss on a keyword it happens to have is not.
+ */
 function oracleText(sc: ScryfallCard): string {
-  return `${sc.oracle_text ?? ''} ${(sc.card_faces ?? []).map(f => f.oracle_text ?? '').join(' ')}`;
+  const raw = `${sc.oracle_text ?? ''} ${(sc.card_faces ?? []).map(f => f.oracle_text ?? '').join(' ')}`;
+  return raw.replace(/\([^)]*\)/g, ' ');
 }
 
 /**
