@@ -51,8 +51,34 @@ export const INCLUSION_WEIGHT = 0.25;
 /**
  * Floor on a theme's expected hit rate, guarding division by zero for themes that essentially never
  * appear. Also caps how enormous a rare theme's lift can get from a single lucky match.
+ *
+ * Applied to ARCHETYPES only. Their base rate is itself derived from tag lift, so a tiny value can be
+ * an artefact and needs the guard. A deterministic theme's base rate was measured directly — the
+ * build script counted the cards passing its literal test — and clamping a measured value throws away
+ * the only thing that separates a rare mechanic from an ambient one. At three cards in a 35-card
+ * deck, Dredge (0.042% of the pool) is a 20x concentration and Flying (9.9%) is 0.9x; the clamp
+ * flattened Dredge, Storm, Infect and Prowess to the same 4.3x as noise, which is why 55% of
+ * mechanic themes couldn't be detected at all.
  */
 export const EXPECTED_RATE_FLOOR = 0.02;
+
+// ─── Rare-mechanic floor ──────────────────────────────────────────────
+
+/**
+ * The main floor (MIN_MEMBERS / MIN_RATIO) is calibrated for themes that span a deck. It is simply
+ * wrong for a narrow mechanic: a real Storm deck runs three Storm cards, a Dredge deck three or four,
+ * because that is all that exist. Measured over the taxonomy, 55% of mechanic themes could never be
+ * declared on their own cards — including Dredge, which found exactly the right three (Life from the
+ * Loam, Golgari Grave-Troll, Stinkweed Imp) and was rejected for finding only three.
+ *
+ * So a second path: fewer cards are enough when the concentration is extraordinary. Restricted to
+ * themes with LITERAL evidence, consistent with the rest of the pipeline — the card itself says
+ * "Dredge 3", which no amount of tag co-occurrence can match for reliability. Archetypes keep the
+ * full floor, since a handful of tag hits is exactly what noise looks like.
+ */
+export const RARE_MIN_MEMBERS = 3;
+/** …and the lift it must clear. Comfortably above Flying (0.9x), Haste (3.6x) and Elves (3.9x). */
+export const RARE_MIN_LIFT = 12;
 /**
  * Ceiling on the observed/expected multiplier, so one obscure tag can't run away with the ranking.
  *
@@ -83,6 +109,8 @@ export interface ThemeTuning {
   inclusionWeight: number;
   expectedRateFloor: number;
   maxLift: number;
+  rareMinMembers: number;
+  rareMinLift: number;
   nestSuppressRatio: number;
 }
 
@@ -97,6 +125,8 @@ export const DEFAULT_TUNING: ThemeTuning = {
   inclusionWeight: INCLUSION_WEIGHT,
   expectedRateFloor: EXPECTED_RATE_FLOOR,
   maxLift: MAX_LIFT,
+  rareMinMembers: RARE_MIN_MEMBERS,
+  rareMinLift: RARE_MIN_LIFT,
   nestSuppressRatio: NEST_SUPPRESS_RATIO,
 };
 
@@ -112,6 +142,10 @@ export const TUNING_FIELDS: {
     hint: 'Weighted inclusion % of overlapping cards' },
   { key: 'minMembers', label: 'Min members', min: 0, max: 40, step: 1,
     hint: 'Hard floor on absolute member count' },
+  { key: 'rareMinMembers', label: 'Rare-mechanic members', min: 1, max: 10, step: 1,
+    hint: 'Members needed when a literal theme is extraordinarily concentrated' },
+  { key: 'rareMinLift', label: 'Rare-mechanic lift', min: 1, max: 20, step: 1,
+    hint: 'Lift that few-card path must clear (Flying is 0.9x, Elves 3.9x)' },
   { key: 'minRatio', label: 'Min ratio', min: 0, max: 1, step: 0.01,
     hint: 'Hard floor on members / non-land cards' },
   { key: 'offListPrior', label: 'Off-list prior', min: 0, max: 1.5, step: 0.05,

@@ -115,11 +115,32 @@ export function scoreThemesForDeck(
     const expected = Math.max(model.baseRate, tuning.expectedRateFloor);
     const observedOverExpected = Math.min(ratio / expected, tuning.maxLift);
 
+    // TRUE concentration, used for the floor decision ONLY — never for ranking.
+    //
+    // One number was doing two jobs. Ranking needs the clamped value: it keeps themes comparable, and
+    // unclamping it let narrow literal themes run away with the board (landfall beat 7 rivals,
+    // proliferate 8, constructs 11, and counterType top-1 accuracy collapsed from 67% to 17%). But
+    // the floor decision needs the opposite — the clamp flattens Dredge (0.042% of the pool), Storm,
+    // Infect and Prowess to the same 4.3x as noise, which is why 55% of mechanic themes could never
+    // be declared on their own cards. So: clamped to rank, unclamped to qualify.
+    const rarityLift = model.baseRate > 0
+      ? Math.min(ratio / model.baseRate, tuning.maxLift)
+      : observedOverExpected;
+
     const onCommanderList = commanderThemeSlugs.has(model.slug);
     const prior = onCommanderList ? tuning.commanderListPrior : tuning.offListPrior;
 
     const rawMembershipScore = (observedOverExpected / tuning.maxLift) * 100;
-    const passedFloor = members >= tuning.minMembers && ratio >= tuning.minRatio;
+    // Two ways through. The main floor is calibrated for themes that span a deck; the second exists
+    // because a real Storm deck runs three Storm cards, since that is all that exist. Restricted to
+    // literal evidence — the card itself says "Dredge 3", which tag co-occurrence can't match for
+    // reliability, and a handful of tag hits is precisely what noise looks like.
+    const hasLiteral = memberCards.some(m => m.basis === 'literal');
+    const passedFloor =
+      (members >= tuning.minMembers && ratio >= tuning.minRatio)
+      || (hasLiteral
+          && members >= tuning.rareMinMembers
+          && rarityLift >= tuning.rareMinLift);
 
     // Scored normally either way — only declaration is gated.
     let gateMissing: ThemeGate | undefined;
