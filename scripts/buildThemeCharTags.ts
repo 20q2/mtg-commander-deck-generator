@@ -505,12 +505,37 @@ async function main() {
   // there's no subtree to exclude; the list is short and explicit.
   const PROVENANCE = new Set(['40k-model', 'meme', 'draft-signpost', 'custom-cards']);
 
+  // EPONYMOUS TAGS. When a tag's slug IS a theme's slug, SpellChroma named that tag after that theme
+  // and no other theme may use it. Ownership was previously granted only to DETERMINISTIC themes, so
+  // archetypes went on stealing each other's names.
+  //
+  // Donate is the clean case. Its definition contained `group-hug`, and on a Phelddagrif deck it
+  // matched 24 cards — 21 of them through that one tag — beating Group Hug, which owns the tag, has
+  // thirteen members of its own vocabulary (force-draw x11) and six times the deck count. Politics
+  // matched 21 cards through the same tag with nothing of its own at all.
+  //
+  // Exact slug equality only: no stemming, no prefix matching. `mill-self` must not read as belonging
+  // to `mill`, because a tag being a refinement of a theme is not the same as being its name, and the
+  // sibling themes are exactly where that distinction matters.
+  // ...and only when the namesake theme ACTUALLY USES the tag. Barring it otherwise takes vocabulary
+  // away from a theme and hands it to nobody: if lift never found `X` characteristic of theme X, then
+  // theme X has no claim on it and the removal is pure loss. Enforcing that unconditionally stripped
+  // 123 tags, promoted junk from deeper in the candidate list to fill the holes (`animate` into Land
+  // Animation, `untapper` into Blue Moon), and cost two points of accuracy while fixing one deck.
+  const themeSlugs = new Set(tags.map(t => t.slug));
+  const ownsItself = (tag: string) => themeSlugs.has(tag) && (wide[tag] ?? []).includes(tag);
   const charTags: Record<string, string[]> = {};
+  let eponymous = 0;
   for (const [slug, list] of Object.entries(wide)) {
     charTags[slug] = list
-      .filter(t => !ubiquitous.has(t) && !PROVENANCE.has(t) && !signatures.has(t))
+      .filter(t => {
+        if (ubiquitous.has(t) || PROVENANCE.has(t) || signatures.has(t)) return false;
+        if (t !== slug && ownsItself(t)) { eponymous++; return false; }
+        return true;
+      })
       .slice(0, Number(process.env.MAX_TAGS ?? 8));
   }
+  console.log(`     ${eponymous} eponymous tag borrowings removed (tag named after another theme)`);
 
   // ANCHOR CARDS. A companion theme can't be declared without its companion actually in the deck:
   // an all-creature pile really does satisfy Umori's restriction, and its theme data is useful for

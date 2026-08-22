@@ -101,7 +101,15 @@ function singulars(n: string): string[] {
  * keyword ("Cycling", "Training") never reaches the stem.
  */
 function stems(n: string): string[] {
-  return [n, n.replace(/ing$/, ''), n.replace(/ing$/, 'e')];
+  // Plurals as well as gerunds. EDHREC names a keyword theme in the plural where the catalog holds
+  // the singular, and the gap cost real precision: "Defenders" (6,438 decks) and "Miracles" fell
+  // through to the statistical path, where Defenders picked up a generic creature-count definition,
+  // when `defender` and `miracle` are exact keywords sitting in Scryfall's catalog.
+  //
+  // Only a trailing "s" on the WHOLE name, deliberately. Also stripping a "Matters" suffix would turn
+  // "Counters Matter" into "counter" and match the Counter-target-spell keyword action — a theme about
+  // +1/+1 counters classified as countermagic.
+  return [n, n.replace(/ing$/, ''), n.replace(/ing$/, 'e'), n.replace(/s$/, '')];
 }
 
 /**
