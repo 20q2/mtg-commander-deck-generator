@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-22T20:58:08.409Z",
+  "generatedAt": "2026-08-22T21:19:45.829Z",
   "themes": {
     "tokens": {
       "charTags": [],
@@ -27,17 +27,8 @@
       "baseRate": 0.11566903864936515
     },
     "aggro": {
-      "charTags": [
-        "face-commander",
-        "power-matters-individual",
-        "curiosity",
-        "curiosity-like",
-        "gives-indestructible",
-        "attacking-matters",
-        "gives-trample",
-        "keyword-anthem"
-      ],
-      "baseRate": 0.1280870657178736
+      "charTags": [],
+      "baseRate": 0
     },
     "spellslinger": {
       "charTags": [
@@ -402,15 +393,8 @@
       "baseRate": 0.021905957862425003
     },
     "good-stuff": {
-      "charTags": [
-        "manaless-value",
-        "synergy-legendary",
-        "counterspell",
-        "cost-ignorer",
-        "free-cast-another",
-        "black-effect"
-      ],
-      "baseRate": 0.11050648807032232
+      "charTags": [],
+      "baseRate": 0
     },
     "group-hug": {
       "charTags": [
@@ -1041,17 +1025,8 @@
       "baseRate": 0.057276405748569834
     },
     "zoo": {
-      "charTags": [
-        "ferocious",
-        "power-matters-individual",
-        "manaless-value",
-        "cost-ignorer",
-        "curiosity-like",
-        "scales-with-power",
-        "power-matters",
-        "gives-trample"
-      ],
-      "baseRate": 0.12418027068508442
+      "charTags": [],
+      "baseRate": 0
     },
     "discover": {
       "charTags": [],
@@ -1633,17 +1608,8 @@
       "baseRate": 0.0006278777731268313
     },
     "primal-surge": {
-      "charTags": [
-        "power-matters-individual",
-        "keyword-anthem",
-        "impulse",
-        "cost-ignorer",
-        "gives-trample",
-        "unexile",
-        "castable-from-exile",
-        "gives-haste"
-      ],
-      "baseRate": 0.13206362494767684
+      "charTags": [],
+      "baseRate": 0
     },
     "experience-counters": {
       "charTags": [],
@@ -2132,15 +2098,8 @@
       "baseRate": 0.01562718013115669
     },
     "vanilla": {
-      "charTags": [
-        "anthem",
-        "scales-with-power",
-        "toughness-boost-to-all",
-        "power-boost-to-all",
-        "power-matters",
-        "burst-draw"
-      ],
-      "baseRate": 0.13129621878052183
+      "charTags": [],
+      "baseRate": 0
     },
     "devils": {
       "charTags": [],
@@ -2399,15 +2358,8 @@
       "baseRate": 0.0029300962745918793
     },
     "umori-companion": {
-      "charTags": [
-        "reanimate-creature",
-        "recursion-creature",
-        "keyword-anthem",
-        "death-trigger",
-        "reanimate",
-        "virtual-vanilla"
-      ],
-      "baseRate": 0.15696944328170784,
+      "charTags": [],
+      "baseRate": 0,
       "anchor": "Umori, the Collector"
     },
     "type-hack": {
@@ -2976,15 +2928,8 @@
       "baseRate": 0
     },
     "custom-cards": {
-      "charTags": [
-        "draw-engine",
-        "repeatable-pure-draw",
-        "repeatable-pp-counters",
-        "repeatable-draw",
-        "repeatable-card-advantage",
-        "pure-draw"
-      ],
-      "baseRate": 0.2430584623970978
+      "charTags": [],
+      "baseRate": 0
     },
     "job-select": {
       "charTags": [],
@@ -3012,13 +2957,8 @@
       "baseRate": 0.0017441049253523091
     },
     "premodern": {
-      "charTags": [
-        "deprecated-legend-type",
-        "deprecated-card-types",
-        "type-errata",
-        "removal-destroy"
-      ],
-      "baseRate": 0.09083298451234827
+      "charTags": [],
+      "baseRate": 0
     },
     "retrace": {
       "charTags": [],

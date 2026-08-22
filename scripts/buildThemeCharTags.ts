@@ -530,6 +530,20 @@ async function main() {
   }
   console.log(`     ${Object.keys(anchors).length} anchor-gated themes: ${Object.entries(anchors).map(([s, c]) => `${s}→${c.split(',')[0]}`).join(', ')}`);
 
+  // Swept 0 to 0.10 with an HONEST denominator -- an inert theme counts as a failure to detect it,
+  // because otherwise pruning a hard theme raises accuracy by shrinking the denominator and every
+  // pruning experiment looks like a free win. (It did: 0.06 appeared to gain 8 points of weighted
+  // accuracy and actually lost 2.)
+  //
+  // With that fixed, pruning buys no recall at all. 0.035 is kept because it is exactly FREE --
+  // identical robust/deterministic/archetype accuracy and identical fixtures -- while cutting the
+  // noise survivors that appear on every deck: Custom Cards, Premodern, Aggro, Good Stuff, Vanilla,
+  // Zoo. Mean survivors on themeless decks 4.8 -> 4.1.
+  //
+  // Deliberately not higher. 0.045 costs 1.2 points of archetype accuracy, and 0.10 would take
+  // Aristocrats (9.2%), Reanimator (8.3%) and Control (6.7%) -- real strategies whose definitions are
+  // broad because the strategies are.
+  const DEF_MIN_PRECISION = Number(process.env.DEF_MIN_PRECISION ?? 0.035);
   const out: Record<string, { charTags: string[]; baseRate: number; anchor?: string }> = {};
   const denom = resolved.length || 1;
   for (const t of tags) {
@@ -562,7 +576,30 @@ async function main() {
         }
       }
       if (tagsForTheme.length > 0) {
-        for (const r of resolved) if (tagsForTheme.some(x => r.tags.includes(x))) members++;
+        // DEFINITION PRECISION. Does the definition select the theme's OWN cards, or something much
+        // broader? baseRate only measures how MANY cards a definition matches, never WHICH: two
+        // definitions covering 5% of the pool score identically whether that 5% is the theme's cards
+        // or a different 5% entirely. So measure the overlap directly.
+        //
+        // It cleanly separates real strategies from the taxonomy's non-strategies. Blink scores 37.6%,
+        // Stax 38.3%, Exile 30.5%, Lands Matter 23.2% — while Custom Cards manages 0.6%, Premodern
+        // 2.3%, Vanilla 3.3%, Aggro 3.4%, Midrange 4.1%, Combo 4.2%. That second group are format
+        // names and meta-descriptors rather than plans, and they were surfacing as low-confidence
+        // survivors on every deck: Old School, Premodern, Rube Goldberg, Value Vintage, cEDH.
+        const page = themeCards.get(t.slug);
+        let hit = 0, onPage = 0;
+        for (const r of resolved) {
+          if (!tagsForTheme.some(x => r.tags.includes(x))) continue;
+          hit++;
+          if (page?.has(r.card.name)) onPage++;
+        }
+        const precision = hit > 0 ? onPage / hit : 0;
+        if (precision < DEF_MIN_PRECISION) {
+          console.log(`     ${t.slug}: definition precision ${(precision * 100).toFixed(1)}% → inert`);
+          tagsForTheme = [];
+        } else {
+          members = hit;
+        }
       }
     } else {
       for (const r of resolved) if (themeKindMatches(kind, r.card as never)) members++;

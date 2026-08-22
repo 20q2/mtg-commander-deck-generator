@@ -111,7 +111,7 @@ export const MAX_LIFT = 20;
  * weighted gain (+4.1) for the same 1.3-point tail cost as a much gentler 0.75, and 0.45 buys only
  * +0.3 more for twice the tail loss. Identifying strange decks matters, so the tail is not for sale.
  */
-export const POPULARITY_FLOOR = 0.60;
+export const POPULARITY_FLOOR = 0.45;
 export const POPULARITY_FULL_AT = 20000;
 
 /** Multiplier in [POPULARITY_FLOOR, 1] for how established a theme is. */
@@ -135,7 +135,7 @@ export function popularityPrior(
  * and weighted accuracy +0.6, for 0.9 of deterministic top-1 and no fixture change. Past 0.5 it
  * starts trading real deterministic accuracy for archetype accuracy, so it stays low.
  */
-export const COVERAGE_WEIGHT = 0.2;
+export const COVERAGE_WEIGHT = 0.3;
 
 // ─── Nesting suppression ──────────────────────────────────────────────
 
