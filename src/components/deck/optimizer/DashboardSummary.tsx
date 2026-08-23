@@ -55,19 +55,36 @@ function roleRadarData(rbs: RoleBreakdown[]): RadarDatum[] {
 // absolute scale, so the deck's real themes spike and weak/off themes stay short —
 // raw card-overlap was flat because theme lists overlap heavily (every spoke maxed).
 //
-// Match scores cluster tightly (most themes land 60-70, the dominant one ~90), so a
-// linear score→radius map reads as a near-regular blob and the real spike barely shows.
-// We exaggerate the spread with a power curve: scores stay anchored at the ends (0→0,
-// 100→1) but the gentle 0.25 linear gap between a 65 and a 90 widens into a clear spike.
+// Match scores cluster tightly, so a linear score→radius map reads as a near-regular blob and the
+// real spike barely shows. A power curve exaggerates the spread: anchored at the ends (0→0, 100→1)
+// while a gentle linear gap widens into a clear spike.
 const STRATEGY_CONTRAST = 1.7;
-const contrastFill = (score: number) => Math.pow(Math.max(0, Math.min(1, score / 100)), STRATEGY_CONTRAST);
+const contrastFill = (share: number) => Math.pow(Math.max(0, Math.min(1, share / 100)), STRATEGY_CONTRAST);
+
+/**
+ * Radius is the score RELATIVE to this deck's strongest theme, not an absolute 0-100 position.
+ *
+ * The absolute map was calibrated against one score distribution ("most themes land 60-70, the
+ * dominant one ~90") and cannot survive the detector being tuned. Overlap used to saturate near 100
+ * for every theme, and gating it on synergy — so a page's generic staples stop counting as evidence
+ * — correctly pulled every composite down. Radius goes as score^1.7, so that amplified: a 30% score
+ * drop becomes a ~44% radius drop, and the whole shape collapsed toward the centre on a deck whose
+ * detection was actually correct. Hand-brewed decks start lower again, since they overlap their
+ * commander's pages far less than an EDHREC-generated one.
+ *
+ * Relative scaling is also the better answer to the question this chart asks. It exists to show
+ * which way the deck LEANS; absolute strength is already stated twice in the same tile, by the
+ * headline score and the "N of M non-land cards reinforce X" line. `current`/`target` stay absolute
+ * so hover still reports the true match score.
+ */
 function themeRadarData(coverage: ThemeCoverage[]): RadarDatum[] {
+  const top = Math.max(...coverage.map(c => c.score), 1);
   return coverage.map(c => ({
     key: c.slug,
     // Short label under each spoke; full name + score on hover.
     label: c.name.length > 11 ? `${c.name.slice(0, 10)}…` : c.name,
     current: Math.round(c.score), target: 100,
-    fill: contrastFill(c.score),
+    fill: contrastFill((c.score / top) * 100),
     hue: '262 84% 72%',
     glyph: null,
     tip: `${c.name} — ${Math.round(c.score)}/100 match · ${c.current} card${c.current === 1 ? '' : 's'}`,
