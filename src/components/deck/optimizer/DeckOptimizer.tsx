@@ -383,18 +383,20 @@ export function DeckOptimizer({
   // archetype tag page so ANY theme is pickable. Fallback inclusion percentages come
   // from the archetype-wide population (systematically higher than commander-specific
   // numbers) — the base-staple merge in the callers dampens the skew.
-  const fetchThemeData = useCallback(async (slug: string) => {
+  const fetchThemeData = useCallback(async (
+    slug: string,
+    /** Skip the commander+theme page entirely. Set when the caller already knows EDHREC lists no
+     *  such page for this commander — asking anyway costs a round trip and logs a 403 that reads
+     *  like a failure when it is the expected answer. */
+    opts?: { archetypeOnly?: boolean },
+  ) => {
     let data = themeDataCacheRef.current.get(slug);
     if (!data) {
-      try {
-        data = partnerCommanderName
-          ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug, undefined, undefined, colorSeg)
-          : await fetchCommanderThemeData(commanderName, slug, undefined, undefined, colorSeg);
-      } catch {
+      const fromArchetypePage = async () => {
         const tagData = await fetchTagPageData(slug, colorIdentity ?? []);
         if (!tagData) throw new Error(`No EDHREC data for theme "${slug}"`);
         const baseStats = cachedEdhrecDataRef.current?.stats;
-        data = {
+        return {
           themes: [],
           stats: baseStats ?? {
             avgPrice: 0, numDecks: 0, deckSize: 81, manaCurve: {},
@@ -404,6 +406,18 @@ export function DeckOptimizer({
           cardlists: tagData.cardlists,
           similarCommanders: [],
         };
+      };
+
+      if (opts?.archetypeOnly) {
+        data = await fromArchetypePage();
+      } else {
+        try {
+          data = partnerCommanderName
+            ? await fetchPartnerThemeData(commanderName, partnerCommanderName, slug, undefined, undefined, colorSeg)
+            : await fetchCommanderThemeData(commanderName, slug, undefined, undefined, colorSeg);
+        } catch {
+          data = await fromArchetypePage();
+        }
       }
       themeDataCacheRef.current.set(slug, data);
     }
@@ -1000,10 +1014,17 @@ export function DeckOptimizer({
       // direct call 403s, the theme never reaches themeDataMap, and detectThemes drops it on its
       // `if (!data) continue`. fetchThemeData falls back to the color-filtered archetype tag page,
       // which is the only pool an off-list theme can be scored against at all.
+      // Checked against the commander's FULL theme list, not topThemes: a theme can be on the
+      // commander's page yet outside the top 8 (Self-Damage on Sapling of Colfenor is), and those
+      // do have a commander+theme page worth preferring. Only genuinely off-list themes skip
+      // straight to the archetype pool.
+      const commanderOwnSlugs = new Set((edhrecData.themes || []).map(t => t.slug));
       const themeDataMap = new Map<string, import('@/types').EDHRECCommanderData>();
       for (const theme of [...topThemes, ...extraThemes]) {
         try {
-          themeDataMap.set(theme.slug, await fetchThemeData(theme.slug));
+          themeDataMap.set(theme.slug, await fetchThemeData(theme.slug, {
+            archetypeOnly: !commanderOwnSlugs.has(theme.slug),
+          }));
         } catch (err) {
           console.warn(`[DeckOptimizer] Failed to fetch theme data for ${theme.slug}:`, err);
         }
