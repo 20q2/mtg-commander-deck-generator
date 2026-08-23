@@ -170,7 +170,7 @@ export function scoreThemeMatch(
   // 0 means "not reported" rather than "no decks": the archetype tag-page fallback synthesizes a
   // page without a count, and those pool thousands of decks. Treat unknown as full confidence.
   const pageDecks = themeData.stats?.numDecks ?? 0;
-  const synergyConfidence = pageDecks > 0 ? pageConfidence(pageDecks) : 1;
+  const pageConf = pageDecks > 0 ? pageConfidence(pageDecks) : 1;
 
   let cardOverlap = 0;
   let overlapCredit = 0;
@@ -190,7 +190,7 @@ export function scoreThemeMatch(
       weightedOverlap += matched.inclusion;
       const synergy = matched.synergy ?? 0;
       synergySum += synergy;   // reported raw — callers display the page's own figure
-      const reach = Math.min(Math.max(synergy * synergyConfidence, 0) / SYNERGY_FULL_CREDIT, 1);
+      const reach = Math.min(Math.max(synergy * pageConf, 0) / SYNERGY_FULL_CREDIT, 1);
       overlapCredit += STAPLE_OVERLAP_CREDIT + (1 - STAPLE_OVERLAP_CREDIT) * reach;
     }
   }
@@ -198,9 +198,16 @@ export function scoreThemeMatch(
   const overlapRatio = overlapCredit / deckNonBasicCount;
   const overlapScore = Math.min(overlapRatio * 150, 100); // 67% synergy-bearing overlap → 100
 
-  // Signal 2: Weighted Inclusion
+  // Signal 2: Weighted Inclusion — shrunk by the same page confidence as synergy above.
+  //
+  // Inclusion is a rate over the page's deck count, so a thin page's percentages are inflated and
+  // this term was rewarding exactly the pages least entitled to it. Measured on a Nath of the
+  // Gilt-Leaf elves-discard list: Combo (25 decks) and Stax (38) both pinned this term at its 25.0
+  // maximum while Discard (229 decks) scored 18.8 — so the term ranked the two themes the deck is
+  // NOT about above the one it is. Nothing about a 25-deck sample earns more confidence than a
+  // 229-deck one.
   const inclusionNormalizer = cardOverlap > 0 ? cardOverlap * 50 : 1;
-  const weightedScore = Math.min((weightedOverlap / inclusionNormalizer) * 100, 100);
+  const weightedScore = Math.min((weightedOverlap / inclusionNormalizer) * 100, 100) * pageConf;
 
   // Signal 3: Derived membership — how many of the deck's cards actually belong to this theme by
   // its own definition (a literal card attribute for tribal/mechanic/subtype themes, characteristic

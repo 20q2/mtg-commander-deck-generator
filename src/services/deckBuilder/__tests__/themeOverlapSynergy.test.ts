@@ -163,3 +163,28 @@ describe('synergy confidence on thin pages', () => {
     expect(noCount.score).toBeCloseTo(healthy.score, 1);
   });
 });
+
+describe('inclusion confidence on thin pages', () => {
+  /** Identical cards and inclusion — only the page's deck count differs. */
+  const pageWithDecks = (numDecks: number) => ({
+    stats: { numDecks },
+    cardlists: {
+      allNonLand: SLUG.map(name => ({ name, inclusion: 90, synergy: 0 })),
+      lands: [],
+    },
+  } as unknown as EDHRECCommanderData);
+
+  it('does not let a 25-deck page outrank a 229-deck one on inclusion', () => {
+    // Measured on a Nath of the Gilt-Leaf elves-discard list: Combo (25 decks) and Stax (38) both
+    // pinned the inclusion term at its 25.0 maximum while Discard (229) scored 18.8, so the term
+    // ranked the two themes the deck is NOT about above the one it is.
+    const thin = scoreThemeMatch(theme('Thin'), pageWithDecks(25), deck);
+    const healthy = scoreThemeMatch(theme('Healthy'), pageWithDecks(229), deck);
+    expect(thin.score).toBeLessThan(healthy.score);
+  });
+
+  it('reports weightedOverlap raw so callers can still show the page figure', () => {
+    const thin = scoreThemeMatch(theme('Thin'), pageWithDecks(25), deck);
+    expect(thin.weightedOverlap).toBeCloseTo(SLUG.length * 90, 5);
+  });
+});
