@@ -95,8 +95,37 @@ export function isLiteralThemeMember(
   membership: ThemeMembership | null | undefined,
   cardName: string,
 ): boolean {
+  return basisMatches(membership, cardName, b => b === 'literal');
+}
+
+/**
+ * Does the CLASSIFIER place this card in a selected theme — by the card's own text (`literal`) or by
+ * its characteristic oracle tags (`tag`)?
+ *
+ * Excludes `edhrec`. Page presence is far too broad for this question: a theme page holds ~300 cards
+ * and most of a deck matches most pages, so accepting it would exempt nearly everything. Classifier
+ * tag membership means the card carries the theme's own vocabulary, which is a real claim.
+ *
+ * Used where the cost of being wrong is only a cut we decline to suggest — not for asserting a card
+ * fits the plan, which stays on `literal` alone.
+ */
+export function hasClassifierThemeEvidence(
+  membership: ThemeMembership | null | undefined,
+  cardName: string,
+): boolean {
+  return basisMatches(membership, cardName, b => b === 'literal' || b === 'tag');
+}
+
+function basisMatches(
+  membership: ThemeMembership | null | undefined,
+  cardName: string,
+  pred: (b: ThemeBasis) => boolean,
+): boolean {
   if (!membership) return false;
   const lower = cardName.toLowerCase();
   const keys = cardName.includes(' // ') ? [lower, lower.split(' // ')[0]] : [lower];
-  return keys.some(k => membership.basisByCard.get(k) === 'literal');
+  return keys.some(k => {
+    const b = membership.basisByCard.get(k);
+    return b != null && pred(b);
+  });
 }

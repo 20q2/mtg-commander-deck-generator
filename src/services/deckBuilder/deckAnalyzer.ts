@@ -1,5 +1,5 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, DetectedCombo, PlanScore, Misfit, GapAnalysisCard } from '@/types';
-import { isLiteralThemeMember, type ThemeMembership } from '@/components/analyze/themeMembership';
+import { hasClassifierThemeEvidence, type ThemeMembership } from '@/components/analyze/themeMembership';
 import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, getProtectionSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
@@ -1209,8 +1209,15 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     }
 
     // ── Excess role cards ──
-    // Protect theme synergy cards (e.g. tribal elves that are also ramp) — they serve double duty
-    if (role && excessRoles.has(role) && !card.isThemeSynergyCard) {
+    // Protect theme synergy cards (e.g. tribal elves that are also ramp) — they serve double duty.
+    //
+    // The classifier's verdict counts as that same double duty, and this is where it matters most.
+    // A self-damage deck's Pestilence-style pingers are tagged `boardwipe`, so against a base-page
+    // target of two the deck reads nine board wipes over — when those cards ARE the strategy, not a
+    // surplus of it. isThemeSynergyCard only sees EDHREC's high-synergy lists, which a deck this far
+    // off its commander's beaten path never appears on.
+    const themeDoubleDuty = hasClassifierThemeEvidence(themeMembership, card.name);
+    if (role && excessRoles.has(role) && !card.isThemeSynergyCard && !themeDoubleDuty) {
       const bucket = excessRoleCandidates.get(role) || [];
       bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: keepScore(card.name, inclusion ?? 50, true) + curveAdjust });
       excessRoleCandidates.set(role, bucket);
@@ -1218,10 +1225,10 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     }
 
     // ── General non-land, non-excess-role cuts ──
-    // Mirrors the isThemeSynergyCard guard above: a card carrying a selected theme's mechanic is
-    // not a "low inclusion" or "low synergy" cut. It can still leave via role excess or deck-size
-    // balance, which are handled in their own buckets.
-    if (isLiteralThemeMember(themeMembership, card.name)) continue;
+    // Same predicate as the excess-role guard above, so a card exempted there cannot be re-caught
+    // here as "low inclusion" instead. Deck-size balance and the land buckets still apply — those
+    // are the honest reasons to cut a card that is genuinely on theme.
+    if (themeDoubleDuty) continue;
 
     const INCLUSION_FLOOR = 70;
     if ((inclusion ?? 0) >= INCLUSION_FLOOR) continue;
