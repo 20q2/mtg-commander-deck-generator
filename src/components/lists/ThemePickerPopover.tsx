@@ -3,8 +3,9 @@ import { Tags, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { ScryfallCard, EDHRECCommanderData } from '@/types';
-import { fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData } from '@/services/edhrec/client';
-import { detectThemes, type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
+import { fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData } from '@/services/edhrec/client';
+import { type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
+import { detectDeckThemes } from '@/services/deckBuilder/detectDeckThemes';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { ThemeSearchList } from '@/components/theme/ThemeSearchList';
 
@@ -22,7 +23,24 @@ interface ThemePickerPopoverProps {
 }
 
 const MAX_THEMES = 2;            // matches the generator's theme limit
-const DETECTION_CANDIDATES = 5;  // commander taglinks evaluated against the deck
+
+/** An off-list theme has no commander+theme page, so it is scored against the archetype pool.
+ *  Colour-agnostic here: the picker has no colour identity in hand, and the tag page's own
+ *  fallback covers it. */
+async function archetypePage(slug: string): Promise<EDHRECCommanderData> {
+  const tagData = await fetchTagPageData(slug, []);
+  if (!tagData) throw new Error(`No EDHREC data for theme "${slug}"`);
+  return {
+    themes: [],
+    stats: {
+      avgPrice: 0, numDecks: 0, deckSize: 81, manaCurve: {},
+      typeDistribution: { creature: 0, instant: 0, sorcery: 0, artifact: 0, enchantment: 0, land: 0, planeswalker: 0, battle: 0 },
+      landDistribution: { basic: 0, nonbasic: 0, total: 0 },
+    },
+    cardlists: tagData.cardlists,
+    similarCommanders: [],
+  } as unknown as EDHRECCommanderData;
+}
 
 interface Detection {
   /** Confident best guess (1-2 themes) per the Inspector's thresholds, or null. */
@@ -48,23 +66,28 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
       try {
         if (!commanderName) { setDetection(null); return; }
 
-        // Same interpretation the Inspector uses: score the commander's top themes
-        // against the actual deck list (card overlap + weighted inclusion + keywords),
-        // with confidence thresholds deciding whether we call it a "guess".
+        // The SAME service the Inspector runs, not a local variant of it. This used to call
+        // detectThemes without the classifier's membership scores, which silently selected a
+        // different scoring path: scoreThemeMatch renormalizes when membership is absent, pushing
+        // overlap from 40% of the composite to 62%, and since theme pages overlap most decks almost
+        // entirely that pinned several themes at 100 while the Inspector reported far lower numbers
+        // for the same deck. It also evaluated five commander taglinks with no off-list promotion,
+        // so a deck whose real archetype sits outside the commander's top five could never be named
+        // here at all.
         const commanderThemes = await fetchCommanderThemes(commanderName).catch(() => []);
-        const candidates = commanderThemes.slice(0, DETECTION_CANDIDATES);
-        const themeDataMap = new Map<string, EDHRECCommanderData>();
-        for (const theme of candidates) {
-          try {
-            const data = partnerCommanderName
-              ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug, undefined, undefined, colorSegment)
-              : await fetchCommanderThemeData(commanderName, theme.slug, undefined, undefined, colorSegment);
-            themeDataMap.set(theme.slug, data);
-          } catch { /* one theme page failing shouldn't kill detection */ }
-        }
-        if (themeDataMap.size === 0) { setDetection(null); return; }
+        const result = (await detectDeckThemes({
+          cards: deckCards,
+          commanderName,
+          commanderThemes,
+          logLabel: 'ThemePicker',
+          fetchThemeData: (slug, opts) => opts?.archetypeOnly
+            ? archetypePage(slug)
+            : (partnerCommanderName
+                ? fetchPartnerThemeData(commanderName, partnerCommanderName, slug, undefined, undefined, colorSegment)
+                : fetchCommanderThemeData(commanderName, slug, undefined, undefined, colorSegment)),
+        })).detection;
+        if (!result) { setDetection(null); return; }
 
-        const result = detectThemes(candidates, themeDataMap, deckCards, [], commanderName);
         const nonBasic = deckCards.filter(c => {
           const tl = getFrontFaceTypeLine(c).toLowerCase();
           return !(tl.includes('basic') && tl.includes('land'));
