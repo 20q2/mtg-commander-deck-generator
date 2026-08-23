@@ -6,8 +6,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
-import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment, fetchAllTags } from '@/services/edhrec/client';
-import { detectThemes, generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
+import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
+import { generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { persistListThemes } from '@/services/lists/listThemes';
 import {
@@ -20,9 +20,8 @@ import {
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing, getDynamicRoleTargets, STAPLE_BACKFILL_INCLUSION } from '@/services/deckBuilder/roleTargets';
-import { getCardByName, getCardsByNames, getCardPrice, WUBRG, getMtgCatalogs } from '@/services/scryfall/client';
-import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
-import { buildThemeModel, scoreThemesForDeck, survivingThemes, loadThemeCharTags, SHORTLIST_SIZE, type ThemeScore } from '@/services/themes';
+import { getCardByName, getCardsByNames, getCardPrice, WUBRG } from '@/services/scryfall/client';
+import { detectDeckThemes } from '@/services/deckBuilder/detectDeckThemes';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { type CardAction } from '@/components/deck/DeckDisplay';
 import { useStore } from '@/store';
@@ -972,97 +971,28 @@ export function DeckOptimizer({
 
       setThemeLoading(true);
 
-      // ── Phase 2a: derived membership, entirely local ──
-      // Scores the WHOLE ~400-tag EDHREC taxonomy against the deck without a single page fetch,
-      // because the membership test reads the cards themselves. That's what lets a theme outside
-      // the commander's top 8 be found at all — and it decides which pages are worth fetching
-      // below, instead of the fetch list being fixed in advance.
-      //
-      // Entirely best-effort: any failure here leaves membershipScores undefined and detection
-      // falls back to the two EDHREC signals. See /theme-lab (dev) to inspect these numbers.
-      let membershipScores: Map<string, ThemeScore> | undefined;
-      let extraThemes: import('@/types').EDHRECTheme[] = [];
-      try {
-        const [allTags, catalogs] = await Promise.all([
-          fetchAllTags(), getMtgCatalogs(), loadTagIndex(),
-        ]);
-        if (allTags.length > 0 && catalogs.creatureTypes.size > 0) {
-          const table = loadThemeCharTags();
-          const live = new Set(table.forceArchetype ?? []);
-          const models = allTags.map(t => buildThemeModel(t, catalogs, table.themes, live));
-          const commanderSlugs = new Set((edhrecData.themes || []).map(t => t.slug));
-          const scored = scoreThemesForDeck(
-            currentCards, models,
-            c => (c.oracle_id ? tagsForOracleId(c.oracle_id) : []),
-            commanderSlugs, undefined,
-            // Format staples are neutral evidence for archetypes. Without this a goodstuff pile
-            // reported Tron at 61% confidence off nothing but mana rocks.
-            new Set(table.staples ?? []),
-            // The commander carries extra weight: the deck is built around it. Matched by name
-            // because currentCards is the deck list and the commander is one of its entries.
-            currentCards.find(c => c.name === commanderName) ?? null,
-          );
-          membershipScores = new Map(scored.map(s => [s.model.slug, s]));
+      // Classifier pass, off-list promotion, page fetches and the composite detector — all in the
+      // shared service, so the deck view's picker runs identical logic instead of its own variant.
+      const detected = await detectDeckThemes({
+        cards: currentCards,
+        commanderName,
+        commanderThemes: edhrecData.themes || [],
+        fetchThemeData,
+        curveAnalysis: baseResult.curveAnalysis,
+        logLabel: 'DeckOptimizer',
+      });
+      const { themeDataMap } = detected;
 
-          // Off-list themes strong enough to deserve a page fetch. SHORTLIST_SIZE is the budget for
-          // Phase A promotions specifically (see its docstring), NOT a combined cap with the
-          // commander's own themes — that reading made this dead code. topThemes is sliced to 8, so
-          // `SHORTLIST_SIZE - min(topThemes.length, SHORTLIST_SIZE)` was 6 - 6 = 0 for every
-          // commander with 6+ themes, i.e. essentially all of them: every off-list theme the
-          // classifier found was computed, survived every gate, and then sliced away before
-          // detection could see it. A deck whose real archetype isn't on its commander's page —
-          // the exact case this scoring exists for — could never be detected.
-          const known = new Set(topThemes.map(t => t.slug));
-          extraThemes = survivingThemes(scored)
-            .filter(s => !known.has(s.model.slug))
-            .slice(0, SHORTLIST_SIZE)
-            .map(s => ({ name: s.model.name, slug: s.model.slug, count: s.model.numDecks, url: '' }));
-        }
-      } catch (err) {
-        console.warn('[DeckOptimizer] membership scoring unavailable — EDHREC signals only:', err);
-      }
-
-      // Fetch theme-specific EDHREC data (sequential for rate limiting).
-      //
-      // Via fetchThemeData, not fetchCommanderThemeData directly: an off-list theme has no
-      // commander+theme page by definition (Sapling of Colfenor has no /self-damage page), so the
-      // direct call 403s, the theme never reaches themeDataMap, and detectThemes drops it on its
-      // `if (!data) continue`. fetchThemeData falls back to the color-filtered archetype tag page,
-      // which is the only pool an off-list theme can be scored against at all.
-      // Checked against the commander's FULL theme list, not topThemes: a theme can be on the
-      // commander's page yet outside the top 8 (Self-Damage on Sapling of Colfenor is), and those
-      // do have a commander+theme page worth preferring. Only genuinely off-list themes skip
-      // straight to the archetype pool.
-      const commanderOwnSlugs = new Set((edhrecData.themes || []).map(t => t.slug));
-      const themeDataMap = new Map<string, import('@/types').EDHRECCommanderData>();
-      for (const theme of [...topThemes, ...extraThemes]) {
-        try {
-          themeDataMap.set(theme.slug, await fetchThemeData(theme.slug, {
-            archetypeOnly: !commanderOwnSlugs.has(theme.slug),
-          }));
-        } catch (err) {
-          console.warn(`[DeckOptimizer] Failed to fetch theme data for ${theme.slug}:`, err);
-        }
-      }
       // Merge rather than replace: a kept theme's data may have come from the
       // on-demand archetype tag-page fallback and so isn't in themeDataMap.
       // Cross-commander staleness is handled by the reset effect, not here.
       for (const [slug, data] of themeDataMap) themeDataCacheRef.current.set(slug, data);
 
-      if (themeDataMap.size === 0) {
+      if (!detected.detection) {
         setThemeLoading(false);
         return;
       }
-
-      // Run detection
-      const detection = detectThemes(
-        [...topThemes, ...extraThemes],
-        themeDataMap,
-        currentCards,
-        baseResult.curveAnalysis,
-        commanderName,
-        membershipScores,
-      );
+      const detection = detected.detection;
       setThemeDetection(detection);
 
       // Applied themes, most authoritative first: the user's own pick, then the
