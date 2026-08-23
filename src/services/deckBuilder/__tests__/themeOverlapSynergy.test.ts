@@ -124,3 +124,42 @@ describe('membership renormalization', () => {
     expect(defaulted.score).toBe(explicit.score);
   });
 });
+
+describe('synergy confidence on thin pages', () => {
+  /** Same cards, same synergy — only the page's deck count differs. */
+  const pageWithDecks = (numDecks: number) => ({
+    stats: { numDecks },
+    cardlists: {
+      allNonLand: SLUG.map(name => ({ name, inclusion: 40, synergy: 0.20 })),
+      lands: [],
+    },
+  } as unknown as EDHRECCommanderData);
+
+  it('discounts an 8-deck page against a well-sampled one', () => {
+    // Measured on Nath of the Gilt-Leaf: median synergy runs inversely to deck count —
+    // birthing-pod 8 decks -> 0.124, stax 38 -> 0.097, discard 229 -> 0.060. Unshrunk, the grading
+    // handed the thinnest page the most credit and Birthing Pod outscored the deck's real archetype.
+    const thin = scoreThemeMatch(theme('Thin'), pageWithDecks(8), deck);
+    const healthy = scoreThemeMatch(theme('Healthy'), pageWithDecks(400), deck);
+    expect(thin.score).toBeLessThan(healthy.score);
+  });
+
+  it('is monotonic in deck count', () => {
+    const scores = [2, 8, 38, 229, 1432].map(
+      n => scoreThemeMatch(theme(`P${n}`), pageWithDecks(n), deck).score,
+    );
+    for (let i = 1; i < scores.length; i++) {
+      expect(scores[i]).toBeGreaterThanOrEqual(scores[i - 1]);
+    }
+  });
+
+  it('treats an unreported deck count as full confidence, not as zero decks', () => {
+    // The archetype tag-page fallback synthesizes a page with no count, and those pool thousands of
+    // decks — shrinking them to nothing would gut the only pool an off-list theme has.
+    const noCount = scoreThemeMatch(theme('NoCount'), {
+      cardlists: { allNonLand: SLUG.map(name => ({ name, inclusion: 40, synergy: 0.20 })), lands: [] },
+    } as unknown as EDHRECCommanderData, deck);
+    const healthy = scoreThemeMatch(theme('Healthy'), pageWithDecks(100000), deck);
+    expect(noCount.score).toBeCloseTo(healthy.score, 1);
+  });
+});

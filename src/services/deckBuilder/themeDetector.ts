@@ -1,6 +1,7 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, EDHRECTheme } from '@/types';
 import type { CurveSlot } from './deckAnalyzer';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { pageConfidence } from './archetypeBlend';
 import {
   MEMBERSHIP_WEIGHT, OVERLAP_WEIGHT, INCLUSION_WEIGHT,
   STAPLE_OVERLAP_CREDIT, SYNERGY_FULL_CREDIT,
@@ -159,6 +160,18 @@ export function scoreThemeMatch(
   // cards, so it barely discounted anything and a commander's headline themes went on scoring off
   // the deck's staples. `cardOverlap` stays a true count for display; only the score consumes the
   // graded credit.
+  // Synergy is a difference of rates, so its noise scales with the page's denominator exactly as
+  // inclusion's does — and unshrunk it made the grading REWARD thin pages. Measured on Nath of the
+  // Gilt-Leaf, median synergy against deck count: birthing-pod 8 decks -> 0.124, stax 38 -> 0.097,
+  // discard 229 -> 0.060, base page 1432 -> 0.054. Perfectly monotonic, because on eight decks every
+  // card is over-represented by construction. The graded credit that followed was 71% / 60% / 50% /
+  // 50%, so an 8-deck page outscored the deck's real archetype on small-sample noise alone.
+  //
+  // 0 means "not reported" rather than "no decks": the archetype tag-page fallback synthesizes a
+  // page without a count, and those pool thousands of decks. Treat unknown as full confidence.
+  const pageDecks = themeData.stats?.numDecks ?? 0;
+  const synergyConfidence = pageDecks > 0 ? pageConfidence(pageDecks) : 1;
+
   let cardOverlap = 0;
   let overlapCredit = 0;
   let weightedOverlap = 0;
@@ -176,8 +189,8 @@ export function scoreThemeMatch(
       cardOverlap++;
       weightedOverlap += matched.inclusion;
       const synergy = matched.synergy ?? 0;
-      synergySum += synergy;
-      const reach = Math.min(Math.max(synergy, 0) / SYNERGY_FULL_CREDIT, 1);
+      synergySum += synergy;   // reported raw — callers display the page's own figure
+      const reach = Math.min(Math.max(synergy * synergyConfidence, 0) / SYNERGY_FULL_CREDIT, 1);
       overlapCredit += STAPLE_OVERLAP_CREDIT + (1 - STAPLE_OVERLAP_CREDIT) * reach;
     }
   }
