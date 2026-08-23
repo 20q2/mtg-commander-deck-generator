@@ -23,6 +23,9 @@ interface NewCardsTabProps {
   colorIdentity?: string[];
   /** Intended EDHREC theme names (from the saved list / generated deck). */
   intendedThemes?: string[];
+  /** The Inspector's LIVE theme selection. Preferred over intendedThemes when present: it is what
+   *  the user currently has picked, and it carries slugs, so off-list themes survive. */
+  themeRefs?: { slug: string; name: string }[];
   /** Saved-list id backing this deck — persists the baseline choice per deck. */
   listId?: string;
   /** The saved list's last-edit time (ms) — the default "since when" baseline. */
@@ -180,7 +183,7 @@ function PairBanner({ pair, onNameClick, onNameHover }: {
 }
 
 export function NewCardsTab({
-  currentCards, commanderName, partnerCommanderName, colorIdentity, intendedThemes,
+  currentCards, commanderName, partnerCommanderName, colorIdentity, intendedThemes, themeRefs,
   listId, lastEditedAt,
   onAdd, addedCards, onPreview,
 }: NewCardsTabProps) {
@@ -228,7 +231,12 @@ export function NewCardsTab({
     if (card) setHoverPreview({ card, rect });
   };
 
-  const themesKey = (intendedThemes ?? []).join('|');
+  // Content key, not identity: themeRefs is rebuilt every render by the parent, and as an effect
+  // dep that would refetch the whole pipeline forever.
+  const themesKey = [
+    ...(themeRefs ?? []).map(t => t.slug),
+    ...(intendedThemes ?? []),
+  ].join('|');
   useEffect(() => {
     let cancelled = false;
     setState({ phase: 'loading' });
@@ -237,6 +245,7 @@ export function NewCardsTab({
       partnerName: partnerCommanderName,
       deckCardNames,
       themes: intendedThemes,
+      themeRefs,
       colorIdentity,
       baselineDate,
     }).then(async details => {
@@ -296,7 +305,15 @@ export function NewCardsTab({
                   </span>
                 )}
                 {d.matchedThemes.map(t => (
-                  <span key={t} className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/80">
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-300/80"
+                    title={d.classifierThemes.includes(t)
+                      ? (d.themeBasis === 'literal'
+                        ? `The card itself carries your ${t} theme`
+                        : `Plays like ${t} — inferred from how the card is tagged`)
+                      : `EDHREC's ${t} page lists this as a new card`}
+                  >
                     <Tags className="w-2.5 h-2.5" /> {t}
                   </span>
                 ))}

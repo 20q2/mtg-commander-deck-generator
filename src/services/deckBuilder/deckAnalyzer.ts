@@ -86,6 +86,12 @@ export interface RecommendedCard {
   isUtilityLand?: boolean;
   isTapland?: boolean;
   isGameChanger?: boolean;
+  /** Selected themes this card belongs to per the classifier, e.g. `['Landfall']`. Set by
+   *  blendClusterIntoRecommendations; distinct from `isThemeSynergy`, which means "EDHREC's theme
+   *  page listed it". */
+  themeMatched?: string[];
+  /** How that membership was established — `literal` is read off the card, `tag` is inferred. */
+  themeBasis?: 'literal' | 'tag';
   /** How many of the current deck's cards lift this one (deck-wide cluster signal). Set only when the blend touched it. */
   clusterConnections?: number;
   /** Summed lift×co-occurrence strength across the deck cards that lift this one. */
@@ -1054,6 +1060,8 @@ export interface OptimizeCard {
   primaryType?: string;    // "Creature", "Instant", etc.
   isGameChanger?: boolean;
   isThemeSynergy?: boolean;
+  /** Selected themes the classifier says this card carries — shown as chips in the drill-down. */
+  themeMatched?: string[];
 }
 
 export interface OptimizeSwaps {
@@ -1369,6 +1377,7 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     inclusion: rec.inclusion, score: rec.score, price: rec.price, role: rec.role, roleLabel: rec.roleLabel,
     imageUrl: rec.imageUrl, cmc: rec.cmc, primaryType: rec.primaryType,
     isGameChanger: rec.isGameChanger, isThemeSynergy: rec.isThemeSynergy,
+    themeMatched: rec.themeMatched,
   });
 
   // ── Pass 0: Combo enablers — high-bar additions ──
@@ -1528,12 +1537,19 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   // ── Pass 5: Top scored recommendations not yet added (min 20% inclusion) ──
   for (const rec of analysis.recommendations) {
     if (addedNames.has(rec.name) || bannedNames.has(rec.name) || currentCardNames.has(rec.name)) continue;
-    if (rec.inclusion < 20) continue;
+    // The 20% floor keeps the long tail of the commander page out. A card the CLASSIFIER says
+    // literally carries a selected theme's mechanic is exempt: low commander-page inclusion means
+    // "few decks with this commander run it", which for a themed build is often the point rather
+    // than a warning. Tag-basis evidence does NOT earn the exemption — it's inferred, and the
+    // floor is the only thing standing between the tail and the suggestion list.
+    const onTheme = rec.themeMatched?.[0];
+    if (rec.inclusion < 20 && !(onTheme && rec.themeBasis === 'literal')) continue;
     addedNames.add(rec.name);
     additionCandidates.push(recToOptCard(
       rec,
-      rec.isThemeSynergy ? 'Theme synergy' : 'High synergy',
-      rec.isThemeSynergy ? 'theme' : 'synergy',
+      onTheme ? `On theme: ${onTheme}` : rec.isThemeSynergy ? 'Theme synergy' : 'High synergy',
+      // Grouped per theme so the ADD column names the plan it's serving.
+      onTheme ? `on-theme:${onTheme}` : rec.isThemeSynergy ? 'theme' : 'synergy',
     ));
   }
 

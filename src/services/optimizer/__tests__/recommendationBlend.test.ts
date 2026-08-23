@@ -136,11 +136,36 @@ describe('theme fit in the blend', () => {
     expect(out[0].score!).toBeGreaterThan(100);
   });
 
-  it('gives a tag-basis match no boost — inferred evidence is not proof', () => {
+  // Deliberate change of position from "tag basis earns nothing". Ranking a suggestion and
+  // vetoing a cut have different costs when the inference is wrong, so tag evidence now earns
+  // partial credit on the ADD side while still earning nothing on the cut side. What must not
+  // happen is tag evidence rating equal to literal evidence.
+  it('gives a tag-basis match partial credit — above off-theme, below literal', () => {
     const out = blendClusterIntoRecommendations(
-      [rec('Tag Only', 100), rec('Off Theme', 100)], [], { themeFit },
+      [rec('On Theme', 100), rec('Tag Only', 100), rec('Off Theme', 100)], [], { themeFit },
     );
-    expect(out[0].score).toBe(out[1].score);
+    const score = (name: string) => out.find(c => c.name === name)!.score!;
+    expect(score('Off Theme')).toBeLessThan(score('Tag Only'));
+    expect(score('Tag Only')).toBeLessThan(score('On Theme'));
+  });
+
+  it('reports which theme matched, and how, so the surfaces can label it', () => {
+    const out = blendClusterIntoRecommendations(
+      [rec('On Theme', 100), rec('Tag Only', 100), rec('Off Theme', 100)], [], { themeFit },
+    );
+    const card = (name: string) => out.find(c => c.name === name)!;
+    expect(card('On Theme').themeMatched).toEqual(['Landfall']);
+    expect(card('On Theme').themeBasis).toBe('literal');
+    expect(card('Tag Only').themeBasis).toBe('tag');
+    expect(card('Off Theme').themeMatched).toBeUndefined();
+  });
+
+  it('reports theme evidence on synthesized cluster cards too', () => {
+    const out = blendClusterIntoRecommendations(
+      [], [cand('On Theme', [edge('S1', 8, 20), edge('S2', 7, 18)])], { themeFit },
+    );
+    expect(out[0].themeMatched).toEqual(['Landfall']);
+    expect(out[0].themeBasis).toBe('literal');
   });
 
   it('keeps the theme bonus bounded below a top inclusion pick', () => {

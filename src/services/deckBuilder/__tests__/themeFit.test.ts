@@ -3,7 +3,9 @@ import { buildThemeModel } from '@/services/themes';
 import type { ThemeTableEntry } from '@/services/themes';
 import type { MtgCatalogs } from '@/services/scryfall/client';
 import type { EDHRECTag, ScryfallCard } from '@/types';
-import { computeThemeFit, hasLiteralThemeMatch, literalThemeMembers } from '../themeFit';
+import {
+  computeThemeFit, hasLiteralThemeMatch, literalThemeMembers, matchedThemeNames, themeMatchFor,
+} from '../themeFit';
 
 /**
  * Minimal catalogs — only the vocabulary these themes need. Real ones come from Scryfall, but
@@ -105,5 +107,47 @@ describe('computeThemeFit', () => {
     const fit = computeThemeFit(cards, [landfall, aristocrats], () => ['sacrifice-outlet']);
 
     expect(literalThemeMembers(fit)).toEqual(new Set(['scute swarm']));
+  });
+});
+
+/**
+ * The recommendation surfaces need more than the yes/no cut test: they label a suggestion with
+ * the theme it serves, so they need the theme's DISPLAY NAME, and they weight `tag` evidence
+ * differently from `literal`, so they need the basis too.
+ */
+describe('themeMatchFor / matchedThemeNames', () => {
+  it('returns display names, not the internal matched tokens', () => {
+    const scute = card({ name: 'Scute Swarm', keywords: ['Landfall'] });
+    const fit = computeThemeFit([scute], [landfall], () => []);
+
+    expect(matchedThemeNames(fit, 'Scute Swarm')).toEqual(['Landfall']);
+    expect(themeMatchFor(fit, 'Scute Swarm')?.matched).toEqual(['landfall']);
+  });
+
+  it('lists every theme a card belongs to', () => {
+    const elf = card({ name: 'Elvish Pod Elf', type_line: 'Creature — Elf' });
+    const fit = computeThemeFit([elf], [aristocrats, elves], () => ['sacrifice-outlet']);
+
+    expect(matchedThemeNames(fit, 'Elvish Pod Elf')).toEqual(['Aristocrats', 'Elves']);
+  });
+
+  it('surfaces the tag basis rather than hiding it behind the literal test', () => {
+    const pod = card({ name: 'Birthing Pod' });
+    const fit = computeThemeFit([pod], [aristocrats], () => ['sacrifice-outlet']);
+
+    expect(themeMatchFor(fit, 'Birthing Pod')?.basis).toBe('tag');
+    expect(matchedThemeNames(fit, 'Birthing Pod')).toEqual(['Aristocrats']);
+  });
+
+  it('resolves a DFC by its front face, like the literal test does', () => {
+    const fit = computeThemeFit([card({ name: 'A // B', keywords: ['Landfall'] })], [landfall], () => []);
+    expect(matchedThemeNames(fit, 'A')).toEqual(['Landfall']);
+  });
+
+  it('is empty for a non-member, and safe with no fit at all', () => {
+    const fit = computeThemeFit([card({ name: 'Anything' })], [landfall], () => []);
+    expect(matchedThemeNames(fit, 'Anything')).toEqual([]);
+    expect(themeMatchFor(null, 'Anything')).toBeUndefined();
+    expect(matchedThemeNames(undefined, 'Anything')).toEqual([]);
   });
 });

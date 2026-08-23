@@ -55,6 +55,11 @@ function getAdditionCategoryLabel(cat: string): string {
     const labels: Record<string, string> = { early: 'Early Game Plays', mid: 'Mid Game Plays', late: 'Late Game Plays' };
     return labels[phase] || 'Curve Fill';
   }
+  // The theme's DISPLAY NAME is the payload, not a slug — it can contain ':' ("Aristocrats: …"),
+  // so take everything after the first separator rather than split()[1].
+  if (cat.startsWith('on-theme:')) {
+    return `On Theme — ${cat.slice('on-theme:'.length)}`;
+  }
   return ADDITION_CATEGORY_LABELS[cat] || cat;
 }
 

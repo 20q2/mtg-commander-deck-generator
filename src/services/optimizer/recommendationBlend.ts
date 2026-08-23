@@ -2,7 +2,7 @@ import type { RecommendedCard } from '@/services/deckBuilder/deckAnalyzer';
 import type { ScryfallCard } from '@/types';
 import { clusterScore, isStaple, type LiftCandidate } from './liftClusters';
 import { getCardRole, getAllCardRoles, isUtilityLand, isTapland } from '@/services/tagger/client';
-import { hasLiteralThemeMatch, type ThemeFit } from '@/services/deckBuilder/themeFit';
+import { matchedThemeNames, themeMatchFor, type ThemeFit } from '@/services/deckBuilder/themeFit';
 import { ROLE_LABELS } from '@/services/deckBuilder/roleTargets';
 
 /** How loud the cluster signal is on the recommendation score scale (role boost ~= 75, inclusion <= 100).
@@ -18,6 +18,13 @@ export const CLUSTER_WEIGHT = 90;
  * the mechanic. A tag match is inferred from aggregate co-occurrence and can be wrong.
  */
 export const THEME_WEIGHT = 60;
+/**
+ * Same idea for `tag` evidence — inferred from oracle-tag co-occurrence rather than read off the
+ * card. Less than half of THEME_WEIGHT, and it never earns the inclusion-floor bypass in
+ * computeOptimizeSwaps. The literal/tag asymmetry is about the COST of being wrong: a wrong tag
+ * that nudges a suggestion up the list is cheap, a wrong tag that vetoes a cut is not.
+ */
+export const THEME_TAG_WEIGHT = 25;
 /** A synthesized cluster-only card whose role is under target gets this nudge (mirrors role-fit in scoreRecommendation). */
 const CLUSTER_ROLE_DEFICIT_BONUS = 15;
 /** Only breadth clusters drive the blend — single-anchor "bombs" are excluded (design: high cluster over high lift). */
@@ -32,8 +39,12 @@ export interface BlendOptions {
   excludeNames?: Set<string>;
   /** Cap the output length (default 30). */
   limit?: number;
-  /** Classifier theme fit for the deck's selected themes. Lift candidates carry full ScryfallCards,
-   *  so this costs no fetch. Omit to disable the theme term entirely. */
+  /**
+   * Classifier theme fit for the deck's selected themes, covering the CANDIDATE cards — every
+   * name that can appear in `recommendations` or in `candidates`. A fit built over the deck's own
+   * cards makes this term silently inert: recommendations are by definition cards the deck does
+   * not run, so none of them would ever be found in it. Omit to disable the theme term entirely.
+   */
   themeFit?: ThemeFit | null;
 }
 
@@ -73,8 +84,16 @@ export function blendClusterIntoRecommendations(
   // No early return when maxCluster is 0: there may still be a theme term to apply, and hitByName
   // simply stays empty. Returning here skipped theme fit entirely for decks with no lift clusters.
 
-  const themeBonus = (name: string) =>
-    hasLiteralThemeMatch(themeFit, name) ? THEME_WEIGHT : 0;
+  /** Theme evidence for a CANDIDATE (a card not in the deck). Null when it belongs to none. */
+  const themeInfo = (name: string) => {
+    const hit = themeMatchFor(themeFit, name);
+    if (!hit) return null;
+    return {
+      bonus: hit.basis === 'literal' ? THEME_WEIGHT : THEME_TAG_WEIGHT,
+      themeMatched: matchedThemeNames(themeFit, name),
+      themeBasis: hit.basis,
+    };
+  };
 
   const hitByName = new Map<string, { bonus: number; connections: number; cluster: number; card: ScryfallCard }>();
   for (const c of eligible) {
@@ -93,11 +112,14 @@ export function blendClusterIntoRecommendations(
   const existingNames = new Set(recommendations.map(r => r.name));
   const rescored: RecommendedCard[] = recommendations.map(r => {
     const hit = hitByName.get(r.name);
-    const theme = themeBonus(r.name);
-    if (!hit && theme === 0) return r;
+    const theme = themeInfo(r.name);
+    if (!hit && !theme) return r;
     return {
       ...r,
-      score: (r.score ?? 0) + (hit?.bonus ?? 0) + theme,
+      score: (r.score ?? 0) + (hit?.bonus ?? 0) + (theme?.bonus ?? 0),
+      // Carried, not just scored: computeOptimizeSwaps reads these to label the suggestion and to
+      // waive the inclusion floor, and the drill-down shows the user WHICH theme it matched.
+      ...(theme ? { themeMatched: theme.themeMatched, themeBasis: theme.themeBasis } : {}),
       ...(hit ? { clusterConnections: hit.connections, clusterScore: hit.cluster } : {}),
     };
   });
@@ -111,6 +133,7 @@ export function blendClusterIntoRecommendations(
     if (roleFilter && role !== roleFilter) continue;
     const allRoles = getAllCardRoles(name);
     const fillsDeficit = role ? (deficitRoles?.has(role) ?? false) : false;
+    const theme = themeInfo(name);
     synthesized.push({
       name,
       inclusion: 0,
@@ -123,7 +146,8 @@ export function blendClusterIntoRecommendations(
       primaryType: frontType(hit.card),
       imageUrl: scryfallImage(hit.card),
       price: scryfallPrice(hit.card),
-      score: hit.bonus + (fillsDeficit ? CLUSTER_ROLE_DEFICIT_BONUS : 0) + themeBonus(name),
+      score: hit.bonus + (fillsDeficit ? CLUSTER_ROLE_DEFICIT_BONUS : 0) + (theme?.bonus ?? 0),
+      ...(theme ? { themeMatched: theme.themeMatched, themeBasis: theme.themeBasis } : {}),
       cmc: hit.card.cmc,
       isUtilityLand: isUtilityLand(name) || undefined,
       isTapland: isTapland(name) || undefined,

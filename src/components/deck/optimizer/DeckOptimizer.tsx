@@ -337,6 +337,13 @@ export function DeckOptimizer({
   // pipeline. themeFitVersion below is what tells those memos it changed.
   const themeFitRef = useRef<ThemeFit>(EMPTY_THEME_FIT);
   const [themeFitVersion, setThemeFitVersion] = useState(0);
+  // The same classifier fit, but over cards NOT in the deck — the pool the ADD surfaces rank.
+  // Kept separate from themeFitRef on purpose: that one answers "is this card of mine on theme"
+  // (cut protection, chips on the deck), this one answers "would this card be" (suggestions).
+  // A single fit can't serve both, which is why the theme term in the recommendation blend was
+  // silently inert: it was handed the deck fit, and no recommendation is ever a deck card.
+  const candidateFitRef = useRef<ThemeFit>(EMPTY_THEME_FIT);
+  const [candidateFitVersion, setCandidateFitVersion] = useState(0);
 
   /** The ONLY place this component builds membership. Every call site routes through here so the
    *  classifier evidence can never be attached at some surfaces and missing at others. */
@@ -1606,25 +1613,6 @@ export function DeckOptimizer({
     partnerCommanderName,
     cards: currentCards,
   });
-  const baseSwaps = useMemo<OptimizeSwaps | null>(() => {
-    if (!analysis) return null;
-    return computeOptimizeSwaps({
-      analysis,
-      currentCards,
-      cardInclusionMap,
-      commanderName,
-      partnerCommanderName,
-      mustIncludeNames: menuProps.mustIncludeNames,
-      bannedNames: menuProps.bannedNames,
-      detectedCombos: detectedCombosForSwaps,
-      connectivityMap: swapConnectivity ?? undefined,
-      themeMembership: membershipFor(
-        resolveThemeInfo(primaryThemeSlug),
-        resolveThemeInfo(secondaryThemeSlug),
-      ),
-    });
-  }, [analysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity, membershipFor, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug]);
-
   // Deck-wide lift scan (shared cache) → cluster-aware recommendations. The three rec surfaces
   // (Optimize / Curve / Roles) wait for this before rendering suggestions, per design.
   const { candidates: liftCandidates } = useLiftScan({
@@ -1639,6 +1627,62 @@ export function DeckOptimizer({
     [analysis],
   );
 
+  // The Inspector's live theme selection, resolved to {slug, name}. Every add surface should rank
+  // against what the user has picked NOW, not what the list happened to be saved with.
+  const liveThemeRefs = useMemo(
+    () => [resolveThemeInfo(primaryThemeSlug), resolveThemeInfo(secondaryThemeSlug)]
+      .filter((t): t is { slug: string; name: string } => !!t),
+    [resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug],
+  );
+
+  // Every name that can appear in an ADD surface. Sorted+joined into a content key for the same
+  // reason deckCardKey exists: the arrays behind it are rebuilt per render, so depending on their
+  // identity would refetch forever.
+  const candidateNameKey = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of analysis?.recommendations ?? []) names.add(r.name);
+    for (const r of analysis?.landRecommendations ?? []) names.add(r.name);
+    for (const rb of analysis?.roleBreakdowns ?? []) {
+      for (const r of rb.suggestedReplacements) names.add(r.name);
+    }
+    for (const c of liftCandidates ?? []) names.add(c.card.name);
+    return [...names].sort().join('\0');
+  }, [analysis, liftCandidates]);
+
+  // Resolve the candidate-side classifier fit. Unlike the membership effect above, this one writes
+  // no parent state — so it cannot drive the render loop that one had to be keyed against.
+  useEffect(() => {
+    const themes = liveThemeRefs;
+    if (themes.length === 0 || !candidateNameKey) {
+      if (candidateFitRef.current !== EMPTY_THEME_FIT) {
+        candidateFitRef.current = EMPTY_THEME_FIT;
+        setCandidateFitVersion(v => v + 1);
+      }
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      // Lift candidates already carry full Scryfall cards; only the EDHREC-derived names cost a
+      // fetch, and getCardsByNames batches 75 per request behind the persisted card cache — so
+      // this is one or two requests the first time a commander is analyzed, and free after.
+      const have = new Map<string, ScryfallCard>();
+      for (const c of liftCandidates ?? []) have.set(c.card.name, c.card);
+      const missing = candidateNameKey.split('\0').filter(n => n && !have.has(n));
+      let fetched = new Map<string, ScryfallCard>();
+      try {
+        if (missing.length > 0) fetched = await getCardsByNames(missing);
+      } catch {
+        // Offline → fewer members, never a broken surface. The theme term just goes quiet.
+      }
+      if (cancelled) return;
+      const fit = await buildThemeFit([...have.values(), ...fetched.values()], themes);
+      if (cancelled) return;
+      candidateFitRef.current = fit;
+      setCandidateFitVersion(v => v + 1);
+    })();
+    return () => { cancelled = true; };
+  }, [candidateNameKey, liveThemeRefs, liftCandidates]);
+
   const blendedRecommendations = useMemo(() => {
     if (!analysis || !liftCandidates) return null; // null = scan pending → gate holds
     // Raised past the display default so cluster cards have room to reach the general/"other"
@@ -1647,11 +1691,11 @@ export function DeckOptimizer({
       deficitRoles: deficitRoleSet,
       excludeNames: menuProps.bannedNames,
       limit: 40,
-      themeFit: themeFitRef.current,
+      themeFit: candidateFitRef.current,
     });
-    // themeFitVersion, not themeFitRef: the ref's identity never changes, so the version counter is
-    // what tells this memo the classifier fit has resolved.
-  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames, themeFitVersion]);
+    // candidateFitVersion, not candidateFitRef: the ref's identity never changes, so the version
+    // counter is what tells this memo the classifier fit has resolved.
+  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames, candidateFitVersion]);
 
   const blendedRoleBreakdowns = useMemo(() => {
     if (!analysis || !liftCandidates) return null;
@@ -1664,10 +1708,10 @@ export function DeckOptimizer({
         deficitRoles: deficitRoleSet,
         excludeNames: menuProps.bannedNames,
         limit: rb.suggestedReplacements.length + 8,
-        themeFit: themeFitRef.current,
+        themeFit: candidateFitRef.current,
       }),
     }));
-  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames, themeFitVersion]);
+  }, [analysis, liftCandidates, deficitRoleSet, menuProps.bannedNames, candidateFitVersion]);
 
   const blendedAnalysis = useMemo(() => {
     if (!analysis || !blendedRecommendations || !blendedRoleBreakdowns) return null;
@@ -1675,6 +1719,30 @@ export function DeckOptimizer({
   }, [analysis, blendedRecommendations, blendedRoleBreakdowns]);
 
   const recsReady = blendedAnalysis !== null;
+
+  // Declared AFTER the blend on purpose. Swaps are built from the recommendation list, so feeding
+  // it the raw one meant the Optimize tab's ADD column — and NextBestMove's headline pick — never
+  // saw the cluster or theme signals at all; only the Roles tab did. Falls back to the raw analysis
+  // while the lift scan is pending so the dashboard still has something to show.
+  const swapAnalysis = blendedAnalysis ?? analysis;
+  const baseSwaps = useMemo<OptimizeSwaps | null>(() => {
+    if (!swapAnalysis) return null;
+    return computeOptimizeSwaps({
+      analysis: swapAnalysis,
+      currentCards,
+      cardInclusionMap,
+      commanderName,
+      partnerCommanderName,
+      mustIncludeNames: menuProps.mustIncludeNames,
+      bannedNames: menuProps.bannedNames,
+      detectedCombos: detectedCombosForSwaps,
+      connectivityMap: swapConnectivity ?? undefined,
+      themeMembership: membershipFor(
+        resolveThemeInfo(primaryThemeSlug),
+        resolveThemeInfo(secondaryThemeSlug),
+      ),
+    });
+  }, [swapAnalysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity, membershipFor, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug]);
 
   // True when the deck cards differ from what was analyzed — drives the
   // "this is stale, re-run me" gold treatment on the Re-analyze button.
@@ -2282,6 +2350,7 @@ export function DeckOptimizer({
             partnerCommanderName={partnerCommanderName}
             colorIdentity={colorIdentity}
             intendedThemes={intendedThemes}
+            themeRefs={liveThemeRefs}
             listId={sourceListId}
             lastEditedAt={sourceListUpdatedAt}
             onAdd={handleAddCard}

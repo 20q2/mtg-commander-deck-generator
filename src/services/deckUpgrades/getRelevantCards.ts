@@ -16,9 +16,17 @@ import {
   deckLiftEdges,
   liftEdgeScore,
   rankUpgradeCandidates,
+  themeCredit,
   type RankedCard,
   type UpgradeCandidate,
 } from './deckUpgrades';
+import {
+  buildThemeFit,
+  matchedThemeNames,
+  resolveThemeRefsByName,
+  themeMatchFor,
+  EMPTY_THEME_FIT,
+} from '@/services/deckBuilder/themeFit';
 
 /** Cap on how many new cards to track per deck. */
 const MAX_RECOMMENDATIONS = 40;
@@ -42,6 +50,13 @@ export interface RelevantCardsArgs {
   deckCardNames: string[];
   /** Intended theme names (persisted at save time, or recovered from the generation summary). */
   themes?: string[];
+  /**
+   * The same themes as `{slug, name}` when the caller already has them resolved — the Inspector's
+   * live selection, which can differ from what the list was saved with. Preferred over `themes`
+   * for the classifier because it needs no name lookup and it carries off-list themes, which a
+   * name match against the commander's own theme list would silently drop.
+   */
+  themeRefs?: { slug: string; name: string }[];
   /** Deck color identity — enables the Scryfall recent-set backfill when present. */
   colorIdentity?: string[];
   /** Color picked for a "choose a color before the game begins" commander (Clara Oswald &c),
@@ -121,8 +136,14 @@ export type UpgradeSource = 'commander' | 'theme' | 'recent-set' | 'since-baseli
 /** A fully-explained upgrade candidate — the "New Cards" inspector tab's row data. */
 export interface UpgradeDetail extends UpgradeCandidate {
   sources: UpgradeSource[];
-  /** Intended theme names whose EDHREC page flagged this card as new. */
+  /**
+   * Intended theme names this card belongs to — the union of two independent sources: EDHREC's
+   * theme page flagged it as new, and/or the classifier matched the card itself.
+   * `classifierThemes` says which of these came from the card's own text.
+   */
   matchedThemes: string[];
+  /** Subset of `matchedThemes` established from the card itself rather than from a page listing. */
+  classifierThemes: string[];
   /** Summed lift evidence against this deck (0 = no data). */
   liftFit: number;
   /** Strongest deck cards backing the recommendation, best first. */
@@ -226,12 +247,36 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
       }
     }
 
-    // 3. Drop cards already in the deck BEFORE spending lift lookups, then cap the
-    // lookup budget on a synergy+theme pre-rank so the likeliest fits get scored.
+    // 2.5. Classifier fit over the new-card pool.
+    //
+    // Resolved BEFORE the lookup cap below, deliberately: theme evidence has to be able to decide
+    // WHICH candidates earn a lift lookup, not merely how the survivors get ordered. A new card
+    // whose rules text carries the deck's theme but whose commander-page synergy is near zero —
+    // the normal state of affairs for a card printed last month — would otherwise be cut here and
+    // never reach the ranker at all.
+    const themeRefs = args.themeRefs?.length
+      ? args.themeRefs
+      : await resolveThemeRefsByName(themes ?? []);
+    const poolNames = [...byName.keys()].filter(n => !deckSet.has(n));
+    const poolCards = themeRefs.length > 0
+      ? await getCardsByNames(poolNames).catch(() => new Map<string, ScryfallCard>())
+      : new Map<string, ScryfallCard>();
+    const poolFit = themeRefs.length > 0
+      ? await buildThemeFit([...poolCards.values()], themeRefs)
+      : EMPTY_THEME_FIT;
+
+    /** The classifier's verdict on one candidate, as the ranker's optional field. */
+    const basisFor = (name: string): 'literal' | 'tag' | undefined =>
+      themeMatchFor(poolFit, name)?.basis;
+
+    // 3. Drop cards already in the deck BEFORE spending lift lookups, then cap the lookup budget
+    // on a synergy+theme pre-rank so the likeliest fits get scored. Theme credit comes from the
+    // shared themeCredit() the final ranking uses, so the two passes cannot drift apart.
+    const prerankScore = (c: DetailDraft) => (c.synergy ?? 0) + themeCredit(c);
     const edhrecCandidates = [...byName.values()]
+      .map(c => ({ ...c, themeBasis: basisFor(c.name) }))
       .filter(c => !deckSet.has(c.name))
-      .sort((a, b) =>
-        ((b.synergy ?? 0) + (b.fromTheme ? 0.5 : 0)) - ((a.synergy ?? 0) + (a.fromTheme ? 0.5 : 0)))
+      .sort((a, b) => prerankScore(b) - prerankScore(a))
       .slice(0, MAX_LIFT_LOOKUPS);
 
     // 3.5. Widened newness for old decks: when the baseline predates the recent-set
@@ -240,6 +285,8 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     // Pre-rank by synergy so the one batch card fetch spends on the likeliest fits;
     // the reprint flag guards a late printing of an old card from reading as new.
     let widened: DetailDraft[] = [];
+    // Hoisted so the final classifier fit below can cover these cards too.
+    let eraCards = new Map<string, ScryfallCard>();
     if (baselineDate && Date.now() - baselineDate > BACKFILL_WINDOW_DAYS * 86400000) {
       const baselineISO = new Date(baselineDate).toISOString().slice(0, 10);
       const eraPool = new Map<string, DetailDraft>();
@@ -265,14 +312,22 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
         for (const c of themeData.cardlists.allNonLand) consider(c, themeName);
       }
       const preranked = [...eraPool.values()]
-        .sort((a, b) =>
-          ((b.synergy ?? 0) + (b.fromTheme ? 0.5 : 0)) - ((a.synergy ?? 0) + (a.fromTheme ? 0.5 : 0)))
+        .sort((a, b) => prerankScore(b) - prerankScore(a))
         .slice(0, WIDEN_PRERANK);
-      const eraCards = await getCardsByNames(preranked.map(c => c.name)).catch(() => new Map());
+      eraCards = await getCardsByNames(preranked.map(c => c.name))
+        .catch(() => new Map<string, ScryfallCard>());
+      const eraFit = themeRefs.length > 0
+        ? await buildThemeFit([...eraCards.values()], themeRefs)
+        : EMPTY_THEME_FIT;
       widened = preranked.filter(c => {
         const card = eraCards.get(c.name);
         return !!card?.released_at && card.released_at > baselineISO && card.reprint !== true;
-      }).slice(0, MAX_WIDENED_LOOKUPS);
+      })
+        // Classifier evidence is only available now — the era cards had to be fetched to check
+        // their print dates anyway, so re-ranking here is free and decides which 12 survive.
+        .map(c => ({ ...c, themeBasis: themeMatchFor(eraFit, c.name)?.basis }))
+        .sort((a, b) => prerankScore(b) - prerankScore(a))
+        .slice(0, MAX_WIDENED_LOOKUPS);
     }
     const widenedNames = new Set(widened.map(c => c.name));
 
@@ -301,7 +356,17 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
     );
     // Candidate card objects back the pairing (type class, price, release date) and the
     // era chip. One cached batch fetch — the tab re-requests the same names for art.
-    const candidateCards = await getCardsByNames(candidates.map(c => c.name)).catch(() => new Map());
+    const candidateCards = await getCardsByNames(candidates.map(c => c.name))
+      .catch(() => new Map<string, ScryfallCard>());
+    // The fit that backs the surfaced evidence, over every card that actually made the cut — the
+    // pool, the widened era pass, and the Scryfall backfill (whose cards appear only here, and
+    // which carry NO EDHREC signal at all, so the classifier is their only theme evidence).
+    const candidateFit = themeRefs.length > 0
+      ? await buildThemeFit(
+        [...poolCards.values(), ...eraCards.values(), ...candidateCards.values()],
+        themeRefs,
+      )
+      : EMPTY_THEME_FIT;
     // Commanders are excluded as pairing incumbents — "an upgrade of your commander"
     // is a different deck, not an upgrade.
     const deckCardObjs = [...new Set(deckCardNames)]
@@ -318,8 +383,15 @@ export async function getUpgradeDetails(args: RelevantCardsArgs): Promise<Upgrad
       ]);
       const edges = deckLiftEdges(pool, liftDeckSet);
       const card = candidateCards.get(draft.name);
+      const classifierThemes = matchedThemeNames(candidateFit, draft.name);
       const candidate: UpgradeDetail = {
         ...draft,
+        themeBasis: themeMatchFor(candidateFit, draft.name)?.basis,
+        classifierThemes,
+        // Union of the two evidence sources. This is what the tab's chips render and what its
+        // "Slots into your build" partition tests, so a card the classifier matched now lands
+        // there even when no EDHREC theme page has caught up to it yet.
+        matchedThemes: [...new Set([...draft.matchedThemes, ...classifierThemes])],
         liftFit: edges.reduce((s, e) => s + liftEdgeScore(e), 0),
         topEdges: edges.slice(0, MAX_TOP_EDGES).map(e => ({
           deckCard: e.name, lift: e.lift, coPct: e.coPct, numDecks: e.numDecks,

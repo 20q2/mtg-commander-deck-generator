@@ -94,6 +94,39 @@ export function hasLiteralThemeMatch(fit: ThemeFit | null | undefined, cardName:
   return nameKeys(cardName).some(key => fit.byCard.get(key)?.basis === 'literal');
 }
 
+/** The whole fit entry for a card, or undefined when it belongs to no selected theme. */
+export function themeMatchFor(
+  fit: ThemeFit | null | undefined,
+  cardName: string,
+): CardThemeFit | undefined {
+  if (!fit) return undefined;
+  for (const key of nameKeys(cardName)) {
+    const hit = fit.byCard.get(key);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/**
+ * Display names of the selected themes this card belongs to, e.g. `['Landfall']`.
+ *
+ * The recommendation surfaces show these to the user, so they are theme names — not the raw
+ * `matched` tokens, which are internal (`'landfall'`, `'elf'`, `'sacrifice-outlet'`).
+ */
+export function matchedThemeNames(
+  fit: ThemeFit | null | undefined,
+  cardName: string,
+): string[] {
+  const hit = themeMatchFor(fit, cardName);
+  if (!hit || !fit) return [];
+  const out: string[] = [];
+  for (const i of hit.indices) {
+    const name = fit.themes[i]?.name;
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
 /** Lowercased names of every card with literal theme evidence — the set the cut surfaces consume. */
 export function literalThemeMembers(fit: ThemeFit | null | undefined): Set<string> {
   const out = new Set<string>();
@@ -131,6 +164,35 @@ export async function resolveThemeModels(
       models.push(buildThemeModel(tag, catalogs, table.themes, forceArchetype));
     }
     return models;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve theme NAMES to taxonomy `{slug, name}` refs.
+ *
+ * Saved lists and the generation summary record themes by display name, but every classifier
+ * entry point keys on slug. Resolving against the FULL EDHREC taxonomy rather than a commander
+ * page's own theme list is the point: an off-list theme still yields a testable model, and those
+ * are exactly the themes a classifier-detected deck is most likely to carry.
+ *
+ * Fails soft to `[]` — consumers read that as "no theme evidence available".
+ */
+export async function resolveThemeRefsByName(
+  names: ReadonlyArray<string>,
+): Promise<{ slug: string; name: string }[]> {
+  if (names.length === 0) return [];
+  try {
+    const tags = await fetchAllTags();
+    const out: { slug: string; name: string }[] = [];
+    for (const wanted of names) {
+      const norm = wanted.trim().toLowerCase();
+      if (!norm) continue;
+      const hit = tags.find(t => t.name.toLowerCase() === norm || t.slug === norm);
+      if (hit && !out.some(o => o.slug === hit.slug)) out.push({ slug: hit.slug, name: hit.name });
+    }
+    return out;
   } catch {
     return [];
   }

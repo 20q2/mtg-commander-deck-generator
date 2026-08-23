@@ -13,6 +13,15 @@ export interface UpgradeCandidate {
   synergy?: number;
   /** Came from an intended-theme new-cards pool (or EDHREC's theme-synergy flag). */
   fromTheme?: boolean;
+  /**
+   * Classifier verdict on the card ITSELF: `literal` = its type line, keywords or rules text
+   * carries an intended theme; `tag` = inferred from oracle-tag co-occurrence.
+   *
+   * This is the signal EDHREC structurally cannot give us here. A card printed last month has
+   * thin page data by definition, so its absence from a theme page means "no data yet" far more
+   * often than "off theme" — and that is exactly the population this tab is made of.
+   */
+  themeBasis?: 'literal' | 'tag';
 }
 
 /** Minimal lift-pool row (structurally matches the EDHREC client's CardLiftEntry). */
@@ -49,6 +58,22 @@ export function liftFitScore(candidatePool: LiftPoolEntry[], deckNames: Set<stri
 // stay meaningful whatever the deck's absolute lift magnitudes are.
 const WEIGHT_LIFT = 2.0;
 const WEIGHT_THEME = 0.5;
+/** Tag-basis classifier evidence — inferred from co-occurrence, so half credit. */
+const WEIGHT_THEME_TAG = 0.25;
+
+/**
+ * Theme credit for one candidate — the MAX of its two independent sources, not their sum.
+ *
+ * EDHREC page membership and classifier `literal` evidence rate the same: they answer the same
+ * question from different directions, and a card that satisfies both is not twice as on-theme. The
+ * max also keeps this term bounded at WEIGHT_THEME so it can never swamp the lift signal.
+ */
+export function themeCredit(c: UpgradeCandidate): number {
+  const classifier = c.themeBasis === 'literal' ? WEIGHT_THEME
+    : c.themeBasis === 'tag' ? WEIGHT_THEME_TAG
+      : 0;
+  return Math.max(c.fromTheme ? WEIGHT_THEME : 0, classifier);
+}
 
 /** Rank candidates by blended deck fit. Pure; ties break by inclusion then name. */
 export function rankUpgradeCandidates<T extends UpgradeCandidate>(
@@ -58,7 +83,7 @@ export function rankUpgradeCandidates<T extends UpgradeCandidate>(
   const composite = (s: { candidate: T; liftFit: number }) =>
     (maxFit > 0 ? (s.liftFit / maxFit) * WEIGHT_LIFT : 0)
     + (s.candidate.synergy ?? 0)
-    + (s.candidate.fromTheme ? WEIGHT_THEME : 0);
+    + themeCredit(s.candidate);
   return [...scored]
     .sort((a, b) =>
       composite(b) - composite(a)

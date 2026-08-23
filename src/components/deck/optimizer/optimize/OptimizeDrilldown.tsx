@@ -134,8 +134,19 @@ export function OptimizeDrilldown({
                 <ManaText text={manaCost} className="shrink-0 text-sm leading-none" />
               )}
             </div>
-            {(card.isGameChanger || card.isThemeSynergy) && (
-              <div className="flex items-center gap-1.5 mt-1">
+            {(card.isGameChanger || card.isThemeSynergy || card.themeMatched?.length) && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                {/* Classifier evidence: this card's own type line / keywords / rules text carries
+                    the theme. Distinct from "High Synergy", which is EDHREC co-occurrence. */}
+                {card.themeMatched?.map(t => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center rounded-full border border-violet-500/30 px-1.5 py-0.5 text-[10px] font-bold text-violet-300/80"
+                    title={`This card's own rules text carries your ${t} theme`}
+                  >
+                    {t}
+                  </span>
+                ))}
                 {card.isThemeSynergy && (
                   <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-400/90" title="High synergy with commander themes">
                     <Zap className="w-2.5 h-2.5" />
