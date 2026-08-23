@@ -46,6 +46,24 @@ export const MEMBERSHIP_WEIGHT = 0.35;
 export const OVERLAP_WEIGHT = 0.40;
 export const INCLUSION_WEIGHT = 0.25;
 
+/**
+ * How much a ZERO-SYNERGY overlapping card counts toward the overlap signal.
+ *
+ * Raw overlap credits a theme for every generic staple on its page. A theme page holds ~300 cards
+ * and most of them are format goodstuff, so any deck in the right colors overlaps every one of the
+ * commander's theme pages heavily — and that overlap is OVERLAP_WEIGHT of the composite. Measured
+ * on a Sapling of Colfenor deck that is a Pestilence group-slug build with three toughness cards in
+ * it: Toughness Matters won detection outright on page overlap alone.
+ *
+ * EDHREC's own per-card synergy is the discriminator and was already being summed here and thrown
+ * away. Synergy is a card's rate with THIS theme minus its baseline rate, so it is ~0 for Sol Ring
+ * on every page and high for a card that is specific to the theme. A staple still counts — it is
+ * genuinely in both lists — just not as evidence of what the deck is about.
+ *
+ * 1.0 reproduces the old raw-count behaviour exactly.
+ */
+export const STAPLE_OVERLAP_CREDIT = 0.25;
+
 // ─── Observed-over-expected ───────────────────────────────────────────
 
 /**

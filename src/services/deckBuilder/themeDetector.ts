@@ -2,7 +2,7 @@ import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, EDHRECTheme } from 
 import type { CurveSlot } from './deckAnalyzer';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import {
-  MEMBERSHIP_WEIGHT, OVERLAP_WEIGHT, INCLUSION_WEIGHT,
+  MEMBERSHIP_WEIGHT, OVERLAP_WEIGHT, INCLUSION_WEIGHT, STAPLE_OVERLAP_CREDIT,
   type ThemeScore, type ThemeKind,
 } from '@/services/themes';
 
@@ -141,8 +141,16 @@ export function scoreThemeMatch(
     };
   }
 
-  // Signal 1: Card Overlap
+  // Signal 1: Card Overlap, synergy-gated.
+  //
+  // A raw count credits a theme for every generic staple on its page. Theme pages hold ~300 cards,
+  // mostly format goodstuff, so any deck in the right colors overlaps ALL of its commander's theme
+  // pages heavily and the signal stops discriminating. EDHREC's per-card synergy separates the two
+  // cases — it is ~0 for a card that appears on every page, high for one specific to this theme —
+  // and it was already summed here and never used. `cardOverlap` stays a true count for display;
+  // only the score consumes the gated credit.
   let cardOverlap = 0;
+  let overlapCredit = 0;
   let weightedOverlap = 0;
   let synergySum = 0;
 
@@ -157,12 +165,14 @@ export function scoreThemeMatch(
     if (matched) {
       cardOverlap++;
       weightedOverlap += matched.inclusion;
-      synergySum += matched.synergy ?? 0;
+      const synergy = matched.synergy ?? 0;
+      synergySum += synergy;
+      overlapCredit += synergy > 0 ? 1 : STAPLE_OVERLAP_CREDIT;
     }
   }
 
-  const overlapRatio = cardOverlap / deckNonBasicCount;
-  const overlapScore = Math.min(overlapRatio * 150, 100); // 67% overlap → 100
+  const overlapRatio = overlapCredit / deckNonBasicCount;
+  const overlapScore = Math.min(overlapRatio * 150, 100); // 67% synergy-bearing overlap → 100
 
   // Signal 2: Weighted Inclusion
   const inclusionNormalizer = cardOverlap > 0 ? cardOverlap * 50 : 1;
