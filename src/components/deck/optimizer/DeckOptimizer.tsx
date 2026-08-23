@@ -1057,6 +1057,21 @@ export function DeckOptimizer({
       setPrimaryThemeSlug(appliedPrimary);
       setSecondaryThemeSlug(appliedSecondary);
 
+      // Resolve the classifier fit HERE, before anything builds membership from it.
+      //
+      // The membership effect also populates themeFitRef, but it fires on the slug state change
+      // queued immediately above — so it cannot have run yet, and it awaits buildThemeFit on top.
+      // Everything below (plan score, and critically the misfit list) would otherwise be computed
+      // against an empty fit on first load, leaving the "a literal theme member is never a misfit"
+      // exemption inert until a tab switch happened to re-run this function. Cheap to do twice:
+      // every dependency is cached by now and computeThemeFit is pure over ~99 cards x 1-2 models.
+      themeFitRef.current = await buildThemeFit(
+        currentCards,
+        [resolveThemeInfo(appliedPrimary), resolveThemeInfo(appliedSecondary)]
+          .filter((t): t is { slug: string; name: string } => !!t),
+      );
+      setThemeFitVersion(v => v + 1);
+
       if (appliedPrimary) {
         // Saved themes may sit outside the detected top-8 — fetch on demand
         // (fetchThemeData falls back to the archetype tag page).
