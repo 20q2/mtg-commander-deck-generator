@@ -19,7 +19,7 @@ import {
 } from '@/services/inspectorOverrides/storage';
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
-import { recomputeRoleTargetsForPacing, getDynamicRoleTargets } from '@/services/deckBuilder/roleTargets';
+import { recomputeRoleTargetsForPacing, getDynamicRoleTargets, STAPLE_BACKFILL_INCLUSION } from '@/services/deckBuilder/roleTargets';
 import { getCardByName, getCardsByNames, getCardPrice, WUBRG, getMtgCatalogs } from '@/services/scryfall/client';
 import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
 import { buildThemeModel, scoreThemesForDeck, survivingThemes, loadThemeCharTags, SHORTLIST_SIZE, type ThemeScore } from '@/services/themes';
@@ -649,8 +649,25 @@ export function DeckOptimizer({
       .slice(0, limit);
   }, []);
 
-  /** Theme-first merge: theme data drives, base staples (inclusion >= 50%) backfill.
-   *  Cards in both theme + base get boosted (on-theme AND widely played). */
+  /**
+   * Theme-first merge: theme data drives, commander staples backfill. Cards in both pools get
+   * boosted — on-theme AND widely played is the strongest signal available.
+   *
+   * Being off-theme is NOT a reason to hide a good card. The backfill bar used to be 50% inclusion,
+   * which sounds permissive and is not: on Sapling of Colfenor's 476-deck page, Sol Ring is 63% and
+   * Command Tower 75%, but Assassin's Trophy is 34%, Beast Within 39%, Putrefy 32% and Bojuka Bog
+   * 47%. Only true auto-includes cleared it, so the entire mid-tier Golgari removal suite was
+   * dropped for not being a self-damage card — including from the per-role suggestion lists, where a
+   * Removal list that omits Assassin's Trophy is plainly wrong.
+   *
+   * Two changes. The bar drops to STAPLE_BACKFILL_INCLUSION, because inclusion percentages for
+   * genuinely good cards are modest even on a well-sampled page. And a card that fills a role the
+   * deck is short on comes through regardless: "you are low on removal" and "here is the removal
+   * this commander plays" belong together, whatever the theme is.
+   *
+   * Flooding is held off by the sort and slice below, not by the gate — the gate was removing cards
+   * before the ranking got a chance to judge them.
+   */
   const mergeThemeWithBaseStaples = useCallback((
     themeRecs: RecommendedCard[],
     baseRecs: RecommendedCard[],
@@ -663,17 +680,14 @@ export function DeckOptimizer({
       merged.set(rec.name, { ...rec, isThemeSynergy: true });
     }
 
-    // Base cards: boost overlapping cards, backfill high-inclusion staples
     for (const rec of baseRecs) {
       if (merged.has(rec.name)) {
         // On-theme AND a commander staple → strong signal, boost
         const existing = merged.get(rec.name)!;
         merged.set(rec.name, { ...existing, score: (existing.score ?? 0) + 25 });
-      } else if (rec.inclusion >= 50) {
-        // High-inclusion staple not in theme pool → backfill (no theme tag)
+      } else if (rec.inclusion >= STAPLE_BACKFILL_INCLUSION || rec.fillsDeficit) {
         merged.set(rec.name, { ...rec, isThemeSynergy: false });
       }
-      // Base cards below 50% inclusion that aren't on-theme → dropped
     }
 
     return Array.from(merged.values())

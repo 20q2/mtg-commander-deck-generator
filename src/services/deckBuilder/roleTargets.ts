@@ -21,6 +21,31 @@ export const ROLE_LABELS: Record<string, string> = {
 // to exclude noise.
 export const EDHREC_INCLUSION_THRESHOLD = 18; // percent
 
+/**
+ * Inclusion a commander staple needs to backfill a themed recommendation list.
+ *
+ * Being off-theme is not a reason to hide a good card, and this bar used to be 50% — which admitted
+ * only true auto-includes. Measured on Sapling of Colfenor's 476-deck page, that let Sol Ring (63%)
+ * and Command Tower (75%) through while dropping Assassin's Trophy (34%), Beast Within (39%),
+ * Putrefy (32%) and Bojuka Bog (47%) for not being self-damage cards. Twelve of the page's 243 cards
+ * cleared it. A Golgari deck obviously wants Assassin's Trophy.
+ *
+ * Swept against that page, counting cards eligible to backfill:
+ *
+ *   50% -> 12    35% -> 45    25% ->  84
+ *   40% -> 32    30% -> 66    18% -> 126
+ *
+ * 30 is the corner: it is the first bar that admits all three of Assassin's Trophy, Beast Within and
+ * Putrefy, while still excluding genuinely fringe cards (Abrupt Decay is 7% here) and keeping the
+ * eligible pool to about a quarter of the page rather than half of it.
+ *
+ * Reusing EDHREC_INCLUSION_THRESHOLD (18) would have been tidier — one number meaning one thing —
+ * but measurement says 18 admits 126 cards and would dilute the themed list it is meant to
+ * supplement. Role needs do not depend on this bar at all: a card filling a deficient role
+ * backfills regardless, via the fillsDeficit branch at the call site.
+ */
+export const STAPLE_BACKFILL_INCLUSION = 30;
+
 // Weight for the EDHREC-derived role counts in the final blended target.
 // 0.75 means 75% commander stats / 25% rule-of-10 archetype baseline — the
 // commander drives the shape, the baseline nudges it toward known-good ratios.
