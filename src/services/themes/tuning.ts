@@ -75,10 +75,17 @@ export const EXPECTED_RATE_FLOOR = 0.02;
  * themes with LITERAL evidence, consistent with the rest of the pipeline — the card itself says
  * "Dredge 3", which no amount of tag co-occurrence can match for reliability. Archetypes keep the
  * full floor, since a handful of tag hits is exactly what noise looks like.
+ *
+ * Re-swept 1-3 members x 12-26 lift once the failure list was measured properly. 21 deterministic
+ * themes were failing for one reason only -- one or two members -- and nearly all with lift pinned at
+ * the cap: two Wraith cards in a 35-card deck against a 0.06% base rate is not chance. Moving to
+ * 2 members while RAISING the lift bar to 18 gains three points of deterministic top-3 (80.0% ->
+ * 83.0%) and half a point of top-1, for 0.2 of a survivor on themeless decks. Fewer cards allowed,
+ * but they must be more extraordinary.
  */
-export const RARE_MIN_MEMBERS = 3;
+export const RARE_MIN_MEMBERS = 2;
 /** …and the lift it must clear. Comfortably above Flying (0.9x), Haste (3.6x) and Elves (3.9x). */
-export const RARE_MIN_LIFT = 12;
+export const RARE_MIN_LIFT = 18;
 /**
  * Ceiling on the observed/expected multiplier, so one obscure tag can't run away with the ranking.
  *
