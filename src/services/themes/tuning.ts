@@ -143,6 +143,29 @@ export function popularityPrior(
  */
 export const COVERAGE_WEIGHT = 0.15;
 
+/**
+ * How many cards the COMMANDER counts as when it belongs to a theme.
+ *
+ * The commander is the one card always available, and the deck is built around it: a Krenko deck is a
+ * Goblins deck because of Krenko, not because of the eighteenth goblin. Counting it as one card in
+ * ninety-nine is why commander-driven themes could never clear the floor -- Experience Counters lives
+ * in the command zone, and the 99 may contain nothing that says 'experience' at all.
+ *
+ * Swept 1-12 against both benchmarks, with the FIXTURES as arbiter: the page sweep uses each theme's
+ * own top commander, so weighting it there is circular and shows gains that mean nothing. 2 is free
+ * on the fixtures and slightly positive everywhere; 3 and above buy page-sweep accuracy at the cost
+ * of a fixture, and 6+ break five.
+ *
+ * It does NOT rescue command-zone-only themes — Ezuri's deck still has one card matching Experience
+ * Counters, below any floor. What it does is calibrate confidence on answers already right:
+ * Talrand/Spellslinger 38% → 48%, Chatterfang/Squirrels 61% → 68%, Ezuri/+1+1 84% → 88%. A Goblins
+ * deck led by Krenko really is more certainly Goblins, and that is the number a reader acts on.
+ *
+ * Weighted into the RATIO only, never the absolute member floor. Inflating "how many cards match" is
+ * a lie about the deck, and it would let any commander single-handedly declare a theme.
+ */
+export const COMMANDER_WEIGHT = 2;
+
 // ─── Nesting suppression ──────────────────────────────────────────────
 
 /**
@@ -175,6 +198,7 @@ export interface ThemeTuning {
   popularityFloor: number;
   popularityFullAt: number;
   coverageWeight: number;
+  commanderWeight: number;
   nestSuppressRatio: number;
 }
 
@@ -194,6 +218,7 @@ export const DEFAULT_TUNING: ThemeTuning = {
   popularityFloor: POPULARITY_FLOOR,
   popularityFullAt: POPULARITY_FULL_AT,
   coverageWeight: COVERAGE_WEIGHT,
+  commanderWeight: COMMANDER_WEIGHT,
   nestSuppressRatio: NEST_SUPPRESS_RATIO,
 };
 
@@ -209,6 +234,8 @@ export const TUNING_FIELDS: {
     hint: 'Weighted inclusion % of overlapping cards' },
   { key: 'minMembers', label: 'Min members', min: 0, max: 40, step: 1,
     hint: 'Hard floor on absolute member count' },
+  { key: 'commanderWeight', label: 'Commander weight', min: 1, max: 12, step: 0.5,
+    hint: 'How many cards the commander counts as when it matches a theme' },
   { key: 'rareMinMembers', label: 'Rare-mechanic members', min: 1, max: 10, step: 1,
     hint: 'Members needed when a literal theme is extraordinarily concentrated' },
   { key: 'rareMinLift', label: 'Rare-mechanic lift', min: 1, max: 20, step: 1,

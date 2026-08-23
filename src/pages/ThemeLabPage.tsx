@@ -109,6 +109,7 @@ export function ThemeLabPage() {
       input.cards, input.models,
       c => (c.oracle_id ? tagsForOracleId(c.oracle_id) : []),
       input.commanderThemeSlugs, tuning, input.staples,
+      input.cards.find(c => c.name === input.commanderName) ?? null,
     );
   }, [input, tuning]);
 

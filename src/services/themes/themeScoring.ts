@@ -74,6 +74,11 @@ export function scoreThemesForDeck(
   tuning: ThemeTuning = DEFAULT_TUNING,
   /** Format staples to treat as neutral. See ThemeCharTagTable.staples. */
   staples?: ReadonlySet<string>,
+  /**
+   * The deck's commander, if known. Weighted far above the other 99 cards — see COMMANDER_WEIGHT.
+   * Must also appear in `cards`; this only marks which one it is.
+   */
+  commander?: ScryfallCard | null,
 ): ThemeScore[] {
   const nonLand = cards.filter(c => !isLand(c));
   const denom = nonLand.length || 1;
@@ -130,7 +135,19 @@ export function scoreThemesForDeck(
       if (r.member) memberCards.push({ name: card.name, basis: r.basis, matched: r.matched });
     }
     const members = memberCards.length;
-    const ratio = members / denom;
+
+    // THE COMMANDER IS NOT ONE CARD IN NINETY-NINE. It is the one card always available, and in this
+    // format the deck is built around it — a Krenko deck is a Goblins deck because of Krenko, not
+    // because of the eighteenth goblin. Treating it as an ordinary member is why commander-driven
+    // themes could never clear the floor: Experience Counters lives in the command zone and the 99
+    // may contain nothing that says "experience" at all.
+    //
+    // Implemented as extra weight on the ratio rather than as a separate signal, so it reaches the
+    // floor, the lift, the coverage term and the score together instead of needing four hooks.
+    const commanderMatches = commander != null
+      && memberCards.some(m => m.name === commander.name);
+    const effective = members + (commanderMatches ? tuning.commanderWeight - 1 : 0);
+    const ratio = effective / denom;
 
     const expected = Math.max(model.baseRate, tuning.expectedRateFloor);
     const observedOverExpected = Math.min(ratio / expected, tuning.maxLift);
