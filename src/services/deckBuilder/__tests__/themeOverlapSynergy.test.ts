@@ -89,3 +89,38 @@ describe('scoreThemeMatch synergy-gated overlap', () => {
     expect(barelyPositive.score).toBe(0);
   });
 });
+
+describe('membership renormalization', () => {
+  const strongPage = {
+    cardlists: {
+      allNonLand: SLUG.map(name => ({ name, inclusion: 60, synergy: 0.4 })),
+      lands: [],
+    },
+  } as unknown as EDHRECCommanderData;
+
+  const withMembership = {
+    membershipScore: 20, members: 4, memberCards: [{ name: 'Pestilence', basis: 'tag', matched: [] }],
+  } as never;
+
+  it('does not reward a theme the classifier had nothing to say about', () => {
+    // Same page, same deck. One theme has real (if modest) membership evidence; the other has none
+    // while the classifier WAS running. The one with evidence must not score lower.
+    const evidenced = scoreThemeMatch(theme('A'), strongPage, deck, withMembership, true);
+    const unknown = scoreThemeMatch(theme('B'), strongPage, deck, undefined, true);
+    expect(unknown.score).toBeLessThan(evidenced.score);
+  });
+
+  it('still renormalizes when the classifier did not run at all', () => {
+    // Absence across the board must not deflate every score below the detection threshold, so the
+    // denominator drops and the two EDHREC signals carry full weight.
+    const classifierOff = scoreThemeMatch(theme('C'), strongPage, deck, undefined, false);
+    const classifierOnButUnscored = scoreThemeMatch(theme('C'), strongPage, deck, undefined, true);
+    expect(classifierOff.score).toBeGreaterThan(classifierOnButUnscored.score);
+  });
+
+  it('defaults to treating a supplied membership as "the classifier ran"', () => {
+    const explicit = scoreThemeMatch(theme('D'), strongPage, deck, withMembership, true);
+    const defaulted = scoreThemeMatch(theme('D'), strongPage, deck, withMembership);
+    expect(defaulted.score).toBe(explicit.score);
+  });
+});

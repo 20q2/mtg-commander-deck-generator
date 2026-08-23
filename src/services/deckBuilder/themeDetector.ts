@@ -116,6 +116,11 @@ export function scoreThemeMatch(
   themeData: EDHRECCommanderData,
   currentCards: ScryfallCard[],
   membership?: ThemeScore,
+  /**
+   * Did the classifier run AT ALL for this detection pass? Distinct from whether it scored THIS
+   * theme. Defaults to "membership present means it ran", which is right for single-theme callers.
+   */
+  membershipAvailable = membership != null,
 ): ThemeMatchResult {
   // Build lookup from the theme's cardlists
   const themeCardMap = new Map<string, EDHRECCard>();
@@ -194,15 +199,23 @@ export function scoreThemeMatch(
   // weighted deliberately light for now; /theme-lab is where that weight gets earned.
   const membershipScore = membership?.membershipScore ?? 0;
 
-  // Renormalize when membership is unavailable, so its absence doesn't silently deflate every score
-  // (which would drag confident decks below the detection threshold).
-  const totalWeight = membership
+  // Renormalize only when the classifier didn't run at all, so its absence doesn't silently deflate
+  // every score and drag confident decks below the detection threshold.
+  //
+  // This used to test `membership` — the score for THIS theme — which made a theme the classifier
+  // had nothing to say about score HIGHER than one it had real evidence for. At overlap 100 and
+  // inclusion 60: with membership 20 the composite is 40 + 15 + 7 = 62, while with no membership at
+  // all it is (40 + 15) / 0.65 = 84.6, because overlap's share jumps from 40% to 62%. Absence of
+  // evidence beat weak evidence, and since overlap saturates on almost any deck, whichever themes
+  // the classifier skipped floated to the top. Missing membership for one theme now contributes zero
+  // against the full denominator, which is a penalty rather than a bonus.
+  const totalWeight = membershipAvailable
     ? OVERLAP_WEIGHT + INCLUSION_WEIGHT + MEMBERSHIP_WEIGHT
     : OVERLAP_WEIGHT + INCLUSION_WEIGHT;
   const score = (
     overlapScore * OVERLAP_WEIGHT
     + weightedScore * INCLUSION_WEIGHT
-    + membershipScore * (membership ? MEMBERSHIP_WEIGHT : 0)
+    + membershipScore * MEMBERSHIP_WEIGHT
   ) / totalWeight;
 
   return {
@@ -359,7 +372,7 @@ export function detectThemes(
     // Pod deck without a pod). Dropped from evaluation entirely so it can't become the answer, while
     // remaining in the membership scores for anything that wants the signal.
     if (membership?.gateMissing) continue;
-    evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards, membership));
+    evaluatedThemes.push(scoreThemeMatch(theme, data, currentCards, membership, !!membershipScores));
   }
 
   evaluatedThemes.sort((a, b) => b.score - a.score);
