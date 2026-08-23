@@ -955,29 +955,41 @@ export function DeckOptimizer({
             // Format staples are neutral evidence for archetypes. Without this a goodstuff pile
             // reported Tron at 61% confidence off nothing but mana rocks.
             new Set(table.staples ?? []),
+            // The commander carries extra weight: the deck is built around it. Matched by name
+            // because currentCards is the deck list and the commander is one of its entries.
+            currentCards.find(c => c.name === commanderName) ?? null,
           );
           membershipScores = new Map(scored.map(s => [s.model.slug, s]));
 
-          // Off-list themes strong enough to deserve a page fetch. Capped so a long tail of
-          // near-miss tags can't turn detection into a fetch storm.
+          // Off-list themes strong enough to deserve a page fetch. SHORTLIST_SIZE is the budget for
+          // Phase A promotions specifically (see its docstring), NOT a combined cap with the
+          // commander's own themes — that reading made this dead code. topThemes is sliced to 8, so
+          // `SHORTLIST_SIZE - min(topThemes.length, SHORTLIST_SIZE)` was 6 - 6 = 0 for every
+          // commander with 6+ themes, i.e. essentially all of them: every off-list theme the
+          // classifier found was computed, survived every gate, and then sliced away before
+          // detection could see it. A deck whose real archetype isn't on its commander's page —
+          // the exact case this scoring exists for — could never be detected.
           const known = new Set(topThemes.map(t => t.slug));
           extraThemes = survivingThemes(scored)
             .filter(s => !known.has(s.model.slug))
-            .slice(0, SHORTLIST_SIZE - Math.min(topThemes.length, SHORTLIST_SIZE))
+            .slice(0, SHORTLIST_SIZE)
             .map(s => ({ name: s.model.name, slug: s.model.slug, count: s.model.numDecks, url: '' }));
         }
       } catch (err) {
         console.warn('[DeckOptimizer] membership scoring unavailable — EDHREC signals only:', err);
       }
 
-      // Fetch theme-specific EDHREC data (sequential for rate limiting)
+      // Fetch theme-specific EDHREC data (sequential for rate limiting).
+      //
+      // Via fetchThemeData, not fetchCommanderThemeData directly: an off-list theme has no
+      // commander+theme page by definition (Sapling of Colfenor has no /self-damage page), so the
+      // direct call 403s, the theme never reaches themeDataMap, and detectThemes drops it on its
+      // `if (!data) continue`. fetchThemeData falls back to the color-filtered archetype tag page,
+      // which is the only pool an off-list theme can be scored against at all.
       const themeDataMap = new Map<string, import('@/types').EDHRECCommanderData>();
       for (const theme of [...topThemes, ...extraThemes]) {
         try {
-          const data = partnerCommanderName
-            ? await fetchPartnerThemeData(commanderName, partnerCommanderName, theme.slug, undefined, undefined, colorSeg)
-            : await fetchCommanderThemeData(commanderName, theme.slug, undefined, undefined, colorSeg);
-          themeDataMap.set(theme.slug, data);
+          themeDataMap.set(theme.slug, await fetchThemeData(theme.slug));
         } catch (err) {
           console.warn(`[DeckOptimizer] Failed to fetch theme data for ${theme.slug}:`, err);
         }
