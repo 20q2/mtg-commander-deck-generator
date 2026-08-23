@@ -100,6 +100,9 @@ describe('membership renormalization', () => {
 
   const withMembership = {
     membershipScore: 20, members: 4, memberCards: [{ name: 'Pestilence', basis: 'tag', matched: [] }],
+    // `model` is not optional on ThemeScore — scoreThemeMatch reads its kind to tell the UI how to
+    // phrase the evidence, so a double without one is a type violation that only bites at runtime.
+    model: { kind: { kind: 'archetype' } },
   } as never;
 
   it('does not reward a theme the classifier had nothing to say about', () => {

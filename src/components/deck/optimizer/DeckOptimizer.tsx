@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import type { ScryfallCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
-import { generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing } from '@/services/deckBuilder/themeDetector';
+import { generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing, type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
 import { persistListThemes } from '@/services/lists/listThemes';
 import {
@@ -518,11 +518,20 @@ export function DeckOptimizer({
       const pacingKey = pacingVal ?? detectedPacing ?? prev.pacing;
       const pacingLabel = PACING_PHRASE[pacingKey] || prev.pacingLabel;
 
-      const dummyMatch = (slug: string) => {
+      // Carries only what buildDetectionMessage reads (the theme's name). Typed rather than cast so
+      // a new required field on ThemeMatchResult surfaces here instead of arriving as undefined.
+      const dummyMatch = (slug: string): ThemeMatchResult | null => {
         const t = allThemes.find(th => th.slug === slug);
-        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, memberCount: 0, literalCount: 0, basis: 'none' as const, score: 0 } : null;
+        return t ? {
+          theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0,
+          memberCount: 0, literalCount: 0, memberNames: [], basis: 'none', score: 0,
+          components: { overlap: 0, inclusion: 0, membership: 0, pageDecks: 0 },
+        } : null;
       };
-      const matchedThemes = [primary, secondary].filter(Boolean).map(s => dummyMatch(s!)).filter(Boolean) as import('@/services/deckBuilder/themeDetector').ThemeMatchResult[];
+      const matchedThemes = [primary, secondary]
+        .filter(Boolean)
+        .map(s => dummyMatch(s!))
+        .filter((m): m is ThemeMatchResult => m !== null);
       const strategyLabel = primary ? generateStrategyLabel(allThemes.find(t => t.slug === primary)?.name || '') : prev.strategyLabel;
 
       const newMessage = buildDetectionMessage(

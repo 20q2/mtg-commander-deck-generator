@@ -57,7 +57,12 @@ async function archetypePage(slug: string): Promise<EDHRECCommanderData> {
  */
 function themeEvidence(m: ThemeMatchResult): string {
   if (m.literalCount > 0) {
-    return `${m.literalCount} of your cards carry ${m.theme.name}`;
+    // "17 of your cards are Auras", not "carry Auras" — for a subtype or a tribe the cards ARE
+    // the thing. A mechanic or counter type is something a card has.
+    const verb = m.themeKind === 'subtype' || m.themeKind === 'tribal' || m.themeKind === 'cardType'
+      ? 'are'
+      : 'carry';
+    return `${m.literalCount} of your cards ${verb} ${m.theme.name}`;
   }
   if (m.memberCount > 0) {
     return `${m.memberCount} of your cards play like ${m.theme.name}`;
@@ -65,6 +70,25 @@ function themeEvidence(m: ThemeMatchResult): string {
   // No card-level evidence at all — the verdict rests on EDHREC overlap alone. Say so, rather
   // than dressing page presence up as fit.
   return `${m.cardOverlap} of your cards show up in ${m.theme.name} decks`;
+}
+
+/** How many member names fit on one line of a 320px popover. */
+const NAMES_SHOWN = 3;
+
+/**
+ * The receipts. A user given "17 of your cards are Auras" on a land-ramp deck counted seven and
+ * reported it as a bug — the count was exact, but every one of the seventeen was a mana Aura
+ * (Utopia Sprawl, Wild Growth) that doesn't feel like one. Naming three of them collapses that
+ * whole misunderstanding into a glance, and the full list is in the tooltip.
+ */
+function memberPreview(m: ThemeMatchResult): { text: string; full: string } | null {
+  if (m.memberNames.length === 0) return null;
+  const shown = m.memberNames.slice(0, NAMES_SHOWN);
+  const rest = m.memberNames.length - shown.length;
+  return {
+    text: shown.join(', ') + (rest > 0 ? ` +${rest} more` : ''),
+    full: m.memberNames.join(', '),
+  };
 }
 
 interface Detection {
@@ -194,12 +218,23 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
               <Tags className="w-3.5 h-3.5" />
               This looks like {detection.guess.map(m => m.theme.name).join(' + ')}
             </div>
-            <div className="mt-1 space-y-0.5">
-              {detection.guess.map(m => (
-                <div key={m.theme.slug} className="text-[11px] text-muted-foreground">
-                  {themeEvidence(m)}
-                </div>
-              ))}
+            <div className="mt-1 space-y-1">
+              {detection.guess.map(m => {
+                const names = memberPreview(m);
+                return (
+                  <div key={m.theme.slug}>
+                    <div className="text-[11px] text-muted-foreground">{themeEvidence(m)}</div>
+                    {names && (
+                      <div
+                        className="text-[10px] text-muted-foreground/60 truncate"
+                        title={names.full}
+                      >
+                        {names.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="text-[11px] font-medium text-violet-300/70 mt-1.5">Tap to apply</div>
           </button>

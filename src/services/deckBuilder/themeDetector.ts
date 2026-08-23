@@ -24,6 +24,18 @@ export interface ThemeMatchResult {
   /** Of those, how many were established from the card ITSELF rather than inferred from its tags.
    *  This is the number a user can go and check, which is why the UI quotes it. */
   literalCount: number;
+  /**
+   * The cards behind whichever count the UI quotes — the literal members when there are any, else
+   * all members. Kept deliberately in step with literalCount/memberCount: a receipts list that
+   * doesn't add up to the number beside it is worse than no receipts.
+   *
+   * Exists because a correct count is not a checkable one. "17 of your cards are Auras" on a
+   * land-ramp deck reads as an error until you see that Utopia Sprawl and Wild Growth are Auras.
+   */
+  memberNames: string[];
+  /** How the UI should phrase the evidence — "are Auras" for a subtype, "carry Landfall" for a
+   *  mechanic. Absent when the classifier didn't run. */
+  themeKind?: ThemeKind['kind'];
   /** How membership was established: a literal card attribute, or characteristic oracle tags. */
   basis: 'literal' | 'tag' | 'none';
   /** Composite 0-100 */
@@ -162,12 +174,14 @@ export function scoreThemeMatch(
   });
   const deckNonBasicCount = nonBasicCards.length;
 
-  const literalMembers = membership?.memberCards.filter(m => m.basis === 'literal').length ?? 0;
+  const literalNames = membership?.memberCards.filter(m => m.basis === 'literal').map(m => m.name) ?? [];
+  const literalMembers = literalNames.length;
+  const allMemberNames = membership?.memberCards.map(m => m.name) ?? [];
 
   if (deckNonBasicCount === 0) {
     return {
       theme, cardOverlap: 0, themePoolSize, weightedOverlap: 0, synergySum: 0,
-      memberCount: 0, literalCount: 0, basis: 'none', score: 0,
+      memberCount: 0, literalCount: 0, memberNames: [], basis: 'none', score: 0,
       components: { overlap: 0, inclusion: 0, membership: 0, pageDecks },
     };
   }
@@ -274,6 +288,8 @@ export function scoreThemeMatch(
     },
     memberCount: membership?.members ?? 0,
     literalCount: literalMembers,
+    memberNames: literalMembers > 0 ? literalNames : allMemberNames,
+    themeKind: membership?.model.kind.kind,
     // STRONGEST basis across the members, not the first one's. Reading memberCards[0] made this
     // depend on deck order: a theme with twenty literal members reported 'tag' whenever the first
     // matching card in the list happened to be a tag match. themeScoring reasons the same way

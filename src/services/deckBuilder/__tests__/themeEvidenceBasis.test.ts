@@ -21,12 +21,13 @@ const page = (names: string[]): EDHRECCommanderData => ({
 const deck = ['A', 'B', 'C', 'D'].map(card);
 
 /** A membership result whose member bases are given in deck order. */
-function membership(bases: ('literal' | 'tag')[]): ThemeScore {
+function membership(bases: ('literal' | 'tag')[], kind = 'subtype'): ThemeScore {
   return {
     memberCards: bases.map((basis, i) => ({ name: deck[i].name, basis, matched: ['x'] })),
     members: bases.length,
     membershipScore: 60,
     ratio: bases.length / deck.length,
+    model: { kind: { kind } },
   } as unknown as ThemeScore;
 }
 
@@ -61,5 +62,37 @@ describe('theme evidence reported to the UI', () => {
     const r = scoreThemeMatch(theme('T'), page(['A']), deck);
     expect(r.basis).toBe('none');
     expect(r.literalCount).toBe(0);
+  });
+});
+
+/**
+ * The receipts must add up to the number printed beside them. A user handed "17 of your cards are
+ * Auras" counted seven by eye and filed it as a bug — the count was exact (they were all mana
+ * Auras like Utopia Sprawl), but nothing on screen let them confirm that.
+ */
+describe('memberNames matches the count the UI quotes', () => {
+  it('lists exactly the literal members when there are any', () => {
+    const r = scoreThemeMatch(
+      theme('T'), page(['A']), deck, membership(['literal', 'tag', 'literal']), true,
+    );
+    expect(r.memberNames).toEqual(['A', 'C']);
+    expect(r.memberNames).toHaveLength(r.literalCount);
+  });
+
+  it('falls back to every member when none are literal — still matching its count', () => {
+    const r = scoreThemeMatch(theme('T'), page(['A']), deck, membership(['tag', 'tag']), true);
+    expect(r.memberNames).toEqual(['A', 'B']);
+    expect(r.memberNames).toHaveLength(r.memberCount);
+  });
+
+  it('is empty when the classifier found nothing', () => {
+    expect(scoreThemeMatch(theme('T'), page(['A']), deck).memberNames).toEqual([]);
+  });
+
+  it('passes the theme kind through, so the UI can say "are" instead of "carry"', () => {
+    expect(scoreThemeMatch(theme('T'), page(['A']), deck, membership(['literal']), true).themeKind)
+      .toBe('subtype');
+    expect(scoreThemeMatch(theme('T'), page(['A']), deck, membership(['literal'], 'mechanic'), true).themeKind)
+      .toBe('mechanic');
   });
 });
