@@ -329,8 +329,24 @@ function distinctiveMembers(s: ThemeScore, rival: ThemeScore): number {
 
 const LIFT_FULL = 8;
 const TAG_ONLY_CEILING = 0.75;
+/**
+ * How much of the confidence is governed by having no equally-good rival. 0 disables it.
+ *
+ * Swept 0 to 1 against a calibration metric — mean confidence when the top answer is RIGHT minus when
+ * it is WRONG, measured over ~400 page decks. It discriminates rather than merely deflating: at 0.75
+ * the confidently-wrong answers collapse (Sidisi/Mill 88% -> 57%, Atraxa/Phyrexians 100% -> 71%)
+ * while an unambiguous correct answer barely moves (Krenko/Goblins 100% -> 92%, Titania/Lands Matter
+ * 75% -> 72%). Gap 25.7 -> 27.6.
+ *
+ * 1.0 widens the gap slightly further but drags mean confidence on correct answers to 63%, which
+ * under-sells answers that are right. 0.75 keeps a clear winner reading as a clear winner.
+ */
+const AMBIGUITY_WEIGHT = 0.75;
 
-export function assignConfidence(scored: ThemeScore[]): void {
+export function assignConfidence(scored: ThemeScore[], ambiguityWeight = AMBIGUITY_WEIGHT): void {
+  const surviving = scored.filter(s => s.passedFloor && !s.suppressedBy && !s.gateMissing);
+  const leader = surviving[0];
+
   for (const s of scored) {
     if (s.members === 0) { s.confidence = 0; continue; }
 
@@ -340,7 +356,23 @@ export function assignConfidence(scored: ThemeScore[]): void {
     const literalCount = s.memberCards.filter(m => m.basis === 'literal').length;
     const evidence = TAG_ONLY_CEILING + (1 - TAG_ONLY_CEILING) * (literalCount / s.members);
 
-    s.confidence = Math.round(liftTerm * coverageTerm * evidence * 100);
+    // AMBIGUITY. The evidence terms above ask "is this theme here", and they were the whole answer —
+    // so a deck two themes explain equally well reported both of them as certain. Sidisi read Mill at
+    // 88% and Atraxa read Phyrexians at 100%, with the right answer sitting just behind at a similar
+    // score. Confidently wrong is the worst failure mode a number like this has.
+    //
+    // Expressed as a SHARE of the explanation, which is symmetric: two tied themes each take about
+    // half, and both correctly read as uncertain. This is not the separation term removed earlier —
+    // that one floored any non-leader at 0.3 purely for not winning, which inverted the reading and
+    // punished the theme with better evidence. Share punishes nobody; it just declines to call a tie a
+    // certainty.
+    const rival = surviving.find(o => o !== s) ?? (leader !== s ? leader : undefined);
+    const rivalScore = rival?.membershipScore ?? 0;
+    const total = s.membershipScore + rivalScore;
+    const share = total > 0 ? s.membershipScore / total : 1;
+    const ambiguity = (1 - ambiguityWeight) + ambiguityWeight * share;
+
+    s.confidence = Math.round(liftTerm * coverageTerm * evidence * ambiguity * 100);
   }
 }
 
