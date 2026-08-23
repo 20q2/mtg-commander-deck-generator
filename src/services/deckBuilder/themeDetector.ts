@@ -25,6 +25,21 @@ export interface ThemeMatchResult {
   basis: 'literal' | 'tag' | 'none';
   /** Composite 0-100 */
   score: number;
+  /**
+   * The three signals BEFORE weighting, each 0-100, plus the page's deck count.
+   *
+   * Kept because the composite is otherwise unattributable: when /theme-lab and the Inspector
+   * disagreed on a Nath elves-discard list, the answer was that overlap sat pinned at its maximum
+   * for seven themes while inclusion favoured two 25- and 38-deck pages over a 229-deck one. That
+   * was invisible from the composite alone, and reconstructing the terms outside this function is
+   * how a harness silently drifts from what it claims to measure.
+   */
+  components: {
+    overlap: number;
+    inclusion: number;
+    membership: number;
+    pageDecks: number;
+  };
 }
 
 export interface DetectedThemeResult {
@@ -134,6 +149,9 @@ export function scoreThemeMatch(
   }
   const themePoolSize = themeCardMap.size;
 
+  const pageDecks = themeData.stats?.numDecks ?? 0;
+  const pageConf = pageDecks > 0 ? pageConfidence(pageDecks) : 1;
+
   // Filter to non-basic-land cards
   const nonBasicCards = currentCards.filter(c => {
     const tl = getFrontFaceTypeLine(c).toLowerCase();
@@ -145,6 +163,7 @@ export function scoreThemeMatch(
     return {
       theme, cardOverlap: 0, themePoolSize, weightedOverlap: 0, synergySum: 0,
       memberCount: 0, basis: 'none', score: 0,
+      components: { overlap: 0, inclusion: 0, membership: 0, pageDecks },
     };
   }
 
@@ -169,8 +188,6 @@ export function scoreThemeMatch(
   //
   // 0 means "not reported" rather than "no decks": the archetype tag-page fallback synthesizes a
   // page without a count, and those pool thousands of decks. Treat unknown as full confidence.
-  const pageDecks = themeData.stats?.numDecks ?? 0;
-  const pageConf = pageDecks > 0 ? pageConfidence(pageDecks) : 1;
 
   let cardOverlap = 0;
   let overlapCredit = 0;
@@ -244,6 +261,12 @@ export function scoreThemeMatch(
     themePoolSize,
     weightedOverlap,
     synergySum,
+    components: {
+      overlap: overlapScore,
+      inclusion: weightedScore,
+      membership: membershipScore,
+      pageDecks,
+    },
     memberCount: membership?.members ?? 0,
     basis: membership?.memberCards[0]?.basis ?? 'none',
     score: Math.round(score * 10) / 10,

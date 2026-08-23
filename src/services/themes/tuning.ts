@@ -42,9 +42,37 @@ export const OFF_LIST_PRIOR = 0.65;
 // trust, not the dominant term. Turn MEMBERSHIP_WEIGHT up once /theme-lab shows the numbers are
 // sane. Shipping it confident is how you discover Humans-tribal Atraxa in the wild.
 
-export const MEMBERSHIP_WEIGHT = 0.35;
-export const OVERLAP_WEIGHT = 0.40;
-export const INCLUSION_WEIGHT = 0.25;
+// Swept against the 22 fixture decks (src/data/themeTestDecks.json), 20 of which resolve. The
+// fixtures are the right instrument and the page sweep is not: the page sweep passes no commander
+// list, so every theme is off-list and these three weights cannot change its ranking at all. The
+// fixtures are also hand-authored rather than built from EDHREC pages, which is what stops the
+// overlap term being circular. Re-run with
+//   VITE_LIVE_DIAG=1 vitest run src/services/deckBuilder/__tests__/weightSweep.diag.test.ts
+//
+//   weights           top1   prec  recall      top1   = primary is one of the expected themes
+//   40/25/35 (was)     90%    65%     76%      prec   = every declared theme was expected
+//   35/20/45           90%    70%     73%      recall = share of expected themes declared
+//   30/20/50 (now)     95%    70%     71%
+//   25/15/60           95%    70%     71%
+//   20/15/65           95%    70%     68%
+//   15/10/75           85%    70%     61%
+//   0/0/100            70%    60%     48%
+//
+// Anywhere from 45 to 65 membership reaches 95% top1 with 70% precision — a plateau rather than one
+// lucky point, which is what makes this a real result on only 20 decks. 0.50 is its middle and the
+// smallest move that gets there. Pushed further it degrades, and membership alone is far worse than
+// the blend: the EDHREC signals genuinely contribute, they were simply drowning the one term with
+// discriminating power. On a Nath elves-discard list the membership term spread 18.6 / 13.1 / 1.7 /
+// 1.3 across Elves / Discard / Combo / Stax while overlap sat pinned at its maximum for all four.
+//
+// The cost is recall, 76% -> 71%: a wider spread pushes correct SECONDARY themes outside
+// SECONDARY_GAP_MAX. Widening that gap to 20 recovers it (95/65/76, strictly better than the old
+// setting on every metric) but trades 5 points of precision, and a wrongly declared theme is worse
+// than a missing one here — declared themes drive the recommendation pool and the cut exemptions, so
+// a bad one actively pulls the wrong cards in. Precision wins; the gap stays at 15.
+export const MEMBERSHIP_WEIGHT = 0.50;
+export const OVERLAP_WEIGHT = 0.30;
+export const INCLUSION_WEIGHT = 0.20;
 
 /**
  * How much a ZERO-SYNERGY overlapping card counts toward the overlap signal.
