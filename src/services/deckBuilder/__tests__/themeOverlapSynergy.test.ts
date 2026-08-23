@@ -67,4 +67,25 @@ describe('scoreThemeMatch synergy-gated overlap', () => {
   it('keeps synergySum available on the result', () => {
     expect(selfDamage.synergySum).toBeCloseTo(SLUG.length * 0.4, 5);
   });
+
+  it('grades credit by synergy rather than gating on sign', () => {
+    // A binary `synergy > 0` test passed 79% of a real page's cards, so a barely-above-baseline
+    // staple counted as much as a payoff. Measured on Sapling: Treefolk's page kept 90% of its
+    // credit under the gate and 57% under grading, because its median synergy is 0.06.
+    const barelyPositive = scoreThemeMatch(theme('Fringe'), page([], []), deck);
+    const nudged = scoreThemeMatch(
+      theme('Nudged'),
+      {
+        cardlists: {
+          allNonLand: SLUG.map(name => ({ name, inclusion: 30, synergy: 0.01 })),
+          lands: [],
+        },
+      } as unknown as EDHRECCommanderData,
+      deck,
+    );
+    // Same ten matching cards as selfDamage, but at noise-level synergy instead of 0.4.
+    expect(nudged.cardOverlap).toBe(selfDamage.cardOverlap);
+    expect(nudged.score).toBeLessThan(selfDamage.score);
+    expect(barelyPositive.score).toBe(0);
+  });
 });

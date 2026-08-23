@@ -2,7 +2,8 @@ import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, EDHRECTheme } from 
 import type { CurveSlot } from './deckAnalyzer';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import {
-  MEMBERSHIP_WEIGHT, OVERLAP_WEIGHT, INCLUSION_WEIGHT, STAPLE_OVERLAP_CREDIT,
+  MEMBERSHIP_WEIGHT, OVERLAP_WEIGHT, INCLUSION_WEIGHT,
+  STAPLE_OVERLAP_CREDIT, SYNERGY_FULL_CREDIT,
   type ThemeScore, type ThemeKind,
 } from '@/services/themes';
 
@@ -141,14 +142,18 @@ export function scoreThemeMatch(
     };
   }
 
-  // Signal 1: Card Overlap, synergy-gated.
+  // Signal 1: Card Overlap, graded by synergy.
   //
   // A raw count credits a theme for every generic staple on its page. Theme pages hold ~300 cards,
   // mostly format goodstuff, so any deck in the right colors overlaps ALL of its commander's theme
   // pages heavily and the signal stops discriminating. EDHREC's per-card synergy separates the two
-  // cases — it is ~0 for a card that appears on every page, high for one specific to this theme —
-  // and it was already summed here and never used. `cardOverlap` stays a true count for display;
-  // only the score consumes the gated credit.
+  // cases — a card's rate in these decks minus its rate everywhere — and it was already summed here
+  // and never used.
+  //
+  // Credit is graded, not gated. A binary `synergy > 0` test was measured to pass 79% of a page's
+  // cards, so it barely discounted anything and a commander's headline themes went on scoring off
+  // the deck's staples. `cardOverlap` stays a true count for display; only the score consumes the
+  // graded credit.
   let cardOverlap = 0;
   let overlapCredit = 0;
   let weightedOverlap = 0;
@@ -167,7 +172,8 @@ export function scoreThemeMatch(
       weightedOverlap += matched.inclusion;
       const synergy = matched.synergy ?? 0;
       synergySum += synergy;
-      overlapCredit += synergy > 0 ? 1 : STAPLE_OVERLAP_CREDIT;
+      const reach = Math.min(Math.max(synergy, 0) / SYNERGY_FULL_CREDIT, 1);
+      overlapCredit += STAPLE_OVERLAP_CREDIT + (1 - STAPLE_OVERLAP_CREDIT) * reach;
     }
   }
 

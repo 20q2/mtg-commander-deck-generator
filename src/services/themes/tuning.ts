@@ -64,6 +64,21 @@ export const INCLUSION_WEIGHT = 0.25;
  */
 export const STAPLE_OVERLAP_CREDIT = 0.25;
 
+/**
+ * Synergy at which an overlapping card counts as FULL evidence, with credit graded linearly from
+ * STAPLE_OVERLAP_CREDIT at zero synergy up to 1.0 here.
+ *
+ * A binary `synergy > 0` gate was measured to pass 79% of the cards on a theme page — Sol Ring at
+ * synergy 0.01 counted exactly as much as a genuine payoff at 0.40, so the staple discount barely
+ * applied and a commander's headline themes kept scoring on the deck's staples. Synergy is a card's
+ * rate in these decks minus its rate everywhere, so 0.01 is noise and 0.25 is a card that is
+ * genuinely 25 points over its own baseline.
+ *
+ * Graded rather than a second cliff: there is no synergy value where a card stops being a staple and
+ * starts being a payoff, and a threshold would just move the arbitrariness somewhere less visible.
+ */
+export const SYNERGY_FULL_CREDIT = 0.25;
+
 // ─── Observed-over-expected ───────────────────────────────────────────
 
 /**
