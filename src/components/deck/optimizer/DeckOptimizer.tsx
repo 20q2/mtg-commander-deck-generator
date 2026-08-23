@@ -35,6 +35,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
 import { buildThemeFit, EMPTY_THEME_FIT, type ThemeFit } from '@/services/deckBuilder/themeFit';
+import { blendArchetypeData, buildArchetypeSourceLabel } from '@/services/deckBuilder/archetypeBlend';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, TAB_SLUG_BY_KEY, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
 import { buildShareUrl, deckToSharePayload, DeckLinkError } from '@/services/share/deckLink';
@@ -1106,6 +1107,50 @@ export function DeckOptimizer({
 
         if (bestThemeData) {
           themeDataCacheRef.current.set(appliedPrimary, bestThemeData);
+
+          // Backfill the declared theme's pool from the color-filtered archetype pool.
+          //
+          // A unique deck is the case this exists for. Detection can now name a theme the commander
+          // is rarely built around, and EDHREC's page for that pairing is then close to empty:
+          // Sapling of Colfenor + Self-Damage is TWO decks, whose 127 cards all read 50-100%
+          // inclusion because that is what a denominator of two produces. Recommending from it
+          // means recommending what two strangers happened to play, and those inflated percentages
+          // would flow on into cut ranking, the misfit floor and the deck score.
+          //
+          // The archetype pool for the same theme is pooled across every commander, so it has real
+          // percentages and real payoffs. Same blendArchetypeData call deckEnricher already makes
+          // for saved lists, so the Inspector and the deck view now agree rather than diverging on
+          // which pool a themed deck is judged against. archetypeWeight scales the injected
+          // inclusion by the commander-theme deck count, so a healthy pairing is barely touched
+          // while a two-deck one is mostly backfilled.
+          let themePool = bestThemeData;
+          try {
+            const tagPool = await fetchTagPageData(appliedPrimary, colorIdentity ?? []);
+            if (tagPool) {
+              // Copy the cardlists — blendArchetypeData mutates, and bestThemeData is the cached page.
+              const cardlists = Object.fromEntries(
+                Object.entries(bestThemeData.cardlists).map(([k, v]) => [k, [...v]]),
+              ) as typeof bestThemeData.cardlists;
+              const themeDeckCount = bestThemeData.stats?.numDecks ?? 0;
+              const blend = blendArchetypeData(
+                cardlists,
+                [{
+                  pool: tagPool.cardlists,
+                  sourceLabel: buildArchetypeSourceLabel(
+                    colorIdentity ?? [],
+                    resolveThemeInfo(appliedPrimary)?.name ?? appliedPrimary,
+                    tagPool.potentialDecks,
+                  ),
+                }],
+                themeDeckCount,
+              );
+              themePool = { ...bestThemeData, cardlists };
+              console.log(`[DeckOptimizer] Theme backfill for ${appliedPrimary} (${themeDeckCount} decks): ${blend.overlapCount} overlap, ${blend.injectedCount} injected`);
+            }
+          } catch (err) {
+            console.warn('[DeckOptimizer] Archetype backfill unavailable:', err);
+          }
+          bestThemeData = themePool;
           themeEnhancedDataRef.current = bestThemeData;
 
           // Build theme membership for plan score computation. Name resolution

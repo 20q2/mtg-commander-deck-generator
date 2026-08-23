@@ -109,7 +109,9 @@ interface RawEDHRECResponse {
   container?: {
     json_dict?: {
       cardlists?: RawCardList[];
-      card?: { name: string };
+      /** `num_decks` is the deck count BEHIND THIS PAGE — 2 for a rarely-built commander+theme
+       *  pairing, 476 for the commander's base page. The only place EDHREC reports it. */
+      card?: { name: string; num_decks?: number };
     };
   };
 }
@@ -333,6 +335,18 @@ function getPartnerSlugs(commander1: string, commander2: string): [string, strin
  * Parse a raw EDHREC response into structured commander data.
  * Shared by both single-commander and partner-commander fetches.
  */
+/**
+ * How many decks a page is built from.
+ *
+ * `num_decks_avg` is absent from every commander and commander+theme page EDHREC serves, so reading
+ * only that field pinned this to 0 everywhere — which silently held archetypeWeight() at its
+ * "unknown, treat as thin" maximum for healthy pages as well as genuinely thin ones. The real count
+ * is on json_dict.card: 2 for a rarely-built commander+theme pairing, 476 for its base page.
+ */
+function pageDeckCount(response: RawEDHRECResponse): number {
+  return response.container?.json_dict?.card?.num_decks ?? response.num_decks_avg ?? 0;
+}
+
 function parseEdhrecResponse(
   response: RawEDHRECResponse,
   cacheKey: string
@@ -361,7 +375,7 @@ function parseEdhrecResponse(
   // Parse stats — mana_curve lives inside panels, not at the top level
   const stats: EDHRECCommanderStats = {
     avgPrice: response.avg_price || 0,
-    numDecks: response.num_decks_avg || 0,
+    numDecks: pageDeckCount(response),
     deckSize: response.deck_size || 81, // Default to 81 if missing
     manaCurve: parseManaCurve(response.panels?.mana_curve),
     typeDistribution: {
@@ -775,7 +789,7 @@ export async function fetchCommanderThemeData(
     // Parse stats
     const stats: EDHRECCommanderStats = {
       avgPrice: response.avg_price || 0,
-      numDecks: response.num_decks_avg || 0,
+      numDecks: pageDeckCount(response),
       deckSize: response.deck_size || 81,
       manaCurve: parseManaCurve(response.panels?.mana_curve),
       typeDistribution: {
@@ -850,7 +864,7 @@ export async function fetchPartnerThemeData(
 
       const stats: EDHRECCommanderStats = {
         avgPrice: response.avg_price || 0,
-        numDecks: response.num_decks_avg || 0,
+        numDecks: pageDeckCount(response),
         deckSize: response.deck_size || 81,
         manaCurve: parseManaCurve(response.panels?.mana_curve),
         typeDistribution: {
