@@ -19,7 +19,7 @@ import {
 } from '@/services/inspectorOverrides/storage';
 import { loadTaggerData } from '@/services/tagger/client';
 import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
-import { recomputeRoleTargetsForPacing } from '@/services/deckBuilder/roleTargets';
+import { recomputeRoleTargetsForPacing, getDynamicRoleTargets } from '@/services/deckBuilder/roleTargets';
 import { getCardByName, getCardsByNames, getCardPrice, WUBRG, getMtgCatalogs } from '@/services/scryfall/client';
 import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
 import { buildThemeModel, scoreThemesForDeck, survivingThemes, loadThemeCharTags, SHORTLIST_SIZE, type ThemeScore } from '@/services/themes';
@@ -35,7 +35,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
 import { buildThemeFit, EMPTY_THEME_FIT, type ThemeFit } from '@/services/deckBuilder/themeFit';
-import { blendArchetypeData, buildArchetypeSourceLabel } from '@/services/deckBuilder/archetypeBlend';
+import { blendArchetypeData, buildArchetypeSourceLabel, pageConfidence } from '@/services/deckBuilder/archetypeBlend';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, TAB_SLUG_BY_KEY, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
 import { buildShareUrl, deckToSharePayload, DeckLinkError } from '@/services/share/deckLink';
@@ -1132,6 +1132,18 @@ export function DeckOptimizer({
                 Object.entries(bestThemeData.cardlists).map(([k, v]) => [k, [...v]]),
               ) as typeof bestThemeData.cardlists;
               const themeDeckCount = bestThemeData.stats?.numDecks ?? 0;
+
+              // Smooth the page's OWN percentages before injecting anything, so the archetype cards
+              // added below keep their well-sampled numbers. A 2-deck page reports 50% and 100% for
+              // everything; unsmoothed those read as auto-includes to the cut ranking, the misfit
+              // floor, the deck score and the role targets alike.
+              const confidence = pageConfidence(themeDeckCount);
+              if (confidence < 1) {
+                for (const key of Object.keys(cardlists) as (keyof typeof cardlists)[]) {
+                  cardlists[key] = cardlists[key].map(c => ({ ...c, inclusion: c.inclusion * confidence }));
+                }
+              }
+
               const blend = blendArchetypeData(
                 cardlists,
                 [{
@@ -1145,7 +1157,7 @@ export function DeckOptimizer({
                 themeDeckCount,
               );
               themePool = { ...bestThemeData, cardlists };
-              console.log(`[DeckOptimizer] Theme backfill for ${appliedPrimary} (${themeDeckCount} decks): ${blend.overlapCount} overlap, ${blend.injectedCount} injected`);
+              console.log(`[DeckOptimizer] Theme backfill for ${appliedPrimary} (${themeDeckCount} decks, confidence ${confidence.toFixed(2)}): ${blend.overlapCount} overlap, ${blend.injectedCount} injected`);
             }
           } catch (err) {
             console.warn('[DeckOptimizer] Archetype backfill unavailable:', err);
@@ -1161,11 +1173,29 @@ export function DeckOptimizer({
           const storedDeckForTheme = useStore.getState().generatedDeck;
 
           const themeInclusionMap = buildInclusionMap(bestThemeData);
+
+          // Role targets from the DECLARED THEME's pool, not the commander's base page.
+          //
+          // A self-damage deck runs more sweeper-tagged cards than the commander's average deck, and
+          // judging it against the base page is what produced "nine excess board wipes" on a deck
+          // whose sweepers are the engine. Safe only because the pool above is smoothed and
+          // backfilled first: computeEdhrecRoleTargets counts cards over an 18% threshold, so an
+          // unsmoothed 2-deck page (everything at 50-100%) would have counted all 127 of its cards
+          // and produced nonsense. Post-smoothing a thin page contributes almost nothing and targets
+          // fall back toward the baseline via BASELINE_SOFT_FLOOR — an honest "we don't know" — while
+          // the injected archetype cards, which DO have real percentages, carry the signal.
+          const themeTargetsRaw = getDynamicRoleTargets(
+            deckSize, undefined, bestThemeData.stats, bestThemeData,
+          ).targets;
+          const themeTargets = userPacing
+            ? recomputeRoleTargetsForPacing(themeTargetsRaw, baseResult.detectedPacing, userPacing)
+            : themeTargetsRaw;
+
           const themeResult = analyzeDeck({
             edhrecData: bestThemeData,
             currentCards,
             roleCounts,
-            roleTargets: effectiveTargets,
+            roleTargets: themeTargets,
             deckSize,
             cardInclusionMap: themeInclusionMap,
             colorIdentity,
@@ -1195,7 +1225,7 @@ export function DeckOptimizer({
             const merged = mergeSecondaryTheme(
               { recommendations: finalRecs, roleBreakdowns: finalRoleBreakdowns, landRecommendations: finalLandRecs },
               secondaryData,
-              { targets: effectiveTargets, pacing: userPacing ?? undefined, landTarget: userLandTarget ?? undefined },
+              { targets: themeTargets, pacing: userPacing ?? undefined, landTarget: userLandTarget ?? undefined },
             );
             finalRecs = merged.recommendations;
             finalRoleBreakdowns = merged.roleBreakdowns;

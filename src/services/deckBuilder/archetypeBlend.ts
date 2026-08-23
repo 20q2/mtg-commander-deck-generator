@@ -13,6 +13,32 @@ export const ARCHETYPE_HEALTHY_DECKS = 500;
 /** Max archetype-only cards injected per category, per tag pool. */
 export const ARCHETYPE_INJECT_CAP = 15;
 
+/**
+ * Pseudo-decks of prior mass used to smooth a page's own inclusion percentages.
+ *
+ * A percentage is only as good as its denominator. EDHREC's page for Sapling of Colfenor +
+ * Self-Damage is built from TWO decks, so every card on it reads 50% or 100% — a card in both decks
+ * is indistinguishable from a format staple. Those figures feed the cut ranking, the misfit floor,
+ * the deck score and the role targets, all of which treat them as fact.
+ *
+ * Additive (Laplace) smoothing fixes it without a threshold to tune: read the percentage back into
+ * a deck count, add k decks that don't play the card, and divide again. Every card on the page is
+ * scaled by the same pageConfidence factor, so ranking WITHIN the page is untouched — only its
+ * authority against other sources changes.
+ *
+ * At 12: a 2-deck page keeps 14% of face value, a 33-deck page 73%, a 476-deck page 98%, and the
+ * base commander page is unaffected. Reads as "a page needs about a dozen decks before its
+ * percentages are taken at face value", and it leaves a 2-deck 100% at 14% — clear of the 5% misfit
+ * floor, nowhere near the 70% auto-keep, and below the 18% threshold role targets count from.
+ */
+export const INCLUSION_PRIOR_DECKS = 12;
+
+/** Shrink factor in (0, 1] for percentages coming off a page built from `pageDecks` decks. */
+export function pageConfidence(pageDecks: number, priorDecks = INCLUSION_PRIOR_DECKS): number {
+  const n = Math.max(0, pageDecks);
+  return n / (n + priorDecks);
+}
+
 /** Log-interpolated inclusion weight for archetype-only cards. Unknown/0 deck count = thin. */
 export function archetypeWeight(commanderThemeDeckCount: number): number {
   const n = commanderThemeDeckCount;
