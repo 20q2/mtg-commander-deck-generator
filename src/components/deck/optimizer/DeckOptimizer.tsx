@@ -520,7 +520,7 @@ export function DeckOptimizer({
 
       const dummyMatch = (slug: string) => {
         const t = allThemes.find(th => th.slug === slug);
-        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, memberCount: 0, basis: 'none' as const, score: 0 } : null;
+        return t ? { theme: t, cardOverlap: 0, themePoolSize: 0, weightedOverlap: 0, synergySum: 0, memberCount: 0, literalCount: 0, basis: 'none' as const, score: 0 } : null;
       };
       const matchedThemes = [primary, secondary].filter(Boolean).map(s => dummyMatch(s!)).filter(Boolean) as import('@/services/deckBuilder/themeDetector').ThemeMatchResult[];
       const strategyLabel = primary ? generateStrategyLabel(allThemes.find(t => t.slug === primary)?.name || '') : prev.strategyLabel;

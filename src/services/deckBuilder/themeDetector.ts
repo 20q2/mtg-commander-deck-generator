@@ -21,6 +21,9 @@ export interface ThemeMatchResult {
   synergySum: number;
   /** Deck cards belonging to this theme by the derived membership test. */
   memberCount: number;
+  /** Of those, how many were established from the card ITSELF rather than inferred from its tags.
+   *  This is the number a user can go and check, which is why the UI quotes it. */
+  literalCount: number;
   /** How membership was established: a literal card attribute, or characteristic oracle tags. */
   basis: 'literal' | 'tag' | 'none';
   /** Composite 0-100 */
@@ -159,10 +162,12 @@ export function scoreThemeMatch(
   });
   const deckNonBasicCount = nonBasicCards.length;
 
+  const literalMembers = membership?.memberCards.filter(m => m.basis === 'literal').length ?? 0;
+
   if (deckNonBasicCount === 0) {
     return {
       theme, cardOverlap: 0, themePoolSize, weightedOverlap: 0, synergySum: 0,
-      memberCount: 0, basis: 'none', score: 0,
+      memberCount: 0, literalCount: 0, basis: 'none', score: 0,
       components: { overlap: 0, inclusion: 0, membership: 0, pageDecks },
     };
   }
@@ -268,7 +273,12 @@ export function scoreThemeMatch(
       pageDecks,
     },
     memberCount: membership?.members ?? 0,
-    basis: membership?.memberCards[0]?.basis ?? 'none',
+    literalCount: literalMembers,
+    // STRONGEST basis across the members, not the first one's. Reading memberCards[0] made this
+    // depend on deck order: a theme with twenty literal members reported 'tag' whenever the first
+    // matching card in the list happened to be a tag match. themeScoring reasons the same way
+    // (`hasLiteral = memberCards.some(...)`).
+    basis: literalMembers > 0 ? 'literal' : (membership?.members ?? 0) > 0 ? 'tag' : 'none',
     score: Math.round(score * 10) / 10,
   };
 }

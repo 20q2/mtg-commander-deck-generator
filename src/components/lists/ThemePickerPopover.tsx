@@ -42,6 +42,31 @@ async function archetypePage(slug: string): Promise<EDHRECCommanderData> {
   } as unknown as EDHRECCommanderData;
 }
 
+/**
+ * Why the detector thinks this, in something the user can go and check.
+ *
+ * Not the composite score. That is an internal 0-100 that reads like a percentage, so a
+ * thoroughly confident 36 looked like a failing grade — and the same number is already printed
+ * against every theme in the list right below this. Nor the raw page overlap ("17 of your 75 cards
+ * fit the archetype"), which counted every generic staple sitting on a ~300-card theme page: it
+ * sounded weak when the verdict was strong, and it wasn't measuring what it claimed.
+ *
+ * The count of the user's own cards that carry the theme IS checkable. They can open the deck and
+ * see them. Literal and inferred evidence get different wording because they deserve different
+ * trust: one is read off the card, the other guessed from how the card tends to be played.
+ */
+function themeEvidence(m: ThemeMatchResult): string {
+  if (m.literalCount > 0) {
+    return `${m.literalCount} of your cards carry ${m.theme.name}`;
+  }
+  if (m.memberCount > 0) {
+    return `${m.memberCount} of your cards play like ${m.theme.name}`;
+  }
+  // No card-level evidence at all — the verdict rests on EDHREC overlap alone. Say so, rather
+  // than dressing page presence up as fit.
+  return `${m.cardOverlap} of your cards show up in ${m.theme.name} decks`;
+}
+
 interface Detection {
   /** Confident best guess (1-2 themes) per the Inspector's thresholds, or null. */
   guess: ThemeMatchResult[] | null;
@@ -169,10 +194,14 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
               <Tags className="w-3.5 h-3.5" />
               This looks like {detection.guess.map(m => m.theme.name).join(' + ')}
             </div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {detection.guess[0].cardOverlap} of your {detection.deckNonBasicCount} cards fit the archetype
-              {' '}· match score {Math.round(detection.guess[0].score)} — tap to apply
+            <div className="mt-1 space-y-0.5">
+              {detection.guess.map(m => (
+                <div key={m.theme.slug} className="text-[11px] text-muted-foreground">
+                  {themeEvidence(m)}
+                </div>
+              ))}
             </div>
+            <div className="text-[11px] font-medium text-violet-300/70 mt-1.5">Tap to apply</div>
           </button>
         )}
 
