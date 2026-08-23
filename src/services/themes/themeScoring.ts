@@ -110,8 +110,16 @@ export function scoreThemesForDeck(
     present.add(c.name.toLowerCase());
     if (c.name.includes(' // ')) present.add(c.name.split(' // ')[0].toLowerCase());
   }
-  const tagsPresent = new Set<string>();
-  for (const c of cards) for (const t of tagCache.get(c) ?? []) tagsPresent.add(t);
+  // Tag gates count CARDS carrying the tag, not merely whether any card does. Presence alone let one
+  // pod effect qualify a whole deck: the gate opened, and the members the theme then claimed came
+  // through `sacrifice-outlet` and friends, which is what a pod deck's SUPPORT looks like rather than
+  // its engine. A distinct tag is counted once even if several models require it.
+  const tagCardCount = new Map<string, number>();
+  for (const c of cards) {
+    for (const t of new Set(tagCache.get(c) ?? [])) {
+      tagCardCount.set(t, (tagCardCount.get(t) ?? 0) + 1);
+    }
+  }
 
   // Word gates count CARDS, not occurrences — "three cards mention dredge" is the claim, and one
   // card saying it twice isn't three. Counted once per distinct word rather than once per theme.
@@ -199,8 +207,19 @@ export function scoreThemesForDeck(
     let gateMissing: ThemeGate | undefined;
     if (model.anchor && !present.has(model.anchor.toLowerCase())) {
       gateMissing = { kind: 'card', subject: model.anchor };
-    } else if (model.requiredTag && !tagsPresent.has(model.requiredTag)) {
-      gateMissing = { kind: 'tag', subject: model.requiredTag };
+    } else if (
+      model.requiredTag
+      && (tagCardCount.get(model.requiredTag.tag) ?? 0) < model.requiredTag.min
+    ) {
+      // Condition, not body: a SATISFIED tag gate must fall through to the word gate below, the way
+      // it did when this was a presence test. No theme carries both today, but consuming the branch
+      // on success would silently skip the next gate for the first one that does.
+      gateMissing = {
+        kind: 'tag',
+        subject: model.requiredTag.tag,
+        need: model.requiredTag.min,
+        have: tagCardCount.get(model.requiredTag.tag) ?? 0,
+      };
     } else if (model.requiredWord) {
       const have = wordCount.get(model.requiredWord.word) ?? 0;
       if (have < model.requiredWord.min) {

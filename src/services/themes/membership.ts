@@ -26,10 +26,11 @@ export interface ThemeModel {
    */
   anchor?: string;
   /**
-   * Oracle tag SOME card in the deck must carry before this theme may be DECLARED — the theme names
-   * an effect, and without the effect there's no deck. See REQUIRED_TAGS.
+   * Oracle tag that must appear on at least `min` cards before this theme may be DECLARED — the
+   * theme names an effect, and without enough of the effect there's no deck. A count rather than
+   * mere presence: one pod effect in a sacrifice deck is a good card, not a plan. See REQUIRED_TAGS.
    */
-  requiredTag?: string;
+  requiredTag?: { tag: string; min: number };
   /**
    * Word that must appear on at least `min` cards before this theme may be DECLARED — you can't have
    * a Saproling deck with no Saproling in it, or a dredge deck with one dredge card. See

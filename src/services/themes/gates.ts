@@ -20,7 +20,7 @@ export interface ThemeGate {
   kind: 'card' | 'tag' | 'text';
   /** The card name, the tag slug, or the word. */
   subject: string;
-  /** Text gates only: how many cards were required, and how many the deck has. */
+  /** Tag and text gates: how many cards were required, and how many the deck has. */
   need?: number;
   have?: number;
 }
@@ -80,8 +80,20 @@ export const REQUIRED_CARDS: Readonly<Record<string, string>> = {
   // nonsense.
 };
 
-export const REQUIRED_TAGS: Readonly<Record<string, string>> = {
-  'birthing-pod': 'birthing-pod',
+export const REQUIRED_TAGS: Readonly<Record<string, { tag: string; min: number }>> = {
+  // A COUNT, not mere presence — the same correction `deserts` needed below, for the same reason.
+  //
+  // Presence alone let one pod effect qualify a whole deck. On a Nath of the Gilt-Leaf stax list
+  // holding a single pod card, Birthing Pod was promoted ahead of Stax and Discard: the gate opened
+  // on that one card, and the eight members it then claimed came through `sacrifice-outlet`,
+  // `repeatable-sacrifice-outlet` and `reanimate-creature` — generic vocabulary any elves-and-sac
+  // deck carries. The engine was one card; the evidence was borrowed.
+  //
+  // Two, not three. A pod deck's engine has sixteen possible cards but a real one runs more than a
+  // lone copy — Pod plus Vannifar, or Pod plus Neoform — while a single pod effect in a sacrifice
+  // deck is a good card, not a plan. Deserts needs three because manabases hold one or two
+  // incidentally; nothing incidentally holds two pod effects.
+  'birthing-pod': { tag: 'birthing-pod', min: 2 },
 };
 
 /**
