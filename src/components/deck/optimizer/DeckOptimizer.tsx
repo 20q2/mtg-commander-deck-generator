@@ -105,6 +105,16 @@ export function DeckOptimizer({
   );
   // Explicit in-deck context for the preview modal's similar-card filter.
   const previewInDeckNames = useMemo(() => currentCards.map(c => c.name), [currentCards]);
+  /**
+   * Stable content key for the deck's cards.
+   *
+   * AnalyzePage passes `currentCards={Object.values(generatedDeck.categories).flat()}`, a fresh
+   * array on every one of its renders, so the prop's identity is meaningless. Any effect that both
+   * depends on it AND writes to parent state (onThemeMembershipChange is setThemeMembership) becomes
+   * a render loop. Depend on this string instead — same reason prevCardKeyRef above compares a
+   * joined key rather than a reference.
+   */
+  const deckCardKey = useMemo(() => currentCards.map(c => c.name).join('\0'), [currentCards]);
   const [previewCard, setPreviewCard] = useState<ScryfallCard | null>(null);
   const cachedEdhrecDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   const prevCardKeyRef = useRef(currentCards.map(c => c.name).join('\0'));
@@ -432,7 +442,11 @@ export function DeckOptimizer({
       onThemeMembershipChange(membershipFor(primary, secondary));
     })();
     return () => { cancelled = true; };
-  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange, fetchThemeData, currentCards]);
+    // deckCardKey, NOT currentCards: see its definition. This effect writes to parent state, so
+    // depending on the array's identity loops. currentCards is read through the closure, which is
+    // correct — the key only changes when the contents actually change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primaryThemeSlug, secondaryThemeSlug, resolveThemeInfo, onThemeMembershipChange, fetchThemeData, deckCardKey]);
 
   // Emit the misfit name set so the deck-building area can highlight matching cards.
   useEffect(() => {
