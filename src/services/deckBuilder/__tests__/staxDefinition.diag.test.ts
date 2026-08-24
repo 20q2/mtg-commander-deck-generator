@@ -1,17 +1,23 @@
 /**
- * WOULD ADDING `hate` AND `symmetrical` TO STAX HELP? — skipped unless VITE_LIVE_DIAG=1.
+ * SHOULD A CANDIDATE TAG JOIN A THEME'S DEFINITION? — skipped unless VITE_LIVE_DIAG=1.
  *
  *   VITE_LIVE_DIAG=1 node node_modules/vitest/vitest.mjs run src/services/deckBuilder/__tests__/staxDefinition.diag.test.ts
  *
- * Both tags are genuinely characteristic of stax: on the synergy-specific part of EDHREC's stax
- * page, `hate` is on 46% of cards and `symmetrical` on 14%. The tempting conclusion is that the
- * definition should include them.
+ * "Tag X is obviously theme Y" is a claim about CARDS, and it is usually right. The classifier asks
+ * a different question — is this concentration SURPRISING — and a tag can be a perfect description
+ * of the theme while being useless as evidence for it, because the score is observed over EXPECTED
+ * and a broad tag raises both. Measured on stax: adding `hate` and `symmetrical` took membership
+ * from 5 cards to 14 (all of them correct) and the score from 12.3 to 5.3, because 15% of all
+ * commander-legal cards carry one of them.
  *
- * But membership is only half the story. The score is observed-over-EXPECTED, and expected is the
- * definition's base rate across the whole card pool — so a broad tag raises the numerator and the
- * denominator together. This measures both ends on the same pool instead of assuming the numerator
- * wins: the Glissa deck's member count under each definition, the honest base rate of each, and the
- * lift that actually comes out.
+ * So every candidate gets three numbers before it goes anywhere near the table:
+ *   1. is it characteristic  — carriers among the theme's synergy-specific EDHREC page cards,
+ *   2. what does it cost     — base rate across the played-card pool (the denominator),
+ *   3. what is the net       — membership score on a real deck of that archetype.
+ *
+ * The reference deck is the Glissa prison/stax pile that reported no theme. Prison is the current
+ * winner on it at 14.7 composite-membership and the whole deck fell 5.6 points short of declaring,
+ * so "does this move Prison up" is the question that actually matters.
  */
 import { describe, it, expect } from 'vitest';
 import { loadThemeCharTags } from '@/services/themes';
@@ -23,15 +29,24 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const DECK = `Altar of the Brood|Arcane Signet|Birds of Paradise|Braids, Arisen Nightmare|Braids, Cabal Minion|Contamination|Creeping Bloodsucker|Dauthi Voidwalker|Dense Foliage|Dockside Chef|Earthcraft|Eldrazi Monument|Elves of Deep Shadow|Freyalise's Winds|Garruk Wildspeaker|Glissa, Herald of Predation|Haywire Mite|Inspiring Statuary|Jaheira, Friend of the Forest|Lithoform Engine|Llanowar Elves|Meekstone|Nether Void|Overgrowth|Priest of Titania|Sakura-Tribe Elder|Sarinth Steelseeker|Sheoldred, the Apocalypse|Smokestack|Static Orb|Sun Droplet|Tainted Æther|Tangle Wire|Teething Wurmlet|Tendershoot Dryad|The Mycotyrant|Trinisphere|Twilight Prophet|Underhanded Designs|Wild Growth|Winter Orb`.split('|');
 
-const ADDED = ['hate', 'symmetrical'];
-/** Mirrors tuning.ts — copied rather than imported so the arithmetic below is visible in one place. */
+/** Theme → the tags a domain read says belong in it. Each is tested alone and in combination. */
+const CANDIDATES: Record<string, string[]> = {
+  stax: ['group-slug', 'punisher'],
+  prison: ['group-slug', 'punisher'],
+};
+
+/** Only cards this far above their own baseline count as the theme's own — see charTagCoverage. */
+const SYNERGY_SPECIFIC = 0.1;
+
+// Mirrors tuning.ts. Copied rather than imported so the arithmetic is visible in one place.
 const MAX_LIFT = 26;
 const COVERAGE_FULL = 0.5;
 const COVERAGE_WEIGHT = 0.15;
 const OFF_LIST_PRIOR = 0.65;
+const EXPECTED_RATE_FLOOR = 0.02;
 
-describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('stax definition: broader vs sharper', () => {
-  it('measures the numerator and the denominator together', async () => {
+describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('candidate definition tags', () => {
+  it('weighs each against the denominator it moves', async () => {
     const dictFile = await (await fetch(`${S3}/spellchroma-tag-dictionary.json`)).json();
     const idxFile = await (await fetch(`${S3}/spellchroma-tag-index.json`)).json();
     const dict: { s: string; p?: string[] }[] = dictFile.tags;
@@ -55,8 +70,21 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('stax definition: broade
       return [...out];
     };
 
-    // Background = the honest denominator: commander-legal nonland cards, most-played first, which
-    // is the population a deck is actually drawn from.
+    const fetchCards = async (names: string[]): Promise<ScryfallCard[]> => {
+      const out: ScryfallCard[] = [];
+      for (let i = 0; i < names.length; i += 70) {
+        const r = await fetch('https://api.scryfall.com/cards/collection', {
+          method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifiers: names.slice(i, i + 70).map(name => ({ name })) }),
+        });
+        const j = await r.json();
+        out.push(...(j.data ?? []));
+        await sleep(110);
+      }
+      return out;
+    };
+
+    // The denominator: commander-legal nonland cards, most-played first.
     const background: ScryfallCard[] = [];
     for (const p of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const r = await fetch(
@@ -68,48 +96,62 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('stax definition: broade
       background.push(...(j.data ?? []));
       await sleep(120);
     }
+    const bgTags = background.map(tagsFor);
+    const deck = await fetchCards(DECK);
+    const deckTags = deck.map(tagsFor);
+    console.log(`\nbackground ${background.length} cards · reference deck ${deck.length} cards`);
 
-    const deck: ScryfallCard[] = [];
-    for (let i = 0; i < DECK.length; i += 70) {
-      const r = await fetch('https://api.scryfall.com/cards/collection', {
-        method: 'POST', headers: { ...H, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers: DECK.slice(i, i + 70).map(name => ({ name })) }),
-      });
-      const j = await r.json();
-      deck.push(...(j.data ?? []));
+    const table = loadThemeCharTags();
+
+    for (const [slug, candidates] of Object.entries(CANDIDATES)) {
+      const shipped = table.themes[slug]?.charTags ?? [];
+
+      // ── 1. Is each candidate characteristic of the theme at all? ──
+      const res = await fetch(`https://json.edhrec.com/pages/tags/${slug}.json`, { headers: H });
+      if (!res.ok) { console.log(`\n${slug}: page ${res.status}`); continue; }
+      const j = await res.json();
+      const views: { name: string; synergy?: number }[] = (j.container?.json_dict?.cardlists ?? [])
+        .filter((l: { header: string }) => !/commanders/i.test(l.header))
+        .flatMap((l: { cardviews: { name: string; synergy?: number }[] }) => l.cardviews);
+      const poolNames = [...new Set(views.filter(v => (v.synergy ?? 0) >= SYNERGY_SPECIFIC).map(v => v.name))];
+      const pool = await fetchCards(poolNames.slice(0, 140));
+      const poolTags = pool.map(tagsFor);
+
+      console.log(`\n══ ${slug} — ${pool.length} synergy-specific page cards ══`);
+      for (const tag of candidates) {
+        const known = dict.some(e => e.s === tag);
+        const inPool = poolTags.filter(t => t.includes(tag)).length;
+        const inBg = bgTags.filter(t => t.includes(tag)).length;
+        const base = inBg / background.length;
+        const lift = base > 0 ? (inPool / pool.length) / base : 0;
+        console.log(`  ${tag.padEnd(14)} ${known ? '' : 'NOT A REAL TAG  '}page ${String(inPool).padStart(3)}/${pool.length} (${(inPool / pool.length * 100).toFixed(0)}%)  background ${(base * 100).toFixed(2)}%  lift ${lift.toFixed(1)}x`);
+      }
+
+      // ── 2 & 3. Cost and net, per definition variant. ──
+      const variants: { label: string; def: string[] }[] = [{ label: 'shipped', def: shipped }];
+      for (const c of candidates) variants.push({ label: `+ ${c}`, def: [...new Set([...shipped, c])] });
+      if (candidates.length > 1) {
+        variants.push({ label: `+ ${candidates.join(' + ')}`, def: [...new Set([...shipped, ...candidates])] });
+      }
+
+      console.log(`  ${'variant'.padEnd(26)}${'deck'.padStart(7)}${'base%'.padStart(8)}${'lift'.padStart(7)}${'memb'.padStart(7)}`);
+      let shippedScore = 0;
+      for (const { label, def } of variants) {
+        const set = new Set(def);
+        const members = deckTags.filter(t => t.some(x => set.has(x))).length;
+        const baseRate = bgTags.filter(t => t.some(x => set.has(x))).length / background.length;
+        const ratio = members / deck.length;
+        const lift = Math.min(ratio / Math.max(baseRate, EXPECTED_RATE_FLOOR), MAX_LIFT);
+        const coverage = Math.pow(Math.min(ratio / COVERAGE_FULL, 1), COVERAGE_WEIGHT);
+        const memb = (lift / MAX_LIFT) * 100 * coverage * OFF_LIST_PRIOR;
+        if (label === 'shipped') shippedScore = memb;
+        const delta = label === 'shipped' ? '' : `  ${memb > shippedScore ? '+' : ''}${(memb - shippedScore).toFixed(1)}`;
+        console.log(`  ${label.padEnd(26)}${String(members).padStart(4)}/${deck.length}${(baseRate * 100).toFixed(2).padStart(8)}${lift.toFixed(1).padStart(7)}${memb.toFixed(1).padStart(7)}${delta}`);
+      }
     }
 
-    const shipped = loadThemeCharTags().themes['stax']?.charTags ?? [];
-    const widened = [...new Set([...shipped, ...ADDED])];
-
-    function report(label: string, def: string[], shippedBaseRate?: number) {
-      const set = new Set(def);
-      const members = deck.filter(c => tagsFor(c).some(t => set.has(t)));
-      const bgHits = background.filter(c => tagsFor(c).some(t => set.has(t))).length;
-      const baseRate = bgHits / background.length;
-      const ratio = members.length / deck.length;
-      // Honest lift uses the base rate this definition actually has. The shipped number is shown
-      // beside it because the committed table would keep the OLD base rate until a rebuild.
-      const lift = Math.min(ratio / Math.max(baseRate, 0.02), MAX_LIFT);
-      const coverage = Math.pow(Math.min(ratio / COVERAGE_FULL, 1), COVERAGE_WEIGHT);
-      const membershipScore = (lift / MAX_LIFT) * 100 * coverage * OFF_LIST_PRIOR;
-      console.log(`\n${label}`);
-      console.log(`  tags        ${def.join(', ')}`);
-      console.log(`  deck members ${members.length}/${deck.length} (${(ratio * 100).toFixed(0)}%)`);
-      console.log(`    ${members.map(m => m.name).join(', ')}`);
-      console.log(`  base rate    ${(baseRate * 100).toFixed(2)}% of ${background.length} pool cards` +
-        (shippedBaseRate != null ? `   [committed table says ${(shippedBaseRate * 100).toFixed(2)}%]` : ''));
-      console.log(`  lift         ${lift.toFixed(1)}x`);
-      console.log(`  membership   ${membershipScore.toFixed(1)}  (off-list prior applied)`);
-      return membershipScore;
-    }
-
-    console.log(`\nbackground ${background.length} cards · deck ${deck.length} cards`);
-    const a = report('SHIPPED', shipped, loadThemeCharTags().themes['stax']?.baseRate);
-    const b = report(`WIDENED (+ ${ADDED.join(', ')})`, widened);
-
-    console.log(`\nwidening ${b > a ? 'HELPS' : 'HURTS'}: ${a.toFixed(1)} -> ${b.toFixed(1)}`);
-    console.log('Prison, the correct answer on this deck today, scores 14.7 for comparison.');
+    console.log('\nPrison needs +5.6 composite to declare on this deck; membership is 50% of the');
+    console.log('composite, so a membership gain of ~11 would do it on its own.');
     expect(background.length).toBeGreaterThan(100);
-  }, 600000);
+  }, 900000);
 });

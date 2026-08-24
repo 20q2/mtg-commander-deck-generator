@@ -8,7 +8,7 @@ import { PasteLane, type PasteLaneResult } from '@/components/deck-source/PasteL
 import { ListsLane } from '@/components/deck-source/ListsLane';
 import { GenerateLane } from '@/components/analyze/GenerateLane';
 import { type AnalyzeSource } from '@/components/analyze/CommanderStrip';
-import { hydrateDeckForAnalysis, type HydrateStage } from '@/components/analyze/analyzeHydration';
+import { hydrateDeckForAnalysis, installAnalyzedDeck, type HydrateStage } from '@/components/analyze/analyzeHydration';
 import { readDeckHash, decodeDeckPayload, shareLinkErrorMessage } from '@/services/share/deckLink';
 import { DeckOptimizer } from '@/components/deck/optimizer';
 import { DeckBuildingArea } from '@/components/analyze/DeckBuildingArea';
@@ -213,12 +213,7 @@ export function AnalyzePage() {
       onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
     })
       .then(({ deck, colorIdentity }) => {
-        useStore.setState({
-          commander: deck.commander,
-          partnerCommander: deck.partnerCommander,
-          colorIdentity,
-          generatedDeck: deck,
-        });
+        installAnalyzedDeck(deck, colorIdentity);
         // The Inspector edits this list directly, so its history belongs to it.
         useStore.getState().setHistoryScope(list.id);
         setSource({ kind: 'list', listId: list.id, listName: list.name });
@@ -304,12 +299,7 @@ export function AnalyzePage() {
         onProgress: setLoadStage,
         onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
-      useStore.setState({
-        commander: deck.commander,
-        partnerCommander: deck.partnerCommander,
-        colorIdentity,
-        generatedDeck: deck,
-      });
+      installAnalyzedDeck(deck, colorIdentity);
       setSource({ kind: 'paste' });
       trackEvent('analyze_deck_loaded', {
         source: 'paste',
@@ -357,12 +347,7 @@ export function AnalyzePage() {
           onProgress: setLoadStage,
           onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
         });
-        useStore.setState({
-          commander: deck.commander,
-          partnerCommander: deck.partnerCommander,
-          colorIdentity,
-          generatedDeck: deck,
-        });
+        installAnalyzedDeck(deck, colorIdentity);
         setSource({ kind: 'shared' });
         trackEvent('analyze_deck_loaded', {
           source: 'shared',
@@ -396,12 +381,7 @@ export function AnalyzePage() {
         onProgress: setLoadStage,
         onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
-      useStore.setState({
-        commander: deck.commander,
-        partnerCommander: deck.partnerCommander,
-        colorIdentity,
-        generatedDeck: deck,
-      });
+      installAnalyzedDeck(deck, colorIdentity);
       setSource({ kind: 'list', listId: list.id, listName: list.name });
       trackEvent('analyze_deck_loaded', {
         source: 'list',

@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { generateDeck } from '@/services/deckBuilder/deckGenerator';
 import { fetchCommanderData } from '@/services/edhrec/client';
-import { useStore } from '@/store';
+import { installAnalyzedDeck } from '@/components/analyze/analyzeHydration';
 import { trackEvent } from '@/services/analytics';
 import { TAB_KEY_BY_SLUG } from '@/components/deck/optimizer/constants';
 import type { Customization, ScryfallCard, ThemeResult } from '@/types';
@@ -103,19 +103,12 @@ export function GenerateLane() {
         onProgress: (msg) => setProgress(msg),
       });
 
-      // Write only deck-related session state. `customization` (the user's
-      // saved preferences — banned cards, must-includes, budget, etc.) is
-      // intentionally left alone. selectedThemes/edhrecThemes are cleared
-      // because they would otherwise be stale from a prior commander session
-      // and surface as the wrong theme labels in the inspector.
-      useStore.setState({
-        commander: card,
-        partnerCommander: null,
-        colorIdentity: card.color_identity,
-        generatedDeck: deck,
-        selectedThemes: [],
-        edhrecThemes: [],
-      });
+      // Writes only deck-related session state; `customization` (the user's saved preferences —
+      // banned cards, must-includes, budget) is intentionally left alone. The builder-session
+      // theme clear that used to live here is now inside installAnalyzedDeck, because the paste,
+      // share-link and list lanes needed it just as badly and had each open-coded this setState
+      // without it.
+      installAnalyzedDeck(deck, card.color_identity);
 
       trackEvent('analyze_cta_clicked', { from: 'generate-lane-auto' });
       navigate(`/analyze/${tabSlug}`);

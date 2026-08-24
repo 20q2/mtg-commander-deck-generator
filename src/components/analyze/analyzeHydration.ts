@@ -4,7 +4,34 @@
 import { getCardsByNames, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
+import { useStore } from '@/store';
 import type { GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, ScryfallCard } from '@/types';
+
+/**
+ * Install a deck as the Inspector's subject. Every lane that loads one — paste, share link, saved
+ * list, inline generate — goes through here.
+ *
+ * The clears are the whole reason this exists. `selectedThemes` and `edhrecThemes` are BUILDER
+ * session state: the theme chips the Foundry had highlighted when it last built something. The
+ * Inspector's header falls back to them when the deck in front of it declares no themes of its own,
+ * which is right for the deck the Builder just made and wrong for every other deck — so pasting a
+ * list inherited the last generated deck's themes, and that fallback sits ABOVE auto-detection in
+ * the chain, so it shadowed the classifier's own read of the pasted deck entirely.
+ *
+ * GenerateLane already cleared them for exactly this reason, in a comment that named the failure.
+ * The other three lanes each open-coded the same setState and each missed it — the duplication was
+ * the bug, so the fix is one function rather than three more copies of the clear.
+ */
+export function installAnalyzedDeck(deck: GeneratedDeck, colorIdentity: string[]): void {
+  useStore.setState({
+    commander: deck.commander,
+    partnerCommander: deck.partnerCommander,
+    colorIdentity,
+    generatedDeck: deck,
+    selectedThemes: [],
+    edhrecThemes: [],
+  });
+}
 
 // Combo detection helper — inlined here (and duplicated in ListDeckView.tsx today).
 // Extracting it to a shared module is out of scope for this feature; the function
