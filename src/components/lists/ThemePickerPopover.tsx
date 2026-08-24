@@ -164,6 +164,19 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
 
   const selectedSlugs = new Set(themes.map(t => t.slug));
   const guessSlugs = new Set((detection?.guess ?? []).map(m => m.theme.slug));
+  /**
+   * The runner-up when nothing cleared the confidence bar — offered, never applied for you.
+   *
+   * Silence is the wrong answer here. On an off-meta build (a Glissa prison/stax pile against a
+   * commander whose EDHREC page is all infect and counters) the detector ranked Prison first with
+   * 14 of the deck's 41 nonland cards, scored it 24.4, and said nothing because the bar is 30.
+   *
+   * Declaring it automatically was measured and rejected: 20 of 20 decks built from RANDOM cards
+   * also have a theme clearing the classifier's floor, one of them scoring higher than this deck's
+   * correct answer. No available guard separates a real off-meta deck from a random pile — so the
+   * judgement goes to the person who built the deck, who can settle it in one glance and one tap.
+   */
+  const nearMiss = !detection?.guess ? detection?.evaluated[0] ?? null : null;
   const guessApplied = detection?.guess != null && detection.guess.every(m => selectedSlugs.has(m.theme.slug));
 
   return (
@@ -237,6 +250,32 @@ export function ThemePickerPopover({ themes, onChange, commanderName, partnerCom
               })}
             </div>
             <div className="text-[11px] font-medium text-violet-300/70 mt-1.5">Tap to apply</div>
+          </button>
+        )}
+
+        {!loading && nearMiss && !selectedSlugs.has(nearMiss.theme.slug) && (
+          <button
+            onClick={() => applyGuess([nearMiss])}
+            className="w-full text-left rounded-lg border border-border/50 bg-muted/20 px-2.5 py-2 hover:bg-muted/40 transition-colors"
+          >
+            <div className="flex items-center gap-1.5 text-xs font-medium text-foreground/80">
+              <Tags className="w-3.5 h-3.5 text-muted-foreground" />
+              No clear theme — closest is {nearMiss.theme.name}
+            </div>
+            <div className="mt-1">
+              <div className="text-[11px] text-muted-foreground">{themeEvidence(nearMiss)}</div>
+              {(() => {
+                const names = memberPreview(nearMiss);
+                return names && (
+                  <div className="text-[10px] text-muted-foreground/60 truncate" title={names.full}>
+                    {names.text}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="text-[11px] font-medium text-foreground/60 mt-1.5">
+              Tap to apply anyway
+            </div>
           </button>
         )}
 
