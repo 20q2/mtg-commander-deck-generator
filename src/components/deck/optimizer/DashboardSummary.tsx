@@ -5,6 +5,7 @@ import { SubScoreTile } from './dashboard/SubScoreTile';
 import { SynergyWebTile } from './dashboard/SynergyWebTile';
 import { StrategyDrillIn } from './dashboard/StrategyDrillIn';
 import { NextBestMove } from './dashboard/NextBestMove';
+import { ThemePrompt } from './dashboard/ThemePrompt';
 import { useDeckConnectivity } from '@/hooks/useDeckConnectivity';
 import { buildMiniSynergyGraph } from '@/components/charts/MiniSynergyWeb';
 import type {
@@ -13,6 +14,7 @@ import type {
 import type { DeckAnalysis, RoleBreakdown, CurvePhaseAnalysis, OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import type { BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
+import type { ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
 import type { TabKey } from './constants';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
@@ -132,6 +134,12 @@ export interface DashboardSummaryProps {
   baseSwaps?: OptimizeSwaps | null;
   /** Cost + Lift bento shown in the next-steps slot when no real next steps remain. */
   bentoSlot?: ReactNode;
+  /** True when the deck has no theme declared — surfaces the theme prompt above everything else. */
+  needsTheme?: boolean;
+  /** Best candidate the detector found while falling short of declaring it. */
+  closestTheme?: ThemeMatchResult | null;
+  /** Apply one theme as the primary, from the prompt's one-click path. */
+  onApplyTheme?: (slug: string) => void;
 }
 
 // The Card Fit subscore still computes and feeds the overall score, but its dashboard slot is now
@@ -157,6 +165,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     detectedCombos, deckTarget,
     roleBreakdowns, curvePhases, themeCoverage,
     baseSwaps, bentoSlot,
+    needsTheme, closestTheme, onApplyTheme,
   } = props;
   const [strategyOpen, setStrategyOpen] = useState(false);
 
@@ -266,6 +275,15 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         adjustContent={adjustContent}
         onOpenInDeckView={onOpenInDeckView}
       />
+      {/* Above the next steps on purpose: every one of them is computed against a plan this deck
+          hasn't declared, so fixing that comes first. */}
+      {needsTheme && onApplyTheme && (
+        <ThemePrompt
+          closest={closestTheme}
+          onApply={onApplyTheme}
+          adjustContent={adjustContent}
+        />
+      )}
       <NextBestMove
         planScore={planScore}
         misfits={misfits}

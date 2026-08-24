@@ -325,8 +325,15 @@ export interface SubScore {
   surface: string;
   /** Optional grade band label, e.g. "Healthy", "Thin", "Low". */
   bandLabel?: string;
-  /** When true, the score is partial because data was missing. */
+  /** When true, this area was not scored and is excluded from the composite. */
   partial?: boolean;
+  /**
+   * WHY it wasn't scored. `no-data` means EDHREC had too little to go on; `no-theme` means the
+   * deck simply hasn't declared a plan yet, which is the user's to fix and says nothing about the
+   * data. Collapsing the two told a Glissa deck with 1,787 decklists behind it that EDHREC data
+   * was limited, when the only thing missing was a theme.
+   */
+  partialReason?: 'no-data' | 'no-theme';
 }
 
 export interface PlanScore {
@@ -341,7 +348,8 @@ export interface PlanScore {
   byline: string;
   /** Per-area sub-scores. */
   subscores: Record<SubScoreKey, SubScore>;
-  /** True when EDHREC data was limited; sub-scores may have `partial: true`. */
+  /** True only when a sub-score was dropped for lack of DATA. A missing theme is not a data
+   *  problem and does not set this — it has its own, louder prompt on the dashboard. */
   limitedData: boolean;
 }
 

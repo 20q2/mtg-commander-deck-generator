@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import type { ScryfallCard, EDHRECCommanderData } from '@/types';
 import { fetchCommanderThemes, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData } from '@/services/edhrec/client';
 import { type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
+import { themeEvidence, memberPreview } from '@/services/deckBuilder/themeEvidence';
 import { detectDeckThemes } from '@/services/deckBuilder/detectDeckThemes';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { ThemeSearchList } from '@/components/theme/ThemeSearchList';
@@ -40,55 +41,6 @@ async function archetypePage(slug: string): Promise<EDHRECCommanderData> {
     cardlists: tagData.cardlists,
     similarCommanders: [],
   } as unknown as EDHRECCommanderData;
-}
-
-/**
- * Why the detector thinks this, in something the user can go and check.
- *
- * Not the composite score. That is an internal 0-100 that reads like a percentage, so a
- * thoroughly confident 36 looked like a failing grade — and the same number is already printed
- * against every theme in the list right below this. Nor the raw page overlap ("17 of your 75 cards
- * fit the archetype"), which counted every generic staple sitting on a ~300-card theme page: it
- * sounded weak when the verdict was strong, and it wasn't measuring what it claimed.
- *
- * The count of the user's own cards that carry the theme IS checkable. They can open the deck and
- * see them. Literal and inferred evidence get different wording because they deserve different
- * trust: one is read off the card, the other guessed from how the card tends to be played.
- */
-function themeEvidence(m: ThemeMatchResult): string {
-  if (m.literalCount > 0) {
-    // "17 of your cards are Auras", not "carry Auras" — for a subtype or a tribe the cards ARE
-    // the thing. A mechanic or counter type is something a card has.
-    const verb = m.themeKind === 'subtype' || m.themeKind === 'tribal' || m.themeKind === 'cardType'
-      ? 'are'
-      : 'carry';
-    return `${m.literalCount} of your cards ${verb} ${m.theme.name}`;
-  }
-  if (m.memberCount > 0) {
-    return `${m.memberCount} of your cards play like ${m.theme.name}`;
-  }
-  // No card-level evidence at all — the verdict rests on EDHREC overlap alone. Say so, rather
-  // than dressing page presence up as fit.
-  return `${m.cardOverlap} of your cards show up in ${m.theme.name} decks`;
-}
-
-/** How many member names fit on one line of a 320px popover. */
-const NAMES_SHOWN = 3;
-
-/**
- * The receipts. A user given "17 of your cards are Auras" on a land-ramp deck counted seven and
- * reported it as a bug — the count was exact, but every one of the seventeen was a mana Aura
- * (Utopia Sprawl, Wild Growth) that doesn't feel like one. Naming three of them collapses that
- * whole misunderstanding into a glance, and the full list is in the tooltip.
- */
-function memberPreview(m: ThemeMatchResult): { text: string; full: string } | null {
-  if (m.memberNames.length === 0) return null;
-  const shown = m.memberNames.slice(0, NAMES_SHOWN);
-  const rest = m.memberNames.length - shown.length;
-  return {
-    text: shown.join(', ') + (rest > 0 ? ` +${rest} more` : ''),
-    full: m.memberNames.join(', '),
-  };
 }
 
 interface Detection {

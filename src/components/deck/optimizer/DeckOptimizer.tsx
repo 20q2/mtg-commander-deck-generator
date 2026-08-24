@@ -1511,6 +1511,17 @@ export function DeckOptimizer({
     });
   }, [primaryThemeSlug, secondaryThemeSlug, applyThemeSelection, sourceListId, updateList, resolveThemeInfo, overrideRef]);
 
+  /**
+   * The runner-up when detection declared nothing — offered by the dashboard prompt, never applied
+   * automatically. Measured: 20 of 20 decks built from random cards also clear the classifier's
+   * floor, so no available guard separates a real off-meta deck from a pile. The person who built
+   * the deck settles that in one glance; the machine cannot.
+   */
+  const closestUndeclaredTheme = useMemo(() => {
+    if (primaryThemeSlug || secondaryThemeSlug) return null;
+    return themeDetection?.evaluatedThemes.find(t => t.cardOverlap > 0 || t.memberCount > 0) ?? null;
+  }, [primaryThemeSlug, secondaryThemeSlug, themeDetection]);
+
   // Context menu support
   const customization = useStore(s => s.customization);
   const updateCustomization = useStore(s => s.updateCustomization);
@@ -2176,6 +2187,9 @@ export function DeckOptimizer({
             curvePhases={analysis.curvePhases}
             themeCoverage={dashboardThemeCoverage}
             baseSwaps={baseSwaps}
+            needsTheme={!primaryThemeSlug && !secondaryThemeSlug}
+            closestTheme={closestUndeclaredTheme}
+            onApplyTheme={handleThemeSelect}
             bentoSlot={
               <OverviewBento
                 commanderName={commanderName}

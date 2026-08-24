@@ -35,6 +35,9 @@ export function computeStrategySubscore(inputs: StrategyInputs): SubScore {
       surface: 'No clear plan detected — set a theme to score strategy.',
       bandLabel: 'Unscored',
       partial: true,
+      // Not a data gap. EDHREC may have thousands of decklists for this commander; what's missing
+      // is a declaration only the user can make.
+      partialReason: 'no-theme',
     };
   }
 
@@ -153,7 +156,7 @@ const ROLE_WEIGHTS: Record<string, number> = {
 
 export function computeRolesSubscore(roleBreakdowns: RoleBreakdown[]): SubScore {
   if (roleBreakdowns.length === 0) {
-    return { value: 50, surface: 'No role data available.', bandLabel: 'Unscored', partial: true };
+    return { value: 50, surface: 'No role data available.', bandLabel: 'Unscored', partial: true, partialReason: 'no-data' };
   }
 
   let weighted = 0;
@@ -184,7 +187,7 @@ const CMC_WEIGHTS = [0, 1.5, 1.5, 1.2, 1.0, 0.8, 0.6, 0.5];
 
 export function computeTempoSubscore(curvePhases: CurvePhaseAnalysis[]): SubScore {
   if (curvePhases.length === 0) {
-    return { value: 50, surface: 'No curve data available.', bandLabel: 'Unscored', partial: true };
+    return { value: 50, surface: 'No curve data available.', bandLabel: 'Unscored', partial: true, partialReason: 'no-data' };
   }
 
   // Use phase-level totals as a proxy: each phase has current vs target.
@@ -247,7 +250,14 @@ export function composePlanScore(inputs: ComposePlanScoreInputs): PlanScore {
   let limitedData = false;
   for (const k of Object.keys(subscores) as SubScoreKey[]) {
     const s = subscores[k];
-    if (s.partial) { limitedData = true; continue; }
+    // Excluded from the average either way — an unscored area must not drag the composite down.
+    // But only a genuine DATA gap flags limitedData: a deck with no theme has all the data in the
+    // world and simply hasn't said what it's trying to do, which the dashboard prompt asks for
+    // directly instead of blaming EDHREC for it.
+    if (s.partial) {
+      if (s.partialReason !== 'no-theme') limitedData = true;
+      continue;
+    }
     weighted += s.value * WEIGHTS[k];
     weightTotal += WEIGHTS[k];
   }
