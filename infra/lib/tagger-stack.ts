@@ -94,6 +94,34 @@ export class TaggerStack extends cdk.Stack {
       targets: [new targets.LambdaFunction(spellChromaFn)],
     });
 
+    // Commander Spellbook combo index — trims the ~635MB variants bulk export
+    // into 32 per-color-identity closure files (each identity file contains all
+    // subset-identity combos too). Replaces the top-100-only EDHREC color-page
+    // combo detection with the full combo catalog.
+    const spellbookCombosFn = new nodejs.NodejsFunction(this, 'SpellbookCombosHandler', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(__dirname, '..', 'lambda', 'spellbook-combos.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.minutes(10), // measured locally: ~2 min end-to-end
+      memorySize: 2048,                  // ~1 vCPU; measured peak RSS ~925MB (106k variants held for bucketing)
+      environment: {
+        BUCKET_NAME: bucket.bucketName,
+      },
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    bucket.grantReadWrite(spellbookCombosFn);
+
+    // Weekly cron — Monday 7:00am UTC (after the two Scryfall jobs; different
+    // upstream, staggered anyway so one failure alarm window is legible).
+    new events.Rule(this, 'WeeklySpellbookCombos', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '7', weekDay: 'MON' }),
+      targets: [new targets.LambdaFunction(spellbookCombosFn)],
+    });
+
     // Outputs
     new cdk.CfnOutput(this, 'TaggerBucketUrl', {
       value: `https://${bucket.bucketName}.s3.amazonaws.com/tagger-tags.json`,
@@ -115,6 +143,15 @@ export class TaggerStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'SpellChromaIndexFunctionName', {
       value: spellChromaFn.functionName,
+      description: 'Lambda function name — invoke manually to seed initial data',
+    });
+
+    new cdk.CfnOutput(this, 'SpellbookCombosBaseUrl', {
+      value: `https://${bucket.bucketName}.s3.amazonaws.com/spellbook-combos`,
+      description: 'Base URL for per-identity Spellbook combo files — set as VITE_SPELLBOOK_COMBOS_URL',
+    });
+    new cdk.CfnOutput(this, 'SpellbookCombosFunctionName', {
+      value: spellbookCombosFn.functionName,
       description: 'Lambda function name — invoke manually to seed initial data',
     });
   }

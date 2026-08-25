@@ -11,6 +11,7 @@ import type {
   BracketLevel,
 } from '@/types';
 import { readPersistedResponse, writePersistedResponse } from '@/services/scryfall/cache';
+import { fetchSpellbookCombosBySlug, spellbookBracketToVote } from '@/services/spellbook/comboIndex';
 
 const BASE_URL = import.meta.env.DEV ? '/edhrec-api' : 'https://json.edhrec.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests
@@ -1489,11 +1490,13 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
   }
 }
 
-// Fetch known combos for a color identity from EDHREC's color-identity combo page.
-// Used for off-commander combo detection — surfaces combos that exist in the deck
-// but aren't listed under the specific commander. Returns combos sorted by popularity
-// (deckCount descending). Cache keys are prefixed with "color:" to avoid colliding
-// with commander slugs.
+// Fetch known combos for a color identity. Primary source is the precomputed
+// Commander Spellbook index (full catalog, subset identities included — see
+// src/services/spellbook/comboIndex.ts); the EDHREC color-identity combo page
+// is the fallback, but it only carries the top 100 combos of *exactly* that
+// identity, so low-popularity and off-guild combos are invisible through it.
+// Returns combos sorted by popularity (deckCount descending). Cache keys are
+// prefixed with "color:" to avoid colliding with commander slugs.
 export async function fetchColorIdentityCombos(colorIdentity: string[]): Promise<EDHRECCombo[]> {
   const slug = colorIdentityToSlug(colorIdentity);
   const cacheKey = `color:${slug}`;
@@ -1501,6 +1504,31 @@ export async function fetchColorIdentityCombos(colorIdentity: string[]): Promise
   const cached = comboCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
+  }
+
+  const spellbook = await fetchSpellbookCombosBySlug(slug);
+  if (spellbook) {
+    const combos: EDHRECCombo[] = spellbook.map(e => {
+      // EDHREC's combo detail page lives at /combos/{identity-slug}/{id} —
+      // reconstructable because the artifact carries each combo's identity.
+      comboHrefMap.set(e.i, `/combos/${colorIdentityToSlug(e.d === 'C' ? [] : e.d.split(''))}/${e.i}`);
+      return {
+        comboId: e.i,
+        cards: e.c.map(name => ({ name, id: '' })),
+        results: e.r,
+        deckCount: e.p,
+        rank: 0, // assigned after the sort below
+        bracket: spellbookBracketToVote(e.b),
+        prereqCount: 0,
+      };
+    });
+    combos.sort((a, b) => b.deckCount - a.deckCount);
+    // Combo seeding scores rank like EDHREC's page rank (100 - rank bonus) —
+    // leaving it 0 would hand every jank combo the maximum bonus.
+    combos.forEach((c, idx) => { c.rank = idx + 1; });
+    const deduped = dedupeCombosByCardSet(combos);
+    comboCache.set(cacheKey, { data: deduped, timestamp: Date.now() });
+    return deduped;
   }
 
   try {

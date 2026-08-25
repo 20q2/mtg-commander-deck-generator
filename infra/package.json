@@ -12,11 +12,15 @@
     "aws-cdk-lib": "^2.170.0",
     "constructs": "^10.4.0",
     "dotenv": "^16.0.0",
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "stream-chain": "^2.2.5",
+    "stream-json": "^1.9.1"
   },
   "devDependencies": {
     "@types/dotenv": "^6.1.1",
     "@types/node": "^20.0.0",
+    "@types/stream-chain": "^2.1.0",
+    "@types/stream-json": "^1.7.8",
     "aws-cdk": "^2.170.0",
     "typescript": "~5.6.2"
   }
