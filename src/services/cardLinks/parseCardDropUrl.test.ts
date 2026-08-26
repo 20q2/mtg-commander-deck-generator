@@ -36,8 +36,14 @@ describe('parseCardDropUrl', () => {
     expect(parseCardDropUrl(uriList)).toEqual({ kind: 'name', query: 'rhystic study' });
   });
 
-  it('returns null for an EDHREC commander page', () => {
-    expect(parseCardDropUrl('https://edhrec.com/commanders/atraxa-praetors-voice')).toBeNull();
+  it('parses an EDHREC commander page into the commander name', () => {
+    expect(parseCardDropUrl('https://edhrec.com/commanders/atraxa-praetors-voice'))
+      .toEqual({ kind: 'name', query: 'atraxa praetors voice' });
+  });
+
+  it('ignores theme/color segments after the commander slug', () => {
+    expect(parseCardDropUrl('https://edhrec.com/commanders/slimefoot-the-stowaway/fungi'))
+      .toEqual({ kind: 'name', query: 'slimefoot the stowaway' });
   });
 
   it('returns null for an unrelated URL', () => {

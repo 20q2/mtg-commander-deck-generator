@@ -63,9 +63,13 @@ export function parseCardDropUrl(text: string | null | undefined): CardDropRef |
     return UUID_RE.test(id) ? { kind: 'scryfallId', id } : null;
   }
 
-  // EDHREC: https://edhrec.com/cards/<slug>  (commanders/decks pages are ignored)
+  // EDHREC: https://edhrec.com/cards/<slug> or /commanders/<slug>[/<theme-or-color>]
+  // — the commander slug is the card name; trailing theme/color segments are
+  // page scoping, not part of the name. (decks pages are ignored)
   if (hostIs(host, 'edhrec.com')) {
-    if (segments.length >= 2 && segments[0] === 'cards') return nameRef(segments[1]);
+    if (segments.length >= 2 && (segments[0] === 'cards' || segments[0] === 'commanders')) {
+      return nameRef(segments[1]);
+    }
     return null;
   }
 
