@@ -124,7 +124,7 @@ export function ComposeRow({ onSubmit, inflightError }: Props) {
           autoComplete="email"
         />
         <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/70">
-          Only the developer can see this — it's used to reach out if your suggestion needs more detail.
+          Only the developer can see your email. Correspondence will come from manafoundrysupport@gmail.com.
         </p>
       </div>
 
