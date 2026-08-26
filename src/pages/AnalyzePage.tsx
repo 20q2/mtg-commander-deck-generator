@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Loader2, Check, FlaskConical } from 'lucide-react';
+import { Loader2, FlaskConical } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
 import { LaneTabs, ANALYZE_LANES, type AnalyzeLaneKey } from '@/components/deck-source/LaneTabs';
 import { WhatYoullSeeStrip } from '@/components/analyze/WhatYoullSeeStrip';
+import { HydrationSteps, type HydrationStepItem } from '@/components/analyze/HydrationSteps';
 import { PasteLane, type PasteLaneResult } from '@/components/deck-source/PasteLane';
 import { ListsLane } from '@/components/deck-source/ListsLane';
 import { GenerateLane } from '@/components/analyze/GenerateLane';
@@ -647,8 +648,8 @@ export function AnalyzePage() {
   const pendingListLoad = !!listIdParam && !deckLoaded && !error;
   if (pendingListLoad || pendingShareLoad) {
     const list = lists.find(l => l.id === listIdParam);
-    const steps: { id: HydrateStage; label: string }[] = [
-      { id: 'fetching-cards',   label: 'Fetching card data from Scryfall' },
+    const steps: HydrationStepItem[] = [
+      { id: 'fetching-cards',   label: 'Fetching card data from Scryfall', count: cardProgress },
       { id: 'detecting-combos', label: 'Detecting commander combos' },
       { id: 'analyzing-roles',  label: 'Analyzing roles, curve & mana' },
     ];
@@ -670,54 +671,7 @@ export function AnalyzePage() {
             </div>
           </div>
 
-          <ol className="flex flex-col gap-2 text-sm text-left mt-1 min-w-[260px]">
-            {steps.map((step, i) => {
-              const done = i < currentIdx;
-              const active = i === currentIdx;
-              // Card counter only on the Scryfall step, and only while it's the
-              // running one — a stale "100/100" under a later step reads as stuck.
-              const showCount = active && step.id === 'fetching-cards'
-                && !!cardProgress && cardProgress.total > 0;
-              const pct = showCount
-                ? Math.round((cardProgress.fetched / cardProgress.total) * 100)
-                : 0;
-              return (
-                <li key={step.id} className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-2.5">
-                    <span className="h-5 w-5 flex items-center justify-center flex-shrink-0">
-                      {done ? (
-                        <Check className="h-4 w-4 text-emerald-400" />
-                      ) : active ? (
-                        <Loader2 className="h-4 w-4 text-violet-300 animate-spin" />
-                      ) : (
-                        <span className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
-                      )}
-                    </span>
-                    <span className={
-                      done ? 'text-zinc-400 line-through decoration-emerald-500/40'
-                      : active ? 'text-zinc-100'
-                      : 'text-zinc-500'
-                    }>
-                      {step.label}
-                    </span>
-                    {showCount && (
-                      <span className="ml-auto pl-3 text-xs tabular-nums text-zinc-500">
-                        {cardProgress.fetched}/{cardProgress.total} cards
-                      </span>
-                    )}
-                  </div>
-                  {showCount && (
-                    <div className="ml-[30px] h-1 rounded-full bg-zinc-800 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-violet-400/70 transition-[width] duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+          <HydrationSteps steps={steps} currentIdx={currentIdx} />
         </div>
       </main>
     );
