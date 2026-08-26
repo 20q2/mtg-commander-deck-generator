@@ -259,6 +259,10 @@ export function DashboardSummary(props: DashboardSummaryProps) {
 
   const deckExcess = deckTarget != null ? cards.length - deckTarget : 0;
 
+  const showThemePrompt = !!needsTheme && !!onApplyTheme;
+  /** Only a prompt with a one-click fix earns the next-steps slot; a bare nag does not. */
+  const themePromptReplacesSteps = showThemePrompt && !!closestTheme;
+
   return (
     <div className="flex flex-col gap-5 sm:gap-4 h-full">
       <HeroScore
@@ -275,16 +279,19 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         adjustContent={adjustContent}
         onOpenInDeckView={onOpenInDeckView}
       />
-      {/* Above the next steps on purpose: every one of them is computed against a plan this deck
-          hasn't declared, so fixing that comes first. */}
-      {needsTheme && onApplyTheme && (
+      {/* With a candidate to offer, this TAKES the next-steps slot rather than stacking above it.
+          Two call-to-action bands read as noise, and those next steps are measured against role
+          targets a theme would change — advice about to be recalculated. They return, corrected,
+          one click later. With no candidate there is no one-click fix, so the real advice stays and
+          the prompt sits above it. */}
+      {showThemePrompt && (
         <ThemePrompt
           closest={closestTheme}
-          onApply={onApplyTheme}
+          onApply={onApplyTheme!}
           adjustContent={adjustContent}
         />
       )}
-      <NextBestMove
+      {!themePromptReplacesSteps && <NextBestMove
         planScore={planScore}
         misfits={misfits}
         gapAnalysis={gapAnalysis}
@@ -302,7 +309,7 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         fallback={bentoSlot}
         bracketEstimation={bracketEstimation}
         planName={planName}
-      />
+      />}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-stretch">
         {(Object.keys(SUBSCORE_META) as ScoredKey[]).map((key, i) => {
           const meta = SUBSCORE_META[key];
