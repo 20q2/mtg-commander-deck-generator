@@ -57,6 +57,15 @@ interface CollectionImporterProps {
    * would be advertising something that doesn't work there.
    */
   showDragDropHint?: boolean;
+  /**
+   * Hide the internal Import Cards button — the parent drives imports via the
+   * ref handle instead. In this mode a successful import also KEEPS the textarea
+   * content (so the parent can bring the user back to an editable paste), and
+   * Upload File loads the file into the textarea rather than importing it.
+   */
+  hideImportButton?: boolean;
+  /** Numeric validation progress (mirrors getCardsByNames' callback) for parents rendering their own progress UI. */
+  onValidateProgress?: (fetched: number, total: number) => void;
 }
 
 /**
@@ -141,9 +150,11 @@ export interface CollectionImporterHandle {
   triggerImport: () => Promise<ImportResult | null>;
   /** Whether there is text awaiting import. */
   hasPending: () => boolean;
+  /** Parse the pending text without importing; returns how many distinct card lines were found. */
+  parsePendingCount: () => number;
 }
 
-export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID, showDragDropHint = false }, ref) {
+export const CollectionImporter = forwardRef<CollectionImporterHandle, CollectionImporterProps>(function CollectionImporter({ onImportCards, onCommanderDetected, onMetaDetected, updatedLabel, label, hideLabel, onPendingChange, onCancel, textareaClassName, externalResult, onResultChange, onProgressChange, onLegendariesDetected, binderId = DEFAULT_BINDER_ID, showDragDropHint = false, hideImportButton = false, onValidateProgress }, ref) {
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [progress, _setProgress] = useState('');
@@ -159,6 +170,7 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
       return await handleImport(importText);
     },
     hasPending: () => !!importText.trim(),
+    parsePendingCount: () => parseCollectionList(importText).cards.length,
   }));
 
   const handleImport = async (text: string): Promise<ImportResult | null> => {
@@ -190,6 +202,7 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
       const names = parsed.map(c => c.name);
       const cardMap = await getCardsByNames(names, (fetched, total) => {
         setProgress(`Validating cards... ${fetched}/${total}`);
+        onValidateProgress?.(fetched, total);
       });
 
       // Separate validated from not-found
@@ -274,8 +287,10 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
         }
       }
 
-      setImportText('');
-      onPendingChange?.(false);
+      if (!hideImportButton) {
+        setImportText('');
+        onPendingChange?.(false);
+      }
     } catch (error) {
       console.error('Import failed:', error);
       setProgress('Import failed. Please try again.');
@@ -293,7 +308,13 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      if (text) {
+      if (!text) return;
+      if (hideImportButton) {
+        // Headless mode has no Import button to click afterwards — load the file
+        // into the textarea so the parent's single CTA drives the import.
+        setImportText(text);
+        onPendingChange?.(!!text.trim());
+      } else {
         handleImport(text);
       }
     };
@@ -360,23 +381,25 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
               Clear
             </button>
           )}
-          <button
-            onClick={() => handleImport(importText)}
-            disabled={isImporting}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isImporting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Importing...
-              </>
-            ) : (
-              <>
-                <Upload className="w-3.5 h-3.5" />
-                Import Cards
-              </>
-            )}
-          </button>
+          {!hideImportButton && (
+            <button
+              onClick={() => handleImport(importText)}
+              disabled={isImporting}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isImporting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-3.5 h-3.5" />
+                  Import Cards
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
