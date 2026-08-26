@@ -279,7 +279,9 @@ export function PasteLane({
   );
 
   const resolvePanel = (
-    <div className="space-y-4">
+    // Fill the track's height (both panels stretch to the taller one) so the
+    // action row can pin to the card's bottom edge instead of floating mid-card.
+    <div className="flex h-full flex-col gap-4">
       <div>
         <p className="text-sm font-medium">Preparing your deck</p>
         {paused && importedCards.length > 0 && (
@@ -370,7 +372,7 @@ export function PasteLane({
       )}
 
       {(paused || validateError) && (
-        <div className="flex items-center justify-between gap-2">
+        <div className="mt-auto flex items-center justify-between gap-2">
           <button
             onClick={handleBackToEdit}
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
