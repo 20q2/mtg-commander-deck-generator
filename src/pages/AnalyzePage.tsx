@@ -248,8 +248,18 @@ export function AnalyzePage() {
   // otherwise the deck hydrates and is then immediately thrown away. Checked
   // live rather than from the first render because handleChangeDeck's
   // navigate('/analyze') drops the fragment, which is what releases this guard.
+  //
+  // pendingNavRef bridges a one-render gap: React Router commits navigate() as a
+  // transition, AFTER urgent state. A paste/list load that does
+  // setSource(...) + navigate(...) therefore renders once with the new source but
+  // the OLD bare-/analyze URL — without the flag this effect read that gap as
+  // "user went back to the hub", nulled the source, and the bridge effect below
+  // then relabeled the deck 'generated' (and double-fired analytics).
+  const pendingNavRef = useRef(false);
   useEffect(() => {
-    if (!listIdParam && !param1IsTab && source !== null && !readDeckHash(window.location.hash)) {
+    if (listIdParam || param1IsTab) { pendingNavRef.current = false; return; }
+    if (pendingNavRef.current) return;
+    if (source !== null && !readDeckHash(window.location.hash)) {
       setSource(null);
       hydratedListIdRef.current = null;
     }
@@ -301,6 +311,7 @@ export function AnalyzePage() {
         onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
       installAnalyzedDeck(deck, colorIdentity);
+      pendingNavRef.current = true;
       setSource({ kind: 'paste' });
       trackEvent('analyze_deck_loaded', {
         source: 'paste',
@@ -383,6 +394,7 @@ export function AnalyzePage() {
         onCardProgress: (fetched, total) => setCardProgress({ fetched, total }),
       });
       installAnalyzedDeck(deck, colorIdentity);
+      pendingNavRef.current = true;
       setSource({ kind: 'list', listId: list.id, listName: list.name });
       trackEvent('analyze_deck_loaded', {
         source: 'list',
