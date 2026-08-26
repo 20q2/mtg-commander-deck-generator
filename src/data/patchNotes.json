@@ -1,5 +1,24 @@
 [
   {
+    "version": "1.3.35",
+    "notes": [
+      "The Inspector now works out your deck's strategy from your actual cards, not just from EDHREC's theme list for your commander — so an off-meta build (a Golgari prison deck under a commander everyone else plays as infect) has a real chance of being recognised",
+      "Theme calls now show their receipts: how many of your cards back the call and which ones, so you can check it instead of taking our word for it",
+      "When we genuinely can't name your deck's strategy, the Inspector now says so up front and offers the closest match in one click — instead of quietly scoring Strategy 0 and handing you generic advice",
+      "Card suggestions now actually take your themes into account. This was wired up but had never once worked — every suggestion was being scored as though you had no theme set",
+      "Commander staples like Assassin's Trophy are no longer hidden from suggestions for being 'off-theme'",
+      "Cards pulling double duty for your strategy are no longer offered as cuts for being an excess of their role — your Pestilence pingers aren't nine spare board wipes",
+      "Fixed a pretty major bug where a deck you pasted into the Inspector would wear the themes from the last deck you built in the Foundry",
+      "Fixed the deck view and the Inspector disagreeing about the same deck's theme — they were quietly running two different detectors",
+      "The New Cards tab now reads a new card's own rules text against your themes, rather than waiting for EDHREC to gather enough data on something printed last month",
+      "'Limited EDHREC data for this commander' no longer appears on commanders with thousands of decklists — it was firing whenever you simply hadn't picked a theme",
+      "Combo detection now draws on the full Commander Spellbook catalog — around 104,000 combos, refreshed weekly — instead of the 100 most popular for your exact color identity. Combos sitting in a subset of your colors (Bloodchief Ascension + Mindcrank in a Golgari deck) and less popular ones now turn up",
+      "Clicking a card in the deck view now shows what it could combo with, not only combos you've already assembled",
+      "Fixed the Inspector's role filter hiding cards from the deck panel on the right that the Roles tab was counting on the left",
+      "The Strategy chart no longer looks flat on decks with a clear plan — it was being drawn against a fixed scale instead of your deck's own best theme"
+    ]
+  },
+  {
     "version": "1.3.34",
     "notes": [
       "The playtest page can now be used by pasting a deck in - there's no obvious way to get to it yet though"          
