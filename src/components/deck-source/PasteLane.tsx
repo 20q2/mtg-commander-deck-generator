@@ -89,7 +89,12 @@ export function PasteLane({
   const legendariesRef = useRef<ScryfallCard[]>([]);
   const commanderRef = useRef<ScryfallCard | null>(null);
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // Set on run, not just cleared on cleanup: StrictMode's simulated
+  // mount→unmount→mount would otherwise leave this false forever.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const handleImportCards = useCallback((validatedNames: string[]) => {
     importedRef.current = validatedNames;
