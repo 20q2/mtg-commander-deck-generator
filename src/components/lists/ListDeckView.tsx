@@ -35,6 +35,9 @@ import {
   cacheMatchesContent,
 } from '@/services/deckBuilder/deckEnrichmentCache';
 import { type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
+import { getCollectionNameSet } from '@/services/collection/db';
+import { buildThemeFit, literalThemeMembers } from '@/services/deckBuilder/themeFit';
+import { rebuildRelevancyMap } from '@/services/deckBuilder/relevancyMap';
 import { AddCardsPanel } from '@/components/deck/AddCardsPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -846,6 +849,45 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     setFillDialogOpen(false);
     setTimeout(() => setFillDialogMounted(false), 320);
   }, []);
+
+  // Owned-card names for the Fill drawer's collection chip + owned-only filter.
+  // Loaded when the drawer mounts, scoped to the user's chosen collection
+  // binders — the same scope the Inspector's "In collection" toggle uses.
+  const [fillCollectionNames, setFillCollectionNames] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    if (!fillDialogMounted) return;
+    let cancelled = false;
+    getCollectionNameSet(customization.collectionBinderIds).then(names => {
+      if (!cancelled) setFillCollectionNames(names);
+    });
+    return () => { cancelled = true; };
+  }, [fillDialogMounted, customization.collectionBinderIds]);
+
+  // Theme-aware relevancy for the Trim drawer: run the classifier fit over the
+  // deck's own cards, then rebuild the relevancy map with the literal members so
+  // on-theme cards score through the theme-priority branch instead of falling to
+  // 0 (first cut) when EDHREC has never listed them for this commander. Same
+  // classifier evidence the Inspector's cut surfaces consume. Null until the fit
+  // resolves (or when the list has no themes) — the drawer ranks on the stored
+  // map in the meantime, mirroring how the connectivity signal arrives late.
+  const [trimThemeRelevancy, setTrimThemeRelevancy] = useState<Record<string, number> | null>(null);
+  const listThemesKey = (list.themes ?? []).map(t => t.slug).join(',');
+  useEffect(() => {
+    if (!trimDialogMounted || !generatedDeck || !list.themes?.length || allDeckCards.length === 0) {
+      setTrimThemeRelevancy(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const fit = await buildThemeFit(allDeckCards, list.themes!);
+      if (cancelled) return;
+      const members = literalThemeMembers(fit);
+      setTrimThemeRelevancy(members.size > 0 ? rebuildRelevancyMap(generatedDeck, members) : null);
+    })();
+    return () => { cancelled = true; };
+    // listThemesKey stands in for list.themes so a re-created array with the same slugs doesn't refit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trimDialogMounted, generatedDeck, listThemesKey, allDeckCards]);
 
   // Makes the "Cards" stat in the deck-stats sidebar a one-click entry to the
   // fill/trim drawer. delta < 0 → short (Fill); delta >= 0 → over or at target
@@ -3078,7 +3120,8 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           // Pass the user-facing deck size (including commander). The dialog
           // subtracts the commander count internally for the overage math.
           targetSize={list.deckSize}
-          relevancyMap={generatedDeck.cardRelevancyMap || {}}
+          relevancyMap={trimThemeRelevancy ?? generatedDeck.cardRelevancyMap ?? {}}
+          themeAware={!!trimThemeRelevancy}
           inclusionMap={generatedDeck.cardInclusionMap || {}}
           synergyMap={generatedDeck.cardSynergyMap || {}}
           roleCounts={generatedDeck.roleCounts || {}}
@@ -3122,6 +3165,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           roleCounts={generatedDeck.roleCounts || {}}
           roleTargets={generatedDeck.roleTargets || {}}
           relevancyMap={generatedDeck.cardRelevancyMap || {}}
+          collectionNames={fillCollectionNames ?? undefined}
           onCardAction={handleDialogCardAction}
           menuProps={boardMenuProps}
         />

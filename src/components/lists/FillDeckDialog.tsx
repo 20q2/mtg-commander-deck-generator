@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles } from 'lucide-react';
+import { X, Sparkles, Package } from 'lucide-react';
 import type { GapAnalysisCard, ScryfallCard, UserCardList } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -9,6 +9,9 @@ import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay'
 import { getCachedCard } from '@/services/scryfall/client';
 
 const MAX_SUGGESTIONS = 20;
+
+// Persist the "only suggest cards I own" preference across sessions.
+const COLLECTION_ONLY_KEY = 'mtg-fill-deck-collection-only';
 
 export interface FillDeckDialogProps {
   open: boolean;
@@ -25,6 +28,9 @@ export interface FillDeckDialogProps {
   roleTargets: Record<string, number>;
   /** Per-card relevancy score from generatedDeck.cardRelevancyMap. */
   relevancyMap: Record<string, number>;
+  /** Owned-card names (front-face names included for DFCs) — powers the owned
+   *  chip on candidate rows and the "only from my collection" filter. */
+  collectionNames?: Set<string>;
   /** Right-click context-menu support for the candidate rows. */
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string> };
@@ -45,6 +51,7 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
     roleCounts,
     roleTargets,
     relevancyMap,
+    collectionNames,
     onCardAction,
     menuProps,
   } = props;
@@ -54,21 +61,38 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
   // Which row's context menu is force-open (right-click anywhere on the row).
   const [contextCardName, setContextCardName] = useState<string | null>(null);
 
+  // The owned-only filter is only offered when a collection exists at all.
+  const hasCollection = !!collectionNames && collectionNames.size > 0;
+  const [collectionOnly, setCollectionOnly] = useState(
+    () => localStorage.getItem(COLLECTION_ONLY_KEY) === 'true',
+  );
+  const toggleCollectionOnly = () => {
+    setCollectionOnly(prev => {
+      const next = !prev;
+      localStorage.setItem(COLLECTION_ONLY_KEY, String(next));
+      return next;
+    });
+  };
+
   // Filtered candidate pool: gapAnalysis minus anything already in the deck,
-  // boards, or the user's banned list. Capped at MAX_SUGGESTIONS so the drawer
-  // stays scannable.
+  // boards, or the user's banned list — and, when the owned-only filter is on,
+  // minus anything outside the collection (filtered BEFORE the cap so the
+  // drawer still shows up to MAX_SUGGESTIONS owned cards). Capped at
+  // MAX_SUGGESTIONS so the drawer stays scannable.
   const candidates = useMemo(() => {
+    const ownedOnly = collectionOnly && hasCollection;
     const out: GapAnalysisCard[] = [];
     for (const card of gapAnalysis) {
       if (deckNames.has(card.name)) continue;
       if (sideboardNames.has(card.name)) continue;
       if (maybeboardNames.has(card.name)) continue;
       if (bannedNames.has(card.name)) continue;
+      if (ownedOnly && !collectionNames!.has(card.name)) continue;
       out.push(card);
       if (out.length >= MAX_SUGGESTIONS) break;
     }
     return out;
-  }, [gapAnalysis, deckNames, sideboardNames, maybeboardNames, bannedNames]);
+  }, [gapAnalysis, deckNames, sideboardNames, maybeboardNames, bannedNames, collectionOnly, hasCollection, collectionNames]);
 
   // Roles with a current deficit — used to surface a hint chip on candidates
   // that would close one. Purely informational; does not change ordering.
@@ -135,11 +159,28 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
           </button>
         </div>
 
+        {/* Collection filter strip — only shown when a collection exists. */}
+        {hasCollection && (
+          <div className="flex items-center gap-2 px-5 py-2.5 border-b border-border bg-muted/30 text-sm">
+            <Package className="w-4 h-4 text-emerald-400/80 shrink-0" />
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Checkbox
+                checked={collectionOnly}
+                onCheckedChange={toggleCollectionOnly}
+                aria-label="Only suggest cards from my collection"
+              />
+              <span className="text-muted-foreground">Only cards from my collection</span>
+            </label>
+          </div>
+        )}
+
         {/* Body */}
         <div className="flex-1 px-3 py-3 overflow-y-auto">
           {candidates.length === 0 ? (
             <div className="text-sm text-muted-foreground px-2 py-4">
-              No more suggestions for this commander.
+              {collectionOnly && hasCollection
+                ? 'No suggestions from your collection — untick the filter to see all.'
+                : 'No more suggestions for this commander.'}
             </div>
           ) : (
             <ul className="space-y-2">
@@ -155,6 +196,7 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
                 };
                 const role = card.role ?? '';
                 const fillsGap = role && deficitRoles.has(role);
+                const isOwned = hasCollection && collectionNames!.has(card.name);
                 const pct = Math.round(card.inclusion);
                 const hue = (pct / 100) * 120;
                 return (
@@ -226,6 +268,14 @@ export function FillDeckDialog(props: FillDeckDialogProps) {
                         {fillsGap && card.roleLabel && (
                           <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-300/80 whitespace-nowrap">
                             fills {card.roleLabel.toLowerCase()} gap
+                          </span>
+                        )}
+                        {isOwned && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded px-1.5 py-0.5 whitespace-nowrap"
+                            title="In your collection"
+                          >
+                            <Package className="w-2.5 h-2.5" /> Owned
                           </span>
                         )}
                       </div>

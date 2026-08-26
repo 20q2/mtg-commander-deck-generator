@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Scissors, Mountain, Minus, Plus, Waypoints, Loader2 } from 'lucide-react';
+import { X, Scissors, Mountain, Minus, Plus, Waypoints, Loader2, Tags } from 'lucide-react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import type { ScryfallCard, DetectedCombo, UserCardList } from '@/types';
 import { planTrim, type TrimResult } from '@/services/deckBuilder/deckTrimmer';
@@ -21,6 +21,9 @@ export interface TrimDeckDialogProps {
   partnerCommanderName?: string;
   targetSize: number;
   relevancyMap: Record<string, number>;
+  /** True when relevancyMap was rebuilt with classifier theme evidence — cards
+   *  that provably carry a selected theme's mechanic rank as keeps, not cuts. */
+  themeAware?: boolean;
   inclusionMap: Record<string, number>;
   synergyMap: Record<string, number>;
   roleCounts: Record<string, number>;
@@ -206,6 +209,12 @@ export function TrimDeckDialog(props: TrimDeckDialogProps) {
             <>
               <Waypoints className="w-3 h-3 text-muted-foreground/50" />
               <span>Ranked by relevancy</span>
+            </>
+          )}
+          {props.themeAware && (
+            <>
+              <Tags className="w-3 h-3 text-violet-400/80 ml-2" />
+              <span>Theme-aware — on-theme cards are protected</span>
             </>
           )}
         </div>
