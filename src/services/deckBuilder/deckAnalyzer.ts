@@ -2487,7 +2487,7 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
       };
     })
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 15);
+    .slice(0, 30);
 
   // Any-color land count
   let anyColorLandCount = 0;
