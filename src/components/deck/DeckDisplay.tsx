@@ -3937,6 +3937,57 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return map;
   }, [generatedDeck?.detectedCombos, customCombos]);
 
+  // Card name → every detected combo touching it, complete AND near-miss, for
+  // the preview modal's combo panel — clicking any deck card shows its combo
+  // potential, not just combos the deck already assembles. Kept separate from
+  // cardComboMap above so the list-row combo badges keep meaning "assembled".
+  // Keys are front-face names to match the modal's lookup.
+  const previewComboMap = useMemo(() => {
+    const map = new Map<string, DetectedCombo[]>();
+    const add = (combo: DetectedCombo) => {
+      for (const cardName of combo.cards) {
+        const front = cardName.includes(' // ') ? cardName.split(' // ')[0] : cardName;
+        const existing = map.get(front);
+        if (existing) existing.push(combo);
+        else map.set(front, [combo]);
+      }
+    };
+    for (const combo of generatedDeck?.detectedCombos ?? []) add(combo);
+    for (const uc of customCombos ?? []) {
+      add({
+        comboId: 'user:' + uc.id,
+        cards: uc.cards,
+        results: uc.result ? [uc.result] : [],
+        isComplete: true,
+        missingCards: [],
+        deckCount: 0,
+        bracket: '',
+        source: 'user',
+      });
+    }
+    // Per card: complete combos first (missing 0 sorts first), then nearest to
+    // completion involving the most deck cards, then popularity. Potential
+    // combos are capped — a staple piece can touch hundreds in the Spellbook
+    // pool, and the modal panel is a summary, not a browser.
+    const MAX_POTENTIAL = 20;
+    for (const [name, list] of map) {
+      list.sort((a, b) => {
+        const aMissing = a.missingCards.length;
+        const bMissing = b.missingCards.length;
+        if (aMissing !== bMissing) return aMissing - bMissing;
+        const aPresent = a.cards.length - aMissing;
+        const bPresent = b.cards.length - bMissing;
+        if (aPresent !== bPresent) return bPresent - aPresent;
+        return b.deckCount - a.deckCount;
+      });
+      const completeCount = list.reduce((n, c) => n + (c.isComplete ? 1 : 0), 0);
+      if (list.length > completeCount + MAX_POTENTIAL) {
+        map.set(name, list.slice(0, completeCount + MAX_POTENTIAL));
+      }
+    }
+    return map;
+  }, [generatedDeck?.detectedCombos, customCombos]);
+
   // Build map of card name -> card type for combo popover icons
   const cardTypeMap = useMemo(() => {
     const map = new Map<string, CardType>();
@@ -5279,11 +5330,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
       <CardPreviewModal
         card={previewCard}
         onClose={() => setPreviewCard(null)}
-        combos={previewCard ? cardComboMap.get(previewCard.name.includes(' // ') ? previewCard.name.split(' // ')[0] : previewCard.name) : undefined}
+        combos={previewCard ? previewComboMap.get(previewCard.name.includes(' // ') ? previewCard.name.split(' // ')[0] : previewCard.name) : undefined}
         cardTypeMap={cardTypeMap}
-        cardComboMap={cardComboMap}
+        cardComboMap={previewComboMap}
         spellChromaDeckRef={spellChromaDeckRef}
-        deckOnly
         hideMustInclude={readOnly}
         phasesDone={phasesDone}
         swapCandidates={readOnly ? undefined : previewSwapCandidates}
