@@ -854,7 +854,12 @@ export function AnalyzePage() {
           style={{ animationDelay: '170ms' }}
         >
           {activeLane === 'paste' && (
-            <PasteLane onSubmit={handlePasteAnalyze} loading={loading} />
+            <PasteLane
+              onSubmit={handlePasteAnalyze}
+              loading={loading}
+              hydrateStage={loadStage}
+              cardProgress={cardProgress}
+            />
           )}
           {activeLane === 'lists' && (
             <ListsLane onPick={handleListPick} loading={loading} loadingListId={loadingListId} />
