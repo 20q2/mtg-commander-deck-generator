@@ -56,6 +56,10 @@ interface ComboDisplayProps {
 // Cache fetched card data across renders
 const cardDataCache = new Map<string, ScryfallCard>();
 
+// Near-misses render a page at a time — the Spellbook index can surface
+// thousands in a single deck's colors, far more than the panel can hold.
+const NEAR_MISS_PAGE_SIZE = 50;
+
 // EDHREC prereqs often include trivial card-location statements like
 // "X and Y on the battlefield." that just restate where the combo cards belong.
 // Strip the combo card names + obvious filler from each prereq; if nothing
@@ -141,7 +145,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const [expandedCombo, setExpandedCombo] = useState<string | null>(null);
   const [comboDetails, setComboDetails] = useState<Map<string, ComboDetails | 'loading' | 'error'>>(new Map());
-  const [showAllNearMisses, setShowAllNearMisses] = useState(false);
+  const [nearMissPage, setNearMissPage] = useState(0);
   const [showExcluded, setShowExcluded] = useState(false);
   const [comboSort, setComboSort] = useState<'popularity' | 'relevance'>('relevance');
   // Max bracket ceiling for near-misses. null = "All" (no filter). Defaults to the
@@ -204,6 +208,97 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
 
   const userComboId = (comboId: string) => comboId.startsWith('user:') ? comboId.slice(5) : null;
 
+  // ── Visible combo lists ────────────────────────────────────────────────
+  // Memos rather than inline render computation because the detail/image
+  // prefetch effects below scope their EDHREC/Scryfall requests to what's
+  // actually rendered — the Spellbook index can put thousands of near-misses
+  // in the pool, and prefetching for all of them would starve the
+  // rate-limited clients for minutes.
+
+  // The user's "show synergy combos" toggle applies before any other
+  // filtering. Complete combos are always shown — the toggle only hides
+  // incomplete synergy combos, never a combo the deck already assembles.
+  // User combos are never hidden.
+  const visibleCombos = useMemo(
+    () => showSynergy ? allCombos : allCombos.filter(c => c.source !== 'color-identity' || c.isComplete),
+    [showSynergy, allCombos],
+  );
+  const hiddenSynergyCount = allCombos.length - visibleCombos.length;
+
+  const bannedSet = useMemo(() => new Set(bannedCards.map(n => n.toLowerCase())), [bannedCards]);
+  const hasExcludedCard = useCallback(
+    (combo: DetectedCombo) => combo.cards.some(n => bannedSet.has(n.toLowerCase())),
+    [bannedSet],
+  );
+
+  const filteredVisible = useMemo(
+    () => visibleCombos.filter(combo =>
+      !cardFilter || combo.cards.some(n => (n.includes(' // ') ? n.split(' // ')[0] : n) === cardFilter)),
+    [visibleCombos, cardFilter],
+  );
+
+  const sortCombos = useCallback((list: DetectedCombo[]) => {
+    // User-authored combos always lead — they're the ones the player deliberately built around.
+    const userFirst = (a: DetectedCombo, b: DetectedCombo) =>
+      (b.source === 'user' ? 1 : 0) - (a.source === 'user' ? 1 : 0);
+    if (comboSort === 'relevance') {
+      return [...list].sort((a, b) => {
+        const uf = userFirst(a, b);
+        if (uf !== 0) return uf;
+        const aMissing = a.missingCards.length;
+        const bMissing = b.missingCards.length;
+        if (aMissing !== bMissing) return aMissing - bMissing;
+        // Among near-misses equally close to completion, the one involving
+        // more cards the deck actually runs is more relevant. Skipped for
+        // complete combos, where piece count is not a merit signal.
+        if (aMissing > 0) {
+          const aPresent = a.cards.length - aMissing;
+          const bPresent = b.cards.length - bMissing;
+          if (aPresent !== bPresent) return bPresent - aPresent;
+        }
+        return b.deckCount - a.deckCount;
+      });
+    }
+    return [...list].sort((a, b) => userFirst(a, b) || b.deckCount - a.deckCount);
+  }, [comboSort]);
+
+  // Bracket ceiling only trims incomplete combos — a combo the deck already
+  // assembles always shows, no matter how it's rated.
+  const withinBracket = useCallback(
+    (combo: DetectedCombo) => bracketCeiling == null || comboFitsBracket(combo.bracket, bracketCeiling),
+    [bracketCeiling],
+  );
+
+  const completeCombos = useMemo(
+    () => sortCombos(filteredVisible.filter(c => c.isComplete && !hasExcludedCard(c))),
+    [filteredVisible, hasExcludedCard, sortCombos],
+  );
+  const { nearMisses, overBracketHiddenCount } = useMemo(() => {
+    const inBracket = filteredVisible.filter(c => !c.isComplete && !hasExcludedCard(c));
+    const within = inBracket.filter(withinBracket);
+    return { nearMisses: sortCombos(within), overBracketHiddenCount: inBracket.length - within.length };
+  }, [filteredVisible, hasExcludedCard, withinBracket, sortCombos]);
+  const excludedCombos = useMemo(
+    () => filteredVisible.filter(c => hasExcludedCard(c) && withinBracket(c)),
+    [filteredVisible, hasExcludedCard, withinBracket],
+  );
+
+  // Near-miss pagination. The page index is clamped rather than reset when the
+  // list shrinks; explicit filter/sort changes jump back to page one.
+  const nearMissPageCount = Math.max(1, Math.ceil(nearMisses.length / NEAR_MISS_PAGE_SIZE));
+  const currentNearMissPage = Math.min(nearMissPage, nearMissPageCount - 1);
+  const pagedNearMisses = useMemo(
+    () => nearMisses.slice(currentNearMissPage * NEAR_MISS_PAGE_SIZE, (currentNearMissPage + 1) * NEAR_MISS_PAGE_SIZE),
+    [nearMisses, currentNearMissPage],
+  );
+  useEffect(() => { setNearMissPage(0); }, [comboSort, cardFilter, bracketCeiling, showSynergy]);
+
+  // Exactly what's on screen — drives the detail/image prefetches.
+  const renderedCombos = useMemo(
+    () => [...completeCombos, ...pagedNearMisses, ...(showExcluded ? excludedCombos : [])],
+    [completeCombos, pagedNearMisses, showExcluded, excludedCombos],
+  );
+
   // A card's "Create combo" menu entry seeds the authoring form with that card.
   useEffect(() => {
     if (!seedCard || !onAddCombo) return;
@@ -262,12 +357,14 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     return () => { cancelled = true; };
   }, [expanded, collectionBinderIds]);
 
-  // Background-prefetch combo details for visible combos so we can show
+  // Background-prefetch combo details for rendered combos so we can show
   // non-trivial prerequisites (e.g. "three Foods") as chips alongside cards
-  // without making the user click "Show details".
+  // without making the user click "Show details". Scoped to the rendered
+  // page, not the whole pool — details are one EDHREC request per combo.
   useEffect(() => {
     if (!expanded) return;
-    for (const combo of combos) {
+    for (const combo of renderedCombos) {
+      if (combo.source === 'user') continue; // no EDHREC page to fetch
       if (comboDetails.has(combo.comboId)) continue;
       setComboDetails(prev => {
         if (prev.has(combo.comboId)) return prev;
@@ -280,13 +377,15 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     // We intentionally don't include comboDetails in the deps — it's read
     // through state-setter callbacks to avoid re-running on every update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, combos]);
+  }, [expanded, renderedCombos]);
 
-  // Fetch card images when expanded (bulk batch via /cards/collection)
+  // Fetch card images when expanded (bulk batch via /cards/collection).
+  // Scoped to the rendered page — the full pool can reference thousands of
+  // distinct cards.
   useEffect(() => {
     if (!expanded) return;
 
-    const allNames = [...new Set(allCombos.flatMap(c => c.cards))];
+    const allNames = [...new Set(renderedCombos.flatMap(c => c.cards))];
     const missing = allNames.filter(n => !cardImages.has(n) && !cardDataCache.has(n));
     // Build images from already-cached cards first
     const newImages = new Map(cardImages);
@@ -317,7 +416,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     })();
 
     return () => { cancelled = true; };
-  }, [expanded, allCombos]);
+  }, [expanded, renderedCombos]);
 
   // Track the combo card list for the current preview so the modal's existing
   // deck-nav machinery (slide animations, peek images, position indicator) can
@@ -462,45 +561,6 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   // otherwise combo-less saved deck.
   if (allCombos.length === 0 && !onAddCombo) return null;
 
-  // Apply the user's "show synergy combos" toggle before any other filtering.
-  // Complete combos are always shown — the toggle only hides incomplete synergy
-  // combos, never a combo the deck already assembles. User combos are never hidden.
-  const visibleCombos = showSynergy ? allCombos : allCombos.filter(c => c.source !== 'color-identity' || c.isComplete);
-  const hiddenSynergyCount = allCombos.length - visibleCombos.length;
-
-  const bannedSet = new Set(bannedCards.map(n => n.toLowerCase()));
-  const hasExcludedCard = (combo: DetectedCombo) => combo.cards.some(n => bannedSet.has(n.toLowerCase()));
-
-  const sortCombos = (list: DetectedCombo[]) => {
-    // User-authored combos always lead — they're the ones the player deliberately built around.
-    const userFirst = (a: DetectedCombo, b: DetectedCombo) =>
-      (b.source === 'user' ? 1 : 0) - (a.source === 'user' ? 1 : 0);
-    if (comboSort === 'relevance') {
-      return [...list].sort((a, b) => {
-        const uf = userFirst(a, b);
-        if (uf !== 0) return uf;
-        const aMissing = a.missingCards.length;
-        const bMissing = b.missingCards.length;
-        if (aMissing !== bMissing) return aMissing - bMissing;
-        return b.deckCount - a.deckCount;
-      });
-    }
-    return [...list].sort((a, b) => userFirst(a, b) || b.deckCount - a.deckCount);
-  };
-
-  const matchesCardFilter = (combo: DetectedCombo) =>
-    !cardFilter || combo.cards.some(n => (n.includes(' // ') ? n.split(' // ')[0] : n) === cardFilter);
-
-  // Bracket ceiling only trims incomplete combos — a combo the deck already
-  // assembles always shows, no matter how it's rated.
-  const withinBracket = (combo: DetectedCombo) =>
-    bracketCeiling == null || comboFitsBracket(combo.bracket, bracketCeiling);
-
-  const completeCombos = sortCombos(visibleCombos.filter(c => c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c)));
-  const nearMissesInBracket = visibleCombos.filter(c => !c.isComplete && !hasExcludedCard(c) && matchesCardFilter(c));
-  const nearMisses = sortCombos(nearMissesInBracket.filter(withinBracket));
-  const overBracketHiddenCount = nearMissesInBracket.length - nearMisses.length;
-  const excludedCombos = visibleCombos.filter(c => hasExcludedCard(c) && matchesCardFilter(c) && withinBracket(c));
   // Custom (user-authored) combos among the currently-visible set — reported separately
   // in the summary even though they also count toward "complete".
   const customCount = [...completeCombos, ...nearMisses, ...excludedCombos].filter(c => c.source === 'user').length;
@@ -1070,7 +1130,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         )}
       </div>
 
-      <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[8000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+      <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[20000px] opacity-100' : 'max-h-0 opacity-0'}`}>
         {/* Empty state — no combos yet, but authoring is available. */}
         {onAddCombo && completeCombos.length === 0 && nearMisses.length === 0 && excludedCombos.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-6 text-center">
@@ -1101,15 +1161,28 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
               </div>
             )}
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
-              {(showAllNearMisses ? nearMisses : nearMisses.slice(0, 10)).map(combo => renderComboCard(combo))}
+              {pagedNearMisses.map(combo => renderComboCard(combo))}
             </div>
-            {nearMisses.length > 10 && !showAllNearMisses && (
-              <button
-                onClick={() => setShowAllNearMisses(true)}
-                className="mt-3 w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/30 rounded-lg hover:bg-accent/20 transition-colors"
-              >
-                Show {nearMisses.length - 10} more near-miss combo{nearMisses.length - 10 > 1 ? 's' : ''}
-              </button>
+            {nearMissPageCount > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <button
+                  onClick={() => setNearMissPage(Math.max(0, currentNearMissPage - 1))}
+                  disabled={currentNearMissPage === 0}
+                  className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/30 rounded-lg hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  ‹ Prev
+                </button>
+                <span className="px-2 text-xs text-muted-foreground whitespace-nowrap">
+                  Page {currentNearMissPage + 1} of {nearMissPageCount} · {nearMisses.length.toLocaleString()} near-misses
+                </span>
+                <button
+                  onClick={() => setNearMissPage(Math.min(nearMissPageCount - 1, currentNearMissPage + 1))}
+                  disabled={currentNearMissPage === nearMissPageCount - 1}
+                  className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/30 rounded-lg hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Next ›
+                </button>
+              </div>
             )}
           </>
         )}
