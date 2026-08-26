@@ -1917,6 +1917,18 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     }
   }, [searchQuery, searchResults, onAddCards, handleAddToDeck, showErrorToast]);
 
+  // Single-name adds from the AddCardsPanel autocomplete (header + bulk-add
+  // panels). Names arrive canonical from Scryfall autocomplete; resolve the
+  // full card so the standard add path can toast with a type icon and undo.
+  const handleAddCardByName = useCallback(async (name: string) => {
+    try {
+      const card = await getCardByName(name, false);
+      handleAddToDeck(card);
+    } catch {
+      showErrorToast(`Couldn't add "${name}"`);
+    }
+  }, [handleAddToDeck, showErrorToast]);
+
   const handleShowBoardPicker = useCallback((card: ScryfallCard, event: React.MouseEvent) => {
     event.stopPropagation();
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -2734,6 +2746,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                     autoFocus
                     existingNames={allListNames}
                     onAddCards={handleBulkImport}
+                    onAddCard={handleAddCardByName}
                     label="Add Cards"
                     showDragDropHint
                     onCancel={() => setShowHeaderBulkAdd(false)}
@@ -2849,6 +2862,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                         autoFocus
                         existingNames={allListNames}
                         onAddCards={handleBulkImport}
+                        onAddCard={handleAddCardByName}
                         label="Bulk Add Cards"
                         showDragDropHint
                         onCancel={() => setShowBulkAdd(false)}
@@ -2864,6 +2878,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                     ref={bulkImporterMobileRef}
                     existingNames={allListNames}
                     onAddCards={handleBulkImport}
+                    onAddCard={handleAddCardByName}
                     label="Bulk Add Cards"
                     showDragDropHint
                     onCancel={() => setShowBulkAdd(false)}
