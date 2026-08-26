@@ -62,7 +62,7 @@ import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, mostNeededBasicColor, type ReplaceMode } from '@/services/deckBuilder/cardSwap';
 import { HEALTH_GRADE_STYLES, ROLE_GROUP_ICONS } from '@/components/deck/optimizer/constants';
-import { cardMatchesRole, type RoleKey } from '@/services/tagger/client';
+import { cardMatchesRole, loadTaggerData, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
 import { useUserLists, useLastAddTarget } from '@/hooks/useUserLists';
 import { useBinders } from '@/hooks/useBinders';
@@ -223,9 +223,11 @@ function cardMatchesFilter(card: ScryfallCard, filter: StatsFilter): boolean {
       return false;
     }
     case 'role':
-      if (card.deckRole === filter.value) return true;
-      if (card.multiRole) return cardMatchesRole(card.name, filter.value as RoleKey);
-      return false;
+      // Same membership rule as the Deck Roles counts and the Inspector's Roles
+      // tab: every card that fills the role. Not gated on card.multiRole —
+      // hasMultipleRoles buckets boardwipe+removal together, so a wipe that also
+      // spot-removes has multiRole=false yet still belongs in the removal lane.
+      return card.deckRole === filter.value || cardMatchesRole(card.name, filter.value as RoleKey);
     default:
       return true;
   }
@@ -2017,6 +2019,46 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
     });
     return () => { alive = false; };
   }, [generatedDeck]);
+  // Tagger data may not be loaded on warm-hydrated views; cardMatchesRole
+  // returns false until it is, so bump a tick to recompute once it lands.
+  const [taggerTick, setTaggerTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    loadTaggerData().then(() => { if (alive) setTaggerTick(t => t + 1); });
+    return () => { alive = false; };
+  }, []);
+  // Deck Roles shows what clicking a role bar filters to: every card that fills
+  // the role — multi-role cards count in each lane, lands included — the same
+  // membership the Inspector's Roles tab lists. generatedDeck.roleCounts stays
+  // primary-role, non-land for scoring/trim/fill and would disagree with both.
+  const roleDisplay = useMemo(() => {
+    if (!generatedDeck?.roleCounts || !generatedDeck.roleTargets) return null;
+    const cards = Object.values(generatedDeck.categories).flat();
+    const subtypeGetter: Record<string, (name: string) => string | null> = {
+      ramp: getRampSubtype, removal: getRemovalSubtype, boardwipe: getBoardwipeSubtype,
+      cardDraw: getCardDrawSubtype, protection: getProtectionSubtype,
+    };
+    const genericSubtype: Record<string, string> = {
+      ramp: 'ramp', removal: 'removal', boardwipe: 'boardwipe',
+      cardDraw: 'card-advantage', protection: 'protection',
+    };
+    const counts: Record<string, number> = {};
+    const subtypes: Record<string, Record<string, number>> = {};
+    for (const role of Object.keys(subtypeGetter)) {
+      counts[role] = 0;
+      subtypes[role] = {};
+      for (const card of cards) {
+        if (card.deckRole !== role && !cardMatchesRole(card.name, role as RoleKey)) continue;
+        counts[role]++;
+        const key = role === 'ramp' && card.type_line?.includes('Land')
+          ? 'ramp-land'
+          : subtypeGetter[role](card.name) ?? genericSubtype[role];
+        subtypes[role][key] = (subtypes[role][key] ?? 0) + 1;
+      }
+    }
+    return { counts, subtypes };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taggerTick invalidates cardMatchesRole results
+  }, [generatedDeck, taggerTick]);
   if (!generatedDeck) return null;
 
   const { stats, categories, partnerCommander } = generatedDeck;
@@ -2411,7 +2453,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
               ['cardDraw', 'Card Advantage', 'bg-blue-500', BookOpen],
               ['protection', 'Protection', 'bg-yellow-500', Shield],
             ] as [string, string, string, typeof Sprout][]).map(([key, label, barColor, Icon]) => {
-              const count = generatedDeck.roleCounts![key] ?? 0;
+              const count = roleDisplay?.counts[key] ?? generatedDeck.roleCounts![key] ?? 0;
               const target = generatedDeck.roleTargets![key] ?? 0;
               const percent = target > 0 ? Math.min(100, (count / target) * 100) : 100;
               const met = count >= target;
@@ -2440,23 +2482,23 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
                   {count > 0 && (() => {
                     const subtypeConfig: Record<string, { counts: Record<string, number> | undefined; entries: [string, string, string][] }> = {
                       ramp: {
-                        counts: generatedDeck.rampSubtypeCounts,
-                        entries: [['mana-producer', 'producer', 'text-lime-400/80'], ['mana-rock', 'rock', 'text-yellow-400/80'], ['cost-reducer', 'reducer', 'text-teal-400/80'], ['ramp', 'ramp', 'text-emerald-400/80']],
+                        counts: roleDisplay?.subtypes['ramp'],
+                        entries: [['mana-producer', 'producer', 'text-lime-400/80'], ['mana-rock', 'rock', 'text-yellow-400/80'], ['cost-reducer', 'reducer', 'text-teal-400/80'], ['ramp-land', 'land', 'text-emerald-300/80'], ['ramp', 'ramp', 'text-emerald-400/80']],
                       },
                       removal: {
-                        counts: generatedDeck.removalSubtypeCounts,
+                        counts: roleDisplay?.subtypes['removal'],
                         entries: [['bounce', 'bounce', 'text-cyan-400/80'], ['spot-removal', 'spot', 'text-rose-400/80'], ['removal', 'other', 'text-red-300/80']],
                       },
                       boardwipe: {
-                        counts: generatedDeck.boardwipeSubtypeCounts,
+                        counts: roleDisplay?.subtypes['boardwipe'],
                         entries: [['bounce-wipe', 'bounce', 'text-cyan-400/80'], ['boardwipe', 'other', 'text-orange-400/80']],
                       },
                       cardDraw: {
-                        counts: generatedDeck.cardDrawSubtypeCounts,
+                        counts: roleDisplay?.subtypes['cardDraw'],
                         entries: [['tutor', 'tutor', 'text-amber-400/80'], ['wheel', 'wheel', 'text-pink-400/80'], ['cantrip', 'cantrip', 'text-sky-400/80'], ['card-draw', 'draw', 'text-blue-400/80'], ['card-advantage', 'other', 'text-indigo-400/80']],
                       },
                       protection: {
-                        counts: generatedDeck.protectionSubtypeCounts,
+                        counts: roleDisplay?.subtypes['protection'],
                         entries: [['counterspell', 'counter', 'text-sky-400/80'], ['protection', 'other', 'text-yellow-300/80']],
                       },
                     };
