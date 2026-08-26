@@ -34,14 +34,14 @@ async function call(action: string, init: RequestInit & { admin?: boolean } = {}
   return payload;
 }
 
-export async function listSuggestions(): Promise<ListResponse> {
-  return (await call('poll-list', { method: 'GET' })) as ListResponse;
+export async function listSuggestions(opts: { admin?: boolean } = {}): Promise<ListResponse> {
+  return (await call('poll-list', { method: 'GET', admin: opts.admin })) as ListResponse;
 }
 
-export async function submitSuggestion(title: string, description: string): Promise<{ suggestion: Suggestion }> {
+export async function submitSuggestion(title: string, description: string, email?: string): Promise<{ suggestion: Suggestion }> {
   return (await call('poll-submit', {
     method: 'POST',
-    body: JSON.stringify({ title, description }),
+    body: JSON.stringify({ title, description, ...(email ? { email } : {}) }),
   })) as { suggestion: Suggestion };
 }
 

@@ -34,7 +34,7 @@ export function CommunityPollPage({ admin = false }: Props) {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const res = await listSuggestions();
+      const res = await listSuggestions({ admin });
       setSuggestions(res.suggestions);
       setMyVotes(new Set(res.myVotes));
       setLocalVotes(res.myVotes);
@@ -43,7 +43,7 @@ export function CommunityPollPage({ admin = false }: Props) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [admin]);
 
   useEffect(() => { if (adminReady) refresh(); }, [refresh, adminReady]);
 
@@ -53,10 +53,10 @@ export function CommunityPollPage({ admin = false }: Props) {
     return () => clearTimeout(id);
   }, [toast]);
 
-  const onSubmit = async (title: string, description: string) => {
+  const onSubmit = async (title: string, description: string, email?: string) => {
     setComposeError(null);
     try {
-      const { suggestion } = await submitSuggestion(title, description);
+      const { suggestion } = await submitSuggestion(title, description, email);
       setSuggestions(prev => [suggestion, ...prev]);
       setTab('new');
       setToast('Thanks — your suggestion is up.');

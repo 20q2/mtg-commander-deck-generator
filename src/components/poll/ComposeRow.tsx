@@ -6,9 +6,11 @@ import { Input } from '@/components/ui/input';
 
 const MAX_TITLE = 80;
 const MAX_DESC = 600;
+const MAX_EMAIL = 254;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Props {
-  onSubmit: (title: string, description: string) => Promise<void>;
+  onSubmit: (title: string, description: string, email?: string) => Promise<void>;
   inflightError?: string | null;
 }
 
@@ -16,22 +18,28 @@ export function ComposeRow({ onSubmit, inflightError }: Props) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
-  const reset = () => { setTitle(''); setDescription(''); setOpen(false); };
+  const reset = () => { setTitle(''); setDescription(''); setEmail(''); setOpen(false); };
+
+  const emailTrimmed = email.trim();
+  const emailValid = emailTrimmed.length === 0 ||
+    (emailTrimmed.length <= MAX_EMAIL && EMAIL_RE.test(emailTrimmed));
 
   const valid =
     title.trim().length > 0 && title.trim().length <= MAX_TITLE &&
-    description.trim().length > 0 && description.trim().length <= MAX_DESC;
+    description.trim().length > 0 && description.trim().length <= MAX_DESC &&
+    emailValid;
 
   const handleSubmit = async () => {
     if (!valid || busy) return;
     setBusy(true);
     try {
-      await onSubmit(title.trim(), description.trim());
+      await onSubmit(title.trim(), description.trim(), emailTrimmed || undefined);
       reset();
     } finally {
       setBusy(false);
@@ -97,6 +105,27 @@ export function ComposeRow({ onSubmit, inflightError }: Props) {
           maxLength={MAX_DESC + 100}
           className="w-full rounded-md bg-input border border-border px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent resize-y min-h-[88px]"
         />
+      </div>
+
+      <div>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <label htmlFor="poll-email" className="text-xs font-medium text-muted-foreground">Email <span className="text-muted-foreground/60">(optional)</span></label>
+          {!emailValid && (
+            <span className="text-[10px] text-destructive">Doesn't look like an email</span>
+          )}
+        </div>
+        <Input
+          id="poll-email"
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          maxLength={MAX_EMAIL}
+          autoComplete="email"
+        />
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground/70">
+          Only the developer can see this — it's used to reach out if your suggestion needs more detail.
+        </p>
       </div>
 
       {inflightError && (

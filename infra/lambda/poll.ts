@@ -20,6 +20,9 @@ export const LIMITS = {
 export const MAX_TITLE = 80;
 export const MAX_DESCRIPTION = 600;
 export const MAX_DEVNOTE = 600;
+export const MAX_EMAIL = 254;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type SuggestionStatus = 'open' | 'shipped';
 
@@ -36,6 +39,7 @@ export interface SuggestionRecord {
   shippedVersion?: string;
   shippedAt?: string;
   anonAuthorId: string;
+  authorEmail?: string;  // optional contact email — never included in public responses
   createdAt: string;     // ISO
 }
 
@@ -63,6 +67,11 @@ export function toPublic(r: SuggestionRecord): PublicSuggestion {
     shippedAt: r.shippedAt,
     createdAt: r.createdAt,
   };
+}
+
+// Admin-only projection — adds the submitter's contact email on top of the public shape.
+export function toAdmin(r: SuggestionRecord): PublicSuggestion & { authorEmail?: string } {
+  return { ...toPublic(r), authorEmail: r.authorEmail };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -134,13 +143,15 @@ export async function handleSubmit(body: string | undefined, headers: Record<str
   if (!isValidUuid(anonId)) return jsonResponse(400, { error: 'bad_anon_id' });
 
   if (!body) return jsonResponse(400, { error: 'missing_body' });
-  let parsed: { title?: unknown; description?: unknown };
+  let parsed: { title?: unknown; description?: unknown; email?: unknown };
   try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
 
   const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
   const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+  const email = typeof parsed.email === 'string' ? parsed.email.trim() : '';
   if (title.length < 1 || title.length > MAX_TITLE) return jsonResponse(400, { error: 'bad_title', max: MAX_TITLE });
   if (description.length < 1 || description.length > MAX_DESCRIPTION) return jsonResponse(400, { error: 'bad_description', max: MAX_DESCRIPTION });
+  if (email && (email.length > MAX_EMAIL || !EMAIL_RE.test(email))) return jsonResponse(400, { error: 'bad_email', max: MAX_EMAIL });
 
   const allowed = await checkRateLimit(anonId, 'submit');
   if (!allowed) return jsonResponse(429, { error: 'rate_limited', action: 'submit', limit: LIMITS.submit });
@@ -155,6 +166,7 @@ export async function handleSubmit(body: string | undefined, headers: Record<str
     status: 'open',
     voteCount: 0,
     anonAuthorId: anonId,
+    ...(email ? { authorEmail: email } : {}),
     createdAt,
   };
   await client.send(new PutItemCommand({ TableName: TABLE_NAME, Item: marshall(record) }));
@@ -204,7 +216,7 @@ export async function handleList(headers: Record<string, string | undefined> | u
   }
 
   return jsonResponse(200, {
-    suggestions: suggestions.map(toPublic),
+    suggestions: suggestions.map(isAdmin(headers) ? toAdmin : toPublic),
     myVotes,
   });
 }
@@ -314,7 +326,7 @@ export async function handleDevNote(body: string | undefined, headers: Record<st
       Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
       UpdateExpression: 'REMOVE devNote',
     }));
-    return jsonResponse(200, { suggestion: toPublic({ ...suggestion, devNote: undefined }) });
+    return jsonResponse(200, { suggestion: toAdmin({ ...suggestion, devNote: undefined }) });
   }
   await client.send(new UpdateItemCommand({
     TableName: TABLE_NAME,
@@ -322,7 +334,7 @@ export async function handleDevNote(body: string | undefined, headers: Record<st
     UpdateExpression: 'SET devNote = :n',
     ExpressionAttributeValues: marshall({ ':n': devNote }),
   }));
-  return jsonResponse(200, { suggestion: toPublic({ ...suggestion, devNote }) });
+  return jsonResponse(200, { suggestion: toAdmin({ ...suggestion, devNote }) });
 }
 
 export async function handleShip(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
@@ -346,7 +358,7 @@ export async function handleShip(body: string | undefined, headers: Record<strin
     ExpressionAttributeNames: { '#s': 'status' },
     ExpressionAttributeValues: marshall({ ':s': 'shipped', ':v': shippedVersion, ':a': shippedAt }),
   }));
-  return jsonResponse(200, { suggestion: toPublic({ ...suggestion, status: 'shipped', shippedVersion, shippedAt }) });
+  return jsonResponse(200, { suggestion: toAdmin({ ...suggestion, status: 'shipped', shippedVersion, shippedAt }) });
 }
 
 export async function handleDelete(body: string | undefined, headers: Record<string, string | undefined> | undefined) {

@@ -11,6 +11,8 @@ export interface Suggestion {
   shippedVersion?: string;
   shippedAt?: string;
   createdAt: string;
+  /** Submitter's contact email — only present on admin-authenticated responses. */
+  authorEmail?: string;
 }
 
 export interface ListResponse {

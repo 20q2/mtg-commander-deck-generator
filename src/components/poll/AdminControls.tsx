@@ -1,6 +1,6 @@
 // src/components/poll/AdminControls.tsx
 import { useState } from 'react';
-import { Trash2, MessageSquarePlus, PackageCheck } from 'lucide-react';
+import { Trash2, MessageSquarePlus, PackageCheck, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { Suggestion } from '@/services/poll/types';
@@ -30,6 +30,14 @@ export function AdminControls({ suggestion, onSetDevNote, onMarkShipped, onDelet
 
   return (
     <div className="mt-3 pt-3 border-t border-border/40">
+      {suggestion.authorEmail && (
+        <div className="mb-2.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+          <Mail className="w-3.5 h-3.5" />
+          <a href={`mailto:${suggestion.authorEmail}`} className="text-violet-300/90 hover:text-violet-200 underline">
+            {suggestion.authorEmail}
+          </a>
+        </div>
+      )}
       {noteOpen ? (
         <div className="flex gap-2">
           <Input
