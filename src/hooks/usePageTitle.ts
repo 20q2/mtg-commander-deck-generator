@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { DEFAULT_TITLE, formatTitle, type TitlePart } from '@/services/title';
+import { DEFAULT_TITLE, formatTitle, syncCanonical, type TitlePart } from '@/services/title';
 
 /**
  * Sets `document.title` for the current page from contextual parts, and
@@ -18,6 +18,7 @@ export function usePageTitle(parts?: TitlePart | TitlePart[]): void {
 
   useEffect(() => {
     document.title = title;
+    syncCanonical();
     return () => {
       document.title = DEFAULT_TITLE;
     };
