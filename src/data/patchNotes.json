@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.3.36",
+    "notes": [
+      "Streamlined the Inspector paste box workflow into a single click",
+      "Fixed a bug that stopped certain EDHREC cards to not cleanly drop into the app",
+      "Trim suggestions are now theme-aware — cards that fit your deck's theme are much less likely to show up as recommended cuts",
+      "When using the Fill deck tool, cards you own will be tagged as such. You can now also choose to have it only recommend cards you own.",
+      "Fixed a bug where deck Roles counts in the deck view now agree with the Inspector and with the cards that actually highlight when you click a role",
+      "The Inspector's Lands tab now offers twice as many suggested lands",      
+      "When making a suggestion in the Community Poll, you can now leave your email. The emails will only be visible to the site developer (me!)"
+    ]
+  },
+  {
     "version": "1.3.35",
     "notes": [
       "Introducing a massive change to the way that the app recognizes deck themes. You should be able to upload off-meta decks to the site and have it reliably identify what your decks theme is meant to be. Card suggestions in the Inspector should be improved as a result.",      
