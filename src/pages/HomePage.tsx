@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { HelpCircle, ChevronDown, Check } from 'lucide-react';
+import { HelpCircle } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { CardGroupSearch } from '@/components/commander/CardGroupSearch';
-import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useStore } from '@/store';
 import { getCardByName } from '@/services/scryfall/client';
@@ -94,40 +94,26 @@ export function HomePage() {
         </p>
       </div>
 
-      {/* Step 1 — the heading itself picks how you start */}
+      {/* Step 1 — plain heading, with a quiet link to the other way in */}
       <section className="mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
-            1
+        <div className="mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
+              1
+            </div>
+            <h2 className="text-lg font-semibold">
+              {mode === 'cards' ? 'Add Your Cards' : 'Choose Your Commander'}
+            </h2>
           </div>
-          <Popover>
-            <PopoverTrigger asChild>
-              <button className="group inline-flex items-center gap-1 text-lg font-semibold border-b border-dashed border-violet-400/70 text-violet-300 hover:text-violet-200 hover:border-violet-300 transition-colors">
-                {mode === 'cards' ? 'Search by a Group of Cards' : 'Choose Your Commander'}
-                <ChevronDown className="w-4 h-4 opacity-90 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64 p-1">
-              <PopoverClose asChild>
-                <button
-                  onClick={() => setMode('commander')}
-                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${mode === 'commander' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
-                >
-                  Choose Your Commander
-                  {mode === 'commander' && <Check className="w-3.5 h-3.5 shrink-0" />}
-                </button>
-              </PopoverClose>
-              <PopoverClose asChild>
-                <button
-                  onClick={() => setMode('cards')}
-                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${mode === 'cards' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
-                >
-                  Search by a Group of Cards
-                  {mode === 'cards' && <Check className="w-3.5 h-3.5 shrink-0" />}
-                </button>
-              </PopoverClose>
-            </PopoverContent>
-          </Popover>
+          {/* Names where it goes rather than "another mode" — one click, no menu. */}
+          <button
+            onClick={() => setMode(mode === 'cards' ? 'commander' : 'cards')}
+            className="ml-10 mt-1 text-xs text-muted-foreground/70 hover:text-primary underline decoration-dotted underline-offset-4 transition-colors"
+          >
+            {mode === 'cards'
+              ? 'or start from a commander →'
+              : 'or start from a group of cards →'}
+          </button>
         </div>
         {mode === 'cards'
           ? <CardGroupSearch onSelectCommander={handleSelectCardGroupCommander} />
