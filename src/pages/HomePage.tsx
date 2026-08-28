@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { HelpCircle } from 'lucide-react';
 import { CommanderSearch } from '@/components/commander/CommanderSearch';
 import { CardGroupSearch } from '@/components/commander/CardGroupSearch';
@@ -13,15 +13,29 @@ import { trackEvent } from '@/services/analytics';
 type Step1Mode = 'commander' | 'cards';
 const MODE_KEY = 'mtg-step1-mode';
 
+/**
+ * Card-group mode is parked while it's still being figured out, so the front page shows no way
+ * into it — same posture as the brew flow during its development. It stays reachable at
+ * `/?mode=cards` for testing. Flip this to true to put the link back on the page.
+ */
+const SHOW_CARD_GROUP_LINK = false;
+
 export function HomePage() {
   usePageTitle();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setCommander } = useStore();
 
-  const [mode, setMode] = useState<Step1Mode>(
-    () => (localStorage.getItem(MODE_KEY) === 'cards' ? 'cards' : 'commander')
-  );
+  const [mode, setMode] = useState<Step1Mode>(() => {
+    if (searchParams.get('mode') === 'cards') return 'cards';
+    // A stale localStorage value must not strand a visitor in the parked mode.
+    if (!SHOW_CARD_GROUP_LINK) return 'commander';
+    return localStorage.getItem(MODE_KEY) === 'cards' ? 'cards' : 'commander';
+  });
   useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+
+  // Hidden entry, but never a dead end: the way back out shows whenever you're in card mode.
+  const showModeLink = SHOW_CARD_GROUP_LINK || mode === 'cards';
 
   // A commander chosen from the card group. The seeds ride along on the URL as `?seeds=` so
   // the builder can lock them in as must-includes across refresh and regenerate.
@@ -106,14 +120,16 @@ export function HomePage() {
             </h2>
           </div>
           {/* Names where it goes rather than "another mode" — one click, no menu. */}
-          <button
-            onClick={() => setMode(mode === 'cards' ? 'commander' : 'cards')}
-            className="ml-10 mt-1 text-xs text-muted-foreground/70 hover:text-primary underline decoration-dotted underline-offset-4 transition-colors"
-          >
-            {mode === 'cards'
-              ? 'or start from a commander →'
-              : 'or start from a group of cards →'}
-          </button>
+          {showModeLink && (
+            <button
+              onClick={() => setMode(mode === 'cards' ? 'commander' : 'cards')}
+              className="ml-10 mt-1 text-xs text-muted-foreground/70 hover:text-primary underline decoration-dotted underline-offset-4 transition-colors"
+            >
+              {mode === 'cards'
+                ? 'or start from a commander →'
+                : 'or start from a group of cards →'}
+            </button>
+          )}
         </div>
         {mode === 'cards'
           ? <CardGroupSearch onSelectCommander={handleSelectCardGroupCommander} />
