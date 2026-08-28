@@ -733,7 +733,17 @@ export function BuilderPage() {
 
   const handleGenerate = async () => {
     // Read fresh from store to avoid stale closures (e.g. tempBannedCards just updated)
-    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, chosenColor: pickedColor, customization: cust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
+    const { commander: cmd, partnerCommander: partner, colorIdentity: colors, chosenColor: pickedColor, customization: rawCust, selectedThemes: themes, generatedDeck: currentDeck } = useStore.getState();
+    // Cards carried in from the "For My Cards" discovery flow. Merged into THIS generation only —
+    // never written back to the store, so the user's persistent must-include list stays clean.
+    // Re-read from the URL each run so refresh and regenerate both keep the group intact.
+    const seedNames = (new URLSearchParams(window.location.search).get('seeds') ?? '')
+      .split('|')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const cust = seedNames.length > 0
+      ? { ...rawCust, mustIncludeCards: [...new Set([...rawCust.mustIncludeCards, ...seedNames])] }
+      : rawCust;
     if (!cmd) return;
     const isRegeneration = currentDeck !== null && !!genParam;
 
