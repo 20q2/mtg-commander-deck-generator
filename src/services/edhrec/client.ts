@@ -1253,7 +1253,7 @@ export async function fetchAverageDeckMultiCopies(
 
 const similarCardsCache = new Map<string, { data: string[]; timestamp: number }>();
 
-interface RawCardPageView { name?: string; inclusion?: number; potential_decks?: number; num_decks?: number; lift?: number; }
+interface RawCardPageView { name?: string; sanitized?: string; inclusion?: number; potential_decks?: number; num_decks?: number; lift?: number; }
 interface RawCardPageList { tag?: string; cardviews?: RawCardPageView[]; }
 interface RawCardPageResponse {
   similar?: string[];
@@ -1394,6 +1394,65 @@ export async function fetchCardLiftPool(cardName: string, force = false): Promis
   } catch (error) {
     console.warn(`[EDHREC] Failed to fetch card lift pool for "${cardName}":`, error);
     cardLiftPoolCache.set(slug, { data: [], timestamp: Date.now() });
+    return [];
+  }
+}
+
+// --- Top commanders for a card ---
+// The same card page carries a `topcommanders` list: EDHREC's top 24 commanders that run this
+// card, each with num_decks (decks with that commander running the card) and potential_decks
+// (decks with that commander at all). The ratio is the co-play rate that powers "find me a
+// commander for these cards". Same page fetch as the lift pool, so usually already cached.
+
+export interface CardCommanderStat {
+  name: string;
+  sanitized: string;
+  numDecks: number;
+  potentialDecks: number;
+  /** numDecks / potentialDecks — how often this commander's decks run the card, 0..1. */
+  coRate: number;
+}
+
+/**
+ * Pure: the `topcommanders` cardlist → per-commander co-play stats.
+ * No low-sample floor is applied: unlike the lift pool this list is already EDHREC's own
+ * curated top-24 by volume, so filtering would only remove real signal.
+ */
+export function parseCardTopCommanders(raw: RawCardPageResponse): CardCommanderStat[] {
+  const lists = raw.container?.json_dict?.cardlists ?? [];
+  const views = lists.find(l => l.tag === 'topcommanders')?.cardviews ?? [];
+  const out: CardCommanderStat[] = [];
+  for (const v of views) {
+    if (!v.name) continue;
+    const potentialDecks = v.potential_decks ?? 0;
+    if (potentialDecks <= 0) continue;   // division guard
+    const numDecks = v.num_decks ?? v.inclusion ?? 0;
+    out.push({
+      name: v.name,
+      sanitized: v.sanitized ?? formatCommanderNameForUrl(v.name),
+      numDecks,
+      potentialDecks,
+      coRate: numDecks / potentialDecks,
+    });
+  }
+  return out;
+}
+
+const cardTopCommandersCache = new Map<string, { data: CardCommanderStat[]; timestamp: number }>();
+
+/** Fetch the commanders that most often run this card. [] on failure — never throws. */
+export async function fetchCardTopCommanders(cardName: string): Promise<CardCommanderStat[]> {
+  const slug = formatCommanderNameForUrl(cardName);
+  const cached = cardTopCommandersCache.get(slug);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return cached.data;
+  try {
+    const response = await edhrecFetch<RawCardPageResponse>(`/pages/cards/${slug}.json`);
+    const data = parseCardTopCommanders(response);
+    cardTopCommandersCache.set(slug, { data, timestamp: Date.now() });
+    return data;
+  } catch (error) {
+    console.warn(`[EDHREC] Failed to fetch top commanders for "${cardName}":`, error);
+    cardTopCommandersCache.set(slug, { data: [], timestamp: Date.now() });
     return [];
   }
 }
