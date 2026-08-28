@@ -10,7 +10,6 @@ import {
 } from '@/services/scryfall/client';
 import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl, isPartnerPair } from '@/services/edhrec/client';
 import { StrategyBrowser } from '@/components/commander/StrategyBrowser';
-import { CardGroupSearch } from '@/components/commander/CardGroupSearch';
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
@@ -110,15 +109,12 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   }, [ownedOnly, query, collectionLegends]);
 
   // Suggestion tab: 'edhrec' or 'popular'
-  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular' | 'strategy' | 'cards'>(
-    () => {
-      const saved = localStorage.getItem('mtg-discovery-tab');
-      return saved === 'strategy' || saved === 'cards' ? saved : 'edhrec';
-    }
+  const [suggestionTab, setSuggestionTab] = useState<'edhrec' | 'popular' | 'strategy'>(
+    () => (localStorage.getItem('mtg-discovery-tab') === 'strategy' ? 'strategy' : 'edhrec')
   );
-  // Persist the active discovery tab (Top commanders vs By strategy vs For my cards) across sessions.
+  // Persist the active discovery tab (Top commanders vs By strategy) across sessions.
   useEffect(() => {
-    if (suggestionTab === 'edhrec' || suggestionTab === 'strategy' || suggestionTab === 'cards') {
+    if (suggestionTab === 'edhrec' || suggestionTab === 'strategy') {
       localStorage.setItem('mtg-discovery-tab', suggestionTab);
     }
   }, [suggestionTab]);
@@ -209,7 +205,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   // strategySlug, when present (selection came via the "By strategy" tab), is carried to the
   // builder as a `?strategy=` URL param so it can pre-select that archetype — passed via URL
   // rather than store state so the builder reads it synchronously on mount with no render race.
-  const handleSelectCommander = (card: ScryfallCard, strategySlug?: string, seedCards?: string[]) => {
+  const handleSelectCommander = (card: ScryfallCard, strategySlug?: string) => {
     setQuery('');
     setResults([]);
     setShowResults(false);
@@ -226,13 +222,10 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
       return;
     }
     setCommander(card);
-    const params = new URLSearchParams();
-    if (strategySlug) params.set('strategy', strategySlug);
-    if (seedCards && seedCards.length > 0) params.set('seeds', seedCards.join('|'));
-    const search = params.toString() ? `?${params}` : '';
+    const strategyQuery = strategySlug ? `?strategy=${encodeURIComponent(strategySlug)}` : '';
     navigate(destination === 'brew'
       ? `/brew/${formatCommanderNameForUrl(card.name)}`
-      : `/build/${encodeURIComponent(card.name)}${search}`);
+      : `/build/${encodeURIComponent(card.name)}${strategyQuery}`);
   };
 
   // Select a commander from the collection — fetch full ScryfallCard first
@@ -255,21 +248,6 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     try {
       const card = await getCardByName(name);
       handleSelectCommander(card, strategySlug);
-    } catch (error) {
-      console.error('Failed to fetch commander:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Select a commander suggested for a group of cards — the seeds ride along on the URL as
-  // `?seeds=` so the builder can lock them in as must-includes across refresh and regenerate.
-  const handleSelectCardGroupCommander = async (name: string, seedCards: string[]) => {
-    setIsSearching(true);
-    try {
-      const card = await getCardByName(name);
-      trackEvent('card_group_commander_selected', { commanderName: name, seedCount: seedCards.length });
-      handleSelectCommander(card, undefined, seedCards);
     } catch (error) {
       console.error('Failed to fetch commander:', error);
     } finally {
@@ -359,12 +337,12 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     </div>
   );
 
-  // Browsing strategies or a card group wants more horizontal room so the content
-  // spreads out instead of stacking in a narrow column; collapse back once a query is typed.
-  const isWideBrowse = (suggestionTab === 'strategy' || suggestionTab === 'cards') && !query && !ownedOnly;
+  // Browsing strategies wants more horizontal room so the commander chips spread
+  // out instead of stacking in a narrow column; collapse back once a query is typed.
+  const isStrategyBrowse = suggestionTab === 'strategy' && !query && !ownedOnly;
 
   return (
-    <div className={`w-full mx-auto relative transition-[max-width] duration-300 ${isWideBrowse ? 'max-w-3xl' : 'max-w-lg'}`}>
+    <div className={`w-full mx-auto relative transition-[max-width] duration-300 ${isStrategyBrowse ? 'max-w-3xl' : 'max-w-lg'}`}>
       <div className="relative">
         <div className="absolute left-4 inset-y-0 flex items-center pointer-events-none">
           <Search className="w-5 h-5 text-muted-foreground" />
@@ -517,17 +495,11 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               {/* Discovery mode picker — the highlighted noun is a dropdown */}
               <div className="flex justify-center mb-4">
                 <p className="text-foreground/90 flex items-center gap-1.5 text-sm">
-                  <span>
-                    {suggestionTab === 'strategy'
-                      ? 'Browse'
-                      : suggestionTab === 'cards'
-                        ? 'Find commanders for'
-                        : getColorFilterLabel(colorFilter)}
-                  </span>
+                  <span>{suggestionTab === 'strategy' ? 'Browse' : getColorFilterLabel(colorFilter)}</span>
                   <Popover>
                     <PopoverTrigger asChild>
                       <button className="group inline-flex items-center gap-0.5 font-semibold text-violet-300 border-b border-dashed border-violet-400/70 hover:text-violet-200 hover:border-violet-300 transition-colors">
-                        {suggestionTab === 'strategy' ? 'Strategies' : suggestionTab === 'cards' ? 'My Cards' : 'Commanders'}
+                        {suggestionTab === 'strategy' ? 'Strategies' : 'Commanders'}
                         <ChevronDown className="w-3.5 h-3.5 opacity-90 group-hover:opacity-100 transition-opacity" />
                       </button>
                     </PopoverTrigger>
@@ -535,10 +507,10 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
                       <PopoverClose asChild>
                         <button
                           onClick={() => setSuggestionTab('edhrec')}
-                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${suggestionTab !== 'strategy' && suggestionTab !== 'cards' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
+                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${suggestionTab !== 'strategy' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
                         >
                           Top Commanders
-                          {suggestionTab !== 'strategy' && suggestionTab !== 'cards' && <Check className="w-3.5 h-3.5" />}
+                          {suggestionTab !== 'strategy' && <Check className="w-3.5 h-3.5" />}
                         </button>
                       </PopoverClose>
                       <PopoverClose asChild>
@@ -550,27 +522,16 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
                           {suggestionTab === 'strategy' && <Check className="w-3.5 h-3.5" />}
                         </button>
                       </PopoverClose>
-                      <PopoverClose asChild>
-                        <button
-                          onClick={() => setSuggestionTab('cards')}
-                          className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-md text-sm text-left transition-colors ${suggestionTab === 'cards' ? 'bg-violet-500/15 text-violet-200 font-medium' : 'text-foreground/80 hover:bg-accent/50 hover:text-foreground'}`}
-                        >
-                          For My Cards
-                          {suggestionTab === 'cards' && <Check className="w-3.5 h-3.5" />}
-                        </button>
-                      </PopoverClose>
                     </PopoverContent>
                   </Popover>
-                  {suggestionTab !== 'strategy' && suggestionTab !== 'cards' && <span>on EDHREC</span>}
+                  {suggestionTab !== 'strategy' && <span>on EDHREC</span>}
                 </p>
               </div>
 
               {/* Color filter — shared by the Top commanders and By strategy tabs */}
-              {suggestionTab !== 'popular' && suggestionTab !== 'cards' && colorFilterRow}
+              {suggestionTab !== 'popular' && colorFilterRow}
 
-              {suggestionTab === 'cards' ? (
-                <CardGroupSearch onSelectCommander={handleSelectCardGroupCommander} />
-              ) : suggestionTab === 'strategy' ? (
+              {suggestionTab === 'strategy' ? (
                 <StrategyBrowser colorFilter={colorFilter} onSelectCommanderName={handleSelectStrategyCommander} />
               ) : suggestionTab === 'edhrec' ? (
                 <>
@@ -654,20 +615,18 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
             </>
           )}
 
-          {/* Surprise Me button — meaningless for a card group, so hidden on that tab */}
-          {suggestionTab !== 'cards' && (
-            <div className="mt-5 flex justify-center">
-              <button
-                onClick={handleSurpriseMe}
-                disabled={isSearching || (ownedOnly && collectionLegends.length === 0)}
-                className="animate-chip-in flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ animationDelay: `${(ownedOnly ? ownedSuggestions.length : edhrecCommanders.filter(c => !isPartnerPair(c.name)).length) * 40 + 80}ms` }}
-              >
-                <Shuffle className="w-4 h-4" />
-                Surprise me!
-              </button>
-            </div>
-          )}
+          {/* Surprise Me button */}
+          <div className="mt-5 flex justify-center">
+            <button
+              onClick={handleSurpriseMe}
+              disabled={isSearching || (ownedOnly && collectionLegends.length === 0)}
+              className="animate-chip-in flex items-center gap-1.5 px-3 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ animationDelay: `${(ownedOnly ? ownedSuggestions.length : edhrecCommanders.filter(c => !isPartnerPair(c.name)).length) * 40 + 80}ms` }}
+            >
+              <Shuffle className="w-4 h-4" />
+              Surprise me!
+            </button>
+          </div>
         </div>
       )}
     </div>

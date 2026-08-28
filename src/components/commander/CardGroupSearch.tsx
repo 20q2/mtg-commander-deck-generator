@@ -1,17 +1,16 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
-import { useCardNameSearch } from '@/hooks/useCardNameSearch';
+import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { fetchCardTopCommanders, isPartnerPair } from '@/services/edhrec/client';
 import type { CardCommanderStat } from '@/services/edhrec/client';
 import { scoreCommanderMatches } from '@/services/commanderMatch/scoreCommanders';
 import type { CommanderMatch, SeedResult } from '@/services/commanderMatch/scoreCommanders';
-import { Search, Loader2, X, Plus } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 
-const MAX_SEEDS = 10;
+/** Each seed costs one EDHREC page fetch (rate-limited to 100ms), and coverage gets noisy past this. */
+const MAX_SEEDS = 25;
 /** Scored candidates we resolve on Scryfall (for identity + art). Generous so the color filter has headroom. */
 const ENRICH_CANDIDATES = 24;
 const SHOW_RESULTS = 10;
@@ -32,14 +31,18 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
   });
   useEffect(() => { localStorage.setItem(SEEDS_KEY, JSON.stringify(seeds)); }, [seeds]);
 
+  // The importer calls onImportCards after an await, so its closure holds the render-time prop.
+  // A ref keeps the merge reading the current seeds rather than a stale copy.
+  const seedsRef = useRef(seeds);
+  seedsRef.current = seeds;
+
   // EDHREC top-commander data per seed. A missing key means "still loading";
   // an empty array means "resolved, but EDHREC has nothing for this card".
   const [seedData, setSeedData] = useState<Record<string, CardCommanderStat[]>>({});
   const [cards, setCards] = useState<Map<string, ScryfallCard>>(new Map());
   const [selecting, setSelecting] = useState(false);
-
-  const excludeSet = useMemo(() => new Set(seeds.map(s => s.toLowerCase())), [seeds]);
-  const { query, setQuery, suggestions, loading: suggestLoading, clear } = useCardNameSearch({ exclude: excludeSet });
+  /** Names dropped because the group was already full — surfaced, never silently truncated. */
+  const [overflow, setOverflow] = useState<string[]>([]);
 
   // Resolve each seed independently, so one dud card can't stall the panel.
   useEffect(() => {
@@ -55,14 +58,27 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
     return () => { cancelled = true; };
   }, [seeds, seedData]);
 
-  const addSeed = (name: string) => {
-    if (seeds.length >= MAX_SEEDS) return;
-    if (seeds.some(s => s.toLowerCase() === name.toLowerCase())) return;
-    setSeeds(prev => [...prev, name]);
-    clear();
+  /** Bulk import merges into the group — pasting again adds, it never wipes what's there. */
+  const handleImportCards = (validatedNames: string[]) => {
+    const current = seedsRef.current;
+    const seen = new Set(current.map(s => s.toLowerCase()));
+    const next = [...current];
+    const dropped: string[] = [];
+    let added = 0;
+    for (const name of validatedNames) {
+      if (seen.has(name.toLowerCase())) continue;
+      if (next.length >= MAX_SEEDS) { dropped.push(name); continue; }
+      seen.add(name.toLowerCase());
+      next.push(name);
+      added++;
+    }
+    setSeeds(next);
+    setOverflow(dropped);
+    return { added, updated: 0 };
   };
 
   const removeSeed = (name: string) => setSeeds(prev => prev.filter(s => s !== name));
+  const clearSeeds = () => { setSeeds([]); setOverflow([]); };
 
   // Score over RESOLVED seeds only — a still-loading seed shouldn't dilute coverage.
   const resolved: SeedResult[] = useMemo(
@@ -130,79 +146,70 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
 
   return (
     <div className="text-left max-w-xl mx-auto">
-      {/* Seed chips */}
-      {seeds.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {seeds.map(name => {
-            const card = cards.get(name);
-            const noData = name in seedData && seedData[name].length === 0;
-            return (
-              <span
-                key={name}
-                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm"
-                title={noData ? 'No EDHREC data for this card' : undefined}
-              >
-                {card && card.color_identity.length > 0 && <ColorIdentity colors={card.color_identity} size="sm" />}
-                <span className={noData ? 'text-muted-foreground/70' : 'text-foreground/90'}>{name}</span>
-                {noData && <span className="text-[10px] text-muted-foreground/60">no data</span>}
-                {!(name in seedData) && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/60" />}
-                <button
-                  onClick={() => removeSeed(name)}
-                  className="p-0.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  aria-label={`Remove ${name}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            );
-          })}
-        </div>
+      <CollectionImporter
+        onImportCards={handleImportCards}
+        label="Your cards"
+        updatedLabel="already in the group"
+      />
+
+      {overflow.length > 0 && (
+        <p className="mt-2 text-xs text-amber-500">
+          Group is full at {MAX_SEEDS} cards — {overflow.length} more {overflow.length === 1 ? 'was' : 'were'} left
+          out. Remove a card to make room.
+        </p>
       )}
 
-      {/* Add-a-card input */}
-      <div className="relative">
-        <div className="absolute left-3 inset-y-0 flex items-center pointer-events-none">
-          <Search className="w-4 h-4 text-muted-foreground" />
-        </div>
-        <Input
-          type="text"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder={seeds.length >= MAX_SEEDS ? `Up to ${MAX_SEEDS} cards` : 'Add a card you want to build around...'}
-          disabled={seeds.length >= MAX_SEEDS}
-          className="pl-9 pr-9 h-11 bg-card border-border/50 focus:border-primary"
-        />
-        {suggestLoading && (
-          <div className="absolute right-3 inset-y-0 flex items-center pointer-events-none">
-            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+      {/* The current group */}
+      {seeds.length > 0 && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">
+              Your card group <span className="text-muted-foreground">({seeds.length})</span>
+            </span>
+            <button
+              onClick={clearSeeds}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Clear all
+            </button>
           </div>
-        )}
-        {suggestions.length > 0 && (
-          <Card className="absolute top-full left-0 right-0 mt-1.5 z-50 max-h-64 overflow-auto shadow-2xl">
-            <CardContent className="p-1">
-              {suggestions.map(name => (
-                <button
+          <div className="flex flex-wrap gap-2">
+            {seeds.map(name => {
+              const card = cards.get(name);
+              const noData = name in seedData && seedData[name].length === 0;
+              return (
+                <span
                   key={name}
-                  onClick={() => addSeed(name)}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-sm text-left text-foreground/90 hover:bg-accent/50 transition-colors"
+                  className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm"
+                  title={noData ? 'No EDHREC data for this card' : undefined}
                 >
-                  <Plus className="w-3.5 h-3.5 text-muted-foreground" />
-                  {name}
-                </button>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+                  {card && card.color_identity.length > 0 && <ColorIdentity colors={card.color_identity} size="sm" />}
+                  <span className={noData ? 'text-muted-foreground/70' : 'text-foreground/90'}>{name}</span>
+                  {noData && <span className="text-[10px] text-muted-foreground/60">no data</span>}
+                  {!(name in seedData) && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/60" />}
+                  <button
+                    onClick={() => removeSeed(name)}
+                    className="p-0.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    aria-label={`Remove ${name}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Results */}
       <div className="mt-5">
         {seeds.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center">
-            Add a few cards you want to build around and we'll find the commanders that play them.
+            Paste the cards you want to build around and we'll find the commanders that play them.
           </p>
         ) : rows.length > 0 ? (
           <>
+            <p className="text-sm font-medium mb-2">Commanders for these cards</p>
             <div className="space-y-1.5">
               {rows.map(m => (
                 <button
