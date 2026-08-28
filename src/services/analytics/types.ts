@@ -39,7 +39,8 @@ export type AnalyticsEventType =
   | 'brew_finished'
   | 'brew_abandoned'
   | 'rebrew_clicked'
-  | 'strategy_selected';
+  | 'strategy_selected'
+  | 'card_group_commander_selected';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -133,6 +134,8 @@ export interface AnalyticsEventMetadata {
   rebrew_clicked: { commanderName: string | null };
   /** A strategy/archetype was opened from the "By strategy" commander-discovery tab. */
   strategy_selected: { strategy: string };
+  /** A commander was picked from the "For my cards" discovery tab; seedCount = cards in the group. */
+  card_group_commander_selected: { commanderName: string; seedCount: number };
   playtest_started: {
     /** Where the playtest was launched from. */
     source: 'list' | 'generated' | 'pasted' | 'shared';
