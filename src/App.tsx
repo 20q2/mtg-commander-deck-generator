@@ -13,6 +13,7 @@ import { BrewLandingPage } from '@/pages/BrewLandingPage';
 import { SpellChromaPage } from '@/pages/SpellChromaPage';
 import { CollectionPage } from '@/pages/CollectionPage';
 import { ListsPage } from '@/pages/ListsPage';
+import { SharedDeckPage } from '@/pages/SharedDeckPage';
 import { MigratePage } from '@/pages/MigratePage';
 import { PlaytestPage } from '@/pages/PlaytestPage';
 import { PlaytestLandingPage } from '@/pages/PlaytestLandingPage';
@@ -732,6 +733,9 @@ function App() {
         <Route path="/analyze/:param1/:param2" element={<Layout><AnalyzePage /></Layout>} />
         <Route path="/spellchroma" element={<Layout><SpellChromaPage /></Layout>} />
         <Route path="/collection" element={<Layout><CollectionPage /></Layout>} />
+        {/* Static segment outranks the /decks/* splat below, so a share link never
+            reaches ListsPage's list-id parsing. */}
+        <Route path="/decks/shared" element={<Layout><SharedDeckPage /></Layout>} />
         <Route path="/decks/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/migrate" element={<Layout><MigratePage /></Layout>} />

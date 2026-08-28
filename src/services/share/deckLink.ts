@@ -213,9 +213,16 @@ export function shareLinkErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Build the absolute share URL for a tab slug plus deck payload. */
-export async function buildShareUrl(tabSlug: string, p: SharedDeckPayload): Promise<string> {
+/**
+ * Build the absolute share URL for a route plus deck payload.
+ *
+ * `routePath` is the app-relative route the link should reopen on, without a
+ * leading slash — `analyze/mana` or `decks/shared`. Each surface that can share
+ * passes its own route so a link reopens where it was made: the Inspector keeps
+ * the tab it was shared from, the deck view lands back in a deck view.
+ */
+export async function buildShareUrl(routePath: string, p: SharedDeckPayload): Promise<string> {
   const encoded = await encodeDeckPayload(p);
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  return `${window.location.origin}${base}/analyze/${tabSlug}#${HASH_KEY}=${encoded}`;
+  return `${window.location.origin}${base}/${routePath}#${HASH_KEY}=${encoded}`;
 }

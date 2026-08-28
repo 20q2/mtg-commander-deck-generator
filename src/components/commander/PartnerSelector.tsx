@@ -19,6 +19,12 @@ import { Search, Loader2, Plus, X, Users, Palette } from 'lucide-react';
 
 interface PartnerSelectorProps {
   commander: ScryfallCard;
+  /**
+   * Fired after the store update so the host page can mirror the pick into its URL.
+   * The store alone isn't enough: a page whose URL names the command zone will clear
+   * any partner the current history entry doesn't mention.
+   */
+  onPartnerChange?: (partner: ScryfallCard | null) => void;
 }
 
 const WUBRG = [
@@ -73,7 +79,7 @@ function ChosenColorPicker({ card }: { card: ScryfallCard }) {
   );
 }
 
-export function PartnerSelector({ commander }: PartnerSelectorProps) {
+export function PartnerSelector({ commander, onPartnerChange }: PartnerSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ScryfallCard[]>([]);
@@ -172,12 +178,14 @@ export function PartnerSelector({ commander }: PartnerSelectorProps) {
 
   const handleSelectPartner = (card: ScryfallCard) => {
     setPartnerCommander(card);
+    onPartnerChange?.(card);
     setIsOpen(false);
     setQuery('');
   };
 
   const handleRemovePartner = () => {
     setPartnerCommander(null);
+    onPartnerChange?.(null);
   };
 
   function formatDeckCount(count: number): string {

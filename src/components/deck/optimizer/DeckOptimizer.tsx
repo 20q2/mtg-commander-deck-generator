@@ -133,7 +133,7 @@ export function DeckOptimizer({
   const handleCopyShareLink = useCallback(async () => {
     try {
       const url = await buildShareUrl(
-        TAB_SLUG_BY_KEY[activeTab],
+        `analyze/${TAB_SLUG_BY_KEY[activeTab]}`,
         deckToSharePayload({ cards: currentCards, commander, partnerCommander }),
       );
       await navigator.clipboard.writeText(url);

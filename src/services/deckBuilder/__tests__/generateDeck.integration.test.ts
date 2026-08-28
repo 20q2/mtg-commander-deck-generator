@@ -57,7 +57,7 @@ vi.mock('@/hooks/useUserLists', async (importOriginal) => {
 import {
   searchCards, getCardByName, getCardsByNames, getCheapestPrintings,
   prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames,
-  fetchMultiCopyCardNames, upgradeCardPrintings, getCardPrice,
+  fetchMultiCopyCardNames, upgradeCardPrintings, getCardPrice, normalizeCardNameKey,
 } from '@/services/scryfall/client';
 import {
   fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData,
@@ -282,10 +282,14 @@ beforeEach(() => {
 
   const clone = (c: ScryfallCard): ScryfallCard => ({ ...c, prices: { ...c.prices } });
 
+  // Mirrors the real client: the result is keyed by the exact string the caller passed,
+  // and a requested spelling that only differs by case/punctuation still resolves to the
+  // canonical card. Callers therefore can't assume two distinct keys are distinct cards.
+  const byNorm = new Map([...DB.values()].map(c => [normalizeCardNameKey(c.name), c]));
   vi.mocked(getCardsByNames).mockImplementation(async (names: string[]) => {
     const map = new Map<string, ScryfallCard>();
     for (const n of names) {
-      const card = DB.get(n);
+      const card = DB.get(n) ?? byNorm.get(normalizeCardNameKey(n));
       if (card) map.set(n, clone(card));
     }
     return map;
@@ -355,6 +359,20 @@ describe('generateDeck (fixture integration)', () => {
     expect(names).toContain('Fixture Sorcery 15');
     const mustInclude = allCards(deck).find(c => c.name === 'Fixture Sorcery 15');
     expect(mustInclude?.isMustInclude).toBe(true);
+  });
+
+  it('adds one copy when the same must-include arrives under two spellings', async () => {
+    // Regression: pins, applied include lists, the combo panel and ?seeds= all feed the
+    // must-include list, and their spellings differ. Scryfall resolves every spelling to
+    // the same card, but the must-include loop deduped on the raw string and never
+    // consulted usedNames — so each spelling put another copy in the deck.
+    const deck = await generateDeck(makeContext({
+      customization: { mustIncludeCards: ['Fixture Sorcery 15', 'fixture sorcery 15'] },
+    }));
+    const names = allCards(deck).map(c => c.name);
+
+    expect(names).toHaveLength(99);
+    expect(names.filter(n => n === 'Fixture Sorcery 15')).toHaveLength(1);
   });
 
   it('seeds combo pieces on the FIRST (uncached) generation', async () => {

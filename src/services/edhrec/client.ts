@@ -446,6 +446,24 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
   const seenCards = new Map<string, EDHRECCard>();
   // Track known types from typed lists (creatures, instants, etc.) even for deduped cards
   const knownTypes = new Map<string, string>();
+  // Where each card already sits in each list it was added to. EDHREC repeats cards
+  // across lists (a creature also shows up under "topcards"/"highsynergycards") and the
+  // repeats don't always carry the same potential_decks, so the inclusion comparison
+  // below can favour the later copy. Without positions, that pushed a SECOND entry for
+  // the same card and downstream consumers could put two copies in one deck.
+  const positions = new Map<string, Map<EDHRECCard[], number>>();
+
+  /** Add a card to a list, replacing its earlier entry instead of duplicating it. */
+  const place = (list: EDHRECCard[], card: EDHRECCard) => {
+    let inLists = positions.get(card.name);
+    if (!inLists) positions.set(card.name, (inLists = new Map()));
+    const at = inLists.get(list);
+    if (at !== undefined) {
+      list[at] = card;
+      return;
+    }
+    inLists.set(list, list.push(card) - 1);
+  };
 
   for (const list of rawCardLists) {
     if (!list.cardviews || list.cardviews.length === 0) continue;
@@ -491,32 +509,32 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
 
       // Add to the appropriate category based on EDHREC's tag
       if (tag === 'creatures') {
-        cardlists.creatures.push(card);
-        cardlists.allNonLand.push(card);
+        place(cardlists.creatures, card);
+        place(cardlists.allNonLand, card);
       } else if (tag === 'instants') {
-        cardlists.instants.push(card);
-        cardlists.allNonLand.push(card);
+        place(cardlists.instants, card);
+        place(cardlists.allNonLand, card);
       } else if (tag === 'sorceries') {
-        cardlists.sorceries.push(card);
-        cardlists.allNonLand.push(card);
+        place(cardlists.sorceries, card);
+        place(cardlists.allNonLand, card);
       } else if (tag === 'utilityartifacts' || tag === 'manaartifacts') {
-        cardlists.artifacts.push(card);
-        cardlists.allNonLand.push(card);
+        place(cardlists.artifacts, card);
+        place(cardlists.allNonLand, card);
       } else if (tag === 'enchantments') {
-        cardlists.enchantments.push(card);
-        cardlists.allNonLand.push(card);
+        place(cardlists.enchantments, card);
+        place(cardlists.allNonLand, card);
       } else if (tag === 'planeswalkers') {
-        cardlists.planeswalkers.push(card);
-        cardlists.allNonLand.push(card);
+        place(cardlists.planeswalkers, card);
+        place(cardlists.allNonLand, card);
       } else if (tag === 'utilitylands' || tag === 'lands') {
-        cardlists.lands.push(card);
+        place(cardlists.lands, card);
       } else if (
         tag === 'newcards' ||
         tag === 'highsynergycards' ||
         tag === 'topcards' ||
         tag === 'gamechangers'
       ) {
-        cardlists.allNonLand.push(card);
+        place(cardlists.allNonLand, card);
       }
     }
   }

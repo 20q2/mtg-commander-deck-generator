@@ -40,7 +40,9 @@ export type AnalyticsEventType =
   | 'brew_abandoned'
   | 'rebrew_clicked'
   | 'strategy_selected'
-  | 'card_group_commander_selected';
+  | 'card_group_commander_selected'
+  | 'shared_deck_opened'
+  | 'shared_deck_saved';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -107,8 +109,13 @@ export interface AnalyticsEventMetadata {
   analyze_deck_loaded: { source: 'paste' | 'list' | 'generated' | 'shared'; cardCount: number; hasCommander: boolean };
   analyze_deck_saved: { listName: string; cardCount: number; source: 'paste' | 'list' | 'generated' | 'shared' };
   analyze_lane_switched: { from: string; to: string };
-  /** A deck-carrying Inspector link was copied to the clipboard. */
+  /** A deck-carrying share link was copied to the clipboard. `tab` is the Inspector tab
+   *  it was made on, or 'deck-view' for links made in the deck view, which has no tabs. */
   share_link_copied: { tab: string; cardCount: number };
+  /** A `#d=` link was opened on /decks/shared and decoded into a preview. */
+  shared_deck_opened: { cardCount: number; hasCommander: boolean };
+  /** A shared-deck preview was saved into My Decks. */
+  shared_deck_saved: { cardCount: number };
   /** An inspector analyzer tab became active (overview/roles/mana/tempo/optimize/bracket/cost/lift). */
   inspector_tab_viewed: { tab: string };
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };

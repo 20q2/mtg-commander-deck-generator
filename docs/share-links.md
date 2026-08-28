@@ -5,7 +5,9 @@ end turns it back into a deck. There is no backend involved at any point: **the 
 storage.**
 
 Read this before touching [`src/services/share/deckLink.ts`](../src/services/share/deckLink.ts)
-or the shared-load path in [`src/pages/AnalyzePage.tsx`](../src/pages/AnalyzePage.tsx).
+or any of the shared-load paths: [`AnalyzePage.tsx`](../src/pages/AnalyzePage.tsx),
+[`PlaytestLandingPage.tsx`](../src/pages/PlaytestLandingPage.tsx), and
+[`SharedDeckPage.tsx`](../src/pages/SharedDeckPage.tsx).
 
 ---
 
@@ -25,8 +27,30 @@ Two independent pieces:
 
 | Piece | Owner | Meaning |
 |---|---|---|
-| `/analyze/<tab>` | [`constants.ts`](../src/components/deck/optimizer/constants.ts) `TAB_SLUG_BY_KEY` | Which Inspector tab to open on. Slugs follow the user-facing labels, not the internal keys — `lands` → `mana`, `curve` → `tempo`, `optimize` → `card-fit`, `lift` → `lift-web`. |
+| the route | the surface that built the link | Where the link reopens. `/analyze/<tab>` for Inspector links, `/decks/shared` for deck-view links, `/playtest` to drop straight onto the table. |
 | `#d=<version>.<payload>` | [`deckLink.ts`](../src/services/share/deckLink.ts) | The entire decklist. |
+
+Inspector tab slugs come from [`constants.ts`](../src/components/deck/optimizer/constants.ts)
+`TAB_SLUG_BY_KEY` and follow the user-facing labels rather than the internal keys —
+`lands` → `mana`, `curve` → `tempo`, `optimize` → `card-fit`, `lift` → `lift-web`.
+
+### Who reads and writes these links
+
+**A link reopens the surface it was made on.** That's the rule that decides which route a
+new producer should emit.
+
+| Route | Reads | Writes | What the recipient gets |
+|---|---|---|---|
+| `/analyze/<tab>` | `AnalyzePage` | Inspector "Copy link" | The Inspector, on the shared tab. Ephemeral (`source: 'shared'`) with a "Save as deck" action. |
+| `/decks/shared` | `SharedDeckPage` | Deck view → **Share** (beside Export) | A read-only deck view of an unsaved deck, with **Save to My Decks** and **Inspect**. The landing place for third-party "Export to ManaFoundry" buttons. |
+| `/playtest` | `PlaytestLandingPage` | — | Forwards straight to `/playtest/pasted`; the deck hits the table without being saved. |
+
+`SharedDeckPage` renders the payload through `ListDeckView` by handing it a synthetic
+`UserCardList` under the reserved id `__shared`, and passes none of the mutation
+callbacks — ListDeckView gates every edit affordance on its verb existing, so the preview
+is read-only by construction. Its `unsaved` prop additionally hides Inspect / SpellChroma /
+Playtest, which all navigate by a saved list id. Nothing is written to storage until the
+recipient presses Save.
 
 The origin + base path come from `import.meta.env.BASE_URL`, so the same code emits
 `manafoundry.gg/analyze/…` (AWS deploy, `BASE_PATH=/`) and
@@ -180,5 +204,12 @@ node node_modules/vitest/vitest.mjs run src/services/share
   rather than changing what the existing lines mean.
 - **Sharing something other than a deck** → don't reuse `d`. `readDeckHash` owns exactly that
   key (`HASH_KEY`); a second feature should claim its own so both can coexist in one fragment.
-- **Another producer** (deck view, lists page) → call `deckToSharePayload` + `buildShareUrl`.
+- **Another producer** → call `deckToSharePayload` + `buildShareUrl('<route>', payload)`.
   Don't hand-build the fragment; the commander-inclusion contract lives in that helper.
+  `buildShareUrl` takes the app-relative route without a leading slash (`analyze/mana`,
+  `decks/shared`), so pick the route whose page reopens the surface you're sharing from.
+- **Another consumer** → copy the load shape from `SharedDeckPage`: read the hash in a
+  `useState` initializer (never an effect — the recipient must not see the empty state
+  flash first), decode in a ref-guarded effect with no cleanup-cancel (StrictMode
+  double-mounts, and cancelling kills the only real attempt), and render
+  `shareLinkErrorMessage` copy on failure. Then add a row to the table in §1.

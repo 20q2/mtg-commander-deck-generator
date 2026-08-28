@@ -22,7 +22,7 @@ import type {
   BudgetOption,
   CollectionStrategy,
 } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, normalizeCardNameKey, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
 import { blendArchetypeData, buildArchetypeSourceLabel } from './archetypeBlend';
 import {
@@ -2175,9 +2175,16 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Track where each must-include came from (first source wins)
   const mustIncludeNames: string[] = [];
   const mustIncludeSources = new Map<string, 'user' | 'deck' | 'combo'>();
+  // Dedupe on the normalized key, not the raw string: the same card reaches this list
+  // from several sources (pins, include lists, combo panel, ?seeds=) whose spellings can
+  // differ in case/punctuation/accents. Scryfall resolves all of them to one card, so two
+  // spellings would otherwise each add a copy of it.
+  const mustIncludeKeys = new Set<string>();
 
   function addMustInclude(name: string, source: 'user' | 'deck' | 'combo') {
-    if (!bannedCards.has(name) && !usedNames.has(name) && !mustIncludeNames.includes(name)) {
+    const key = normalizeCardNameKey(name);
+    if (!bannedCards.has(name) && !usedNames.has(name) && !mustIncludeKeys.has(key)) {
+      mustIncludeKeys.add(key);
       mustIncludeNames.push(name);
       mustIncludeSources.set(name, source);
     }
@@ -2262,6 +2269,14 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       const card = mustIncludeMap.get(name);
       if (!card) {
         console.warn(`[DeckGen] Must-include card not found: "${name}"`);
+        continue;
+      }
+
+      // Already in the deck — two must-include entries resolved to the same card
+      // (e.g. a DFC requested by front-face name and by its full "A // B" name).
+      // Commander is singleton; adding it again would put two copies in the deck.
+      if (usedNames.has(card.name)) {
+        console.log(`[DeckGen] Must-include card "${name}" already added as "${card.name}", skipping duplicate`);
         continue;
       }
 
@@ -2746,6 +2761,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   let scryfallCardMap: Map<string, ScryfallCard> = new Map();
 
   // ---- Multi-copy card pipeline (self-contained, no impact if nothing found) ----
+  // Names that are ALLOWED to appear more than once (Relentless Rats and friends),
+  // so the singleton sweep before trimming doesn't collapse them.
+  const multiCopyNames = new Set<string>();
   if (edhrecData) {
     const allEdhrecNames = edhrecData.cardlists.allNonLand.map(c => c.name);
     const firstThemeSlug = selectedThemesWithSlugs.length > 0 ? selectedThemesWithSlugs[0].slug : undefined;
@@ -2796,6 +2814,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
       // Prevent normal selection from picking this card again
       markUsed(card.name);
+      multiCopyNames.add(card.name);
     }
   }
   // ---- End multi-copy pipeline ----
@@ -3689,6 +3708,31 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Helper to count all cards
   const countAllCards = () => Object.values(categories).flat().length;
 
+  // ── Singleton sweep ──
+  // Commander is singleton: a name may appear once, except basics and the "any number of"
+  // cards the multi-copy pipeline stacked on purpose. Every selection path already checks
+  // usedNames, so a hit here means one of them leaked — warn, don't hide it. Runs BEFORE
+  // trim/shortage-fill so the freed slot gets backfilled with a real card rather than
+  // shrinking the deck, and so trimming isn't computed off an inflated count.
+  {
+    const seen = new Set<string>();
+    const collapsed: string[] = [];
+    for (const cat of Object.keys(categories) as DeckCategory[]) {
+      categories[cat] = categories[cat].filter(card => {
+        if (BASIC_LAND_NAMES.has(card.name) || multiCopyNames.has(card.name)) return true;
+        if (seen.has(card.name)) {
+          collapsed.push(card.name);
+          return false;
+        }
+        seen.add(card.name);
+        return true;
+      });
+    }
+    if (collapsed.length > 0) {
+      console.warn(`[DeckGen] Singleton sweep removed ${collapsed.length} duplicate card(s): ${collapsed.join(', ')}`);
+    }
+  }
+
   // ── Smart Trim: priority-aware, role-aware, combo-aware ──
   const MUST_INCLUDE_BOOST = 10000;
   const COMBO_TRIM_BOOST = 200;
@@ -3852,9 +3896,14 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       let filled = 0;
       for (const edhrecCard of remainingEdhrecCards) {
         if (filled >= shortage) break;
+        // remainingEdhrecCards was filtered against usedNames when it was built, but the
+        // pool can list the same card twice — re-check per candidate (as the second pass
+        // below does) so a repeated entry can't fill two slots with the same card.
+        if (usedNames.has(edhrecCard.name)) continue;
 
         const scryfallCard = fillCardMap.get(edhrecCard.name);
         if (!scryfallCard) continue;
+        if (usedNames.has(scryfallCard.name)) continue;
 
         if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
         if (notOnArena(scryfallCard, arenaOnly)) continue;
@@ -3895,6 +3944,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
           const scryfallCard = fillCardMap.get(edhrecCard.name);
           if (!scryfallCard) continue;
+          if (usedNames.has(scryfallCard.name)) continue;
 
           if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
           if (notOnArena(scryfallCard, arenaOnly)) continue;

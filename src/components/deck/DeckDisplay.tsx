@@ -2666,6 +2666,9 @@ interface DeckDisplayProps {
   toolbarExtra?: React.ReactNode;
   /** Slot rendered next to the Modify Deck (pencil) button in the main toolbar (e.g. a bulk-add trigger) */
   headerBulkAdd?: React.ReactNode;
+  /** Slot rendered immediately before the Export button (e.g. a copy-share-link button).
+   *  The owner supplies the whole control so it keeps its own copied/failed state. */
+  shareAction?: React.ReactNode;
   /**
    * True when the deck being shown is a saved list, so text-panel edits persist.
    * A generated deck leaves the panel in read-only "Deck View" mode.
@@ -2732,7 +2735,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, savedList, saveNudge, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, shareAction, savedList, saveNudge, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, colorIdentity, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -4288,11 +4291,15 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                 : 'From My Collection'}
             </span>
           )}
+          {/* Row inside the column so Share sits beside Export rather than stacking above it. */}
           {!renderHeaderActions && (
-            <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
-              <Copy className="w-4 h-4 mr-2" />
-              Export
-            </Button>
+            <div className="flex items-center gap-2">
+              {shareAction}
+              <Button onClick={() => setShowExportModal(true)} className="btn-shimmer">
+                <Copy className="w-4 h-4 mr-2" />
+                Export
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -4938,6 +4945,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
         <div ref={toolbarRef} className="flex items-center gap-2 flex-wrap mb-4">
           {/* Mobile only: Export shares row 1 with the view options; on desktop Export lives in the sidebar.
               order/break classes split the toolbar into two rows on mobile and reset to a single row on desktop. */}
+          {!renderHeaderActions && shareAction && (
+            <div className="order-1 xl:hidden">{shareAction}</div>
+          )}
           {!renderHeaderActions && (
             <Button onClick={() => setShowExportModal(true)} className="btn-shimmer order-1 xl:hidden">
               <Copy className="w-4 h-4 mr-2" />

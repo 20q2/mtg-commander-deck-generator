@@ -18,7 +18,7 @@ import { getCardByName, getCardImageUrl, getCachedCard, getCardPrice } from '@/s
 import { removeCards, addCard } from '@/services/deckBuilder/cardSwap';
 import { fetchCommanderData, fetchPartnerCommanderData, formatCommanderNameForUrl, edhrecColorSegment } from '@/services/edhrec';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
-import type { BracketLevel, BudgetOption, EDHRECTheme, GeneratedDeck, ThemeResult } from '@/types';
+import type { BracketLevel, BudgetOption, EDHRECTheme, GeneratedDeck, ScryfallCard, ThemeResult } from '@/types';
 import { Loader2, ArrowLeft, ExternalLink, SlidersHorizontal, Bookmark, Check, Copy, X, Swords, Library, AlertTriangle } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -457,6 +457,25 @@ export function BuilderPage() {
       navigate(newPath, { replace: true });
     }
   }, [partnerCommander?.name, commander?.name, commanderName, partnerName, navigate]);
+
+  // Write the user's partner pick straight into the URL. The effect above deliberately
+  // won't do this — it can't tell a fresh pick from a stale store partner left over from
+  // another commander — so the picker tells us directly. Without it the settings screen's
+  // history entry stays partner-less, and coming back to it from the deck view (Back to
+  // Settings, or browser-back) makes the URL→store sync drop the partner, which cascades
+  // into re-fetched EDHREC data: archetypes back to the default two, land counts reset.
+  // Replace rather than push so back still lands on the search page, and drop ?g= because
+  // changing the command zone invalidates the generated deck it keys.
+  const handlePartnerChange = useCallback((partner: ScryfallCard | null) => {
+    if (!commander) return;
+    const basePath = `/build/${encodeURIComponent(commander.name)}`;
+    const path = partner ? `${basePath}/${encodeURIComponent(partner.name)}` : basePath;
+    // Carry the rest of the query forward — ?seeds= and ?strategy= shape this build.
+    const next = new URLSearchParams(searchParams);
+    next.delete('g');
+    const query = next.toString();
+    navigate(query ? `${path}?${query}` : path, { replace: true });
+  }, [commander, searchParams, navigate]);
 
   // Chosen color (Clara Oswald / The Prismatic Piper / Faceless One) ⇄ ?color= URL param.
   // Read the URL only once both commanders are in the store — setChosenColor drops the value
@@ -1087,7 +1106,7 @@ export function BuilderPage() {
 
             {/* Partner Selector - only show for commanders that can have partners */}
             <div className="max-w-lg mx-auto">
-              <PartnerSelector commander={commander} />
+              <PartnerSelector commander={commander} onPartnerChange={handlePartnerChange} />
             </div>
           </div>
         </section>

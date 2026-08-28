@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library, Trash2, Check, Share } from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { InspectorIcon } from '@/components/analyze/InspectorIcon';
@@ -24,6 +24,7 @@ import {
   type SwapCandidatesResult,
 } from '@/services/deckBuilder/deckEnricher';
 import { getBaseRoleTargets } from '@/services/deckBuilder/roleTargets';
+import { buildShareUrl, deckToSharePayload, DeckLinkError } from '@/services/share/deckLink';
 import {
   readEnrichmentCache,
   writeEnrichmentCache,
@@ -40,6 +41,7 @@ import { buildThemeFit, literalThemeMembers } from '@/services/deckBuilder/theme
 import { rebuildRelevancyMap } from '@/services/deckBuilder/relevancyMap';
 import { AddCardsPanel } from '@/components/deck/AddCardsPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, LoadPhase, SerializedEnrichment } from '@/types';
@@ -58,6 +60,11 @@ import { useCardLinkDrop } from '@/hooks/useCardLinkDrop';
 interface ListDeckViewProps {
   list: UserCardList;
   onBack: () => void;
+  /** Deck isn't in storage (shared-link preview). Hides the tools that navigate by a
+   *  saved list id — Inspect, SpellChroma and Playtest all route on `list.id`, which
+   *  resolves to nothing for a synthetic one. Edit affordances need no flag: they're
+   *  already gated on their callbacks, which a preview simply doesn't pass. */
+  unsaved?: boolean;
   onViewAsList?: () => void;
   onEdit?: () => void;
   onDuplicate?: () => void;
@@ -660,7 +667,7 @@ function primaryTypeFromLine(typeLine: string | undefined): string {
   return order.find(t => tl.includes(t)) || 'creature';
 }
 
-export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, onDelete, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
+export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDuplicate, onDelete, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, onMoveToDeck, onRemoveFromBoard, onMoveBetweenBoards, onUpdatePrimer, onChangeQuantity, onRename, onUpdateDeckSize, onSetSideboard, onSetMaybeboard }: ListDeckViewProps) {
   const navigate = useNavigate();
   const generatedDeck = useStore(s => s.generatedDeck);
   const trimReady = !!(
@@ -675,6 +682,77 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
     () => generatedDeck ? Object.values(generatedDeck.categories).flat() : [],
     [generatedDeck],
   );
+
+  // A share link carries the whole decklist in its fragment, so this needs no backend.
+  // It points back at the deck view rather than the Inspector: a link reopens the
+  // surface it was made on. `categories` excludes the commanders, which is exactly what
+  // deckToSharePayload expects — it prepends them itself.
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [shareErrorMsg, setShareErrorMsg] = useState<string | null>(null);
+  const handleCopyShareLink = useCallback(async () => {
+    try {
+      const url = await buildShareUrl(
+        'decks/shared',
+        deckToSharePayload({
+          cards: allDeckCards,
+          commander: generatedDeck?.commander,
+          partnerCommander: generatedDeck?.partnerCommander,
+        }),
+      );
+      await navigator.clipboard.writeText(url);
+      setShareState('copied');
+      setShareErrorMsg(null);
+      trackEvent('share_link_copied', { tab: 'deck-view', cardCount: allDeckCards.length });
+      setTimeout(() => setShareState('idle'), 2000);
+    } catch (e) {
+      console.error('[ListDeckView] share link failed', e);
+      setShareState('error');
+      setShareErrorMsg(
+        e instanceof DeckLinkError && e.reason === 'too-large'
+          ? 'This deck is too large to share as a link.'
+          : 'Could not copy the share link.',
+      );
+      setTimeout(() => setShareState('idle'), 3000);
+    }
+  }, [allDeckCards, generatedDeck]);
+
+  // Sits beside Export in the deck toolbar. Owned decks only: a shared preview is already
+  // at a shareable URL, and its own banner carries the actions.
+  const shareLabel = shareState === 'copied' ? 'Link copied'
+    : shareState === 'error' ? (shareErrorMsg ?? 'Could not copy the share link')
+    : 'Copy a link to this deck';
+  // Icon-only at rest; widens to show the outcome after a click, then settles back.
+  // Width is animated between fixed values because `w-auto` can't be transitioned.
+  const shareSettled = shareState !== 'idle';
+  const shareButton = unsaved ? undefined : (
+    // No `title` attribute: it would fire the native tooltip alongside this one.
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            onClick={handleCopyShareLink}
+            disabled={allDeckCards.length === 0}
+            aria-label={shareLabel}
+            className={`h-9 overflow-hidden whitespace-nowrap transition-[width,padding] duration-200 ease-out ${
+              shareSettled ? 'w-[6.5rem] px-3' : 'w-9 px-0'
+            }`}
+          >
+            {shareState === 'copied'
+              ? <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+              : <Share className={`w-4 h-4 shrink-0 ${shareState === 'error' ? 'text-red-400' : ''}`} />}
+            {shareSettled && (
+              <span className={`text-sm ${shareState === 'error' ? 'text-red-400' : ''}`}>
+                {shareState === 'copied' ? 'Copied' : 'Failed'}
+              </span>
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{shareLabel}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   const colorIdentity = useStore(s => s.colorIdentity) || [];
   // EDHREC page segment for "choose a color" commanders (Clara Oswald &c). Derived from the
   // list rather than the store so it's stable inside the async load effects below; '' for
@@ -2284,7 +2362,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
                     Collection
                   </span>
                 )}
-                {list.type === 'deck' && list.commanderName && (
+                {list.type === 'deck' && list.commanderName && !unsaved && (
                   <ThemePickerPopover
                     themes={list.themes ?? []}
                     onChange={(themes) => persistListThemes(updateList, list.id, themes[0] ?? null, themes[1] ?? null)}
@@ -2304,28 +2382,32 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             {totalDeckPrice !== null && totalDeckPrice > 0 && (
               <span className="hidden xl:inline text-sm text-muted-foreground">{priceSym}{totalDeckPrice.toFixed(2)}</span>
             )}
-            <button
-              onClick={() => {
-                trackEvent('analyze_cta_clicked', { from: 'list-deck' });
-                navigate(`/analyze/${list.id}`);
-              }}
-              title="Inspect this deck"
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
-            >
-              <InspectorIcon className="w-4 h-4" />
-              <span>Inspect (Beta)</span>
-            </button>
-            <button
-              onClick={() => {
-                trackEvent('spellchroma_open_clicked', { from: 'list-deck' });
-                navigate(`/spellchroma?deck=${list.id}`);
-              }}
-              title="Explore new cards for this deck in SpellChroma"
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
-            >
-              <SpellChromaIcon className="w-4 h-4" />
-              <span>SpellChroma</span>
-            </button>
+            {!unsaved && (
+              <button
+                onClick={() => {
+                  trackEvent('analyze_cta_clicked', { from: 'list-deck' });
+                  navigate(`/analyze/${list.id}`);
+                }}
+                title="Inspect this deck"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
+              >
+                <InspectorIcon className="w-4 h-4" />
+                <span>Inspect (Beta)</span>
+              </button>
+            )}
+            {!unsaved && (
+              <button
+                onClick={() => {
+                  trackEvent('spellchroma_open_clicked', { from: 'list-deck' });
+                  navigate(`/spellchroma?deck=${list.id}`);
+                }}
+                title="Explore new cards for this deck in SpellChroma"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
+              >
+                <SpellChromaIcon className="w-4 h-4" />
+                <span>SpellChroma</span>
+              </button>
+            )}
             <button
               onClick={() => setListsPanelOpen(v => !v)}
               title="Open a list alongside the deck"
@@ -2338,14 +2420,16 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               <Library className="w-4 h-4" />
               <span>Lists</span>
             </button>
-            <button
-              onClick={() => navigate(`/playtest/list/${list.id}`)}
-              title="Playtest this deck"
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
-            >
-              <Swords className="w-4 h-4" />
-              <span>Playtest</span>
-            </button>
+            {!unsaved && (
+              <button
+                onClick={() => navigate(`/playtest/list/${list.id}`)}
+                title="Playtest this deck"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm transition-colors"
+              >
+                <Swords className="w-4 h-4" />
+                <span>Playtest</span>
+              </button>
+            )}
             <div className="relative" ref={overflowRef}>
               <button
                 onClick={() => setShowOverflow(prev => !prev)}
@@ -2772,6 +2856,7 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
           onSetSideboard={onSetSideboard}
           onSetMaybeboard={onSetMaybeboard}
           savedList
+          shareAction={shareButton}
           headerBulkAdd={onAddCards ? (
             <div className="relative" ref={headerBulkAddRef}>
               <button
@@ -3035,7 +3120,9 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
             />
           )}
           {/* Always render — ComboDisplay owns its own skeleton/empty states, and the
-              "Add combo" button must stay reachable even on a combo-less deck. */}
+              "Add combo" button must stay reachable even on a combo-less deck.
+              Combo authoring writes through updateList, which no-ops for a synthetic id,
+              so a preview withholds those verbs rather than silently dropping the edit. */}
           {(
             <ComboDisplay
               combos={generatedDeck?.detectedCombos ?? []}
@@ -3044,16 +3131,16 @@ export function ListDeckView({ list, onBack, onViewAsList, onEdit, onDuplicate, 
               deckCardNames={[...new Set([list.commanderName, list.partnerCommanderName, ...list.cards].filter(Boolean) as string[])]}
               seedCard={comboSeedCard}
               onSeedConsumed={() => setComboSeedCard(null)}
-              onAddCombo={({ cards, result, details }) => {
+              onAddCombo={unsaved ? undefined : ({ cards, result, details }) => {
                 const combo = { id: `uc-${Date.now()}-${Math.round(Math.random() * 1e6)}`, cards, result, details: details || undefined, createdAt: Date.now() };
                 updateList(list.id, { customCombos: [...(list.customCombos ?? []), combo] });
               }}
-              onEditCombo={(id, { cards, result, details }) => {
+              onEditCombo={unsaved ? undefined : (id, { cards, result, details }) => {
                 updateList(list.id, {
                   customCombos: (list.customCombos ?? []).map(c => c.id === id ? { ...c, cards, result, details: details || undefined } : c),
                 });
               }}
-              onDeleteCombo={(id) => {
+              onDeleteCombo={unsaved ? undefined : (id) => {
                 updateList(list.id, { customCombos: (list.customCombos ?? []).filter(c => c.id !== id) });
               }}
               onAddToDeck={onAddCards ? (names) => {
