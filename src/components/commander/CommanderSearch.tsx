@@ -10,6 +10,7 @@ import {
 } from '@/services/scryfall/client';
 import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl, isPartnerPair } from '@/services/edhrec/client';
 import { StrategyBrowser } from '@/components/commander/StrategyBrowser';
+import { ColorFilterChips } from '@/components/commander/ColorFilterChips';
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
@@ -298,44 +299,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     : showResults && results.length > 0;
 
   // Color-filter chips, shared by the "Top commanders" and "By strategy" tabs.
-  const colorFilterRow = (
-    <div className="flex justify-center gap-1.5 mb-1.5">
-      {(['W', 'U', 'B', 'R', 'G', 'C'] as const).map(color => (
-        <button
-          key={color}
-          onClick={() => setColorFilter(prev => {
-            const next = new Set(prev);
-            if (next.has(color)) {
-              next.delete(color);
-            } else {
-              next.add(color);
-              // Colorless and colors are mutually exclusive
-              if (color === 'C') {
-                next.forEach(c => { if (c !== 'C') next.delete(c); });
-              } else {
-                next.delete('C');
-              }
-            }
-            return next;
-          })}
-          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-            colorFilter.has(color)
-              ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110'
-              : 'opacity-50 hover:opacity-80'
-          }`}
-          title={color === 'C' ? 'Colorless' : color}
-        >
-          <i className={`ms ms-${color.toLowerCase()} ms-cost text-lg`} />
-        </button>
-      ))}
-      <button
-        onClick={() => setColorFilter(new Set())}
-        className={`text-xs text-muted-foreground hover:text-foreground transition-all duration-200 self-center overflow-hidden whitespace-nowrap ${colorFilter.size > 0 ? 'opacity-100 max-w-[3rem] ml-1' : 'opacity-0 max-w-0 ml-0'}`}
-      >
-        Clear
-      </button>
-    </div>
-  );
+  const colorFilterRow = <ColorFilterChips value={colorFilter} onChange={setColorFilter} />;
 
   // Browsing strategies wants more horizontal room so the commander chips spread
   // out instead of stacking in a narrow column; collapse back once a query is typed.

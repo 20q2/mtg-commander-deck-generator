@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ColorIdentity } from '@/components/ui/mtg-icons';
+import { ColorFilterChips } from '@/components/commander/ColorFilterChips';
 import { CollectionImporter } from '@/components/collection/CollectionImporter';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { fetchCardTopCommanders, isPartnerPair } from '@/services/edhrec/client';
@@ -11,10 +12,21 @@ import type { ScryfallCard } from '@/types';
 
 /** Each seed costs one EDHREC page fetch (rate-limited to 100ms), and coverage gets noisy past this. */
 const MAX_SEEDS = 25;
-/** Scored candidates we resolve on Scryfall (for identity + art). Generous so the color filter has headroom. */
-const ENRICH_CANDIDATES = 24;
+/**
+ * Scored candidates we resolve on Scryfall (for identity + art). This slice happens BEFORE the
+ * color filter — identity isn't known until Scryfall answers — so it must be much larger than
+ * SHOW_RESULTS. At 24 a narrow color pick (say Azorius over a five-color pile) filtered down to a
+ * single row, because nearly every top-scoring candidate was a wide commander.
+ */
+const ENRICH_CANDIDATES = 60;
 const SHOW_RESULTS = 10;
 const SEEDS_KEY = 'mtg-card-group-seeds';
+const COLOR_KEY = 'mtg-card-group-colors';
+
+/** True when `identity` fits entirely inside `allowed`. */
+function withinColors(identity: string[], allowed: Set<string>): boolean {
+  return identity.every(c => allowed.has(c));
+}
 
 export interface CardGroupSearchProps {
   /** Chosen commander + the seed cards that produced it. The host resolves the card and navigates. */
@@ -30,6 +42,18 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
     } catch { return []; }
   });
   useEffect(() => { localStorage.setItem(SEEDS_KEY, JSON.stringify(seeds)); }, [seeds]);
+
+  // Empty = no ceiling, and every suggested commander must be able to play the whole group.
+  // Non-empty = "build me a deck in these colors": the commander's identity must fit inside
+  // the picked colors, and cards that fall outside get dropped instead of blocking results.
+  const [colorFilter, setColorFilter] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(COLOR_KEY);
+      return saved ? new Set<string>(JSON.parse(saved)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+  useEffect(() => { localStorage.setItem(COLOR_KEY, JSON.stringify([...colorFilter])); }, [colorFilter]);
+  const capped = colorFilter.size > 0;
 
   // The importer calls onImportCards after an await, so its closure holds the render-time prop.
   // A ref keeps the merge reading the current seeds rather than a stale copy.
@@ -110,7 +134,7 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrichKey]);
 
-  // Union of the seed cards' color identities — a commander must cover all of it.
+  // Union of the seed cards' color identities — the constraint when no ceiling is picked.
   const seedIdentity = useMemo(() => {
     const set = new Set<string>();
     for (const n of seeds) {
@@ -118,6 +142,15 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
     }
     return set;
   }, [seeds, cards]);
+
+  /** Seeds that fall outside the picked colors — shown struck through, dropped on handoff. */
+  const offColorSeeds = useMemo(() => {
+    if (!capped) return new Set<string>();
+    return new Set(seeds.filter(n => {
+      const ci = cards.get(n)?.color_identity;
+      return ci ? !withinColors(ci, colorFilter) : false;
+    }));
+  }, [capped, seeds, cards, colorFilter]);
 
   // Color filter runs AFTER scoring so it never distorts the ranking.
   const { rows, filteredByColor } = useMemo(() => {
@@ -127,18 +160,31 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
       const card = cards.get(m.name);
       if (!card) continue;   // identity unknown — can't vouch for legality, so don't offer it
       const ci = card.color_identity;
-      if (![...seedIdentity].every(c => ci.includes(c))) { dropped++; continue; }
+      // With a ceiling picked the commander must fit inside it, and we no longer insist it can
+      // play every card. Without one, it must cover the whole group.
+      const ok = capped
+        ? withinColors(ci, colorFilter)
+        : [...seedIdentity].every(c => ci.includes(c));
+      if (!ok) { dropped++; continue; }
       out.push({ ...m, colorIdentity: ci });
       if (out.length >= SHOW_RESULTS) break;
     }
     // `dropped` only matters when out is empty, in which case the loop never broke early.
     return { rows: out, filteredByColor: dropped };
-  }, [topCandidates, cards, seedIdentity]);
+  }, [topCandidates, cards, seedIdentity, capped, colorFilter]);
 
-  const handleSelect = async (name: string) => {
+  /** Cards this commander can legally run — the only ones worth sending to the builder. */
+  const playableSeeds = (commanderIdentity: string[]) =>
+    seeds.filter(n => {
+      const ci = cards.get(n)?.color_identity;
+      return ci ? withinColors(ci, new Set(commanderIdentity)) : true;
+    });
+
+  const handleSelect = async (match: CommanderMatch) => {
     setSelecting(true);
     try {
-      await onSelectCommander(name, seeds);
+      // Off-color cards can't be built with this commander, so they don't travel to the builder.
+      await onSelectCommander(match.name, playableSeeds(match.colorIdentity));
     } finally {
       setSelecting(false);
     }
@@ -156,6 +202,25 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
         <p className="mt-2 text-xs text-amber-500">
           Group is full at {MAX_SEEDS} cards — {overflow.length} more {overflow.length === 1 ? 'was' : 'were'} left
           out. Remove a card to make room.
+        </p>
+      )}
+
+      {/* Colour ceiling */}
+      {seeds.length > 0 && (
+        <div className="mt-4 flex items-center gap-3">
+          <span className="text-sm font-medium shrink-0">Deck colors</span>
+          <ColorFilterChips
+            value={colorFilter}
+            onChange={setColorFilter}
+            className="flex gap-1.5 items-center"
+          />
+        </div>
+      )}
+      {seeds.length > 0 && (
+        <p className="mt-1 text-[11px] text-muted-foreground/70">
+          {capped
+            ? `Only commanders inside these colors. ${offColorSeeds.size > 0 ? `${offColorSeeds.size} of your cards can't be played in them and won't be carried into the build.` : 'All of your cards fit.'}`
+            : 'Any colors — every suggested commander can play your whole group. Pick colors to narrow the deck instead.'}
         </p>
       )}
 
@@ -177,15 +242,27 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
             {seeds.map(name => {
               const card = cards.get(name);
               const noData = name in seedData && seedData[name].length === 0;
+              const offColor = offColorSeeds.has(name);
               return (
                 <span
                   key={name}
-                  className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 bg-accent/50 backdrop-blur-sm rounded-full text-sm"
-                  title={noData ? 'No EDHREC data for this card' : undefined}
+                  className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 backdrop-blur-sm rounded-full text-sm ${offColor ? 'bg-accent/20' : 'bg-accent/50'}`}
+                  title={
+                    offColor ? "Outside your chosen colors — won't be built with"
+                    : noData ? 'No EDHREC data for this card'
+                    : undefined
+                  }
                 >
-                  {card && card.color_identity.length > 0 && <ColorIdentity colors={card.color_identity} size="sm" />}
-                  <span className={noData ? 'text-muted-foreground/70' : 'text-foreground/90'}>{name}</span>
-                  {noData && <span className="text-[10px] text-muted-foreground/60">no data</span>}
+                  {card && card.color_identity.length > 0 && (
+                    <span className={offColor ? 'opacity-40' : undefined}>
+                      <ColorIdentity colors={card.color_identity} size="sm" />
+                    </span>
+                  )}
+                  <span className={offColor ? 'text-muted-foreground/50 line-through' : noData ? 'text-muted-foreground/70' : 'text-foreground/90'}>
+                    {name}
+                  </span>
+                  {offColor && <span className="text-[10px] text-muted-foreground/50">off-color</span>}
+                  {!offColor && noData && <span className="text-[10px] text-muted-foreground/60">no data</span>}
                   {!(name in seedData) && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground/60" />}
                   <button
                     onClick={() => removeSeed(name)}
@@ -214,7 +291,7 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
               {rows.map(m => (
                 <button
                   key={m.name}
-                  onClick={() => handleSelect(m.name)}
+                  onClick={() => handleSelect(m)}
                   disabled={selecting}
                   className="w-full flex items-center gap-3 p-2 rounded-lg text-left hover:bg-accent/50 transition-colors group disabled:opacity-50"
                 >
@@ -249,9 +326,14 @@ export function CardGroupSearch({ onSelectCommander }: CardGroupSearchProps) {
           <div className="flex justify-center py-4">
             <Loader2 className="w-5 h-5 animate-spin text-primary" />
           </div>
+        ) : capped && filteredByColor > 0 ? (
+          <p className="text-sm text-muted-foreground text-center">
+            No commanders for these cards fit inside those colors — add a color or clear the filter.
+          </p>
         ) : filteredByColor > 0 ? (
           <p className="text-sm text-muted-foreground text-center">
-            Your cards span more colors than any suggested commander covers — try removing a card.
+            Your cards span more colors than any suggested commander covers — pick fewer deck colors
+            above, or remove a card.
           </p>
         ) : (
           <p className="text-sm text-muted-foreground text-center">
