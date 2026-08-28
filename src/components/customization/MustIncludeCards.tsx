@@ -6,7 +6,7 @@ import { searchCards, getCardImageUrl, getCardsByNames } from '@/services/scryfa
 import type { ScryfallCard } from '@/types';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import { Search, Loader2, X, Trash2, Plus, ChevronRight, Ban, ListPlus, Check, PlusSquare } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { UserListChips } from '@/components/lists/UserListChips';
 import { useUserLists } from '@/hooks/useUserLists';
 
@@ -39,6 +39,14 @@ export function MustIncludeCards() {
   const [showListPicker, setShowListPicker] = useState(false);
   const [listPickerSearch, setListPickerSearch] = useState('');
   const navigate = useNavigate();
+
+  // Cards carried in from the "For My Cards" flow. Read-only here: they live on the URL and are
+  // merged in at generation time, so they are shown for transparency, not edited from this list.
+  const [searchParams] = useSearchParams();
+  const seedCards = useMemo(
+    () => (searchParams.get('seeds') ?? '').split('|').map(s => s.trim()).filter(Boolean),
+    [searchParams]
+  );
 
   const handlePickerToggleUserList = (listId: string) => {
     const existing = appliedIncludeLists.find(r => r.listId === listId);
@@ -168,6 +176,22 @@ export function MustIncludeCards() {
 
   return (
     <div className="space-y-1.5">
+      {seedCards.length > 0 && (
+        <div className="mb-3 p-2.5 rounded-lg bg-violet-500/10 border border-violet-400/20">
+          <p className="text-xs text-violet-200/90 font-medium mb-1.5">From your card group</p>
+          <div className="flex flex-wrap gap-1.5">
+            {seedCards.map(name => (
+              <span key={name} className="px-2 py-0.5 rounded-full bg-accent/50 text-xs text-foreground/85">
+                {name}
+              </span>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+            These are locked into this build. Remove one from the address bar to drop it.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium">Must Include Cards</label>
