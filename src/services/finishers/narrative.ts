@@ -25,29 +25,39 @@ export interface DeckNarrative {
   caveats: string[];
 }
 
-/** Plain-language line for one finisher. No fractions, no jargon. */
-export function describeEstimate(e: KillEstimate, fuel: DeckFuel, a: FinisherAssumptions): string {
+/**
+ * Plain-language line for one finisher. No fractions, no jargon.
+ *
+ * `plural` is set when the caller has grouped several cards onto one sentence — three aristocrats
+ * drains share a line, and "Blood Artist, Zulaport Cutthroat and Bastion of Remembrance drains"
+ * is the kind of thing that makes a product surface look unfinished.
+ */
+export function describeEstimate(
+  e: KillEstimate, fuel: DeckFuel, a: FinisherAssumptions, plural = false,
+): string {
   const inf = (n: number | null) => n !== null && !isFinite(n);
+  /** Pick the verb form for however many cards share this sentence. */
+  const v = (singular: string, pl: string) => (plural ? pl : singular);
 
   switch (e.shape) {
     case 'combo': {
       // The raw result list is noisy — "Infinite lifegain triggers, Infinite lifeloss, Infinite
       // lifegain" says one useful thing three times. Keep only the results that actually win.
       const wins = e.workings.split(' · ')[0].split(', ').filter(isWinResult);
-      return `wins outright — ${(wins.length ? wins : ['infinite combo']).join(', ').toLowerCase()}`;
+      return `${v('wins', 'win')} outright — ${(wins.length ? wins : ['infinite combo']).join(', ').toLowerCase()}`;
     }
 
     case 'drain-static':
       if (e.kind === 'unknown') return `can't be scored — ${e.workings}`;
-      if (inf(e.damage)) return 'drains every opponent out once the sacrifice loop is running';
+      if (inf(e.damage)) return `${v('drains', 'drain')} every opponent out once the sacrifice loop is running`;
       return `${e.damage} life from each opponent`;
 
     case 'drain-x':
-      if (inf(e.damage)) return 'with unlimited mana, drains the whole table for lethal';
+      if (inf(e.damage)) return `with unlimited mana, ${v('drains', 'drain')} the whole table for lethal`;
       return `${e.damage} life from each opponent at your turn-${a.turn} mana`;
 
     case 'burn-x':
-      if (inf(e.damage)) return 'with unlimited mana, kills any one opponent outright';
+      if (inf(e.damage)) return `with unlimited mana, ${v('kills', 'kill')} any one opponent outright`;
       return `${e.damage} damage, but to a single target only`;
 
     case 'alpha-strike': {
@@ -60,10 +70,10 @@ export function describeEstimate(e: KillEstimate, fuel: DeckFuel, a: FinisherAss
     }
 
     case 'alt-win':
-      return `wins the game outright if ${ALT_WIN_CONDITIONS[e.cardName] ?? 'its condition is met'}`;
+      return `${v('wins', 'win')} the game outright if ${ALT_WIN_CONDITIONS[e.cardName] ?? 'its condition is met'}`;
 
     case 'extra-combat':
-      return 'turns one lethal swing into two — spends the damage a single attack wastes';
+      return `${v('turns', 'turn')} one lethal swing into two — spends the damage a single attack wastes`;
   }
 }
 

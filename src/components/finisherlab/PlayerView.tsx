@@ -25,15 +25,17 @@ export function PlayerView({ estimates, fuel, verdict, combos, assumptions, brac
   // Rank, drop what a player gains nothing from, then GROUP identical sentences. An aristocrats
   // deck otherwise prints "drains every opponent out once the sacrifice loop is running" three
   // times in a row, which reads like a bug rather than like redundancy.
-  const grouped = new Map<string, string[]>();
+  // Keyed on the singular sentence so duplicates collapse; the sentence is then re-rendered in
+  // the right plurality once the group size is known.
+  const grouped = new Map<string, { names: string[]; sample: KillEstimate }>();
   for (const e of estimates) {
     if (e.kind === 'unknown') continue;
-    const line = describeEstimate(e, fuel, assumptions);
-    const names = grouped.get(line) ?? [];
-    names.push(e.cardName);
-    grouped.set(line, names);
+    const key = describeEstimate(e, fuel, assumptions);
+    const existing = grouped.get(key);
+    if (existing) existing.names.push(e.cardName);
+    else grouped.set(key, { names: [e.cardName], sample: e });
   }
-  const shown = [...grouped.entries()].slice(0, 6);
+  const shown = [...grouped.values()].slice(0, 6);
 
   const tone = verdict.bestSingle >= 0.6
     ? 'border-emerald-500/40 bg-emerald-500/[0.07]'
@@ -69,9 +71,9 @@ export function PlayerView({ estimates, fuel, verdict, combos, assumptions, brac
         <div>
           <h3 className="text-sm font-semibold mb-2">How it closes</h3>
           <ul className="space-y-1.5">
-            {shown.map(([line, names]) => (
+            {shown.map(({ names, sample }) => (
               <li
-                key={line}
+                key={`${sample.cardName}-${sample.shape}`}
                 className="flex flex-wrap items-baseline gap-x-2 text-sm rounded-lg border border-border/40 bg-card/30 px-3 py-2"
               >
                 <span className="font-medium">
@@ -79,7 +81,9 @@ export function PlayerView({ estimates, fuel, verdict, combos, assumptions, brac
                     ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
                     : names[0]}
                 </span>
-                <span className="text-muted-foreground">{line}</span>
+                <span className="text-muted-foreground">
+                  {describeEstimate(sample, fuel, assumptions, names.length > 1)}
+                </span>
               </li>
             ))}
           </ul>
