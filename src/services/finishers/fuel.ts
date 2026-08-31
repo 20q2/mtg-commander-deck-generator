@@ -16,6 +16,25 @@ import type { TagMembership } from './labTags';
 
 const COLORS = ['W', 'U', 'B', 'R', 'G'] as const;
 
+/**
+ * Cards that MAKE creature tokens — the fuel for alpha-strike.
+ *
+ * Two traps here, both found by running real precons rather than a hand-built list. The naive
+ * `/creates? .*token/i` reported 31 token makers in an 85-card Bloomburrow deck:
+ *
+ *  - `.*` spans the entire oracle text, so any card mentioning "create" and "token" anywhere
+ *    matched — including payoffs whose text is "whenever you create a token".
+ *  - Treasure, Clue, Food, Blood and Map tokens are not attackers. Requiring the literal
+ *    "creature token" is what keeps Academy Manufactor and Deadly Dispute out of the body count.
+ *
+ * The bounded gap handles the first, the "creature token" literal the second. `created` is
+ * included because doublers phrase it passively — Chatterfang is "those tokens are created plus
+ * that many ... creature tokens", and a doubler genuinely does add bodies.
+ *
+ * Residual known false positive: a payoff reading "whenever you create a creature token".
+ */
+const TOKEN_MAKER = /creat(?:e|es|ed) [^.]{0,80}?creature tokens?/i;
+
 /** Permanent types that contribute to devotion. */
 function isPermanent(typeLine: string): boolean {
   return /Creature|Artifact|Enchantment|Planeswalker|Battle/i.test(typeLine);
@@ -45,7 +64,7 @@ export function measureFuel(cards: ScryfallCard[], tags: TagMembership): DeckFue
     }
 
     // No Scryfall tag for this — oracle text is the only source.
-    if (/creates? .*token/i.test(text)) tokenMakers++;
+    if (TOKEN_MAKER.test(text)) tokenMakers++;
 
     if (isPermanent(typeLine)) {
       for (const m of (card.mana_cost ?? '').matchAll(/\{([^}]+)\}/g)) {
