@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Sparkles,
   Trash2,
+  Type,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
@@ -48,6 +49,7 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const toggleTap = usePlaytestStore(s => s.toggleTap);
   const toggleFaceDown = usePlaytestStore(s => s.toggleFaceDown);
   const adjustCounter = usePlaytestStore(s => s.adjustCounter);
+  const addSticker = usePlaytestStore(s => s.addSticker);
   const copyCard = usePlaytestStore(s => s.copyCard);
   const unattach = usePlaytestStore(s => s.unattach);
   const battlefield = usePlaytestStore(s => s.battlefield);
@@ -133,6 +135,15 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const applyCopy = () => { targetIds.forEach((id) => copyCard(id)); onClose(); };
   const applyUnattach = () => { targetIds.forEach((id) => unattach(id)); onClose(); };
   const applyCounter = (type: string) => { targetIds.forEach((id) => adjustCounter(id, type, 1)); onClose(); };
+  // Stagger stickers down the card so a second one doesn't land on the first.
+  const applySticker = () => {
+    targetIds.forEach((id) => {
+      const c = battlefield.find((b) => b.instanceId === id);
+      const n = c?.stickers?.length ?? 0;
+      addSticker(id, 'New sticker', { x: 8, y: 8 + n * 20 });
+    });
+    onClose();
+  };
 
   const move = (dest: 'hand' | 'graveyard' | 'exile' | 'command' | 'libtop' | 'libbot') => {
     if (onBattlefield) {
@@ -242,6 +253,10 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
               Add {c.label} counter{bulkSuffix}
             </Item>
           ))}
+          <Sep />
+          <Item icon={<Type className="w-3.5 h-3.5" />} onClick={applySticker}>
+            Add text sticker{bulkSuffix}
+          </Item>
         </>
       )}
     </div>,
