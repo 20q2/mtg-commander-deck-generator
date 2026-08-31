@@ -4,6 +4,7 @@ import { buildLibrary } from '@/services/playtest/libraryBuilder';
 import { resolveCombos } from '@/services/playtest/combos';
 import {
   type BattlefieldCard,
+  type CardSticker,
   type CounterColor,
   type DieSides,
   type FreeCounter,
@@ -121,6 +122,10 @@ interface PlaytestActions {
   shufflePile: (zone: Exclude<ZoneKey, 'hand'>) => void;
   setCounter: (instanceId: string, type: string, value: number) => void;
   adjustCounter: (instanceId: string, type: string, delta: number) => void;
+  addSticker: (instanceId: string, text: string, position?: { x: number; y: number }) => void;
+  setStickerText: (instanceId: string, stickerId: string, text: string) => void;
+  moveSticker: (instanceId: string, stickerId: string, x: number, y: number) => void;
+  removeSticker: (instanceId: string, stickerId: string) => void;
   copyCard: (instanceId: string) => void;
   attach: (childId: string, parentId: string) => void;
   unattach: (instanceId: string) => void;
@@ -211,7 +216,11 @@ function snapshotOf(s: PlaytestState): PlaytestSnapshot {
       exile: [...s.zones.exile],
       command: [...s.zones.command],
     },
-    battlefield: s.battlefield.map(b => ({ ...b, counters: { ...b.counters } })),
+    battlefield: s.battlefield.map(b => ({
+      ...b,
+      counters: { ...b.counters },
+      stickers: b.stickers?.map(st => ({ ...st })),
+    })),
     life: s.life,
     turn: s.turn,
   };
@@ -735,6 +744,64 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} ${type} on ${card.card.name}`, 'counter')],
     }));
   },
+
+  addSticker: (instanceId, text, position) => set(state => {
+    const trimmed = text.trim();
+    if (!trimmed) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    const sticker: CardSticker = {
+      id: makeInstanceId(),
+      text: trimmed,
+      x: position?.x ?? 8,
+      y: position?.y ?? 8,
+    };
+    const card = state.battlefield.find(b => b.instanceId === instanceId);
+    return {
+      history,
+      battlefield: state.battlefield.map(b =>
+        b.instanceId === instanceId ? { ...b, stickers: [...(b.stickers ?? []), sticker] } : b,
+      ),
+      log: [...state.log, makeLogEntry(`Stickered ${card?.card.name ?? 'card'} "${trimmed}"`, 'counter')],
+    };
+  }),
+
+  setStickerText: (instanceId, stickerId, text) => set(state => {
+    const trimmed = text.trim();
+    // An emptied sticker is a deleted sticker — no separate confirm step.
+    if (!trimmed) {
+      return {
+        battlefield: state.battlefield.map(b =>
+          b.instanceId === instanceId
+            ? { ...b, stickers: (b.stickers ?? []).filter(st => st.id !== stickerId) }
+            : b,
+        ),
+      };
+    }
+    return {
+      battlefield: state.battlefield.map(b =>
+        b.instanceId === instanceId
+          ? { ...b, stickers: (b.stickers ?? []).map(st => (st.id === stickerId ? { ...st, text: trimmed } : st)) }
+          : b,
+      ),
+    };
+  }),
+
+  // No history push: a drag fires this many times per second and would flood undo.
+  moveSticker: (instanceId, stickerId, x, y) => set(state => ({
+    battlefield: state.battlefield.map(b =>
+      b.instanceId === instanceId
+        ? { ...b, stickers: (b.stickers ?? []).map(st => (st.id === stickerId ? { ...st, x, y } : st)) }
+        : b,
+    ),
+  })),
+
+  removeSticker: (instanceId, stickerId) => set(state => ({
+    battlefield: state.battlefield.map(b =>
+      b.instanceId === instanceId
+        ? { ...b, stickers: (b.stickers ?? []).filter(st => st.id !== stickerId) }
+        : b,
+    ),
+  })),
 
   copyCard: (instanceId) => set(state => {
     const original = state.battlefield.find(b => b.instanceId === instanceId);
