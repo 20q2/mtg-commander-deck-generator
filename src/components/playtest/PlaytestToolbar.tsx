@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Heart, X, Undo2, RefreshCw, Settings as SettingsIcon, PanelRight } from 'lucide-react';
+import { Heart, X, Undo2, RefreshCw, Settings as SettingsIcon, PanelRight, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { PlaytestSettingsModal } from '@/components/playtest/PlaytestSettingsModal';
@@ -19,6 +19,11 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
   const undo = usePlaytestStore(s => s.undo);
   const reset = usePlaytestStore(s => s.reset);
   const historyLen = usePlaytestStore(s => s.history.length);
+  const modal = usePlaytestStore(s => s.modal);
+  const openModal = usePlaytestStore(s => s.openModal);
+  const closeModal = usePlaytestStore(s => s.closeModal);
+  const trialCount = usePlaytestStore(s => s.trialPins.length);
+  const trialOpen = modal?.kind === 'newCardTrial';
 
   const [editingLife, setEditingLife] = useState(false);
   const [draftLife, setDraftLife] = useState(String(life));
@@ -94,6 +99,19 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
         </Button>
         <Button variant="ghost" size="sm" onClick={reset} title="Reset playtest">
           <RefreshCw className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline">Reset</span>
+        </Button>
+        <Button
+          variant={trialOpen ? 'secondary' : 'ghost'}
+          size="sm"
+          onClick={() => trialOpen ? closeModal() : openModal({ kind: 'newCardTrial' })}
+          title="New Card Trial — force specific cards into your opening hand or the top of your library"
+        >
+          <FlaskConical className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline">Trial</span>
+          {trialCount > 0 && (
+            <span className="ml-1 px-1 rounded bg-violet-500/20 text-violet-300 tabular-nums text-[10px] font-semibold">
+              {trialCount}
+            </span>
+          )}
         </Button>
         {onToggleSidePanel && (
           <Button variant="ghost" size="sm" className="md:hidden" onClick={onToggleSidePanel} title="Open log & combos panel">
