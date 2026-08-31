@@ -20,6 +20,7 @@ export const KEYBINDINGS: Keybinding[] = [
   { keys: ['E'], description: 'Rotate hovered card 90° clockwise',    category: 'Card', context: 'hovering a card' },
   { keys: ['F'], description: 'Flip hovered card face down / up',     category: 'Card', context: 'hovering a card' },
   { keys: ['U'], description: 'Untap all cards on the battlefield',   category: 'Card' },
+  { keys: ['Del'], description: 'Remove the hovered object — cards go to the graveyard, tokens cease to exist, counters and dice are deleted', category: 'Card', context: 'hovering an object' },
 
   // Selection / Clipboard
   { keys: ['Ctrl', 'C'], description: 'Copy the selection (or hovered card)', category: 'Selection' },

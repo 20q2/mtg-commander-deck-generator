@@ -41,6 +41,33 @@ export function usePlaytestHotkeys() {
       const targetCardIds = s.selectedIds.length > 0
         ? s.selectedIds
         : (s.hovered ? [s.hovered] : []);
+
+      // Delete: remove whatever the cursor is over. Deliberately NOT bound to
+      // Backspace as well — that's already Reset, and a stray Backspace wiping
+      // the game would be a nasty way to find that out.
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        // Counters and dice sit on top of cards, so they win when both are under
+        // the cursor.
+        if (s.hoveredCounter) { s.removeFreeCounter(s.hoveredCounter); s.setHoveredCounter(null); return; }
+        if (s.hoveredDie) { s.removeFreeDie(s.hoveredDie); s.setHoveredDie(null); return; }
+        if (targetCardIds.length === 0) return;
+        // moveCard already encodes MTG 111.8 — a token leaving the battlefield
+        // ceases to exist instead of landing in the graveyard — so route through
+        // it rather than keeping a second copy of that rule here.
+        for (const id of targetCardIds) {
+          s.moveCard({
+            source: { kind: 'battlefield', instanceId: id },
+            target: { kind: 'zone', zone: 'graveyard' },
+          });
+        }
+        // The cards are gone; leaving them hovered/selected would let a second
+        // Delete act on ids that no longer exist.
+        s.setHovered(null);
+        s.clearSelection();
+        return;
+      }
+
       if (k === 't') {
         if (targetCardIds.length > 0) { e.preventDefault(); s.toggleTapMany(targetCardIds); }
         return;
