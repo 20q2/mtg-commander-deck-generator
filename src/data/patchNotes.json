@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.3.38",
+    "notes": [
+      "A freshly built deck now tells you it isn't saved yet, and points you straight at the buttons to either save it or make a quick swap",
+      "The save button is now available on the deck view on smaller screens, not just desktop",
+      "Your deck's collection metrics are also visible on mobile now",
+      "Fixed a bug where a card's token could quietly take the real card's place — decks with cards like Fanatic of Rhonas could show the wrong colors, a $0 price, or a false 'breaks your commander's color identity' warning"
+    ]
+  },
+  {
     "version": "1.3.37",
     "notes": [
       "Send your decks to other people using the new share button on the deck view",

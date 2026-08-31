@@ -1,6 +1,7 @@
 // src/services/scryfall/cache.ts
 import Dexie, { type Table } from 'dexie';
 import type { ScryfallCard } from '@/types';
+import { isExtraPrinting } from './extras';
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;         // 7 days (Scryfall cards)
 const EDHREC_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days (EDHREC responses — matches the in-memory TTL)
@@ -84,6 +85,16 @@ async function pruneStale(conn: ScryfallCacheDB): Promise<void> {
   }
 }
 
+/**
+ * Evict rows written before the extras guard existed. A token cached under its parent
+ * card's name (every embalm/eternalize token is a name-identical copy) would otherwise
+ * keep shadowing the real card for the full 7-day TTL, surviving reloads. Treating the
+ * row as a miss AND deleting it lets the next fetch repair the entry. Best-effort.
+ */
+function evictExtra(conn: ScryfallCacheDB, name: string): void {
+  void conn.cards.delete(name).catch(() => { /* best-effort */ });
+}
+
 /** Return the cached card if present and not expired, else null. Never throws. */
 export async function readPersisted(name: string): Promise<ScryfallCard | null> {
   const conn = getDB();
@@ -92,6 +103,7 @@ export async function readPersisted(name: string): Promise<ScryfallCard | null> 
     const row = await conn.cards.get(name);
     if (!row) return null;
     if (Date.now() - row.cachedAt > TTL_MS) return null;
+    if (isExtraPrinting(row.card)) { evictExtra(conn, name); return null; }
     return row.card;
   } catch {
     return null;
@@ -108,9 +120,9 @@ export async function readPersistedMany(names: string[]): Promise<Map<string, Sc
     const now = Date.now();
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row && now - row.cachedAt <= TTL_MS) {
-        result.set(names[i], row.card);
-      }
+      if (!row || now - row.cachedAt > TTL_MS) continue;
+      if (isExtraPrinting(row.card)) { evictExtra(conn, names[i]); continue; }
+      result.set(names[i], row.card);
     }
   } catch {
     /* swallow — return whatever we collected */
@@ -119,10 +131,10 @@ export async function readPersistedMany(names: string[]): Promise<Map<string, Sc
 }
 
 let quotaWarned = false;
-/** Upsert a card under its name. Never throws. Logs once on quota errors. */
+/** Upsert a card under its name. Extras are never stored — see `isExtraPrinting`. Never throws. */
 export async function writePersisted(name: string, card: ScryfallCard): Promise<void> {
   const conn = getDB();
-  if (!conn) return;
+  if (!conn || isExtraPrinting(card)) return;
   try {
     await conn.cards.put({ name, card, cachedAt: Date.now() });
   } catch (err) {
@@ -133,13 +145,14 @@ export async function writePersisted(name: string, card: ScryfallCard): Promise<
   }
 }
 
-/** Bulk-write entries. Never throws. */
+/** Bulk-write entries. Extras are dropped — see `isExtraPrinting`. Never throws. */
 export async function writePersistedMany(entries: Array<{ name: string; card: ScryfallCard }>): Promise<void> {
   const conn = getDB();
-  if (!conn || entries.length === 0) return;
+  const storable = entries.filter(e => !isExtraPrinting(e.card));
+  if (!conn || storable.length === 0) return;
   try {
     const now = Date.now();
-    await conn.cards.bulkPut(entries.map(e => ({ name: e.name, card: e.card, cachedAt: now })));
+    await conn.cards.bulkPut(storable.map(e => ({ name: e.name, card: e.card, cachedAt: now })));
   } catch (err) {
     if (!quotaWarned) {
       console.warn('[Scryfall] Persistent cache bulk write failed (quota or DB error)', err);

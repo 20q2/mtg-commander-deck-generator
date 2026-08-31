@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import type { ScryfallCard, ScryfallSearchResponse, CardRuling } from '@/types';
 import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
 import { readPersisted, writePersisted, readPersistedMany, writePersistedMany } from './cache';
+import { isExtraPrinting } from './extras';
+
+export { isExtraPrinting };
 
 const BASE_URL = import.meta.env.DEV ? '/scryfall-api' : 'https://api.scryfall.com';
 const MIN_REQUEST_DELAY = 100; // 100ms between requests (Scryfall allows 10/sec)
@@ -321,9 +324,11 @@ export async function searchCards(
 }
 
 export async function getCardByName(name: string, exact = true): Promise<ScryfallCard> {
-  // 1. In-memory cache (hot path)
+  // 1. In-memory cache (hot path). An extra under this key is a poisoned entry from a
+  // build without the guard below — drop it and re-resolve rather than serving a token.
   const cached = cardCache.get(name);
-  if (cached) return freshCopy(cached);
+  if (cached && !isExtraPrinting(cached)) return freshCopy(cached);
+  if (cached) cardCache.delete(name);
 
   // 2. Persistent cache (warm path) — silent fallback if unavailable
   const persisted = await readPersisted(name);
@@ -355,8 +360,12 @@ export async function getCardById(id: string): Promise<ScryfallCard> {
 
   const card = await scryfallFetch<ScryfallCard>(`/cards/${id}`);
   cardCache.set(id, card);
-  cardCache.set(card.name, card);
-  void writePersisted(card.name, card);
+  // Extras stay id-keyed only: a token shares its name with the card it copies, so a
+  // name-keyed write would evict the real card from every later lookup.
+  if (!isExtraPrinting(card)) {
+    cardCache.set(card.name, card);
+    void writePersisted(card.name, card);
+  }
   return freshCopy(card);
 }
 
@@ -526,9 +535,12 @@ export async function getCardsByNames(
   for (const name of names) {
     const cacheKey = preferredSet ? `${name}|${preferredSet}` : name;
     const cached = cardCache.get(cacheKey);
-    if (cached) {
+    if (cached && !isExtraPrinting(cached)) {
       result.set(name, freshCopy(cached));
     } else {
+      // A cached extra is a poisoned key from a build without the guards below; drop it
+      // so this name re-resolves to the real card instead of a token.
+      if (cached) cardCache.delete(cacheKey);
       uncachedNames.push(name);
     }
   }
@@ -588,6 +600,13 @@ export async function getCardsByNames(
         // its canonical card, even when the requested spelling differs.
         const byNorm = new Map<string, ScryfallCard>();
         for (const card of data.data) {
+          // Never hand a token/emblem back as a deck card. Reachable when a pinned set
+          // is a token set ({name, set:'tmh3'} resolves to the eternalize token, not the
+          // creature), so route it through the no-set fallback pass to get the real card.
+          if (isExtraPrinting(card)) {
+            if (preferredSet) setNotFoundNames.push(card.name);
+            continue;
+          }
           const cacheKey = preferredSet ? `${card.name}|${preferredSet}` : card.name;
           cardCache.set(cacheKey, card);
           if (!preferredSet) cardCache.set(card.name, card); // also cache under plain name when no set preference
@@ -670,6 +689,7 @@ export async function getCardsByNames(
           const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ name?: string }> };
           const byNorm = new Map<string, ScryfallCard>();
           for (const card of data.data) {
+            if (isExtraPrinting(card)) continue; // never stands in for a deck card
             cardCache.set(card.name, card);
             const copy = freshCopy(card);
             result.set(card.name, copy);
@@ -711,6 +731,7 @@ export async function getCardsByNames(
   if (flavorMissing.length > 0) {
     const resolved = await resolveNamesByFlavorSearch(flavorMissing);
     for (const [reqName, card] of resolved) {
+      if (isExtraPrinting(card)) continue; // `unique=prints` can surface token printings
       const copy = freshCopy(card);
       result.set(reqName, copy);
       result.set(card.name, freshCopy(card));
@@ -765,6 +786,7 @@ export async function getCardsByNames(
     console.log(`[Scryfall] Retrying ${notFound.length} not-found cards (batched)...`);
     const found = await batchSearchByExactName(notFound);
     for (const [name, card] of found) {
+      if (isExtraPrinting(card)) continue; // never stands in for a deck card
       cardCache.set(name, card);
       if (card.name !== name) cardCache.set(card.name, card);
       void writePersisted(card.name, card);
@@ -780,7 +802,14 @@ export async function getCardsByNames(
  * Batch fetch cards by Scryfall id using /cards/collection (max 75 per request).
  * Mirrors getCardsByNames but uses { id } identifiers. Goes through the rate
  * limiter and writes results into both in-memory and persistent caches keyed
- * by name (consistent with all other paths).
+ * by name (consistent with all other paths) — EXCEPT extras.
+ *
+ * This is the one entry point that can pull token/emblem objects (it's how the
+ * playtest token spawner resolves `all_parts`), and an embalm/eternalize token is a
+ * name-identical copy of its parent card with a DIFFERENT color identity — the
+ * "Fanatic of Rhonas" token is a black Zombie, {B,G} vs the creature's {G}. Keying
+ * those by name replaced the real card in both cache layers for the full 7-day TTL,
+ * so decks holding one were flagged as breaking their commander's color identity.
  *
  * Returned Map is keyed by id so callers can re-establish input ordering.
  */
@@ -807,15 +836,18 @@ export async function getCardsByIds(
       if (response.ok) {
         const data = await response.json() as { data: ScryfallCard[]; not_found: Array<{ id?: string }> };
         for (const card of data.data) {
-          cardCache.set(card.name, card);
-          if (card.name.includes(' // ')) {
-            const frontFace = card.name.split(' // ')[0];
-            cardCache.set(frontFace, card);
+          if (!isExtraPrinting(card)) {
+            cardCache.set(card.name, card);
+            if (card.name.includes(' // ')) {
+              const frontFace = card.name.split(' // ')[0];
+              cardCache.set(frontFace, card);
+            }
           }
-          result.set(card.id, card);
+          result.set(card.id, card); // callers resolve extras by id, never by name
         }
-        if (data.data.length > 0) {
-          void writePersistedMany(data.data.map(card => ({ name: card.name, card })));
+        const nameCacheable = data.data.filter(card => !isExtraPrinting(card));
+        if (nameCacheable.length > 0) {
+          void writePersistedMany(nameCacheable.map(card => ({ name: card.name, card })));
         }
       }
     } catch (err) {
@@ -896,6 +928,9 @@ export async function upgradeCardPrintings(
         // Build a name -> first matching card map (most recent printing first due to order=released desc)
         const matchMap = new Map<string, ScryfallCard>();
         for (const card of data.data) {
+          // `unique=prints` + user-supplied filters can match a token printing, which
+          // shares its name with the real card — never swap one into the deck.
+          if (isExtraPrinting(card)) continue;
           const frontName = card.name.includes(' // ') ? card.name.split(' // ')[0] : card.name;
           if (!matchMap.has(card.name) && !matchMap.has(frontName)) {
             matchMap.set(card.name, card);

@@ -2102,220 +2102,206 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
       colorKey: color,
     }));
 
+  // Active-filter "clear" chip. Lives in the header row normally; when the header is
+  // supplied by the caller (the mobile collapsible), it gets its own right-aligned row.
+  const filterChip = activeFilter ? (
+    <button
+      onClick={() => onFilterChange(activeFilter)}
+      className="flex items-center gap-1.5 text-xs text-violet-200 bg-primary/20 rounded-full px-2.5 py-0.5 hover:bg-primary/30 transition-colors"
+    >
+      <X className="w-3 h-3" />
+      <span>
+        {activeFilter.type === 'cmc' && `CMC ${activeFilter.value === 7 ? '7+' : activeFilter.value}`}
+        {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
+        {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
+        {activeFilter.type === 'role' && `${
+          ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
+        }`}
+        {activeFilter.type === 'owned' && 'Owned cards'}
+        {activeFilter.type === 'ownedCollection' && `Owned · ${activeFilter.label}`}
+      </span>
+    </button>
+  ) : null;
+
   return (
     <div className="bg-card/50 rounded-lg border border-border/50 p-4 space-y-5">
-      {!hideHeader && (
-        <>
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium text-sm uppercase tracking-wide text-muted-foreground">Statistics</h3>
-            {activeFilter && (
-              <button
-                onClick={() => onFilterChange(activeFilter)}
-                className="flex items-center gap-1.5 text-xs text-violet-200 bg-primary/20 rounded-full px-2.5 py-0.5 hover:bg-primary/30 transition-colors"
-              >
-                <X className="w-3 h-3" />
-                <span>
-                  {activeFilter.type === 'cmc' && `CMC ${activeFilter.value === 7 ? '7+' : activeFilter.value}`}
-                  {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
-                  {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
-                  {activeFilter.type === 'role' && `${
-                    ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
-                  }`}
-                  {activeFilter.type === 'owned' && 'Owned cards'}
-                  {activeFilter.type === 'ownedCollection' && `Owned · ${activeFilter.label}`}
-                </span>
-              </button>
-            )}
-          </div>
-
-          {/* Basic Stats */}
-          <div className={`grid gap-3 ${ownedCount !== null ? 'grid-cols-3' : 'grid-cols-2'}`}>
-            {cardCountAction ? (() => {
-              const { delta, ready, onClick } = cardCountAction;
-              const hint = delta < 0 ? `${-delta} to fill` : delta > 0 ? `${delta} over` : null;
-              const verb = delta < 0 ? 'Fill' : 'Trim';
-              const title = !ready
-                ? 'Preparing suggestions…'
-                : delta === 0
-                  ? 'Fine-tune — cut a card to swap in a better one'
-                  : `${verb} deck to target`;
-              return (
-                <button
-                  type="button"
-                  disabled={!ready}
-                  onClick={onClick}
-                  title={title}
-                  className={`rounded-lg p-3 text-center transition-colors ${
-                    ready
-                      ? 'bg-accent/30 hover:bg-accent/50 cursor-pointer'
-                      : 'bg-accent/20 cursor-not-allowed opacity-60'
-                  }`}
-                >
-                  <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
-                  <div className="text-xs text-muted-foreground">Cards</div>
-                  {hint && <div className="text-[10px] text-violet-300/80 -mt-0.5">{hint}</div>}
-                </button>
-              );
-            })() : (
-              <div className="bg-accent/30 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
-                <div className="text-xs text-muted-foreground">Cards</div>
-              </div>
-            )}
-            <div className="bg-accent/30 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-foreground">{stats.averageCmc}</div>
-              <div className="text-xs text-muted-foreground">Avg CMC</div>
-            </div>
-            {ownedCount !== null && (() => {
-              const isActive = activeFilter?.type === 'owned' || activeFilter?.type === 'ownedCollection';
-              // Keep the box lit while its drill-down popover is open, not just when a filter sticks.
-              const highlighted = isActive || ownedMenuOpen;
-              const disabled = ownedCount === 0;
-              const totalOwned = ownedCollectionBreakdown?.total ?? ownedCount;
-              const selectRow = (filter: StatsFilter, rowActive: boolean) => {
-                onFilterChange(rowActive ? null : filter);
-                setOwnedMenuOpen(false);
-              };
-              const rowClass = (rowActive: boolean) =>
-                `w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs transition-colors ${rowActive ? 'bg-primary/15 text-primary' : 'text-foreground hover:bg-accent/50'}`;
-              const trigger = (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  title={disabled ? 'No owned cards in this deck' : 'Break owned cards down by collection'}
-                  className={`rounded-lg p-3 text-center transition-colors flex flex-col justify-center ${
-                    disabled
-                      ? 'bg-accent/20 cursor-not-allowed opacity-60'
-                      : highlighted
-                        ? 'bg-primary/20 ring-1 ring-primary/50'
-                        : 'bg-accent/30 hover:bg-accent/50 cursor-pointer'
-                  }`}
-                >
-                  {showOwnedSplit ? (
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-baseline justify-center gap-1.5">
-                        <span className={`text-lg font-bold leading-none ${highlighted ? 'text-primary' : 'text-foreground'}`}>{buildOwnedCount}</span>
-                        <span className="text-[10px] text-muted-foreground">Built</span>
-                      </div>
-                      <div className="flex items-baseline justify-center gap-1.5">
-                        <span className={`text-lg font-bold leading-none ${highlighted ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</span>
-                        <span className="text-[10px] text-muted-foreground">All</span>
-                      </div>
-                      <div className={`text-[10px] mt-0.5 ${highlighted ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className={`text-2xl font-bold ${highlighted ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</div>
-                      <div className={`text-xs ${highlighted ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
-                    </>
-                  )}
-                </button>
-              );
-              if (disabled) return trigger;
-              return (
-                <Popover open={ownedMenuOpen} onOpenChange={setOwnedMenuOpen}>
-                  <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-                  <PopoverContent align="center" className="w-60 p-1">
-                    <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Owned in this deck</div>
-                    <div className="max-h-64 overflow-auto">
-                      {ownedCollectionBreakdown?.collections.map(col => {
-                        const rowActive = activeFilter?.type === 'ownedCollection' && activeFilter.binderId === col.id;
-                        return (
-                          <button key={col.id} type="button" onClick={() => selectRow({ type: 'ownedCollection', binderId: col.id, label: col.name }, rowActive)} className={rowClass(rowActive)}>
-                            <span className="truncate">{col.name}</span>
-                            <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{col.count}</span>
-                          </button>
-                        );
-                      })}
-                      {ownedCollectionBreakdown && ownedCollectionBreakdown.basics > 0 && (() => {
-                        const rowActive = activeFilter?.type === 'ownedCollection' && activeFilter.binderId === OWNED_BASICS_ID;
-                        return (
-                          <button type="button" onClick={() => selectRow({ type: 'ownedCollection', binderId: OWNED_BASICS_ID, label: 'Basics' }, rowActive)} className={rowClass(rowActive)}>
-                            <span className="truncate">Basics <span className="text-muted-foreground">(always)</span></span>
-                            <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{ownedCollectionBreakdown.basics}</span>
-                          </button>
-                        );
-                      })()}
-                    </div>
-                    <div className="my-1 border-t border-border/60" />
-                    {(() => {
-                      const rowActive = activeFilter?.type === 'owned';
-                      return (
-                        <button type="button" onClick={() => selectRow({ type: 'owned', value: 'owned' }, rowActive)} className={`${rowClass(rowActive)} font-medium`}>
-                          <span>All owned</span>
-                          <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{totalOwned}</span>
-                        </button>
-                      );
-                    })()}
-                  </PopoverContent>
-                </Popover>
-              );
-            })()}
-          </div>
-          {!taggerReady ? (
-            <div className="-mt-2">
-              <div className="flex items-center gap-2 px-1">
-                <div className="w-2 h-2 rounded-full shrink-0 bg-accent/40 animate-pulse" />
-                <span className="inline-block h-3 w-20 bg-accent/30 rounded animate-pulse" />
-                <span className="inline-block h-3 w-16 bg-accent/20 rounded animate-pulse" />
-              </div>
-            </div>
-          ) : generatedDeck.bracketEstimation && (() => {
-            const b = generatedDeck.bracketEstimation;
-            return (
-              <div className="-mt-2">
-                <div className="flex items-center gap-2 px-1">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${BRACKET_DOT_COLORS[b.bracket]}`} />
-                  <span className={`text-xs font-medium ${BRACKET_TEXT_COLORS[b.bracket]}`}>Bracket {b.bracket}</span>
-                  <span className="text-xs text-muted-foreground">{b.label}</span>
-                  <span className="ml-auto"><InfoTooltip text={formatBracketTooltip(b)} /></span>
-                </div>
-                <div className="text-[10px] text-muted-foreground/60 px-1 -mt-1">Estimated from deck contents</div>
-              </div>
-            );
-          })()}
-          {overallGrade && (() => {
-            const style = HEALTH_GRADE_STYLES[overallGrade.letter] || HEALTH_GRADE_STYLES.C;
-            return (
-              <div className="flex items-center gap-3 bg-accent/30 rounded-lg px-3 py-2.5 -mt-2">
-                <span className={`text-2xl font-black leading-none px-2 py-1 rounded ${style.color} ${style.badgeBg}`}>{overallGrade.letter}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-foreground">Deck Grade</span>
-                    <button
-                      onClick={() => navigate('/analyze/overview')}
-                      className="text-[10px] text-primary hover:text-primary/80 transition-colors"
-                    >
-                      Inspect (Beta) →
-                    </button>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground leading-snug">{overallGrade.headline}</div>
-                </div>
-              </div>
-            );
-          })()}
-        </>
-      )}
-      {hideHeader && activeFilter && (
-        <div className="flex justify-end">
-          <button
-            onClick={() => onFilterChange(activeFilter)}
-            className="flex items-center gap-1.5 text-xs text-violet-200 bg-primary/20 rounded-full px-2.5 py-0.5 hover:bg-primary/30 transition-colors"
-          >
-            <X className="w-3 h-3" />
-            <span>
-              {activeFilter.type === 'cmc' && `CMC ${activeFilter.value === 7 ? '7+' : activeFilter.value}`}
-              {activeFilter.type === 'color' && `${MANA_COLORS[activeFilter.value]?.name} pips`}
-              {activeFilter.type === 'manaProduction' && `${MANA_COLORS[activeFilter.value]?.name} sources`}
-              {activeFilter.type === 'role' && `${
-                ({ ramp: 'Ramp', removal: 'Removal', boardwipe: 'Board Wipes', cardDraw: 'Card Advantage', protection: 'Protection' } as Record<string, string>)[activeFilter.value] ?? activeFilter.value
-              }`}
-              {activeFilter.type === 'owned' && 'Owned cards'}
-              {activeFilter.type === 'ownedCollection' && `Owned · ${activeFilter.label}`}
-            </span>
-          </button>
+      {/* `hideHeader` only drops the title row — the stat tiles, bracket and grade below
+          render in every layout. */}
+      {!hideHeader ? (
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-sm uppercase tracking-wide text-muted-foreground">Statistics</h3>
+          {filterChip}
         </div>
+      ) : filterChip && (
+        <div className="flex justify-end">{filterChip}</div>
       )}
+
+      {/* Basic Stats */}
+      <div className={`grid gap-3 ${ownedCount !== null ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        {cardCountAction ? (() => {
+          const { delta, ready, onClick } = cardCountAction;
+          const hint = delta < 0 ? `${-delta} to fill` : delta > 0 ? `${delta} over` : null;
+          const verb = delta < 0 ? 'Fill' : 'Trim';
+          const title = !ready
+            ? 'Preparing suggestions…'
+            : delta === 0
+              ? 'Fine-tune — cut a card to swap in a better one'
+              : `${verb} deck to target`;
+          return (
+            <button
+              type="button"
+              disabled={!ready}
+              onClick={onClick}
+              title={title}
+              className={`rounded-lg p-3 text-center transition-colors ${
+                ready
+                  ? 'bg-accent/30 hover:bg-accent/50 cursor-pointer'
+                  : 'bg-accent/20 cursor-not-allowed opacity-60'
+              }`}
+            >
+              <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
+              <div className="text-xs text-muted-foreground">Cards</div>
+              {hint && <div className="text-[10px] text-violet-300/80 -mt-0.5">{hint}</div>}
+            </button>
+          );
+        })() : (
+          <div className="bg-accent/30 rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-foreground">{totalCardsWithCommander}</div>
+            <div className="text-xs text-muted-foreground">Cards</div>
+          </div>
+        )}
+        <div className="bg-accent/30 rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold text-foreground">{stats.averageCmc}</div>
+          <div className="text-xs text-muted-foreground">Avg CMC</div>
+        </div>
+        {ownedCount !== null && (() => {
+          const isActive = activeFilter?.type === 'owned' || activeFilter?.type === 'ownedCollection';
+          // Keep the box lit while its drill-down popover is open, not just when a filter sticks.
+          const highlighted = isActive || ownedMenuOpen;
+          const disabled = ownedCount === 0;
+          const totalOwned = ownedCollectionBreakdown?.total ?? ownedCount;
+          const selectRow = (filter: StatsFilter, rowActive: boolean) => {
+            onFilterChange(rowActive ? null : filter);
+            setOwnedMenuOpen(false);
+          };
+          const rowClass = (rowActive: boolean) =>
+            `w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-xs transition-colors ${rowActive ? 'bg-primary/15 text-primary' : 'text-foreground hover:bg-accent/50'}`;
+          const trigger = (
+            <button
+              type="button"
+              disabled={disabled}
+              title={disabled ? 'No owned cards in this deck' : 'Break owned cards down by collection'}
+              className={`rounded-lg p-3 text-center transition-colors flex flex-col justify-center ${
+                disabled
+                  ? 'bg-accent/20 cursor-not-allowed opacity-60'
+                  : highlighted
+                    ? 'bg-primary/20 ring-1 ring-primary/50'
+                    : 'bg-accent/30 hover:bg-accent/50 cursor-pointer'
+              }`}
+            >
+              {showOwnedSplit ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-baseline justify-center gap-1.5">
+                    <span className={`text-lg font-bold leading-none ${highlighted ? 'text-primary' : 'text-foreground'}`}>{buildOwnedCount}</span>
+                    <span className="text-[10px] text-muted-foreground">Built</span>
+                  </div>
+                  <div className="flex items-baseline justify-center gap-1.5">
+                    <span className={`text-lg font-bold leading-none ${highlighted ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</span>
+                    <span className="text-[10px] text-muted-foreground">All</span>
+                  </div>
+                  <div className={`text-[10px] mt-0.5 ${highlighted ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
+                </div>
+              ) : (
+                <>
+                  <div className={`text-2xl font-bold ${highlighted ? 'text-primary' : 'text-foreground'}`}>{ownedCount}</div>
+                  <div className={`text-xs ${highlighted ? 'text-primary font-medium' : 'text-muted-foreground'}`}>Owned</div>
+                </>
+              )}
+            </button>
+          );
+          if (disabled) return trigger;
+          return (
+            <Popover open={ownedMenuOpen} onOpenChange={setOwnedMenuOpen}>
+              <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+              <PopoverContent align="center" className="w-60 p-1">
+                <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Owned in this deck</div>
+                <div className="max-h-64 overflow-auto">
+                  {ownedCollectionBreakdown?.collections.map(col => {
+                    const rowActive = activeFilter?.type === 'ownedCollection' && activeFilter.binderId === col.id;
+                    return (
+                      <button key={col.id} type="button" onClick={() => selectRow({ type: 'ownedCollection', binderId: col.id, label: col.name }, rowActive)} className={rowClass(rowActive)}>
+                        <span className="truncate">{col.name}</span>
+                        <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{col.count}</span>
+                      </button>
+                    );
+                  })}
+                  {ownedCollectionBreakdown && ownedCollectionBreakdown.basics > 0 && (() => {
+                    const rowActive = activeFilter?.type === 'ownedCollection' && activeFilter.binderId === OWNED_BASICS_ID;
+                    return (
+                      <button type="button" onClick={() => selectRow({ type: 'ownedCollection', binderId: OWNED_BASICS_ID, label: 'Basics' }, rowActive)} className={rowClass(rowActive)}>
+                        <span className="truncate">Basics <span className="text-muted-foreground">(always)</span></span>
+                        <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{ownedCollectionBreakdown.basics}</span>
+                      </button>
+                    );
+                  })()}
+                </div>
+                <div className="my-1 border-t border-border/60" />
+                {(() => {
+                  const rowActive = activeFilter?.type === 'owned';
+                  return (
+                    <button type="button" onClick={() => selectRow({ type: 'owned', value: 'owned' }, rowActive)} className={`${rowClass(rowActive)} font-medium`}>
+                      <span>All owned</span>
+                      <span className={`shrink-0 font-semibold ${rowActive ? 'text-primary' : 'text-muted-foreground'}`}>{totalOwned}</span>
+                    </button>
+                  );
+                })()}
+              </PopoverContent>
+            </Popover>
+          );
+        })()}
+      </div>
+      {!taggerReady ? (
+        <div className="-mt-2">
+          <div className="flex items-center gap-2 px-1">
+            <div className="w-2 h-2 rounded-full shrink-0 bg-accent/40 animate-pulse" />
+            <span className="inline-block h-3 w-20 bg-accent/30 rounded animate-pulse" />
+            <span className="inline-block h-3 w-16 bg-accent/20 rounded animate-pulse" />
+          </div>
+        </div>
+      ) : generatedDeck.bracketEstimation && (() => {
+        const b = generatedDeck.bracketEstimation;
+        return (
+          <div className="-mt-2">
+            <div className="flex items-center gap-2 px-1">
+              <div className={`w-2 h-2 rounded-full shrink-0 ${BRACKET_DOT_COLORS[b.bracket]}`} />
+              <span className={`text-xs font-medium ${BRACKET_TEXT_COLORS[b.bracket]}`}>Bracket {b.bracket}</span>
+              <span className="text-xs text-muted-foreground">{b.label}</span>
+              <span className="ml-auto"><InfoTooltip text={formatBracketTooltip(b)} /></span>
+            </div>
+            <div className="text-[10px] text-muted-foreground/60 px-1 -mt-1">Estimated from deck contents</div>
+          </div>
+        );
+      })()}
+      {overallGrade && (() => {
+        const style = HEALTH_GRADE_STYLES[overallGrade.letter] || HEALTH_GRADE_STYLES.C;
+        return (
+          <div className="flex items-center gap-3 bg-accent/30 rounded-lg px-3 py-2.5 -mt-2">
+            <span className={`text-2xl font-black leading-none px-2 py-1 rounded ${style.color} ${style.badgeBg}`}>{overallGrade.letter}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-foreground">Deck Grade</span>
+                <button
+                  onClick={() => navigate('/analyze/overview')}
+                  className="text-[10px] text-primary hover:text-primary/80 transition-colors"
+                >
+                  Inspect (Beta) →
+                </button>
+              </div>
+              <div className="text-[11px] text-muted-foreground leading-snug">{overallGrade.headline}</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Mana Curve */}
       <div>
@@ -2679,6 +2665,13 @@ interface DeckDisplayProps {
    * the host's popover anchors to the button the user actually clicked.
    */
   saveNudge?: React.ReactNode;
+  /**
+   * Dismissible notice atop the deck: an unsaved deck can't be fully edited. The copy names
+   * the Save (bookmark) and Modify (pencil) controls and renders live miniatures of them, so
+   * the sentence is clickable as well as instructive. `onSave` should open the host's save
+   * flow — Modify is wired internally. Omit the prop to hide the notice.
+   */
+  unsavedNotice?: { onSave: () => void; onDismiss: () => void };
   /** Board counts shown in the toolbar summary (e.g. "2 sideboard · 1 maybe") */
   boardCounts?: { sideboard: number; maybeboard: number };
   /**
@@ -2735,7 +2728,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, shareAction, savedList, saveNudge, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, shareAction, savedList, saveNudge, unsavedNotice, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, colorIdentity, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -4909,6 +4902,47 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             <p className="text-blue-200/90">
               {fallbackMessage}
             </p>
+          </div>
+        )}
+
+        {/* Unsaved deck: hand-edits here evaporate on regenerate or navigation. Stays up in
+            Modify mode too — the constraint still applies while you're editing, so pulling it
+            away exactly when the user starts making changes would drop the warning. Dismissal
+            is the only thing that hides it. */}
+        {unsavedNotice && (
+          <div className="relative mb-2 px-4 py-2.5 rounded-lg border border-primary/40 bg-primary/10 animate-fade-in">
+            {/* The two glyphs are inline-flex chips styled as miniatures of the controls they
+                name — filled violet for Save, outlined for Modify — so the sentence points at
+                something the eye can match on screen. Inline (not flex siblings) so they ride
+                the copy when it wraps. */}
+            <div className="pr-8 text-left text-sm text-foreground/85">
+              <Info className="inline align-middle w-4 h-4 mr-1.5 -mt-0.5 text-primary" />
+              This deck isn't saved yet, so <span className="font-medium text-foreground">full editing isn't available</span>.
+              Click the{' '}
+              <button
+                onClick={unsavedNotice.onSave}
+                title="Save deck"
+                className="inline-flex align-middle -mt-0.5 mx-0.5 items-center justify-center w-5 h-5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/80 hover:scale-110 active:scale-95 transition-all"
+              >
+                <Bookmark className="w-3 h-3" />
+              </button>{' '}
+              button to save the deck, or for a quick replacement, click the{' '}
+              <button
+                onClick={() => setIsEditMode(true)}
+                title="Modify deck"
+                className="inline-flex align-middle -mt-0.5 mx-0.5 items-center justify-center w-5 h-5 rounded-lg border border-border bg-card/80 text-foreground hover:bg-accent hover:scale-110 active:scale-95 transition-all"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>{' '}
+              icon.
+            </div>
+            <button
+              onClick={unsavedNotice.onDismiss}
+              title="Dismiss"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 

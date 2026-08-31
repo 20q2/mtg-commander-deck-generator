@@ -46,6 +46,13 @@ function buildThemeResults(themes: EDHRECTheme[], preferredSlug?: string | null)
 }
 
 /**
+ * Filled bookmark trigger for the save popover, used in both the desktop sidebar and
+ * the mobile header row. The unsaved-deck banner renders a miniature of this button in
+ * its copy ("click the 🔖 button"), so the two need to stay visually in step.
+ */
+const SAVE_TRIGGER_CLASS = 'p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors';
+
+/**
  * Name-and-save popover. Owns its own open state so it anchors to whichever
  * trigger it wraps — the sidebar bookmark, the deck-view "save to edit" nudge —
  * instead of always opening in one corner of the page.
@@ -170,6 +177,22 @@ export function BuilderPage() {
   usePageTitle([commanderTitle, 'Build']);
 
   const saveDefaultName = `${commander?.name ?? 'New'}${partnerCommander ? ` & ${partnerCommander.name}` : ''} Deck`;
+
+  // "This deck isn't saved" notice, dismissed per build. Lives here rather than in
+  // DeckDisplay because `generatedDeck` gets a fresh object reference on every card
+  // add/remove too — resetting on that would resurrect the notice after each edit.
+  const [unsavedNoticeDismissed, setUnsavedNoticeDismissed] = useState(false);
+
+  // The notice's bookmark miniature defers to the real save button rather than owning a
+  // second popover — so the panel opens anchored to the control the copy is pointing at,
+  // which shows the user where it lives. Both triggers (desktop sidebar, mobile header)
+  // stay mounted at every width and only one is ever visible, hence the visibility probe.
+  const openSaveDeckPopover = useCallback(() => {
+    const triggers = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button[data-save-deck-trigger]')
+    );
+    (triggers.find(b => b.offsetParent !== null) ?? triggers[0])?.click();
+  }, []);
 
   // Turns the generated deck into a saved list, tagged with what built it, then
   // hands the user straight to the new deck's page.
@@ -766,6 +789,7 @@ export function BuilderPage() {
     if (!cmd) return;
     const isRegeneration = currentDeck !== null && !!genParam;
 
+    setUnsavedNoticeDismissed(false);
     setLoading(true, 'Starting deck generation...');
     setProgress('Initializing...');
     setProgressPercent(0);
@@ -1275,7 +1299,7 @@ export function BuilderPage() {
       {/* Deck Display */}
       {showDeck && generatedDeck && (
         <section>
-          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-500 font-bold text-sm">
                 ✓
@@ -1350,6 +1374,19 @@ export function BuilderPage() {
               exportTriggerRef.current = onExport;
               return (
                 <div className="flex items-center gap-2 xl:hidden">
+                  {/* Mirrors the sidebar save button, which is desktop-only — without this the
+                      unsaved-deck banner would point at a bookmark button that isn't on screen. */}
+                  <SaveDeckPopover
+                    trigger={
+                      <button className={SAVE_TRIGGER_CLASS} title="Save deck" data-save-deck-trigger>
+                        <Bookmark className="w-4 h-4" />
+                      </button>
+                    }
+                    defaultName={saveDefaultName}
+                    onSave={handleSaveDeck}
+                    side="bottom"
+                    align="start"
+                  />
                   <Button onClick={onExport} className="btn-shimmer">
                     <Copy className="w-4 h-4 mr-2" />
                     Export
@@ -1371,14 +1408,15 @@ export function BuilderPage() {
                 align="end"
               />
             }
+            unsavedNotice={unsavedNoticeDismissed ? undefined : {
+              onSave: openSaveDeckPopover,
+              onDismiss: () => setUnsavedNoticeDismissed(true),
+            }}
             sidebarHeader={
               <div className="flex items-center justify-end gap-2">
                 <SaveDeckPopover
                   trigger={
-                    <button
-                      className="p-1.5 rounded-md border bg-card/50 border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                      title="Save deck"
-                    >
+                    <button className={SAVE_TRIGGER_CLASS} title="Save deck" data-save-deck-trigger>
                       <Bookmark className="w-4 h-4" />
                     </button>
                   }

@@ -174,6 +174,26 @@ function getBracketSuffix(bracketLevel?: BracketLevel): string {
   return `/${BRACKET_SLUGS[bracketLevel]}`;
 }
 
+/**
+ * An EDHREC response that wasn't 2xx. Carries the status so callers can tell "this page
+ * was never published" apart from "the network is down" — the two look identical once
+ * the error is flattened to a string.
+ */
+export class EdhrecHttpError extends Error {
+  constructor(readonly status: number, statusText: string) {
+    super(`EDHREC API error: ${status} ${statusText}`);
+    this.name = 'EdhrecHttpError';
+  }
+
+  /**
+   * EDHREC serves its JSON from a bucket that doesn't grant ListBucket, so a missing
+   * object comes back 403 AccessDenied instead of 404. Both mean "no such page".
+   */
+  get pageMissing(): boolean {
+    return this.status === 403 || this.status === 404;
+  }
+}
+
 async function edhrecFetch<T>(endpoint: string): Promise<T> {
   // Persistent layer (IndexedDB): a previously-fetched endpoint needs no network across reloads.
   // Skips the rate limiter entirely on a hit. Never throws — falls through to network on any issue.
@@ -194,7 +214,7 @@ async function edhrecFetch<T>(endpoint: string): Promise<T> {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       return edhrecFetch<T>(endpoint);
     }
-    throw new Error(`EDHREC API error: ${response.status} ${response.statusText}`);
+    throw new EdhrecHttpError(response.status, response.statusText);
   }
 
   const data = await response.json();
@@ -765,6 +785,37 @@ export async function fetchPartnerThemes(
 }
 
 /**
+ * Did the commander's base page already tell us this theme has no page of its own?
+ *
+ * EDHREC only publishes /commanders/<name>/<theme>.json for tags that appear in the base
+ * page's taglinks, so an off-meta pairing (Chief of the Wilds + Spore Counters) is a
+ * guaranteed miss. Every caller fetches the base page before asking for theme data, so
+ * this is a free cache read that skips a request we know will fail.
+ *
+ * Only the all-variants page is consulted — it blends every color variant, so its taglinks
+ * are a superset of any one variant's. A colorlink commander caches only its variant page,
+ * which means this quietly declines to fire rather than skipping a theme that does exist.
+ */
+/**
+ * Report an absent commander+theme page. Callers already fall back to the generic tag
+ * page, so this is an expected branch — logged at info so it reads as the explanation it
+ * is rather than a red console error.
+ */
+function noThemePage(commanderName: string, themeSlug: string): Error {
+  console.info(
+    `[EDHREC] No "${themeSlug}" page for ${commanderName} — falling back to generic theme data`
+  );
+  return new Error(`EDHREC has no "${themeSlug}" page for ${commanderName}`);
+}
+
+function basePageOmitsTheme(baseCacheKey: string, themeSlug: string): boolean {
+  const cached = commanderCache.get(baseCacheKey);
+  if (!cached || Date.now() - cached.timestamp >= CACHE_TTL) return false;
+  if (cached.data.themes.length === 0) return false; // no taglinks parsed — rules nothing out
+  return !cached.data.themes.some(t => t.slug === themeSlug);
+}
+
+/**
  * Fetch theme-specific commander data from EDHREC
  * Uses endpoint like /pages/commanders/skullbriar-the-walking-grave/plus-1-plus-1-counters.json
  */
@@ -789,6 +840,12 @@ export async function fetchCommanderThemeData(
     }
   }
 
+  // The base page's tag list already answers this for off-meta pairings — don't spend a
+  // request (and a rate-limiter slot) learning what we've been told.
+  if (basePageOmitsTheme(`${formattedName}${bracketSuffix}${budgetSuffix}`, themeSlug)) {
+    throw noThemePage(commanderName, themeSlug);
+  }
+
   let response: RawEDHRECResponse | null = null;
   let cacheKey = candidates[candidates.length - 1];
   let lastError: unknown;
@@ -802,9 +859,18 @@ export async function fetchCommanderThemeData(
     }
   }
 
-  try {
-    if (!response) throw lastError;
+  if (!response) {
+    // A missing page is EDHREC saying "nobody builds this pairing", not a fault. Callers
+    // fall back to the generic tag page, so log it as the routine outcome it is — but keep
+    // anything that isn't a clean miss (network down, 5xx) loud.
+    if (lastError instanceof EdhrecHttpError && lastError.pageMissing) {
+      throw noThemePage(commanderName, themeSlug);
+    }
+    console.error(`Failed to fetch EDHREC theme data for ${themeSlug}:`, lastError);
+    throw lastError;
+  }
 
+  try {
     // Parse stats
     const stats: EDHRECCommanderStats = {
       avgPrice: response.avg_price || 0,
@@ -843,7 +909,8 @@ export async function fetchCommanderThemeData(
 
     return data;
   } catch (error) {
-    console.error(`Failed to fetch EDHREC theme data for ${themeSlug}:`, error);
+    // The page came back — anything failing past here is a genuine parse fault.
+    console.error(`Failed to parse EDHREC theme data for ${themeSlug}:`, error);
     throw error;
   }
 }
