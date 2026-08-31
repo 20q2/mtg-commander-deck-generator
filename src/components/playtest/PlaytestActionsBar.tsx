@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hand as HandIcon, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal } from 'lucide-react';
+import { Hand as HandIcon, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -113,6 +113,22 @@ export function PlaytestActionsBar() {
     </Button>
   );
 
+  const trialOpen = modal?.kind === 'newCardTrial';
+  const trialCount = usePlaytestStore(s => s.trialPins.length);
+  const trialBtn = (
+    <Button
+      variant={trialOpen ? 'default' : 'outline'}
+      size="sm"
+      className={btn}
+      title="Force specific cards into your opening hand or the top of your library"
+      onClick={() => trialOpen ? closeModal() : openModal({ kind: 'newCardTrial' })}
+    >
+      <FlaskConical className={icon} />
+      Trial
+      {trialCount > 0 && <span className="ml-1 opacity-70 tabular-nums text-[10px]">{trialCount}</span>}
+    </Button>
+  );
+
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtn = (
     <Popover open={moreOpen} onOpenChange={setMoreOpen}>
@@ -124,6 +140,7 @@ export function PlaytestActionsBar() {
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); setMullOpen(true); }}><HandIcon className="w-3 h-3 mr-2" />Mulligan…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'tokens' }); }}><Sparkles className="w-3 h-3 mr-2" />Tokens…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); createOpen ? closeModal() : openModal({ kind: 'create' }); }}><Plus className="w-3 h-3 mr-2" />Create…</Button>
+        <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'newCardTrial' }); }}><FlaskConical className="w-3 h-3 mr-2" />New Card Trial…</Button>
       </PopoverContent>
     </Popover>
   );
@@ -149,6 +166,7 @@ export function PlaytestActionsBar() {
       <Group className="hidden md:flex">
         <Button variant={tokensOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => tokensOpen ? closeModal() : openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
         {createBtn}
+        {trialBtn}
       </Group>
       {/* Mobile-only overflow with the hidden items */}
       <div className="md:hidden">{moreBtn}</div>

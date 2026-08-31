@@ -20,6 +20,7 @@ import { ScryMillSurveilModal } from '@/components/playtest/modals/ScryMillSurve
 import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
+import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
@@ -536,6 +537,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         {modal?.kind === 'zoneViewer' && <ZoneViewerModal />}
         {modal?.kind === 'tokens' && <TokenSpawnModal />}
         {modal?.kind === 'create' && <CreateModal />}
+        {modal?.kind === 'newCardTrial' && <NewCardTrialModal />}
         <PlaytestToast />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>
