@@ -804,3 +804,89 @@ export interface SerializedEnrichment {
    *  from "this payload is incomplete" — the latter must be rebuilt, not displayed. */
   unresolvedNames?: string[];
 }
+
+// ─── Finisher detection (dev lab) ──────────────────────────────────────────
+
+/** The kinds of "and now I win" a card can be. Each is backed by a Scryfall oracle tag. */
+export type FinisherShape =
+  | 'alpha-strike'   // otag:overrun — creature count → damage, ONE opponent
+  | 'drain-static'   // otag:lifedrain, no X — a board count → life loss, ALL opponents
+  | 'drain-x'        // otag:lifedrain + X in cost — mana → life loss, ALL opponents
+  | 'burn-x'         // otag:burn + X in cost — mana → damage, ONE target
+  | 'alt-win'        // otag:win-condition — binary
+  | 'extra-combat';  // otag:extra-combat — multiplier on the best alpha-strike
+
+/** How an alpha-strike card pumps the team. */
+export type FinisherPump =
+  | { kind: 'scales-with-bodies' }     // Craterhoof: +X/+X where X = creature count
+  | { kind: 'flat'; amount: number };  // Overrun: +3/+3
+
+/** One shape a card matched, with everything parsing found out about it. */
+export interface ShapeMatch {
+  shape: FinisherShape;
+  /** Why it matched — the classifier's reason column. */
+  basis: string;
+  /** Number of {X} symbols in the mana cost. X-shapes only. */
+  xCount?: number;
+  /** Non-X mana value: generic + colored pips. X-shapes only. */
+  fixedCost?: number;
+  /** alpha-strike only. */
+  pump?: FinisherPump;
+  /** Card grants trample or unblockability, so damage connects in full. */
+  grantsConnect?: boolean;
+}
+
+/** What the deck brings to the table. All computed client-side from card data. */
+export interface DeckFuel {
+  totalCards: number;
+  nonLandCount: number;
+  landCount: number;
+  creatureCount: number;
+  /** Mean printed power over creatures with a numeric power. */
+  avgPower: number;
+  /** Cards whose oracle text creates tokens. Scryfall has no tag for this. */
+  tokenMakers: number;
+  /** Colored pips across NON-LAND PERMANENTS, keyed 'W'|'U'|'B'|'R'|'G'. */
+  devotion: Record<string, number>;
+  /** Lands with the Swamp subtype — for Corrupt-style scaling. */
+  swampCount: number;
+  rampCount: number;
+  hasteGranters: number;
+  trampleGranters: number;
+  anthems: number;
+  evasionGranters: number;
+}
+
+/** How a kill estimate should be read and rendered. */
+export type KillKind =
+  | 'number'    // has a damage figure and a table fraction
+  | 'binary'    // wins outright or does nothing — no meaningful fraction
+  | 'modifier'  // multiplies something else; no fraction of its own
+  | 'unknown';  // shape matched but the scaling variable isn't modelled
+
+export type FinisherTier = 'LIVE' | 'WEAK' | 'DEAD' | 'UNKNOWN';
+
+export interface KillEstimate {
+  cardName: string;
+  shape: FinisherShape;
+  kind: KillKind;
+  /** Damage per target. null for binary/modifier/unknown. */
+  damage: number | null;
+  /** Fraction of the table killed, 0–1. null for modifier/unknown. */
+  tableFraction: number | null;
+  /** Damage discarded by the single-target cap — the overkill column. */
+  overkill: number;
+  /** Human-readable derivation, e.g. "14 bodies × (2 + 14), trample". */
+  workings: string;
+  tier: FinisherTier;
+}
+
+export interface DeckFinisherVerdict {
+  /** Highest single table fraction in the deck. */
+  bestSingle: number;
+  /** Sum across all finishers, capped at 1. */
+  combined: number;
+  /** How many cards clear the live threshold. */
+  density: number;
+  label: string;
+}
