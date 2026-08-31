@@ -154,6 +154,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   // is hidden at opacity-0 while dragging, so without this the ghost would shed
   // its counters and stickers for the duration of the drag.
   const [activeBfCard, setActiveBfCard] = useState<BfCard | null>(null);
+  // Battlefield drags carry the card's own tap + free rotation; drags out of a
+  // zone have neither, so they fall back to the flat tapped flag (always 0 there).
+  const ghostRotation = activeBfCard
+    ? (activeBfCard.tapped ? 90 : 0) + (activeBfCard.rotation ?? 0)
+    : (activeTapped ? 90 : 0);
   const [mobileSideOpen, setMobileSideOpen] = useState(false);
   const [activeCreate, setActiveCreate] = useState<
     | { kind: 'counter'; color: CounterColor }
@@ -547,11 +552,15 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           <div style={{ width: CARD_SIZES[cardSize].width, cursor: 'grabbing' }}>
             {/* The rotation moved off the <img> and onto this wrapper so the
                 overlays turn with the card. Still not the measured node — that's
-                the upright div above — so the drop position is unaffected. */}
+                the upright div above — so the drop position is unaffected.
+
+                Uses the card's TOTAL rotation, not just `tapped`: Q/E set a free
+                `rotation` on top of the tap, and reading only `tapped` snapped a
+                sideways card back upright the moment you picked it up. */}
             <div
               className="relative"
               style={{
-                transform: activeTapped ? 'rotate(90deg)' : undefined,
+                transform: ghostRotation ? `rotate(${ghostRotation}deg)` : undefined,
                 transformOrigin: 'center',
               }}
             >
