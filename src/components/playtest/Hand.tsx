@@ -16,6 +16,7 @@ type SortMode = 'none' | 'cmc' | 'type';
 export function Hand() {
   const hand = usePlaytestStore(s => s.zones.hand);
   const moveCard = usePlaytestStore(s => s.moveCard);
+  const setHoveredHandIndex = usePlaytestStore(s => s.setHoveredHandIndex);
   const [sort, setSort] = useState<SortMode>('none');
   // Conditionally RENDER the hand-row piles (not just CSS-hide) so they
   // don't share dnd-kit IDs with the mobile floating piles on the battlefield.
@@ -101,7 +102,13 @@ export function Hand() {
                 fanIndex={i}
                 overlap={overlap}
                 hoveredFanIndex={hoveredFanIndex}
-                onHoverChange={(h) => setHoveredFanIndex(prev => h ? i : (prev === i ? null : prev))}
+                onHoverChange={(h) => {
+                  setHoveredFanIndex(prev => h ? i : (prev === i ? null : prev));
+                  // Publish to the store too, so the Del hotkey knows which hand
+                  // card is under the cursor. Uses the real hand index, not the
+                  // fan position, because the row can be sorted.
+                  setHoveredHandIndex(h ? originalIndex : null);
+                }}
                 onClickPlay={() => playToBattlefield(originalIndex)}
                 onContextMenu={(e) => {
                   e.preventDefault();

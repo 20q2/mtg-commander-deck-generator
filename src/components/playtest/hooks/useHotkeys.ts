@@ -42,15 +42,30 @@ export function usePlaytestHotkeys() {
         ? s.selectedIds
         : (s.hovered ? [s.hovered] : []);
 
-      // Delete: remove whatever the cursor is over. Deliberately NOT bound to
-      // Backspace as well — that's already Reset, and a stray Backspace wiping
-      // the game would be a nasty way to find that out.
+      // Delete: send whatever the cursor is over to the graveyard. Anything that
+      // can't exist there — a token, a counter, a die — just goes away.
+      //
+      // Deliberately NOT bound to Backspace as well: that's already Reset, and a
+      // stray Backspace wiping the game would be a nasty way to find that out.
       if (e.key === 'Delete') {
         e.preventDefault();
-        // Counters and dice sit on top of cards, so they win when both are under
-        // the cursor.
+        // Resolution order is "whatever the cursor is actually on". Counters and
+        // dice render above cards, so they win. A hovered hand card beats a
+        // battlefield marquee selection: the selection is the fallback for when
+        // you aren't pointing at anything, and binning a whole board because a
+        // stale selection outranked the card under the cursor would be worse than
+        // the reverse.
         if (s.hoveredCounter) { s.removeFreeCounter(s.hoveredCounter); s.setHoveredCounter(null); return; }
         if (s.hoveredDie) { s.removeFreeDie(s.hoveredDie); s.setHoveredDie(null); return; }
+        if (s.hoveredHandIndex !== null) {
+          s.moveCard({
+            source: { kind: 'zone', zone: 'hand', index: s.hoveredHandIndex },
+            target: { kind: 'zone', zone: 'graveyard' },
+          });
+          // Every later card shifted down one, so the stored index is now stale.
+          s.setHoveredHandIndex(null);
+          return;
+        }
         if (targetCardIds.length === 0) return;
         // moveCard already encodes MTG 111.8 — a token leaving the battlefield
         // ceases to exist instead of landing in the graveyard — so route through

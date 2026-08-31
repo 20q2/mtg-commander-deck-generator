@@ -44,10 +44,12 @@ interface PlaytestState {
   modal: Modal;
   hovered: string | null;
   hoveredPile: Exclude<ZoneKey, 'hand'> | null;
-  // Free counters and dice track their own hover so Delete knows what's under
-  // the cursor — cards use `hovered` above.
+  // Free counters, dice and hand cards track their own hover so Delete knows
+  // what's under the cursor — battlefield cards use `hovered` above. Hand is an
+  // index rather than an id because a hand holds duplicate cards.
   hoveredCounter: string | null;
   hoveredDie: string | null;
+  hoveredHandIndex: number | null;
   battlefieldRect: { width: number; height: number };     // updated by Battlefield component on mount/resize
   // Mulligan state machine
   mulliganCount: number;
@@ -148,6 +150,7 @@ interface PlaytestActions {
   setHoveredPile: (zone: Exclude<ZoneKey, 'hand'> | null) => void;
   setHoveredCounter: (id: string | null) => void;
   setHoveredDie: (id: string | null) => void;
+  setHoveredHandIndex: (index: number | null) => void;
 
   appendLog: (text: string) => void;
   clearLog: () => void;
@@ -196,6 +199,7 @@ const initial: PlaytestState = {
   hoveredPile: null,
   hoveredCounter: null,
   hoveredDie: null,
+  hoveredHandIndex: null,
   battlefieldRect: { width: 0, height: 0 },
   mulliganCount: 0,
   shuffleTick: 0,
@@ -1009,6 +1013,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   setHoveredPile: (zone) => set({ hoveredPile: zone }),
   setHoveredCounter: (id) => set({ hoveredCounter: id }),
   setHoveredDie: (id) => set({ hoveredDie: id }),
+  setHoveredHandIndex: (index) => set({ hoveredHandIndex: index }),
 
   appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
   clearLog: () => set({ log: [] }),
