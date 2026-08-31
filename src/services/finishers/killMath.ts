@@ -48,6 +48,12 @@ export function manaCeiling(fuel: DeckFuel, a: FinisherAssumptions): number {
 export function singleTargetFraction(
   damage: number, a: FinisherAssumptions,
 ): { fraction: number; overkill: number } {
+  // Unbounded damage has to short-circuit: at the default overkillCredit of 0 the formula below
+  // evaluates (Infinity - 1) * 0, which is NaN, and a single NaN poisons the whole deck verdict.
+  // One targeted spell still only hits one player, so the table cap applies as normal.
+  if (!isFinite(damage)) {
+    return { fraction: 1 / Math.max(1, a.opponents), overkill: Infinity };
+  }
   const playersKillable = a.startingLife > 0 ? damage / a.startingLife : 0;
   const credited = playersKillable <= 1
     ? playersKillable

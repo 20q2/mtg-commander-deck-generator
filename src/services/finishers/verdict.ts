@@ -6,7 +6,9 @@ import type { FinisherAssumptions } from './tuning';
 export function summarise(
   estimates: KillEstimate[], a: FinisherAssumptions,
 ): DeckFinisherVerdict {
-  const scored = estimates.filter(e => e.tableFraction !== null);
+  // Non-finite guard as well as null: one NaN fraction would otherwise propagate through both
+  // Math.max and the sum and render the entire headline unreadable.
+  const scored = estimates.filter(e => e.tableFraction !== null && isFinite(e.tableFraction));
   const bestSingle = scored.reduce((m, e) => Math.max(m, e.tableFraction ?? 0), 0);
   const combined = Math.min(1, scored.reduce((s, e) => s + (e.tableFraction ?? 0), 0));
   const density = estimates.filter(e => e.tier === 'LIVE').length;
