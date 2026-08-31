@@ -1,4 +1,5 @@
 import type { DeckFuel, DeckFinisherVerdict } from '@/types';
+import { hasTaggerData } from '@/services/tagger/client';
 import { bodiesOnBoard, manaCeiling, type FinisherAssumptions } from '@/services/finishers';
 
 interface Props {
@@ -45,7 +46,13 @@ export function DeckFuelStrip({ fuel, verdict, assumptions, comboCount }: Props)
         <span>{fuel.creatureCount} creatures ({fuel.avgPower.toFixed(1)} avg power)</span>
         <span>{fuel.tokenMakers} token makers</span>
         <span className="text-violet-300/90">→ {n(bodies)} bodies at T{assumptions.turn}</span>
-        <span>{fuel.landCount} lands · {fuel.rampCount} ramp</span>
+        {/* Ramp now comes from the tagger artifact. If that file didn't load, ramp reads 0 and
+            the mana ceiling quietly collapses — say so rather than showing a plausible zero. */}
+        <span className={hasTaggerData() ? '' : 'text-amber-400'}>
+          {fuel.landCount} lands · {hasTaggerData()
+            ? `${fuel.rampCount} ramp`
+            : 'ramp unavailable (tagger artifact failed to load)'}
+        </span>
         <span className="text-violet-300/90">→ {n(mana, 1)} mana at T{assumptions.turn}</span>
         {devotion && <span>devotion {devotion}</span>}
         <span>{fuel.trampleGranters} trample · {fuel.hasteGranters} haste · {fuel.anthems} anthems</span>

@@ -1,10 +1,14 @@
 /**
- * The oracle-tag vocabulary the Finisher Lab scores against — and the reason the lab fetches
- * membership from Scryfall directly rather than from the S3 tagger artifact.
+ * The oracle-tag vocabulary the Finisher Lab scores against.
  *
- * Baking these into `infra/lambda/tagger-sync.ts` would mean redeploying the tagger stack by hand
- * every time a candidate tag is tried, which front-loads exactly the decision the lab exists to
- * explore. Once the vocabulary settles, the winners get baked in and this stays as the dev path.
+ * Live from Scryfall ONLY for tags the tagger artifact doesn't already carry. Anything already in
+ * `infra/lambda/tagger-sync.ts` — ramp, lifegain, tutors, the whole role vocabulary — is read
+ * locally via `@/services/tagger/client`, because paginating a tag we already ship is pure waste.
+ * `otag:ramp` alone is 2403 cards and was the single reliable source of 429s.
+ *
+ * The live path exists so a CANDIDATE shape tag can be tried without redeploying the tagger
+ * stack, which is the decision the lab is for. Once a tag earns its place it should move into
+ * tagger-sync.ts and out of here.
  *
  * Tag counts verified against the Scryfall API on 2026-08-30.
  */
@@ -24,15 +28,21 @@ export const SHAPE_TAGS: Record<string, { query: string; shapes: FinisherShape[]
   'extra-combat': { query: 'otag:extra-combat', shapes: ['extra-combat'], note: '46 — Aggravated Assault' },
 };
 
-/** Tags that measure the deck's fuel rather than name a shape. */
+/**
+ * Fuel tags NOT present in the tagger artifact, so they still need a live fetch.
+ *
+ * Ramp deliberately isn't here — `cardMatchesRole(name, 'ramp')` reads it from the artifact and
+ * subsumes cost-reducer / mana-dork / mana-rock at the same time.
+ *
+ * These four are display-only: the strip reports them, but `grantsConnect` is parsed from oracle
+ * text rather than looked up here, so dropping them changes no score. They're the first thing to
+ * cut if the sweep gets slow.
+ */
 export const FUEL_TAGS: Record<string, { query: string; note: string }> = {
-  'gives-haste': { query: 'otag:gives-haste', note: '651' },
-  'gives-trample': { query: 'otag:gives-trample', note: '514' },
-  unblockable: { query: 'otag:unblockable', note: '196' },
-  anthem: { query: 'otag:anthem', note: '543' },
-  ramp: { query: 'otag:ramp', note: 'mana ceiling' },
-  'mana-dork': { query: 'otag:mana-dork', note: 'mana ceiling' },
-  'mana-rock': { query: 'otag:mana-rock', note: 'mana ceiling' },
+  'gives-haste': { query: 'otag:gives-haste', note: '651 — display only' },
+  'gives-trample': { query: 'otag:gives-trample', note: '514 — display only' },
+  unblockable: { query: 'otag:unblockable', note: '196 — display only' },
+  anthem: { query: 'otag:anthem', note: '543 — display only' },
 };
 
 /** Membership lookup handed to the pure scoring functions. */

@@ -11,6 +11,7 @@
  */
 
 import { getOracleText, isAnyLand, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { cardMatchesRole } from '@/services/tagger/client';
 import type { ScryfallCard, DeckFuel, DetectedCombo } from '@/types';
 import type { TagMembership } from './labTags';
 import { comboFuel } from './combos';
@@ -79,7 +80,11 @@ export function measureFuel(
       }
     }
 
-    if (tags.has('ramp', name) || tags.has('mana-dork', name) || tags.has('mana-rock', name)) rampCount++;
+    // Ramp comes from the tagger artifact we already ship, NOT from a live Scryfall sweep.
+    // `otag:ramp` alone is 2403 cards and was the single reliable source of 429s; the S3 file
+    // already carries ramp / cost-reducer / mana-dork / mana-rock, and cardMatchesRole subsumes
+    // all four. One cached fetch instead of twenty paginated ones.
+    if (cardMatchesRole(name, 'ramp')) rampCount++;
     if (tags.has('gives-haste', name)) hasteGranters++;
     if (tags.has('gives-trample', name)) trampleGranters++;
     if (tags.has('anthem', name)) anthems++;

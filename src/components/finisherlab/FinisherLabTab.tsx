@@ -44,6 +44,12 @@ export function FinisherLabTab() {
   const [deckCards, setDeckCards] = useState<ScryfallCard[] | null>(null);
   /** Complete Spellbook combos in the deck. Feed the fuel stage, not a side list. */
   const [combos, setCombos] = useState<DetectedCombo[]>([]);
+  /**
+   * Whether the combo lookup has settled. Results are withheld until it has: combos arrive after
+   * the cards do, and rendering in between flashes a confident wrong answer — a deck that wins on
+   * the spot reads "grinds the table down" for a beat before correcting itself.
+   */
+  const [combosPending, setCombosPending] = useState(false);
   const [deckName, setDeckName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,10 +64,15 @@ export function FinisherLabTab() {
     setTagsLoading(true);
     setProgress('');
     try {
-      const membership = await loadMembership(
-        parseVocab(text),
-        (done, total, key) => setProgress(`${done}/${total} · ${key}`),
-      );
+      // The tagger artifact is one cached S3 file and carries the whole role vocabulary — ramp
+      // included. measureFuel reads ramp from it, so it has to be in before any scoring runs.
+      const [membership] = await Promise.all([
+        loadMembership(
+          parseVocab(text),
+          (done, total, key) => setProgress(`${done}/${total} · ${key}`),
+        ),
+        loadTaggerData(),
+      ]);
       setTags(membership);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -78,6 +89,7 @@ export function FinisherLabTab() {
 
   const handleSubmit = useCallback(async (result: PasteLaneResult, name?: string) => {
     setLoading(true);
+    setCombosPending(true);
     setError(null);
     try {
       const cardMap = await getCardsByNames(result.cardNames);
@@ -101,9 +113,9 @@ export function FinisherLabTab() {
         setCombos(found);
         console.log(`[FinisherLab] ${identity.join('') || 'C'} → ${pool.length} combos in pool, ${found.length} complete in deck`);
 
-        // Bracket needs the tagger artifact for mass-land-denial / extra-turn / tutor signals.
-        // Without it the estimate still works off Game Changers and combos, just more coarsely.
-        const [gameChangers] = await Promise.all([getGameChangerNames(), loadTaggerData()]);
+        // Tagger data is already in from the mount sweep; the bracket needs it for
+        // mass-land-denial / extra-turn / tutor signals.
+        const gameChangers = await getGameChangerNames();
         const allNames = result.cardNames;
         const landNames = new Set(distinct.filter(isAnyLand).map(c => c.name));
         const nonLand = distinct.filter(c => !isAnyLand(c));
@@ -116,6 +128,8 @@ export function FinisherLabTab() {
       } catch {
         setCombos([]);
         setBracket(null);
+      } finally {
+        setCombosPending(false);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -126,7 +140,7 @@ export function FinisherLabTab() {
 
   // Re-scored on every assumption change. Pure local computation over ~99 cards.
   const scored = useMemo(() => {
-    if (!cards || !deckCards || !tags) return null;
+    if (!cards || !deckCards || !tags || combosPending) return null;
     const fuel = measureFuel(deckCards, tags, combos);
     const rows: ClassifiedCard[] = cards.map(card => {
       const matches = classifyShapes(card, tags);
@@ -184,10 +198,12 @@ export function FinisherLabTab() {
         </CardContent>
       </Card>
 
-      {(loading || tagsLoading) && (
+      {(loading || tagsLoading || combosPending) && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" />
-          {tagsLoading ? `Fetching oracle tags… ${progress}` : 'Resolving cards…'}
+          {tagsLoading
+            ? `Fetching oracle tags… ${progress}`
+            : loading ? 'Resolving cards…' : 'Checking for combos…'}
         </div>
       )}
 
