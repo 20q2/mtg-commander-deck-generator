@@ -2,6 +2,19 @@ import type { ScryfallCard, UserCardList, GeneratedDeck } from '@/types';
 
 export type ZoneKey = 'library' | 'hand' | 'graveyard' | 'exile' | 'command';
 
+/**
+ * A free-text label pinned to a battlefield card — keyword grants ("Flying"),
+ * reminders ("Goaded"), or a P/T override written as "8/8". Coordinates are an
+ * offset from the card's top-left corner in unrotated card space, so a sticker
+ * stays put when the card is tapped or rotated.
+ */
+export interface CardSticker {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+}
+
 export interface BattlefieldCard {
   instanceId: string;
   card: ScryfallCard;
@@ -14,6 +27,8 @@ export interface BattlefieldCard {
   /** Free rotation in degrees (multiples of 90), independent of `tapped`. */
   rotation?: number;
   counters: Record<string, number>;
+  /** Optional so the many places that construct a card don't all need updating. */
+  stickers?: CardSticker[];
   attachedTo?: string;
 }
 
@@ -84,6 +99,18 @@ export interface PlaytestSnapshot {
   turn: number;
 }
 
+/**
+ * A New Card Trial rule: force `cardName` into the opening hand, or into the top
+ * `topN` cards of the library, every time the deck is dealt. Persists across
+ * resets so "reset and look again" is a one-click loop.
+ */
+export interface TrialPin {
+  cardName: string;
+  where: 'hand' | 'top';
+  /** Only meaningful when `where` is 'top'. */
+  topN: number;
+}
+
 export type SourceInput =
   | { kind: 'list'; list: UserCardList }
   | { kind: 'generated'; deck: GeneratedDeck }
@@ -111,6 +138,7 @@ export type Modal =
   | { kind: 'zoneViewer'; zone: Exclude<ZoneKey, 'hand'> }
   | { kind: 'tokens' }
   | { kind: 'create' }
+  | { kind: 'newCardTrial' }
   | { kind: 'mulligan'; mulliganCount: number };
 
 export type MoveSource =
