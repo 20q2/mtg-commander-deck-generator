@@ -23,9 +23,15 @@ import type { TagMembership } from './labTags';
  * same mana, and hardcoding a single X would overrate them by 2×.
  */
 export function parseXCost(manaCost: string | undefined): { xCount: number; fixedCost: number } {
+  // Split and modal-DFC cards print BOTH faces: "{2}{B} // {X}{B}{B}". Summing the whole string
+  // charges the finisher for the other half — Stensian Sanguinist // Exsanguinate read as fixed 4
+  // instead of 2. Take the face that actually carries the X, since that's where the shape lives.
+  const faces = (manaCost ?? '').split('//');
+  const face = faces.find(f => /\{X\}/i.test(f)) ?? faces[0] ?? '';
+
   let xCount = 0;
   let fixedCost = 0;
-  for (const m of (manaCost ?? '').matchAll(/\{([^}]+)\}/g)) {
+  for (const m of face.matchAll(/\{([^}]+)\}/g)) {
     const sym = m[1].toUpperCase();
     if (sym === 'X') { xCount++; continue; }
     const n = parseInt(sym, 10);
@@ -35,9 +41,24 @@ export function parseXCost(manaCost: string | undefined): { xCount: number; fixe
   return { xCount, fixedCost };
 }
 
-/** How an overrun-style card pumps. `+X/+X` scales with the board; `+3/+3` is flat. */
+/**
+ * How an overrun-style card pumps.
+ *
+ * `+X/+X` does NOT reliably mean "X = your creature count". Craterhoof spells that out; Blossoming
+ * Bogbeast is "+X/+X where X is the amount of life you gained this turn", and assuming Craterhoof
+ * semantics scored it at 32 bodies × (2.1 + 32) = 1091 damage on a real precon.
+ *
+ * So the `where X is` clause is read, and anything that isn't creature count is reported as
+ * unknown scaling rather than given a fabricated number — the same rule the drain-static map follows.
+ */
 export function parsePump(oracleText: string): FinisherPump {
-  if (/\+X\/\+X/i.test(oracleText)) return { kind: 'scales-with-bodies' };
+  if (/\+X\/\+X/i.test(oracleText)) {
+    if (/where X is the number of creatures you control/i.test(oracleText)) {
+      return { kind: 'scales-with-bodies' };
+    }
+    const clause = oracleText.match(/where X is ([^.]{0,60})/i);
+    return { kind: 'unknown-scaling', basis: clause ? clause[1].trim() : 'unstated X' };
+  }
   const flat = oracleText.match(/\+(\d+)\/\+\d+/);
   if (flat) return { kind: 'flat', amount: parseInt(flat[1], 10) };
   return { kind: 'flat', amount: 0 };
@@ -64,8 +85,10 @@ export function classifyShapes(card: ScryfallCard, tags: TagMembership): ShapeMa
     out.push({
       shape: 'alpha-strike',
       basis: pump.kind === 'scales-with-bodies'
-        ? 'otag:overrun, +X/+X'
-        : `otag:overrun, +${pump.amount}/+${pump.amount}`,
+        ? 'otag:overrun, +X/+X per creature'
+        : pump.kind === 'unknown-scaling'
+          ? `otag:overrun, +X/+X where X is ${pump.basis}`
+          : `otag:overrun, +${pump.amount}/+${pump.amount}`,
       pump,
       grantsConnect: grantsConnect(text),
     });

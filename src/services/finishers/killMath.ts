@@ -78,6 +78,14 @@ export function estimateKill(
   switch (match.shape) {
     case 'alpha-strike': {
       const bodies = bodiesOnBoard(fuel, a);
+      // A +X/+X off something we can't measure gets no number. Guessing produced a 1091-damage
+      // Blossoming Bogbeast, which is worse than admitting we don't know.
+      if (match.pump?.kind === 'unknown-scaling') {
+        return {
+          ...base, kind: 'unknown', damage: null, tableFraction: null, overkill: 0,
+          workings: `+X/+X where X is ${match.pump.basis} — not modelled`, tier: 'UNKNOWN',
+        };
+      }
       const pump = match.pump?.kind === 'scales-with-bodies'
         ? bodies
         : match.pump?.amount ?? 0;

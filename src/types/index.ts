@@ -818,8 +818,10 @@ export type FinisherShape =
 
 /** How an alpha-strike card pumps the team. */
 export type FinisherPump =
-  | { kind: 'scales-with-bodies' }     // Craterhoof: +X/+X where X = creature count
-  | { kind: 'flat'; amount: number };  // Overrun: +3/+3
+  | { kind: 'scales-with-bodies' }          // Craterhoof: +X/+X where X is the number of creatures
+  | { kind: 'flat'; amount: number }        // Overrun: +3/+3
+  // +X/+X off something we don't model — Blossoming Bogbeast's "life you gained this turn".
+  | { kind: 'unknown-scaling'; basis: string };
 
 /** One shape a card matched, with everything parsing found out about it. */
 export interface ShapeMatch {
