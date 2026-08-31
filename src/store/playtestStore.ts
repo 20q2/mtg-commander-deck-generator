@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 import { buildLibrary } from '@/services/playtest/libraryBuilder';
 import { resolveCombos } from '@/services/playtest/combos';
+import { applyTrialPins } from '@/services/playtest/trialPins';
 import {
   type BattlefieldCard,
   type CardSticker,
@@ -16,6 +17,7 @@ import {
   type PlaytestSnapshot,
   type SourceInput,
   type SourceMeta,
+  type TrialPin,
   type Zones,
   type ZoneKey,
 } from '@/components/playtest/types';
@@ -50,6 +52,10 @@ interface PlaytestState {
   hoveredCounter: string | null;
   hoveredDie: string | null;
   hoveredHandIndex: number | null;
+  // New Card Trial: force chosen cards to show up so they can actually be tested.
+  trialPins: TrialPin[];
+  /** Full card data for pinned cards that aren't in the deck, keyed by name. */
+  trialCards: Record<string, ScryfallCard>;
   battlefieldRect: { width: number; height: number };     // updated by Battlefield component on mount/resize
   // Mulligan state machine
   mulliganCount: number;
@@ -151,6 +157,7 @@ interface PlaytestActions {
   setHoveredCounter: (id: string | null) => void;
   setHoveredDie: (id: string | null) => void;
   setHoveredHandIndex: (index: number | null) => void;
+  setTrialPins: (pins: TrialPin[], resolved: Record<string, ScryfallCard>) => void;
 
   appendLog: (text: string) => void;
   clearLog: () => void;
@@ -200,6 +207,8 @@ const initial: PlaytestState = {
   hoveredCounter: null,
   hoveredDie: null,
   hoveredHandIndex: null,
+  trialPins: [],
+  trialCards: {},
   battlefieldRect: { width: 0, height: 0 },
   mulliganCount: 0,
   shuffleTick: 0,
@@ -317,6 +326,11 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         loading: false,
         source,
         colorIdentity: state.colorIdentity,
+        // Trial pins are a session rule, not game state: they must survive reset
+        // so "reset and look again" stays a one-click loop. The `...initial`
+        // above would otherwise clear them.
+        trialPins: state.trialPins,
+        trialCards: state.trialCards,
         zones: { ...emptyZones(), library: reshuffled, command: [...state.zones.command] },
         log: [makeLogEntry('Reset', 'system')],
       };
@@ -331,12 +345,21 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   // ─────────────────────── mulligan / draw / shuffle ───────────────────────
 
   dealOpeningHand: () => set(state => {
-    const draw = state.zones.library.slice(0, 7);
-    const rest = state.zones.library.slice(7);
+    const { library, forcedHand, notes } = applyTrialPins(
+      state.zones.library, state.trialPins, state.trialCards,
+    );
+    // Pinned-to-hand cards are part of the seven, not extra.
+    const need = Math.max(0, 7 - forcedHand.length);
+    const drawn = library.slice(0, need);
+    const hand = [...forcedHand, ...drawn];
     return {
-      zones: { ...state.zones, hand: draw, library: rest },
-      lastDrawRange: { start: 0, end: draw.length },
-      log: [...state.log, makeLogEntry(`Drew opening hand (${draw.length})`, 'library')],
+      zones: { ...state.zones, hand, library: library.slice(need) },
+      lastDrawRange: { start: 0, end: hand.length },
+      log: [
+        ...state.log,
+        makeLogEntry(`Drew opening hand (${hand.length})`, 'library'),
+        ...notes.map(n => makeLogEntry(n, 'system')),
+      ],
     };
   }),
 
@@ -1014,6 +1037,19 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   setHoveredCounter: (id) => set({ hoveredCounter: id }),
   setHoveredDie: (id) => set({ hoveredDie: id }),
   setHoveredHandIndex: (index) => set({ hoveredHandIndex: index }),
+
+  // `trialCards` is merged, never replaced: the resolved card data is harmless to
+  // keep and saves a refetch if the same card is pinned again later.
+  setTrialPins: (trialPins, resolved) => set(state => ({
+    trialPins,
+    trialCards: { ...state.trialCards, ...resolved },
+    log: [...state.log, makeLogEntry(
+      trialPins.length === 0
+        ? 'Cleared New Card Trial'
+        : `New Card Trial set for ${trialPins.map(p => p.cardName).join(', ')}`,
+      'system',
+    )],
+  })),
 
   appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
   clearLog: () => set({ log: [] }),
