@@ -12,15 +12,10 @@ export interface PinResult {
 
 /**
  * Reorder a freshly shuffled library so pinned cards land where the trial asks.
- * A pinned card already in the deck is moved; one that isn't is taken from
- * `injected`, which is how a card from the newest set gets trialled in a list
- * that doesn't contain it.
+ * Pins can only name cards already in the deck, so anything not found in the
+ * library is a real problem worth logging rather than something to conjure up.
  */
-export function applyTrialPins(
-  library: ScryfallCard[],
-  pins: TrialPin[],
-  injected: Record<string, ScryfallCard>,
-): PinResult {
+export function applyTrialPins(library: ScryfallCard[], pins: TrialPin[]): PinResult {
   if (pins.length === 0) return { library, forcedHand: [], notes: [] };
 
   const remaining = [...library];
@@ -30,17 +25,11 @@ export function applyTrialPins(
 
   for (const pin of pins) {
     const idx = remaining.findIndex(c => c.name === pin.cardName);
-    let card: ScryfallCard | undefined;
-    if (idx >= 0) {
-      card = remaining.splice(idx, 1)[0];
-    } else if (injected[pin.cardName]) {
-      card = injected[pin.cardName];
-      notes.push(`${pin.cardName} added for this trial (not in the deck)`);
-    }
-    if (!card) {
-      notes.push(`Trial card ${pin.cardName} could not be found`);
+    if (idx < 0) {
+      notes.push(`Trial card ${pin.cardName} is not in the library`);
       continue;
     }
+    const card = remaining.splice(idx, 1)[0];
     if (pin.where === 'hand') forcedHand.push(card);
     else topPins.push({ card, topN: Math.max(1, pin.topN) });
   }

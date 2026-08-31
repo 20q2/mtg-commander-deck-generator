@@ -1,51 +1,70 @@
-import { useState } from 'react';
-import { Loader2, Trash2, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Trash2, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { useCardNameSearch } from '@/hooks/useCardNameSearch';
-import { getCardByName } from '@/services/scryfall/client';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import type { TrialPin } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
 const MAX_PINS = 3;
 const TOP_PRESETS = [5, 10, 15];
+const SUGGESTION_LIMIT = 8;
 
 export function NewCardTrialModal() {
   const closeModal = usePlaytestStore(s => s.closeModal);
   const setTrialPins = usePlaytestStore(s => s.setTrialPins);
   const storedPins = usePlaytestStore(s => s.trialPins);
   const reset = usePlaytestStore(s => s.reset);
+  const zones = usePlaytestStore(s => s.zones);
+  const battlefield = usePlaytestStore(s => s.battlefield);
 
   const [pins, setPins] = useState<TrialPin[]>(storedPins);
-  const [resolved, setResolved] = useState<Record<string, ScryfallCard>>({});
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const search = useCardNameSearch({ exclude: new Set(pins.map(p => p.cardName.toLowerCase())) });
+  const [query, setQuery] = useState('');
+  const [focused, setFocused] = useState(false);
 
-  const addPin = async (name: string) => {
+  /**
+   * Every distinct card in the deck. Commanders are deliberately excluded: reset()
+   * keeps the command zone out of the reshuffle, so a pinned commander would never
+   * be in the library at deal time and the pin could never resolve. Tokens are out
+   * for the same reason — they're dropped on reset.
+   */
+  const deckCards = useMemo(() => {
+    const seen = new Set<string>();
+    const out: ScryfallCard[] = [];
+    const push = (c: ScryfallCard) => {
+      if (c.type_line.toLowerCase().includes('token')) return;
+      if (seen.has(c.name)) return;
+      seen.add(c.name);
+      out.push(c);
+    };
+    zones.library.forEach(push);
+    zones.hand.forEach(push);
+    zones.graveyard.forEach(push);
+    zones.exile.forEach(push);
+    battlefield.forEach(b => push(b.card));
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }, [zones, battlefield]);
+
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const pinned = new Set(pins.map(p => p.cardName));
+    return deckCards
+      .filter(c => !pinned.has(c.name) && (!q || c.name.toLowerCase().includes(q)))
+      .slice(0, SUGGESTION_LIMIT);
+  }, [deckCards, query, pins]);
+
+  const addPin = (name: string) => {
     if (pins.length >= MAX_PINS) return;
-    setAdding(true);
-    setError(null);
-    try {
-      // Resolve now so the store has full card data if this card isn't in the deck.
-      const card = await getCardByName(name);
-      setResolved(r => ({ ...r, [card.name]: card }));
-      setPins(p => [...p, { cardName: card.name, where: 'hand', topN: 10 }]);
-      search.clear();
-    } catch {
-      setError(`Could not find "${name}" on Scryfall.`);
-    } finally {
-      setAdding(false);
-    }
+    setPins(p => [...p, { cardName: name, where: 'hand', topN: 10 }]);
+    setQuery('');
   };
 
   const update = (i: number, patch: Partial<TrialPin>) =>
     setPins(p => p.map((pin, idx) => (idx === i ? { ...pin, ...patch } : pin)));
 
   const apply = (thenReset: boolean) => {
-    setTrialPins(pins, resolved);
+    setTrialPins(pins);
     closeModal();
     // Pins only take effect at deal time, so a reset is what makes them visible.
     if (thenReset) reset();
@@ -60,38 +79,43 @@ export function NewCardTrialModal() {
     >
       <div className="p-3 space-y-3 text-sm">
         <p className="text-xs text-muted-foreground">
-          Force up to {MAX_PINS} cards to show up, so you can see how they play without
-          resetting twenty times. Cards that aren't in the deck get added for the trial.
+          Force up to {MAX_PINS} cards from this deck to show up, so you can see how they
+          play without resetting twenty times.
         </p>
 
         {pins.length < MAX_PINS && (
           <div className="relative">
             <Input
-              value={search.query}
-              onChange={(e) => search.setQuery(e.target.value)}
-              placeholder="Search for a card…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={`Search this deck (${deckCards.length} cards)…`}
               className="h-8 text-xs"
             />
-            {(search.loading || adding) && (
-              <Loader2 className="absolute right-2 top-2 w-4 h-4 animate-spin text-muted-foreground" />
-            )}
-            {search.suggestions.length > 0 && (
+            {focused && suggestions.length > 0 && (
               <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-xl max-h-52 overflow-y-auto">
-                {search.suggestions.map(name => (
+                {suggestions.map(c => (
                   <button
-                    key={name}
-                    onClick={() => addPin(name)}
+                    key={c.name}
+                    // onMouseDown, not onClick — the input's blur would close this
+                    // list before a click ever landed.
+                    onMouseDown={(e) => { e.preventDefault(); addPin(c.name); }}
                     className="w-full px-2.5 py-1.5 text-left text-xs hover:bg-accent transition-colors truncate"
                   >
-                    {name}
+                    {c.name}
+                    <span className="ml-1.5 text-[10px] text-muted-foreground/70">{c.type_line}</span>
                   </button>
                 ))}
               </div>
             )}
+            {focused && query.trim() !== '' && suggestions.length === 0 && (
+              <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-xl px-2.5 py-2 text-xs text-muted-foreground">
+                No card in this deck matches "{query.trim()}".
+              </div>
+            )}
           </div>
         )}
-
-        {error && <div className="text-xs text-red-400">{error}</div>}
 
         {pins.length === 0 ? (
           <div className="py-6 text-center text-xs text-muted-foreground">No cards pinned yet.</div>
@@ -153,7 +177,7 @@ export function NewCardTrialModal() {
             variant="ghost"
             size="sm"
             className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => { setPins([]); setTrialPins([], {}); }}
+            onClick={() => { setPins([]); setTrialPins([]); }}
           >
             <X className="w-3 h-3 mr-1" />Clear all
           </Button>

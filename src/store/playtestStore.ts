@@ -53,9 +53,8 @@ interface PlaytestState {
   hoveredDie: string | null;
   hoveredHandIndex: number | null;
   // New Card Trial: force chosen cards to show up so they can actually be tested.
+  // Pins only ever name cards already in the deck, so no card data is stored here.
   trialPins: TrialPin[];
-  /** Full card data for pinned cards that aren't in the deck, keyed by name. */
-  trialCards: Record<string, ScryfallCard>;
   battlefieldRect: { width: number; height: number };     // updated by Battlefield component on mount/resize
   // Mulligan state machine
   mulliganCount: number;
@@ -157,7 +156,7 @@ interface PlaytestActions {
   setHoveredCounter: (id: string | null) => void;
   setHoveredDie: (id: string | null) => void;
   setHoveredHandIndex: (index: number | null) => void;
-  setTrialPins: (pins: TrialPin[], resolved: Record<string, ScryfallCard>) => void;
+  setTrialPins: (pins: TrialPin[]) => void;
 
   appendLog: (text: string) => void;
   clearLog: () => void;
@@ -208,7 +207,6 @@ const initial: PlaytestState = {
   hoveredDie: null,
   hoveredHandIndex: null,
   trialPins: [],
-  trialCards: {},
   battlefieldRect: { width: 0, height: 0 },
   mulliganCount: 0,
   shuffleTick: 0,
@@ -330,7 +328,6 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         // so "reset and look again" stays a one-click loop. The `...initial`
         // above would otherwise clear them.
         trialPins: state.trialPins,
-        trialCards: state.trialCards,
         zones: { ...emptyZones(), library: reshuffled, command: [...state.zones.command] },
         log: [makeLogEntry('Reset', 'system')],
       };
@@ -345,9 +342,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   // ─────────────────────── mulligan / draw / shuffle ───────────────────────
 
   dealOpeningHand: () => set(state => {
-    const { library, forcedHand, notes } = applyTrialPins(
-      state.zones.library, state.trialPins, state.trialCards,
-    );
+    const { library, forcedHand, notes } = applyTrialPins(state.zones.library, state.trialPins);
     // Pinned-to-hand cards are part of the seven, not extra.
     const need = Math.max(0, 7 - forcedHand.length);
     const drawn = library.slice(0, need);
@@ -1038,11 +1033,8 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   setHoveredDie: (id) => set({ hoveredDie: id }),
   setHoveredHandIndex: (index) => set({ hoveredHandIndex: index }),
 
-  // `trialCards` is merged, never replaced: the resolved card data is harmless to
-  // keep and saves a refetch if the same card is pinned again later.
-  setTrialPins: (trialPins, resolved) => set(state => ({
+  setTrialPins: (trialPins) => set(state => ({
     trialPins,
-    trialCards: { ...state.trialCards, ...resolved },
     log: [...state.log, makeLogEntry(
       trialPins.length === 0
         ? 'Cleared New Card Trial'
