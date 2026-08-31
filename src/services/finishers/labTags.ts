@@ -16,7 +16,10 @@ import type { FinisherShape } from '@/types';
 export const SHAPE_TAGS: Record<string, { query: string; shapes: FinisherShape[]; note: string }> = {
   overrun: { query: 'otag:overrun', shapes: ['alpha-strike'], note: '72 cards — Craterhoof, Triumph of the Hordes' },
   lifedrain: { query: 'otag:lifedrain', shapes: ['drain-x', 'drain-static'], note: '426 — Exsanguinate, Gray Merchant' },
-  burn: { query: 'otag:burn', shapes: ['burn-x'], note: '3023 — the X filter is what makes this usable' },
+  // The X filter is pushed into the QUERY, not just applied after. `otag:burn` alone is 3133
+  // cards — 18 pages, and enough on its own to earn a 429 mid-sweep. Since burn-x requires {X}
+  // anyway, `mana:{X}` cuts it to 122 with no behaviour change at all.
+  burn: { query: 'otag:burn mana:{X}', shapes: ['burn-x'], note: '122 of 3133 — X-scaling burn only' },
   'win-condition': { query: 'otag:win-condition', shapes: ['alt-win'], note: "68 — Thassa's Oracle, Approach" },
   'extra-combat': { query: 'otag:extra-combat', shapes: ['extra-combat'], note: '46 — Aggravated Assault' },
 };
