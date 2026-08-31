@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { BrowserRouter, Routes, Route, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, Link, Navigate } from 'react-router-dom';
 import { Settings, Sparkles, Layers, Library, BarChart3, MessageSquare, Package, Boxes } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
@@ -54,10 +54,10 @@ const MetricsPage = import.meta.env.DEV
   ? lazy(() => import('@/pages/MetricsPage').then(m => ({ default: m.MetricsPage })))
   : null;
 
-// Same treatment for the theme-scoring debug page — it exposes raw score components and tag slugs,
+// Same treatment for the dev lab — it exposes raw score components, tag slugs and kill math,
 // which are developer data, not product UI.
-const ThemeLabPage = import.meta.env.DEV
-  ? lazy(() => import('@/pages/ThemeLabPage').then(m => ({ default: m.ThemeLabPage })))
+const LabPage = import.meta.env.DEV
+  ? lazy(() => import('@/pages/LabPage').then(m => ({ default: m.LabPage })))
   : null;
 
 // Get art crop URL for background
@@ -395,10 +395,10 @@ function Layout({ children }: { children: React.ReactNode }) {
                   )}
                   {import.meta.env.DEV && (
                     <Link
-                      to="/theme-lab"
+                      to="/lab"
                       className="text-xs text-amber-500/80 hover:text-amber-400 transition-colors px-2 py-1 rounded-md hover:bg-accent flex items-center gap-1.5"
                     >
-                      Theme Lab
+                      Lab
                     </Link>
                   )}
                   <Link
@@ -748,8 +748,11 @@ function App() {
         {import.meta.env.DEV && MetricsPage && (
           <Route path="/metrics" element={<Layout><Suspense fallback={null}><MetricsPage /></Suspense></Layout>} />
         )}
-        {import.meta.env.DEV && ThemeLabPage && (
-          <Route path="/theme-lab" element={<Layout><Suspense fallback={null}><ThemeLabPage /></Suspense></Layout>} />
+        {import.meta.env.DEV && LabPage && (
+          <>
+            <Route path="/lab" element={<Layout><Suspense fallback={null}><LabPage /></Suspense></Layout>} />
+            <Route path="/theme-lab" element={<Navigate to="/lab" replace />} />
+          </>
         )}
       </Routes>
     </BrowserRouter>

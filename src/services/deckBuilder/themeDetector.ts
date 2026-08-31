@@ -43,7 +43,7 @@ export interface ThemeMatchResult {
   /**
    * The three signals BEFORE weighting, each 0-100, plus the page's deck count.
    *
-   * Kept because the composite is otherwise unattributable: when /theme-lab and the Inspector
+   * Kept because the composite is otherwise unattributable: when /lab and the Inspector
    * disagreed on a Nath elves-discard list, the answer was that overlap sat pinned at its maximum
    * for seven themes while inclusion favoured two 25- and 38-deck pages over a 229-deck one. That
    * was invisible from the composite alone, and reconstructing the terms outside this function is
@@ -252,7 +252,7 @@ export function scoreThemeMatch(
   //
   // Both EDHREC signals are popularity-biased in opposite directions — a goodstuff pile overlaps
   // every theme page, a budget Elves deck overlaps none — so membership corrects both. It is
-  // weighted deliberately light for now; /theme-lab is where that weight gets earned.
+  // weighted deliberately light for now; /lab is where that weight gets earned.
   const membershipScore = membership?.membershipScore ?? 0;
 
   // Renormalize only when the classifier didn't run at all, so its absence doesn't silently deflate

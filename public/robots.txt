@@ -3,7 +3,7 @@ Allow: /
 # In-development and internal-only routes
 Disallow: /brew
 Disallow: /metrics
-Disallow: /theme-lab
+Disallow: /lab
 Disallow: /migrate
 Disallow: /community-poll/admin
 

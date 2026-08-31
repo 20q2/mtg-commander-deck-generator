@@ -60,7 +60,7 @@ function isLand(card: ScryfallCard): boolean {
  * over the whole ~400-tag taxonomy because the membership test needs no EDHREC page, which is
  * exactly what lets a deck's real theme be found even when the commander's page never lists it.
  *
- * Cheap enough to re-run on every keystroke in `/theme-lab`'s tuning panel, which is the point.
+ * Cheap enough to re-run on every keystroke in `/lab`'s tuning panel, which is the point.
  *
  * @param tagsFor oracle tag slugs for a card. Returns empty when SpellChroma's index isn't loaded;
  *                archetype themes then find no members and deterministic ones are unaffected.

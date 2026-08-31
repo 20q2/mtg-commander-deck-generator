@@ -10,7 +10,7 @@ export interface ThemeTableEntry {
    * because Humans' base rate is enormous, while 6 Praetors is not.
    *
    * Caveat, deliberately accepted for v1: this is measured across ALL colors, so it slightly
-   * over-penalizes themes concentrated in a deck's own colors. `/theme-lab` shows the raw ratio
+   * over-penalizes themes concentrated in a deck's own colors. `/lab` shows the raw ratio
    * alongside the lift so the effect is visible rather than hidden.
    */
   baseRate: number;

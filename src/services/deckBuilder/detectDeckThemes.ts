@@ -79,7 +79,7 @@ export async function detectDeckThemes(
   // fetch list being fixed in advance.
   //
   // Entirely best-effort: any failure leaves membershipScores undefined and detection falls back to
-  // the two EDHREC signals. See /theme-lab (dev) to inspect these numbers.
+  // the two EDHREC signals. See /lab (dev) to inspect these numbers.
   let membershipScores: Map<string, ThemeScore> | undefined;
   let extraThemes: EDHRECTheme[] = [];
   try {

@@ -2,7 +2,7 @@
  * Every knob for theme scoring, in one file on purpose.
  *
  * These values are GUESSES. Nothing here has been validated against real decks yet — the whole
- * point of `/theme-lab` is to make them answerable by looking rather than by arguing. The debug
+ * point of `/lab` is to make them answerable by looking rather than by arguing. The debug
  * page can override any of them live, so prefer changing a number there first and only writing the
  * winner back here.
  */
@@ -39,7 +39,7 @@ export const OFF_LIST_PRIOR = 0.65;
 
 // ─── Signal blend ─────────────────────────────────────────────────────
 // Deliberately TIMID at launch: membership is a tiebreaker against the EDHREC signals we already
-// trust, not the dominant term. Turn MEMBERSHIP_WEIGHT up once /theme-lab shows the numbers are
+// trust, not the dominant term. Turn MEMBERSHIP_WEIGHT up once /lab shows the numbers are
 // sane. Shipping it confident is how you discover Humans-tribal Atraxa in the wild.
 
 // Swept against the 22 fixture decks (src/data/themeTestDecks.json), 20 of which resolve. The
@@ -249,7 +249,7 @@ export const COMMANDER_WEIGHT = 2;
  */
 export const NEST_SUPPRESS_RATIO = 0.75;
 
-/** The full knob set, as data — this is what `/theme-lab` edits and passes back in. */
+/** The full knob set, as data — this is what `/lab` edits and passes back in. */
 export interface ThemeTuning {
   shortlistSize: number;
   minMembers: number;

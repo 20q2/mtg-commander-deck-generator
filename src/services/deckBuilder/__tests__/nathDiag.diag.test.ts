@@ -3,7 +3,7 @@
  *
  *   VITE_LIVE_DIAG=1 node node_modules/vitest/vitest.mjs run src/services/deckBuilder/__tests__/nathDiag.diag.test.ts
  *
- * /theme-lab reports Elves + Discard on this deck; the picker and Inspector report Combo + Stax.
+ * /lab reports Elves + Discard on this deck; the picker and Inspector report Combo + Stax.
  * The lab shows the CLASSIFIER's ranking (Phase A alone); the other two show the COMPOSITE, in which
  * the classifier is one term of three. This prints both, plus each composite term, so the
  * disagreement is attributable rather than guessed at.
@@ -116,12 +116,12 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('Nath: lab vs composite'
       .map((t: { value: string; slug: string; count: number }) => ({ name: t.value, slug: t.slug, count: t.count, url: '' }))
       .sort((a: EDHRECTheme, b: EDHRECTheme) => b.count - a.count);
 
-    // ── Phase A: what /theme-lab shows ──
+    // ── Phase A: what /lab shows ──
     const scored = scoreThemesForDeck(
       cards, models, tagsFor, new Set(commanderThemes.map(t => t.slug)), undefined,
       new Set(table.staples ?? []), cards.find(c => c.name === COMMANDER) ?? null,
     );
-    console.log('\nCLASSIFIER (what /theme-lab ranks on):');
+    console.log('\nCLASSIFIER (what /lab ranks on):');
     for (const s of survivingThemes(scored).slice(0, 8)) {
       console.log(`  ${s.model.name.padEnd(22)} ${s.model.kind.kind.padEnd(10)} score=${s.membershipScore.toFixed(1).padStart(6)} members=${String(s.members).padStart(3)} ratio=${(s.ratio * 100).toFixed(0)}% conf=${s.confidence}%`);
     }

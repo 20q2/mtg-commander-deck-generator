@@ -1,11 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Loader2, FlaskConical, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PasteLane, type PasteLaneResult } from '@/components/deck-source/PasteLane';
 import { ThemeScoreTable } from '@/components/themelab/ThemeScoreTable';
 import { CardThemeTable } from '@/components/themelab/CardThemeTable';
-import { usePageTitle } from '@/hooks/usePageTitle';
 import { getCardsByNames, getMtgCatalogs, type MtgCatalogs } from '@/services/scryfall/client';
 import { fetchAllTags, fetchCommanderThemes } from '@/services/edhrec/client';
 import { loadTagIndex, tagsForOracleId } from '@/services/spellchroma/tagIndex';
@@ -37,9 +36,7 @@ interface LabInput {
   fixtureName?: string;
 }
 
-export function ThemeLabPage() {
-  usePageTitle('Theme Lab');
-
+export function ThemeLabTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState<LabInput | null>(null);
@@ -116,14 +113,10 @@ export function ThemeLabPage() {
   const survivors = survivingThemes(scores);
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl space-y-6">
-      <div className="flex items-center gap-2">
-        <FlaskConical className="w-5 h-5 text-amber-400/90" />
-        <h1 className="text-xl font-semibold">Theme Lab</h1>
-        <span className="text-xs text-muted-foreground">
-          dev only · how a deck gets measured against the EDHREC taxonomy
-        </span>
-      </div>
+    <div className="space-y-6">
+      <p className="text-xs text-muted-foreground">
+        How a deck gets measured against the EDHREC taxonomy.
+      </p>
 
       <Card>
         <CardHeader className="pb-3"><CardTitle className="text-sm">Test decks</CardTitle></CardHeader>

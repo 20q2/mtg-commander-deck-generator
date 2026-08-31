@@ -4,7 +4,7 @@
  *   VITE_LIVE_DIAG=1 node node_modules/vitest/vitest.mjs run src/services/deckBuilder/__tests__/weightSweep.diag.test.ts
  *
  * OVERLAP_WEIGHT / INCLUSION_WEIGHT / MEMBERSHIP_WEIGHT were set before the membership signal was
- * trusted ("deliberately TIMID at launch... turn MEMBERSHIP_WEIGHT up once /theme-lab shows the
+ * trusted ("deliberately TIMID at launch... turn MEMBERSHIP_WEIGHT up once /lab shows the
  * numbers are sane"). This measures what they should be instead of arguing about it.
  *
  * The fixtures are the right instrument and the page sweep is not: the sweep passes no commander
