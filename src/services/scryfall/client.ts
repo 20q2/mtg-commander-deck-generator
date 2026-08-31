@@ -1049,6 +1049,13 @@ export async function getGameChangerNames(): Promise<Set<string>> {
 
 /** Session cache for oracle-tag membership. Keyed by the raw query, e.g. `otag:overrun`. */
 const oracleTagCache = new Map<string, Set<string>>();
+/**
+ * In-flight sweeps, so concurrent callers share one pagination run rather than racing.
+ *
+ * This is not hypothetical: React StrictMode double-invokes the lab's mount effect, and without
+ * this both invocations miss the cache and each paginate `otag:burn` for ~18 requests.
+ */
+const oracleTagInflight = new Map<string, Promise<Set<string>>>();
 
 /**
  * Every card name carrying a Scryfall oracle tag, e.g. `otag:overrun`.
@@ -1062,32 +1069,43 @@ const oracleTagCache = new Map<string, Set<string>>();
 export async function fetchOracleTagNames(query: string): Promise<Set<string>> {
   const cached = oracleTagCache.get(query);
   if (cached) return cached;
+  const inflight = oracleTagInflight.get(query);
+  if (inflight) return inflight;
 
-  const names = new Set<string>();
-  let page = 1;
-  let hasMore = true;
+  const run = (async () => {
+    const names = new Set<string>();
+    let page = 1;
+    let hasMore = true;
 
-  while (hasMore) {
-    try {
-      const response = await scryfallFetch<ScryfallSearchResponse>(
-        `/cards/search?q=${encodeURIComponent(query)}&unique=cards&page=${page}`,
-      );
-      for (const card of response.data) {
-        names.add(card.name);
-        // Match the DFC handling elsewhere in this file — index the front face too.
-        if (card.name.includes(' // ')) names.add(card.name.split(' // ')[0]);
+    while (hasMore) {
+      try {
+        const response = await scryfallFetch<ScryfallSearchResponse>(
+          `/cards/search?q=${encodeURIComponent(query)}&unique=cards&page=${page}`,
+        );
+        for (const card of response.data) {
+          names.add(card.name);
+          // Match the DFC handling elsewhere in this file — index the front face too.
+          if (card.name.includes(' // ')) names.add(card.name.split(' // ')[0]);
+        }
+        hasMore = response.has_more;
+        page++;
+      } catch {
+        // 404 is Scryfall's "no cards matched", which is also what an unknown tag looks like.
+        break;
       }
-      hasMore = response.has_more;
-      page++;
-    } catch {
-      // 404 is Scryfall's "no cards matched", which is also what an unknown tag looks like.
-      break;
     }
-  }
 
-  oracleTagCache.set(query, names);
-  console.log(`[Scryfall] ${query} → ${names.size} cards`);
-  return names;
+    oracleTagCache.set(query, names);
+    console.log(`[Scryfall] ${query} → ${names.size} cards`);
+    return names;
+  })();
+
+  oracleTagInflight.set(query, run);
+  try {
+    return await run;
+  } finally {
+    oracleTagInflight.delete(query);
+  }
 }
 
 export interface MtgCatalogs {

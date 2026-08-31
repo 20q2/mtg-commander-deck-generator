@@ -30,7 +30,13 @@ export function FinisherLabTab() {
   const [progress, setProgress] = useState('');
   const [vocabText, setVocabText] = useState(() => vocabToText(defaultVocab()));
 
+  /** Distinct cards — what the classifier lists. Sixteen Forests are one row, not sixteen. */
   const [cards, setCards] = useState<ScryfallCard[] | null>(null);
+  /**
+   * The same deck WITH quantities. Fuel has to count slots, not names: basics are 20-35 cards of a
+   * real list, and collapsing them wrecks the land ratio that the whole mana ceiling rests on.
+   */
+  const [deckCards, setDeckCards] = useState<ScryfallCard[] | null>(null);
   const [deckName, setDeckName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +72,11 @@ export function FinisherLabTab() {
     try {
       const cardMap = await getCardsByNames(result.cardNames);
       setCards([...cardMap.values()]);
+      // cardNames still carries duplicates; the map is keyed by the name as given, so this
+      // rebuilds the deck at its real size.
+      setDeckCards(result.cardNames
+        .map(n => cardMap.get(n))
+        .filter((c): c is ScryfallCard => c !== undefined));
       setDeckName(name ?? result.commanderName ?? 'pasted deck');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -76,8 +87,8 @@ export function FinisherLabTab() {
 
   // Re-scored on every assumption change. Pure local computation over ~99 cards.
   const scored = useMemo(() => {
-    if (!cards || !tags) return null;
-    const fuel = measureFuel(cards, tags);
+    if (!cards || !deckCards || !tags) return null;
+    const fuel = measureFuel(deckCards, tags);
     const rows: ClassifiedCard[] = cards.map(card => {
       const matches = classifyShapes(card, tags);
       return {
@@ -87,7 +98,7 @@ export function FinisherLabTab() {
     });
     const all = rows.flatMap(r => r.estimates);
     return { fuel, rows, ranked: rankEstimates(all), verdict: summarise(all, assumptions) };
-  }, [cards, tags, assumptions]);
+  }, [cards, deckCards, tags, assumptions]);
 
   return (
     <div className="space-y-6">
@@ -176,7 +187,7 @@ export function FinisherLabTab() {
                   Kill math
                 </button>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {deckName} · {cards?.length ?? 0} cards
+                  {deckName} · {deckCards?.length ?? 0} cards ({cards?.length ?? 0} distinct)
                 </span>
               </div>
               {view === 'classifier'
