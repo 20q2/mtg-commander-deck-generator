@@ -12,22 +12,50 @@ export const COUNTER_COLOR: Record<string, string> = {
   storage: 'bg-zinc-500/90 text-white',
 };
 
-const BADGE = 36;
-const PAD_X = 8;   // px-2
-const PAD_Y = 16;  // py-4
+const BADGE = 27;  // 25% down from the original 36
+const PAD_X = 8;
+const PAD_Y = 16;  // room for the arrows, which live inside the box
 const BOX_W = BADGE + PAD_X * 2;
 const BOX_H = BADGE + PAD_Y * 2;
 
 const ARROW =
-  'absolute left-1/2 -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent ' +
+  'absolute left-1/2 -translate-x-1/2 w-0 h-0 border-x-[6px] border-x-transparent ' +
   'drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)] cursor-pointer pointer-events-auto';
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/** +1/+1 and -1/-1 read as signed totals; every other type is a bare count. */
+function badgeLabel(type: string, value: number): string {
+  if (type === '+1/+1') return `+${value}`;
+  if (type === '-1/-1') return `−${value}`;
+  return String(value);
+}
+
+function badgeClass(type: string): string {
+  return `rounded-full flex items-center justify-center font-bold tabular-nums leading-none shadow-lg ring-2 ring-white/40 ${COUNTER_COLOR[type] ?? 'bg-zinc-600/90 text-white'}`;
+}
+
+const badgeStyle = { width: BADGE, height: BADGE, fontSize: Math.round(BADGE * 0.42) };
+
+/**
+ * Keep the badge fully on the card. `pos` is the padded box's top-left, and the
+ * badge is centred inside it, so the limits are offset by the padding.
+ */
+function clampToCard(x: number, y: number, cardWidth: number, cardHeight: number) {
+  return {
+    x: clamp(x, -PAD_X, cardWidth - PAD_X - BADGE),
+    y: clamp(y, -PAD_Y, cardHeight - PAD_Y - BADGE),
+  };
+}
 
 /** Default badge slot: a centred row, so two counter types don't land on each other. */
 export function counterDefaultPos(index: number, total: number, cardWidth: number, cardHeight: number) {
-  return {
-    x: cardWidth / 2 - BOX_W / 2 + (index - (total - 1) / 2) * (BADGE + 8),
-    y: cardHeight / 2 - BOX_H / 2,
-  };
+  return clampToCard(
+    cardWidth / 2 - BOX_W / 2 + (index - (total - 1) / 2) * (BADGE + 8),
+    cardHeight / 2 - BOX_H / 2,
+    cardWidth,
+    cardHeight,
+  );
 }
 
 interface Props {
@@ -54,9 +82,10 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
   return (
     <>
       {counterEntries.map(([type, value], i) => {
-        const pos =
-          card.counterPositions?.[type] ??
-          counterDefaultPos(i, counterEntries.length, cardWidth, cardHeight);
+        const stored = card.counterPositions?.[type];
+        const pos = stored
+          ? clampToCard(stored.x, stored.y, cardWidth, cardHeight)
+          : counterDefaultPos(i, counterEntries.length, cardWidth, cardHeight);
         return interactive ? (
           <CounterBadge
             key={type}
@@ -65,6 +94,8 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
             value={value}
             pos={pos}
             rotation={rotation}
+            cardWidth={cardWidth}
+            cardHeight={cardHeight}
             onAdjust={(d) => onAdjust?.(type, d)}
           />
         ) : (
@@ -78,9 +109,7 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
               transformOrigin: 'center',
             }}
           >
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm tabular-nums shadow-lg ring-2 ring-white/40 ${COUNTER_COLOR[type] ?? 'bg-zinc-600/90 text-white'}`}>
-              {value}
-            </div>
+            <div className={badgeClass(type)} style={badgeStyle}>{badgeLabel(type, value)}</div>
           </div>
         );
       })}
@@ -136,13 +165,15 @@ function PTBadge({ value, cardWidth }: { value: string; cardWidth: number }) {
 }
 
 function CounterBadge({
-  instanceId, type, value, pos, rotation, onAdjust,
+  instanceId, type, value, pos, rotation, cardWidth, cardHeight, onAdjust,
 }: {
   instanceId: string;
   type: string;
   value: number;
   pos: { x: number; y: number };
   rotation: number;
+  cardWidth: number;
+  cardHeight: number;
   onAdjust: (delta: number) => void;
 }) {
   const moveCounterBadge = usePlaytestStore(s => s.moveCounterBadge);
@@ -173,7 +204,13 @@ function CounterBadge({
       const dy = ev.clientY - startY;
       if (!movedRef.current && Math.hypot(dx, dy) > 3) movedRef.current = true;
       if (!movedRef.current) return;
-      moveCounterBadge(instanceId, type, originX + dx * cos - dy * sin, originY + dx * sin + dy * cos);
+      const next = clampToCard(
+        originX + dx * cos - dy * sin,
+        originY + dx * sin + dy * cos,
+        cardWidth,
+        cardHeight,
+      );
+      moveCounterBadge(instanceId, type, next.x, next.y);
     };
     const onUp = (ev: PointerEvent) => {
       el.removeEventListener('pointermove', onMove);
@@ -212,7 +249,7 @@ function CounterBadge({
           aria-label={`Add ${type} counter`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onAdjust(1); }}
-          className={`${ARROW} top-1 border-b-[9px] border-b-white/90`}
+          className={`${ARROW} top-1 border-b-[8px] border-b-white/90`}
         />
       )}
       <div
@@ -226,9 +263,10 @@ function CounterBadge({
         }}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust(-1); }}
         title={`${value} ${type} · drag to move · click +1 · right-click −1 · scroll to adjust · alt-click clears`}
-        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm tabular-nums shadow-lg ring-2 ring-white/40 cursor-grab pointer-events-auto ${COUNTER_COLOR[type] ?? 'bg-zinc-600/90 text-white'}`}
+        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab pointer-events-auto ${badgeClass(type)}`}
+        style={badgeStyle}
       >
-        {value}
+        {badgeLabel(type, value)}
       </div>
       {hovered && (
         <button
@@ -236,7 +274,7 @@ function CounterBadge({
           aria-label={`Remove ${type} counter`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onAdjust(-1); }}
-          className={`${ARROW} bottom-1 border-t-[9px] border-t-white/90`}
+          className={`${ARROW} bottom-1 border-t-[8px] border-t-white/90`}
         />
       )}
     </div>
