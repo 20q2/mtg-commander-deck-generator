@@ -721,32 +721,28 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
   const shareLabel = shareState === 'copied' ? 'Link copied'
     : shareState === 'error' ? (shareErrorMsg ?? 'Could not copy the share link')
     : 'Copy a link to this deck';
-  // Icon-only at rest; widens to show the outcome after a click, then settles back.
-  // Width is animated between fixed values because `w-auto` can't be transitioned.
-  const shareSettled = shareState !== 'idle';
+  // Labelled so it reads as "share" rather than an export/upload glyph; the label swaps to the
+  // outcome after a click and settles back. Background matches the Inspect/SpellChroma/Playtest
+  // row rather than the shadcn `outline` variant, whose solid `bg-background` reads as a black chip.
   const shareButton = unsaved ? undefined : (
     // No `title` attribute: it would fire the native tooltip alongside this one.
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="outline"
+          <button
+            type="button"
             onClick={handleCopyShareLink}
             disabled={allDeckCards.length === 0}
             aria-label={shareLabel}
-            className={`h-9 overflow-hidden whitespace-nowrap transition-[width,padding] duration-200 ease-out ${
-              shareSettled ? 'w-[6.5rem] px-3' : 'w-9 px-0'
-            }`}
+            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
             {shareState === 'copied'
               ? <Check className="w-4 h-4 shrink-0 text-emerald-400" />
               : <Share className={`w-4 h-4 shrink-0 ${shareState === 'error' ? 'text-red-400' : ''}`} />}
-            {shareSettled && (
-              <span className={`text-sm ${shareState === 'error' ? 'text-red-400' : ''}`}>
-                {shareState === 'copied' ? 'Copied' : 'Failed'}
-              </span>
-            )}
-          </Button>
+            <span className={shareState === 'copied' ? 'text-emerald-400' : shareState === 'error' ? 'text-red-400' : ''}>
+              {shareState === 'copied' ? 'Copied' : shareState === 'error' ? 'Failed' : 'Share'}
+            </span>
+          </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">{shareLabel}</TooltipContent>
       </Tooltip>

@@ -6,8 +6,9 @@ import { useUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
-import type { CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
+import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
 import { COUNTER_COLORS } from '@/components/playtest/types';
+import { CardOverlays } from '@/components/playtest/CardOverlays';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { PlaytestToolbar } from '@/components/playtest/PlaytestToolbar';
@@ -149,6 +150,10 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   const [activeCard, setActiveCard] = useState<ScryfallCard | null>(null);
   const [activeFaceDown, setActiveFaceDown] = useState(false);
   const [activeTapped, setActiveTapped] = useState(false);
+  // The full battlefield entry behind the drag, when there is one. The live card
+  // is hidden at opacity-0 while dragging, so without this the ghost would shed
+  // its counters and stickers for the duration of the drag.
+  const [activeBfCard, setActiveBfCard] = useState<BfCard | null>(null);
   const [mobileSideOpen, setMobileSideOpen] = useState(false);
   const [activeCreate, setActiveCreate] = useState<
     | { kind: 'counter'; color: CounterColor }
@@ -220,11 +225,13 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     if (moveSource.kind === 'zone') {
       card = state.zones[moveSource.zone][moveSource.index];
       if (moveSource.zone === 'library') faceDown = true;
+      setActiveBfCard(null);
     } else {
       const bf = state.battlefield.find(b => b.instanceId === moveSource.instanceId);
       card = bf?.card;
       faceDown = bf?.faceDown ?? false;
       tapped = bf?.tapped ?? false;
+      setActiveBfCard(bf ?? null);
       // Track active battlefield card for group-drag follow rendering.
       state.setDragActive({ kind: 'card', id: moveSource.instanceId });
       state.setDragDelta({ x: 0, y: 0 });
@@ -259,6 +266,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     setActiveCard(null);
     setActiveFaceDown(false);
     setActiveTapped(false);
+    setActiveBfCard(null);
     setActiveCreate(null);
     const { active, over } = event;
     if (!over) return;
@@ -490,7 +498,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   if (!ready) return null;
 
   return (
-    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={() => { setActiveCard(null); setActiveFaceDown(false); setActiveTapped(false); setActiveCreate(null); clearDragTracking(); }}>
+    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={() => { setActiveCard(null); setActiveFaceDown(false); setActiveTapped(false); setActiveBfCard(null); setActiveCreate(null); clearDragTracking(); }}>
       <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
         <PlaytestToolbar onExit={() => navigate(-1)} onToggleSidePanel={() => setMobileSideOpen(o => !o)} />
         <div className="flex-1 flex min-h-0 relative">
@@ -537,17 +545,32 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           // the dropped card share the exact same center, so it lands where shown.
           // No scale/size bump: the drag preview is the same size as on the field.
           <div style={{ width: CARD_SIZES[cardSize].width, cursor: 'grabbing' }}>
-            <img
-              src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
-              alt={activeCard.name}
-              className="block w-full rounded-[5px] shadow-2xl ring-2 ring-primary/40"
+            {/* The rotation moved off the <img> and onto this wrapper so the
+                overlays turn with the card. Still not the measured node — that's
+                the upright div above — so the drop position is unaffected. */}
+            <div
+              className="relative"
               style={{
                 transform: activeTapped ? 'rotate(90deg)' : undefined,
                 transformOrigin: 'center',
-                filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.5))',
               }}
-              draggable={false}
-            />
+            >
+              <img
+                src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
+                alt={activeCard.name}
+                className="block w-full rounded-[5px] shadow-2xl ring-2 ring-primary/40"
+                style={{ filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.5))' }}
+                draggable={false}
+              />
+              {activeBfCard && !activeFaceDown && (
+                <CardOverlays
+                  card={activeBfCard}
+                  cardWidth={CARD_SIZES[cardSize].width}
+                  cardHeight={CARD_SIZES[cardSize].height}
+                  interactive={false}
+                />
+              )}
+            </div>
           </div>
         ) : activeCreate?.kind === 'counter' ? (
           (() => {

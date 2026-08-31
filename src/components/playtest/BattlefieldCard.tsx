@@ -6,18 +6,9 @@ import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
-import { TextSticker } from '@/components/playtest/TextSticker';
-import { resolvePT } from '@/services/playtest/powerToughness';
+import { CardOverlays } from '@/components/playtest/CardOverlays';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
-
-const COUNTER_COLOR: Record<string, string> = {
-  '+1/+1': 'bg-emerald-500/80 text-white',
-  '-1/-1': 'bg-red-500/80 text-white',
-  loyalty: 'bg-blue-500/80 text-white',
-  charge: 'bg-yellow-500/80 text-black',
-  storage: 'bg-zinc-500/80 text-white',
-};
 
 export function BattlefieldCard({ card }: { card: BfCard }) {
   const toggleTap = usePlaytestStore(s => s.toggleTap);
@@ -105,6 +96,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   const { card, xPx, yPx, transform, isDragging, selected, attributes, listeners, onTap, onAdjust, onHover, onContextMenu } = props;
   const cardSize = usePlaytestSettings(s => s.cardSize);
   const cardWidth = CARD_SIZES[cardSize].width;
+  const cardHeight = CARD_SIZES[cardSize].height;
   const localRef = useRef<HTMLDivElement | null>(null);
   const setRefs = (node: HTMLDivElement | null) => {
     localRef.current = node;
@@ -114,14 +106,8 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   const [hovered, setHoveredLocal] = useState(false);
   const magnify = useMagnifyKey();
   const showPreview = magnify && hovered && !isDragging;
-  const allCounterEntries = Object.entries(card.counters).filter(([, v]) => v > 0);
   const loyaltyValue = card.counters['loyalty'] ?? 0;
-  const counterEntries = allCounterEntries.filter(([type]) => type !== 'loyalty');
   const isPlaneswalker = card.card.type_line.toLowerCase().includes('planeswalker');
-  const pt = resolvePT(card);
-  // Only worth showing when it differs from what's printed on the art — an
-  // unmodified 3/3 needs no badge.
-  const showPT = pt !== null && (pt.modified !== pt.base || pt.overridden);
   const tx = transform?.x ?? 0;
   const ty = transform?.y ?? 0;
 
@@ -197,17 +183,6 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
           className={`w-full rounded-[5px] shadow-lg pointer-events-none ${selected ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : ''} ${flipping ? 'animate-bf-flip' : ''}`}
           draggable={false}
         />
-        {/* Counter badges — centered on the face, counter-rotated to stay upright. */}
-        {counterEntries.length > 0 && (
-          <div
-            className="absolute inset-0 flex items-center justify-center gap-2 pointer-events-none"
-            style={{ transform: card.tapped ? 'rotate(-90deg)' : undefined }}
-          >
-            {counterEntries.map(([type, n]) => (
-              <CounterBadge key={type} type={type} value={n} onAdjust={(d) => onAdjust(type, d)} />
-            ))}
-          </div>
-        )}
         {/* Loyalty shield (planeswalkers) — bottom-right with MTG-style hex shield */}
         {isPlaneswalker && (
           <div
@@ -241,89 +216,14 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
           </div>
         )}
 
-        {(card.stickers ?? []).map(st => (
-          <TextSticker
-            key={st.id}
-            instanceId={card.instanceId}
-            sticker={st}
-            rotation={totalRotation}
-          />
-        ))}
-
-        {/* Modified P/T — hangs off the bottom-right corner, outside the frame. */}
-        {showPT && pt && (
-          <div
-            className="absolute -bottom-2.5 -right-1.5 z-30 pointer-events-none"
-            style={{ transform: card.tapped ? 'rotate(-90deg)' : undefined, transformOrigin: 'center' }}
-          >
-            <span className="inline-block px-1.5 py-0.5 rounded bg-fuchsia-600/95 text-white text-[11px] font-bold tabular-nums shadow-lg ring-1 ring-white/30">
-              {pt.modified}
-            </span>
-          </div>
-        )}
+        <CardOverlays
+          card={card}
+          cardWidth={cardWidth}
+          cardHeight={cardHeight}
+          onAdjust={onAdjust}
+        />
       </div>
       {showPreview && <MagnifiedPreview card={card.card} anchorRef={localRef} faceDown={card.faceDown} />}
     </div>
   );
 });
-
-function CounterBadge({
-  type, value, onAdjust,
-}: {
-  type: string;
-  value: number;
-  onAdjust: (delta: number) => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const arrow = 'absolute left-1/2 -translate-x-1/2 w-0 h-0 border-x-[7px] border-x-transparent drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] cursor-pointer';
-
-  return (
-    <div
-      className="relative pointer-events-auto"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onWheel={(e) => { e.stopPropagation(); onAdjust(e.deltaY < 0 ? 1 : -1); }}
-    >
-      {/* Label only on hover — the badge colour already carries the type, and a
-          permanent caption is noise on a busy board. */}
-      {hovered && (
-        <div
-          className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-bold uppercase tracking-wide text-white"
-          style={{ textShadow: '0 1px 3px rgba(0,0,0,0.95)' }}
-        >
-          {value} {type}
-        </div>
-      )}
-      {hovered && (
-        <button
-          type="button"
-          aria-label={`Add ${type} counter`}
-          onClick={(e) => { e.stopPropagation(); onAdjust(1); }}
-          className={`${arrow} -top-3.5 border-b-[9px] border-b-white/90`}
-        />
-      )}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (e.altKey) onAdjust(-value);
-          else if (e.shiftKey) onAdjust(-1);
-          else onAdjust(1);
-        }}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust(-1); }}
-        className={`w-9 h-9 rounded-full font-bold text-sm tabular-nums shadow-lg ring-2 ring-white/40 ${COUNTER_COLOR[type] ?? 'bg-zinc-600/90 text-white'}`}
-        title={`${value} ${type} · click +1 · right-click −1 · scroll to adjust · alt-click clears`}
-      >
-        {value}
-      </button>
-      {hovered && (
-        <button
-          type="button"
-          aria-label={`Remove ${type} counter`}
-          onClick={(e) => { e.stopPropagation(); onAdjust(-1); }}
-          className={`${arrow} -bottom-3.5 border-t-[9px] border-t-white/90`}
-        />
-      )}
-    </div>
-  );
-}

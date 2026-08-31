@@ -27,6 +27,11 @@ export interface BattlefieldCard {
   /** Free rotation in degrees (multiples of 90), independent of `tapped`. */
   rotation?: number;
   counters: Record<string, number>;
+  /**
+   * Where each counter type's badge sits, in unrotated card space. Unset means
+   * "wherever the default centred row puts it" — only written once dragged.
+   */
+  counterPositions?: Record<string, { x: number; y: number }>;
   /** Optional so the many places that construct a card don't all need updating. */
   stickers?: CardSticker[];
   attachedTo?: string;

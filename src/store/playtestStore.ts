@@ -122,6 +122,7 @@ interface PlaytestActions {
   shufflePile: (zone: Exclude<ZoneKey, 'hand'>) => void;
   setCounter: (instanceId: string, type: string, value: number) => void;
   adjustCounter: (instanceId: string, type: string, delta: number) => void;
+  moveCounterBadge: (instanceId: string, type: string, x: number, y: number) => void;
   addSticker: (instanceId: string, text: string, position?: { x: number; y: number }) => void;
   setStickerText: (instanceId: string, stickerId: string, text: string) => void;
   moveSticker: (instanceId: string, stickerId: string, x: number, y: number) => void;
@@ -219,6 +220,7 @@ function snapshotOf(s: PlaytestState): PlaytestSnapshot {
     battlefield: s.battlefield.map(b => ({
       ...b,
       counters: { ...b.counters },
+      counterPositions: b.counterPositions ? { ...b.counterPositions } : undefined,
       stickers: b.stickers?.map(st => ({ ...st })),
     })),
     life: s.life,
@@ -744,6 +746,15 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} ${type} on ${card.card.name}`, 'counter')],
     }));
   },
+
+  // No history push: a drag fires this many times per second and would flood undo.
+  moveCounterBadge: (instanceId, type, x, y) => set(state => ({
+    battlefield: state.battlefield.map(b =>
+      b.instanceId === instanceId
+        ? { ...b, counterPositions: { ...(b.counterPositions ?? {}), [type]: { x, y } } }
+        : b,
+    ),
+  })),
 
   addSticker: (instanceId, text, position) => set(state => {
     const trimmed = text.trim();
