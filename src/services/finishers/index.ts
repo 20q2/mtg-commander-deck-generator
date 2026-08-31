@@ -6,3 +6,4 @@ export * from './shapes';
 export * from './fuel';
 export * from './killMath';
 export * from './verdict';
+export * from './narrative';

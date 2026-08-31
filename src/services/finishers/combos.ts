@@ -41,7 +41,7 @@ export interface ComboClass {
  * but a deck taking infinite turns is not a deck that can't close, and this lab exists to answer
  * that question.
  */
-function isWinResult(result: string): boolean {
+export function isWinResult(result: string): boolean {
   if (/damage to (most |some |all )?creatures/i.test(result)) return false;
   if (/self-mill/i.test(result)) return false;
   return /win the game/i.test(result)

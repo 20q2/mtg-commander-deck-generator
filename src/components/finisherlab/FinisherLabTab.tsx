@@ -2,8 +2,10 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Loader2, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PasteLane, type PasteLaneResult } from '@/components/deck-source/PasteLane';
-import { getCardsByNames } from '@/services/scryfall/client';
+import { getCardsByNames, getGameChangerNames, isAnyLand } from '@/services/scryfall/client';
 import { fetchColorIdentityCombos } from '@/services/edhrec/client';
+import { loadTaggerData } from '@/services/tagger/client';
+import { estimateBracket, type BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 import {
   classifyShapes, measureFuel, estimateKill, comboEstimates, summarise, rankEstimates,
   loadMembership, defaultVocab, vocabToText, parseVocab,
@@ -17,6 +19,7 @@ import { FinisherTuningPanel } from './FinisherTuningPanel';
 import { DeckFuelStrip } from './DeckFuelStrip';
 import { FinisherClassifierTable, type ClassifiedCard } from './FinisherClassifierTable';
 import { KillMathTable } from './KillMathTable';
+import { PlayerView } from './PlayerView';
 
 interface TestDeck { name: string; commander: string; expect: string[]; cards: string[] }
 
@@ -45,8 +48,11 @@ export function FinisherLabTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Power-level context. A turn-8 kill is slow at bracket 4 and oppressive at bracket 2. */
+  const [bracket, setBracket] = useState<BracketEstimation | null>(null);
+
   const [assumptions, setAssumptions] = useState<FinisherAssumptions>(DEFAULT_ASSUMPTIONS);
-  const [view, setView] = useState<'classifier' | 'killmath'>('classifier');
+  const [view, setView] = useState<'player' | 'classifier' | 'killmath'>('player');
 
   const reloadTags = useCallback(async (text: string) => {
     setTagsLoading(true);
@@ -94,8 +100,22 @@ export function FinisherLabTab() {
         const found = detectCompleteCombos(pool, names);
         setCombos(found);
         console.log(`[FinisherLab] ${identity.join('') || 'C'} → ${pool.length} combos in pool, ${found.length} complete in deck`);
+
+        // Bracket needs the tagger artifact for mass-land-denial / extra-turn / tutor signals.
+        // Without it the estimate still works off Game Changers and combos, just more coarsely.
+        const [gameChangers] = await Promise.all([getGameChangerNames(), loadTaggerData()]);
+        const allNames = result.cardNames;
+        const landNames = new Set(distinct.filter(isAnyLand).map(c => c.name));
+        const nonLand = distinct.filter(c => !isAnyLand(c));
+        const avgCmc = nonLand.length
+          ? nonLand.reduce((s, c) => s + (c.cmc ?? 0), 0) / nonLand.length
+          : 0;
+        setBracket(estimateBracket(
+          allNames, landNames, found, avgCmc, undefined, undefined, gameChangers,
+        ));
       } catch {
         setCombos([]);
+        setBracket(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -187,36 +207,49 @@ export function FinisherLabTab() {
         <div className="space-y-3 min-w-0">
           {scored ? (
             <>
-              <DeckFuelStrip
-                fuel={scored.fuel}
-                verdict={scored.verdict}
-                assumptions={assumptions}
-                comboCount={combos.length}
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setView('classifier')}
-                  className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                    view === 'classifier' ? 'bg-accent border-primary/50' : 'border-border/50 hover:bg-accent/50'
-                  }`}
-                >
-                  Classifier
-                </button>
-                <button
-                  onClick={() => setView('killmath')}
-                  className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                    view === 'killmath' ? 'bg-accent border-primary/50' : 'border-border/50 hover:bg-accent/50'
-                  }`}
-                >
-                  Kill math
-                </button>
+              {/* Instrument read-out, not product surface — hidden on the Player view. */}
+              {view !== 'player' && (
+                <DeckFuelStrip
+                  fuel={scored.fuel}
+                  verdict={scored.verdict}
+                  assumptions={assumptions}
+                  comboCount={combos.length}
+                />
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {([
+                  ['player', 'Player'],
+                  ['classifier', 'Classifier'],
+                  ['killmath', 'Kill math'],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setView(key)}
+                    className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                      view === key ? 'bg-accent border-primary/50' : 'border-border/50 hover:bg-accent/50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
                 <span className="ml-auto text-xs text-muted-foreground">
                   {deckName} · {deckCards?.length ?? 0} cards ({cards?.length ?? 0} distinct)
                 </span>
               </div>
-              {view === 'classifier'
-                ? <FinisherClassifierTable rows={scored.rows} />
-                : <KillMathTable estimates={scored.ranked} />}
+              {view === 'player' ? (
+                <PlayerView
+                  estimates={scored.ranked}
+                  fuel={scored.fuel}
+                  verdict={scored.verdict}
+                  combos={combos}
+                  assumptions={assumptions}
+                  bracket={bracket}
+                />
+              ) : view === 'classifier' ? (
+                <FinisherClassifierTable rows={scored.rows} />
+              ) : (
+                <KillMathTable estimates={scored.ranked} />
+              )}
             </>
           ) : (
             <p className="text-xs text-muted-foreground rounded-lg border border-border/40 bg-card/30 px-3 py-4">
