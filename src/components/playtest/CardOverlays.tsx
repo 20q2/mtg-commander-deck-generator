@@ -106,7 +106,7 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
         ),
       )}
 
-      {showPT && pt && <PTBadge value={pt.modified} cardWidth={cardWidth} rotation={rotation} />}
+      {showPT && pt && <PTBadge value={pt.modified} cardWidth={cardWidth} />}
     </>
   );
 }
@@ -114,19 +114,16 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
 /**
  * The modified P/T, sitting directly on top of the printed one. These percentages
  * track the P/T box of the modern card frame, so it lands right at every card size.
+ *
+ * Deliberately NOT counter-rotated, unlike the counters and stickers. Those are
+ * labels you read, so they stay upright; this one is impersonating printed text,
+ * so it has to turn with the card and stay glued over the value it replaces.
  */
-function PTBadge({ value, cardWidth, rotation }: { value: string; cardWidth: number; rotation: number }) {
+function PTBadge({ value, cardWidth }: { value: string; cardWidth: number }) {
   return (
     <div
       className="absolute z-30 pointer-events-none"
-      style={{
-        right: '4.5%',
-        bottom: '3.4%',
-        width: '25%',
-        height: '8%',
-        transform: rotation ? `rotate(${-rotation}deg)` : undefined,
-        transformOrigin: 'center',
-      }}
+      style={{ right: '4.5%', bottom: '3.4%', width: '25%', height: '8%' }}
     >
       <span
         className="flex items-center justify-center w-full h-full rounded-[3px] bg-fuchsia-600 text-white font-bold tabular-nums ring-1 ring-black/50 shadow-[0_1px_4px_rgba(0,0,0,0.8)]"

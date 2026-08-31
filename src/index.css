@@ -1260,3 +1260,17 @@
   50%      { transform: translate(0, 0) rotate(0deg); }
   75%      { transform: translate(32px, -14px) rotate(12deg); }
 }
+
+/* dnd-kit puts role="button" tabindex="0" on every draggable, so pressing a card
+   focuses it and Chrome paints its default focus ring. On a tapped card that ring
+   is drawn around the upright box AND the rotated inner box, which reads as stray
+   white brackets floating around the card. Suppress it for pointer focus only —
+   :focus-visible still gives keyboard users a ring, so nothing becomes unreachable. */
+[aria-roledescription='draggable']:focus {
+  outline: none;
+}
+
+[aria-roledescription='draggable']:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
