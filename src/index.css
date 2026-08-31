@@ -1262,15 +1262,19 @@
 }
 
 /* dnd-kit puts role="button" tabindex="0" on every draggable, so pressing a card
-   focuses it and Chrome paints its default focus ring. On a tapped card that ring
-   is drawn around the upright box AND the rotated inner box, which reads as stray
-   white brackets floating around the card. Suppress it for pointer focus only —
-   :focus-visible still gives keyboard users a ring, so nothing becomes unreachable. */
-[aria-roledescription='draggable']:focus {
-  outline: none;
-}
+   focuses it and the browser paints a focus ring. That ring is drawn on the
+   OUTER upright box while the visible card is a rotated child, so on a tapped
+   card it never lines up — and because `outline: auto` follows ink overflow it
+   traced both boxes at once, reading as stray brackets around the card.
 
+   Both :focus and :focus-visible are suppressed on purpose: Chrome matches
+   :focus-visible on mouse-press for role="button", so a keyboard-only rule here
+   still fires on every click. There is no CSS-only way to split the two for
+   these elements. Keyboard dragging still works — the KeyboardSensor picks up
+   space/arrows once a card is focused — but the focused card is not outlined.
+   If that indicator is ever wanted back, put it on the inner rotated child so
+   it hugs the card instead of the upright bounding box. */
+[aria-roledescription='draggable']:focus,
 [aria-roledescription='draggable']:focus-visible {
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: 2px;
+  outline: none;
 }
