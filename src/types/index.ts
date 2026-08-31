@@ -814,7 +814,8 @@ export type FinisherShape =
   | 'drain-x'        // otag:lifedrain + X in cost — mana → life loss, ALL opponents
   | 'burn-x'         // otag:burn + X in cost — mana → damage, ONE target
   | 'alt-win'        // otag:win-condition — binary
-  | 'extra-combat';  // otag:extra-combat — multiplier on the best alpha-strike
+  | 'extra-combat'   // otag:extra-combat — multiplier on the best alpha-strike
+  | 'combo';         // a complete Spellbook combo whose results win on their own
 
 /** How an alpha-strike card pumps the team. */
 export type FinisherPump =
@@ -857,6 +858,17 @@ export interface DeckFuel {
   trampleGranters: number;
   anthems: number;
   evasionGranters: number;
+  /**
+   * Unbounded fuel supplied by a COMPLETE infinite combo in the deck.
+   *
+   * These are why combo detection belongs in the fuel stage rather than as a separate list:
+   * "Infinite death triggers" is the most common result in the Spellbook index and it is exactly
+   * what makes a Blood Artist lethal — the `deaths` scaling variable had a slot and no value until
+   * the combo index could supply one.
+   */
+  infiniteMana: boolean;
+  infiniteTokens: boolean;
+  infiniteDeaths: boolean;
 }
 
 /** How a kill estimate should be read and rendered. */

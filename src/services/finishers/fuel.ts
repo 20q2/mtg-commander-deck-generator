@@ -11,8 +11,9 @@
  */
 
 import { getOracleText, isAnyLand, getFrontFaceTypeLine } from '@/services/scryfall/client';
-import type { ScryfallCard, DeckFuel } from '@/types';
+import type { ScryfallCard, DeckFuel, DetectedCombo } from '@/types';
 import type { TagMembership } from './labTags';
+import { comboFuel } from './combos';
 
 const COLORS = ['W', 'U', 'B', 'R', 'G'] as const;
 
@@ -40,7 +41,12 @@ function isPermanent(typeLine: string): boolean {
   return /Creature|Artifact|Enchantment|Planeswalker|Battle/i.test(typeLine);
 }
 
-export function measureFuel(cards: ScryfallCard[], tags: TagMembership): DeckFuel {
+export function measureFuel(
+  cards: ScryfallCard[],
+  tags: TagMembership,
+  /** Complete combos in the deck. Their results become unbounded fuel — see combos.ts. */
+  combos: DetectedCombo[] = [],
+): DeckFuel {
   const devotion: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   let landCount = 0, creatureCount = 0, tokenMakers = 0, swampCount = 0;
   let rampCount = 0, hasteGranters = 0, trampleGranters = 0, anthems = 0, evasionGranters = 0;
@@ -94,5 +100,6 @@ export function measureFuel(cards: ScryfallCard[], tags: TagMembership): DeckFue
     trampleGranters,
     anthems,
     evasionGranters,
+    ...comboFuel(combos),
   };
 }

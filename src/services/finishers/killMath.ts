@@ -12,13 +12,15 @@
  */
 
 import type {
-  ScryfallCard, ShapeMatch, DeckFuel, KillEstimate, FinisherTier,
+  ScryfallCard, ShapeMatch, DeckFuel, KillEstimate, FinisherTier, DetectedCombo,
 } from '@/types';
 import type { FinisherAssumptions } from './tuning';
 import { SCALING_MAP, ALT_WIN_CONDITIONS, resolveScaling, unmodelledReason } from './scalingMap';
+import { classifyCombo } from './combos';
 
 /** Creatures plus tokens expected to be on board at the target turn. */
 export function bodiesOnBoard(fuel: DeckFuel, a: FinisherAssumptions): number {
+  if (fuel.infiniteTokens) return Infinity;
   return Math.round(fuel.creatureCount * a.boardFraction)
     + Math.round(fuel.tokenMakers * a.boardFraction * a.tokensPerMaker);
 }
@@ -30,6 +32,7 @@ export function bodiesOnBoard(fuel: DeckFuel, a: FinisherAssumptions): number {
  * roughly 7 opening cards plus one per turn, times the deck's land ratio.
  */
 export function manaCeiling(fuel: DeckFuel, a: FinisherAssumptions): number {
+  if (fuel.infiniteMana) return Infinity;
   const landRatio = fuel.totalCards > 0 ? fuel.landCount / fuel.totalCards : 0;
   const landsInPlay = Math.min(a.turn, (7 + a.turn) * landRatio);
   return landsInPlay + fuel.rampCount * a.boardFraction * a.rampMultiplier;
@@ -58,6 +61,11 @@ export function singleTargetFraction(
 /** Damage at EVERY opponent → fraction of the table. No overkill concept; it scales cleanly. */
 export function allOpponentsFraction(damage: number, a: FinisherAssumptions): number {
   return a.startingLife > 0 ? Math.min(1, damage / a.startingLife) : 0;
+}
+
+/** Render a possibly-unbounded quantity for the workings column. */
+function num(n: number, digits = 0): string {
+  return isFinite(n) ? n.toFixed(digits) : '∞';
 }
 
 function tierFor(fraction: number | null, a: FinisherAssumptions): FinisherTier {
@@ -90,11 +98,17 @@ export function estimateKill(
         ? bodies
         : match.pump?.amount ?? 0;
       const connect = match.grantsConnect ? 1 : a.unblockedFraction;
-      const damage = Math.round(bodies * (fuel.avgPower + pump) * connect);
-      const { fraction, overkill } = singleTargetFraction(damage, a);
+      const damage = bodies * (fuel.avgPower + pump) * connect;
+      // Unbounded bodies take the whole table, not one player: attackers are declared per
+      // defender, so an infinite board is split across every opponent rather than overkilling one.
+      const { fraction, overkill } = isFinite(damage)
+        ? singleTargetFraction(Math.round(damage), a)
+        : { fraction: 1, overkill: 0 };
       return {
-        ...base, kind: 'number', damage, tableFraction: fraction, overkill,
-        workings: `${bodies} bodies × (${fuel.avgPower.toFixed(1)} + ${pump})`
+        ...base, kind: 'number',
+        damage: isFinite(damage) ? Math.round(damage) : Infinity,
+        tableFraction: fraction, overkill,
+        workings: `${num(bodies)} bodies × (${fuel.avgPower.toFixed(1)} + ${num(pump)})`
           + (match.grantsConnect ? ', trample' : ` × ${connect} connect`),
         tier: tierFor(fraction, a),
       };
@@ -104,8 +118,10 @@ export function estimateKill(
     case 'burn-x': {
       const mana = manaCeiling(fuel, a);
       const xCount = Math.max(1, match.xCount ?? 1);
-      const x = Math.max(0, Math.floor((mana - (match.fixedCost ?? 0)) / xCount));
-      const workings = `ceiling ${mana.toFixed(1)} mana → X=${x}`;
+      const x = isFinite(mana)
+        ? Math.max(0, Math.floor((mana - (match.fixedCost ?? 0)) / xCount))
+        : Infinity;
+      const workings = `ceiling ${num(mana, 1)} mana → X=${num(x)}`;
       if (match.shape === 'drain-x') {
         const fraction = allOpponentsFraction(x, a);
         return {
@@ -138,7 +154,7 @@ export function estimateKill(
       const fraction = allOpponentsFraction(value, a);
       return {
         ...base, kind: 'number', damage: value, tableFraction: fraction, overkill: 0,
-        workings: `${rule.variable} = ${value}, each opponent`, tier: tierFor(fraction, a),
+        workings: `${rule.variable} = ${num(value)}, each opponent`, tier: tierFor(fraction, a),
       };
     }
 
@@ -157,5 +173,43 @@ export function estimateKill(
         tier: 'UNKNOWN',
       };
     }
+
+    // Combos aren't cards, so they never arrive through classifyShapes — see comboEstimates.
+    case 'combo':
+      return {
+        ...base, kind: 'binary', damage: null, tableFraction: 1, overkill: 0,
+        workings: 'complete combo', tier: 'LIVE',
+      };
   }
+}
+
+/**
+ * Kill estimates for the complete combos in the deck.
+ *
+ * Only combos that win on their OWN get a row. The rest already showed up as unbounded fuel on
+ * the cards they enable, and listing them here as well would double-count the same kill.
+ */
+export function comboEstimates(
+  combos: DetectedCombo[], a: FinisherAssumptions,
+): KillEstimate[] {
+  const out: KillEstimate[] = [];
+  for (const combo of combos) {
+    if (!combo.isComplete) continue;
+    const cls = classifyCombo(combo.results);
+    if (!cls.wins) continue;
+    // A result naming one opponent takes out a player, not the table — same cap as any
+    // single-target shape.
+    const fraction = cls.winScope === 'single' ? 1 / Math.max(1, a.opponents) : 1;
+    out.push({
+      cardName: combo.cards.join(' + '),
+      shape: 'combo',
+      kind: 'binary',
+      damage: null,
+      tableFraction: fraction,
+      overkill: 0,
+      workings: `${combo.results.join(', ')} · ${combo.deckCount.toLocaleString()} decks`,
+      tier: tierFor(fraction, a),
+    });
+  }
+  return out;
 }

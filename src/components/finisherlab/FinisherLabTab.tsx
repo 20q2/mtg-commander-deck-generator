@@ -3,13 +3,15 @@ import { Loader2, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PasteLane, type PasteLaneResult } from '@/components/deck-source/PasteLane';
 import { getCardsByNames } from '@/services/scryfall/client';
+import { fetchColorIdentityCombos } from '@/services/edhrec/client';
 import {
-  classifyShapes, measureFuel, estimateKill, summarise, rankEstimates,
+  classifyShapes, measureFuel, estimateKill, comboEstimates, summarise, rankEstimates,
   loadMembership, defaultVocab, vocabToText, parseVocab,
+  deriveColorIdentity, detectCompleteCombos,
   DEFAULT_ASSUMPTIONS, type FinisherAssumptions, type TagMembership,
 } from '@/services/finishers';
 import themeTestDecks from '@/data/themeTestDecks.json';
-import type { ScryfallCard } from '@/types';
+import type { ScryfallCard, DetectedCombo } from '@/types';
 import { TagVocabularyPanel } from './TagVocabularyPanel';
 import { FinisherTuningPanel } from './FinisherTuningPanel';
 import { DeckFuelStrip } from './DeckFuelStrip';
@@ -37,6 +39,8 @@ export function FinisherLabTab() {
    * real list, and collapsing them wrecks the land ratio that the whole mana ceiling rests on.
    */
   const [deckCards, setDeckCards] = useState<ScryfallCard[] | null>(null);
+  /** Complete Spellbook combos in the deck. Feed the fuel stage, not a side list. */
+  const [combos, setCombos] = useState<DetectedCombo[]>([]);
   const [deckName, setDeckName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,13 +75,28 @@ export function FinisherLabTab() {
     setError(null);
     try {
       const cardMap = await getCardsByNames(result.cardNames);
-      setCards([...cardMap.values()]);
+      const distinct = [...cardMap.values()];
+      setCards(distinct);
       // cardNames still carries duplicates; the map is keyed by the name as given, so this
       // rebuilds the deck at its real size.
       setDeckCards(result.cardNames
         .map(n => cardMap.get(n))
         .filter((c): c is ScryfallCard => c !== undefined));
       setDeckName(name ?? result.commanderName ?? 'pasted deck');
+
+      // Combos come from the Spellbook artifact (one file per identity), not Scryfall — no
+      // rate-limit pressure. Non-fatal: without them the deck simply reads as having no combo.
+      try {
+        const identity = deriveColorIdentity(distinct);
+        const pool = await fetchColorIdentityCombos(identity);
+        const names = new Set(distinct.map(c => c.name));
+        for (const c of distinct) if (c.name.includes(' // ')) names.add(c.name.split(' // ')[0]);
+        const found = detectCompleteCombos(pool, names);
+        setCombos(found);
+        console.log(`[FinisherLab] ${identity.join('') || 'C'} → ${pool.length} combos in pool, ${found.length} complete in deck`);
+      } catch {
+        setCombos([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -88,7 +107,7 @@ export function FinisherLabTab() {
   // Re-scored on every assumption change. Pure local computation over ~99 cards.
   const scored = useMemo(() => {
     if (!cards || !deckCards || !tags) return null;
-    const fuel = measureFuel(deckCards, tags);
+    const fuel = measureFuel(deckCards, tags, combos);
     const rows: ClassifiedCard[] = cards.map(card => {
       const matches = classifyShapes(card, tags);
       return {
@@ -96,9 +115,9 @@ export function FinisherLabTab() {
         estimates: matches.map(m => estimateKill(card, m, fuel, assumptions)),
       };
     });
-    const all = rows.flatMap(r => r.estimates);
+    const all = [...rows.flatMap(r => r.estimates), ...comboEstimates(combos, assumptions)];
     return { fuel, rows, ranked: rankEstimates(all), verdict: summarise(all, assumptions) };
-  }, [cards, deckCards, tags, assumptions]);
+  }, [cards, deckCards, tags, combos, assumptions]);
 
   return (
     <div className="space-y-6">
@@ -168,7 +187,12 @@ export function FinisherLabTab() {
         <div className="space-y-3 min-w-0">
           {scored ? (
             <>
-              <DeckFuelStrip fuel={scored.fuel} verdict={scored.verdict} assumptions={assumptions} />
+              <DeckFuelStrip
+                fuel={scored.fuel}
+                verdict={scored.verdict}
+                assumptions={assumptions}
+                comboCount={combos.length}
+              />
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setView('classifier')}

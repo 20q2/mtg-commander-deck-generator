@@ -29,9 +29,11 @@ export function KillMathTable({ estimates }: { estimates: KillEstimate[] }) {
             <tr key={`${e.cardName}-${e.shape}`} className="border-t border-border/30">
               <td className="px-3 py-1.5">{e.cardName}</td>
               <td className="px-3 py-1.5 text-muted-foreground">{e.workings}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{e.damage ?? '—'}</td>
+              <td className="px-3 py-1.5 text-right tabular-nums">
+                {e.damage === null ? '—' : isFinite(e.damage) ? e.damage : '∞'}
+              </td>
               <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                {e.overkill > 0 ? e.overkill : '—'}
+                {e.overkill > 0 ? (isFinite(e.overkill) ? e.overkill : '∞') : '—'}
               </td>
               <td className="px-3 py-1.5 text-right tabular-nums text-violet-300/90 font-semibold">
                 {e.tableFraction === null

@@ -76,13 +76,17 @@ export function resolveScaling(rule: ScalingRule, fuel: DeckFuel): number | null
     case 'creatures': return fuel.creatureCount;
     case 'swamps': return fuel.swampCount;
     case 'flat': return rule.amount ?? 0;
-    default: return null; // deaths / lifegain-events / unknown
+    // A sac loop in the deck is what makes an aristocrats drain a kill. Without a combo supplying
+    // the loop there's no honest number here, which is why this stayed null until combo detection
+    // landed — and why a whole archetype read UNKNOWN.
+    case 'deaths': return fuel.infiniteDeaths ? Infinity : null;
+    default: return null; // lifegain-events / unknown
   }
 }
 
 /** Prose for the workings column when a variable isn't modelled. */
 export function unmodelledReason(v: ScalingVar): string {
-  if (v === 'deaths') return 'scales on creature deaths — needs a sac-loop model';
+  if (v === 'deaths') return 'scales on creature deaths — no sac loop detected in this deck';
   if (v === 'lifegain-events') return 'scales on lifegain triggers — not counted yet';
   return 'scaling variable not in the curated map';
 }
