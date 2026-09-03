@@ -10,6 +10,7 @@ import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
+import type { ScryfallCard } from '@/types';
 
 /**
  * The opponent column, beside the table rather than across the top. With nobody
@@ -166,6 +167,8 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
   });
 
   const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
+  // Zone piles track the column too, but stay smaller than the land row.
+  const zoneWidth = Math.round(Math.max(22, Math.min(58, columnWidth * 0.15)));
 
   return (
     <div
@@ -174,27 +177,23 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
         isOver ? 'border-violet-400/70 bg-violet-500/10' : 'border-border/40'
       }`}
     >
+      {/* One header row: who they are, their life, whether they fight back, and
+          the way out. Everything that was stacked below now lives here. */}
       <div className="flex items-center gap-1">
-        <span className="text-[11px] font-semibold truncate flex-1">{opponent.name}</span>
-        <button
-          onClick={() => remove(opponent.id)}
-          className="text-muted-foreground/70 hover:text-red-400 transition-colors shrink-0"
-          title={`Remove ${opponent.name}`}
-        >
-          <X className="w-3 h-3" />
-        </button>
-      </div>
+        <span className="text-[11px] font-semibold truncate flex-1 min-w-0">{opponent.name}</span>
 
-      <div className="mt-1 flex items-center gap-1">
         <button onClick={() => adjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
         <span
-          className="inline-flex items-center gap-1 px-1.5 rounded bg-rose-500/15 border border-rose-400/40 text-rose-300 font-bold text-[11px] leading-5 tabular-nums"
+          className="inline-flex items-center gap-0.5 px-1 rounded bg-rose-500/15 border border-rose-400/40 text-rose-300 font-bold text-[11px] leading-4 tabular-nums"
           title={`${opponent.name}'s life`}
         >
           <Heart className="w-2.5 h-2.5 fill-rose-400/40" />
           {opponent.life}
         </span>
         <button onClick={() => adjustLife(opponent.id, 1)} className={tiny} title="+1 life">+</button>
+
+        {/* Icon-only: the label wouldn't fit beside life in a narrow column, and
+            the colour already carries the state. */}
         <button
           onClick={() => setResistance(opponent.id, !opponent.resistance)}
           title={
@@ -202,42 +201,56 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
               ? 'Resisting — casts removal and sweepers at your board. Click for a passive dummy.'
               : 'Passive — only develops and attacks. Click to let it fight back.'
           }
-          className={`ml-auto inline-flex items-center gap-1 px-1.5 rounded border text-[10px] leading-4 transition-colors ${
+          aria-label={opponent.resistance ? 'Resisting' : 'Passive'}
+          aria-pressed={opponent.resistance}
+          className={`shrink-0 inline-flex items-center justify-center w-5 h-4 rounded border transition-colors ${
             opponent.resistance
               ? 'border-violet-400/50 bg-violet-500/15 text-violet-200'
-              : 'border-border/50 bg-transparent text-muted-foreground/70'
+              : 'border-border/50 bg-transparent text-muted-foreground/50'
           }`}
         >
           <Swords className="w-2.5 h-2.5" />
-          {opponent.resistance ? 'Resist' : 'Passive'}
+        </button>
+
+        <button
+          onClick={() => remove(opponent.id)}
+          className="shrink-0 text-muted-foreground/70 hover:text-red-400 transition-colors"
+          title={`Remove ${opponent.name}`}
+        >
+          <X className="w-3 h-3" />
         </button>
       </div>
 
-      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-        <span title="Cards in hand — hidden, as they would be">hand {opponent.hand.length}</span>
-        <span title="Cards left in library">lib {opponent.library.length}</span>
-        <button
+      {/* Their zones as actual piles rather than a row of abbreviations. */}
+      <div className="mt-1.5 flex items-end gap-1">
+        <ZonePile
+          label="Hand" count={opponent.hand.length} width={zoneWidth}
+          hint="Cards in hand — hidden, as they would be"
+        />
+        <ZonePile
+          label="Library" count={opponent.library.length} width={zoneWidth}
+          hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
+          warn={opponent.decked}
+        />
+        <ZonePile
+          label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
+          top={opponent.graveyard[opponent.graveyard.length - 1]}
+          hint="Click to view their graveyard"
           onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
-          className="hover:text-foreground transition-colors underline-offset-2 hover:underline"
-          title="View their graveyard"
-        >
-          gy {opponent.graveyard.length}
-        </button>
-        <button
+        />
+        <ZonePile
+          label="Exile" count={opponent.exile.length} width={zoneWidth}
+          top={opponent.exile[opponent.exile.length - 1]}
+          hint="Click to view their exile"
           onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
-          className="hover:text-foreground transition-colors underline-offset-2 hover:underline"
-          title="View their exile"
-        >
-          ex {opponent.exile.length}
-        </button>
+        />
         <button
           onClick={() => untapAll(opponent.id)}
-          className="ml-auto hover:text-foreground transition-colors"
+          className="ml-auto mb-0.5 text-muted-foreground/60 hover:text-foreground transition-colors"
           title="Untap all of their permanents"
         >
-          <RotateCcw className="w-2.5 h-2.5" />
+          <RotateCcw className="w-3 h-3" />
         </button>
-        {opponent.decked && <span className="text-amber-400/80">decked</span>}
       </div>
 
       <div className="mt-1 space-y-1 min-h-[52px]">
@@ -265,6 +278,60 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One of a bot's zones, drawn as a pile. Hand and library show a card back —
+ * their contents are hidden, and a back with a count says that better than the
+ * word "hand" and a number. Graveyard and exile show their top card, so you can
+ * see what just died without opening anything.
+ */
+function ZonePile({
+  label, count, width, hint, top, onClick, warn,
+}: {
+  label: string;
+  count: number;
+  width: number;
+  hint: string;
+  top?: ScryfallCard;
+  onClick?: () => void;
+  warn?: boolean;
+}) {
+  const empty = count === 0;
+  const Tag = onClick && !empty ? 'button' : 'div';
+  return (
+    <Tag
+      onClick={onClick && !empty ? onClick : undefined}
+      title={`${label} · ${count}${hint ? ` · ${hint}` : ''}`}
+      className={`relative shrink-0 rounded-[3px] border overflow-hidden bg-black/30 ${
+        empty ? 'border-border/40 opacity-50' : 'border-border/60'
+      } ${onClick && !empty ? 'cursor-pointer hover:brightness-125' : ''}`}
+      style={{ width, aspectRatio: '5 / 7' }}
+    >
+      {top ? (
+        <img
+          src={getCardImageUrl(top, 'small')}
+          alt={label}
+          className="absolute inset-0 w-full h-full object-cover"
+          draggable={false}
+        />
+      ) : !empty ? (
+        <img
+          src={`${import.meta.env.BASE_URL}card-back.png`}
+          alt={label}
+          className="absolute inset-0 w-full h-full object-cover"
+          draggable={false}
+        />
+      ) : null}
+      <span
+        className={`absolute inset-x-0 bottom-0 text-[9px] font-bold leading-3 text-center tabular-nums ${
+          warn ? 'bg-amber-500/80 text-black' : 'bg-black/70 text-white'
+        }`}
+      >
+        {count}
+      </span>
+    </Tag>
   );
 }
 
