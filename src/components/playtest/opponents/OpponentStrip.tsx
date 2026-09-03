@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { Bot, ChevronLeft, Heart, Play, Plus, RotateCcw, Skull, Swords, X } from 'lucide-react';
+import {
+  BookOpen, Bot, ChevronLeft, Hand as HandIcon, Heart, Play, Plus,
+  RotateCcw, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -168,7 +171,7 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
 
   const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
   // Zone piles track the column too, but stay smaller than the land row.
-  const zoneWidth = Math.round(Math.max(22, Math.min(58, columnWidth * 0.15)));
+  const zoneWidth = Math.round(Math.max(20, Math.min(44, columnWidth * 0.12)));
 
   return (
     <div
@@ -226,23 +229,27 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
         <ZonePile
           label="Hand" count={opponent.hand.length} width={zoneWidth}
           hint="Cards in hand — hidden, as they would be"
+          Icon={HandIcon} tint="bg-sky-500/10 border-sky-400/30"
         />
         <ZonePile
           label="Library" count={opponent.library.length} width={zoneWidth}
           hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
           warn={opponent.decked}
+          Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
         />
         <ZonePile
           label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
           top={opponent.graveyard[opponent.graveyard.length - 1]}
           hint="Click to view their graveyard"
           onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
+          Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
         />
         <ZonePile
           label="Exile" count={opponent.exile.length} width={zoneWidth}
           top={opponent.exile[opponent.exile.length - 1]}
           hint="Click to view their exile"
           onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
+          Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
         />
         <button
           onClick={() => untapAll(opponent.id)}
@@ -255,9 +262,13 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
 
       <div className="mt-1 space-y-1 min-h-[52px]">
         {opponent.battlefield.length === 0 ? (
-          <span className="text-[10px] text-muted-foreground/50 italic">
-            empty board — drag a permanent up here to give it away
-          </span>
+          // A drop target you can see, rather than a sentence explaining one.
+          <div
+            className={`h-[44px] rounded-md border border-dashed transition-colors ${
+              isOver ? 'border-violet-400/70 bg-violet-500/10' : 'border-border/50'
+            }`}
+            aria-label="Drop a permanent here to give it to this opponent"
+          />
         ) : (
           ROW_ORDER.map(row => {
             const cards = rows[row.key];
@@ -288,7 +299,7 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
  * see what just died without opening anything.
  */
 function ZonePile({
-  label, count, width, hint, top, onClick, warn,
+  label, count, width, hint, top, onClick, warn, Icon, tint,
 }: {
   label: string;
   count: number;
@@ -297,6 +308,9 @@ function ZonePile({
   top?: ScryfallCard;
   onClick?: () => void;
   warn?: boolean;
+  Icon: LucideIcon;
+  /** Border and background tint, matching our own pile for the same zone. */
+  tint: string;
 }) {
   const empty = count === 0;
   const Tag = onClick && !empty ? 'button' : 'div';
@@ -304,8 +318,8 @@ function ZonePile({
     <Tag
       onClick={onClick && !empty ? onClick : undefined}
       title={`${label} · ${count}${hint ? ` · ${hint}` : ''}`}
-      className={`relative shrink-0 rounded-[3px] border overflow-hidden bg-black/30 ${
-        empty ? 'border-border/40 opacity-50' : 'border-border/60'
+      className={`relative shrink-0 rounded-[3px] border overflow-hidden ${tint} ${
+        empty ? 'opacity-60' : ''
       } ${onClick && !empty ? 'cursor-pointer hover:brightness-125' : ''}`}
       style={{ width, aspectRatio: '5 / 7' }}
     >
@@ -324,6 +338,13 @@ function ZonePile({
           draggable={false}
         />
       ) : null}
+      {/* The symbol rides on top even when there's a card, so the zones stay
+          tellable apart at this size — four card backs in a row otherwise look
+          identical. */}
+      <Icon
+        className="absolute top-0 left-0 w-2.5 h-2.5 m-px opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]"
+        aria-hidden
+      />
       <span
         className={`absolute inset-x-0 bottom-0 text-[9px] font-bold leading-3 text-center tabular-nums ${
           warn ? 'bg-amber-500/80 text-black' : 'bg-black/70 text-white'
@@ -347,14 +368,14 @@ type RowKey = 'creatures' | 'others' | 'lands';
  * you actually scan — what can attack me — should read largest.
  */
 const ROW_ORDER: { key: RowKey; label: string; scale: number }[] = [
-  { key: 'creatures', label: 'Creatures',        scale: 0.30 },
-  { key: 'others',    label: 'Other permanents', scale: 0.24 },
-  { key: 'lands',     label: 'Lands',            scale: 0.18 },
+  { key: 'creatures', label: 'Creatures',        scale: 0.20 },
+  { key: 'others',    label: 'Other permanents', scale: 0.16 },
+  { key: 'lands',     label: 'Lands',            scale: 0.13 },
 ];
 
 /** Column width → card width for a row, clamped so it stays legible and sane. */
 function rowWidth(columnWidth: number, scale: number): number {
-  return Math.round(Math.max(26, Math.min(120, columnWidth * scale)));
+  return Math.round(Math.max(20, Math.min(84, columnWidth * scale)));
 }
 
 /**
