@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { Bot, ChevronDown, ChevronUp, Heart, Plus, Skull, Swords, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
-
-const PERMANENT_WIDTH = 58;
 
 /**
  * The opponent band above the battlefield. It's a zone first and a bot second:
@@ -97,6 +95,8 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
     data: { kind: 'opponentLane', opponentId: opponent.id },
   });
 
+  const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
+
   return (
     <div
       ref={setNodeRef}
@@ -147,26 +147,70 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
         </button>
       </div>
 
-      <div className="mt-1 flex items-end gap-1 flex-wrap min-h-[52px]">
+      <div className="mt-1 space-y-1 min-h-[52px]">
         {opponent.battlefield.length === 0 ? (
           <span className="text-[10px] text-muted-foreground/50 italic">
             empty board — drag a permanent up here to give it away
           </span>
         ) : (
-          opponent.battlefield.map(p => (
-            <OpponentPermanentCard key={p.instanceId} opponentId={opponent.id} permanent={p} />
-          ))
+          ROW_ORDER.map(row => {
+            const cards = rows[row.key];
+            if (cards.length === 0) return null;
+            return (
+              <div key={row.key} className="flex items-end gap-1 flex-wrap" title={row.label}>
+                {cards.map(p => (
+                  <OpponentPermanentCard
+                    key={p.instanceId}
+                    opponentId={opponent.id}
+                    permanent={p}
+                    width={row.width}
+                  />
+                ))}
+              </div>
+            );
+          })
         )}
       </div>
     </div>
   );
 }
 
+type RowKey = 'creatures' | 'others' | 'lands';
+
+/**
+ * Board rows, front to back. Creatures lead because the row's job is "what can
+ * hit me"; lands sit at the back where they'd be in front of a real player.
+ *
+ * Flip this array to mirror the board instead — creatures nearest your own
+ * battlefield, as if you were sitting across the table from them.
+ */
+const ROW_ORDER: { key: RowKey; label: string; width: number }[] = [
+  { key: 'creatures', label: 'Creatures',       width: 58 },
+  { key: 'others',    label: 'Other permanents', width: 46 },
+  { key: 'lands',     label: 'Lands',            width: 34 },
+];
+
+/**
+ * Split a board into rows. Creature is checked before land so a creature-land
+ * lands in the row you'd scan for attackers rather than hiding among the mana.
+ */
+function splitRows(battlefield: OpponentPermanent[]): Record<RowKey, OpponentPermanent[]> {
+  const out: Record<RowKey, OpponentPermanent[]> = { creatures: [], others: [], lands: [] };
+  for (const p of battlefield) {
+    const type = getFrontFaceTypeLine(p.card).toLowerCase();
+    if (type.includes('creature')) out.creatures.push(p);
+    else if (type.includes('land')) out.lands.push(p);
+    else out.others.push(p);
+  }
+  return out;
+}
+
 function OpponentPermanentCard({
-  opponentId, permanent,
+  opponentId, permanent, width,
 }: {
   opponentId: string;
   permanent: OpponentPermanent;
+  width: number;
 }) {
   const togglePermanentTap = useOpponentStore(s => s.togglePermanentTap);
   const removePermanent = useOpponentStore(s => s.removePermanent);
@@ -192,7 +236,7 @@ function OpponentPermanentCard({
   return (
     <div
       className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''}`}
-      style={{ width: PERMANENT_WIDTH }}
+      style={{ width }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
