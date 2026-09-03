@@ -16,6 +16,9 @@ import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/compo
  * is explicitly out of scope — the bot is a goldfish opponent, not a referee.
  */
 
+/** Backstop on the develop loop so a mana-flooded board can't spin forever. */
+const MAX_CASTS_PER_TURN = 5;
+
 function isPermanent(card: ScryfallCard): boolean {
   const t = getFrontFaceTypeLine(card).toLowerCase();
   return (
@@ -106,7 +109,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   };
 
   /** Capture the board as it stands, as one beat of the turn. */
-  const frame = (logs: string[], effects: AppliedEffect[] = [], damageToPlayer = 0) => {
+  const frame = (logs: string[], effects: AppliedEffect[] = [], attackers: string[] = []) => {
     frames.push({
       opponent: {
         ...opp,
@@ -118,7 +121,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       },
       logs,
       effects,
-      damageToPlayer,
+      attackers,
     });
   };
 
@@ -145,17 +148,18 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
 
   // Lands, rocks and unsick mana creatures. Colours are still ignored — that's
   // the standing approximation — but ramp now actually ramps.
-  const mana = opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
+  /** Untapped mana right now — recomputed after every spell, since paying taps. */
+  const availableMana = () => opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
   const botPower = opp.battlefield
     .filter(p => isCreature(p.card))
     .reduce((sum, p) => sum + powerOf(p.card), 0);
 
   // ── Interaction ──
-  let castSomething = false;
+  // Interaction gets first call on the mana, before the bot spends it developing.
   if (opp.resistance) {
     const play = chooseResistancePlay({
       hand: opp.hand,
-      mana,
+      mana: availableMana(),
       board: playerBoard,
       botPower,
       turn: input.turnsTaken + 1,
@@ -171,13 +175,14 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       // Tap what it cost, so their board shows the spend.
       opp.battlefield = tapForMana(opp.battlefield, play.card.cmc ?? 0);
       frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : []);
-      castSomething = true;
     }
   }
 
   // ── Develop ──
-  // Only if no interaction fired — one spell a turn keeps the clock legible.
-  if (!castSomething) {
+  // Keep casting while the mana lasts, one frame per spell, so a big turn plays
+  // out as a sequence of plays instead of the whole board appearing at once.
+  for (let cast = 0; cast < MAX_CASTS_PER_TURN; cast++) {
+    const mana = availableMana();
     let bestIdx = -1;
     let bestCmc = -1;
     opp.hand.forEach((card, i) => {
@@ -192,12 +197,11 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         bestIdx = i;
       }
     });
-    if (bestIdx >= 0) {
-      const spell = opp.hand.splice(bestIdx, 1)[0];
-      opp.battlefield = tapForMana(opp.battlefield, spell.cmc ?? 0);
-      opp.battlefield.push(toPermanent(spell));
-      frame([`${opp.name} casts ${spell.name}`]);
-    }
+    if (bestIdx < 0) break;
+    const spell = opp.hand.splice(bestIdx, 1)[0];
+    opp.battlefield = tapForMana(opp.battlefield, spell.cmc ?? 0);
+    opp.battlefield.push(toPermanent(spell));
+    frame([`${opp.name} casts ${spell.name}`]);
   }
 
   // ── Attack ──
@@ -208,15 +212,16 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   );
   if (attackers.length > 0) {
     const attackerIds = new Set(attackers.map(a => a.instanceId));
-    const damage = attackers.reduce((sum, a) => sum + powerOf(a.card), 0);
     opp.battlefield = opp.battlefield.map(p =>
       attackerIds.has(p.instanceId) ? { ...p, tapped: true } : p,
     );
     opp.turnsTaken = input.turnsTaken + 1;
+    // No damage here — combat opens and waits for blocks. Whatever gets through
+    // is worked out when the player resolves it.
     frame(
-      [`${opp.name} attacks with ${attackers.map(a => a.card.name).join(', ')} for ${damage}`],
+      [`${opp.name} attacks with ${attackers.map(a => a.card.name).join(', ')}`],
       [],
-      damage,
+      attackers.map(a => a.instanceId),
     );
   } else {
     opp.turnsTaken = input.turnsTaken + 1;

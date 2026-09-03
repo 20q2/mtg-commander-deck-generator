@@ -9,7 +9,7 @@ import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
 import { COUNTER_COLORS } from '@/components/playtest/types';
 import { CardOverlays } from '@/components/playtest/CardOverlays';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { PlaytestToolbar } from '@/components/playtest/PlaytestToolbar';
 import { Battlefield } from '@/components/playtest/Battlefield';
@@ -25,6 +25,7 @@ import { useOpponentStore } from '@/store/opponentStore';
 import { OpponentStrip } from '@/components/playtest/opponents/OpponentStrip';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
 import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
+import { CombatZone } from '@/components/playtest/opponents/CombatZone';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
@@ -304,7 +305,20 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           createDie?: { sides: DieSides; color: CounterColor };
         }
       | undefined;
-    const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number; opponentId?: string } | undefined;
+    const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number; opponentId?: string; attackerId?: string } | undefined;
+
+    // ── Block: one of your creatures dropped onto an attacker ──
+    if (overData?.kind === 'combatAttacker' && overData.attackerId) {
+      const src = sourceData?.source;
+      if (!src || (src as { kind: string }).kind !== 'battlefield') return;
+      const instanceId = (src as { instanceId: string }).instanceId;
+      const card = usePlaytestStore.getState().battlefield.find(b => b.instanceId === instanceId);
+      // Tapped creatures can't block, and neither can non-creatures.
+      if (!card || card.tapped) return;
+      if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) return;
+      useOpponentStore.getState().assignBlocker(overData.attackerId, instanceId);
+      return;
+    }
 
     // ── Theft: a bot's permanent dropped on your battlefield ──
     if (sourceData?.opponentSource) {
@@ -557,6 +571,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
               dead space, and it stole height from the battlefield to show it. */}
           <OpponentStrip />
           <main className="flex-1 flex flex-col min-w-0">
+            <CombatZone />
             <Battlefield />
             <Hand />
           </main>

@@ -7,7 +7,7 @@ import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import type { Opponent, OpponentZone } from '@/components/playtest/opponentTypes';
+import type { CombatState, Opponent, OpponentZone } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
 const STARTING_LIFE = 40;
@@ -16,6 +16,20 @@ export const MAX_OPPONENTS = 3;
 /** Pause between the beats of a bot's turn — untap, land, cast, attack. */
 const STEP_MS = 260;
 
+/**
+ * Settles the promise that combat is blocking on. Module-level because there's
+ * one store and one combat at a time; parking it in state would mean storing a
+ * function in Zustand, which nothing else here does.
+ */
+let combatResolver: (() => void) | null = null;
+
+/** Printed power/toughness as a number, since a bot's cards carry no counters yet. */
+function statOf(card: ScryfallCard, key: 'power' | 'toughness'): number {
+  const raw = card[key] ?? card.card_faces?.[0]?.[key];
+  const n = parseInt(raw ?? '', 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
 interface OpponentState {
   opponents: Opponent[];
   /** Stub ids currently being fetched, so the picker can show per-deck spinners. */
@@ -23,6 +37,8 @@ interface OpponentState {
   error: string | null;
   /** True while turns are animating, so a double-click can't interleave them. */
   running: boolean;
+  /** Set while a bot is attacking and waiting on your blocks. */
+  combat: CombatState | null;
 }
 
 interface OpponentActions {
@@ -46,6 +62,11 @@ interface OpponentActions {
   /** Move one of their permanents off the board into one of their zones. */
   permanentToZone: (opponentId: string, instanceId: string, zone: OpponentZone) => void;
   adjustPermanentCounter: (opponentId: string, instanceId: string, type: string, delta: number) => void;
+  /** Assign one of your creatures to block an attacker. */
+  assignBlocker: (attackerId: string, blockerInstanceId: string) => void;
+  removeBlocker: (attackerId: string, blockerInstanceId: string) => void;
+  /** Work out damage, kill what died, and let the bot's turn continue. */
+  resolveCombat: () => void;
 }
 
 /**
@@ -121,6 +142,7 @@ const initial: OpponentState = {
   loadingStubIds: [],
   error: null,
   running: false,
+  combat: null,
 };
 
 /**
@@ -167,7 +189,119 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     return { opponents: s.opponents.filter(o => o.id !== id) };
   }),
 
-  clearAll: () => set({ opponents: [], error: null }),
+  clearAll: () => {
+    // Never leave a turn awaiting blocks for a table that no longer exists.
+    combatResolver?.();
+    combatResolver = null;
+    set({ opponents: [], error: null, combat: null, running: false });
+  },
+
+  assignBlocker: (attackerId, blockerInstanceId) => set(s => {
+    if (!s.combat) return {};
+    // A creature can only block once — drop it from any other attacker first.
+    const blocks: Record<string, string[]> = {};
+    for (const [id, ids] of Object.entries(s.combat.blocks)) {
+      blocks[id] = ids.filter(b => b !== blockerInstanceId);
+    }
+    const current = blocks[attackerId] ?? [];
+    blocks[attackerId] = [...current, blockerInstanceId];
+    return { combat: { ...s.combat, blocks } };
+  }),
+
+  removeBlocker: (attackerId, blockerInstanceId) => set(s => {
+    if (!s.combat) return {};
+    return {
+      combat: {
+        ...s.combat,
+        blocks: {
+          ...s.combat.blocks,
+          [attackerId]: (s.combat.blocks[attackerId] ?? []).filter(b => b !== blockerInstanceId),
+        },
+      },
+    };
+  }),
+
+  resolveCombat: () => {
+    const combat = get().combat;
+    if (!combat) return;
+    const playtest = usePlaytestStore.getState();
+
+    let damageToPlayer = 0;
+    const deadBlockers: string[] = [];
+    const deadAttackers: string[] = [];
+
+    for (const attacker of combat.attackers) {
+      const blockerIds = combat.blocks[attacker.instanceId] ?? [];
+      if (blockerIds.length === 0) {
+        damageToPlayer += attacker.power;
+        continue;
+      }
+
+      // Read the blockers off the live board so counters and stickers count.
+      const blockers = blockerIds
+        .map(id => playtest.battlefield.find(b => b.instanceId === id))
+        .filter((b): b is NonNullable<typeof b> => !!b)
+        .map(b => {
+          const pt = resolvePT(b);
+          const [p, t] = (pt?.modified ?? '0/0').split('/');
+          return {
+            instanceId: b.instanceId,
+            name: b.card.name,
+            power: Number.isNaN(parseInt(p, 10)) ? 0 : parseInt(p, 10),
+            toughness: Number.isNaN(parseInt(t, 10)) ? 0 : parseInt(t, 10),
+          };
+        });
+
+      // The attacker assigns its power down the blocker list in order, so a
+      // chump block eats one creature rather than spreading harmlessly.
+      let remaining = attacker.power;
+      for (const blocker of blockers) {
+        if (remaining <= 0) break;
+        if (remaining >= blocker.toughness && blocker.toughness > 0) {
+          deadBlockers.push(blocker.instanceId);
+          playtest.appendLog(`${blocker.name} died blocking ${attacker.card.name}`);
+        }
+        remaining -= blocker.toughness;
+      }
+
+      const blockerPower = blockers.reduce((sum, b) => sum + b.power, 0);
+      if (attacker.toughness > 0 && blockerPower >= attacker.toughness) {
+        deadAttackers.push(attacker.instanceId);
+        playtest.appendLog(`${attacker.card.name} died in combat`);
+      }
+    }
+
+    for (const id of deadBlockers) {
+      playtest.moveCard({
+        source: { kind: 'battlefield', instanceId: id },
+        target: { kind: 'zone', zone: 'graveyard' },
+      });
+    }
+    if (deadAttackers.length > 0) {
+      set(s => ({
+        opponents: s.opponents.map(o => {
+          if (o.id !== combat.opponentId) return o;
+          const dead = o.battlefield.filter(p => deadAttackers.includes(p.instanceId));
+          return {
+            ...o,
+            battlefield: o.battlefield.filter(p => !deadAttackers.includes(p.instanceId)),
+            graveyard: [...o.graveyard, ...dead.map(p => p.card)],
+          };
+        }),
+      }));
+    }
+
+    if (damageToPlayer > 0) {
+      playtest.appendLog(`You took ${damageToPlayer} from ${combat.opponentName}`);
+      playtest.adjustLife(-damageToPlayer);
+    } else {
+      playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`);
+    }
+
+    set({ combat: null });
+    combatResolver?.();
+    combatResolver = null;
+  },
 
   adjustLife: (id, delta) => set(s => ({
     opponents: s.opponents.map(o => (o.id === id ? { ...o, life: o.life + delta } : o)),
@@ -263,7 +397,31 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           }));
           f.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
           f.effects.forEach(applyEffect);
-          if (f.damageToPlayer > 0) usePlaytestStore.getState().adjustLife(-f.damageToPlayer);
+
+          if (f.attackers.length > 0) {
+            // Combat stops the turn until the player has blocked. resolveCombat
+            // settles this promise; clearAll settles it too, so leaving the table
+            // mid-combat can't strand the loop forever.
+            const attackers = f.attackers
+              .map(id => f.opponent.battlefield.find(p => p.instanceId === id))
+              .filter((p): p is NonNullable<typeof p> => !!p)
+              .map(p => ({
+                instanceId: p.instanceId,
+                card: p.card,
+                power: statOf(p.card, 'power'),
+                toughness: statOf(p.card, 'toughness'),
+              }));
+            set({
+              combat: {
+                opponentId: f.opponent.id,
+                opponentName: f.opponent.name,
+                attackers,
+                blocks: {},
+              },
+            });
+            await new Promise<void>(resolve => { combatResolver = resolve; });
+          }
+
           await pause();
         }
 

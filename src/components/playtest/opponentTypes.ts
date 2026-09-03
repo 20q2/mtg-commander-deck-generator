@@ -60,7 +60,28 @@ export interface TurnFrame {
   logs: string[];
   /** What to do to the player's board. Described here, applied by the store. */
   effects: AppliedEffect[];
-  damageToPlayer: number;
+  /**
+   * Instance ids on the bot's board that are attacking. Non-empty only on the
+   * attack beat, and it stops the turn: combat waits for you to block.
+   */
+  attackers: string[];
+}
+
+/** One creature swinging at you, flattened for the combat UI. */
+export interface Attacker {
+  instanceId: string;
+  card: ScryfallCard;
+  power: number;
+  toughness: number;
+}
+
+/** An open combat step, waiting on blocks. */
+export interface CombatState {
+  opponentId: string;
+  opponentName: string;
+  attackers: Attacker[];
+  /** Attacker instance id → the player battlefield instance ids blocking it. */
+  blocks: Record<string, string[]>;
 }
 
 /** One bot's turn, as a value — the store applies it. */
