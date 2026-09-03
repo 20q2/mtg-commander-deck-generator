@@ -57,6 +57,7 @@ export async function buildOpponentFromStub(stub: OpponentStub, startingLife: nu
     library: shuffled.slice(7),
     hand: shuffled.slice(0, 7),
     graveyard: [],
+    exile: [],
     command,
     battlefield: [],
     decked: false,

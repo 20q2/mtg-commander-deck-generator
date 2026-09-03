@@ -24,6 +24,7 @@ import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModa
 import { useOpponentStore } from '@/store/opponentStore';
 import { OpponentStrip } from '@/components/playtest/opponents/OpponentStrip';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
+import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
@@ -586,6 +587,9 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         {modal?.kind === 'create' && <CreateModal />}
         {modal?.kind === 'newCardTrial' && <NewCardTrialModal />}
         {modal?.kind === 'opponents' && <AddOpponentModal />}
+        {modal?.kind === 'opponentZone' && (
+          <OpponentZoneModal opponentId={modal.opponentId} zone={modal.zone} />
+        )}
         <PlaytestToast />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>

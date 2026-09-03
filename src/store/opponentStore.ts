@@ -6,7 +6,7 @@ import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import type { Opponent } from '@/components/playtest/opponentTypes';
+import type { Opponent, OpponentZone } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
 const STARTING_LIFE = 40;
@@ -37,6 +37,10 @@ interface OpponentActions {
   takePermanent: (opponentId: string, instanceId: string) => ScryfallCard | null;
   /** The other direction — donate effects, or stocking a board by hand. */
   givePermanent: (opponentId: string, card: ScryfallCard) => void;
+  /** Move one of their permanents off the board into one of their zones. */
+  permanentToZone: (opponentId: string, instanceId: string, zone: OpponentZone) => void;
+  adjustPermanentCounter: (opponentId: string, instanceId: string, type: string, delta: number) => void;
+  untapAll: (opponentId: string) => void;
 }
 
 /**
@@ -176,6 +180,54 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     ),
   })),
 
+  permanentToZone: (opponentId, instanceId, zone) => set(s => ({
+    opponents: s.opponents.map(o => {
+      if (o.id !== opponentId) return o;
+      const hit = o.battlefield.find(p => p.instanceId === instanceId);
+      if (!hit) return o;
+      const label =
+        zone === 'graveyard' ? 'graveyard'
+      : zone === 'exile'     ? 'exile'
+      : zone === 'hand'      ? 'hand'
+      :                        'top of library';
+      usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`);
+      return {
+        ...o,
+        battlefield: o.battlefield.filter(p => p.instanceId !== instanceId),
+        graveyard: zone === 'graveyard' ? [...o.graveyard, hit.card] : o.graveyard,
+        exile:     zone === 'exile'     ? [...o.exile, hit.card]     : o.exile,
+        hand:      zone === 'hand'      ? [...o.hand, hit.card]      : o.hand,
+        library:   zone === 'library'   ? [hit.card, ...o.library]   : o.library,
+      };
+    }),
+  })),
+
+  adjustPermanentCounter: (opponentId, instanceId, type, delta) => set(s => ({
+    opponents: s.opponents.map(o =>
+      o.id === opponentId
+        ? {
+            ...o,
+            battlefield: o.battlefield.map(p => {
+              if (p.instanceId !== instanceId) return p;
+              const counters = { ...p.counters };
+              const next = (counters[type] ?? 0) + delta;
+              if (next <= 0) delete counters[type];
+              else counters[type] = next;
+              return { ...p, counters };
+            }),
+          }
+        : o,
+    ),
+  })),
+
+  untapAll: (opponentId) => set(s => ({
+    opponents: s.opponents.map(o =>
+      o.id === opponentId
+        ? { ...o, battlefield: o.battlefield.map(p => ({ ...p, tapped: false })) }
+        : o,
+    ),
+  })),
+
   removePermanent: (opponentId, instanceId) => set(s => ({
     opponents: s.opponents.map(o => {
       if (o.id !== opponentId) return o;
@@ -243,7 +295,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
               ...o,
               battlefield: [
                 ...o.battlefield,
-                { instanceId: makeInstanceId(), card, tapped: false, summoningSick: true },
+                { instanceId: makeInstanceId(), card, tapped: false, summoningSick: true, counters: {} },
               ],
             }
           : o,
@@ -262,6 +314,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           ...o.library,
           ...o.hand,
           ...o.graveyard,
+          ...o.exile,
           ...o.battlefield.map(p => p.card),
         ].filter(c => !c.type_line.toLowerCase().includes('token'));
         const shuffled = fisherYates(all);
@@ -271,6 +324,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           library: shuffled.slice(7),
           hand: shuffled.slice(0, 7),
           graveyard: [],
+          exile: [],
           battlefield: [],
           decked: false,
           turnsTaken: 0,

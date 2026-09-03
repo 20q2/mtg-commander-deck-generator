@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { Bot, ChevronLeft, Heart, Plus, Skull, Swords, X } from 'lucide-react';
+import { Bot, ChevronLeft, Heart, Plus, RotateCcw, Skull, Swords, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { useMagnifyKey } from '@/hooks/useMagnifyKey';
+import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
@@ -12,10 +15,44 @@ import type { Opponent, OpponentPermanent } from '@/components/playtest/opponent
  * seated it collapses to a narrow rail so it costs almost nothing, and the rail
  * is still the entry point — the discovery moment lives in the play area.
  */
+const WIDTH_KEY = 'playtest-opponent-column-width';
+const MIN_WIDTH = 150;
+const MAX_WIDTH = 460;
+
 export function OpponentStrip() {
   const opponents = useOpponentStore(s => s.opponents);
   const openModal = usePlaytestStore(s => s.openModal);
   const [collapsed, setCollapsed] = useState(false);
+  const [width, setWidth] = useState(() => {
+    const stored = Number(localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(stored) && stored >= MIN_WIDTH ? Math.min(stored, MAX_WIDTH) : 208;
+  });
+
+  // Drag the right edge to resize. Pointer capture rather than window listeners
+  // so a fast drag that outruns the handle doesn't drop the gesture.
+  const onResizeStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const startX = e.clientX;
+    const startWidth = width;
+    el.setPointerCapture(e.pointerId);
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + (ev.clientX - startX)));
+      setWidth(next);
+    };
+    const onUp = (ev: PointerEvent) => {
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+      try { el.releasePointerCapture(ev.pointerId); } catch { /* noop */ }
+      // Read off the element rather than closing over stale state.
+      const final = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + (ev.clientX - startX)));
+      localStorage.setItem(WIDTH_KEY, String(final));
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+  };
 
   // Empty, or deliberately collapsed → a rail just wide enough to get back.
   if (opponents.length === 0 || collapsed) {
@@ -53,7 +90,17 @@ export function OpponentStrip() {
   }
 
   return (
-    <div className="hidden md:flex shrink-0 w-[208px] border-r border-border/50 bg-card/30 flex-col min-h-0">
+    <div
+      className="hidden md:flex shrink-0 relative border-r border-border/50 bg-card/30 flex-col min-h-0"
+      style={{ width }}
+    >
+      {/* Resize handle on the right edge. */}
+      <div
+        onPointerDown={onResizeStart}
+        onDoubleClick={() => { setWidth(208); localStorage.setItem(WIDTH_KEY, '208'); }}
+        title="Drag to resize · double-click to reset"
+        className="absolute top-0 right-0 h-full w-1.5 translate-x-1/2 z-20 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+      />
       <div className="px-2 py-1 flex items-center gap-1.5 border-b border-border/40">
         <Bot className="w-3.5 h-3.5 text-violet-300/80 shrink-0" />
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 flex-1">
@@ -92,6 +139,8 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
+  const untapAll = useOpponentStore(s => s.untapAll);
+  const openModal = usePlaytestStore(s => s.openModal);
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
 
   // Drop target for donating one of your permanents to this bot.
@@ -148,10 +197,30 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
         </button>
       </div>
 
-      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground/70">
-        <span>hand {opponent.hand.length}</span>
-        <span>lib {opponent.library.length}</span>
-        <span>gy {opponent.graveyard.length}</span>
+      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+        <span title="Cards in hand — hidden, as they would be">hand {opponent.hand.length}</span>
+        <span title="Cards left in library">lib {opponent.library.length}</span>
+        <button
+          onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
+          className="hover:text-foreground transition-colors underline-offset-2 hover:underline"
+          title="View their graveyard"
+        >
+          gy {opponent.graveyard.length}
+        </button>
+        <button
+          onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
+          className="hover:text-foreground transition-colors underline-offset-2 hover:underline"
+          title="View their exile"
+        >
+          ex {opponent.exile.length}
+        </button>
+        <button
+          onClick={() => untapAll(opponent.id)}
+          className="ml-auto hover:text-foreground transition-colors"
+          title="Untap all of their permanents"
+        >
+          <RotateCcw className="w-2.5 h-2.5" />
+        </button>
         {opponent.decked && <span className="text-amber-400/80">decked</span>}
       </div>
 
@@ -222,8 +291,12 @@ function OpponentPermanentCard({
   width: number;
 }) {
   const togglePermanentTap = useOpponentStore(s => s.togglePermanentTap);
-  const removePermanent = useOpponentStore(s => s.removePermanent);
+  const permanentToZone = useOpponentStore(s => s.permanentToZone);
   const [hovered, setHovered] = useState(false);
+  const [menu, setMenu] = useState<OpponentMenuTarget | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const magnify = useMagnifyKey();
+  const counters = Object.entries(permanent.counters).filter(([, v]) => v > 0);
 
   // Theft: drag this down onto your battlefield to take it.
   const drag = useDraggable({
@@ -244,10 +317,16 @@ function OpponentPermanentCard({
 
   return (
     <div
+      ref={boxRef}
       className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''}`}
       style={{ width }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setMenu({ opponentId, permanent, x: e.clientX, y: e.clientY });
+      }}
     >
       <img
         ref={drag.setNodeRef as unknown as React.Ref<HTMLImageElement>}
@@ -255,22 +334,45 @@ function OpponentPermanentCard({
         {...drag.listeners}
         src={getCardImageUrl(permanent.card, 'small')}
         alt={permanent.card.name}
-        title={`${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''} · click to tap · drag onto your battlefield to steal`}
+        title={`${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''} · click to tap · right-click for options · hold Ctrl to magnify · drag onto your battlefield to steal`}
         onClick={() => { if (!dragMoved.current) togglePermanentTap(opponentId, permanent.instanceId); }}
         draggable={false}
         className={`w-full rounded-[3px] shadow cursor-grab touch-none transition-transform ${
           permanent.tapped ? 'rotate-90' : ''
         } ${permanent.summoningSick ? 'ring-1 ring-amber-300/50' : ''}`}
       />
+
+      {counters.length > 0 && (
+        <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-center gap-0.5 pointer-events-none">
+          {counters.map(([type, n]) => (
+            <span
+              key={type}
+              className={`px-1 rounded-full text-[9px] font-bold leading-4 tabular-nums shadow ring-1 ring-white/30 ${
+                type === '+1/+1' ? 'bg-emerald-500/90 text-white'
+                : type === '-1/-1' ? 'bg-red-500/90 text-white'
+                : 'bg-zinc-600/90 text-white'
+              }`}
+            >
+              {type === '+1/+1' ? `+${n}` : type === '-1/-1' ? `−${n}` : n}
+            </span>
+          ))}
+        </div>
+      )}
+
       {hovered && (
         <button
-          onClick={() => removePermanent(opponentId, permanent.instanceId)}
+          onClick={() => permanentToZone(opponentId, permanent.instanceId, 'graveyard')}
           title={`Destroy ${permanent.card.name}`}
           className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center shadow ring-1 ring-black/40"
         >
           <Skull className="w-2.5 h-2.5" />
         </button>
       )}
+
+      {magnify && hovered && !drag.isDragging && (
+        <MagnifiedPreview card={permanent.card} anchorRef={boxRef} />
+      )}
+      <OpponentCardMenu target={menu} onClose={() => setMenu(null)} />
     </div>
   );
 }

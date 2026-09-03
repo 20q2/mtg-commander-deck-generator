@@ -7,7 +7,12 @@ export interface OpponentPermanent {
   tapped: boolean;
   /** Creatures can't attack the turn they arrive. */
   summoningSick: boolean;
+  /** Same shape as a player card's, so counter handling reads the same. */
+  counters: Record<string, number>;
 }
+
+/** Zones a permanent can be sent to from the board. */
+export type OpponentZone = 'graveyard' | 'exile' | 'hand' | 'library';
 
 export interface Opponent {
   id: string;
@@ -22,6 +27,7 @@ export interface Opponent {
   /** Real cards. Only the count is ever shown to the player. */
   hand: ScryfallCard[];
   graveyard: ScryfallCard[];
+  exile: ScryfallCard[];
   command: ScryfallCard[];
   battlefield: OpponentPermanent[];
   /** True once this bot has stopped drawing because its library ran dry. */

@@ -43,6 +43,7 @@ function toPermanent(card: ScryfallCard): OpponentPermanent {
     tapped: false,
     // Only creatures care, but tracking it uniformly keeps the attack step simple.
     summoningSick: true,
+    counters: {},
   };
 }
 
