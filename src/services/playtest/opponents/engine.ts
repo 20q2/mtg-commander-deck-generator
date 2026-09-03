@@ -36,6 +36,54 @@ export function powerOf(card: ScryfallCard): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
+/**
+ * Net mana from a tap ability. "{T}: Add {C}{C}" is 2; "{1}, {T}: Add {U}{B}"
+ * produces two but costs one, so it's 1. Anything else that makes mana at all
+ * counts as one — including "add one mana of any color", which has no symbols
+ * to count.
+ */
+function netManaFromText(text: string): number {
+  const m = text.match(/([^\n:]*?)\{t\}[^:]*:\s*add\s*((?:\{[^}]+\}\s*)+)/i);
+  if (!m) return 1;
+  const produced = (m[2].match(/\{[^}]+\}/g) ?? []).length;
+  const genericCost = (m[1] ?? '').match(/\{(\d+)\}/);
+  const spent = genericCost ? parseInt(genericCost[1], 10) : 0;
+  return Math.max(1, produced - spent);
+}
+
+/** How much mana this permanent can make right now. */
+function manaFrom(p: OpponentPermanent): number {
+  if (p.tapped) return 0;
+  if (isLand(p.card)) return 1;
+  if ((p.card.produced_mana?.length ?? 0) === 0) return 0;
+  // A mana creature can't tap the turn it arrives.
+  if (isCreature(p.card) && p.summoningSick) return 0;
+  return netManaFromText(p.card.oracle_text ?? '');
+}
+
+/**
+ * Tap sources to pay `amount`. Lands go first, then rocks, then creatures —
+ * tapping a creature costs an attacker, so it's the last resort.
+ */
+function tapForMana(battlefield: OpponentPermanent[], amount: number): OpponentPermanent[] {
+  if (amount <= 0) return battlefield;
+  const priority = (p: OpponentPermanent) =>
+    isLand(p.card) ? 0 : isCreature(p.card) ? 2 : 1;
+  const order = battlefield
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => manaFrom(p) > 0)
+    .sort((a, b) => priority(a.p) - priority(b.p));
+
+  const tapped = new Set<number>();
+  let remaining = amount;
+  for (const { p, i } of order) {
+    if (remaining <= 0) break;
+    remaining -= manaFrom(p);
+    tapped.add(i);
+  }
+  return battlefield.map((p, i) => (tapped.has(i) ? { ...p, tapped: true } : p));
+}
+
 function toPermanent(card: ScryfallCard): OpponentPermanent {
   return {
     instanceId: makeInstanceId(),
@@ -79,8 +127,9 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     logs.push(`${opp.name} plays ${land.name}`);
   }
 
-  // Available mana is just the land count; everything is untapped at this point.
-  const mana = opp.battlefield.filter(p => isLand(p.card)).length;
+  // Lands, rocks and unsick mana creatures. Colours are still ignored — that's
+  // the standing approximation — but ramp now actually ramps.
+  const mana = opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
   const botPower = opp.battlefield
     .filter(p => isCreature(p.card))
     .reduce((sum, p) => sum + powerOf(p.card), 0);
@@ -104,6 +153,8 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         opp.graveyard.push(play.card);
       }
       if (play.effect) effects.push(play.effect);
+      // Tap what it cost, so their board shows the spend.
+      opp.battlefield = tapForMana(opp.battlefield, play.card.cmc ?? 0);
       logs.push(`${opp.name} casts ${play.reason}`);
       castSomething = true;
     }
@@ -128,6 +179,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     });
     if (bestIdx >= 0) {
       const spell = opp.hand.splice(bestIdx, 1)[0];
+      opp.battlefield = tapForMana(opp.battlefield, spell.cmc ?? 0);
       opp.battlefield.push(toPermanent(spell));
       logs.push(`${opp.name} casts ${spell.name}`);
     }
