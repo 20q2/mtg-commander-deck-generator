@@ -160,6 +160,7 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
   const openModal = usePlaytestStore(s => s.openModal);
+  const running = useOpponentStore(s => s.running);
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
 
   // Drop target for donating one of your permanents to this bot.
@@ -176,7 +177,9 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
     <div
       ref={setNodeRef}
       className={`shrink-0 rounded-lg border bg-background/30 p-1.5 transition-colors ${
-        isOver ? 'border-violet-400/70 bg-violet-500/10' : 'border-border/40'
+        isOver ? 'border-violet-400/70 bg-violet-500/10'
+        : running ? 'border-violet-400/40'
+        : 'border-border/40'
       }`}
     >
       {/* One header row: who they are, their life, whether they fight back, and
@@ -445,6 +448,7 @@ function OpponentPermanentCard({
   const boxRef = useRef<HTMLDivElement | null>(null);
   const ctrlHeld = useMagnifyKey();
   const previewMode = usePlaytestSettings(s => s.opponentPreview);
+  const animations = usePlaytestSettings(s => s.animations);
   const showPreview =
     previewMode === 'off'   ? false
   : previewMode === 'hover' ? hovered
@@ -471,7 +475,11 @@ function OpponentPermanentCard({
   return (
     <div
       ref={boxRef}
-      className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''}`}
+      // Keyed by instanceId upstream, so this runs once when the card arrives —
+      // it drops onto their board rather than blinking into existence.
+      className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''} ${
+        animations ? 'animate-deal-in-from-top' : ''
+      }`}
       style={{ width }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -490,7 +498,7 @@ function OpponentPermanentCard({
         title={`${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''} · click to tap · right-click for options · hold Ctrl to magnify · drag onto your battlefield to steal`}
         onClick={() => { if (!dragMoved.current) togglePermanentTap(opponentId, permanent.instanceId); }}
         draggable={false}
-        className={`w-full rounded-[3px] shadow cursor-grab touch-none transition-transform ${
+        className={`w-full rounded-[3px] shadow cursor-grab touch-none transition-transform duration-200 ${
           permanent.tapped ? 'rotate-90' : ''
         } ${permanent.summoningSick ? 'ring-1 ring-amber-300/50' : ''}`}
       />

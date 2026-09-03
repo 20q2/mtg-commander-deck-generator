@@ -13,11 +13,16 @@ import type { ScryfallCard } from '@/types';
 const STARTING_LIFE = 40;
 export const MAX_OPPONENTS = 3;
 
+/** Pause between the beats of a bot's turn — untap, land, cast, attack. */
+const STEP_MS = 260;
+
 interface OpponentState {
   opponents: Opponent[];
   /** Stub ids currently being fetched, so the picker can show per-deck spinners. */
   loadingStubIds: string[];
   error: string | null;
+  /** True while turns are animating, so a double-click can't interleave them. */
+  running: boolean;
 }
 
 interface OpponentActions {
@@ -29,7 +34,7 @@ interface OpponentActions {
   togglePermanentTap: (opponentId: string, instanceId: string) => void;
   removePermanent: (opponentId: string, instanceId: string) => void;
   /** Run every bot's turn in sequence. Called from the player's Next Turn. */
-  runAllTurns: () => void;
+  runAllTurns: () => Promise<void>;
   /** Reshuffle every seated bot back to a fresh opening hand. No refetch. */
   resetAll: () => void;
   setResistance: (id: string, resistance: boolean) => void;
@@ -115,6 +120,7 @@ const initial: OpponentState = {
   opponents: [],
   loadingStubIds: [],
   error: null,
+  running: false,
 };
 
 /**
@@ -237,25 +243,37 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }),
   })),
 
-  runAllTurns: () => {
-    const { opponents } = get();
-    if (opponents.length === 0) return;
+  runAllTurns: async () => {
+    if (get().running || get().opponents.length === 0) return;
+    set({ running: true });
 
-    const next: Opponent[] = [];
-    let totalDamage = 0;
+    // Animations off means no waiting — the whole turn lands at once.
+    const animate = usePlaytestSettings.getState().animations;
+    const pause = () => (animate ? new Promise(r => setTimeout(r, STEP_MS)) : Promise.resolve());
 
-    for (const opponent of opponents) {
-      // Re-read the board for every bot: the one before it may have blown up
-      // half of it, and targeting a creature that's already dead reads as broken.
-      const result = takeTurn(opponent, readPlayerBoard());
-      next.push(result.opponent);
-      totalDamage += result.damageToPlayer;
-      result.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
-      result.effects.forEach(applyEffect);
+    try {
+      for (const opponent of get().opponents) {
+        // Re-read the board for every bot: the one before it may have blown up
+        // half of it, and targeting a creature that's already dead reads broken.
+        const { frames, final } = takeTurn(opponent, readPlayerBoard());
+
+        for (const f of frames) {
+          set(s => ({
+            opponents: s.opponents.map(o => (o.id === f.opponent.id ? f.opponent : o)),
+          }));
+          f.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
+          f.effects.forEach(applyEffect);
+          if (f.damageToPlayer > 0) usePlaytestStore.getState().adjustLife(-f.damageToPlayer);
+          await pause();
+        }
+
+        // Frames are snapshots; make sure the stored bot is the authoritative
+        // final state even if it was removed and re-added mid-animation.
+        set(s => ({ opponents: s.opponents.map(o => (o.id === final.id ? final : o)) }));
+      }
+    } finally {
+      set({ running: false });
     }
-
-    set({ opponents: next });
-    if (totalDamage > 0) usePlaytestStore.getState().adjustLife(-totalDamage);
   },
 
   setResistance: (id, resistance) => set(s => ({

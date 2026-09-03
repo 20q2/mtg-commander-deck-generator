@@ -3,7 +3,7 @@ import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import { lookupEffect } from '@/services/playtest/opponents/effects';
-import type { Opponent, OpponentPermanent, TurnResult } from '@/components/playtest/opponentTypes';
+import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
  * The bot turn loop. Pure: it takes an opponent plus a read of the player's board
@@ -96,8 +96,7 @@ function toPermanent(card: ScryfallCard): OpponentPermanent {
 }
 
 export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnResult {
-  const logs: string[] = [];
-  const effects: AppliedEffect[] = [];
+  const frames: TurnFrame[] = [];
   const opp: Opponent = {
     ...input,
     library: [...input.library],
@@ -106,25 +105,42 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     battlefield: input.battlefield.map(p => ({ ...p })),
   };
 
-  // ── Untap ──
-  opp.battlefield = opp.battlefield.map(p => ({ ...p, tapped: false, summoningSick: false }));
+  /** Capture the board as it stands, as one beat of the turn. */
+  const frame = (logs: string[], effects: AppliedEffect[] = [], damageToPlayer = 0) => {
+    frames.push({
+      opponent: {
+        ...opp,
+        library: [...opp.library],
+        hand: [...opp.hand],
+        graveyard: [...opp.graveyard],
+        exile: [...opp.exile],
+        battlefield: opp.battlefield.map(p => ({ ...p, counters: { ...p.counters } })),
+      },
+      logs,
+      effects,
+      damageToPlayer,
+    });
+  };
 
-  // ── Draw ──
+  // ── Untap + draw ──
+  opp.battlefield = opp.battlefield.map(p => ({ ...p, tapped: false, summoningSick: false }));
+  const drawLogs: string[] = [];
   if (opp.library.length > 0) {
     opp.hand.push(opp.library.shift() as ScryfallCard);
   } else if (!opp.decked) {
     // Logged once, then never again — a bot that can't draw isn't a loss here,
     // this is a goldfish, not a game with a win condition.
     opp.decked = true;
-    logs.push(`${opp.name} has no cards left to draw`);
+    drawLogs.push(`${opp.name} has no cards left to draw`);
   }
+  frame(drawLogs);
 
   // ── Land ──
   const landIdx = opp.hand.findIndex(isLand);
   if (landIdx >= 0) {
     const land = opp.hand.splice(landIdx, 1)[0];
     opp.battlefield.push({ ...toPermanent(land), summoningSick: false });
-    logs.push(`${opp.name} plays ${land.name}`);
+    frame([`${opp.name} plays ${land.name}`]);
   }
 
   // Lands, rocks and unsick mana creatures. Colours are still ignored — that's
@@ -152,10 +168,9 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       } else {
         opp.graveyard.push(play.card);
       }
-      if (play.effect) effects.push(play.effect);
       // Tap what it cost, so their board shows the spend.
       opp.battlefield = tapForMana(opp.battlefield, play.card.cmc ?? 0);
-      logs.push(`${opp.name} casts ${play.reason}`);
+      frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : []);
       castSomething = true;
     }
   }
@@ -181,7 +196,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       const spell = opp.hand.splice(bestIdx, 1)[0];
       opp.battlefield = tapForMana(opp.battlefield, spell.cmc ?? 0);
       opp.battlefield.push(toPermanent(spell));
-      logs.push(`${opp.name} casts ${spell.name}`);
+      frame([`${opp.name} casts ${spell.name}`]);
     }
   }
 
@@ -191,16 +206,23 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   const attackers = opp.battlefield.filter(
     p => isCreature(p.card) && !p.summoningSick && !p.tapped && powerOf(p.card) > 0,
   );
-  let damageToPlayer = 0;
   if (attackers.length > 0) {
     const attackerIds = new Set(attackers.map(a => a.instanceId));
-    damageToPlayer = attackers.reduce((sum, a) => sum + powerOf(a.card), 0);
+    const damage = attackers.reduce((sum, a) => sum + powerOf(a.card), 0);
     opp.battlefield = opp.battlefield.map(p =>
       attackerIds.has(p.instanceId) ? { ...p, tapped: true } : p,
     );
-    logs.push(`${opp.name} attacks with ${attackers.map(a => a.card.name).join(', ')} for ${damageToPlayer}`);
+    opp.turnsTaken = input.turnsTaken + 1;
+    frame(
+      [`${opp.name} attacks with ${attackers.map(a => a.card.name).join(', ')} for ${damage}`],
+      [],
+      damage,
+    );
+  } else {
+    opp.turnsTaken = input.turnsTaken + 1;
+    // Keep the counter on the last frame even when nothing attacked.
+    if (frames.length > 0) frames[frames.length - 1].opponent.turnsTaken = opp.turnsTaken;
   }
 
-  opp.turnsTaken = input.turnsTaken + 1;
-  return { opponent: opp, logs, damageToPlayer, effects };
+  return { final: opp, frames };
 }

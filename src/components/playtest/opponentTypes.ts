@@ -50,11 +50,21 @@ export interface OpponentStub {
   cards: string[];
 }
 
-/** One bot's turn, as a value — the store applies it. */
-export interface TurnResult {
+/**
+ * One visible beat of a bot's turn — untap, land, cast, attack. The store plays
+ * these in sequence with a short pause between so the turn reads as a series of
+ * moves rather than the board changing all at once.
+ */
+export interface TurnFrame {
   opponent: Opponent;
   logs: string[];
-  damageToPlayer: number;
   /** What to do to the player's board. Described here, applied by the store. */
   effects: AppliedEffect[];
+  damageToPlayer: number;
+}
+
+/** One bot's turn, as a value — the store applies it. */
+export interface TurnResult {
+  final: Opponent;
+  frames: TurnFrame[];
 }
