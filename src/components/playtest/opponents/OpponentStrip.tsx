@@ -223,17 +223,17 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
         </button>
       </div>
 
-      {/* Hand and library on the left, mirroring where yours sit; the zones you
-          only occasionally inspect go to the far right. */}
+      {/* Mirrors your own hand row: hand on the left, then Library / Graveyard /
+          Exile grouped right, with Exile half-width and hanging from the top. */}
       <div className="mt-1.5 flex items-end gap-1">
         <HandFan count={opponent.hand.length} width={zoneWidth} />
-        <ZonePile
-          label="Library" count={opponent.library.length} width={zoneWidth}
-          hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
-          warn={opponent.decked}
-          Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
-        />
         <div className="ml-auto flex items-end gap-1">
+          <ZonePile
+            label="Library" count={opponent.library.length} width={zoneWidth}
+            hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
+            warn={opponent.decked}
+            Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
+          />
           <ZonePile
             label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
             top={opponent.graveyard[opponent.graveyard.length - 1]}
@@ -241,13 +241,16 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
             onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
             Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
           />
-          <ZonePile
-            label="Exile" count={opponent.exile.length} width={zoneWidth}
-            top={opponent.exile[opponent.exile.length - 1]}
-            hint="Click to view their exile"
-            onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
-            Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
-          />
+          <div className="self-start">
+            <ZonePile
+              label="Exile" count={opponent.exile.length}
+              width={Math.max(14, Math.round(zoneWidth * 0.5))}
+              top={opponent.exile[opponent.exile.length - 1]}
+              hint="Click to view their exile"
+              onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
+              Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
+            />
+          </div>
         </div>
       </div>
 
