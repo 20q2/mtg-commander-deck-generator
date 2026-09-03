@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
@@ -136,7 +137,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
     set(s => ({ loadingStubIds: [...s.loadingStubIds, stubId], error: null }));
     try {
-      const opponent = await buildOpponentFromStub(stub, STARTING_LIFE);
+      const opponent = await buildOpponentFromStub(
+        stub,
+        STARTING_LIFE,
+        usePlaytestSettings.getState().opponentResistanceDefault,
+      );
       set(s => ({
         opponents: s.opponents.length >= MAX_OPPONENTS ? s.opponents : [...s.opponents, opponent],
         loadingStubIds: s.loadingStubIds.filter(id => id !== stubId),

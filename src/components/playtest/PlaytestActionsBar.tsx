@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
 // Defined at module scope (not inside the component) so they keep a stable
 // component identity across renders. If these lived in the render body, every
@@ -165,15 +166,17 @@ export function NextTurnButton() {
   const turn = usePlaytestStore(s => s.turn);
   const runAllTurns = useOpponentStore(s => s.runAllTurns);
   const opponentCount = useOpponentStore(s => s.opponents.length);
+  const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
   // One button still drives the whole game: your turn, then every bot's, in order.
-  const handleNextTurn = () => { nextTurn(); draw(1); runAllTurns(); };
+  // Unless you've turned that off, in which case the table waits for you.
+  const handleNextTurn = () => { nextTurn(); draw(1); if (autoTurns) runAllTurns(); };
   return (
     <Button
       size="sm"
       className="h-8 sm:h-6 px-2 text-[11px] bg-primary/15 hover:bg-primary/25 border border-primary/40 text-primary-foreground/90 gap-1"
       onClick={handleNextTurn}
       title={
-        opponentCount > 0
+        opponentCount > 0 && autoTurns
           ? `Advance the turn, draw a card, then let ${opponentCount} opponent${opponentCount > 1 ? 's' : ''} take their turn`
           : 'Advance to the next turn and draw a card'
       }

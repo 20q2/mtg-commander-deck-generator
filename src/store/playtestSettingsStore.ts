@@ -49,6 +49,12 @@ export const CARD_SIZES: Record<BattlefieldCardSize, { label: string; width: num
   large:  { label: 'Large',  width: 165, height: 231 },
 };
 
+/**
+ * How an opponent's card reveals itself. `ctrl` matches your own battlefield;
+ * `hover` is the impatient option; `off` suits anyone who finds the popup noisy.
+ */
+export type OpponentPreviewMode = 'ctrl' | 'hover' | 'off';
+
 export type LogFilter = Record<LogCategory, boolean>;
 
 const ALL_LOG_CATEGORIES_ON: LogFilter = {
@@ -61,6 +67,11 @@ interface Settings {
   animations: boolean;
   dotGrid: boolean;
   logFilter: LogFilter;
+  opponentPreview: OpponentPreviewMode;
+  /** Whether newly seated bots cast interaction at you. */
+  opponentResistanceDefault: boolean;
+  /** Whether bots take their turns automatically on Next Turn. */
+  opponentAutoTurns: boolean;
 }
 
 interface SettingsActions {
@@ -70,6 +81,9 @@ interface SettingsActions {
   setDotGrid: (v: boolean) => void;
   setLogFilter: (filter: LogFilter) => void;
   toggleLogCategory: (category: LogCategory) => void;
+  setOpponentPreview: (mode: OpponentPreviewMode) => void;
+  setOpponentResistanceDefault: (v: boolean) => void;
+  setOpponentAutoTurns: (v: boolean) => void;
 }
 
 const defaults: Settings = {
@@ -78,6 +92,9 @@ const defaults: Settings = {
   animations: true,
   dotGrid: true,
   logFilter: ALL_LOG_CATEGORIES_ON,
+  opponentPreview: 'ctrl',
+  opponentResistanceDefault: true,
+  opponentAutoTurns: true,
 };
 
 const PRESET_IDS: BattlefieldPreset[] = ['arena', 'dark', 'felt', 'wood'];
@@ -122,6 +139,9 @@ export const usePlaytestSettings = create<Settings & SettingsActions>((set, get)
   setAnimations: (animations) => { set({ animations }); save({ ...get(), animations }); },
   setDotGrid: (dotGrid) => { set({ dotGrid }); save({ ...get(), dotGrid }); },
   setLogFilter: (logFilter) => { set({ logFilter }); save({ ...get(), logFilter }); },
+  setOpponentPreview: (opponentPreview) => { set({ opponentPreview }); save({ ...get(), opponentPreview }); },
+  setOpponentResistanceDefault: (opponentResistanceDefault) => { set({ opponentResistanceDefault }); save({ ...get(), opponentResistanceDefault }); },
+  setOpponentAutoTurns: (opponentAutoTurns) => { set({ opponentAutoTurns }); save({ ...get(), opponentAutoTurns }); },
   toggleLogCategory: (category) => {
     const next: LogFilter = { ...get().logFilter, [category]: !get().logFilter[category] };
     set({ logFilter: next });

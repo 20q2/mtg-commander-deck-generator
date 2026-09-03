@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { Bot, ChevronLeft, Heart, Plus, RotateCcw, Skull, Swords, X } from 'lucide-react';
+import { Bot, ChevronLeft, Heart, Play, Plus, RotateCcw, Skull, Swords, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
@@ -21,7 +22,9 @@ const MAX_WIDTH = 460;
 
 export function OpponentStrip() {
   const opponents = useOpponentStore(s => s.opponents);
+  const runAllTurns = useOpponentStore(s => s.runAllTurns);
   const openModal = usePlaytestStore(s => s.openModal);
+  const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(() => {
     const stored = Number(localStorage.getItem(WIDTH_KEY));
@@ -106,6 +109,19 @@ export function OpponentStrip() {
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 flex-1">
           Opponents · {opponents.length}
         </span>
+        {/* With auto-turns off, Next Turn no longer moves the table, so this is
+            the only way for the bots to act. */}
+        {!autoTurns && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5 text-[10px]"
+            onClick={() => runAllTurns()}
+            title="Run every bot's turn now (auto-turns are off in Settings → Bots)"
+          >
+            <Play className="w-3 h-3 mr-1" />Turn
+          </Button>
+        )}
         {opponents.length < MAX_OPPONENTS && (
           <Button
             size="sm"
@@ -129,13 +145,13 @@ export function OpponentStrip() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 p-2">
-        {opponents.map(o => <OpponentLane key={o.id} opponent={o} />)}
+        {opponents.map(o => <OpponentLane key={o.id} opponent={o} columnWidth={width} />)}
       </div>
     </div>
   );
 }
 
-function OpponentLane({ opponent }: { opponent: Opponent }) {
+function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWidth: number }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
@@ -240,7 +256,7 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
                     key={p.instanceId}
                     opponentId={opponent.id}
                     permanent={p}
-                    width={row.width}
+                    width={rowWidth(columnWidth, row.scale)}
                   />
                 ))}
               </div>
@@ -259,14 +275,20 @@ type RowKey = 'creatures' | 'others' | 'lands';
  * permanents in the middle, lands on the bottom — the way a player lays out
  * their own side of the table.
  *
- * Widths step down with the rows so a pile of basics doesn't dominate the lane
- * and the row you actually scan — what can attack me — reads largest.
+ * Widths are a fraction of the column so cards grow when you widen it, and they
+ * step down by row: a pile of basics shouldn't dominate the lane, and the row
+ * you actually scan — what can attack me — should read largest.
  */
-const ROW_ORDER: { key: RowKey; label: string; width: number }[] = [
-  { key: 'creatures', label: 'Creatures',       width: 58 },
-  { key: 'others',    label: 'Other permanents', width: 46 },
-  { key: 'lands',     label: 'Lands',            width: 34 },
+const ROW_ORDER: { key: RowKey; label: string; scale: number }[] = [
+  { key: 'creatures', label: 'Creatures',        scale: 0.30 },
+  { key: 'others',    label: 'Other permanents', scale: 0.24 },
+  { key: 'lands',     label: 'Lands',            scale: 0.18 },
 ];
+
+/** Column width → card width for a row, clamped so it stays legible and sane. */
+function rowWidth(columnWidth: number, scale: number): number {
+  return Math.round(Math.max(26, Math.min(120, columnWidth * scale)));
+}
 
 /**
  * Split a board into rows. Creature is checked before land so a creature-land
@@ -295,7 +317,12 @@ function OpponentPermanentCard({
   const [hovered, setHovered] = useState(false);
   const [menu, setMenu] = useState<OpponentMenuTarget | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const magnify = useMagnifyKey();
+  const ctrlHeld = useMagnifyKey();
+  const previewMode = usePlaytestSettings(s => s.opponentPreview);
+  const showPreview =
+    previewMode === 'off'   ? false
+  : previewMode === 'hover' ? hovered
+  :                           ctrlHeld && hovered;
   const counters = Object.entries(permanent.counters).filter(([, v]) => v > 0);
 
   // Theft: drag this down onto your battlefield to take it.
@@ -369,7 +396,7 @@ function OpponentPermanentCard({
         </button>
       )}
 
-      {magnify && hovered && !drag.isDragging && (
+      {showPreview && !drag.isDragging && (
         <MagnifiedPreview card={permanent.card} anchorRef={boxRef} />
       )}
       <OpponentCardMenu target={menu} onClose={() => setMenu(null)} />

@@ -31,7 +31,11 @@ function expandEntries(entries: string[]): string[] {
  * deck — a bot one card short still plays fine, and a hard failure here would
  * block the whole feature over a single typo.
  */
-export async function buildOpponentFromStub(stub: OpponentStub, startingLife: number): Promise<Opponent> {
+export async function buildOpponentFromStub(
+  stub: OpponentStub,
+  startingLife: number,
+  resistance: boolean,
+): Promise<Opponent> {
   const names = expandEntries(stub.cards);
   const cardMap = await getCardsByNames(Array.from(new Set([...names, stub.commander])));
 
@@ -61,8 +65,7 @@ export async function buildOpponentFromStub(stub: OpponentStub, startingLife: nu
     command,
     battlefield: [],
     decked: false,
-    // Bots resist by default — a passive dummy is the opt-out, not the norm.
-    resistance: true,
+    resistance,
     aggression: 0.5,
     turnsTaken: 0,
   };

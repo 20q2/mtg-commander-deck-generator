@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings, Keyboard, Image as ImageIcon, X } from 'lucide-react';
+import { Settings, Keyboard, Image as ImageIcon, Bot, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { usePlaytestSettings, BG_STYLES, CARD_SIZES, type BattlefieldPreset, type BattlefieldCardSize } from '@/store/playtestSettingsStore';
+import { usePlaytestSettings, BG_STYLES, CARD_SIZES, type BattlefieldPreset, type BattlefieldCardSize, type OpponentPreviewMode } from '@/store/playtestSettingsStore';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { ART_BACKGROUNDS, artUrl, backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import { KEYBINDINGS } from '@/components/playtest/hooks/keybindings';
@@ -20,7 +20,7 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
   const dotGrid = usePlaytestSettings(s => s.dotGrid);
   const setDotGrid = usePlaytestSettings(s => s.setDotGrid);
 
-  const [tab, setTab] = useState<'general' | 'background' | 'keys'>('general');
+  const [tab, setTab] = useState<'general' | 'background' | 'bots' | 'keys'>('general');
 
   if (!open) return null;
 
@@ -50,12 +50,16 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
           <TabButton active={tab === 'background'} onClick={() => setTab('background')} icon={<ImageIcon className="w-3.5 h-3.5" />}>
             Background
           </TabButton>
+          <TabButton active={tab === 'bots'} onClick={() => setTab('bots')} icon={<Bot className="w-3.5 h-3.5" />}>
+            Bots
+          </TabButton>
           <TabButton active={tab === 'keys'} onClick={() => setTab('keys')} icon={<Keyboard className="w-3.5 h-3.5" />}>
-            Keybindings
+            Keys
           </TabButton>
         </div>
 
         {tab === 'keys' && <KeybindingsTab />}
+        {tab === 'bots' && <BotsTab />}
         {tab === 'background' && <BackgroundTab />}
         {tab === 'general' && <div className="px-5 py-4 space-y-5 text-sm">
           <div>
@@ -127,6 +131,82 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+const PREVIEW_MODES: { key: OpponentPreviewMode; label: string; blurb: string }[] = [
+  { key: 'ctrl',  label: 'Hold Ctrl', blurb: 'Matches your own battlefield — hold Ctrl and hover.' },
+  { key: 'hover', label: 'On hover',  blurb: 'Shows the card as soon as you point at it, no key needed.' },
+  { key: 'off',   label: 'Off',       blurb: 'Never magnifies their cards. Tooltips still name them.' },
+];
+
+function BotsTab() {
+  const opponentPreview = usePlaytestSettings(s => s.opponentPreview);
+  const setOpponentPreview = usePlaytestSettings(s => s.setOpponentPreview);
+  const resistanceDefault = usePlaytestSettings(s => s.opponentResistanceDefault);
+  const setResistanceDefault = usePlaytestSettings(s => s.setOpponentResistanceDefault);
+  const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
+  const setAutoTurns = usePlaytestSettings(s => s.setOpponentAutoTurns);
+
+  return (
+    <div className="px-5 py-4 space-y-5 text-sm">
+      <div>
+        <div className="mb-2 font-medium text-foreground/90">Card preview on their board</div>
+        <div className="space-y-1.5">
+          {PREVIEW_MODES.map(mode => (
+            <button
+              key={mode.key}
+              onClick={() => setOpponentPreview(mode.key)}
+              className={`w-full text-left rounded-md border px-3 py-2 transition-all ${
+                opponentPreview === mode.key
+                  ? 'border-primary ring-2 ring-primary'
+                  : 'border-border/60 hover:border-foreground/40'
+              }`}
+            >
+              <div className="text-xs font-medium">{mode.label}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{mode.blurb}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-border/40 pt-4">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoTurns}
+            onChange={(e) => setAutoTurns(e.target.checked)}
+            className="mt-0.5 w-4 h-4 rounded border-border accent-primary cursor-pointer"
+          />
+          <div>
+            <div className="font-medium text-foreground/90">Bots take turns automatically</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Each Next Turn runs every bot's turn after yours. Turn this off to advance
+              your own turns without the table moving.
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div className="border-t border-border/40 pt-4">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resistanceDefault}
+            onChange={(e) => setResistanceDefault(e.target.checked)}
+            className="mt-0.5 w-4 h-4 rounded border-border accent-primary cursor-pointer"
+          />
+          <div>
+            <div className="font-medium text-foreground/90">New bots resist by default</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Resisting bots cast removal and sweepers at your board. Off seats them as
+              passive threat dummies that only develop and attack. Bots already at the
+              table keep whatever they're set to.
+            </div>
+          </div>
+        </label>
+      </div>
+    </div>
   );
 }
 
