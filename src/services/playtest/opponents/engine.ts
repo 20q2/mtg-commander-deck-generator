@@ -109,7 +109,12 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   };
 
   /** Capture the board as it stands, as one beat of the turn. */
-  const frame = (logs: string[], effects: AppliedEffect[] = [], attackers: string[] = []) => {
+  const frame = (
+    logs: string[],
+    effects: AppliedEffect[] = [],
+    attackers: string[] = [],
+    blurb?: string,
+  ) => {
     frames.push({
       opponent: {
         ...opp,
@@ -122,6 +127,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       logs,
       effects,
       attackers,
+      blurb,
     });
   };
 
@@ -143,7 +149,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   if (landIdx >= 0) {
     const land = opp.hand.splice(landIdx, 1)[0];
     opp.battlefield.push({ ...toPermanent(land), summoningSick: false });
-    frame([`${opp.name} plays ${land.name}`]);
+    frame([`${opp.name} plays ${land.name}`], [], [], land.name);
   }
 
   // Lands, rocks and unsick mana creatures. Colours are still ignored — that's
@@ -174,7 +180,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       }
       // Tap what it cost, so their board shows the spend.
       opp.battlefield = tapForMana(opp.battlefield, play.card.cmc ?? 0);
-      frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : []);
+      frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : [], [], play.card.name);
     }
   }
 
@@ -201,7 +207,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     const spell = opp.hand.splice(bestIdx, 1)[0];
     opp.battlefield = tapForMana(opp.battlefield, spell.cmc ?? 0);
     opp.battlefield.push(toPermanent(spell));
-    frame([`${opp.name} casts ${spell.name}`]);
+    frame([`${opp.name} casts ${spell.name}`], [], [], spell.name);
   }
 
   // ── Attack ──
@@ -222,6 +228,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       [`${opp.name} attacks with ${attackers.map(a => a.card.name).join(', ')}`],
       [],
       attackers.map(a => a.instanceId),
+      'Attacks!',
     );
   } else {
     opp.turnsTaken = input.turnsTaken + 1;

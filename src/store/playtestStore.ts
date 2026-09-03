@@ -23,6 +23,7 @@ import {
 } from '@/components/playtest/types';
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
+import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
 
 const HISTORY_CAP = 20;
 const STARTING_LIFE = 40;
@@ -453,11 +454,16 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     log: [...state.log, makeLogEntry(`Life set to ${n}`, 'life')],
   })),
 
-  adjustLife: (delta) => set(state => ({
-    history: pushHistory(state.history, snapshotOf(state)),
-    life: state.life + delta,
-    log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${state.life + delta})`, 'life')],
-  })),
+  adjustLife: (delta) => {
+    // Pops "−4" off the life counter. Fired here rather than at the call sites so
+    // combat, drain and the toolbar buttons all get it for free.
+    floatDelta(delta, 'player-life');
+    set(state => ({
+      history: pushHistory(state.history, snapshotOf(state)),
+      life: state.life + delta,
+      log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${state.life + delta})`, 'life')],
+    }));
+  },
 
   nextTurn: () => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
@@ -772,6 +778,11 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   adjustCounter: (instanceId, type, delta) => {
     const card = get().battlefield.find(b => b.instanceId === instanceId);
     if (!card) return;
+    useFloatingText.getState().float(
+      `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${type}`,
+      delta > 0 ? 'buff' : 'debuff',
+      instanceId,
+    );
     const current = card.counters[type] ?? 0;
     get().setCounter(instanceId, type, current + delta);
     set(state => ({

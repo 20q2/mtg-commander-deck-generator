@@ -1278,3 +1278,17 @@
 [aria-roledescription='draggable']:focus-visible {
   outline: none;
 }
+
+/* Floating combat text — numbers and words popping off cards as things happen.
+   Duration must stay in step with FLOAT_MS in floatingTextStore.ts, which is
+   what actually removes the element. */
+.animate-float-up {
+  animation: floatUp 900ms cubic-bezier(0.16, 0.84, 0.44, 1) forwards;
+}
+
+@keyframes floatUp {
+  0%   { opacity: 0; transform: translate(-50%, 4px) scale(0.75); }
+  18%  { opacity: 1; transform: translate(-50%, -6px) scale(1.12); }
+  32%  { transform: translate(-50%, -10px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -38px) scale(0.95); }
+}

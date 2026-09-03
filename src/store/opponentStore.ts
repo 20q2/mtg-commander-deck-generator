@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
@@ -225,6 +226,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const combat = get().combat;
     if (!combat) return;
     const playtest = usePlaytestStore.getState();
+    const float = useFloatingText.getState().float;
 
     let damageToPlayer = 0;
     const deadBlockers: string[] = [];
@@ -257,16 +259,21 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       let remaining = attacker.power;
       for (const blocker of blockers) {
         if (remaining <= 0) break;
+        const dealt = Math.min(remaining, blocker.toughness);
+        float(`−${dealt}`, 'damage', blocker.instanceId);
         if (remaining >= blocker.toughness && blocker.toughness > 0) {
           deadBlockers.push(blocker.instanceId);
+          float('Dies', 'damage', blocker.instanceId);
           playtest.appendLog(`${blocker.name} died blocking ${attacker.card.name}`);
         }
         remaining -= blocker.toughness;
       }
 
       const blockerPower = blockers.reduce((sum, b) => sum + b.power, 0);
+      if (blockerPower > 0) float(`−${blockerPower}`, 'damage', attacker.instanceId);
       if (attacker.toughness > 0 && blockerPower >= attacker.toughness) {
         deadAttackers.push(attacker.instanceId);
+        float('Dies', 'damage', attacker.instanceId);
         playtest.appendLog(`${attacker.card.name} died in combat`);
       }
     }
@@ -303,9 +310,12 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     combatResolver = null;
   },
 
-  adjustLife: (id, delta) => set(s => ({
-    opponents: s.opponents.map(o => (o.id === id ? { ...o, life: o.life + delta } : o)),
-  })),
+  adjustLife: (id, delta) => {
+    floatDelta(delta, `opp-life-${id}`);
+    set(s => ({
+      opponents: s.opponents.map(o => (o.id === id ? { ...o, life: o.life + delta } : o)),
+    }));
+  },
 
   setLife: (id, life) => set(s => ({
     opponents: s.opponents.map(o => (o.id === id ? { ...o, life } : o)),
@@ -346,23 +356,30 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }),
   })),
 
-  adjustPermanentCounter: (opponentId, instanceId, type, delta) => set(s => ({
-    opponents: s.opponents.map(o =>
-      o.id === opponentId
-        ? {
-            ...o,
-            battlefield: o.battlefield.map(p => {
-              if (p.instanceId !== instanceId) return p;
-              const counters = { ...p.counters };
-              const next = (counters[type] ?? 0) + delta;
-              if (next <= 0) delete counters[type];
-              else counters[type] = next;
-              return { ...p, counters };
-            }),
-          }
-        : o,
-    ),
-  })),
+  adjustPermanentCounter: (opponentId, instanceId, type, delta) => {
+    useFloatingText.getState().float(
+      `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${type}`,
+      delta > 0 ? 'buff' : 'debuff',
+      instanceId,
+    );
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              battlefield: o.battlefield.map(p => {
+                if (p.instanceId !== instanceId) return p;
+                const counters = { ...p.counters };
+                const next = (counters[type] ?? 0) + delta;
+                if (next <= 0) delete counters[type];
+                else counters[type] = next;
+                return { ...p, counters };
+              }),
+            }
+          : o,
+      ),
+    }));
+  },
 
   removePermanent: (opponentId, instanceId) => set(s => ({
     opponents: s.opponents.map(o => {
@@ -396,6 +413,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             opponents: s.opponents.map(o => (o.id === f.opponent.id ? f.opponent : o)),
           }));
           f.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
+          // Narrate the play off the bot's lane, so you can follow the turn
+          // without reading the log.
+          if (f.blurb) useFloatingText.getState().float(f.blurb, 'neutral', `opp-lane-${f.opponent.id}`);
           f.effects.forEach(applyEffect);
 
           if (f.attackers.length > 0) {

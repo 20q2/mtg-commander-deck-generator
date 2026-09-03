@@ -176,6 +176,7 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
   return (
     <div
       ref={setNodeRef}
+      data-float-id={`opp-lane-${opponent.id}`}
       className={`shrink-0 rounded-lg border bg-background/30 p-1.5 transition-colors ${
         isOver ? 'border-violet-400/70 bg-violet-500/10'
         : running ? 'border-violet-400/40'
@@ -189,6 +190,7 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
 
         <button onClick={() => adjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
         <span
+          data-float-id={`opp-life-${opponent.id}`}
           className="inline-flex items-center gap-0.5 px-1 rounded bg-rose-500/15 border border-rose-400/40 text-rose-300 font-bold text-[11px] leading-4 tabular-nums"
           title={`${opponent.name}'s life`}
         >
@@ -475,6 +477,7 @@ function OpponentPermanentCard({
   return (
     <div
       ref={boxRef}
+      data-float-id={permanent.instanceId}
       // Keyed by instanceId upstream, so this runs once when the card arrives —
       // it drops onto their board rather than blinking into existence.
       className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''} ${

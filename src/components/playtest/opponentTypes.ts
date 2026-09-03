@@ -58,6 +58,8 @@ export interface OpponentStub {
 export interface TurnFrame {
   opponent: Opponent;
   logs: string[];
+  /** Short label popped off the lane for this beat, e.g. a card name. */
+  blurb?: string;
   /** What to do to the player's board. Described here, applied by the store. */
   effects: AppliedEffect[];
   /**

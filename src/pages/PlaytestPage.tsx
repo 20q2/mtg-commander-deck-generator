@@ -27,6 +27,7 @@ import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentMod
 import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
 import { CombatZone } from '@/components/playtest/opponents/CombatZone';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
+import { FloatingTextLayer } from '@/components/playtest/FloatingTextLayer';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
 
@@ -606,6 +607,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           <OpponentZoneModal opponentId={modal.opponentId} zone={modal.zone} />
         )}
         <PlaytestToast />
+        <FloatingTextLayer />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>
         {activeCard ? (

@@ -60,6 +60,7 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
           />
         ) : (
           <button
+            data-float-id="player-life"
             onClick={() => { setDraftLife(String(life)); setEditingLife(true); }}
             className="mx-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold text-sm min-w-[48px] justify-center"
             title="Click to edit life"

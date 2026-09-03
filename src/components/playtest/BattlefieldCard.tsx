@@ -150,6 +150,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   return (
     <div
       ref={setRefs}
+      data-float-id={card.instanceId}
       {...attributes}
       {...(listeners as Record<string, unknown>)}
       onClick={(e) => { e.stopPropagation(); onTap(); }}
