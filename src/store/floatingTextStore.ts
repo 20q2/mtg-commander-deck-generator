@@ -33,7 +33,11 @@ let seq = 0;
 
 function resolve(target: string | { x: number; y: number }): { x: number; y: number } | null {
   if (typeof target !== 'string') return target;
-  const el = document.querySelector(`[data-float-id="${CSS.escape(target)}"]`);
+  // Guarded: float() is called from store actions like adjustLife, which must
+  // not blow up when there's no DOM to anchor to.
+  if (typeof document === 'undefined') return null;
+  const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(target) : target;
+  const el = document.querySelector(`[data-float-id="${escaped}"]`);
   if (!el) return null;
   const r = el.getBoundingClientRect();
   // Slightly above centre, so the text clears the card as it rises.
