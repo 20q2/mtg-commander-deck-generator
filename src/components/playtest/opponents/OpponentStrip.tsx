@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { Bot, ChevronDown, ChevronUp, Heart, Plus, Skull, Swords, X } from 'lucide-react';
+import { Bot, ChevronLeft, Heart, Plus, Skull, Swords, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
@@ -8,77 +8,82 @@ import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/clien
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
- * The opponent band above the battlefield. It's a zone first and a bot second:
- * with nobody seated it's a single slim line offering the bots, which is the
- * discovery moment, and it never costs more than that when unused.
+ * The opponent column, beside the table rather than across the top. With nobody
+ * seated it collapses to a narrow rail so it costs almost nothing, and the rail
+ * is still the entry point — the discovery moment lives in the play area.
  */
 export function OpponentStrip() {
   const opponents = useOpponentStore(s => s.opponents);
   const openModal = usePlaytestStore(s => s.openModal);
   const [collapsed, setCollapsed] = useState(false);
 
-  if (opponents.length === 0) {
+  // Empty, or deliberately collapsed → a rail just wide enough to get back.
+  if (opponents.length === 0 || collapsed) {
     return (
-      <div className="shrink-0 border-b border-border/50 bg-card/30 px-2 sm:px-3 py-1.5 flex items-center gap-2">
-        <Bot className="w-3.5 h-3.5 text-violet-300/80 shrink-0" />
-        <span className="text-[11px] text-muted-foreground hidden sm:inline">
-          Goldfishing solo — no opponents.
-        </span>
+      <div className="hidden md:flex shrink-0 w-9 border-r border-border/50 bg-card/30 flex-col items-center gap-2 py-2">
         <Button
           size="sm"
-          variant="outline"
-          className="h-6 px-2 text-[11px]"
-          onClick={() => openModal({ kind: 'opponents' })}
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          onClick={() => (opponents.length === 0 ? openModal({ kind: 'opponents' }) : setCollapsed(false))}
+          title={opponents.length === 0 ? 'Play against bots' : 'Show opponents'}
         >
-          <Plus className="w-3 h-3 mr-1" />
-          Play against bots
+          <Bot className="w-4 h-4 text-violet-300/80" />
         </Button>
+        {opponents.length === 0 ? (
+          <span
+            className="text-[10px] uppercase tracking-wider text-muted-foreground/60 select-none"
+            style={{ writingMode: 'vertical-rl' }}
+          >
+            Play against bots
+          </span>
+        ) : (
+          <>
+            <span className="text-[10px] font-bold tabular-nums text-violet-200">{opponents.length}</span>
+            <span
+              className="text-[10px] uppercase tracking-wider text-muted-foreground/60 select-none"
+              style={{ writingMode: 'vertical-rl' }}
+            >
+              {opponents.map(o => `${o.name} ${o.life}`).join(' · ')}
+            </span>
+          </>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="shrink-0 border-b border-border/50 bg-card/30">
-      <div className="px-2 sm:px-3 py-1 flex items-center gap-2">
+    <div className="hidden md:flex shrink-0 w-[208px] border-r border-border/50 bg-card/30 flex-col min-h-0">
+      <div className="px-2 py-1 flex items-center gap-1.5 border-b border-border/40">
         <Bot className="w-3.5 h-3.5 text-violet-300/80 shrink-0" />
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 flex-1">
           Opponents · {opponents.length}
         </span>
-        {collapsed && (
-          <span className="text-[11px] text-muted-foreground truncate">
-            {opponents.map(o => `${o.name} ${o.life}`).join(' · ')}
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          {opponents.length < MAX_OPPONENTS && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-1.5 text-[11px]"
-              onClick={() => openModal({ kind: 'opponents' })}
-              title="Seat another opponent"
-            >
-              <Plus className="w-3 h-3 sm:mr-1" />
-              <span className="hidden sm:inline">Add</span>
-            </Button>
-          )}
+        {opponents.length < MAX_OPPONENTS && (
           <Button
             size="sm"
             variant="ghost"
             className="h-6 w-6 p-0"
-            onClick={() => setCollapsed(c => !c)}
-            title={collapsed ? 'Expand opponents' : 'Collapse opponents'}
+            onClick={() => openModal({ kind: 'opponents' })}
+            title="Seat another opponent"
           >
-            {collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+            <Plus className="w-3.5 h-3.5" />
           </Button>
-        </div>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 w-6 p-0"
+          onClick={() => setCollapsed(true)}
+          title="Collapse opponents"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </Button>
       </div>
 
-      {!collapsed && (
-        <div className="flex items-stretch gap-2 px-2 sm:px-3 pb-2 overflow-x-auto">
-          {opponents.map(o => <OpponentLane key={o.id} opponent={o} />)}
-        </div>
-      )}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 p-2">
+        {opponents.map(o => <OpponentLane key={o.id} opponent={o} />)}
+      </div>
     </div>
   );
 }
@@ -100,12 +105,22 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
   return (
     <div
       ref={setNodeRef}
-      className={`min-w-[210px] flex-1 rounded-lg border bg-background/30 p-1.5 transition-colors ${
+      className={`shrink-0 rounded-lg border bg-background/30 p-1.5 transition-colors ${
         isOver ? 'border-violet-400/70 bg-violet-500/10' : 'border-border/40'
       }`}
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1">
         <span className="text-[11px] font-semibold truncate flex-1">{opponent.name}</span>
+        <button
+          onClick={() => remove(opponent.id)}
+          className="text-muted-foreground/70 hover:text-red-400 transition-colors shrink-0"
+          title={`Remove ${opponent.name}`}
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+
+      <div className="mt-1 flex items-center gap-1">
         <button onClick={() => adjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
         <span
           className="inline-flex items-center gap-1 px-1.5 rounded bg-rose-500/15 border border-rose-400/40 text-rose-300 font-bold text-[11px] leading-5 tabular-nums"
@@ -115,20 +130,6 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
           {opponent.life}
         </span>
         <button onClick={() => adjustLife(opponent.id, 1)} className={tiny} title="+1 life">+</button>
-        <button
-          onClick={() => remove(opponent.id)}
-          className="ml-0.5 text-muted-foreground/70 hover:text-red-400 transition-colors"
-          title={`Remove ${opponent.name}`}
-        >
-          <X className="w-3 h-3" />
-        </button>
-      </div>
-
-      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground/70">
-        <span>hand {opponent.hand.length}</span>
-        <span>library {opponent.library.length}</span>
-        <span>gy {opponent.graveyard.length}</span>
-        {opponent.decked && <span className="text-amber-400/80">decked</span>}
         <button
           onClick={() => setResistance(opponent.id, !opponent.resistance)}
           title={
@@ -143,8 +144,15 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
           }`}
         >
           <Swords className="w-2.5 h-2.5" />
-          {opponent.resistance ? 'Resisting' : 'Passive'}
+          {opponent.resistance ? 'Resist' : 'Passive'}
         </button>
+      </div>
+
+      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground/70">
+        <span>hand {opponent.hand.length}</span>
+        <span>lib {opponent.library.length}</span>
+        <span>gy {opponent.graveyard.length}</span>
+        {opponent.decked && <span className="text-amber-400/80">decked</span>}
       </div>
 
       <div className="mt-1 space-y-1 min-h-[52px]">

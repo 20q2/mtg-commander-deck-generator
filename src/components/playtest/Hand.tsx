@@ -118,7 +118,9 @@ export function Hand() {
             ))}
           </div>
         </div>
-        {/* Desktop: Library / Graveyard / Exile on the right. */}
+        {/* Desktop: Library / Graveyard / Exile on the right. Exile is half the
+            width of the other two and hangs from the top — it's the zone you
+            touch least, so it shouldn't claim a full card's worth of the row. */}
         {isDesktop && (
           <div className="flex items-end gap-2 shrink-0">
             <div style={{ width: 'clamp(80px, 11vw, 130px)' }}>
@@ -127,7 +129,7 @@ export function Hand() {
             <div style={{ width: 'clamp(80px, 11vw, 130px)' }}>
               <PlaytestPile spec={PILES[2]} />
             </div>
-            <div style={{ width: 'clamp(80px, 11vw, 130px)' }}>
+            <div className="self-start" style={{ width: 'clamp(40px, 5.5vw, 65px)' }}>
               <PlaytestPile spec={PILES[3]} />
             </div>
           </div>

@@ -551,8 +551,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
         <PlaytestToolbar onExit={() => navigate(-1)} onToggleSidePanel={() => setMobileSideOpen(o => !o)} />
         <div className="flex-1 flex min-h-0 relative">
+          {/* Opponents own a vertical column beside the table rather than a band
+              across the top: with one bot seated, a full-width strip was mostly
+              dead space, and it stole height from the battlefield to show it. */}
+          <OpponentStrip />
           <main className="flex-1 flex flex-col min-w-0">
-            <OpponentStrip />
             <Battlefield />
             <Hand />
           </main>
