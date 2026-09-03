@@ -178,9 +178,19 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     const data = event.active.data.current as {
       source?: MoveSource | { kind: 'freecounter'; id: string } | { kind: 'freedie'; id: string };
       tokenCard?: ScryfallCard;
+      opponentSource?: { opponentId: string; instanceId: string };
+      card?: ScryfallCard;
       createCounter?: { color: CounterColor };
       createDie?: { sides: DieSides; color: CounterColor };
     } | undefined;
+    // Stealing off a bot's board: the ghost is just the card, no battlefield entry.
+    if (data?.opponentSource && data.card) {
+      setActiveCard(data.card);
+      setActiveFaceDown(false);
+      setActiveTapped(false);
+      setActiveBfCard(null);
+      return;
+    }
     if (data?.createCounter) {
       setActiveCreate({ kind: 'counter', color: data.createCounter.color });
       return;
@@ -287,11 +297,37 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       | {
           source?: MoveSource | { kind: 'freecounter'; id: string } | { kind: 'freedie'; id: string };
           tokenCard?: ScryfallCard;
+          opponentSource?: { opponentId: string; instanceId: string };
+          card?: ScryfallCard;
           createCounter?: { color: CounterColor };
           createDie?: { sides: DieSides; color: CounterColor };
         }
       | undefined;
-    const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number } | undefined;
+    const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number; opponentId?: string } | undefined;
+
+    // ── Theft: a bot's permanent dropped on your battlefield ──
+    if (sourceData?.opponentSource) {
+      if (overData?.kind !== 'battlefield') return;
+      const { opponentId, instanceId } = sourceData.opponentSource;
+      const card = useOpponentStore.getState().takePermanent(opponentId, instanceId);
+      if (!card) return;
+      const rect = document.querySelector('[data-battlefield]')?.getBoundingClientRect();
+      const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
+      const y = (active.rect.current.translated?.top ?? 0) - (rect?.top ?? 0);
+      usePlaytestStore.getState().addPermanent(card, { x, y }, `You stole ${card.name}`);
+      return;
+    }
+
+    // ── Donate: one of your permanents dropped on a bot's lane ──
+    if (overData?.kind === 'opponentLane' && overData.opponentId) {
+      const src = sourceData?.source;
+      if (!src || (src as { kind: string }).kind !== 'battlefield') return;
+      const instanceId = (src as { instanceId: string }).instanceId;
+      const card = usePlaytestStore.getState().releasePermanent(instanceId);
+      if (!card) return;
+      useOpponentStore.getState().givePermanent(overData.opponentId, card);
+      return;
+    }
 
     // Counter/die spawn from the Create dialog → spawn centered under the cursor.
     // The drag handle is a large tile (~72px), but the spawned chip is much

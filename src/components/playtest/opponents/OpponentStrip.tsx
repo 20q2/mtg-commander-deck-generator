@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Bot, ChevronDown, ChevronUp, Heart, Plus, Skull, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { Bot, ChevronDown, ChevronUp, Heart, Plus, Skull, Swords, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
@@ -87,10 +88,22 @@ export function OpponentStrip() {
 function OpponentLane({ opponent }: { opponent: Opponent }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
+  const setResistance = useOpponentStore(s => s.setResistance);
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
 
+  // Drop target for donating one of your permanents to this bot.
+  const { setNodeRef, isOver } = useDroppable({
+    id: `opponent:${opponent.id}`,
+    data: { kind: 'opponentLane', opponentId: opponent.id },
+  });
+
   return (
-    <div className="min-w-[210px] flex-1 rounded-lg border border-border/40 bg-background/30 p-1.5">
+    <div
+      ref={setNodeRef}
+      className={`min-w-[210px] flex-1 rounded-lg border bg-background/30 p-1.5 transition-colors ${
+        isOver ? 'border-violet-400/70 bg-violet-500/10' : 'border-border/40'
+      }`}
+    >
       <div className="flex items-center gap-1.5">
         <span className="text-[11px] font-semibold truncate flex-1">{opponent.name}</span>
         <button onClick={() => adjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
@@ -114,13 +127,31 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
       <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground/70">
         <span>hand {opponent.hand.length}</span>
         <span>library {opponent.library.length}</span>
-        <span>graveyard {opponent.graveyard.length}</span>
+        <span>gy {opponent.graveyard.length}</span>
         {opponent.decked && <span className="text-amber-400/80">decked</span>}
+        <button
+          onClick={() => setResistance(opponent.id, !opponent.resistance)}
+          title={
+            opponent.resistance
+              ? 'Resisting — casts removal and sweepers at your board. Click for a passive dummy.'
+              : 'Passive — only develops and attacks. Click to let it fight back.'
+          }
+          className={`ml-auto inline-flex items-center gap-1 px-1.5 rounded border text-[10px] leading-4 transition-colors ${
+            opponent.resistance
+              ? 'border-violet-400/50 bg-violet-500/15 text-violet-200'
+              : 'border-border/50 bg-transparent text-muted-foreground/70'
+          }`}
+        >
+          <Swords className="w-2.5 h-2.5" />
+          {opponent.resistance ? 'Resisting' : 'Passive'}
+        </button>
       </div>
 
       <div className="mt-1 flex items-end gap-1 flex-wrap min-h-[52px]">
         {opponent.battlefield.length === 0 ? (
-          <span className="text-[10px] text-muted-foreground/50 italic">empty board</span>
+          <span className="text-[10px] text-muted-foreground/50 italic">
+            empty board — drag a permanent up here to give it away
+          </span>
         ) : (
           opponent.battlefield.map(p => (
             <OpponentPermanentCard key={p.instanceId} opponentId={opponent.id} permanent={p} />
@@ -141,20 +172,40 @@ function OpponentPermanentCard({
   const removePermanent = useOpponentStore(s => s.removePermanent);
   const [hovered, setHovered] = useState(false);
 
+  // Theft: drag this down onto your battlefield to take it.
+  const drag = useDraggable({
+    id: `opp:${opponentId}:${permanent.instanceId}`,
+    data: {
+      opponentSource: { opponentId, instanceId: permanent.instanceId },
+      card: permanent.card,
+    },
+  });
+  const dragMoved = useRef(false);
+  useEffect(() => {
+    if (drag.isDragging) dragMoved.current = true;
+    else {
+      const id = setTimeout(() => { dragMoved.current = false; }, 50);
+      return () => clearTimeout(id);
+    }
+  }, [drag.isDragging]);
+
   return (
     <div
-      className="relative shrink-0"
+      className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''}`}
       style={{ width: PERMANENT_WIDTH }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       <img
+        ref={drag.setNodeRef as unknown as React.Ref<HTMLImageElement>}
+        {...drag.attributes}
+        {...drag.listeners}
         src={getCardImageUrl(permanent.card, 'small')}
         alt={permanent.card.name}
-        title={`${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''} · click to tap`}
-        onClick={() => togglePermanentTap(opponentId, permanent.instanceId)}
+        title={`${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''} · click to tap · drag onto your battlefield to steal`}
+        onClick={() => { if (!dragMoved.current) togglePermanentTap(opponentId, permanent.instanceId); }}
         draggable={false}
-        className={`w-full rounded-[3px] shadow cursor-pointer transition-transform ${
+        className={`w-full rounded-[3px] shadow cursor-grab touch-none transition-transform ${
           permanent.tapped ? 'rotate-90' : ''
         } ${permanent.summoningSick ? 'ring-1 ring-amber-300/50' : ''}`}
       />

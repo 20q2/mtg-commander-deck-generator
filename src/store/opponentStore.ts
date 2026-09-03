@@ -2,8 +2,12 @@ import { create } from 'zustand';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
-import { fisherYates } from '@/components/playtest/utils';
+import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
+import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { resolvePT } from '@/services/playtest/powerToughness';
+import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { Opponent } from '@/components/playtest/opponentTypes';
+import type { ScryfallCard } from '@/types';
 
 const STARTING_LIFE = 40;
 export const MAX_OPPONENTS = 3;
@@ -27,6 +31,80 @@ interface OpponentActions {
   runAllTurns: () => void;
   /** Reshuffle every seated bot back to a fresh opening hand. No refetch. */
   resetAll: () => void;
+  setResistance: (id: string, resistance: boolean) => void;
+  setAggression: (id: string, aggression: number) => void;
+  /** Theft: pull a permanent off a bot's board and hand the card back. */
+  takePermanent: (opponentId: string, instanceId: string) => ScryfallCard | null;
+  /** The other direction — donate effects, or stocking a board by hand. */
+  givePermanent: (opponentId: string, card: ScryfallCard) => void;
+}
+
+/**
+ * Flatten the player's battlefield into what a bot needs to make decisions.
+ * Combo membership comes from the detection the playtest already runs, which is
+ * what lets a bot break up a combo that's one card from live — the one thing
+ * here no other playtester does.
+ */
+function readPlayerBoard(): PlayerBoardRead {
+  const s = usePlaytestStore.getState();
+  const commanders = new Set(s.source?.commanderNames ?? []);
+
+  // Only combos that are live or a single card away are worth disrupting.
+  const liveComboByCard = new Map<string, string>();
+  for (const combo of s.combos) {
+    if (!combo.isComplete && combo.missingCards.length > 1) continue;
+    for (const name of combo.cards) liveComboByCard.set(name, combo.comboId);
+  }
+
+  return {
+    life: s.life,
+    handSize: s.zones.hand.length,
+    cards: s.battlefield.map(b => {
+      const type = getFrontFaceTypeLine(b.card).toLowerCase();
+      const pt = resolvePT(b);
+      const power = parseInt(pt?.modified.split('/')[0] ?? '', 10);
+      const toughness = parseInt(pt?.modified.split('/')[1] ?? '', 10);
+      return {
+        instanceId: b.instanceId,
+        name: b.card.name,
+        isCreature: type.includes('creature'),
+        isArtifact: type.includes('artifact'),
+        // Counters and stickers already changed these numbers on screen; a bot
+        // reading the printed values would target the wrong creature.
+        power: Number.isNaN(power) ? 0 : power,
+        toughness: Number.isNaN(toughness) ? 0 : toughness,
+        isCommander: commanders.has(b.card.name),
+        comboId: liveComboByCard.get(b.card.name) ?? null,
+      };
+    }),
+  };
+}
+
+/** Apply one bot effect to the player's board through the normal move path. */
+function applyEffect(effect: AppliedEffect) {
+  const playtest = usePlaytestStore.getState();
+
+  for (const instanceId of effect.destroy) {
+    playtest.moveCard({
+      source: { kind: 'battlefield', instanceId },
+      target: { kind: 'zone', zone: effect.destination },
+    });
+  }
+
+  if (effect.discard > 0) {
+    for (let i = 0; i < effect.discard; i++) {
+      const hand = usePlaytestStore.getState().zones.hand;
+      if (hand.length === 0) break;
+      const index = Math.floor(Math.random() * hand.length);
+      playtest.appendLog(`You discard ${hand[index].name}`);
+      playtest.moveCard({
+        source: { kind: 'zone', zone: 'hand', index },
+        target: { kind: 'zone', zone: 'graveyard' },
+      });
+    }
+  }
+
+  if (effect.lifeLoss > 0) playtest.adjustLife(-effect.lifeLoss);
 }
 
 const initial: OpponentState = {
@@ -115,19 +193,63 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const { opponents } = get();
     if (opponents.length === 0) return;
 
-    const playtest = usePlaytestStore.getState();
     const next: Opponent[] = [];
     let totalDamage = 0;
 
     for (const opponent of opponents) {
-      const result = takeTurn(opponent);
+      // Re-read the board for every bot: the one before it may have blown up
+      // half of it, and targeting a creature that's already dead reads as broken.
+      const result = takeTurn(opponent, readPlayerBoard());
       next.push(result.opponent);
       totalDamage += result.damageToPlayer;
-      result.logs.forEach(line => playtest.appendLog(line));
+      result.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
+      result.effects.forEach(applyEffect);
     }
 
     set({ opponents: next });
-    if (totalDamage > 0) playtest.adjustLife(-totalDamage);
+    if (totalDamage > 0) usePlaytestStore.getState().adjustLife(-totalDamage);
+  },
+
+  setResistance: (id, resistance) => set(s => ({
+    opponents: s.opponents.map(o => (o.id === id ? { ...o, resistance } : o)),
+  })),
+
+  setAggression: (id, aggression) => set(s => ({
+    opponents: s.opponents.map(o => (o.id === id ? { ...o, aggression } : o)),
+  })),
+
+  takePermanent: (opponentId, instanceId) => {
+    const opponent = get().opponents.find(o => o.id === opponentId);
+    const permanent = opponent?.battlefield.find(p => p.instanceId === instanceId);
+    if (!opponent || !permanent) return null;
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? { ...o, battlefield: o.battlefield.filter(p => p.instanceId !== instanceId) }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(`You took ${permanent.card.name} from ${opponent.name}`);
+    return permanent.card;
+  },
+
+  givePermanent: (opponentId, card) => {
+    const opponent = get().opponents.find(o => o.id === opponentId);
+    if (!opponent) return;
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              battlefield: [
+                ...o.battlefield,
+                { instanceId: makeInstanceId(), card, tapped: false, summoningSick: true },
+              ],
+            }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(`${card.name} went to ${opponent.name}`);
   },
 
   resetAll: () => set(s => {
@@ -151,6 +273,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           graveyard: [],
           battlefield: [],
           decked: false,
+          turnsTaken: 0,
         };
       }),
     };

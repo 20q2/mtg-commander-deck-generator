@@ -142,6 +142,8 @@ interface PlaytestActions {
   attach: (childId: string, parentId: string) => void;
   unattach: (instanceId: string) => void;
   spawnToken: (card: ScryfallCard, position?: { x: number; y: number }) => void;
+  addPermanent: (card: ScryfallCard, position?: { x: number; y: number }, logText?: string) => void;
+  releasePermanent: (instanceId: string) => ScryfallCard | null;
 
   scryConfirm: (topOrder: number[], bottomOrder: number[]) => void;
   surveilConfirm: (topOrder: number[], graveyardOrder: number[]) => void;
@@ -892,6 +894,47 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       log: [...state.log, makeLogEntry(target ? `Unattached ${target.card.name}` : '', 'move')],
     };
   }),
+
+  // Theft's landing point: put an arbitrary card onto the battlefield without it
+  // having come from one of your zones. Same arrival maths as spawnToken.
+  addPermanent: (card, position, logText) => set(state => {
+    const history = pushHistory(state.history, snapshotOf(state));
+    const cx = position?.x ?? Math.floor(state.battlefieldRect.width / 2 - 50);
+    const cy = position?.y ?? Math.floor(state.battlefieldRect.height / 2 - 70);
+    const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
+    const slot = findArrivalSlot(
+      state.battlefield, cx, cy,
+      state.battlefieldRect.width, state.battlefieldRect.height,
+      false, cw, ch,
+    );
+    const entry: BattlefieldCard = {
+      instanceId: makeInstanceId(),
+      card,
+      x: slot.x,
+      y: slot.y,
+      tapped: false,
+      faceDown: false,
+      flipped: false,
+      counters: {},
+    };
+    return {
+      history,
+      battlefield: [...state.battlefield, entry],
+      log: [...state.log, makeLogEntry(logText ?? `${card.name} entered the battlefield`, 'move')],
+    };
+  }),
+
+  // The inverse: take a card off the battlefield entirely rather than routing it
+  // to a zone, because its next home is an opponent's board.
+  releasePermanent: (instanceId) => {
+    const entry = get().battlefield.find(b => b.instanceId === instanceId);
+    if (!entry) return null;
+    set(state => ({
+      history: pushHistory(state.history, snapshotOf(state)),
+      battlefield: state.battlefield.filter(b => b.instanceId !== instanceId),
+    }));
+    return entry.card;
+  },
 
   spawnToken: (card, position) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));

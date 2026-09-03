@@ -1,4 +1,5 @@
 import type { ScryfallCard } from '@/types';
+import type { AppliedEffect } from '@/services/playtest/opponents/evaluate';
 
 export interface OpponentPermanent {
   instanceId: string;
@@ -25,6 +26,12 @@ export interface Opponent {
   battlefield: OpponentPermanent[];
   /** True once this bot has stopped drawing because its library ran dry. */
   decked: boolean;
+  /** Off = a passive threat dummy that only develops and attacks. */
+  resistance: boolean;
+  /** 0..1 — higher fires interaction sooner and at smaller threats. */
+  aggression: number;
+  /** Drives the "hold early" rule in evaluation. */
+  turnsTaken: number;
 }
 
 export interface OpponentStub {
@@ -42,4 +49,6 @@ export interface TurnResult {
   opponent: Opponent;
   logs: string[];
   damageToPlayer: number;
+  /** What to do to the player's board. Described here, applied by the store. */
+  effects: AppliedEffect[];
 }

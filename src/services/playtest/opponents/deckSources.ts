@@ -60,5 +60,9 @@ export async function buildOpponentFromStub(stub: OpponentStub, startingLife: nu
     command,
     battlefield: [],
     decked: false,
+    // Bots resist by default — a passive dummy is the opt-out, not the norm.
+    resistance: true,
+    aggression: 0.5,
+    turnsTaken: 0,
   };
 }
