@@ -41,7 +41,6 @@ interface OpponentActions {
   /** Move one of their permanents off the board into one of their zones. */
   permanentToZone: (opponentId: string, instanceId: string, zone: OpponentZone) => void;
   adjustPermanentCounter: (opponentId: string, instanceId: string, type: string, delta: number) => void;
-  untapAll: (opponentId: string) => void;
 }
 
 /**
@@ -221,14 +220,6 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
               return { ...p, counters };
             }),
           }
-        : o,
-    ),
-  })),
-
-  untapAll: (opponentId) => set(s => ({
-    opponents: s.opponents.map(o =>
-      o.id === opponentId
-        ? { ...o, battlefield: o.battlefield.map(p => ({ ...p, tapped: false })) }
         : o,
     ),
   })),

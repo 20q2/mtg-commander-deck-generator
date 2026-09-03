@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-  BookOpen, Bot, ChevronLeft, Hand as HandIcon, Heart, Play, Plus,
-  RotateCcw, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+  BookOpen, Bot, ChevronLeft, Heart, Play, Plus,
+  Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
@@ -159,7 +159,6 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
-  const untapAll = useOpponentStore(s => s.untapAll);
   const openModal = usePlaytestStore(s => s.openModal);
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
 
@@ -224,40 +223,32 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
         </button>
       </div>
 
-      {/* Their zones as actual piles rather than a row of abbreviations. */}
+      {/* Hand and library on the left, mirroring where yours sit; the zones you
+          only occasionally inspect go to the far right. */}
       <div className="mt-1.5 flex items-end gap-1">
-        <ZonePile
-          label="Hand" count={opponent.hand.length} width={zoneWidth}
-          hint="Cards in hand — hidden, as they would be"
-          Icon={HandIcon} tint="bg-sky-500/10 border-sky-400/30"
-        />
+        <HandFan count={opponent.hand.length} width={zoneWidth} />
         <ZonePile
           label="Library" count={opponent.library.length} width={zoneWidth}
           hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
           warn={opponent.decked}
           Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
         />
-        <ZonePile
-          label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
-          top={opponent.graveyard[opponent.graveyard.length - 1]}
-          hint="Click to view their graveyard"
-          onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
-          Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
-        />
-        <ZonePile
-          label="Exile" count={opponent.exile.length} width={zoneWidth}
-          top={opponent.exile[opponent.exile.length - 1]}
-          hint="Click to view their exile"
-          onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
-          Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
-        />
-        <button
-          onClick={() => untapAll(opponent.id)}
-          className="ml-auto mb-0.5 text-muted-foreground/60 hover:text-foreground transition-colors"
-          title="Untap all of their permanents"
-        >
-          <RotateCcw className="w-3 h-3" />
-        </button>
+        <div className="ml-auto flex items-end gap-1">
+          <ZonePile
+            label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
+            top={opponent.graveyard[opponent.graveyard.length - 1]}
+            hint="Click to view their graveyard"
+            onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
+            Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
+          />
+          <ZonePile
+            label="Exile" count={opponent.exile.length} width={zoneWidth}
+            top={opponent.exile[opponent.exile.length - 1]}
+            hint="Click to view their exile"
+            onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
+            Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
+          />
+        </div>
       </div>
 
       <div className="mt-1 space-y-1 min-h-[52px]">
@@ -288,6 +279,50 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
           })
         )}
       </div>
+    </div>
+  );
+}
+
+const HAND_FAN_MAX = 6;
+
+/**
+ * Their hand, drawn the way yours is — overlapping cards in a row — except face
+ * down. A fan reads as "a hand" at a glance where a single pile reads as another
+ * zone, and the width tracks how many they're actually holding.
+ */
+function HandFan({ count, width }: { count: number; width: number }) {
+  if (count === 0) {
+    return (
+      <div
+        title="Hand · empty"
+        className="shrink-0 rounded-[3px] border border-dashed border-border/40 opacity-50"
+        style={{ width, aspectRatio: '5 / 7' }}
+      />
+    );
+  }
+  const shown = Math.min(count, HAND_FAN_MAX);
+  // Each card after the first reveals a sliver, so the fan grows with the hand
+  // without running away with the row.
+  const step = Math.max(4, Math.round(width * 0.34));
+  return (
+    <div
+      className="shrink-0 flex items-end"
+      title={`Hand · ${count} card${count === 1 ? '' : 's'}, hidden as they would be`}
+    >
+      <div className="relative flex items-end">
+        {Array.from({ length: shown }).map((_, i) => (
+          <img
+            key={i}
+            src={`${import.meta.env.BASE_URL}card-back.png`}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="rounded-[2px] border border-border/50 shadow-sm"
+            style={{ width, marginLeft: i === 0 ? 0 : -(width - step), zIndex: i }}
+          />
+        ))}
+      </div>
+      <span className="ml-0.5 text-[9px] font-bold tabular-nums text-muted-foreground/80">{count}</span>
     </div>
   );
 }
