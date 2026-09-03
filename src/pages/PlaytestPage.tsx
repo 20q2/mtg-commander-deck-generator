@@ -21,6 +21,9 @@ import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
+import { useOpponentStore } from '@/store/opponentStore';
+import { OpponentStrip } from '@/components/playtest/opponents/OpponentStrip';
+import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
@@ -99,7 +102,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       if (!list) { navigate('/lists'); return; }
       hydrate({ kind: 'list', list });
     }
-    return () => exit();
+    // Opponents belong to the table you're sitting at, not to the app — leaving
+    // or loading a different deck clears them rather than seating them again
+    // across an unrelated game.
+    useOpponentStore.getState().clearAll();
+    return () => { exit(); useOpponentStore.getState().clearAll(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, params.listId]);
 
@@ -509,6 +516,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         <PlaytestToolbar onExit={() => navigate(-1)} onToggleSidePanel={() => setMobileSideOpen(o => !o)} />
         <div className="flex-1 flex min-h-0 relative">
           <main className="flex-1 flex flex-col min-w-0">
+            <OpponentStrip />
             <Battlefield />
             <Hand />
           </main>
@@ -538,6 +546,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         {modal?.kind === 'tokens' && <TokenSpawnModal />}
         {modal?.kind === 'create' && <CreateModal />}
         {modal?.kind === 'newCardTrial' && <NewCardTrialModal />}
+        {modal?.kind === 'opponents' && <AddOpponentModal />}
         <PlaytestToast />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>

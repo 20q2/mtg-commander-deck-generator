@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { useOpponentStore } from '@/store/opponentStore';
 
 // Defined at module scope (not inside the component) so they keep a stable
 // component identity across renders. If these lived in the render body, every
@@ -160,13 +161,20 @@ export function NextTurnButton() {
   const nextTurn = usePlaytestStore(s => s.nextTurn);
   const draw = usePlaytestStore(s => s.draw);
   const turn = usePlaytestStore(s => s.turn);
-  const handleNextTurn = () => { nextTurn(); draw(1); };
+  const runAllTurns = useOpponentStore(s => s.runAllTurns);
+  const opponentCount = useOpponentStore(s => s.opponents.length);
+  // One button still drives the whole game: your turn, then every bot's, in order.
+  const handleNextTurn = () => { nextTurn(); draw(1); runAllTurns(); };
   return (
     <Button
       size="sm"
       className="h-8 sm:h-6 px-2 text-[11px] bg-primary/15 hover:bg-primary/25 border border-primary/40 text-primary-foreground/90 gap-1"
       onClick={handleNextTurn}
-      title="Advance to the next turn and draw a card"
+      title={
+        opponentCount > 0
+          ? `Advance the turn, draw a card, then let ${opponentCount} opponent${opponentCount > 1 ? 's' : ''} take their turn`
+          : 'Advance to the next turn and draw a card'
+      }
     >
       <SkipForward className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
       <span className="sm:hidden">Turn</span>

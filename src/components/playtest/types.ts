@@ -144,6 +144,7 @@ export type Modal =
   | { kind: 'tokens' }
   | { kind: 'create' }
   | { kind: 'newCardTrial' }
+  | { kind: 'opponents' }
   | { kind: 'mulligan'; mulliganCount: number };
 
 export type MoveSource =

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Heart, X, Undo2, RefreshCw, Settings as SettingsIcon, PanelRight, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { useOpponentStore } from '@/store/opponentStore';
 import { PlaytestSettingsModal } from '@/components/playtest/PlaytestSettingsModal';
 import { NextTurnButton } from '@/components/playtest/PlaytestActionsBar';
 
@@ -24,6 +25,10 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
   const closeModal = usePlaytestStore(s => s.closeModal);
   const trialCount = usePlaytestStore(s => s.trialPins.length);
   const trialOpen = modal?.kind === 'newCardTrial';
+  const resetOpponents = useOpponentStore(s => s.resetAll);
+  // Reset means "start this game over", so seated bots get a fresh board and
+  // opening hand too — otherwise you'd redeal into their turn-9 battlefield.
+  const handleReset = () => { reset(); resetOpponents(); };
 
   const [editingLife, setEditingLife] = useState(false);
   const [draftLife, setDraftLife] = useState(String(life));
@@ -97,7 +102,7 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
         <Button variant="ghost" size="sm" disabled={historyLen === 0} onClick={undo} title="Undo last action (Ctrl+Z)">
           <Undo2 className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline">Undo</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={reset} title="Reset playtest">
+        <Button variant="ghost" size="sm" onClick={handleReset} title="Reset playtest">
           <RefreshCw className="w-3.5 h-3.5 sm:mr-1" /><span className="hidden sm:inline">Reset</span>
         </Button>
         <Button
