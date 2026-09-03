@@ -178,11 +178,12 @@ function OpponentLane({ opponent }: { opponent: Opponent }) {
 type RowKey = 'creatures' | 'others' | 'lands';
 
 /**
- * Board rows, front to back. Creatures lead because the row's job is "what can
- * hit me"; lands sit at the back where they'd be in front of a real player.
+ * Board rows, rendered top to bottom in this order: creatures in front, other
+ * permanents in the middle, lands on the bottom — the way a player lays out
+ * their own side of the table.
  *
- * Flip this array to mirror the board instead — creatures nearest your own
- * battlefield, as if you were sitting across the table from them.
+ * Widths step down with the rows so a pile of basics doesn't dominate the lane
+ * and the row you actually scan — what can attack me — reads largest.
  */
 const ROW_ORDER: { key: RowKey; label: string; width: number }[] = [
   { key: 'creatures', label: 'Creatures',       width: 58 },
