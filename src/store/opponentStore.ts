@@ -8,6 +8,7 @@ import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { registerUndoParticipant } from '@/store/undoBridge';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CombatState, Opponent, OpponentZone } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
@@ -526,3 +527,41 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
   }),
 }));
+
+/** One participant's snapshot: everything about the bots that undo should rewind. */
+interface OpponentUndoSnapshot {
+  opponents: Opponent[];
+  combat: CombatState | null;
+}
+
+registerUndoParticipant({
+  capture: (): OpponentUndoSnapshot => {
+    const s = useOpponentStore.getState();
+    return {
+      opponents: s.opponents.map(o => ({
+        ...o,
+        library: [...o.library],
+        hand: [...o.hand],
+        graveyard: [...o.graveyard],
+        exile: [...o.exile],
+        command: [...o.command],
+        battlefield: o.battlefield.map(p => ({ ...p, counters: { ...p.counters } })),
+      })),
+      combat: s.combat
+        ? { ...s.combat, attackers: [...s.combat.attackers], blocks: { ...s.combat.blocks } }
+        : null,
+    };
+  },
+  restore: (snapshot) => {
+    const s = snapshot as OpponentUndoSnapshot;
+    const hadCombat = useOpponentStore.getState().combat !== null;
+    useOpponentStore.setState({ opponents: s.opponents, combat: s.combat });
+    // An undo that closes an open combat has to settle the promise runAllTurns
+    // is parked on, or the bot's turn never finishes and `running` sticks true,
+    // which silently disables Next Turn for the rest of the game.
+    if (hadCombat && s.combat === null) {
+      combatResolver?.();
+      combatResolver = null;
+    }
+  },
+});

@@ -22,6 +22,7 @@ import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
 import { useOpponentStore } from '@/store/opponentStore';
+import { captureAll } from '@/store/undoBridge';
 import { OpponentStrip } from '@/components/playtest/opponents/OpponentStrip';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
 import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
@@ -445,6 +446,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
             battlefield: state.battlefield,
             life: state.life,
             turn: state.turn,
+            participants: captureAll(),
           }].slice(-20),
           battlefield: updated,
         });

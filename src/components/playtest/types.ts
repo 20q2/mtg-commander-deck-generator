@@ -102,6 +102,12 @@ export interface PlaytestSnapshot {
   battlefield: BattlefieldCard[];
   life: number;
   turn: number;
+  /**
+   * Snapshots from stores registered with the undo bridge — currently the
+   * opponents' boards and any open combat. Opaque here on purpose: this module
+   * shouldn't know what else is in the game.
+   */
+  participants: unknown[];
 }
 
 /**

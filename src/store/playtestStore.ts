@@ -24,6 +24,7 @@ import {
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
+import { captureAll, restoreAll } from '@/store/undoBridge';
 
 const HISTORY_CAP = 20;
 const STARTING_LIFE = 40;
@@ -179,6 +180,7 @@ interface PlaytestActions {
 
   setSelectedIds: (ids: string[]) => void;
   setMarqueeSelection: (sel: { cards: string[]; counters: string[]; dice: string[] }) => void;
+  toggleSelect: (kind: 'card' | 'counter' | 'die', id: string) => void;
   clearSelection: () => void;
 
   setDragActive: (active: { kind: 'card' | 'counter' | 'die'; id: string } | null) => void;
@@ -247,6 +249,7 @@ function snapshotOf(s: PlaytestState): PlaytestSnapshot {
     })),
     life: s.life,
     turn: s.turn,
+    participants: captureAll(),
   };
 }
 
@@ -1054,30 +1057,38 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
-  undo: () => set(state => {
-    if (state.history.length === 0) return {};
+  undo: () => {
+    const state = get();
+    if (state.history.length === 0) return;
     const prev = state.history[state.history.length - 1];
-    // Walk back through the log and mark the most recent non-undone, non-meta
-    // entry as undone. "Undo" entries themselves are skipped so re-undoing
-    // strikes out a real action each time, not a previous undo line.
-    const log = [...state.log];
-    for (let i = log.length - 1; i >= 0; i--) {
-      const e = log[i];
-      if (e.undone) continue;
-      if (e.text === 'Undo') continue;
-      log[i] = { ...e, undone: true };
-      break;
-    }
-    log.push(makeLogEntry('Undo', 'system'));
-    return {
-      history: state.history.slice(0, -1),
-      zones: prev.zones,
-      battlefield: prev.battlefield,
-      life: prev.life,
-      turn: prev.turn,
-      log,
-    };
-  }),
+
+    // Other stores first: they're independent of the log rewrite below, and
+    // doing them outside the set updater keeps that updater pure.
+    restoreAll(prev.participants);
+
+    set(s => {
+      // Walk back through the log and mark the most recent non-undone, non-meta
+      // entry as undone. "Undo" entries themselves are skipped so re-undoing
+      // strikes out a real action each time, not a previous undo line.
+      const log = [...s.log];
+      for (let i = log.length - 1; i >= 0; i--) {
+        const e = log[i];
+        if (e.undone) continue;
+        if (e.text === 'Undo') continue;
+        log[i] = { ...e, undone: true };
+        break;
+      }
+      log.push(makeLogEntry('Undo', 'system'));
+      return {
+        history: s.history.slice(0, -1),
+        zones: prev.zones,
+        battlefield: prev.battlefield,
+        life: prev.life,
+        turn: prev.turn,
+        log,
+      };
+    });
+  },
 
   openModal: (modal) => set({ modal }),
   closeModal: () => set({ modal: null }),
@@ -1180,6 +1191,14 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     selectedIds: sel.cards,
     selectedCounterIds: sel.counters,
     selectedDieIds: sel.dice,
+  }),
+  // Ctrl/Cmd-click on a single item: add it to — or remove it from — whatever
+  // the marquee already selected, rather than replacing the selection.
+  toggleSelect: (kind, id) => set(state => {
+    const flip = (list: string[]) => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+    if (kind === 'card') return { selectedIds: flip(state.selectedIds) };
+    if (kind === 'counter') return { selectedCounterIds: flip(state.selectedCounterIds) };
+    return { selectedDieIds: flip(state.selectedDieIds) };
   }),
   clearSelection: () => set(state => (
     state.selectedIds.length === 0 && state.selectedCounterIds.length === 0 && state.selectedDieIds.length === 0
