@@ -28,6 +28,7 @@ export interface ComboClass {
   infiniteMana: boolean;
   infiniteTokens: boolean;
   infiniteDeaths: boolean;
+  infiniteLifegain: boolean;
 }
 
 /**
@@ -65,18 +66,23 @@ export function classifyCombo(results: string[]): ComboClass {
     infiniteTokens: results.some(r => /(near-)?infinite creature tokens/i.test(r)),
     infiniteDeaths: results.some(r =>
       /(near-)?infinite (death triggers|creature sacrifice triggers)/i.test(r)),
+    // Supplies `lifegain-events`, which had a slot in the scaling map and no source — the same
+    // hole `deaths` had. Vito and Sanguine Bond turn this straight into a table kill.
+    infiniteLifegain: results.some(r => /(near-)?infinite (lifegain|life gain)/i.test(r)),
   };
 }
 
 /** Union of the combo flags across every complete combo in the deck. */
 export function comboFuel(combos: DetectedCombo[]): Pick<
-  import('@/types').DeckFuel, 'infiniteMana' | 'infiniteTokens' | 'infiniteDeaths'
+  import('@/types').DeckFuel,
+  'infiniteMana' | 'infiniteTokens' | 'infiniteDeaths' | 'infiniteLifegain'
 > {
-  const complete = combos.filter(c => c.isComplete);
+  const classes = combos.filter(c => c.isComplete).map(c => classifyCombo(c.results));
   return {
-    infiniteMana: complete.some(c => classifyCombo(c.results).infiniteMana),
-    infiniteTokens: complete.some(c => classifyCombo(c.results).infiniteTokens),
-    infiniteDeaths: complete.some(c => classifyCombo(c.results).infiniteDeaths),
+    infiniteMana: classes.some(c => c.infiniteMana),
+    infiniteTokens: classes.some(c => c.infiniteTokens),
+    infiniteDeaths: classes.some(c => c.infiniteDeaths),
+    infiniteLifegain: classes.some(c => c.infiniteLifegain),
   };
 }
 

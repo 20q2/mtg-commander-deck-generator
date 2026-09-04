@@ -1,0 +1,161 @@
+{
+  "_comment": "Fixtures for the Finishers tab. themeTestDecks.json is useless here — those decks were built to probe THEME detection, so they carry theme-identifying cards and almost no win conditions, and every one of them scored 'no way to close'. Each deck below is a deliberate, unambiguous example of ONE finisher shape, with `expect` naming the shape that should lead. Kept small (~35 cards) on purpose: these exercise the kill math, not deckbuilding. Land counts are real so the mana ceiling and land-ratio math get honest inputs.",
+  "decks": [
+    {
+      "name": "Craterhoof — alpha strike",
+      "commander": "Ezuri, Renegade Leader",
+      "expect": ["alpha-strike"],
+      "note": "Wide board plus a trampling overrun. Should cap at 1/opponents — that ceiling is the headline claim of the whole model.",
+      "cards": [
+        "Craterhoof Behemoth", "End-Raze Forerunners", "Overrun", "Triumph of the Hordes",
+        "Avenger of Zendikar", "Scute Swarm", "Grave Titan", "Hornet Queen",
+        "Llanowar Elves", "Elvish Mystic", "Fyndhorn Elves", "Birds of Paradise",
+        "Elvish Archdruid", "Priest of Titania", "Marwyn, the Nurturer", "Imperious Perfect",
+        "Beast Whisperer", "Ezuri, Renegade Leader", "Nissa, Who Shakes the World",
+        "Cultivate", "Kodama's Reach", "Rampant Growth", "Sol Ring",
+        "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest",
+        "Forest", "Forest", "Forest", "Forest", "Forest", "Forest",
+        "Nykthos, Shrine to Nyx", "Gaea's Cradle"
+      ]
+    },
+    {
+      "name": "Exsanguinate — X drain",
+      "commander": "K'rrik, Son of Yawgmoth",
+      "expect": ["drain-x"],
+      "note": "Hits every opponent, so it has no single-target cap and should outrank Craterhoof despite far less raw damage. The X-cost parse (single X, fixed BB) is the thing under test.",
+      "cards": [
+        "Exsanguinate", "Torment of Hailfire", "Debt to the Deathless", "Crux of Fate",
+        "K'rrik, Son of Yawgmoth", "Cabal Coffers", "Cabal Stronghold", "Nykthos, Shrine to Nyx",
+        "Sol Ring", "Arcane Signet", "Charcoal Diamond", "Mind Stone", "Thran Dynamo",
+        "Gilded Lotus", "Crypt Ghast", "Magus of the Coffers", "Nirkana Revenant",
+        "Bubbling Muck", "Dark Ritual", "Cabal Ritual",
+        "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+        "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp"
+      ]
+    },
+    {
+      "name": "Gray Merchant — devotion drain",
+      "commander": "Gray Merchant of Asphodel",
+      "expect": ["drain-static"],
+      "note": "The curated SCALING_MAP path. Heavy double-black pips on purpose so devotion is large — and the board-fraction discount should stop it reading as a whole-deck count.",
+      "cards": [
+        "Gray Merchant of Asphodel", "Corrupt", "Tendrils of Corruption",
+        "Kokusho, the Evening Star", "Bloodline Keeper", "Dread Presence",
+        "Phyrexian Obliterator", "Geralf's Messenger", "Bloodghast", "Gatekeeper of Malakir",
+        "Ophiomancer", "Sheoldred, Whispering One", "Bontu the Glorified",
+        "Erebos, God of the Dead", "Bitterblossom", "Phyrexian Arena",
+        "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+        "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+        "Cabal Coffers", "Urborg, Tomb of Yawgmoth"
+      ]
+    },
+    {
+      "name": "Thoracle — alt win, ENABLED",
+      "commander": "Tymna the Weaver",
+      "expect": ["alt-win"],
+      "note": "Oracle plus real library-emptying (Consultation, Tainted Pact, mill). Should score as a live win — and the Spellbook index should also see the combo outright.",
+      "cards": [
+        "Thassa's Oracle", "Demonic Consultation", "Tainted Pact", "Laboratory Maniac",
+        "Jace, Wielder of Mysteries", "Hermit Druid", "Mesmeric Orb", "Dread Return",
+        "Stitcher's Supplier", "Glimpse the Unthinkable", "Brainstorm", "Ponder",
+        "Preordain", "Frantic Search", "Gitaxian Probe", "Dark Ritual",
+        "Sol Ring", "Mana Crypt", "Chrome Mox", "Lotus Petal",
+        "Island", "Island", "Island", "Island", "Island", "Island", "Island",
+        "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+        "Polluted Delta", "Underground Sea", "Watery Grave"
+      ]
+    },
+    {
+      "name": "Thoracle — alt win, NO SUPPORT",
+      "commander": "Talrand, Sky Summoner",
+      "expect": ["none"],
+      "note": "The overclaim canary. A lone Thassa's Oracle with no way to empty a library must NOT read 'wins the game' — it should come back UNKNOWN with the missing setup named.",
+      "cards": [
+        "Thassa's Oracle", "Talrand, Sky Summoner", "Counterspell", "Negate",
+        "Rhystic Study", "Mystic Remora", "Brainstorm", "Ponder", "Preordain",
+        "Sol Ring", "Arcane Signet", "Cyclonic Rift", "Pongify", "Rapid Hybridization",
+        "Island", "Island", "Island", "Island", "Island", "Island", "Island", "Island",
+        "Island", "Island", "Island", "Island", "Island", "Island", "Island", "Island",
+        "Island", "Island", "Island", "Island", "Island"
+      ]
+    },
+    {
+      "name": "Blood Artist — needs a sac loop",
+      "commander": "Meren of Clan Nel Toth",
+      "expect": ["drain-static"],
+      "note": "Aristocrats drains scale on `deaths`, which resolves only when a combo supplies an infinite sacrifice loop — this deck has one (Gravecrawler + a free sac outlet + an Altar), so the five drains should collapse into ONE grouped sentence and read as lethal. Delete Phyrexian Altar and Ashnod's Altar and the same deck must flip to UNKNOWN with the missing loop named.",
+      "cards": [
+        "Blood Artist", "Zulaport Cutthroat", "Cruel Celebrant", "Bastion of Remembrance",
+        "Falkenrath Noble", "Viscera Seer", "Carrion Feeder", "Ashnod's Altar",
+        "Phyrexian Altar", "Gravecrawler", "Sakura-Tribe Elder", "Meren of Clan Nel Toth",
+        "Grave Pact", "Dictate of Erebos", "Sakura-Tribe Elder", "Eternal Witness",
+        "Cultivate", "Sol Ring", "Arcane Signet",
+        "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp", "Swamp",
+        "Forest", "Forest", "Forest", "Forest", "Forest", "Forest",
+        "Overgrown Tomb", "Woodland Cemetery"
+      ]
+    },
+    {
+      "name": "Goblins — combo tokens, no overrun",
+      "commander": "Krenko, Mob Boss",
+      "expect": ["alpha-strike", "combo"],
+      "note": "The underclaim canary. Krenko plus untappers makes unbounded goblins with NO otag:overrun card in the deck — this used to score nothing at all and read 'no way to close' while holding a lethal board. Either shape is a pass: when the loop is also a listed win-outright combo the combo row leads and the synthetic token row is suppressed so the same kill isn't counted twice.",
+      "cards": [
+        "Krenko, Mob Boss", "Umbral Mantle", "Thornbite Staff", "Skirk Prospector",
+        "Goblin Chieftain", "Goblin King", "Goblin Warchief", "Mogg War Marshal",
+        "Krenko's Command", "Dragon Fodder", "Goblin Instigator", "Goblin Rabblemaster",
+        "Muxus, Goblin Grandee", "Pashalik Mons", "Goblin Matron", "Goblin Recruiter",
+        "Sol Ring", "Arcane Signet", "Thousand-Year Elixir",
+        "Mountain", "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+        "Mountain", "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+        "Mountain", "Mountain", "Mountain", "Mountain"
+      ]
+    },
+    {
+      "name": "Bogbeast — unknown scaling",
+      "commander": "Trelasarra, Moon Dancer",
+      "expect": ["none"],
+      "note": "Blossoming Bogbeast is '+X/+X where X is the life you gained this turn'. Assuming Craterhoof semantics once scored it at 1091 damage on a real precon; it must report UNKNOWN with the basis quoted.",
+      "cards": [
+        "Blossoming Bogbeast", "Trelasarra, Moon Dancer", "Soul Warden", "Soul's Attendant",
+        "Ajani's Pridemate", "Angel of Vitality", "Heliod, Sun-Crowned", "Archangel of Thune",
+        "Lifecrafter's Bestiary", "Sunbond", "Cradle of Vitality", "Rhox Faithmender",
+        "Beacon of Immortality", "Sol Ring", "Arcane Signet", "Cultivate",
+        "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest", "Forest",
+        "Plains", "Plains", "Plains", "Plains", "Plains", "Plains", "Plains", "Plains",
+        "Temple Garden", "Sunpetal Grove"
+      ]
+    },
+    {
+      "name": "Moraug — extra combats",
+      "commander": "Moraug, Fury of Akoum",
+      "expect": ["extra-combat"],
+      "note": "Big red bodies and no overrun effect, so the board alone can't kill anyone through blockers — the second combat step is what converts it. This branch used to score nothing at all and return UNKNOWN, so Aggravated Assault next to a lethal board contributed zero to the verdict.",
+      "cards": [
+        "Moraug, Fury of Akoum", "Aggravated Assault", "Relentless Assault", "World at War",
+        "Combat Celebrant", "Godo, Bandit Warlord", "Zealous Conscripts",
+        "Inferno Titan", "Balefire Dragon", "Thundermaw Hellkite", "Glorybringer",
+        "Etali, Primal Storm", "Hellrider", "Goblin Rabblemaster", "Bloodthirster",
+        "Sol Ring", "Arcane Signet", "Thran Dynamo", "Sword of Feast and Famine",
+        "Mountain", "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+        "Mountain", "Mountain", "Mountain", "Mountain", "Mountain", "Mountain",
+        "Mountain", "Mountain", "Mountain", "Mountain"
+      ]
+    },
+    {
+      "name": "Stax — genuinely no finisher",
+      "commander": "Grand Arbiter Augustin IV",
+      "expect": ["none"],
+      "note": "The true negative. A deck that really cannot close should say so — if this ever reads as having a finisher, something is scoring on evidence it shouldn't.",
+      "cards": [
+        "Grand Arbiter Augustin IV", "Winter Orb", "Static Orb", "Propaganda",
+        "Ghostly Prison", "Smothering Tithe", "Rhystic Study", "Counterspell",
+        "Swords to Plowshares", "Wrath of God", "Supreme Verdict", "Detention Sphere",
+        "Sol Ring", "Arcane Signet", "Azorius Signet", "Thought Vessel",
+        "Island", "Island", "Island", "Island", "Island", "Island", "Island", "Island",
+        "Plains", "Plains", "Plains", "Plains", "Plains", "Plains", "Plains", "Plains",
+        "Hallowed Fountain", "Glacial Fortress"
+      ]
+    }
+  ]
+}

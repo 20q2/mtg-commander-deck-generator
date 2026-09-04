@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { ScryfallCard, ScryfallSearchResponse, CardRuling } from '@/types';
 import { getPartnerType, getPartnerWithName } from '@/lib/partnerUtils';
-import { readPersisted, writePersisted, readPersistedMany, writePersistedMany } from './cache';
+import {
+  readPersisted, writePersisted, readPersistedMany, writePersistedMany,
+  readPersistedOracleTag, writePersistedOracleTag,
+} from './cache';
 import { isExtraPrinting } from './extras';
 
 export { isExtraPrinting };
@@ -1073,9 +1076,19 @@ export async function fetchOracleTagNames(query: string): Promise<Set<string>> {
   if (inflight) return inflight;
 
   const run = (async () => {
+    // IndexedDB first. Tags change only when Scryfall re-tags a card, so re-paginating them on
+    // every page load was pure waste — a cold lab sweep is ~20 requests and several seconds.
+    const persisted = await readPersistedOracleTag(query);
+    if (persisted) {
+      oracleTagCache.set(query, persisted);
+      console.log(`[Scryfall] ${query} → ${persisted.size} cards (persisted)`);
+      return persisted;
+    }
+
     const names = new Set<string>();
     let page = 1;
     let hasMore = true;
+    let failed = false;
 
     while (hasMore) {
       try {
@@ -1091,11 +1104,14 @@ export async function fetchOracleTagNames(query: string): Promise<Set<string>> {
         page++;
       } catch {
         // 404 is Scryfall's "no cards matched", which is also what an unknown tag looks like.
+        // It's also what a rate-limited page looks like, so a partial sweep must not be persisted.
+        failed = true;
         break;
       }
     }
 
     oracleTagCache.set(query, names);
+    if (!failed) void writePersistedOracleTag(query, names);
     console.log(`[Scryfall] ${query} → ${names.size} cards`);
     return names;
   })();

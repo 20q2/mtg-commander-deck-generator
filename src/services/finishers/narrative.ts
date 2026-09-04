@@ -13,7 +13,7 @@
 
 import type { KillEstimate, DeckFuel, DeckFinisherVerdict, DetectedCombo } from '@/types';
 import type { FinisherAssumptions } from './tuning';
-import { ALT_WIN_CONDITIONS } from './scalingMap';
+import { altWinCondition } from './scalingMap';
 import { isWinResult } from './combos';
 
 export interface DeckNarrative {
@@ -32,6 +32,13 @@ export interface DeckNarrative {
  * drains share a line, and "Blood Artist, Zulaport Cutthroat and Bastion of Remembrance drains"
  * is the kind of thing that makes a product surface look unfinished.
  */
+/** "kills 2 of 3 opponents" / "kills the whole table", from a table fraction. */
+function killsPhrase(e: KillEstimate, a: FinisherAssumptions): string {
+  const killed = Math.round((e.tableFraction ?? 0) * a.opponents);
+  if (killed >= a.opponents) return 'kills the whole table';
+  return `kills ${killed} of ${a.opponents} opponents`;
+}
+
 export function describeEstimate(
   e: KillEstimate, fuel: DeckFuel, a: FinisherAssumptions, plural = false,
 ): string {
@@ -62,18 +69,41 @@ export function describeEstimate(
 
     case 'alpha-strike': {
       if (e.kind === 'unknown') return `can't be scored — ${e.workings}`;
-      const bodies = fuel.infiniteTokens ? 'unlimited' : `${Math.round(fuel.creatureCount * a.boardFraction + fuel.tokenMakers * a.boardFraction * a.tokensPerMaker)}`;
-      if (e.tableFraction !== null && e.tableFraction >= 1 / Math.max(1, a.opponents)) {
-        return `${bodies} attackers — lethal on one opponent, with ${e.overkill > 0 && isFinite(e.overkill) ? `${e.overkill} damage wasted` : 'damage to spare'}`;
+      // An unbounded board isn't "lethal on one opponent" — attackers are declared per defender,
+      // so the loop kills the table. Saying otherwise undersells the deck's actual plan.
+      if (fuel.infiniteTokens) {
+        return `unlimited attackers — lethal across the table once the loop runs`;
+      }
+      const bodies = `${Math.round(fuel.creatureCount * a.boardFraction + fuel.tokenMakers * a.boardFraction * a.tokensPerMaker)}`;
+      // Attackers are assigned per defender, so this is "how many players die", not "one player
+      // dies and the rest of the damage evaporates".
+      const killed = Math.round((e.tableFraction ?? 0) * a.opponents);
+      if (killed >= a.opponents) return `${bodies} attackers — lethal on the whole table`;
+      if (killed >= 1) {
+        // Leftover damage, not a deficit — it's what the swing had spare after paying for its
+        // kills, and it wasn't enough to buy another one.
+        const spare = e.overkill > 0 && isFinite(e.overkill)
+          ? `, ${e.overkill} left over`
+          : '';
+        return `${bodies} attackers — kills ${killed} of ${a.opponents} opponents${spare}`;
       }
       return `${bodies} attackers — not yet lethal on its own`;
     }
 
-    case 'alt-win':
-      return `${v('wins', 'win')} the game outright if ${ALT_WIN_CONDITIONS[e.cardName] ?? 'its condition is met'}`;
+    case 'alt-win': {
+      const condition = altWinCondition(e.cardName) ?? 'its condition is met';
+      // UNKNOWN here means the setup isn't there (or can't be seen), so the flat "wins the game
+      // outright" claim would be exactly the overclaim the tier exists to prevent.
+      if (e.tier === 'UNKNOWN') return `only ${v('wins', 'win')} if ${condition} — ${e.workings.includes('—') ? e.workings.split('— ')[1] : 'unconfirmed'}`;
+      return `${v('wins', 'win')} the game outright if ${condition}`;
+    }
 
     case 'extra-combat':
-      return `${v('turns', 'turn')} one lethal swing into two — spends the damage a single attack wastes`;
+      // Now that this carries a real number, say what the second combat actually buys — and the
+      // interesting part is that the extra attackers can be sent at a DIFFERENT player.
+      return e.tableFraction !== null
+        ? `${v('doubles', 'double')} your attack — ${killsPhrase(e, a)} across two combats`
+        : `${v('turns', 'turn')} one attack into two`;
   }
 }
 
@@ -95,8 +125,10 @@ function conditionFor(e: KillEstimate, fuel: DeckFuel, a: FinisherAssumptions): 
       return fuel.infiniteMana ? 'once the mana combo is online' : `once you reach your mana ceiling around turn ${a.turn}`;
     case 'alpha-strike':
       return fuel.infiniteTokens ? 'once the token loop is running' : `with a full board by about turn ${a.turn}`;
-    case 'alt-win':
-      return ALT_WIN_CONDITIONS[e.cardName] ? `but only ${ALT_WIN_CONDITIONS[e.cardName]}` : null;
+    case 'alt-win': {
+      const condition = altWinCondition(e.cardName);
+      return condition ? `but only ${condition}` : null;
+    }
     default: return null;
   }
 }
@@ -114,11 +146,18 @@ export function describeDeck(
   if (unscored > 0) {
     caveats.push(`${unscored} card${unscored > 1 ? "s don't" : " doesn't"} have a modelled scaling variable, so ${unscored > 1 ? 'they were' : 'it was'} left out of the read.`);
   }
-  if (estimates.some(e => e.shape === 'alt-win')) {
-    caveats.push('Alternate win conditions are listed but their setup requirements are not checked — assume they need real work.');
+  // Setup IS checked now where a decklist can show it. Only flag the ones where it genuinely
+  // can't — a blanket "nothing is checked" warning next to a checked result trains you to ignore it.
+  const unverifiable = estimates.filter(
+    e => e.shape === 'alt-win' && e.workings.includes("can't be checked"),
+  ).length;
+  if (unverifiable > 0) {
+    caveats.push(`${unverifiable} alternate win condition${unverifiable > 1 ? 's need' : ' needs'} setup a decklist can't show, so ${unverifiable > 1 ? 'they were' : 'it was'} left unscored.`);
   }
-  if (fuel.creatureCount > 0 && !fuel.trampleGranters && estimates.some(e => e.shape === 'alpha-strike')) {
-    caveats.push('The attack math assumes your creatures connect. Blockers are not modelled.');
+  // Blockers ARE modelled now, so the honest caveat is about the assumed size of the crews rather
+  // than about their absence — and about the things combat math still can't see.
+  if (estimates.some(e => e.shape === 'alpha-strike' || e.shape === 'extra-combat')) {
+    caveats.push(`Attack math assumes each opponent blocks with ${a.blockersPerOpponent} creatures of ${a.blockerToughness} toughness. Removal, fogs and combat tricks aren't modelled.`);
   }
 
   const top = best(estimates);
@@ -153,8 +192,14 @@ export function describeDeck(
     return { headline: `Closes with ${top.cardName} — ${line}.`, condition, caveats };
   }
   if (verdict.bestSingle >= a.liveThreshold) {
+    // "Takes out one opponent" is only true of the single-target shapes. Said about Gray Merchant
+    // it inverts the fact that matters most about a drain: it hits the WHOLE table, just not for
+    // lethal yet — which is the exact distinction the table-fraction unit exists to preserve.
+    const hitsEveryone = top.shape === 'drain-x' || top.shape === 'drain-static';
     return {
-      headline: `Grinds the table down. ${top.cardName} takes out one opponent, not the table.`,
+      headline: hitsEveryone
+        ? `Grinds the table down. ${top.cardName} hits every opponent, but not for lethal.`
+        : `Grinds the table down. ${top.cardName} takes out one opponent, not the table.`,
       condition,
       caveats,
     };

@@ -18,15 +18,18 @@ export function KillMathTable({ estimates }: { estimates: KillEstimate[] }) {
             <th className="text-left font-medium px-3 py-2">Card</th>
             <th className="text-left font-medium px-3 py-2">Workings</th>
             <th className="text-right font-medium px-3 py-2">Damage</th>
-            <th className="text-right font-medium px-3 py-2" title="Damage discarded by the single-target cap">
-              Wasted
+            <th className="text-right font-medium px-3 py-2" title="Damage left over once the kills it paid for are counted">
+              Spare
             </th>
             <th className="text-right font-medium px-3 py-2">Table</th>
           </tr>
         </thead>
         <tbody>
-          {estimates.map(e => (
-            <tr key={`${e.cardName}-${e.shape}`} className="border-t border-border/30">
+          {/* Keyed by index: one card can legitimately produce two rows of the same shape — an
+              extra-combat card emits its placeholder and then its scored estimate, and both are
+              worth seeing here. Name+shape collided for exactly that case. */}
+          {estimates.map((e, i) => (
+            <tr key={`${e.cardName}-${e.shape}-${i}`} className="border-t border-border/30">
               <td className="px-3 py-1.5">{e.cardName}</td>
               <td className="px-3 py-1.5 text-muted-foreground">{e.workings}</td>
               <td className="px-3 py-1.5 text-right tabular-nums">

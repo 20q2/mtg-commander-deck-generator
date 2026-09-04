@@ -55,7 +55,22 @@ export function DeckFuelStrip({ fuel, verdict, assumptions, comboCount }: Props)
         </span>
         <span className="text-violet-300/90">→ {n(mana, 1)} mana at T{assumptions.turn}</span>
         {devotion && <span>devotion {devotion}</span>}
-        <span>{fuel.trampleGranters} trample · {fuel.hasteGranters} haste · {fuel.anthems} anthems</span>
+        {/* These tags are off by default because they cost most of the sweep and change no score.
+            Each is independent — uncommenting only `gives-trample` must not make the other two
+            print "null" — so they're rendered per-tag, with one combined line when none are on. */}
+        {fuel.trampleGranters === null && fuel.hasteGranters === null && fuel.anthems === null ? (
+          <span className="text-muted-foreground/60">
+            trample / haste / anthems not measured (uncomment in the vocabulary)
+          </span>
+        ) : (
+          <span>
+            {[
+              [fuel.trampleGranters, 'trample'],
+              [fuel.hasteGranters, 'haste'],
+              [fuel.anthems, 'anthems'],
+            ].map(([n, label]) => `${n === null ? '—' : n} ${label}`).join(' · ')}
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs rounded-lg border border-border/40 bg-card/30 px-3 py-2">
         <span className={comboCount > 0 ? 'text-emerald-300' : 'text-muted-foreground'}>

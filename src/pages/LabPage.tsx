@@ -14,6 +14,11 @@ const TABS: { key: LabTab; label: string }[] = [
 /**
  * Dev-only instrument shell. Each tab is a self-contained lab over one part of the pipeline;
  * they share nothing but the chrome, so state stays local to each tab.
+ *
+ * Both tabs stay MOUNTED and the inactive one is hidden. Swapping them unmounted the whole tab,
+ * so a trip to Themes and back threw away the loaded deck, the tuning slider positions and any
+ * edits to the tag vocabulary — in an instrument whose entire purpose is comparing one tweak
+ * against the last, that's the state you least want to lose.
  */
 export function LabPage() {
   usePageTitle('Lab');
@@ -42,7 +47,8 @@ export function LabPage() {
         </div>
       </div>
 
-      {tab === 'themes' ? <ThemeLabTab /> : <FinisherLabTab />}
+      <div className={tab === 'themes' ? '' : 'hidden'}><ThemeLabTab /></div>
+      <div className={tab === 'finishers' ? '' : 'hidden'}><FinisherLabTab /></div>
     </div>
   );
 }

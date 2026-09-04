@@ -5,6 +5,8 @@ import { isExtraPrinting } from './extras';
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;         // 7 days (Scryfall cards)
 const EDHREC_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days (EDHREC responses — matches the in-memory TTL)
+// Oracle tags move only when Scryfall re-tags a card, which is rare and never urgent for a dev lab.
+const ORACLE_TAG_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 // Hard ceilings so the DB can't grow without bound. TTL keeps normal use far below these; the caps
 // only bite for a heavy long-term user. Tunable. (EDHREC responses are bulkier, so fewer.)
@@ -24,9 +26,17 @@ interface CachedResponse {
   cachedAt: number;
 }
 
+// Every card name carrying one oracle tag, keyed by the search query (e.g. "otag:overrun").
+interface CachedTagMembership {
+  query: string;
+  names: string[];
+  cachedAt: number;
+}
+
 class ScryfallCacheDB extends Dexie {
   cards!: Table<CachedCard, string>;
   edhrecResponses!: Table<CachedResponse, string>;
+  oracleTags!: Table<CachedTagMembership, string>;
   constructor() {
     super('manafoundry-scryfall-cache');
     this.version(1).stores({ cards: '&name, cachedAt' });
@@ -38,6 +48,14 @@ class ScryfallCacheDB extends Dexie {
     // (which may hold inflated foil/etched prices) are re-fetched and re-priced. edhrecResponses kept.
     this.version(4).stores({ cards: '&name, cachedAt', edhrecResponses: '&endpoint, cachedAt' })
       .upgrade(async tx => { await tx.table('cards').clear(); });
+    // v5 adds oracle-tag membership. A full Finisher Lab sweep is ~20 paginated Scryfall requests
+    // that only change when Scryfall re-tags a card, so paying it once per session was the single
+    // largest source of dead time in the lab.
+    this.version(5).stores({
+      cards: '&name, cachedAt',
+      edhrecResponses: '&endpoint, cachedAt',
+      oracleTags: '&query, cachedAt',
+    });
   }
 }
 
@@ -69,6 +87,7 @@ async function pruneStale(conn: ScryfallCacheDB): Promise<void> {
     const now = Date.now();
     await conn.cards.where('cachedAt').below(now - TTL_MS).delete();
     await conn.edhrecResponses.where('cachedAt').below(now - EDHREC_TTL_MS).delete();
+    await conn.oracleTags.where('cachedAt').below(now - ORACLE_TAG_TTL_MS).delete();
 
     const cardCount = await conn.cards.count();
     if (cardCount > CARDS_MAX_ENTRIES) {
@@ -186,6 +205,40 @@ export async function writePersistedResponse(endpoint: string, data: unknown): P
   } catch (err) {
     if (!quotaWarned) {
       console.warn('[EDHREC] Persistent response write failed (quota or DB error)', err);
+      quotaWarned = true;
+    }
+  }
+}
+
+// --- Oracle-tag membership (a fully paginated `otag:` sweep, keyed by query) ---
+
+/** Card names carrying an oracle tag, if cached and unexpired. Never throws. */
+export async function readPersistedOracleTag(query: string): Promise<Set<string> | null> {
+  const conn = getDB();
+  if (!conn) return null;
+  try {
+    const row = await conn.oracleTags.get(query);
+    if (!row) return null;
+    if (Date.now() - row.cachedAt > ORACLE_TAG_TTL_MS) return null;
+    return new Set(row.names);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Store a completed tag sweep. Empty results are NOT cached — an empty set is what both a typo'd
+ * tag and a failed sweep look like, and persisting that would make a transient network failure
+ * look like a permanently dead tag for a fortnight.
+ */
+export async function writePersistedOracleTag(query: string, names: Set<string>): Promise<void> {
+  const conn = getDB();
+  if (!conn || names.size === 0) return;
+  try {
+    await conn.oracleTags.put({ query, names: [...names], cachedAt: Date.now() });
+  } catch (err) {
+    if (!quotaWarned) {
+      console.warn('[Scryfall] Oracle tag cache write failed (quota or DB error)', err);
       quotaWarned = true;
     }
   }

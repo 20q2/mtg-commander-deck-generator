@@ -10,7 +10,7 @@
  */
 
 import { getOracleText } from '@/services/scryfall/client';
-import type { ScryfallCard, ShapeMatch, FinisherPump } from '@/types';
+import type { ScryfallCard, ShapeMatch, FinisherPump, ConnectMode } from '@/types';
 import type { TagMembership } from './labTags';
 
 /**
@@ -64,9 +64,17 @@ export function parsePump(oracleText: string): FinisherPump {
   return { kind: 'flat', amount: 0 };
 }
 
-/** Whether the card makes its team connect — trample or unblockability. */
-export function grantsConnect(oracleText: string): boolean {
-  return /trample/i.test(oracleText) || /can't be blocked/i.test(oracleText);
+/**
+ * How the card gets its team through blockers.
+ *
+ * Unblockable outranks trample because it's strictly better: a trampling attacker still loses its
+ * blocker's toughness, an unblockable one loses nothing. These were one boolean until blockers
+ * were modelled, at which point the difference stopped being cosmetic.
+ */
+export function connectMode(oracleText: string): ConnectMode {
+  if (/can't be blocked/i.test(oracleText)) return 'unblockable';
+  if (/trample/i.test(oracleText)) return 'trample';
+  return 'none';
 }
 
 /**
@@ -90,7 +98,7 @@ export function classifyShapes(card: ScryfallCard, tags: TagMembership): ShapeMa
           ? `otag:overrun, +X/+X where X is ${pump.basis}`
           : `otag:overrun, +${pump.amount}/+${pump.amount}`,
       pump,
-      grantsConnect: grantsConnect(text),
+      connect: connectMode(text),
     });
   }
 

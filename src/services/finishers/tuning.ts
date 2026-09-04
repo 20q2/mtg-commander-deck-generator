@@ -23,24 +23,34 @@ export const TOKENS_PER_MAKER = 2.5;
 /** How much of a ramp card's mana is actually available. 1.0 = every ramp spell resolved. */
 export const RAMP_MULTIPLIER = 1.0;
 /**
- * Share of an alpha strike that connects when the card grants NO trample or evasion.
- * Cards that grant it (Craterhoof, Overrun) bypass this entirely.
- */
-export const UNBLOCKED_FRACTION = 0.7;
-/**
- * How much credit damage beyond lethal-on-one-player earns.
+ * Creatures each opponent can block with, and how big they are.
  *
- * 0 is a pure cap: Craterhoof's 224 damage into a 40-life player scores exactly one kill and
- * throws away 184. 1 assumes you can spend every point (multiple combats, split attacks). The
- * truth is in between and depends on the board, which a card list cannot see — hence a slider.
+ * These replace a flat "connect rate", which multiplied total damage by 0.7 and let any card
+ * granting trample bypass blocking entirely — so a Craterhoof swing was scored as though the
+ * table were empty. That was tolerable while every alpha strike capped at one opponent; once
+ * combat could claim the whole table it became the model's most optimistic assumption by far.
+ *
+ * Blocking is per-defender, which is what makes it interesting: attacking three opponents means
+ * facing three separate blocking crews, so a wide board pays this cost once per player it wants
+ * to kill. Trample pays only the blockers' toughness; no evasion loses whole attackers.
+ */
+export const BLOCKERS_PER_OPPONENT = 2;
+export const BLOCKER_TOUGHNESS = 3;
+/**
+ * How much credit a TARGETED SPELL's damage beyond lethal-on-one-player earns.
+ *
+ * Applies to `burn-x` only. Combat no longer routes through this: attackers are assigned per
+ * defender, so an alpha strike splits across the table on its own and its leftover damage is a
+ * derived fact rather than a dial. For one Fireball, 0 is simply the truth — the excess is gone
+ * unless you can recur or copy it, which is what turning this up models.
  */
 export const OVERKILL_CREDIT = 0.0;
 /**
  * Table fraction at which a card reads LIVE, and below which it reads WEAK then DEAD.
  *
- * These interact with the single-target cap and it is easy to get wrong: an `alpha-strike` can
- * never exceed 1/OPPONENTS = 0.33, so a live threshold above that makes every Craterhoof in the
- * format read DEAD. 0.25 sits deliberately just under the cap.
+ * With three opponents the meaningful steps are 0.33 / 0.67 / 1.00 — one, two, or all three
+ * players dead. 0.25 sits deliberately just under "kills one opponent" so that a finisher which
+ * takes a single player out still reads LIVE.
  */
 export const LIVE_THRESHOLD = 0.25;
 export const WEAK_THRESHOLD = 0.10;
@@ -53,7 +63,8 @@ export interface FinisherAssumptions {
   boardFraction: number;
   tokensPerMaker: number;
   rampMultiplier: number;
-  unblockedFraction: number;
+  blockersPerOpponent: number;
+  blockerToughness: number;
   overkillCredit: number;
   liveThreshold: number;
   weakThreshold: number;
@@ -66,7 +77,8 @@ export const DEFAULT_ASSUMPTIONS: FinisherAssumptions = {
   boardFraction: BOARD_FRACTION,
   tokensPerMaker: TOKENS_PER_MAKER,
   rampMultiplier: RAMP_MULTIPLIER,
-  unblockedFraction: UNBLOCKED_FRACTION,
+  blockersPerOpponent: BLOCKERS_PER_OPPONENT,
+  blockerToughness: BLOCKER_TOUGHNESS,
   overkillCredit: OVERKILL_CREDIT,
   liveThreshold: LIVE_THRESHOLD,
   weakThreshold: WEAK_THRESHOLD,
@@ -79,7 +91,7 @@ export const ASSUMPTION_FIELDS: {
   { key: 'turn', label: 'Turn', min: 4, max: 15, step: 1,
     hint: 'Which turn we model the board and mana at' },
   { key: 'opponents', label: 'Opponents', min: 1, max: 5, step: 1,
-    hint: 'Caps single-target shapes at 1/opponents of the table' },
+    hint: 'How many players must die. Caps targeted spells at 1/opponents' },
   { key: 'startingLife', label: 'Starting life', min: 20, max: 40, step: 1,
     hint: 'Life total each opponent must be reduced from' },
   { key: 'boardFraction', label: 'Board fraction', min: 0.1, max: 1, step: 0.05,
@@ -88,10 +100,12 @@ export const ASSUMPTION_FIELDS: {
     hint: 'Average bodies each token producer has made by then' },
   { key: 'rampMultiplier', label: 'Ramp effectiveness', min: 0, max: 2, step: 0.1,
     hint: 'Mana actually gained per ramp card' },
-  { key: 'unblockedFraction', label: 'Connect rate', min: 0, max: 1, step: 0.05,
-    hint: 'Share of an alpha strike that lands without trample/evasion' },
+  { key: 'blockersPerOpponent', label: 'Blockers each', min: 0, max: 6, step: 1,
+    hint: 'Creatures each opponent can block with — paid once per player you attack' },
+  { key: 'blockerToughness', label: 'Blocker size', min: 1, max: 8, step: 1,
+    hint: 'Average blocker toughness. Trample loses only this; no evasion loses whole attackers' },
   { key: 'overkillCredit', label: 'Overkill credit', min: 0, max: 1, step: 0.05,
-    hint: '0 = damage past lethal is wasted; 1 = every point is spendable' },
+    hint: 'Targeted spells only. 0 = damage past lethal is wasted; 1 = every point is spendable' },
   { key: 'liveThreshold', label: 'LIVE at', min: 0, max: 1, step: 0.01,
     hint: 'Table fraction to read LIVE (note: single-target caps at 1/opponents)' },
   { key: 'weakThreshold', label: 'WEAK at', min: 0, max: 1, step: 0.01,

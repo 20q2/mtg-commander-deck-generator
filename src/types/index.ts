@@ -809,7 +809,8 @@ export interface SerializedEnrichment {
 
 /** The kinds of "and now I win" a card can be. Each is backed by a Scryfall oracle tag. */
 export type FinisherShape =
-  | 'alpha-strike'   // otag:overrun — creature count → damage, ONE opponent
+  // otag:overrun — creature count → damage, SPLIT across defenders (whole attackers per kill)
+  | 'alpha-strike'
   | 'drain-static'   // otag:lifedrain, no X — a board count → life loss, ALL opponents
   | 'drain-x'        // otag:lifedrain + X in cost — mana → life loss, ALL opponents
   | 'burn-x'         // otag:burn + X in cost — mana → damage, ONE target
@@ -835,9 +836,19 @@ export interface ShapeMatch {
   fixedCost?: number;
   /** alpha-strike only. */
   pump?: FinisherPump;
-  /** Card grants trample or unblockability, so damage connects in full. */
-  grantsConnect?: boolean;
+  /** How this attack gets through blockers. Trample and unblockable are NOT the same thing. */
+  connect?: ConnectMode;
 }
+
+/**
+ * How an attack handles blockers.
+ *
+ * The distinction is load-bearing now that blockers are modelled: an unblockable team ignores them
+ * entirely, a trampling team loses only the blockers' toughness, and an unaided team loses whole
+ * attackers. Collapsing trample and unblockable into one "connects" flag treated Craterhoof as if
+ * nothing could ever stand in front of it.
+ */
+export type ConnectMode = 'trample' | 'unblockable' | 'none';
 
 /** What the deck brings to the table. All computed client-side from card data. */
 export interface DeckFuel {
@@ -854,10 +865,15 @@ export interface DeckFuel {
   /** Lands with the Swamp subtype — for Corrupt-style scaling. */
   swampCount: number;
   rampCount: number;
-  hasteGranters: number;
-  trampleGranters: number;
-  anthems: number;
-  evasionGranters: number;
+  /**
+   * Display-only counts, and `null` when their oracle tag wasn't in the vocabulary for this run.
+   * They cost ~72% of a cold tag sweep and feed no score, so they're off by default — but "0
+   * haste granters" and "haste wasn't measured" are different claims and must render differently.
+   */
+  hasteGranters: number | null;
+  trampleGranters: number | null;
+  anthems: number | null;
+  evasionGranters: number | null;
   /**
    * Unbounded fuel supplied by a COMPLETE infinite combo in the deck.
    *
@@ -869,7 +885,23 @@ export interface DeckFuel {
   infiniteMana: boolean;
   infiniteTokens: boolean;
   infiniteDeaths: boolean;
+  /** Supplies the `lifegain-events` scaling variable — Vito and Sanguine Bond run on it. */
+  infiniteLifegain: boolean;
+  /**
+   * Evidence that an alternate win condition's setup actually exists in this deck.
+   *
+   * Alt-wins used to score a flat 1.00 on sight, so a lone Thassa's Oracle in a pile of Islands
+   * read as "wins the game". These are the checks that stop that.
+   */
+  enablers: Record<AltWinEnabler, boolean>;
 }
+
+/**
+ * Deck-level support an alternate win condition needs. `unverifiable` is terminal — a decklist
+ * cannot show whether you can empty your board for Barren Glory.
+ */
+export type AltWinEnabler =
+  | 'self-mill' | 'big-lifegain' | 'treasures' | 'five-colors' | 'gates' | 'unverifiable';
 
 /** How a kill estimate should be read and rendered. */
 export type KillKind =

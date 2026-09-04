@@ -30,6 +30,10 @@ export function PlayerView({ estimates, fuel, verdict, combos, assumptions, brac
   const grouped = new Map<string, { names: string[]; sample: KillEstimate }>();
   for (const e of estimates) {
     if (e.kind === 'unknown') continue;
+    // `modifier` rows are placeholders for cards scored in a later pass — an extra-combat card
+    // emits one, then a real estimate under the same name and shape. Keeping both listed the card
+    // twice and collided their React keys; the dev views still show the placeholder's reasoning.
+    if (e.kind === 'modifier') continue;
     const key = describeEstimate(e, fuel, assumptions);
     const existing = grouped.get(key);
     if (existing) existing.names.push(e.cardName);

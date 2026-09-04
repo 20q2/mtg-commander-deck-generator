@@ -34,37 +34,49 @@ export const SHAPE_TAGS: Record<string, { query: string; shapes: FinisherShape[]
  * Ramp deliberately isn't here — `cardMatchesRole(name, 'ramp')` reads it from the artifact and
  * subsumes cost-reducer / mana-dork / mana-rock at the same time.
  *
- * These four are display-only: the strip reports them, but `grantsConnect` is parsed from oracle
- * text rather than looked up here, so dropping them changes no score. They're the first thing to
- * cut if the sweep gets slow.
+ * These four are DISPLAY-ONLY: the strip reports them, but `grantsConnect` is parsed from oracle
+ * text rather than looked up here, so they change no score. They were also 1,989 of the 2,763
+ * names in a cold sweep — about 72% of its cost for zero effect on any answer — so they ship
+ * commented out and the strip reads "not measured" for them. Uncomment a line to get the count.
  */
 export const FUEL_TAGS: Record<string, { query: string; note: string }> = {
-  'gives-haste': { query: 'otag:gives-haste', note: '651 — display only' },
-  'gives-trample': { query: 'otag:gives-trample', note: '514 — display only' },
-  unblockable: { query: 'otag:unblockable', note: '196 — display only' },
-  anthem: { query: 'otag:anthem', note: '543 — display only' },
+  'gives-haste': { query: 'otag:gives-haste', note: '675 — display only' },
+  'gives-trample': { query: 'otag:gives-trample', note: '537 — display only' },
+  unblockable: { query: 'otag:unblockable', note: '207 — display only' },
+  anthem: { query: 'otag:anthem', note: '570 — display only' },
 };
 
 /** Membership lookup handed to the pure scoring functions. */
 export interface TagMembership {
   has(key: string, cardName: string): boolean;
+  /**
+   * Whether this key was fetched at all. A tag that isn't in the vocabulary must read as "not
+   * measured" rather than as zero carriers — the two look identical through `has` alone, and a
+   * confident 0 is exactly the kind of plausible-looking wrong number this lab exists to avoid.
+   */
+  loaded(key: string): boolean;
   /** key → how many cards Scryfall returned. Drives the health strip. */
   sizes: Record<string, number>;
 }
 
 /** One line of the editable vocabulary box: `key: query`. */
-export interface VocabEntry { key: string; query: string }
+export interface VocabEntry {
+  key: string;
+  query: string;
+  /** Written as a `#` comment, so it's one keystroke from active but costs nothing by default. */
+  optional?: boolean;
+}
 
 /** The default vocabulary, serialised for the textarea. */
 export function defaultVocab(): VocabEntry[] {
   return [
     ...Object.entries(SHAPE_TAGS).map(([key, v]) => ({ key, query: v.query })),
-    ...Object.entries(FUEL_TAGS).map(([key, v]) => ({ key, query: v.query })),
+    ...Object.entries(FUEL_TAGS).map(([key, v]) => ({ key, query: v.query, optional: true })),
   ];
 }
 
 export function vocabToText(entries: VocabEntry[]): string {
-  return entries.map(e => `${e.key}: ${e.query}`).join('\n');
+  return entries.map(e => `${e.optional ? '# ' : ''}${e.key}: ${e.query}`).join('\n');
 }
 
 /** Parse the textarea back. Blank lines and `#` comments are ignored; bad lines are dropped. */
@@ -89,22 +101,29 @@ export function parseVocab(text: string): VocabEntry[] {
  */
 export async function loadMembership(
   entries: VocabEntry[],
-  onProgress?: (done: number, total: number, key: string) => void,
+  /**
+   * Called before each fetch AND after each one completes, carrying the sizes gathered so far.
+   * The panel used to render sizes only once the whole sweep returned, which made a slow tag and
+   * a dead tag look exactly alike for the length of the sweep.
+   */
+  onProgress?: (done: number, total: number, key: string, sizes: Record<string, number>) => void,
 ): Promise<TagMembership> {
   const sets = new Map<string, Set<string>>();
   const sizes: Record<string, number> = {};
 
   for (let i = 0; i < entries.length; i++) {
     const { key, query } = entries[i];
-    onProgress?.(i, entries.length, key);
+    onProgress?.(i, entries.length, key, { ...sizes });
     const names = await fetchOracleTagNames(query);
     sets.set(key, names);
     sizes[key] = names.size;
+    onProgress?.(i + 1, entries.length, key, { ...sizes });
   }
-  onProgress?.(entries.length, entries.length, 'done');
+  onProgress?.(entries.length, entries.length, 'done', { ...sizes });
 
   return {
     has: (key, cardName) => sets.get(key)?.has(cardName) ?? false,
+    loaded: key => sets.has(key),
     sizes,
   };
 }
