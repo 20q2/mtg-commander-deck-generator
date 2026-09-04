@@ -1,5 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { lookupEffect, type BotEffectSpec } from '@/services/playtest/opponents/effects';
+import { canBlock, type Combatant } from '@/services/playtest/combat';
 
 /** One of the player's battlefield cards, flattened to what a bot cares about. */
 export interface PlayerCardRead {
@@ -232,4 +233,130 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
 /** Exposed so the engine can log why a bot sat on its hand. */
 export function holdReason(board: PlayerBoardRead, botPower: number): string | null {
   return threatScore(board, botPower) === 0 ? null : 'holding interaction for a bigger threat';
+}
+
+/**
+ * Would `dealer` put a lethal amount of damage on `target` in one pass?
+ * Deathtouch makes any nonzero amount lethal.
+ */
+function killsIt(dealer: Combatant, target: Combatant): boolean {
+  if (dealer.power <= 0) return false;
+  if (dealer.keywords.has('deathtouch')) return true;
+  return dealer.power >= target.toughness;
+}
+
+/**
+ * Does the blocker walk away? A first striker that kills its attacker outright
+ * never takes damage back — which is exactly the case that makes a block good
+ * rather than a trade.
+ */
+function blockerSurvives(blocker: Combatant, attacker: Combatant): boolean {
+  const blockerFirst  = blocker.keywords.has('firstStrike')  || blocker.keywords.has('doubleStrike');
+  const attackerFirst = attacker.keywords.has('firstStrike') || attacker.keywords.has('doubleStrike');
+  if (blockerFirst && !attackerFirst && killsIt(blocker, attacker)) return true;
+  return !killsIt(attacker, blocker);
+}
+
+/**
+ * Menace needs two bodies. Prefer the pair that together kills the attacker
+ * and loses the fewest creatures doing it.
+ */
+function bestMenacePair(legal: Combatant[], attacker: Combatant): Combatant[] | null {
+  let best: Combatant[] | null = null;
+  let bestLoss = Infinity;
+  for (let i = 0; i < legal.length; i++) {
+    for (let j = i + 1; j < legal.length; j++) {
+      const pair = [legal[i], legal[j]];
+      const lethal = pair.some(b => b.keywords.has('deathtouch'))
+        || pair[0].power + pair[1].power >= attacker.toughness;
+      if (!lethal) continue;
+      const loss = pair.filter(b => !blockerSurvives(b, attacker)).length;
+      if (loss < bestLoss) { bestLoss = loss; best = pair; }
+    }
+  }
+  return best;
+}
+
+export interface BlockContext {
+  /** The player's declared attackers, flattened. */
+  attackers: Combatant[];
+  /**
+   * The bot's legal blockers, flattened. Untapped creatures only — summoning
+   * sickness does NOT prevent blocking, which matters because bots cast a
+   * creature nearly every turn.
+   */
+  blockers: Combatant[];
+  /** The bot's current life, for the chump-block threshold. */
+  life: number;
+  /** 0..1. Higher holds creatures back for its own attacks. */
+  aggression: number;
+}
+
+/**
+ * Decide how a bot blocks. Two passes: take the good blocks, then chump only
+ * if what's left coming through would kill it.
+ *
+ * Returns attacker instanceId → blocker instanceIds. An attacker missing from
+ * the map is unblocked.
+ *
+ * Known gap: a chump block against a trampler still lets the excess through,
+ * so the lethal check in pass 2 can be optimistic against trample. Rare enough
+ * on bot boards that the bookkeeping isn't worth it yet.
+ */
+export function chooseBlocks(ctx: BlockContext): Record<string, string[]> {
+  const { attackers, blockers, life, aggression } = ctx;
+  const blocks: Record<string, string[]> = {};
+  const available = new Map(blockers.map(b => [b.instanceId, b]));
+  const free = () => [...available.values()];
+  const take = (c: Combatant) => available.delete(c.instanceId);
+
+  // Biggest threat first — the creature most worth stopping gets first pick.
+  const ordered = [...attackers].sort((a, b) => b.power - a.power);
+
+  // An aggressive bot keeps bodies back to swing with next turn. The chump
+  // pass ignores this: staying alive beats attacking later.
+  const reserve = Math.round(blockers.length * aggression * 0.4);
+
+  // Pass 1 — blocks that kill the attacker and keep the blocker.
+  for (const atk of ordered) {
+    if (free().length <= reserve) break;
+    const legal = free().filter(b => canBlock(atk, b));
+    const need = atk.keywords.has('menace') ? 2 : 1;
+    if (legal.length < need) continue;
+
+    if (need === 1) {
+      const good = legal
+        .filter(b => killsIt(b, atk) && blockerSurvives(b, atk))
+        .sort((a, b) => a.power - b.power || a.toughness - b.toughness);
+      if (good.length === 0) continue;
+      blocks[atk.instanceId] = [good[0].instanceId];
+      take(good[0]);
+    } else {
+      const pair = bestMenacePair(legal, atk);
+      if (!pair || pair.some(b => !blockerSurvives(b, atk))) continue;
+      blocks[atk.instanceId] = pair.map(b => b.instanceId);
+      pair.forEach(take);
+    }
+  }
+
+  // Pass 2 — chump, but only against lethal.
+  const stillComing = () => attackers
+    .filter(a => !(blocks[a.instanceId]?.length))
+    .reduce((n, a) => n + Math.max(0, a.power), 0);
+
+  if (stillComing() < life) return blocks;
+
+  for (const atk of ordered) {
+    if (stillComing() < life) break;
+    if (blocks[atk.instanceId]?.length) continue;
+    const legal = free().filter(b => canBlock(atk, b));
+    const need = atk.keywords.has('menace') ? 2 : 1;
+    if (legal.length < need) continue;
+    // Throw the least useful bodies in front of it.
+    const chumps = [...legal].sort((a, b) => a.power - b.power).slice(0, need);
+    blocks[atk.instanceId] = chumps.map(b => b.instanceId);
+    chumps.forEach(take);
+  }
+
+  return blocks;
 }
