@@ -324,6 +324,17 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       | undefined;
     const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number; opponentId?: string; attackerId?: string } | undefined;
 
+    // ── Attack: one of your creatures dropped into a seat's combat strip ──
+    // Legality — creature, untapped, not already declared — lives in
+    // declareAttacker, so this stays a thin router like the branches below.
+    if (overData?.kind === 'combatStrip' && overData.opponentId) {
+      const src = sourceData?.source;
+      if (!src || (src as { kind: string }).kind !== 'battlefield') return;
+      const instanceId = (src as { instanceId: string }).instanceId;
+      useOpponentStore.getState().declareAttacker(overData.opponentId, instanceId);
+      return;
+    }
+
     // ── Block: one of your creatures dropped onto an attacker ──
     if (overData?.kind === 'combatAttacker' && overData.attackerId) {
       const src = sourceData?.source;
