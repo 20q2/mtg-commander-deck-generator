@@ -174,6 +174,20 @@ interface PlaytestActions {
   appendLog: (text: string) => void;
   clearLog: () => void;
 
+  /**
+   * Push one history entry capturing the current state, without mutating
+   * anything. Lets a multi-step sequence — declare attackers, confirm, resolve
+   * — collapse into a single Undo rather than unwinding one card at a time.
+   */
+  pushCheckpoint: () => void;
+  /**
+   * Set tapped on many cards without pushing history or logging. For steps
+   * that sit inside a sequence already covered by a pushCheckpoint, where
+   * `toggleTap` would fragment the undo and spam the log with one line per
+   * attacker.
+   */
+  setTappedQuiet: (instanceIds: string[], tapped: boolean) => void;
+
   addFreeCounter: (color?: CounterColor, position?: { x: number; y: number }) => void;
   adjustFreeCounter: (id: string, delta: number) => void;
   removeFreeCounter: (id: string) => void;
@@ -670,6 +684,19 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   }),
 
   // ─────────────────────── battlefield card actions ───────────────────────
+
+  pushCheckpoint: () => set(state => ({
+    history: pushHistory(state.history, snapshotOf(state)),
+  })),
+
+  setTappedQuiet: (instanceIds, tapped) => set(state => {
+    const ids = new Set(instanceIds);
+    return {
+      battlefield: state.battlefield.map(b =>
+        ids.has(b.instanceId) ? { ...b, tapped } : b,
+      ),
+    };
+  }),
 
   toggleTap: (instanceId) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
