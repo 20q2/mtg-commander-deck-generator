@@ -7,6 +7,7 @@ import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/d
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
+import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CombatState, Opponent, OpponentZone } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
@@ -228,54 +229,54 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const playtest = usePlaytestStore.getState();
     const float = useFloatingText.getState().float;
 
-    let damageToPlayer = 0;
-    const deadBlockers: string[] = [];
-    const deadAttackers: string[] = [];
+    const attackers: Combatant[] = combat.attackers.map(a => ({
+      instanceId: a.instanceId,
+      name: a.card.name,
+      power: a.power,
+      toughness: a.toughness,
+      keywords: keywordsOf(a.card),
+    }));
 
+    // Blockers are read off the live board so counters and P/T stickers count.
+    const names = new Map<string, string>();
+    const blocks: Record<string, Combatant[]> = {};
     for (const attacker of combat.attackers) {
-      const blockerIds = combat.blocks[attacker.instanceId] ?? [];
-      if (blockerIds.length === 0) {
-        damageToPlayer += attacker.power;
-        continue;
-      }
-
-      // Read the blockers off the live board so counters and stickers count.
-      const blockers = blockerIds
+      const ids = combat.blocks[attacker.instanceId] ?? [];
+      blocks[attacker.instanceId] = ids
         .map(id => playtest.battlefield.find(b => b.instanceId === id))
         .filter((b): b is NonNullable<typeof b> => !!b)
         .map(b => {
           const pt = resolvePT(b);
           const [p, t] = (pt?.modified ?? '0/0').split('/');
+          const power = parseInt(p, 10);
+          const toughness = parseInt(t, 10);
+          names.set(b.instanceId, b.card.name);
           return {
             instanceId: b.instanceId,
             name: b.card.name,
-            power: Number.isNaN(parseInt(p, 10)) ? 0 : parseInt(p, 10),
-            toughness: Number.isNaN(parseInt(t, 10)) ? 0 : parseInt(t, 10),
+            power: Number.isNaN(power) ? 0 : power,
+            toughness: Number.isNaN(toughness) ? 0 : toughness,
+            keywords: keywordsOf(b.card),
           };
         });
+    }
 
-      // The attacker assigns its power down the blocker list in order, so a
-      // chump block eats one creature rather than spreading harmlessly.
-      let remaining = attacker.power;
-      for (const blocker of blockers) {
-        if (remaining <= 0) break;
-        const dealt = Math.min(remaining, blocker.toughness);
-        float(`−${dealt}`, 'damage', blocker.instanceId);
-        if (remaining >= blocker.toughness && blocker.toughness > 0) {
-          deadBlockers.push(blocker.instanceId);
-          float('Dies', 'damage', blocker.instanceId);
-          playtest.appendLog(`${blocker.name} died blocking ${attacker.card.name}`);
-        }
-        remaining -= blocker.toughness;
-      }
+    const outcome = resolveDamage(attackers, blocks);
+    const { deadAttackers, deadBlockers } = outcome;
 
-      const blockerPower = blockers.reduce((sum, b) => sum + b.power, 0);
-      if (blockerPower > 0) float(`−${blockerPower}`, 'damage', attacker.instanceId);
-      if (attacker.toughness > 0 && blockerPower >= attacker.toughness) {
-        deadAttackers.push(attacker.instanceId);
-        float('Dies', 'damage', attacker.instanceId);
-        playtest.appendLog(`${attacker.card.name} died in combat`);
-      }
+    for (const id of deadBlockers) {
+      float('Dies', 'damage', id);
+      const killer = combat.attackers.find(a =>
+        (combat.blocks[a.instanceId] ?? []).includes(id),
+      );
+      playtest.appendLog(
+        `${names.get(id) ?? 'A creature'} died blocking ${killer?.card.name ?? 'an attacker'}`,
+      );
+    }
+    for (const id of deadAttackers) {
+      float('Dies', 'damage', id);
+      const attacker = combat.attackers.find(a => a.instanceId === id);
+      playtest.appendLog(`${attacker?.card.name ?? 'An attacker'} died in combat`);
     }
 
     for (const id of deadBlockers) {
@@ -298,9 +299,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       }));
     }
 
-    if (damageToPlayer > 0) {
-      playtest.appendLog(`You took ${damageToPlayer} from ${combat.opponentName}`);
-      playtest.adjustLife(-damageToPlayer);
+    if (outcome.damageToDefender > 0) {
+      playtest.appendLog(`You took ${outcome.damageToDefender} from ${combat.opponentName}`);
+      playtest.adjustLife(-outcome.damageToDefender);
     } else {
       playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`);
     }
