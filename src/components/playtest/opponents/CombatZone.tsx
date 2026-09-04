@@ -38,9 +38,13 @@ export function CombatZone() {
         <span className="text-[11px] font-semibold text-rose-200">
           {combat.opponentName} attacks
         </span>
-        <span className="text-[10px] text-muted-foreground hidden sm:inline">
-          Drag your creatures onto an attacker to block
-        </span>
+        {/* Instruction only until you've blocked something — once you've done it
+            once you know how, and the tally to the right is the useful readout. */}
+        {blockedCount === 0 && (
+          <span className="text-[10px] text-muted-foreground hidden sm:inline">
+            Drag your creatures onto an attacker to block
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] tabular-nums">
             {blockedCount > 0 && (
