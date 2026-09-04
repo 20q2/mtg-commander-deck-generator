@@ -151,6 +151,8 @@ export function NextTurnButton() {
   const runAllTurns = useOpponentStore(s => s.runAllTurns);
   const opponentCount = useOpponentStore(s => s.opponents.length);
   const combat = useOpponentStore(s => s.combat);
+  const playerCombat = useOpponentStore(s => s.playerCombat);
+  const discardDeclaration = useOpponentStore(s => s.discardDeclaration);
   const botsRunning = useOpponentStore(s => s.running);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
 
@@ -158,12 +160,18 @@ export function NextTurnButton() {
   // a second pass, so without this the button silently advanced YOUR turn and
   // drew you a card while the bots' turns were dropped on the floor — the game
   // desynced and nothing said so.
-  const blocked = botsRunning || !!combat;
+  //
+  // Also locked on a confirmed attack of your own: blocks are chosen but damage
+  // hasn't happened, and advancing past that would strand it the same way.
+  const blocked = botsRunning || !!combat || !!playerCombat;
 
   // One button still drives the whole game: your turn, then every bot's, in order.
   // Unless you've turned that off, in which case the table waits for you.
   const handleNextTurn = () => {
     if (blocked) return;
+    // An unconfirmed declaration never happened — untap and forget it rather
+    // than carrying a half-built attack into the bots' turn.
+    discardDeclaration();
     nextTurn();
     draw(1);
     if (autoTurns) runAllTurns();

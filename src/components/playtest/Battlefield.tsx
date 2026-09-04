@@ -8,6 +8,7 @@ import { FreeDie } from '@/components/playtest/FreeDie';
 import { BattlefieldContextMenu, type BattlefieldMenuTarget } from '@/components/playtest/BattlefieldContextMenu';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { OpponentSeats } from '@/components/playtest/opponents/OpponentSeats';
+import { useOpponentStore } from '@/store/opponentStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 export function Battlefield() {
@@ -201,6 +202,7 @@ export function Battlefield() {
           a canvas that reflowed when a seat expanded would clip the ones near
           the top. */}
       <OpponentSeats />
+      <AttackButton />
 
       {/* Mobile-only: zones float at the edges of the battlefield. On desktop
           they live in the hand row below. We conditionally RENDER (not just
@@ -221,6 +223,26 @@ export function Battlefield() {
       )}
       <BattlefieldContextMenu target={menu} onClose={() => setMenu(null)} />
     </div>
+  );
+}
+
+/**
+ * Confirms the whole attack across every seat at once. Declaring is one step
+ * for all opponents because blocking is a decision about the whole attack — a
+ * bot answering one drop at a time would block badly.
+ */
+function AttackButton() {
+  const declaration = useOpponentStore(s => s.declaration);
+  const confirmAttack = useOpponentStore(s => s.confirmAttack);
+  const count = declaration ? Object.values(declaration).flat().length : 0;
+  if (count === 0) return null;
+  return (
+    <button
+      onClick={confirmAttack}
+      className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 px-4 h-8 rounded-md bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-lg ring-1 ring-violet-300/40"
+    >
+      Attack · {count} creature{count === 1 ? '' : 's'}
+    </button>
   );
 }
 

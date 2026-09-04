@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { useOpponentStore } from '@/store/opponentStore';
 
 export function usePlaytestHotkeys() {
   // Track the most recent cursor position so Ctrl+V can paste at the cursor.
@@ -25,7 +26,14 @@ export function usePlaytestHotkeys() {
 
       // Enter (main or numpad — both report e.key === 'Enter'): advance the
       // turn and draw, matching the Next Turn button.
-      if (e.key === 'Enter') { e.preventDefault(); s.nextTurn(); s.draw(1); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        // An unconfirmed declaration never happened — untap and forget it.
+        useOpponentStore.getState().discardDeclaration();
+        s.nextTurn();
+        s.draw(1);
+        return;
+      }
       // Backspace: reset the playtest, matching the Reset button. preventDefault
       // also stops the browser's back-navigation behaviour.
       if (e.key === 'Backspace') { e.preventDefault(); s.reset(); return; }
