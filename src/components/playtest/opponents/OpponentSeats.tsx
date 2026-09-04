@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bot, Play, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
@@ -24,6 +24,7 @@ export function OpponentSeats() {
   const openModal = usePlaytestStore(s => s.openModal);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
   const viewportWidth = useViewportWidth();
+  const bandRef = useSeatBandMeasure(opponents.length);
 
   // Empty table: one chip. This is the discovery moment the old collapsed rail
   // carried, and it has to survive the move.
@@ -49,7 +50,10 @@ export function OpponentSeats() {
   );
 
   return (
-    <div className="hidden md:flex absolute top-1.5 inset-x-1.5 z-30 justify-center items-start gap-2 pointer-events-none">
+    <div
+      ref={bandRef}
+      className="hidden md:flex absolute top-1.5 inset-x-1.5 z-30 justify-center items-start gap-2 pointer-events-none"
+    >
       {opponents.map(o => (
         <div key={o.id} className="pointer-events-auto">
           <OpponentSeat opponent={o} width={width} />
@@ -81,6 +85,38 @@ export function OpponentSeats() {
       </div>
     </div>
   );
+}
+
+/**
+ * Publish the band's rendered height so arriving cards can snap below it. The
+ * seats are opaque and always on, so without this every creature you cast
+ * would land underneath them and look like it had vanished.
+ *
+ * Reports 0 when nobody is seated — the empty-table chip is centered and tiny,
+ * and reserving space for it would push your board down for no reason.
+ */
+function useSeatBandMeasure(opponentCount: number) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const setSeatBandHeight = usePlaytestStore(s => s.setSeatBandHeight);
+
+  useEffect(() => {
+    if (opponentCount === 0) {
+      setSeatBandHeight(0);
+      return;
+    }
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setSeatBandHeight(el.getBoundingClientRect().height);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      setSeatBandHeight(0);
+    };
+  }, [opponentCount, setSeatBandHeight]);
+
+  return ref;
 }
 
 /** Seat width tracks the window, so a resize has to re-render the row. */

@@ -15,13 +15,19 @@ import type { Opponent, OpponentPermanent } from '@/components/playtest/opponent
 import type { ScryfallCard } from '@/types';
 
 /**
- * One opponent, seated across the table. Resting shows only what you scan
- * mid-turn — who they are, their life, and what can attack you. Everything
- * else appears on hover, on their turn, or while they're in combat.
+ * One opponent, seated across the table. Everything they own is always on
+ * screen — creatures, other permanents, lands, hand and zones. A bot playing a
+ * land or a mana rock is still a bot doing something, and a collapsed seat
+ * that hid it made their turns read as nothing happening.
  *
- * Expansion is an overlay, never a reflow: battlefield cards are stored at
+ * The cost is vertical space, so the layout is dense rather than partial:
+ * lands share their row with the hand fan and the zone piles, and card sizes
+ * step down by row so the creature row — the one you actually scan — stays
+ * the biggest thing here.
+ *
+ * The seat is an overlay, never a reflow: battlefield cards are stored at
  * absolute x/y and the canvas is overflow-hidden, so a canvas that shortened
- * on expand would clip the cards near the top and silently invalidate the
+ * to make room would clip the cards near the top and silently invalidate the
  * coordinates the player built their board around.
  */
 export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: number }) {
@@ -32,10 +38,8 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
   const running = useOpponentStore(s => s.running);
   const combat = useOpponentStore(s => s.combat);
   const playerCombat = useOpponentStore(s => s.playerCombat);
-  const [hovered, setHovered] = useState(false);
 
   const inCombat = combat?.opponentId === opponent.id || !!playerCombat?.perOpponent[opponent.id];
-  const expanded = hovered || inCombat;
 
   // Donating a permanent still targets the seat's BOARD. Attacking targets the
   // strip. Two regions, so the gestures never collide.
@@ -45,13 +49,11 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
   });
 
   const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
-  const zoneWidth = Math.round(Math.max(20, Math.min(44, width * 0.12)));
+  const zoneWidth = Math.round(Math.max(18, Math.min(38, width * 0.10)));
 
   return (
     <div
       data-float-id={`opp-lane-${opponent.id}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       className={`rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 shadow-lg transition-colors ${
         isOver ? 'border-violet-400/70 bg-violet-500/10'
         : inCombat ? 'border-violet-400/70'
@@ -67,8 +69,10 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
         onRemove={remove}
       />
 
-      {/* Board. The creature row is always here; the rest is expansion-only. */}
-      <div ref={setNodeRef} className="mt-1 space-y-1 min-h-[40px]">
+      {/* Creatures and other permanents. Both always shown — a bot casting a
+          Signet is a bot doing something, and hiding it made their turns read
+          as nothing happening. */}
+      <div ref={setNodeRef} className="mt-1 space-y-1">
         {opponent.battlefield.length === 0 ? (
           // A drop target you can see, rather than a sentence explaining one.
           <div
@@ -78,8 +82,7 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
             aria-label="Drop a permanent here to give it to this opponent"
           />
         ) : (
-          ROW_ORDER.map(row => {
-            if (row.key !== 'creatures' && !expanded) return null;
+          UPPER_ROWS.map(row => {
             const cards = rows[row.key];
             if (cards.length === 0) return null;
             return (
@@ -98,39 +101,48 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
         )}
       </div>
 
-      {/* Hand and zones — reference material, so expansion only. Mirrors your
-          own hand row: hand on the left, Library / Graveyard / Exile grouped
-          right, with Exile half-width and hanging from the top. */}
-      {expanded && (
-        <div className="mt-1.5 flex items-end gap-1">
+      {/* Bottom row: lands on the left, then hand and the zone piles grouped
+          right. Sharing one row keeps the seat short enough to live over the
+          canvas while still showing every land they've played. Mirrors your
+          own hand row, with Exile half-width and hanging from the top. */}
+      <div className="mt-1 flex items-end gap-1">
+        <div className="flex items-end gap-1 flex-wrap min-w-0" title="Lands">
+          {rows.lands.map(p => (
+            <OpponentPermanentCard
+              key={p.instanceId}
+              opponentId={opponent.id}
+              permanent={p}
+              width={rowWidth(width, LAND_SCALE)}
+            />
+          ))}
+        </div>
+        <div className="ml-auto flex items-end gap-1 shrink-0">
           <HandFan count={opponent.hand.length} width={zoneWidth} />
-          <div className="ml-auto flex items-end gap-1">
+          <ZonePile
+            label="Library" count={opponent.library.length} width={zoneWidth}
+            hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
+            warn={opponent.decked}
+            Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
+          />
+          <ZonePile
+            label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
+            top={opponent.graveyard[opponent.graveyard.length - 1]}
+            hint="Click to view their graveyard"
+            onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
+            Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
+          />
+          <div className="self-start">
             <ZonePile
-              label="Library" count={opponent.library.length} width={zoneWidth}
-              hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
-              warn={opponent.decked}
-              Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
+              label="Exile" count={opponent.exile.length}
+              width={Math.max(14, Math.round(zoneWidth * 0.5))}
+              top={opponent.exile[opponent.exile.length - 1]}
+              hint="Click to view their exile"
+              onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
+              Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
             />
-            <ZonePile
-              label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
-              top={opponent.graveyard[opponent.graveyard.length - 1]}
-              hint="Click to view their graveyard"
-              onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
-              Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
-            />
-            <div className="self-start">
-              <ZonePile
-                label="Exile" count={opponent.exile.length}
-                width={Math.max(14, Math.round(zoneWidth * 0.5))}
-                top={opponent.exile[opponent.exile.length - 1]}
-                hint="Click to view their exile"
-                onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
-                Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
-              />
-            </div>
           </div>
         </div>
-      )}
+      </div>
 
       <CombatStrip opponentId={opponent.id} />
     </div>
@@ -309,19 +321,22 @@ function ZonePile({
 type RowKey = 'creatures' | 'others' | 'lands';
 
 /**
- * Board rows, rendered top to bottom in this order: creatures in front, other
- * permanents in the middle, lands on the bottom — the way a player lays out
- * their own side of the table.
+ * The two rows that get their own line: creatures in front, other permanents
+ * behind them — the way a player lays out their own side of the table. Lands
+ * are the third row but share their line with the hand and zones, so they're
+ * kept separate below.
  *
  * Widths are a fraction of the seat so cards grow with it, and they step down
  * by row: a pile of basics shouldn't dominate the seat, and the row you
  * actually scan — what can attack me — should read largest.
  */
-const ROW_ORDER: { key: RowKey; label: string; scale: number }[] = [
-  { key: 'creatures', label: 'Creatures',        scale: 0.20 },
-  { key: 'others',    label: 'Other permanents', scale: 0.16 },
-  { key: 'lands',     label: 'Lands',            scale: 0.13 },
+const UPPER_ROWS: { key: Exclude<RowKey, 'lands'>; label: string; scale: number }[] = [
+  { key: 'creatures', label: 'Creatures',        scale: 0.19 },
+  { key: 'others',    label: 'Other permanents', scale: 0.14 },
 ];
+
+/** Lands are smallest — they share a row with the hand fan and the zone piles. */
+const LAND_SCALE = 0.10;
 
 /** Seat width → card width for a row, clamped so it stays legible and sane. */
 function rowWidth(seatWidth: number, scale: number): number {

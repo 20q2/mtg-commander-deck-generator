@@ -89,9 +89,17 @@ export function snapArrival(
   _rawY: number,
   containerHeight: number,
   cardHeight = 140,
+  /**
+   * Height of the opponent seats overlaying the top of the canvas. Non-lands
+   * snap below it — the seats are always-on and opaque, so without this every
+   * creature you cast would arrive underneath them and look like it vanished.
+   * 0 when no bots are seated, which restores the old behaviour exactly.
+   */
+  topBand = 0,
 ): { x: number; y: number } {
   const margin = 16;
-  const y = isLand(card) ? Math.max(margin, containerHeight - cardHeight - margin) : margin;
+  const top = topBand > 0 ? topBand + 8 : margin;
+  const y = isLand(card) ? Math.max(top, containerHeight - cardHeight - margin) : top;
   return { x: rawX, y };
 }
 

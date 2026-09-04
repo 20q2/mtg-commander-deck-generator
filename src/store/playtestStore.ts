@@ -58,6 +58,10 @@ interface PlaytestState {
   // Pins only ever name cards already in the deck, so no card data is stored here.
   trialPins: TrialPin[];
   battlefieldRect: { width: number; height: number };     // updated by Battlefield component on mount/resize
+  // Measured height of the opponent seats overlaying the top of the canvas.
+  // Arriving cards snap below it so nothing lands underneath them. 0 when no
+  // bots are seated.
+  seatBandHeight: number;
   // Mulligan state machine
   mulliganCount: number;
   // Increments any time the library is shuffled — UI hooks observe this for animations
@@ -114,6 +118,7 @@ interface PlaytestActions {
   reset: () => void;
   exit: () => void;                                        // clears all state (for unmount)
   setBattlefieldRect: (w: number, h: number) => void;
+  setSeatBandHeight: (h: number) => void;
 
   dealOpeningHand: () => void;
   draw: (n?: number) => void;
@@ -236,6 +241,7 @@ const initial: PlaytestState = {
   hoveredHandIndex: null,
   trialPins: [],
   battlefieldRect: { width: 0, height: 0 },
+  seatBandHeight: 0,
   mulliganCount: 0,
   shuffleTick: 0,
   libraryTopPushTick: 0,
@@ -368,6 +374,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   exit: () => set({ ...initial }),
 
   setBattlefieldRect: (width, height) => set({ battlefieldRect: { width, height } }),
+  setSeatBandHeight: (h) => set({ seatBandHeight: h }),
 
   // ─────────────────────── mulligan / draw / shuffle ───────────────────────
 
@@ -600,7 +607,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       let { x, y } = target;
       if (target.arrived) {
         const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
-        const snapped = snapArrival(card, x, y, state.battlefieldRect.height, ch);
+        const snapped = snapArrival(card, x, y, state.battlefieldRect.height, ch, state.seatBandHeight);
         const slot = findArrivalSlot(
           next.battlefield,
           snapped.x,
