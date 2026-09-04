@@ -9,8 +9,10 @@ import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { registerUndoParticipant } from '@/store/undoBridge';
+import { chooseBlocks } from '@/services/playtest/opponents/evaluate';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import type { CombatState, Opponent, OpponentZone } from '@/components/playtest/opponentTypes';
+import type { CombatState, Opponent, OpponentPermanent, OpponentZone } from '@/components/playtest/opponentTypes';
+import type { BattlefieldCard } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
 const STARTING_LIFE = 40;
@@ -33,6 +35,35 @@ function statOf(card: ScryfallCard, key: 'power' | 'toughness'): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
+/**
+ * Flatten one of the player's battlefield cards into a Combatant. Reads live
+ * P/T through resolvePT so counters and stickers count — the same path the
+ * blocker flattening in resolveCombat already uses.
+ */
+function playerCombatant(b: BattlefieldCard): Combatant {
+  const [p, t] = (resolvePT(b)?.modified ?? '0/0').split('/');
+  const power = parseInt(p, 10);
+  const toughness = parseInt(t, 10);
+  return {
+    instanceId: b.instanceId,
+    name: b.card.name,
+    power: Number.isNaN(power) ? 0 : power,
+    toughness: Number.isNaN(toughness) ? 0 : toughness,
+    keywords: keywordsOf(b.card),
+  };
+}
+
+/** The same, for a bot's permanent. Bot cards carry no counters yet. */
+function botCombatant(p: OpponentPermanent): Combatant {
+  return {
+    instanceId: p.instanceId,
+    name: p.card.name,
+    power: statOf(p.card, 'power'),
+    toughness: statOf(p.card, 'toughness'),
+    keywords: keywordsOf(p.card),
+  };
+}
+
 interface OpponentState {
   opponents: Opponent[];
   /** Stub ids currently being fetched, so the picker can show per-deck spinners. */
@@ -42,6 +73,18 @@ interface OpponentState {
   running: boolean;
   /** Set while a bot is attacking and waiting on your blocks. */
   combat: CombatState | null;
+  /**
+   * Your attack in progress, before you confirm it: opponentId → the
+   * battlefield instanceIds you've dropped into that seat's strip.
+   */
+  declaration: Record<string, string[]> | null;
+  /** Set on confirm — the bots' chosen blocks, waiting on Resolve. */
+  playerCombat: {
+    perOpponent: Record<string, {
+      attackers: string[];
+      blocks: Record<string, string[]>;
+    }>;
+  } | null;
 }
 
 interface OpponentActions {
@@ -70,6 +113,16 @@ interface OpponentActions {
   removeBlocker: (attackerId: string, blockerInstanceId: string) => void;
   /** Work out damage, kill what died, and let the bot's turn continue. */
   resolveCombat: () => void;
+  /** Drop one of your creatures into a seat's strip. Taps it unless vigilant. */
+  declareAttacker: (opponentId: string, instanceId: string) => void;
+  /** Pull a declared attacker back out. Untaps it. */
+  undeclareAttacker: (instanceId: string) => void;
+  /** Lock the attack in and let every bot choose its blocks. */
+  confirmAttack: () => void;
+  /** Work out damage in your direction and clear the strips. */
+  resolvePlayerCombat: () => void;
+  /** Throw away an unconfirmed declaration, untapping everything in it. */
+  discardDeclaration: () => void;
 }
 
 /**
@@ -146,6 +199,8 @@ const initial: OpponentState = {
   error: null,
   running: false,
   combat: null,
+  declaration: null,
+  playerCombat: null,
 };
 
 /**
@@ -196,7 +251,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // Never leave a turn awaiting blocks for a table that no longer exists.
     combatResolver?.();
     combatResolver = null;
-    set({ opponents: [], error: null, combat: null, running: false });
+    set({
+      opponents: [], error: null, combat: null,
+      declaration: null, playerCombat: null, running: false,
+    });
   },
 
   assignBlocker: (attackerId, blockerInstanceId) => set(s => {
@@ -310,6 +368,177 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({ combat: null });
     combatResolver?.();
     combatResolver = null;
+  },
+
+  declareAttacker: (opponentId, instanceId) => {
+    const playtest = usePlaytestStore.getState();
+    const card = playtest.battlefield.find(b => b.instanceId === instanceId);
+    if (!card || card.tapped) return;
+    if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) return;
+
+    const current = get().declaration;
+    // Already swinging at someone? Don't let it attack twice.
+    if (current && Object.values(current).some(ids => ids.includes(instanceId))) return;
+
+    // First attacker of the attack: one checkpoint covers the whole arc.
+    if (!current) playtest.pushCheckpoint();
+
+    // Vigilance attacks without tapping. Everything else taps.
+    if (!keywordsOf(card.card).has('vigilance')) {
+      playtest.setTappedQuiet([instanceId], true);
+    }
+
+    set(s => {
+      const next = { ...(s.declaration ?? {}) };
+      next[opponentId] = [...(next[opponentId] ?? []), instanceId];
+      return { declaration: next };
+    });
+  },
+
+  undeclareAttacker: (instanceId) => {
+    const current = get().declaration;
+    if (!current) return;
+    const playtest = usePlaytestStore.getState();
+    const card = playtest.battlefield.find(b => b.instanceId === instanceId);
+    if (card && !keywordsOf(card.card).has('vigilance')) {
+      playtest.setTappedQuiet([instanceId], false);
+    }
+    set(() => {
+      const next: Record<string, string[]> = {};
+      for (const [oppId, ids] of Object.entries(current)) {
+        const kept = ids.filter(id => id !== instanceId);
+        if (kept.length > 0) next[oppId] = kept;
+      }
+      return { declaration: Object.keys(next).length > 0 ? next : null };
+    });
+  },
+
+  discardDeclaration: () => {
+    const current = get().declaration;
+    if (!current) return;
+    const playtest = usePlaytestStore.getState();
+    const toUntap = Object.values(current).flat().filter(id => {
+      const card = playtest.battlefield.find(b => b.instanceId === id);
+      return card ? !keywordsOf(card.card).has('vigilance') : false;
+    });
+    playtest.setTappedQuiet(toUntap, false);
+    set({ declaration: null });
+  },
+
+  confirmAttack: () => {
+    const declaration = get().declaration;
+    if (!declaration) return;
+    const playtest = usePlaytestStore.getState();
+    const opponents = get().opponents;
+
+    const perOpponent: Record<string, { attackers: string[]; blocks: Record<string, string[]> }> = {};
+
+    for (const [opponentId, instanceIds] of Object.entries(declaration)) {
+      const opponent = opponents.find(o => o.id === opponentId);
+      if (!opponent || instanceIds.length === 0) continue;
+
+      const attackers = instanceIds
+        .map(id => playtest.battlefield.find(b => b.instanceId === id))
+        .filter((b): b is BattlefieldCard => !!b)
+        .map(playerCombatant);
+
+      // Untapped creatures only. Summoning-sick creatures block fine.
+      const blockers = opponent.battlefield
+        .filter(p => !p.tapped && getFrontFaceTypeLine(p.card).toLowerCase().includes('creature'))
+        .map(botCombatant);
+
+      perOpponent[opponentId] = {
+        attackers: instanceIds,
+        blocks: chooseBlocks({
+          attackers,
+          blockers,
+          life: opponent.life,
+          aggression: opponent.aggression,
+        }),
+      };
+
+      playtest.appendLog(
+        `You attack ${opponent.name} with ${attackers.length} creature${attackers.length === 1 ? '' : 's'}`,
+      );
+    }
+
+    set({ declaration: null, playerCombat: { perOpponent } });
+  },
+
+  resolvePlayerCombat: () => {
+    const playerCombat = get().playerCombat;
+    if (!playerCombat) return;
+    const playtest = usePlaytestStore.getState();
+    const float = useFloatingText.getState().float;
+
+    const myDead: string[] = [];
+    const theirDead: Record<string, string[]> = {};
+
+    for (const [opponentId, side] of Object.entries(playerCombat.perOpponent)) {
+      const opponent = get().opponents.find(o => o.id === opponentId);
+      if (!opponent) continue;
+
+      const attackers = side.attackers
+        .map(id => playtest.battlefield.find(b => b.instanceId === id))
+        .filter((b): b is BattlefieldCard => !!b)
+        .map(playerCombatant);
+
+      const blocks: Record<string, Combatant[]> = {};
+      for (const attacker of attackers) {
+        blocks[attacker.instanceId] = (side.blocks[attacker.instanceId] ?? [])
+          .map(id => opponent.battlefield.find(p => p.instanceId === id))
+          .filter((p): p is OpponentPermanent => !!p)
+          .map(botCombatant);
+      }
+
+      // Same pure module the bot→player direction uses. It does not know or
+      // care which side is defending.
+      const outcome = resolveDamage(attackers, blocks);
+
+      for (const id of outcome.deadAttackers) {
+        float('Dies', 'damage', id);
+        const c = attackers.find(a => a.instanceId === id);
+        playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`);
+        myDead.push(id);
+      }
+      for (const id of outcome.deadBlockers) {
+        float('Dies', 'damage', id);
+        const p = opponent.battlefield.find(b => b.instanceId === id);
+        playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`);
+      }
+      theirDead[opponentId] = outcome.deadBlockers;
+
+      if (outcome.damageToDefender > 0) {
+        playtest.appendLog(`${opponent.name} took ${outcome.damageToDefender}`);
+        get().adjustLife(opponentId, -outcome.damageToDefender);
+      } else {
+        playtest.appendLog(`Your attack on ${opponent.name} dealt no damage`);
+      }
+    }
+
+    // Your dead attackers go to your graveyard through the normal move path.
+    for (const id of myDead) {
+      playtest.moveCard({
+        source: { kind: 'battlefield', instanceId: id },
+        target: { kind: 'zone', zone: 'graveyard' },
+      });
+    }
+
+    // Their dead blockers go to theirs. Survivors need no repositioning: they
+    // never left `battlefield`, so their x/y is intact by construction.
+    set(s => ({
+      opponents: s.opponents.map(o => {
+        const dead = theirDead[o.id];
+        if (!dead || dead.length === 0) return o;
+        const gone = o.battlefield.filter(p => dead.includes(p.instanceId));
+        return {
+          ...o,
+          battlefield: o.battlefield.filter(p => !dead.includes(p.instanceId)),
+          graveyard: [...o.graveyard, ...gone.map(p => p.card)],
+        };
+      }),
+      playerCombat: null,
+    }));
   },
 
   adjustLife: (id, delta) => {
@@ -501,6 +730,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
   resetAll: () => set(s => {
     if (s.opponents.length === 0) return {};
     return {
+      // A reshuffle must not leave a half-declared attack pointing at instance
+      // ids that no longer mean anything.
+      declaration: null,
+      playerCombat: null,
       opponents: s.opponents.map(o => {
         // Gather every card back — tokens have no printing to return to, and
         // nothing here creates them yet, but filter anyway so that stays true.
@@ -532,6 +765,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 interface OpponentUndoSnapshot {
   opponents: Opponent[];
   combat: CombatState | null;
+  declaration: Record<string, string[]> | null;
+  playerCombat: OpponentState['playerCombat'];
 }
 
 registerUndoParticipant({
@@ -550,12 +785,30 @@ registerUndoParticipant({
       combat: s.combat
         ? { ...s.combat, attackers: [...s.combat.attackers], blocks: { ...s.combat.blocks } }
         : null,
+      declaration: s.declaration
+        ? Object.fromEntries(Object.entries(s.declaration).map(([k, v]) => [k, [...v]]))
+        : null,
+      playerCombat: s.playerCombat
+        ? {
+            perOpponent: Object.fromEntries(
+              Object.entries(s.playerCombat.perOpponent).map(([k, side]) => [
+                k,
+                { attackers: [...side.attackers], blocks: { ...side.blocks } },
+              ]),
+            ),
+          }
+        : null,
     };
   },
   restore: (snapshot) => {
     const s = snapshot as OpponentUndoSnapshot;
     const hadCombat = useOpponentStore.getState().combat !== null;
-    useOpponentStore.setState({ opponents: s.opponents, combat: s.combat });
+    useOpponentStore.setState({
+      opponents: s.opponents,
+      combat: s.combat,
+      declaration: s.declaration,
+      playerCombat: s.playerCombat,
+    });
     // An undo that closes an open combat has to settle the promise runAllTurns
     // is parked on, or the bot's turn never finishes and `running` sticks true,
     // which silently disables Next Turn for the rest of the game.
