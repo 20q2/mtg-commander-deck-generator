@@ -186,7 +186,9 @@ function OpponentLane({ opponent, columnWidth }: { opponent: Opponent; columnWid
       {/* One header row: who they are, their life, whether they fight back, and
           the way out. Everything that was stacked below now lives here. */}
       <div className="flex items-center gap-1">
-        <span className="text-[11px] font-semibold truncate flex-1 min-w-0">{opponent.name}</span>
+        <span className="text-[11px] font-semibold truncate flex-1 min-w-0" title={opponent.name}>
+          {opponent.name}
+        </span>
 
         <button onClick={() => adjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
         <span

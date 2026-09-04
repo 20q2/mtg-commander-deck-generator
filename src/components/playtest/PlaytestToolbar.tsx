@@ -62,10 +62,18 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
           <button
             data-float-id="player-life"
             onClick={() => { setDraftLife(String(life)); setEditingLife(true); }}
-            className="mx-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold text-sm min-w-[48px] justify-center"
-            title="Click to edit life"
+            className={`mx-1 inline-flex items-center gap-1 px-2 py-0.5 rounded border font-bold text-sm min-w-[48px] justify-center transition-colors ${
+              life <= 5  ? 'bg-red-500/20 border-red-400/60 text-red-300 animate-pulse-subtle'
+            : life <= 10 ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+            :              'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+            }`}
+            title={life <= 10 ? `${life} life — you're in burn range. Click to edit.` : 'Click to edit life'}
           >
-            <Heart className="w-3 h-3 fill-emerald-400/40" />
+            <Heart
+              className={`w-3 h-3 ${
+                life <= 5 ? 'fill-red-400/40' : life <= 10 ? 'fill-amber-400/40' : 'fill-emerald-400/40'
+              }`}
+            />
             {life}
           </button>
         )}

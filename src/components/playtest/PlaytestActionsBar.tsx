@@ -60,7 +60,7 @@ export function PlaytestActionsBar() {
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className={btn} title="Mulligan (M)"><HandIcon className={icon} />Mulligan</Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-3 space-y-2">
+      <PopoverContent side="top" align="start" sideOffset={6} className="w-72 p-3 space-y-2">
         <p className="text-xs">Shuffle your hand back and draw a new one?</p>
         <div className="flex justify-between items-center gap-1.5">
           <Button
@@ -166,25 +166,53 @@ export function NextTurnButton() {
   const turn = usePlaytestStore(s => s.turn);
   const runAllTurns = useOpponentStore(s => s.runAllTurns);
   const opponentCount = useOpponentStore(s => s.opponents.length);
+  const combat = useOpponentStore(s => s.combat);
+  const botsRunning = useOpponentStore(s => s.running);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
+
+  // Locked while a bot's turn is in flight. runAllTurns already refuses to start
+  // a second pass, so without this the button silently advanced YOUR turn and
+  // drew you a card while the bots' turns were dropped on the floor — the game
+  // desynced and nothing said so.
+  const blocked = botsRunning || !!combat;
+
   // One button still drives the whole game: your turn, then every bot's, in order.
   // Unless you've turned that off, in which case the table waits for you.
-  const handleNextTurn = () => { nextTurn(); draw(1); if (autoTurns) runAllTurns(); };
+  const handleNextTurn = () => {
+    if (blocked) return;
+    nextTurn();
+    draw(1);
+    if (autoTurns) runAllTurns();
+  };
+
   return (
     <Button
       size="sm"
-      className="h-8 sm:h-6 px-2 text-[11px] bg-primary/15 hover:bg-primary/25 border border-primary/40 text-primary-foreground/90 gap-1"
+      disabled={blocked}
+      className={`h-8 sm:h-6 px-2 text-[11px] border gap-1 ${
+        combat
+          ? 'bg-rose-500/15 border-rose-400/50 text-rose-200'
+          : 'bg-primary/15 hover:bg-primary/25 border-primary/40 text-primary-foreground/90'
+      }`}
       onClick={handleNextTurn}
       title={
-        opponentCount > 0 && autoTurns
+        combat        ? 'Resolve combat before taking your next turn'
+      : botsRunning   ? 'Waiting for the opponents to finish their turn'
+      : opponentCount > 0 && autoTurns
           ? `Advance the turn, draw a card, then let ${opponentCount} opponent${opponentCount > 1 ? 's' : ''} take their turn`
           : 'Advance to the next turn and draw a card'
       }
     >
       <SkipForward className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
-      <span className="sm:hidden">Turn</span>
-      <span className="hidden sm:inline">Next Turn</span>
-      <span className="opacity-60 tabular-nums text-[10px]">{turn}</span>
+      {combat ? (
+        <span>Blocking…</span>
+      ) : (
+        <>
+          <span className="sm:hidden">Turn</span>
+          <span className="hidden sm:inline">Next Turn</span>
+          <span className="opacity-60 tabular-nums text-[10px]">{turn}</span>
+        </>
+      )}
     </Button>
   );
 }
