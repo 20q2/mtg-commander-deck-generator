@@ -74,6 +74,12 @@ interface OpponentState {
   /** Set while a bot is attacking and waiting on your blocks. */
   combat: CombatState | null;
   /**
+   * True once you've stepped into combat. The seats' strips only open as drop
+   * targets in this phase — an explicit step rather than something that
+   * appears whenever you happen to pick a card up.
+   */
+  combatPhase: boolean;
+  /**
    * Your attack in progress, before you confirm it: opponentId → the
    * battlefield instanceIds you've dropped into that seat's strip.
    */
@@ -113,6 +119,10 @@ interface OpponentActions {
   removeBlocker: (attackerId: string, blockerInstanceId: string) => void;
   /** Work out damage, kill what died, and let the bot's turn continue. */
   resolveCombat: () => void;
+  /** Step into combat — opens every seat's strip as a drop target. */
+  enterCombat: () => void;
+  /** Back out. Anything declared is untapped and forgotten. */
+  exitCombat: () => void;
   /** Drop one of your creatures into a seat's strip. Taps it unless vigilant. */
   declareAttacker: (opponentId: string, instanceId: string) => void;
   /** Pull a declared attacker back out. Untaps it. */
@@ -199,6 +209,7 @@ const initial: OpponentState = {
   error: null,
   running: false,
   combat: null,
+  combatPhase: false,
   declaration: null,
   playerCombat: null,
 };
@@ -252,7 +263,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     combatResolver?.();
     combatResolver = null;
     set({
-      opponents: [], error: null, combat: null,
+      opponents: [], error: null, combat: null, combatPhase: false,
       declaration: null, playerCombat: null, running: false,
     });
   },
@@ -368,6 +379,16 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({ combat: null });
     combatResolver?.();
     combatResolver = null;
+  },
+
+  enterCombat: () => {
+    if (get().opponents.length === 0) return;
+    set({ combatPhase: true });
+  },
+
+  exitCombat: () => {
+    get().discardDeclaration();
+    set({ combatPhase: false });
   },
 
   declareAttacker: (opponentId, instanceId) => {
@@ -538,6 +559,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         };
       }),
       playerCombat: null,
+      // Damage is dealt; the phase is over. combatPhase stays true from
+      // confirm through here so the strips keep showing the blocks.
+      combatPhase: false,
     }));
   },
 
@@ -734,6 +758,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       // ids that no longer mean anything.
       declaration: null,
       playerCombat: null,
+      combatPhase: false,
       opponents: s.opponents.map(o => {
         // Gather every card back — tokens have no printing to return to, and
         // nothing here creates them yet, but filter anyway so that stays true.
@@ -765,6 +790,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 interface OpponentUndoSnapshot {
   opponents: Opponent[];
   combat: CombatState | null;
+  combatPhase: boolean;
   declaration: Record<string, string[]> | null;
   playerCombat: OpponentState['playerCombat'];
 }
@@ -785,6 +811,7 @@ registerUndoParticipant({
       combat: s.combat
         ? { ...s.combat, attackers: [...s.combat.attackers], blocks: { ...s.combat.blocks } }
         : null,
+      combatPhase: s.combatPhase,
       declaration: s.declaration
         ? Object.fromEntries(Object.entries(s.declaration).map(([k, v]) => [k, [...v]]))
         : null,
@@ -806,6 +833,7 @@ registerUndoParticipant({
     useOpponentStore.setState({
       opponents: s.opponents,
       combat: s.combat,
+      combatPhase: s.combatPhase,
       declaration: s.declaration,
       playerCombat: s.playerCombat,
     });

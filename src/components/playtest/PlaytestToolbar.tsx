@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { PlaytestSettingsModal } from '@/components/playtest/PlaytestSettingsModal';
-import { NextTurnButton } from '@/components/playtest/PlaytestActionsBar';
+import { NextTurnButton, CombatButton } from '@/components/playtest/PlaytestActionsBar';
 
 interface Props {
   onExit: () => void;
@@ -84,9 +84,10 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
       {/* Force a row break on mobile so Next Turn + icon group land on their own row. */}
       <div className="basis-full h-0 md:hidden" aria-hidden />
 
-      {/* Next Turn — only in the top toolbar on mobile. On desktop it lives
-          in the hand toolbar's right column. */}
-      <div className="md:hidden">
+      {/* Combat + Next Turn — only in the top toolbar on mobile. On desktop
+          they live in the hand toolbar's right column. */}
+      <div className="md:hidden flex [&>*+*]:-ml-px">
+        <CombatButton />
         <NextTurnButton />
       </div>
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hand as HandIcon, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, Bot, Layers } from 'lucide-react';
+import { Hand as HandIcon, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, Bot, Layers, Swords } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -131,7 +131,7 @@ export function PlaytestActionsBar() {
         {mulliganBtn}
       </Group>
       <Group>
-        <Button variant={searchOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => openModal({ kind: 'zoneViewer', zone: 'library' })} title="Search library"><Search className={icon} />Search</Button>
+        <Button variant={searchOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => searchOpen ? closeModal() : openModal({ kind: 'zoneViewer', zone: 'library' })} title="Search library"><Search className={icon} />Search</Button>
         {deckActionsBtn}
       </Group>
       <Group className="hidden md:flex">
@@ -144,6 +144,52 @@ export function PlaytestActionsBar() {
   );
 }
 
+/**
+ * Steps into the combat phase, which is what opens the attack zones in front
+ * of each opponent. Toggles: pressing it again backs out and untaps anything
+ * you'd already declared.
+ *
+ * Sits beside Next Turn because that's the other button that moves the game
+ * forward a beat, and combat is the beat before the turn ends.
+ */
+export function CombatButton() {
+  const opponentCount = useOpponentStore(s => s.opponents.length);
+  const combatPhase = useOpponentStore(s => s.combatPhase);
+  const enterCombat = useOpponentStore(s => s.enterCombat);
+  const exitCombat = useOpponentStore(s => s.exitCombat);
+  const combat = useOpponentStore(s => s.combat);
+  const playerCombat = useOpponentStore(s => s.playerCombat);
+  const botsRunning = useOpponentStore(s => s.running);
+
+  // Nothing to attack, so nothing to offer.
+  if (opponentCount === 0) return null;
+
+  // Their combat owns the strips while it's open, and a confirmed attack of
+  // yours is already past the point of backing out.
+  const blocked = botsRunning || !!combat || !!playerCombat;
+
+  return (
+    <Button
+      size="sm"
+      disabled={blocked}
+      className={`h-8 sm:h-6 px-2 text-[11px] rounded-none border border-y-0 gap-1 ${
+        combatPhase
+          ? 'bg-violet-500/25 border-violet-400/60 text-violet-100'
+          : 'bg-primary/15 hover:bg-primary/25 border-primary/40 text-primary-foreground/90'
+      }`}
+      onClick={() => (combatPhase ? exitCombat() : enterCombat())}
+      title={
+        blocked      ? 'Finish the combat already in progress'
+      : combatPhase  ? 'Leave combat — anything you declared is untapped and forgotten'
+      :                'Go to combat: open the attack zone in front of each opponent'
+      }
+    >
+      <Swords className="w-3 h-3" />
+      <span className="hidden sm:inline">{combatPhase ? 'End Combat' : 'Combat'}</span>
+    </Button>
+  );
+}
+
 export function NextTurnButton() {
   const nextTurn = usePlaytestStore(s => s.nextTurn);
   const draw = usePlaytestStore(s => s.draw);
@@ -152,7 +198,7 @@ export function NextTurnButton() {
   const opponentCount = useOpponentStore(s => s.opponents.length);
   const combat = useOpponentStore(s => s.combat);
   const playerCombat = useOpponentStore(s => s.playerCombat);
-  const discardDeclaration = useOpponentStore(s => s.discardDeclaration);
+  const exitCombat = useOpponentStore(s => s.exitCombat);
   const botsRunning = useOpponentStore(s => s.running);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
 
@@ -169,9 +215,10 @@ export function NextTurnButton() {
   // Unless you've turned that off, in which case the table waits for you.
   const handleNextTurn = () => {
     if (blocked) return;
-    // An unconfirmed declaration never happened — untap and forget it rather
-    // than carrying a half-built attack into the bots' turn.
-    discardDeclaration();
+    // Leave combat on the way out: an unconfirmed declaration never happened,
+    // so untap and forget it rather than carrying a half-built attack — or an
+    // open combat phase — into the bots' turn.
+    exitCombat();
     nextTurn();
     draw(1);
     if (autoTurns) runAllTurns();

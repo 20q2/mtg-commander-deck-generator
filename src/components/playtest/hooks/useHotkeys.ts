@@ -29,7 +29,7 @@ export function usePlaytestHotkeys() {
       if (e.key === 'Enter') {
         e.preventDefault();
         // An unconfirmed declaration never happened — untap and forget it.
-        useOpponentStore.getState().discardDeclaration();
+        useOpponentStore.getState().exitCombat();
         s.nextTurn();
         s.draw(1);
         return;

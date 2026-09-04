@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { PlaytestActionsBar, NextTurnButton } from '@/components/playtest/PlaytestActionsBar';
+import { PlaytestActionsBar, NextTurnButton, CombatButton } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
@@ -44,6 +44,13 @@ export function Hand() {
     data: { kind: 'pile', zone: 'hand' },
   });
 
+  // Each hand card is its own droppable, so sweeping over the fan hands the drop
+  // to a `hand-slot` and the container's own `isOver` goes false. Both mean "this
+  // is going into your hand", so the indicator watches for either — otherwise it
+  // blinks off the moment you pass over a card.
+  const { over } = useDndContext();
+  const overHand = isOver || over?.data.current?.kind === 'hand-slot';
+
   const playToBattlefield = (handIndex: number) => {
     moveCard({
       source: { kind: 'zone', zone: 'hand', index: handIndex },
@@ -69,13 +76,13 @@ export function Hand() {
           highlight ABOVE the controls, which read as "drop on the toolbar". */}
       <div
         className={`relative flex items-center gap-2 mb-2 -mt-2 sm:-mt-3 -mx-2 sm:-mx-4 pl-2 sm:pl-4 border-b transition-colors duration-150 ${
-          isOver ? 'border-primary' : 'border-border/40'
+          overHand ? 'border-primary' : 'border-border/40'
         }`}
       >
         {/* The bloom rides its own hairline element rather than a box-shadow on
             the row — a shadow on the row haloes the whole button strip, when the
             only thing that should light up is the line. */}
-        {isOver && (
+        {overHand && (
           <span
             aria-hidden
             className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-primary shadow-[0_0_8px_1px_hsl(var(--primary)/0.75)]"
@@ -97,12 +104,14 @@ export function Hand() {
         <div className="flex-1 flex justify-center min-w-0">
           <PlaytestActionsBar />
         </div>
-        {/* Right column: spacers + Next Turn on desktop. Hidden on mobile
-            (Next Turn lives in the top toolbar there). */}
+        {/* Right column: spacers + Combat / Next Turn on desktop. Hidden on
+            mobile (both live in the top toolbar there). The two buttons sit
+            flush as one segmented control — they're the pair that moves the
+            game forward a beat. */}
         <div className="hidden md:flex items-center gap-2 shrink-0">
           <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} aria-hidden />
-          <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} aria-hidden />
-          <div className="shrink-0 flex justify-end" style={{ width: 'clamp(80px, 11vw, 130px)' }}>
+          <div className="shrink-0 flex justify-end [&>*+*]:-ml-px" style={{ width: 'clamp(160px, 22vw, 260px)' }}>
+            <CombatButton />
             <NextTurnButton />
           </div>
         </div>

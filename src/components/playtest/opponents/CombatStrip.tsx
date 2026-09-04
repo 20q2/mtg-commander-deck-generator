@@ -24,7 +24,7 @@ export function CombatStrip({ opponentId }: { opponentId: string }) {
   const declaration  = useOpponentStore(s => s.declaration);
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const combat       = useOpponentStore(s => s.combat);
-  const dragActiveId = usePlaytestStore(s => s.dragActiveId);
+  const combatPhase  = useOpponentStore(s => s.combatPhase);
 
   const declared = declaration?.[opponentId] ?? [];
   const mine     = playerCombat?.perOpponent[opponentId];
@@ -35,9 +35,10 @@ export function CombatStrip({ opponentId }: { opponentId: string }) {
     data: { kind: 'combatStrip', opponentId },
   });
 
-  // Armed while you're dragging a card — counters and dice have no business
-  // in combat — and only if this seat isn't already mid-resolution.
-  const armed = dragActiveId?.kind === 'card' && !mine;
+  // Open only once you've stepped into combat. Deliberately not "whenever a
+  // drag is in flight" — moving a card around your own board shouldn't make
+  // three attack zones appear.
+  const armed = combatPhase && !mine;
   const busy  = declared.length > 0 || !!mine || !!theirs;
 
   if (!armed && !busy) return <div ref={setNodeRef} className="h-1" />;
@@ -45,7 +46,7 @@ export function CombatStrip({ opponentId }: { opponentId: string }) {
   return (
     <div
       ref={setNodeRef}
-      className={`mt-1 rounded-md border p-1 min-h-[30px] flex items-center gap-1 flex-wrap transition-colors ${
+      className={`mt-1 rounded-md border p-1 min-h-[38px] flex items-center gap-1 flex-wrap transition-colors ${
         isOver   ? 'border-violet-300 bg-violet-500/25'
         : theirs ? 'border-rose-400/50 bg-rose-500/10'
         : busy   ? 'border-violet-400/60 bg-violet-500/12'
