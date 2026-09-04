@@ -123,13 +123,13 @@ export function Hand() {
             touch least, so it shouldn't claim a full card's worth of the row. */}
         {isDesktop && (
           <div className="flex items-end gap-2 shrink-0">
-            <div style={{ width: 'clamp(80px, 11vw, 130px)' }}>
+            <div style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
               <PlaytestPile spec={PILES[1]} />
             </div>
-            <div style={{ width: 'clamp(80px, 11vw, 130px)' }}>
+            <div style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
               <PlaytestPile spec={PILES[2]} />
             </div>
-            <div className="self-start" style={{ width: 'clamp(40px, 5.5vw, 65px)' }}>
+            <div className="self-start" style={{ width: 'clamp(30px, 4.15vw, 49px)' }}>
               <PlaytestPile spec={PILES[3]} />
             </div>
           </div>
