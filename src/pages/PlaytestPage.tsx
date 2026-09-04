@@ -24,10 +24,8 @@ import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
 import { useOpponentStore } from '@/store/opponentStore';
 import { captureAll } from '@/store/undoBridge';
-import { OpponentStrip } from '@/components/playtest/opponents/OpponentStrip';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
 import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
-import { CombatZone } from '@/components/playtest/opponents/CombatZone';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { FloatingTextLayer } from '@/components/playtest/FloatingTextLayer';
 import { trackEvent } from '@/services/analytics';
@@ -618,12 +616,10 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
         <PlaytestToolbar onExit={() => navigate(-1)} onToggleSidePanel={() => setMobileSideOpen(o => !o)} />
         <div className="flex-1 flex min-h-0 relative">
-          {/* Opponents own a vertical column beside the table rather than a band
-              across the top: with one bot seated, a full-width strip was mostly
-              dead space, and it stole height from the battlefield to show it. */}
-          <OpponentStrip />
+          {/* Opponents are seated across the top of the table, inside
+              <Battlefield /> — see OpponentSeats. Each seat owns its own
+              combat strip, so there is no full-width combat band any more. */}
           <main className="flex-1 flex flex-col min-w-0">
-            <CombatZone />
             <Battlefield />
             <Hand />
           </main>

@@ -68,10 +68,19 @@ export function Hand() {
           the hand lights it up. Ringing the whole container instead drew the
           highlight ABOVE the controls, which read as "drop on the toolbar". */}
       <div
-        className={`flex items-center gap-2 mb-2 -mt-2 sm:-mt-3 -mx-2 sm:-mx-4 pl-2 sm:pl-4 border-b transition-colors duration-150 ${
-          isOver ? 'border-primary shadow-[0_2px_10px_-2px_hsl(var(--primary)/0.7)]' : 'border-border/40'
+        className={`relative flex items-center gap-2 mb-2 -mt-2 sm:-mt-3 -mx-2 sm:-mx-4 pl-2 sm:pl-4 border-b transition-colors duration-150 ${
+          isOver ? 'border-primary' : 'border-border/40'
         }`}
       >
+        {/* The bloom rides its own hairline element rather than a box-shadow on
+            the row — a shadow on the row haloes the whole button strip, when the
+            only thing that should light up is the line. */}
+        {isOver && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-primary shadow-[0_0_8px_1px_hsl(var(--primary)/0.75)]"
+          />
+        )}
         <div className="shrink-0 flex items-center gap-2">
           <span className="text-[10px] uppercase opacity-60 shrink-0">Hand · {hand.length}</span>
           <select

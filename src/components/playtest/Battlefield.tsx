@@ -7,6 +7,7 @@ import { FreeCounter } from '@/components/playtest/FreeCounter';
 import { FreeDie } from '@/components/playtest/FreeDie';
 import { BattlefieldContextMenu, type BattlefieldMenuTarget } from '@/components/playtest/BattlefieldContextMenu';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
+import { OpponentSeats } from '@/components/playtest/opponents/OpponentSeats';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 export function Battlefield() {
@@ -193,6 +194,13 @@ export function Battlefield() {
       {sorted.map(b => <BattlefieldCard key={b.instanceId} card={b} />)}
       {freeCounters.map(c => <FreeCounter key={c.id} counter={c} />)}
       {freeDice.map(d => <FreeDie key={d.id} die={d} />)}
+
+      {/* Opponents sit across the top of the table. Absolutely positioned at
+          z-30: above cards, below the marquee (z-65) and the context menu,
+          which portals. Deliberately an overlay — cards carry absolute x/y, so
+          a canvas that reflowed when a seat expanded would clip the ones near
+          the top. */}
+      <OpponentSeats />
 
       {/* Mobile-only: zones float at the edges of the battlefield. On desktop
           they live in the hand row below. We conditionally RENDER (not just
