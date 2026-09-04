@@ -26,6 +26,62 @@ export function fisherYates<T>(arr: T[]): T[] {
   return a;
 }
 
+interface HitCard {
+  instanceId: string;
+  x: number;
+  y: number;
+  attachedTo?: string;
+  tapped?: boolean;
+  rotation?: number;
+}
+
+/**
+ * Topmost battlefield card under a battlefield-space point, with the point
+ * converted into that card's own unrotated space — the frame stickers and
+ * counter badges are positioned in.
+ *
+ * A tapped card is drawn rotated about its centre, so the visible card and its
+ * layout box only coincide when it's upright; rotating the point back by the
+ * card's total rotation tests against what's actually on screen. Attached cards
+ * are offset exactly as BattlefieldCard draws them, and are tested first since
+ * Battlefield paints them above their parents.
+ */
+export function battlefieldCardAt<T extends HitCard>(
+  cards: T[],
+  x: number,
+  y: number,
+  cardWidth: number,
+  cardHeight: number,
+): { card: T; localX: number; localY: number } | null {
+  // Same paint order as Battlefield: parents first, attached children after.
+  const painted = [...cards].sort((a, b) => (a.attachedTo ? 1 : 0) - (b.attachedTo ? 1 : 0));
+  for (let i = painted.length - 1; i >= 0; i--) {
+    const c = painted[i];
+    let cx = c.x;
+    let cy = c.y;
+    if (c.attachedTo) {
+      const parent = cards.find(p => p.instanceId === c.attachedTo);
+      if (parent) {
+        const idx = cards.filter(s => s.attachedTo === c.attachedTo).findIndex(s => s.instanceId === c.instanceId);
+        cx = parent.x + (idx + 1) * 8;
+        cy = parent.y + (idx + 1) * 28;
+      }
+    }
+    // Undo the card's rotation about its centre to land in card space.
+    const rad = (-((c.tapped ? 90 : 0) + (c.rotation ?? 0)) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const dx = x - (cx + cardWidth / 2);
+    const dy = y - (cy + cardHeight / 2);
+    const localX = cardWidth / 2 + dx * cos - dy * sin;
+    const localY = cardHeight / 2 + dx * sin + dy * cos;
+    if (localX >= 0 && localX <= cardWidth && localY >= 0 && localY <= cardHeight) {
+      return { card: c, localX, localY };
+    }
+  }
+  return null;
+}
+
 /** Snap rule for cards arriving on the battlefield from another zone. */
 export function snapArrival(
   card: ScryfallCard,

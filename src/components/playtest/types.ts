@@ -60,6 +60,18 @@ export const COUNTER_COLORS: { key: CounterColor; label: string; chip: string; r
   { key: 'zinc',    label: 'Gray',   chip: 'bg-zinc-600 text-white',    ring: 'ring-zinc-300' },
 ];
 
+/**
+ * Counters that live ON a card, as opposed to the free counters that sit loose
+ * on the table. Their look comes from `CardCounterChip` in CardOverlays, so a
+ * tile in the Create dialog matches the badge it will produce.
+ */
+export const CARD_COUNTER_TYPES: { key: string; label: string }[] = [
+  { key: '+1/+1',   label: '+1/+1' },
+  { key: '-1/-1',   label: '−1/−1' },
+  { key: 'charge',  label: 'Charge' },
+  { key: 'loyalty', label: 'Loyalty' },
+];
+
 export interface FreeCounter {
   id: string;
   x: number;

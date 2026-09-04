@@ -54,17 +54,30 @@ export function Hand() {
   return (
     <div
       ref={setDropRef}
-      className={`border-t border-border/50 bg-card/30 px-2 sm:px-4 py-2 sm:py-3 flex flex-col transition-shadow ${isOver ? 'ring-2 ring-primary/50 ring-inset' : ''}`}
+      className="border-t border-border/50 bg-card/30 px-2 sm:px-4 py-2 sm:py-3 flex flex-col"
     >
       {/* Toolbar row mirrors the hand row's three-column layout below so the
-          action buttons center over the hand fan, not over the whole bar. */}
-      <div className="flex items-center gap-2 mb-2">
+          action buttons center over the hand fan, not over the whole bar. The
+          hairline under it separates the controls from the cards they act on.
+          Negative margins cancel the wrapper's padding so the row's buttons sit
+          flush against the top edge and the hairline, and the hairline itself
+          runs the full width of the bar instead of stopping at the padding.
+          No right padding either, so Next Turn ends on the bar's right edge.
+
+          This hairline doubles as the hand's drop indicator: a card dragged over
+          the hand lights it up. Ringing the whole container instead drew the
+          highlight ABOVE the controls, which read as "drop on the toolbar". */}
+      <div
+        className={`flex items-center gap-2 mb-2 -mt-2 sm:-mt-3 -mx-2 sm:-mx-4 pl-2 sm:pl-4 border-b transition-colors duration-150 ${
+          isOver ? 'border-primary shadow-[0_2px_10px_-2px_hsl(var(--primary)/0.7)]' : 'border-border/40'
+        }`}
+      >
         <div className="shrink-0 flex items-center gap-2">
           <span className="text-[10px] uppercase opacity-60 shrink-0">Hand · {hand.length}</span>
           <select
             value={sort}
             onChange={e => setSort(e.target.value as SortMode)}
-            className="hidden sm:inline-block text-[10px] uppercase opacity-60 bg-transparent border border-border/50 rounded px-1 py-0.5 shrink-0 min-w-0"
+            className="hidden sm:inline-block text-[10px] uppercase opacity-60 bg-transparent border border-border/50 rounded-none px-1 py-0.5 shrink-0 min-w-0"
             title="Sort hand"
           >
             <option value="none">None</option>

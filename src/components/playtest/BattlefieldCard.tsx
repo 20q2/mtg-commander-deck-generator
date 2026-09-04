@@ -6,12 +6,13 @@ import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
-import { CardOverlays } from '@/components/playtest/CardOverlays';
+import { CardOverlays, badgeFloatAnchor } from '@/components/playtest/CardOverlays';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
 
 export function BattlefieldCard({ card }: { card: BfCard }) {
   const toggleTap = usePlaytestStore(s => s.toggleTap);
+  const toggleSelect = usePlaytestStore(s => s.toggleSelect);
   const adjustCounter = usePlaytestStore(s => s.adjustCounter);
   const setHovered = usePlaytestStore(s => s.setHovered);
   const battlefield = usePlaytestStore(s => s.battlefield);
@@ -64,8 +65,13 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
         transform={draggable.transform ?? followDelta}
         isDragging={draggable.isDragging}
         selected={selected}
-        onTap={() => toggleTap(card.instanceId)}
-        onAdjust={(t, d) => adjustCounter(card.instanceId, t, d)}
+        onTap={(e) => {
+          // Ctrl/Cmd-click selects instead of tapping, so a card can be picked
+          // out without dragging a marquee around it.
+          if (e.ctrlKey || e.metaKey) toggleSelect('card', card.instanceId);
+          else toggleTap(card.instanceId);
+        }}
+        onAdjust={(t, d, anchor) => adjustCounter(card.instanceId, t, d, anchor)}
         onHover={(v) => setHovered(v ? card.instanceId : null)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -86,11 +92,14 @@ interface PositionedProps {
   selected: boolean;
   attributes: DraggableAttributes;
   listeners: Record<string, unknown> | undefined;
-  onTap: () => void;
-  onAdjust: (type: string, delta: number) => void;
+  onTap: (e: React.MouseEvent) => void;
+  onAdjust: (type: string, delta: number, anchor?: { x: number; y: number }) => void;
   onHover: (v: boolean) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
+
+/** Float the loyalty text off the shield itself rather than the card centre. */
+const shieldAnchor = (e: React.MouseEvent<HTMLElement>) => badgeFloatAnchor(e.currentTarget);
 
 const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(function PositionedCard(props, ref) {
   const { card, xPx, yPx, transform, isDragging, selected, attributes, listeners, onTap, onAdjust, onHover, onContextMenu } = props;
@@ -153,7 +162,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
       data-float-id={card.instanceId}
       {...attributes}
       {...(listeners as Record<string, unknown>)}
-      onClick={(e) => { e.stopPropagation(); onTap(); }}
+      onClick={(e) => { e.stopPropagation(); onTap(e); }}
       onContextMenu={onContextMenu}
       onMouseEnter={() => { onHover(true); setHoveredLocal(true); }}
       onMouseLeave={() => { onHover(false); setHoveredLocal(false); }}
@@ -184,8 +193,11 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
           className={`w-full rounded-[5px] shadow-lg pointer-events-none ${selected ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : ''} ${flipping ? 'animate-bf-flip' : ''}`}
           draggable={false}
         />
-        {/* Loyalty shield (planeswalkers) — bottom-right with MTG-style hex shield */}
-        {isPlaneswalker && (
+        {/* Loyalty shield — bottom-right, MTG-style hex shield. Planeswalkers
+            always have one (so you can click it up from 0); anything else grows
+            one the moment it's given loyalty counters, since CardOverlays
+            deliberately never draws loyalty as a round badge. */}
+        {(isPlaneswalker || loyaltyValue > 0) && (
           <div
             className="absolute bottom-1 right-1 flex items-end gap-1 pointer-events-auto"
             style={{ transform: card.tapped ? 'rotate(-90deg)' : undefined, transformOrigin: 'center' }}
@@ -194,8 +206,8 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
                 Left-click +1, right-click −1, no separate spinner buttons. */}
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onAdjust('loyalty', 1); }}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust('loyalty', -1); }}
+              onClick={(e) => { e.stopPropagation(); onAdjust('loyalty', 1, shieldAnchor(e)); }}
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust('loyalty', -1, shieldAnchor(e)); }}
               className="relative cursor-pointer drop-shadow-[0_2px_4px_rgba(0,0,0,0.75)] hover:brightness-110 active:scale-95 transition"
               style={{ width: 36, height: 24 }}
               title={`${loyaltyValue} loyalty · click +1 · right-click −1`}

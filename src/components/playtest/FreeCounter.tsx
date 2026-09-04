@@ -24,6 +24,7 @@ export function FreeCounter({ counter }: Props) {
   const removeFreeCounter = usePlaytestStore(s => s.removeFreeCounter);
   const setFreeCounterColor = usePlaytestStore(s => s.setFreeCounterColor);
   const setHoveredCounter = usePlaytestStore(s => s.setHoveredCounter);
+  const toggleSelect = usePlaytestStore(s => s.toggleSelect);
   const setFreeCounterValue = useFreeCounterSetValue();
   const selected = usePlaytestStore(s => s.selectedCounterIds.includes(counter.id));
   // Follow during a group drag (another selected item is being dragged).
@@ -70,6 +71,10 @@ export function FreeCounter({ counter }: Props) {
         onClick={(e) => {
           e.stopPropagation();
           if (dragMovedRef.current) return;
+          if (e.ctrlKey || e.metaKey) {
+            toggleSelect('counter', counter.id);
+            return;
+          }
           if (e.shiftKey) {
             setMenu({ x: e.clientX, y: e.clientY });
             return;
@@ -83,7 +88,7 @@ export function FreeCounter({ counter }: Props) {
         }}
         onMouseEnter={() => setHoveredCounter(counter.id)}
         onMouseLeave={() => setHoveredCounter(null)}
-        title={`${counter.value} · click +1, right-click −1, shift-click for options · Del to remove`}
+        title={`${counter.value} · click +1, right-click −1, shift-click for options · ctrl-click to select · Del to remove`}
         className={`absolute select-none touch-none flex items-center justify-center rounded-md font-bold text-sm shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring} ${selected ? 'outline outline-2 outline-offset-2 outline-primary' : ''}`}
         style={{
           left: counter.x,

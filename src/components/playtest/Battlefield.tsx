@@ -76,6 +76,9 @@ export function Battlefield() {
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if (e.target !== e.currentTarget) return; // only on empty battlefield
+    // Ctrl/Cmd held: add to the existing selection instead of replacing it, and
+    // don't wipe it if the click turns out to be a miss on empty space.
+    const additive = e.ctrlKey || e.metaKey;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -102,7 +105,7 @@ export function Battlefield() {
 
       if (!movedFar) {
         // Plain click on empty battlefield → clear selection.
-        clearSelection();
+        if (!additive) clearSelection();
         setMarquee(null);
         return;
       }
@@ -131,7 +134,16 @@ export function Battlefield() {
       for (const fd of diceRef.current) {
         if (l < fd.x + 44 && r > fd.x && t < fd.y + 44 && b > fd.y) dieHits.push(fd.id);
       }
-      setMarqueeSelection({ cards: cardHits, counters: counterHits, dice: dieHits });
+      if (additive) {
+        const prev = usePlaytestStore.getState();
+        setMarqueeSelection({
+          cards:    Array.from(new Set([...prev.selectedIds, ...cardHits])),
+          counters: Array.from(new Set([...prev.selectedCounterIds, ...counterHits])),
+          dice:     Array.from(new Set([...prev.selectedDieIds, ...dieHits])),
+        });
+      } else {
+        setMarqueeSelection({ cards: cardHits, counters: counterHits, dice: dieHits });
+      }
       setMarquee(null);
     };
     containerEl.addEventListener('pointermove', onMove);

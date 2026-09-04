@@ -15,6 +15,7 @@ export function FreeDie({ die }: Props) {
   const setFreeDieColor = usePlaytestStore(s => s.setFreeDieColor);
   const removeFreeDie = usePlaytestStore(s => s.removeFreeDie);
   const setHoveredDie = usePlaytestStore(s => s.setHoveredDie);
+  const toggleSelect = usePlaytestStore(s => s.toggleSelect);
   const selected = usePlaytestStore(s => s.selectedDieIds.includes(die.id));
   const followDelta = usePlaytestStore(s => {
     const aid = s.dragActiveId;
@@ -65,6 +66,10 @@ export function FreeDie({ die }: Props) {
         onClick={(e) => {
           e.stopPropagation();
           if (dragMovedRef.current) return;
+          if (e.ctrlKey || e.metaKey) {
+            toggleSelect('die', die.id);
+            return;
+          }
           if (e.shiftKey) {
             setMenu({ x: e.clientX, y: e.clientY });
             return;
@@ -79,7 +84,7 @@ export function FreeDie({ die }: Props) {
         }}
         onMouseEnter={() => setHoveredDie(die.id)}
         onMouseLeave={() => setHoveredDie(null)}
-        title={`d${die.sides} = ${die.value} · click to roll · right-click / shift-click for options · Del to remove`}
+        title={`d${die.sides} = ${die.value} · click to roll · right-click / shift-click for options · ctrl-click to select · Del to remove`}
         className={`absolute select-none touch-none flex flex-col items-center justify-center rounded-md font-bold shadow-lg ring-2 ${colorCfg.chip} ${colorCfg.ring} ${selected ? 'outline outline-2 outline-offset-2 outline-primary' : ''} ${rolling ? 'animate-jiggle' : ''}`}
         style={{
           left: die.x,

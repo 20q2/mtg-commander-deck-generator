@@ -8,7 +8,8 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
 import { COUNTER_COLORS } from '@/components/playtest/types';
-import { CardOverlays } from '@/components/playtest/CardOverlays';
+import { battlefieldCardAt } from '@/components/playtest/utils';
+import { CardOverlays, CardCounterChip } from '@/components/playtest/CardOverlays';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { PlaytestToolbar } from '@/components/playtest/PlaytestToolbar';
@@ -38,8 +39,10 @@ import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
 // origin, leaving the preview visibly offset from the cursor. This modifier
 // re-centers the overlay box on the cursor for create drags only.
 const centerCreateOnCursor: Modifier = ({ activatorEvent, draggingNodeRect, transform, active }) => {
-  const data = active?.data.current as { createCounter?: unknown; createDie?: unknown } | undefined;
-  if (!data?.createCounter && !data?.createDie) return transform;
+  const data = active?.data.current as {
+    createCounter?: unknown; createDie?: unknown; createCardCounter?: unknown; createSticker?: unknown;
+  } | undefined;
+  if (!data?.createCounter && !data?.createDie && !data?.createCardCounter && !data?.createSticker) return transform;
   if (!draggingNodeRect || !activatorEvent) return transform;
   const ev = activatorEvent as MouseEvent | PointerEvent;
   if (typeof ev.clientX !== 'number' || typeof ev.clientY !== 'number') return transform;
@@ -175,6 +178,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   const [activeCreate, setActiveCreate] = useState<
     | { kind: 'counter'; color: CounterColor }
     | { kind: 'die'; sides: DieSides; color: CounterColor }
+    | { kind: 'cardCounter'; type: string }
+    | { kind: 'sticker'; text: string }
     | null
   >(null);
 
@@ -186,6 +191,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       card?: ScryfallCard;
       createCounter?: { color: CounterColor };
       createDie?: { sides: DieSides; color: CounterColor };
+      createCardCounter?: { type: string };
+      createSticker?: { text: string };
     } | undefined;
     // Stealing off a bot's board: the ghost is just the card, no battlefield entry.
     if (data?.opponentSource && data.card) {
@@ -201,6 +208,14 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     }
     if (data?.createDie) {
       setActiveCreate({ kind: 'die', sides: data.createDie.sides, color: data.createDie.color });
+      return;
+    }
+    if (data?.createCardCounter) {
+      setActiveCreate({ kind: 'cardCounter', type: data.createCardCounter.type });
+      return;
+    }
+    if (data?.createSticker) {
+      setActiveCreate({ kind: 'sticker', text: data.createSticker.text });
       return;
     }
     if (data?.tokenCard) {
@@ -305,6 +320,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           card?: ScryfallCard;
           createCounter?: { color: CounterColor };
           createDie?: { sides: DieSides; color: CounterColor };
+          createCardCounter?: { type: string };
+          createSticker?: { text: string };
         }
       | undefined;
     const overData   = over.data.current   as { kind?: string; zone?: string; position?: 'top' | 'bottom'; instanceId?: string; index?: number; opponentId?: string; attackerId?: string } | undefined;
@@ -368,6 +385,38 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           const x = cursorX - (rect?.left ?? 0) - 22;
           const y = cursorY - (rect?.top  ?? 0) - 22;
           state.addFreeDie(sourceData.createDie.sides, { x, y }, sourceData.createDie.color);
+        }
+      }
+      return;
+    }
+
+    // Card counter / text sticker from the Create dialog → these belong ON a
+    // card, so the drop only lands if the cursor is over one. Battlefield cards
+    // aren't droppables (the container is), so hit-test the cursor against the
+    // card boxes ourselves.
+    if (sourceData?.createCardCounter || sourceData?.createSticker) {
+      if (over.id === 'battlefield' && overData?.kind === 'battlefield') {
+        const rect = over.rect as DOMRect | undefined;
+        const activator = event.activatorEvent as { clientX?: number; clientY?: number } | undefined;
+        const bx = (activator?.clientX ?? 0) + event.delta.x - (rect?.left ?? 0);
+        const by = (activator?.clientY ?? 0) + event.delta.y - (rect?.top  ?? 0);
+        const { width: cw, height: ch } = CARD_SIZES[cardSize];
+        const state = usePlaytestStore.getState();
+        const hit = battlefieldCardAt(state.battlefield, bx, by, cw, ch);
+        if (!hit) {
+          usePlaytestStore.setState(s => ({
+            toast: { text: 'Drop that on a card', tick: (s.toast?.tick ?? 0) + 1 },
+          }));
+          return;
+        }
+        if (sourceData.createCardCounter) {
+          state.adjustCounter(hit.card.instanceId, sourceData.createCardCounter.type, 1);
+        } else if (sourceData.createSticker) {
+          // Land it where it was dropped, kept far enough inside the card that
+          // the label stays on the art.
+          const x = Math.min(Math.max(hit.localX, 0), Math.max(0, cw - 30));
+          const y = Math.min(Math.max(hit.localY, 0), Math.max(0, ch - 16));
+          state.addSticker(hit.card.instanceId, sourceData.createSticker.text.trim() || 'New sticker', { x, y });
         }
       }
       return;
@@ -683,6 +732,19 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
               </div>
             );
           })()
+        ) : activeCreate?.kind === 'cardCounter' ? (
+          <div className="w-full h-full flex items-center justify-center pointer-events-none" style={{ cursor: 'grabbing' }}>
+            <CardCounterChip type={activeCreate.type} />
+          </div>
+        ) : activeCreate?.kind === 'sticker' ? (
+          <div className="w-full h-full flex items-center justify-center pointer-events-none">
+            <span
+              className="inline-block max-w-[110px] truncate px-1.5 py-0.5 rounded bg-teal-500/90 text-white text-[10px] font-bold shadow-md ring-1 ring-teal-200/50"
+              style={{ cursor: 'grabbing' }}
+            >
+              {activeCreate.text.trim() || 'New sticker'}
+            </span>
+          </div>
         ) : null}
       </DragOverlay>
     </DndContext>

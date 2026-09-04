@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, BookOpen, Trash2, Crown } from 'lucide-react';
+import { Sparkles, BookOpen, Trash2, Crown, Shuffle } from 'lucide-react';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
+import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
@@ -23,6 +25,9 @@ export const PILES: PileSpec[] = [
   { zone: 'exile',     label: 'Exile',     Icon: Sparkles, bgClass: 'bg-amber-500/10 border-amber-400/30',    faceUp: true },
 ];
 
+// Must match the .animate-deal-out duration in index.css.
+const DEAL_OUT_MS = 200;
+
 export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const cards = usePlaytestStore(s => s.zones[spec.zone]);
   const openModal = usePlaytestStore(s => s.openModal);
@@ -31,8 +36,11 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const moveCard = usePlaytestStore(s => s.moveCard);
   const setHoveredPile = usePlaytestStore(s => s.setHoveredPile);
   const draw = usePlaytestStore(s => s.draw);
+  const shuffle = usePlaytestStore(s => s.shuffle);
   const shuffleTick = usePlaytestStore(s => s.shuffleTick);
   const libraryTopPushTick = usePlaytestStore(s => s.libraryTopPushTick);
+  const libraryDrawTick = usePlaytestStore(s => s.libraryDrawTick);
+  const animations = usePlaytestSettings(s => s.animations);
   const graveyardPushTick = usePlaytestStore(s => s.graveyardPushTick);
   const exilePushTick = usePlaytestStore(s => s.exilePushTick);
   const pushTick =
@@ -66,6 +74,22 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pushTick]);
+  // Draw animation: a card back peels off the top of the library and slides
+  // down out of the pile, timed to land with the drawn card's deal-in in the
+  // hand. Purely decorative — the store has already moved the card, so this
+  // overlay renders even when the draw emptied the library.
+  const [drawAnim, setDrawAnim] = useState(0);
+  const seenDrawTickRef = useRef(libraryDrawTick);
+  useEffect(() => {
+    if (spec.zone !== 'library' || libraryDrawTick === seenDrawTickRef.current) return;
+    seenDrawTickRef.current = libraryDrawTick;
+    if (!animations) return;
+    setDrawAnim(libraryDrawTick);
+    const t = setTimeout(() => setDrawAnim(0), DEAL_OUT_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraryDrawTick]);
+
   const pushAnim = animState.pushAnim;
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `pile:${spec.zone}`,
@@ -170,7 +194,34 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
           </div>
           </>
         )}
+        {drawAnim > 0 && (
+          <img
+            key={drawAnim}
+            src={`${import.meta.env.BASE_URL}card-back.png`}
+            alt=""
+            aria-hidden
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[5px] shadow-lg animate-deal-out"
+            draggable={false}
+          />
+        )}
       </div>
+      {/* Shuffle lives on the library itself rather than in the actions bar —
+          it's a library-only action, so it belongs next to the library. Sits
+          above the drag layer, and swallows the click so the pile doesn't
+          also draw a card. */}
+      {spec.zone === 'library' && cards.length > 1 && (
+        <Button
+          variant="secondary"
+          size="icon"
+          title="Shuffle library (S)"
+          aria-label="Shuffle library"
+          className="absolute top-0.5 right-0.5 z-10 h-5 w-5 rounded-md bg-blue-950/70 hover:bg-blue-900/90 text-blue-100/80 hover:text-blue-50 border border-blue-400/30 shadow-none [&_svg]:size-3"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); shuffle(); }}
+        >
+          <Shuffle />
+        </Button>
+      )}
       {showPreview && top && <MagnifiedPreview card={top} anchorRef={imgRef} />}
       <div className={`mt-1 text-[10px] flex items-center justify-between gap-1 px-0.5 ${cards.length === 0 ? 'opacity-60' : ''}`}>
         <span className="truncate">{spec.label}</span>

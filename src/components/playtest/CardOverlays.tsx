@@ -38,6 +38,52 @@ function badgeClass(type: string): string {
 const badgeStyle = { width: BADGE, height: BADGE, fontSize: Math.round(BADGE * 0.42) };
 
 /**
+ * Where a badge's floating text starts: centred on it but a little above, so the
+ * text clears the badge as it rises instead of covering the value you changed.
+ */
+export function badgeFloatAnchor(el: Element | null | undefined) {
+  if (!el) return undefined;
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top - 14 };
+}
+
+/**
+ * How a card counter looks OFF the card — the Create dialog's tile and the drag
+ * preview. Loyalty is a shield, not a disc, so it reads as the thing it becomes
+ * once it lands (the same SVG BattlefieldCard draws in the corner).
+ */
+export function CardCounterChip({ type, height = BADGE }: { type: string; height?: number }) {
+  const label = badgeLabel(type, 1);
+  if (type === 'loyalty') {
+    return (
+      <span className="relative inline-block shrink-0" style={{ width: Math.round(height * 1.5), height }}>
+        <img
+          src={`${import.meta.env.BASE_URL}icons/Loyalty.svg`}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="absolute inset-0 w-full h-full drop-shadow-[0_2px_4px_rgba(0,0,0,0.75)]"
+        />
+        <span
+          className="absolute inset-0 flex items-center justify-center text-white font-extrabold tabular-nums leading-none"
+          style={{ fontSize: Math.round(height * 0.42), textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
+        >
+          {label}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className={badgeClass(type)}
+      style={{ width: height, height, fontSize: Math.round(height * 0.42) }}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
  * Keep the badge fully on the card. `pos` is the padded box's top-left, and the
  * badge is centred inside it, so the limits are offset by the padding.
  */
@@ -64,7 +110,8 @@ interface Props {
   cardHeight: number;
   /** False for the drag ghost — same pixels, no handlers, no store writes. */
   interactive?: boolean;
-  onAdjust?: (type: string, delta: number) => void;
+  /** `anchor` is viewport coords for the floating text — the badge that was clicked. */
+  onAdjust?: (type: string, delta: number, anchor?: { x: number; y: number }) => void;
 }
 
 /**
@@ -96,7 +143,7 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
             rotation={rotation}
             cardWidth={cardWidth}
             cardHeight={cardHeight}
-            onAdjust={(d) => onAdjust?.(type, d)}
+            onAdjust={(d, anchor) => onAdjust?.(type, d, anchor)}
           />
         ) : (
           <div
@@ -118,15 +165,12 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
         interactive ? (
           <TextSticker key={st.id} instanceId={card.instanceId} sticker={st} rotation={rotation} />
         ) : (
+          // No counter-rotation: a sticker is stuck to the card, so it turns with
+          // it when the card is tapped, the way a real one would.
           <div
             key={st.id}
             className="absolute z-30 pointer-events-none"
-            style={{
-              left: st.x,
-              top: st.y,
-              transform: rotation ? `rotate(${-rotation}deg)` : undefined,
-              transformOrigin: 'top left',
-            }}
+            style={{ left: st.x, top: st.y }}
           >
             <span className="inline-block max-w-[110px] truncate px-1.5 py-0.5 rounded bg-teal-500/90 text-white text-[10px] font-bold shadow-md ring-1 ring-teal-200/50">
               {st.text}
@@ -174,11 +218,17 @@ function CounterBadge({
   rotation: number;
   cardWidth: number;
   cardHeight: number;
-  onAdjust: (delta: number) => void;
+  onAdjust: (delta: number, anchor?: { x: number; y: number }) => void;
 }) {
   const moveCounterBadge = usePlaytestStore(s => s.moveCounterBadge);
   const [hovered, setHovered] = useState(false);
   const movedRef = useRef(false);
+  const badgeRef = useRef<HTMLDivElement>(null);
+
+  // Pop the floating "+1" off the badge rather than the middle of the card —
+  // with several counter types on one permanent, card-centred text can't tell
+  // you which one you just changed.
+  const adjust = (delta: number) => onAdjust(delta, badgeFloatAnchor(badgeRef.current));
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -227,7 +277,7 @@ function CounterBadge({
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onWheel={(e) => { e.stopPropagation(); onAdjust(e.deltaY < 0 ? 1 : -1); }}
+      onWheel={(e) => { e.stopPropagation(); adjust(e.deltaY < 0 ? 1 : -1); }}
       className="absolute z-20 select-none touch-none"
       style={{
         left: pos.x,
@@ -248,20 +298,21 @@ function CounterBadge({
           type="button"
           aria-label={`Add ${type} counter`}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); onAdjust(1); }}
+          onClick={(e) => { e.stopPropagation(); adjust(1); }}
           className={`${ARROW} top-1 border-b-[8px] border-b-white/90`}
         />
       )}
       <div
+        ref={badgeRef}
         onPointerDown={onPointerDown}
         onClick={(e) => {
           e.stopPropagation();
           if (movedRef.current) return;
-          if (e.altKey) onAdjust(-value);
-          else if (e.shiftKey) onAdjust(-1);
-          else onAdjust(1);
+          if (e.altKey) adjust(-value);
+          else if (e.shiftKey) adjust(-1);
+          else adjust(1);
         }}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onAdjust(-1); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); adjust(-1); }}
         title={`${value} ${type} · drag to move · click +1 · right-click −1 · scroll to adjust · alt-click clears`}
         className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-grab pointer-events-auto ${badgeClass(type)}`}
         style={badgeStyle}
@@ -273,7 +324,7 @@ function CounterBadge({
           type="button"
           aria-label={`Remove ${type} counter`}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); onAdjust(-1); }}
+          onClick={(e) => { e.stopPropagation(); adjust(-1); }}
           className={`${ARROW} bottom-1 border-t-[8px] border-t-white/90`}
         />
       )}

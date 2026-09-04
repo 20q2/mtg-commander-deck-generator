@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hand as HandIcon, Shuffle, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, Bot } from 'lucide-react';
+import { Hand as HandIcon, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, Bot, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -7,20 +7,23 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
-// Defined at module scope (not inside the component) so they keep a stable
-// component identity across renders. If these lived in the render body, every
-// re-render would create new function references, and React would unmount and
-// remount everything wrapped in <Group> — silently resetting the uncontrolled
-// Scry/Mill/Surveil popover to closed whenever the bar re-rendered.
+// Defined at module scope (not inside the component) so it keeps a stable
+// component identity across renders. If this lived in the render body, every
+// re-render would create a new function reference, and React would unmount and
+// remount everything wrapped in <Group> — silently resetting any uncontrolled
+// popover inside to closed whenever the bar re-rendered.
+//
+// The buttons in a group sit flush: square corners and a -1px pull so adjacent
+// borders collapse into a single hairline, making each group read as one
+// segmented control rather than a row of chips. Groups are told apart by the
+// gap between them, so they need no separator rules.
 const Group = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <div className={`flex items-center gap-1 ${className}`}>{children}</div>
+  <div className={`flex items-center [&>*+*]:-ml-px ${className}`}>{children}</div>
 );
-const Sep = () => <div className="w-px h-5 bg-border/60 mx-1" aria-hidden />;
 
 export function PlaytestActionsBar() {
   const draw = usePlaytestStore(s => s.draw);
   const untapAll = usePlaytestStore(s => s.untapAll);
-  const shuffle = usePlaytestStore(s => s.shuffle);
   const beginMulligan = usePlaytestStore(s => s.beginMulligan);
   const freeMulligan = usePlaytestStore(s => s.freeMulligan);
   const openModal = usePlaytestStore(s => s.openModal);
@@ -28,29 +31,37 @@ export function PlaytestActionsBar() {
   const modal = usePlaytestStore(s => s.modal);
   const searchOpen = modal?.kind === 'zoneViewer' && modal.zone === 'library';
 
-  const [scryN, setScryN] = useState(1);
-  const [drawN, setDrawN] = useState(1);
-  const [drawOpen, setDrawOpen] = useState(false);
+  // One amount drives every deck action — pick N once, then choose what to do
+  // with it. Draw keeps the popover open so you can tap it repeatedly; the
+  // scry/surveil/mill actions open a modal, so the popover gets out of the way.
+  const [deckN, setDeckN] = useState(1);
+  const [deckOpen, setDeckOpen] = useState(false);
   const [mullOpen, setMullOpen] = useState(false);
 
-  const btn = 'h-6 px-1.5 sm:px-2 text-[11px]';
+  // rounded-none + focus-visible:z-10 so the flush borders stay collapsed but a
+  // focused / hovered button still paints its own outline on top of its neighbour.
+  // border-y-0: the row's own top edge and hairline already bound the buttons, so
+  // their horizontal rules would only double up on those lines.
+  const btn = 'relative h-6 px-1.5 sm:px-2 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
   const icon = 'w-3 h-3 mr-1';
 
-  const drawBtn = (
-    <Popover open={drawOpen} onOpenChange={setDrawOpen}>
+  const deckActionsBtn = (
+    <Popover open={deckOpen} onOpenChange={setDeckOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={btn} title="Draw cards (D draws 1)"><Plus className={icon} />Draw</Button>
+        <Button variant="outline" size="sm" className={btn} title="Draw, scry, surveil or mill (D draws 1)">
+          <Layers className={icon} />
+          <span className="md:hidden">Deck</span>
+          <span className="hidden md:inline">Deck Actions</span>
+        </Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-2 space-y-2">
-        <ScryNPicker value={drawN} onChange={setDrawN} />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start"
-          onClick={() => draw(drawN)}
-        >
-          <Plus className={icon} />Draw {drawN}
-        </Button>
+        <ScryNPicker value={deckN} onChange={setDeckN} />
+        <div className="space-y-1">
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => draw(deckN)}><Plus className={icon} />Draw {deckN}</Button>
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'scry', n: deckN }); }}><Eye className={icon} />Scry {deckN}</Button>
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'surveil', n: deckN }); }}><BookOpen className={icon} />Surveil {deckN}</Button>
+          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'mill', n: deckN }); }}><Trash2 className={icon} />Mill {deckN}</Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -58,7 +69,7 @@ export function PlaytestActionsBar() {
   const mulliganBtn = (
     <Popover open={mullOpen} onOpenChange={setMullOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={btn} title="Mulligan (M)"><HandIcon className={icon} />Mulligan</Button>
+        <Button variant="outline" size="sm" className={`${btn} hidden md:inline-flex`} title="Mulligan (M)"><HandIcon className={icon} />Mulligan</Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" sideOffset={6} className="w-72 p-3 space-y-2">
         <p className="text-xs">Shuffle your hand back and draw a new one?</p>
@@ -76,26 +87,6 @@ export function PlaytestActionsBar() {
             <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMullOpen(false)}>Cancel</Button>
             <Button size="sm" className="h-7 px-2 text-xs" onClick={() => { setMullOpen(false); beginMulligan(); }}>Mulligan</Button>
           </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-
-  const scryBtn = (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={btn} title="Scry, Mill, or Surveil">
-          <Eye className={icon} />
-          <span className="md:hidden">Scry…</span>
-          <span className="hidden md:inline">Scry/Mill/Surveil</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-2 space-y-2">
-        <ScryNPicker value={scryN} onChange={setScryN} />
-        <div className="space-y-1">
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => openModal({ kind: 'scry', n: scryN })}><Eye className={icon} />Scry {scryN}</Button>
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => openModal({ kind: 'surveil', n: scryN })}><BookOpen className={icon} />Surveil {scryN}</Button>
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => openModal({ kind: 'mill', n: scryN })}><Trash2 className={icon} />Mill {scryN}</Button>
         </div>
       </PopoverContent>
     </Popover>
@@ -122,7 +113,7 @@ export function PlaytestActionsBar() {
         <Button variant="outline" size="sm" className={btn} title="More actions"><MoreHorizontal className="w-3 h-3" /></Button>
       </PopoverTrigger>
       <PopoverContent side="top" align="end" sideOffset={6} className="w-44 p-1">
-        <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); shuffle(); }}><Shuffle className="w-3 h-3 mr-2" />Shuffle</Button>
+        {/* Shuffle isn't here — it's an icon button on the library pile itself. */}
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); setMullOpen(true); }}><HandIcon className="w-3 h-3 mr-2" />Mulligan…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'tokens' }); }}><Sparkles className="w-3 h-3 mr-2" />Tokens…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); createOpen ? closeModal() : openModal({ kind: 'create' }); }}><Plus className="w-3 h-3 mr-2" />Create…</Button>
@@ -133,23 +124,16 @@ export function PlaytestActionsBar() {
   );
 
   return (
-    <div className="flex items-center justify-center gap-0.5 sm:gap-1 flex-wrap">
+    <div className="flex items-center justify-center gap-1.5 flex-wrap">
       {/* Always-visible essentials */}
       <Group>
         <Button variant="outline" size="sm" className={btn} onClick={untapAll} title="Untap all (U)"><RotateCcw className={icon} />Untap</Button>
-        {drawBtn}
-      </Group>
-      <div className="hidden md:block"><Sep /></div>
-      <Group className="hidden md:flex">
-        <Button variant="outline" size="sm" className={btn} onClick={shuffle} title="Shuffle library (S)"><Shuffle className={icon} />Shuffle</Button>
         {mulliganBtn}
       </Group>
-      <div className="hidden md:block"><Sep /></div>
       <Group>
-        {scryBtn}
         <Button variant={searchOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => openModal({ kind: 'zoneViewer', zone: 'library' })} title="Search library"><Search className={icon} />Search</Button>
+        {deckActionsBtn}
       </Group>
-      <div className="hidden md:block"><Sep /></div>
       <Group className="hidden md:flex">
         <Button variant={tokensOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => tokensOpen ? closeModal() : openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
         {createBtn}
@@ -189,7 +173,7 @@ export function NextTurnButton() {
     <Button
       size="sm"
       disabled={blocked}
-      className={`h-8 sm:h-6 px-2 text-[11px] border gap-1 ${
+      className={`h-8 sm:h-6 px-2 text-[11px] rounded-none border border-y-0 gap-1 ${
         combat
           ? 'bg-rose-500/15 border-rose-400/50 text-rose-200'
           : 'bg-primary/15 hover:bg-primary/25 border-primary/40 text-primary-foreground/90'

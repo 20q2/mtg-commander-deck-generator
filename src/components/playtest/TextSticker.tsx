@@ -80,13 +80,10 @@ export function TextSticker({ instanceId, sticker, rotation }: Props) {
       }}
       title="Drag to move · click to edit · right-click to remove"
       className="absolute z-30 pointer-events-auto select-none touch-none cursor-grab"
-      style={{
-        left: sticker.x,
-        top: sticker.y,
-        // Keep the label upright regardless of how the card is turned.
-        transform: rotation ? `rotate(${-rotation}deg)` : undefined,
-        transformOrigin: 'top left',
-      }}
+      // No counter-rotation: a sticker is stuck to the card, so it turns with it
+      // when the card is tapped, the way a real one would. `rotation` is still
+      // needed above, to map screen-space drags back into card space.
+      style={{ left: sticker.x, top: sticker.y }}
     >
       {editing ? (
         <input

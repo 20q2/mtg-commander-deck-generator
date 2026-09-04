@@ -65,6 +65,10 @@ interface PlaytestState {
   // Increments any time a card is placed on TOP of the library — UI hooks
   // observe this to play a slide-up animation of the card-back on the pile.
   libraryTopPushTick: number;
+  // Increments any time cards are drawn off the top of the library — the
+  // mirror of libraryTopPushTick. The pile plays a card-back sliding *down*
+  // off the deck while the drawn card deals into the hand.
+  libraryDrawTick: number;
   // Increments any time a card is added to the graveyard / exile pile —
   // the sidebar Pile uses this to play an overlay animation of the new card.
   graveyardPushTick: number;
@@ -134,7 +138,12 @@ interface PlaytestActions {
   toggleFaceDownMany: (instanceIds: string[]) => void;
   shufflePile: (zone: Exclude<ZoneKey, 'hand'>) => void;
   setCounter: (instanceId: string, type: string, value: number) => void;
-  adjustCounter: (instanceId: string, type: string, delta: number) => void;
+  /**
+   * `anchor` is viewport coords for the floating "+1" to pop from. Pass the
+   * badge's own rect when the click came from a badge; without it the text
+   * comes off the middle of the card.
+   */
+  adjustCounter: (instanceId: string, type: string, delta: number, anchor?: { x: number; y: number }) => void;
   moveCounterBadge: (instanceId: string, type: string, x: number, y: number) => void;
   addSticker: (instanceId: string, text: string, position?: { x: number; y: number }) => void;
   setStickerText: (instanceId: string, stickerId: string, text: string) => void;
@@ -216,6 +225,7 @@ const initial: PlaytestState = {
   mulliganCount: 0,
   shuffleTick: 0,
   libraryTopPushTick: 0,
+  libraryDrawTick: 0,
   graveyardPushTick: 0,
   exilePushTick: 0,
   lastDrawRange: { start: -1, end: -1 },
@@ -380,6 +390,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       },
       lastDrawRange: { start: before, end: before + drawn.length },
       lastReturnRange: { start: -1, end: -1 },
+      libraryDrawTick: state.libraryDrawTick + 1,
       log: [...state.log, makeLogEntry(drawn.length === 1 ? `Drew ${drawn[0].name}` : `Drew ${drawn.length} cards`, 'library')],
     };
   }),
@@ -778,13 +789,13 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return { history, battlefield };
   }),
 
-  adjustCounter: (instanceId, type, delta) => {
+  adjustCounter: (instanceId, type, delta, anchor) => {
     const card = get().battlefield.find(b => b.instanceId === instanceId);
     if (!card) return;
     useFloatingText.getState().float(
       `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${type}`,
       delta > 0 ? 'buff' : 'debuff',
-      instanceId,
+      anchor ?? instanceId,
     );
     const current = card.counters[type] ?? 0;
     get().setCounter(instanceId, type, current + delta);

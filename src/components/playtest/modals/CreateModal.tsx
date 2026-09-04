@@ -3,7 +3,8 @@ import { useDraggable } from '@dnd-kit/core';
 import { Check } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
-import { COUNTER_COLORS, DIE_SIDES, type CounterColor, type DieSides } from '@/components/playtest/types';
+import { CardCounterChip } from '@/components/playtest/CardOverlays';
+import { CARD_COUNTER_TYPES, COUNTER_COLORS, DIE_SIDES, type CounterColor, type DieSides } from '@/components/playtest/types';
 
 // Polyhedral silhouettes (percent coords) — distinct per die.
 const DIE_SHAPES: Record<DieSides, string> = {
@@ -15,13 +16,38 @@ const DIE_SHAPES: Record<DieSides, string> = {
   20: 'polygon(50% 0%, 95% 25%, 95% 75%, 50% 100%, 5% 75%, 5% 25%)',
 };
 
+/** Nudge the user when they tap a card-bound tile with nothing selected. */
+function hint(text: string) {
+  usePlaytestStore.setState(s => ({ toast: { text, tick: (s.toast?.tick ?? 0) + 1 } }));
+}
+
 export function CreateModal() {
   const closeModal = usePlaytestStore(s => s.closeModal);
   const addFreeCounter = usePlaytestStore(s => s.addFreeCounter);
   const addFreeDie = usePlaytestStore(s => s.addFreeDie);
+  const adjustCounter = usePlaytestStore(s => s.adjustCounter);
+  const addSticker = usePlaytestStore(s => s.addSticker);
+  const selectedIds = usePlaytestStore(s => s.selectedIds);
 
   const [color, setColor] = useState<CounterColor>('blue');
   const colorCfg = COUNTER_COLORS.find(c => c.key === color) ?? COUNTER_COLORS[0];
+  const [stickerText, setStickerText] = useState('');
+
+  // Card counters and stickers have to land on a card. Tapping applies to the
+  // current selection; with nothing selected the only route is a drag, so say so.
+  const applyCounter = (type: string) => {
+    if (selectedIds.length === 0) { hint('Select a card, or drag the counter onto one'); return; }
+    selectedIds.forEach(id => adjustCounter(id, type, 1));
+  };
+  const applySticker = () => {
+    if (selectedIds.length === 0) { hint('Select a card, or drag the sticker onto one'); return; }
+    const state = usePlaytestStore.getState();
+    selectedIds.forEach(id => {
+      // Stagger down the card so a second sticker doesn't land on the first.
+      const n = state.battlefield.find(b => b.instanceId === id)?.stickers?.length ?? 0;
+      addSticker(id, stickerText.trim() || 'New sticker', { x: 8, y: 8 + n * 20 });
+    });
+  };
 
   return (
     <FloatingDialog
@@ -83,8 +109,95 @@ export function CreateModal() {
         <p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60 text-center">
           Tap to spawn · drag onto the battlefield
         </p>
+
+        <div className="border-t border-border/40" />
+
+        {/* Card counters — unlike the free counters above, these go ON a card, so
+            they carry the fixed badge colour of their type, not the palette. */}
+        <div className="text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/80">
+          Card counters
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          {CARD_COUNTER_TYPES.map(t => (
+            <CardCounterTile key={t.key} type={t} onClick={() => applyCounter(t.key)} />
+          ))}
+        </div>
+
+        {/* Text stickers */}
+        <div className="text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/80">
+          Text sticker
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            value={stickerText}
+            onChange={(e) => setStickerText(e.target.value)}
+            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') applySticker(); }}
+            placeholder="Flying, Goaded, 8/8…"
+            className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-background border border-border/60 text-xs outline-none focus:border-teal-400"
+          />
+          <StickerTile text={stickerText} onClick={applySticker} />
+        </div>
+
+        <p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground/60 text-center">
+          Drag onto a card · tap to apply to the selection
+        </p>
       </div>
     </FloatingDialog>
+  );
+}
+
+function CardCounterTile({ type, onClick }: {
+  type: typeof CARD_COUNTER_TYPES[number]; onClick: () => void;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: `create-card-counter:${type.key}`,
+    data: { createCardCounter: { type: type.key } },
+  });
+  return (
+    <button
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      title={`${type.label} counter`}
+      aria-label={`${type.label} counter`}
+      className={`group relative h-[72px] rounded-md border border-border/60 hover:border-foreground/40 transition-colors duration-150 touch-none flex flex-col items-center justify-center gap-1.5 ${
+        isDragging ? 'opacity-0' : ''
+      }`}
+    >
+      {/* The badge this tile will produce, so loyalty reads as a shield here too. */}
+      <span className="flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity duration-150">
+        <CardCounterChip type={type.key} height={26} />
+      </span>
+      <span className="text-[9px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/80 group-hover:text-foreground transition-colors">
+        {type.label}
+      </span>
+    </button>
+  );
+}
+
+function StickerTile({ text, onClick }: { text: string; onClick: () => void }) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: 'create-sticker',
+    // Read at drop time by the page, so the label typed above rides along.
+    data: { createSticker: { text } },
+  });
+  return (
+    <button
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      title="Text sticker"
+      aria-label="Text sticker"
+      className={`group shrink-0 px-3 h-[34px] rounded-md border border-border/60 hover:border-foreground/40 transition-colors duration-150 touch-none flex items-center ${
+        isDragging ? 'opacity-0' : ''
+      }`}
+    >
+      <span className="inline-block max-w-[110px] truncate px-1.5 py-0.5 rounded bg-teal-500/90 text-white text-[10px] font-bold shadow ring-1 ring-teal-200/50 opacity-70 group-hover:opacity-100 transition-opacity">
+        {text.trim() || 'Sticker'}
+      </span>
+    </button>
   );
 }
 
