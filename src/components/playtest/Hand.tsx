@@ -5,7 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { PlaytestActionsBar, NextTurnButton, CombatButton, LibraryActions } from '@/components/playtest/PlaytestActionsBar';
+import { PlaytestActionsBar, NextTurnButton, CombatButton, LibraryActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
@@ -102,6 +102,7 @@ export function Hand() {
             <option value="cmc">CMC</option>
             <option value="type">Type</option>
           </select>
+          <HandActionsButton />
         </div>
         <div className="flex-1 flex justify-center min-w-0">
           <PlaytestActionsBar />

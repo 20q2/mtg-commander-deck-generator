@@ -22,13 +22,10 @@ const Group = ({ children, className = '' }: { children: React.ReactNode; classN
 );
 
 export function PlaytestActionsBar() {
-  const untapAll = usePlaytestStore(s => s.untapAll);
   const openModal = usePlaytestStore(s => s.openModal);
   const closeModal = usePlaytestStore(s => s.closeModal);
   const modal = usePlaytestStore(s => s.modal);
 
-  const [mullOpen, setMullOpen] = useState(false);
-  const [handOpen, setHandOpen] = useState(false);
 
   // rounded-none + focus-visible:z-10 so the flush borders stay collapsed but a
   // focused / hovered button still paints its own outline on top of its neighbour.
@@ -36,19 +33,6 @@ export function PlaytestActionsBar() {
   // their horizontal rules would only double up on those lines.
   const btn = 'relative h-6 px-1.5 sm:px-2 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
   const icon = 'w-3 h-3 mr-1';
-
-  const handActionsBtn = (
-    <Popover open={mullOpen} onOpenChange={setMullOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={`${btn} hidden md:inline-flex`} title="Mulligan, wheel, discard (M mulligans)">
-          <HandIcon className={icon} />Hand
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={6} className="w-64 p-1">
-        <HandActionsMenu onDone={() => setMullOpen(false)} />
-      </PopoverContent>
-    </Popover>
-  );
 
   const tokensOpen = modal?.kind === 'tokens';
   const createOpen = modal?.kind === 'create';
@@ -72,7 +56,6 @@ export function PlaytestActionsBar() {
       </PopoverTrigger>
       <PopoverContent side="top" align="end" sideOffset={6} className="w-44 p-1">
         {/* Shuffle isn't here — it's an icon button on the library pile itself. */}
-        <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); setHandOpen(true); }}><HandIcon className="w-3 h-3 mr-2" />Hand actions…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'tokens' }); }}><Sparkles className="w-3 h-3 mr-2" />Tokens…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); createOpen ? closeModal() : openModal({ kind: 'create' }); }}><Plus className="w-3 h-3 mr-2" />Create…</Button>
         {/* The opponent column is desktop-only, so this is mobile's way in. */}
@@ -83,11 +66,9 @@ export function PlaytestActionsBar() {
 
   return (
     <div className="flex items-center justify-center gap-1.5 flex-wrap">
-      {/* Always-visible essentials */}
-      <Group>
-        <Button variant="outline" size="sm" className={btn} onClick={untapAll} title="Untap all (U)"><RotateCcw className={icon} />Untap</Button>
-        {handActionsBtn}
-      </Group>
+      {/* Untap is a chip in the corner of the table and Hand actions sit
+          beside the hand's own label — both are exported and mounted
+          elsewhere. What's left here is the middle of the bar. */}
       {/* Library controls live above the library pile on desktop — see
           LibraryActions. There is no pile row on mobile, so they stay here. */}
       <div className="md:hidden">
@@ -99,15 +80,57 @@ export function PlaytestActionsBar() {
       </Group>
       {/* Mobile-only overflow with the hidden items */}
       <div className="md:hidden">{moreBtn}</div>
-      {/* The desktop Hand trigger is hidden below md, so mobile opens the same
-          menu from its own anchor rather than from a button nobody can see. */}
-      <Popover open={handOpen} onOpenChange={setHandOpen}>
-        <PopoverTrigger asChild><span className="md:hidden" /></PopoverTrigger>
-        <PopoverContent side="top" align="center" sideOffset={6} className="w-64 p-1">
-          <HandActionsMenu onDone={() => setHandOpen(false)} />
-        </PopoverContent>
-      </Popover>
     </div>
+  );
+}
+
+/**
+ * The Hand actions trigger. Lives beside the hand's own "Hand · N" label
+ * rather than in the middle of the bar: the label supplies the noun, so the
+ * button only has to say what it opens.
+ */
+export function HandActionsButton() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          // Square, like the sort select it sits beside. The rounded treatment
+          // is reserved for the Untap chip out on the table.
+          className="h-6 px-1.5 text-[11px] rounded-none shrink-0"
+          title="Mulligan, wheel, discard (M mulligans)"
+        >
+          <HandIcon className="w-3 h-3 mr-1" />Actions
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" sideOffset={6} className="w-64 p-1">
+        <HandActionsMenu onDone={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Untap all, as a chip in the bottom-left corner of the table.
+ *
+ * It sits on the table rather than in the toolbar because it acts on the
+ * table — everything it touches is a permanent you can see from there — and
+ * because it is the one button pressed every single turn, so it earns a
+ * corner of its own instead of a slot in a row of eight.
+ */
+export function UntapChip() {
+  const untapAll = usePlaytestStore(s => s.untapAll);
+  return (
+    <button
+      onClick={untapAll}
+      title="Untap all (U)"
+      className="absolute bottom-3 left-3 z-30 inline-flex items-center gap-1.5 h-8 pl-2.5 pr-3 rounded-full border border-border/60 bg-background/80 backdrop-blur-sm text-xs font-medium text-foreground/90 shadow-lg hover:bg-accent hover:text-foreground transition-colors"
+    >
+      <RotateCcw className="w-3.5 h-3.5" />
+      Untap
+    </button>
   );
 }
 

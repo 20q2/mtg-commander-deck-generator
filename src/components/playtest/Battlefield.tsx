@@ -8,6 +8,7 @@ import { FreeDie } from '@/components/playtest/FreeDie';
 import { BattlefieldContextMenu, type BattlefieldMenuTarget } from '@/components/playtest/BattlefieldContextMenu';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { OpponentSeats } from '@/components/playtest/opponents/OpponentSeats';
+import { UntapChip } from '@/components/playtest/PlaytestActionsBar';
 import { useOpponentStore } from '@/store/opponentStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
@@ -203,6 +204,7 @@ export function Battlefield() {
           the top. */}
       <OpponentSeats />
       <AttackButton />
+      <UntapChip />
 
       {/* Mobile-only: zones float at the edges of the battlefield. On desktop
           they live in the hand row below. We conditionally RENDER (not just
