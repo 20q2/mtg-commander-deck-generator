@@ -2,7 +2,7 @@ import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { lookupEffect } from '@/services/playtest/opponents/effects';
+import { costOf, lookupEffect } from '@/services/playtest/opponents/effects';
 import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
@@ -105,6 +105,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     library: [...input.library],
     hand: [...input.hand],
     graveyard: [...input.graveyard],
+    command: [...input.command],
     battlefield: input.battlefield.map(p => ({ ...p })),
   };
 
@@ -159,6 +160,23 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   const botPower = opp.battlefield
     .filter(p => isCreature(p.card))
     .reduce((sum, p) => sum + powerOf(p.card), 0);
+
+  // ── Commander ──
+  // It goes first: it is the card the deck is built around, and holding it back
+  // to cast a cheaper spell first is never what the deck wants. Commander tax is
+  // {2} per previous cast, which is why a bot that keeps losing it slows down.
+  if (opp.command.length > 0) {
+    const commander = opp.command[0];
+    const tax = 2 * opp.commanderCasts;
+    const price = costOf(commander) + tax;
+    if (price <= availableMana()) {
+      opp.command = opp.command.slice(1);
+      opp.battlefield = tapForMana(opp.battlefield, price);
+      opp.battlefield.push(toPermanent(commander));
+      opp.commanderCasts += 1;
+      frame([`${opp.name} casts ${commander.name}`], [], [], commander.name);
+    }
+  }
 
   // ── Interaction ──
   // Interaction gets first call on the mana, before the bot spends it developing.

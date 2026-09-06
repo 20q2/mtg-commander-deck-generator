@@ -8,7 +8,7 @@ import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botPower, botToughness, isCreatureCard } from '@/services/playtest/opponents/stats';
+import { botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks } from '@/services/playtest/opponents/evaluate';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
@@ -58,6 +58,27 @@ function botCombatant(p: OpponentPermanent, battlefield: OpponentPermanent[]): C
     power: botPower(p, battlefield),
     toughness: botToughness(p, battlefield),
     keywords: keywordsOf(p.card),
+  };
+}
+
+/**
+ * Move permanents off a bot's battlefield to where they actually belong.
+ * A commander goes back to the command zone so it can be recast, a token
+ * ceases to exist, and everything else goes to the graveyard. Every death path
+ * has to agree on this, so none of them writes it out by hand.
+ */
+function sendToGraveyard(o: Opponent, instanceIds: string[]): Opponent {
+  if (instanceIds.length === 0) return o;
+  const leaving = o.battlefield.filter(p => instanceIds.includes(p.instanceId));
+  const toGraveyard = leaving
+    .filter(p => !isTokenCard(p.card) && p.card.name !== o.commanderName)
+    .map(p => p.card);
+  const returning = leaving.filter(p => p.card.name === o.commanderName).map(p => p.card);
+  return {
+    ...o,
+    battlefield: o.battlefield.filter(p => !instanceIds.includes(p.instanceId)),
+    graveyard: [...o.graveyard, ...toGraveyard],
+    command: [...o.command, ...returning],
   };
 }
 
@@ -362,15 +383,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }
     if (deadAttackers.length > 0) {
       set(s => ({
-        opponents: s.opponents.map(o => {
-          if (o.id !== combat.opponentId) return o;
-          const dead = o.battlefield.filter(p => deadAttackers.includes(p.instanceId));
-          return {
-            ...o,
-            battlefield: o.battlefield.filter(p => !deadAttackers.includes(p.instanceId)),
-            graveyard: [...o.graveyard, ...dead.map(p => p.card)],
-          };
-        }),
+        opponents: s.opponents.map(o =>
+          o.id === combat.opponentId ? sendToGraveyard(o, deadAttackers) : o,
+        ),
       }));
     }
 
@@ -553,16 +568,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // Their dead blockers go to theirs. Survivors need no repositioning: they
     // never left `battlefield`, so their x/y is intact by construction.
     set(s => ({
-      opponents: s.opponents.map(o => {
-        const dead = theirDead[o.id];
-        if (!dead || dead.length === 0) return o;
-        const gone = o.battlefield.filter(p => dead.includes(p.instanceId));
-        return {
-          ...o,
-          battlefield: o.battlefield.filter(p => !dead.includes(p.instanceId)),
-          graveyard: [...o.graveyard, ...gone.map(p => p.card)],
-        };
-      }),
+      opponents: s.opponents.map(o => sendToGraveyard(o, theirDead[o.id] ?? [])),
       playerCombat: null,
       // Damage is dealt; the phase is over. combatPhase stays true from
       // confirm through here so the strips keep showing the blocks.
@@ -646,11 +652,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (o.id !== opponentId) return o;
       const hit = o.battlefield.find(p => p.instanceId === instanceId);
       if (hit) usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} was destroyed`);
-      return {
-        ...o,
-        battlefield: o.battlefield.filter(p => p.instanceId !== instanceId),
-        graveyard: hit ? [...o.graveyard, hit.card] : o.graveyard,
-      };
+      return sendToGraveyard(o, [instanceId]);
     }),
   })),
 
