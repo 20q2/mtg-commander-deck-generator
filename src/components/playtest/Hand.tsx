@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -38,7 +39,7 @@ export function Hand() {
 
   const display = sortedHand(hand, sort);
   const overlap = computeOverlap(display.length, rowWidth);
-  const flip = useHandFlip(hand, sort);
+  const { flip, flight, flightLanded, endFlight } = useHandMotion(hand, sort);
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: 'hand',
@@ -134,6 +135,7 @@ export function Hand() {
                 fanIndex={i}
                 overlap={overlap}
                 flipFrom={flip?.get(occurrenceKey(display, i)) ?? null}
+                inFlight={flight?.index === originalIndex}
                 hoveredFanIndex={hoveredFanIndex}
                 onHoverChange={(h) => {
                   setHoveredFanIndex(prev => h ? i : (prev === i ? null : prev));
@@ -169,6 +171,7 @@ export function Hand() {
         )}
       </div>
       <PlaytestCardMenu target={menu} onClose={() => setMenu(null)} />
+      {flight && <HandFlight flight={flight} landed={flightLanded} onDone={endFlight} />}
     </div>
   );
 }
@@ -191,19 +194,48 @@ function occurrenceKey(display: { card: ScryfallCard }[], i: number): string {
 
 interface FlipOffset { dx: number; dy: number }
 
+/** The card in mid-air after a drop, on its way from the cursor to its slot. */
+interface Flight {
+  /** Hand index of the card being flown — the real one stays hidden until it lands. */
+  index: number;
+  card: ScryfallCard;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  width: number;
+}
+
+/** Long enough to read as a settle, short enough not to be in the way. */
+const FLIGHT_MS = 260;
+
+interface HandMotion {
+  flip: Map<string, FlipOffset> | null;
+  flight: Flight | null;
+  flightLanded: boolean;
+  endFlight: () => void;
+}
+
 /**
- * FLIP the hand row whenever it changes: measure where every card ended up,
- * put it back where it was with the transition off, then release it so it
- * travels to its new spot under the normal easing.
+ * Motion for the hand row after it changes.
  *
- * The card you just dropped is special-cased. Everything else animates from
- * its old slot, but that card should come from the cursor — it never visually
- * occupied its old slot during the drag, and sliding it in from there would
- * read as the card going backwards before going forwards.
+ * Two separate jobs, because the card you dropped and the cards it displaced
+ * need opposite treatments:
+ *
+ * - Every other card FLIPs. Measure where it ended up, pin it back where it
+ *   was for one paint, release it. It slides from its old slot to its new one.
+ *
+ * - The dropped card *flies*. It never occupied its old slot while you were
+ *   dragging it, so sliding in from there would read as going backwards before
+ *   going forwards. It has to come from the cursor. And it cannot be the real
+ *   element doing it: a reorder changes React keys, so that element unmounts
+ *   and remounts at its destination, and there is nothing continuous left to
+ *   animate. So a copy flies, fixed to the viewport and immune to the row's
+ *   layout, while the real card waits hidden underneath it.
  */
-function useHandFlip(hand: ScryfallCard[], sort: SortMode): Map<string, FlipOffset> | null {
+function useHandMotion(hand: ScryfallCard[], sort: SortMode): HandMotion {
   const previous = useRef<Map<string, number>>(new Map());
   const [flip, setFlip] = useState<Map<string, FlipOffset> | null>(null);
+  const [flight, setFlight] = useState<Flight | null>(null);
+  const [flightLanded, setFlightLanded] = useState(false);
 
   useLayoutEffect(() => {
     const els = Array.from(document.querySelectorAll<HTMLElement>('[data-hand-index]'));
@@ -211,21 +243,21 @@ function useHandFlip(hand: ScryfallCard[], sort: SortMode): Map<string, FlipOffs
     const seen = new Map<string, number>();
     const next = new Map<string, number>();
     const moves = new Map<string, FlipOffset>();
+    let landingEl: HTMLElement | null = null;
 
     for (const el of els) {
       const id = el.dataset.cardId ?? '';
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
       const key = `${id}#${n}`;
-      // Layout position, not a bounding rect — a rect would fold in whatever
-      // transform is mid-flight and every FLIP would compound the last one.
+      // Layout position, not a bounding rect — a rect folds in whatever
+      // transform is mid-flight, so each FLIP would compound the last.
       const left = el.offsetLeft;
       next.set(key, left);
 
       if (landing && Number(el.dataset.handIndex) === landing.index) {
-        const r = el.getBoundingClientRect();
-        moves.set(key, { dx: landing.x - r.left, dy: landing.y - r.top });
-        continue;
+        landingEl = el;
+        continue; // the flight covers this one
       }
       const prev = previous.current.get(key);
       if (prev !== undefined && prev !== left) moves.set(key, { dx: prev - left, dy: 0 });
@@ -233,21 +265,91 @@ function useHandFlip(hand: ScryfallCard[], sort: SortMode): Map<string, FlipOffs
 
     previous.current = next;
     if (landing) usePlaytestStore.getState().setHandLanding(null);
-    // Positions are still recorded with animations off, so turning them back
-    // on mid-game doesn't make the row lurch from a stale baseline.
-    if (moves.size === 0 || !usePlaytestSettings.getState().animations) return;
+    // Positions are still recorded with animations off, so switching them back
+    // on mid-game doesn't lurch off a stale baseline.
+    if (!usePlaytestSettings.getState().animations) return;
 
+    if (landing && landingEl) {
+      const card = hand[landing.index];
+      const r = landingEl.getBoundingClientRect();
+      if (card) {
+        setFlight({
+          index: landing.index,
+          card,
+          from: { x: landing.x, y: landing.y },
+          to: { x: r.left, y: r.top },
+          width: r.width,
+        });
+        setFlightLanded(false);
+      }
+    }
+
+    if (moves.size === 0) return;
     setFlip(moves);
     // Two frames: the first paints the cards back at their old spots with the
     // transition suppressed, the second releases them. Collapsing this into
     // one frame batches both styles into a single paint and nothing moves.
-    const outer = requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => setFlip(null));
     });
-    return () => cancelAnimationFrame(outer);
+    return () => cancelAnimationFrame(raf);
   }, [hand, sort]);
 
-  return flip;
+  // Same two-frame dance for the flight: paint it at the cursor first, then
+  // hand it a destination.
+  useEffect(() => {
+    if (!flight || flightLanded) return;
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setFlightLanded(true));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [flight, flightLanded]);
+
+  // transitionend is the normal exit; the timer is the safety net for a tab
+  // that was backgrounded mid-flight and never fired one.
+  useEffect(() => {
+    if (!flight || !flightLanded) return;
+    const t = setTimeout(() => setFlight(null), FLIGHT_MS + 120);
+    return () => clearTimeout(t);
+  }, [flight, flightLanded]);
+
+  return { flip, flight, flightLanded, endFlight: () => setFlight(null) };
+}
+
+/**
+ * The flying card. Fixed to the viewport and portalled to <body> so no
+ * ancestor's overflow, stacking context or transform can clip it on the way
+ * down into the row.
+ */
+function HandFlight({ flight, landed, onDone }: { flight: Flight; landed: boolean; onDone: () => void }) {
+  const dx = flight.to.x - flight.from.x;
+  const dy = flight.to.y - flight.from.y;
+  return createPortal(
+    <img
+      src={getCardImageUrl(flight.card, 'normal')}
+      alt=""
+      aria-hidden
+      draggable={false}
+      onTransitionEnd={onDone}
+      className="fixed pointer-events-none rounded-[5px] shadow-2xl"
+      style={{
+        left: flight.from.x,
+        top: flight.from.y,
+        width: flight.width,
+        zIndex: 9998,
+        // Starts carrying the drag's lift — slightly large, slightly raised —
+        // and gives both up as it settles, so the card looks like it is being
+        // set down rather than teleporting.
+        transform: landed
+          ? `translate3d(${dx}px, ${dy}px, 0) scale(1)`
+          : 'translate3d(0, 0, 0) scale(1.05)',
+        transition: landed
+          ? `transform ${FLIGHT_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`
+          : 'none',
+      }}
+    />,
+    document.body,
+  );
 }
 
 // Compute card overlap so the hand row always fits within rowWidth. Mirrors the
@@ -286,12 +388,14 @@ interface HandCardProps {
    * pushed back to where it just was, so releasing it animates the move.
    */
   flipFrom: { dx: number; dy: number } | null;
+  /** A copy of this card is currently flying into the slot; wait underneath it. */
+  inFlight: boolean;
   onHoverChange: (hovered: boolean) => void;
   onClickPlay: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipFrom, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
+function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipFrom, inFlight, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -416,7 +520,9 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipF
       : 'transform 220ms cubic-bezier(0.2, 0.9, 0.25, 1)',
     width: 'clamp(80px, 11vw, 130px)',
     cursor: isDragging ? 'grabbing' : 'pointer',
-    opacity: isDragging ? 0 : 1,
+    // Hidden rather than unmounted while its copy flies in: the slot has to
+    // keep its width or the row would close up and reopen as the card lands.
+    opacity: isDragging || inFlight ? 0 : 1,
     ...(dealing && animationDelayMs > 0 ? { animationDelay: `${animationDelayMs}ms` } : {}),
   };
 
