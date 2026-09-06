@@ -23,6 +23,28 @@ export const MAX_OPPONENTS = 3;
 const STEP_MS = 260;
 
 /**
+ * A turn this long or shorter plays at the full step. Past it the step shrinks
+ * so a busy turn does not drag.
+ */
+const COMFORTABLE_BEATS = 6;
+
+/** Never go below this, or a long turn is a flicker rather than a sequence. */
+const MIN_STEP_MS = 90;
+
+/**
+ * How long to hold each beat of a turn with `beats` of them.
+ *
+ * A bot that casts its commander, makes four tokens, triggers a Rabblemaster
+ * and then discards has three times the beats it used to, and at a flat step
+ * three seated bots became ten seconds of watching. The step shrinks as a turn
+ * gets busier, so a quiet turn stays readable and a big one stays watchable.
+ */
+function stepFor(beats: number): number {
+  if (beats <= COMFORTABLE_BEATS) return STEP_MS;
+  return Math.max(MIN_STEP_MS, Math.round((STEP_MS * COMFORTABLE_BEATS) / beats));
+}
+
+/**
  * Settles the promise that combat is blocking on. Module-level because there's
  * one store and one combat at a time; parking it in state would mean storing a
  * function in Zustand, which nothing else here does.
@@ -670,7 +692,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
     // Animations off means no waiting — the whole turn lands at once.
     const animate = usePlaytestSettings.getState().animations;
-    const pause = () => (animate ? new Promise(r => setTimeout(r, STEP_MS)) : Promise.resolve());
+    const pause = (ms: number) =>
+      animate ? new Promise(r => setTimeout(r, ms)) : Promise.resolve();
 
     try {
       for (const opponent of get().opponents) {
@@ -680,6 +703,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         // Re-read the board for every bot: the one before it may have blown up
         // half of it, and targeting a creature that's already dead reads broken.
         const { frames, final } = takeTurn(opponent, readPlayerBoard());
+        const step = stepFor(frames.length);
 
         for (const f of frames) {
           set(s => ({
@@ -717,7 +741,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             await new Promise<void>(resolve => { combatResolver = resolve; });
           }
 
-          await pause();
+          await pause(step);
         }
 
         // Frames are snapshots; make sure the stored bot is the authoritative
