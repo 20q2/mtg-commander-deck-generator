@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-  BookOpen, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+  BookOpen, Crown, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -32,6 +32,7 @@ import type { ScryfallCard } from '@/types';
  */
 export function OpponentSeat({
   opponent, width, onGrab, onResetPosition, placed = false,
+  onResizeGrab, onResetSize, sized = false,
 }: {
   opponent: Opponent;
   width: number;
@@ -41,6 +42,12 @@ export function OpponentSeat({
   onResetPosition?: () => void;
   /** True once this seat has been dragged off the row. */
   placed?: boolean;
+  /** Pointer-down on the corner grip — starts a resize. */
+  onResizeGrab?: (e: React.PointerEvent<HTMLElement>) => void;
+  /** Double-click the grip — back to the auto width. */
+  onResetSize?: () => void;
+  /** True once this seat has been resized by hand. */
+  sized?: boolean;
 }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
@@ -66,7 +73,7 @@ export function OpponentSeat({
     <div
       data-seat
       data-float-id={`opp-lane-${opponent.id}`}
-      className={`rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 transition-colors ${
+      className={`relative rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 transition-colors ${
         placed ? 'shadow-2xl ring-1 ring-black/30' : 'shadow-lg'
       } ${
         isOver ? 'border-violet-400/70 bg-violet-500/10'
@@ -134,6 +141,15 @@ export function OpponentSeat({
           ))}
         </div>
         <div className="ml-auto flex items-end gap-1 shrink-0">
+          {/* Their commander, face up. Who you are playing against is the single
+              most useful fact about a seat, and it was the one zone the seat
+              never showed. Face up because it is public information. */}
+          <ZonePile
+            label="Command" count={opponent.command.length} width={zoneWidth}
+            top={opponent.command[opponent.command.length - 1]}
+            hint={opponent.command.length > 0 ? 'Their commander' : 'Commander is on the battlefield'}
+            Icon={Crown} tint="bg-purple-500/10 border-purple-400/30"
+          />
           <HandFan count={opponent.hand.length} width={zoneWidth} />
           <ZonePile
             label="Library" count={opponent.library.length} width={zoneWidth}
@@ -162,6 +178,25 @@ export function OpponentSeat({
       </div>
 
       <CombatStrip opponentId={opponent.id} />
+
+      {/* Resize handle on the right edge. Width is the only lever a seat needs
+          — height follows the board, and every card inside is sized as a
+          fraction of the width, so dragging this scales the whole table rather
+          than just stretching it.
+
+          Deliberately the edge and not a bottom-right corner grip: the combat
+          strip puts its Resolve button in that corner, and a grip there would
+          swallow the click that ends combat. */}
+      <div
+        onPointerDown={onResizeGrab}
+        onDoubleClick={sized ? onResetSize : undefined}
+        title={
+          sized
+            ? `Drag to resize ${opponent.name}'s table · double-click for the automatic width`
+            : `Drag to resize ${opponent.name}'s table`
+        }
+        className="absolute top-0 right-0 h-full w-1.5 translate-x-1/2 cursor-col-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
+      />
     </div>
   );
 }
@@ -307,11 +342,28 @@ function ZonePile({
 }) {
   const empty = count === 0;
   const Tag = onClick && !empty ? 'button' : 'div';
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState(false);
+  const ctrlHeld = useMagnifyKey();
+  const previewMode = usePlaytestSettings(s => s.opponentPreview);
+  // A pile is ~38px wide; the face-up ones are unreadable at that size. Same
+  // magnify rules as a card on their board, so Ctrl-hover works everywhere.
+  const showPreview = !!top && (
+    previewMode === 'off'   ? false
+  : previewMode === 'hover' ? hovered
+  :                           ctrlHeld && hovered
+  );
   return (
+    <div
+      ref={boxRef}
+      className="relative shrink-0"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
     <Tag
       onClick={onClick && !empty ? onClick : undefined}
       title={`${label} · ${count}${hint ? ` · ${hint}` : ''}`}
-      className={`relative shrink-0 rounded-[3px] border overflow-hidden ${tint} ${
+      className={`relative block shrink-0 rounded-[3px] border overflow-hidden ${tint} ${
         empty ? 'opacity-60' : ''
       } ${onClick && !empty ? 'cursor-pointer hover:brightness-125' : ''}`}
       style={{ width, aspectRatio: '5 / 7' }}
@@ -346,6 +398,8 @@ function ZonePile({
         {count}
       </span>
     </Tag>
+    {showPreview && top && <MagnifiedPreview card={top} anchorRef={boxRef} />}
+    </div>
   );
 }
 

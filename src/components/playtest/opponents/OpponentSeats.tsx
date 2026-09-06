@@ -12,20 +12,32 @@ const MIN_SEAT_WIDTH = 190;
 /** Leave room for the log panel and the ＋ / Turn controls on the right. */
 const USABLE_FRACTION = 0.62;
 
-/** Seat placements survive a reload; they're layout, not game state. */
+/** Seat placements and sizes survive a reload; they're layout, not game state. */
 const POSITIONS_KEY = 'playtest-seat-positions';
+const WIDTHS_KEY = 'playtest-seat-widths';
+
+/**
+ * A hand-set width can go well past the automatic ceiling — the whole point of
+ * resizing a seat is to make one opponent big enough to actually read.
+ */
+const RESIZE_MIN = 160;
+const RESIZE_MAX = 900;
 
 /** Keyed by seat index rather than opponent id, so re-seating keeps your layout. */
 type SeatPositions = Record<number, { x: number; y: number }>;
+type SeatWidths = Record<number, number>;
 
-function loadPositions(): SeatPositions {
+function loadJson<T>(key: string): T {
   try {
-    const raw = localStorage.getItem(POSITIONS_KEY);
-    return raw ? (JSON.parse(raw) as SeatPositions) : {};
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : ({} as T);
   } catch {
-    return {};
+    return {} as T;
   }
 }
+
+const loadPositions = () => loadJson<SeatPositions>(POSITIONS_KEY);
+const loadWidths = () => loadJson<SeatWidths>(WIDTHS_KEY);
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -48,6 +60,7 @@ export function OpponentSeats() {
   const viewportWidth = useViewportWidth();
   const bandRef = useSeatBandMeasure(opponents.length);
   const [positions, setPositions] = useState<SeatPositions>(loadPositions);
+  const [widths, setWidths] = useState<SeatWidths>(loadWidths);
   /**
    * The in-flight move, as an offset from wherever the seat already sits.
    *
@@ -64,10 +77,16 @@ export function OpponentSeats() {
     try { localStorage.setItem(POSITIONS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
   }, []);
 
-  const width = Math.max(
+  const persistWidths = useCallback((next: SeatWidths) => {
+    setWidths(next);
+    try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+  }, []);
+
+  const autoWidth = Math.max(
     MIN_SEAT_WIDTH,
     Math.min(MAX_SEAT_WIDTH, Math.round((viewportWidth * USABLE_FRACTION) / Math.max(1, opponents.length))),
   );
+  const widthOf = (index: number) => widths[index] ?? autoWidth;
 
   /**
    * Drag a seat by its name. Pointer capture rather than window listeners so a
@@ -121,6 +140,45 @@ export function OpponentSeats() {
     handle.addEventListener('pointercancel', onUp);
   }, [persist]);
 
+  /**
+   * Resize a seat from its corner. Same pointer-capture shape as the move, and
+   * live rather than deferred — the cards inside are sized off the seat width,
+   * so you need to see them grow to know when to stop.
+   */
+  const startResize = useCallback((index: number, e: React.PointerEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    const seatEl = handle.closest('[data-seat]') as HTMLElement | null;
+    if (!seatEl) return;
+    const startWidth = seatEl.getBoundingClientRect().width;
+    const startX = e.clientX;
+
+    handle.setPointerCapture(e.pointerId);
+    let landed = Math.round(startWidth);
+
+    const onMove = (ev: PointerEvent) => {
+      landed = Math.round(clamp(startWidth + (ev.clientX - startX), RESIZE_MIN, RESIZE_MAX));
+      setWidths(prev => ({ ...prev, [index]: landed }));
+    };
+    const onUp = (ev: PointerEvent) => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+      try { handle.releasePointerCapture(ev.pointerId); } catch { /* already gone */ }
+      persistWidths({ ...loadWidths(), [index]: landed });
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }, [persistWidths]);
+
+  const resetSize = useCallback((index: number) => {
+    const next = { ...loadWidths() };
+    delete next[index];
+    persistWidths(next);
+  }, [persistWidths]);
+
   const resetSeat = useCallback((index: number) => {
     const next = { ...loadPositions() };
     delete next[index];
@@ -171,9 +229,12 @@ export function OpponentSeats() {
           <div key={o.id} className="relative pointer-events-auto" style={dragStyle(index)}>
             <OpponentSeat
               opponent={o}
-              width={width}
+              width={widthOf(index)}
               onGrab={e => startDrag(index, e)}
               onResetPosition={() => resetSeat(index)}
+              onResizeGrab={e => startResize(index, e)}
+              onResetSize={() => resetSize(index)}
+              sized={widths[index] !== undefined}
             />
           </div>
         ))}
@@ -191,9 +252,12 @@ export function OpponentSeats() {
             >
               <OpponentSeat
                 opponent={o}
-                width={width}
+                width={widthOf(index)}
                 onGrab={e => startDrag(index, e)}
                 onResetPosition={() => resetSeat(index)}
+                onResizeGrab={e => startResize(index, e)}
+                onResetSize={() => resetSize(index)}
+                sized={widths[index] !== undefined}
                 placed
               />
             </div>
