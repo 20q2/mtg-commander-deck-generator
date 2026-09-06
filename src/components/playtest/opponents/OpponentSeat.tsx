@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-  BookOpen, Crown, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+  BookOpen, Crown, GripHorizontal, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -229,18 +229,25 @@ function SeatHeader({
   return (
     <div className="flex items-center gap-1">
       {/* The name doubles as the seat's move handle. Everything else in this
-          row is a button, so the drag can't steal a click that mattered. */}
+          row is a button, so the drag can't steal a click that mattered.
+
+          The grip says so out loud — the same GripHorizontal a FloatingDialog
+          puts in its title bar, because it means the same thing here. */}
       <span
         onPointerDown={onGrab}
         onDoubleClick={placed ? onResetPosition : undefined}
-        className="text-[11px] font-semibold truncate flex-1 min-w-0 cursor-grab active:cursor-grabbing select-none touch-none"
+        className="group/grip flex items-center gap-1 flex-1 min-w-0 cursor-grab active:cursor-grabbing select-none touch-none"
         title={
           placed
             ? `${opponent.name} · drag to move · double-click to send it back to the top`
             : `${opponent.name} · drag to move this seat anywhere on the table`
         }
       >
-        {opponent.name}
+        <GripHorizontal
+          aria-hidden
+          className="w-3 h-3 shrink-0 opacity-50 group-hover/grip:opacity-100 transition-opacity"
+        />
+        <span className="text-[11px] font-semibold truncate">{opponent.name}</span>
       </span>
 
       <button onClick={() => onAdjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
