@@ -88,6 +88,10 @@ export function OpponentSeat({
         : inCombat ? 'border-violet-400/70'
         : running ? 'border-violet-400/40'
         : 'border-border/50'
+      } ${
+        // Out of the game, but still on the table: dimmed rather than removed,
+        // so you can see the board that beat them and still take their stuff.
+        opponent.life <= 0 ? 'opacity-50 saturate-50' : ''
       }`}
       style={{ width }}
     >
@@ -253,8 +257,12 @@ function SeatHeader({
       <button onClick={() => onAdjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
       <span
         data-float-id={`opp-life-${opponent.id}`}
-        className="inline-flex items-center gap-0.5 px-1 rounded bg-rose-500/15 border border-rose-400/40 text-rose-300 font-bold text-[11px] leading-4 tabular-nums"
-        title={`${opponent.name}'s life`}
+        className={`inline-flex items-center gap-0.5 px-1 rounded border font-bold text-[11px] leading-4 tabular-nums ${
+          opponent.life <= 0
+            ? 'bg-muted/40 border-border/60 text-muted-foreground line-through'
+            : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+        }`}
+        title={opponent.life <= 0 ? `${opponent.name} is defeated` : `${opponent.name}'s life`}
       >
         <Heart className="w-2.5 h-2.5 fill-rose-400/40" />
         {opponent.life}

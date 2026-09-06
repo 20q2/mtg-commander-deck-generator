@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
 export function usePlaytestHotkeys() {
   // Track the most recent cursor position so Ctrl+V can paste at the cursor.
@@ -28,10 +29,16 @@ export function usePlaytestHotkeys() {
       // turn and draw, matching the Next Turn button.
       if (e.key === 'Enter') {
         e.preventDefault();
+        const bots = useOpponentStore.getState();
+        // Same lock the Next Turn button holds. Advancing while a bot's turn is
+        // in flight, or while a confirmed attack is waiting on damage, drops
+        // that turn on the floor and desyncs the game with nothing said.
+        if (bots.running || bots.combat || bots.playerCombat) return;
         // An unconfirmed declaration never happened — untap and forget it.
-        useOpponentStore.getState().exitCombat();
+        bots.exitCombat();
         s.nextTurn();
         s.draw(1);
+        if (usePlaytestSettings.getState().opponentAutoTurns) bots.runAllTurns();
         return;
       }
       // Backspace: reset the playtest, matching the Reset button. preventDefault

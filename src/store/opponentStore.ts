@@ -581,9 +581,14 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   adjustLife: (id, delta) => {
     floatDelta(delta, `opp-life-${id}`);
+    const before = get().opponents.find(o => o.id === id);
     set(s => ({
       opponents: s.opponents.map(o => (o.id === id ? { ...o, life: o.life + delta } : o)),
     }));
+    // Announced on the crossing only, so nudging a dead bot's life stays quiet.
+    if (before && before.life > 0 && before.life + delta <= 0) {
+      usePlaytestStore.getState().appendLog(`${before.name} is defeated`);
+    }
   },
 
   setLife: (id, life) => set(s => ({
@@ -669,6 +674,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
     try {
       for (const opponent of get().opponents) {
+        // Out of the game. The seat stays on the table so you can see what beat
+        // them, and so their board is still there to be interacted with.
+        if (opponent.life <= 0) continue;
         // Re-read the board for every bot: the one before it may have blown up
         // half of it, and targeting a creature that's already dead reads broken.
         const { frames, final } = takeTurn(opponent, readPlayerBoard());
