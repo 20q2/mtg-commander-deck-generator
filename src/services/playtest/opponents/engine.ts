@@ -248,7 +248,13 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   // the standing approximation — but ramp now actually ramps.
   /** Untapped mana right now — recomputed after every spell, since paying taps. */
   const availableMana = () => opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
-  const botPower = opp.battlefield
+  /**
+   * The bot's own power on board, right now. A function rather than a constant
+   * because the commander lands between here and the interaction step, and a
+   * bot that measured itself before casting its best creature read the table as
+   * more threatening than it was.
+   */
+  const botPower = () => opp.battlefield
     .filter(p => isCreatureCard(p.card))
     .reduce((sum, p) => sum + livePower(p, opp.battlefield), 0);
 
@@ -280,7 +286,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         hand: opp.hand,
         mana: availableMana(),
         board: playerBoard,
-        botPower,
+        botPower: botPower(),
         turn: input.turnsTaken + 1,
         aggression: opp.aggression,
         botCreatureToughness: opp.battlefield
