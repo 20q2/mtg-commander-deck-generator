@@ -2,9 +2,9 @@ import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, hasLiveTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { BOT_TRIGGERS, costOf, lookupSelfEffect } from '@/services/playtest/opponents/effects';
+import { BOT_TRIGGERS, costOf, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
 import type { TokenSpec } from '@/services/playtest/opponents/effects';
-import { botPower as livePower, botToughness as liveToughness, isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { botPower as livePower, botToughness as liveToughness, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackers } from '@/services/playtest/opponents/combatChoices';
 import { keywordsOf } from '@/services/playtest/combat';
 import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
@@ -283,6 +283,9 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         botPower,
         turn: input.turnsTaken + 1,
         aggression: opp.aggression,
+        botCreatureToughness: opp.battlefield
+          .filter(p => isCreatureCard(p.card))
+          .map(p => liveToughness(p, opp.battlefield)),
       });
       if (!play) break;
       opp.hand.splice(play.handIndex, 1);
@@ -294,6 +297,29 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       }
       // Tap what it cost, so their board shows the spend.
       opp.battlefield = tapForMana(opp.battlefield, costOf(play.card));
+
+      // A wrath is symmetrical. The bot's own creatures die too — tokens simply
+      // cease to exist, and its commander goes back to the command zone.
+      const wipe = lookupEffect(play.card.name);
+      if (wipe?.spec.kind === 'boardWipe') {
+        const cap = wipe.spec.maxToughness;
+        const dying = opp.battlefield.filter(
+          p =>
+            isCreatureCard(p.card) &&
+            (cap === undefined || liveToughness(p, opp.battlefield) <= cap),
+        );
+        const ids = new Set(dying.map(p => p.instanceId));
+        opp.graveyard.push(
+          ...dying
+            .filter(p => !isTokenCard(p.card) && p.card.name !== opp.commanderName)
+            .map(p => p.card),
+        );
+        opp.command.push(
+          ...dying.filter(p => p.card.name === opp.commanderName).map(p => p.card),
+        );
+        opp.battlefield = opp.battlefield.filter(p => !ids.has(p.instanceId));
+      }
+
       frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : [], [], play.card.name);
     }
   }

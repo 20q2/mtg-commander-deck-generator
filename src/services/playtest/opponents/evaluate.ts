@@ -113,7 +113,9 @@ function resolveEffect(
       return { effect: { ...EMPTY, destroy: [target.instanceId] }, target: target.name };
     }
     case 'boardWipe': {
-      const list = creatures(board);
+      // A -X/-X sweeper only kills what it is big enough to kill.
+      const cap = spec.maxToughness;
+      const list = creatures(board).filter(c => cap === undefined || c.toughness <= cap);
       if (list.length === 0) return null;
       return {
         effect: { ...EMPTY, destroy: list.map(c => c.instanceId) },
@@ -172,6 +174,11 @@ export interface ResistanceContext {
   turn: number;
   /** 0..1 — higher fires interaction sooner and on smaller threats. */
   aggression: number;
+  /**
+   * The bot's own creatures, as toughness values. A wrath that kills more of
+   * its board than yours is a bad wrath, and without this it cannot tell.
+   */
+  botCreatureToughness: number[];
 }
 
 /**
@@ -203,7 +210,15 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     // Rank by how much of the problem it solves.
     let rank = 0;
     switch (entry.spec.kind) {
-      case 'boardWipe':       rank = resolved.effect.destroy.length >= 3 ? 95 : 30; break;
+      case 'boardWipe': {
+        const cap = entry.spec.maxToughness;
+        const ownLosses = ctx.botCreatureToughness
+          .filter(t => cap === undefined || t <= cap).length;
+        const net = resolved.effect.destroy.length - ownLosses;
+        // Only a wrath that leaves the bot ahead is worth the card.
+        rank = net >= 3 ? 95 : net >= 1 ? 45 : 0;
+        break;
+      }
       case 'destroyCreature':
       case 'exileCreature':
       case 'destroyPermanent': rank = comboPieceToBreak(board) ? 90 : 60; break;
@@ -213,6 +228,9 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
       case 'drain':           rank = 20; break;
       case 'discard':         rank = 18; break;
     }
+    // Rank 0 means the play is actively bad — a wrath that costs the bot more
+    // than it costs you. Leave it in hand rather than offering it.
+    if (rank <= 0) return;
     candidates.push({ handIndex, card, spec: entry.spec, etb: !!entry.etb, resolved, rank });
   });
 
