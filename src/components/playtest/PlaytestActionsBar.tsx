@@ -185,7 +185,7 @@ export function CombatButton() {
       }
     >
       <Swords className="w-3 h-3" />
-      <span className="hidden sm:inline">{combatPhase ? 'End Combat' : 'Combat'}</span>
+      <span className="hidden sm:inline">{combatPhase ? 'End Combat' : 'Start Combat'}</span>
     </Button>
   );
 }

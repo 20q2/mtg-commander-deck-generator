@@ -30,7 +30,18 @@ import type { ScryfallCard } from '@/types';
  * to make room would clip the cards near the top and silently invalidate the
  * coordinates the player built their board around.
  */
-export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: number }) {
+export function OpponentSeat({
+  opponent, width, onGrab, onResetPosition, placed = false,
+}: {
+  opponent: Opponent;
+  width: number;
+  /** Pointer-down on the seat's name — starts a move. */
+  onGrab?: (e: React.PointerEvent<HTMLElement>) => void;
+  /** Double-click the name — back to the auto row. */
+  onResetPosition?: () => void;
+  /** True once this seat has been dragged off the row. */
+  placed?: boolean;
+}) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
@@ -53,8 +64,11 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
 
   return (
     <div
+      data-seat
       data-float-id={`opp-lane-${opponent.id}`}
-      className={`rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 shadow-lg transition-colors ${
+      className={`rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 transition-colors ${
+        placed ? 'shadow-2xl ring-1 ring-black/30' : 'shadow-lg'
+      } ${
         isOver ? 'border-violet-400/70 bg-violet-500/10'
         : inCombat ? 'border-violet-400/70'
         : running ? 'border-violet-400/40'
@@ -67,6 +81,9 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
         onAdjustLife={adjustLife}
         onSetResistance={setResistance}
         onRemove={remove}
+        onGrab={onGrab}
+        onResetPosition={onResetPosition}
+        placed={placed}
       />
 
       {/* Creatures and other permanents. Both always shown — a bot casting a
@@ -155,17 +172,31 @@ export function OpponentSeat({ opponent, width }: { opponent: Opponent; width: n
  * targets it by that exact id.
  */
 function SeatHeader({
-  opponent, onAdjustLife, onSetResistance, onRemove,
+  opponent, onAdjustLife, onSetResistance, onRemove, onGrab, onResetPosition, placed,
 }: {
   opponent: Opponent;
   onAdjustLife: (id: string, delta: number) => void;
   onSetResistance: (id: string, resistance: boolean) => void;
   onRemove: (id: string) => void;
+  onGrab?: (e: React.PointerEvent<HTMLElement>) => void;
+  onResetPosition?: () => void;
+  placed?: boolean;
 }) {
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
   return (
     <div className="flex items-center gap-1">
-      <span className="text-[11px] font-semibold truncate flex-1 min-w-0" title={opponent.name}>
+      {/* The name doubles as the seat's move handle. Everything else in this
+          row is a button, so the drag can't steal a click that mattered. */}
+      <span
+        onPointerDown={onGrab}
+        onDoubleClick={placed ? onResetPosition : undefined}
+        className="text-[11px] font-semibold truncate flex-1 min-w-0 cursor-grab active:cursor-grabbing select-none touch-none"
+        title={
+          placed
+            ? `${opponent.name} · drag to move · double-click to send it back to the top`
+            : `${opponent.name} · drag to move this seat anywhere on the table`
+        }
+      >
         {opponent.name}
       </span>
 

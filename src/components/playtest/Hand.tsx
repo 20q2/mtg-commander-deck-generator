@@ -110,7 +110,7 @@ export function Hand() {
             game forward a beat. */}
         <div className="hidden md:flex items-center gap-2 shrink-0">
           <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} aria-hidden />
-          <div className="shrink-0 flex justify-end [&>*+*]:-ml-px" style={{ width: 'clamp(160px, 22vw, 260px)' }}>
+          <div className="shrink-0 flex justify-end [&>*+*]:-ml-px" style={{ width: 'clamp(190px, 25vw, 300px)' }}>
             <CombatButton />
             <NextTurnButton />
           </div>
