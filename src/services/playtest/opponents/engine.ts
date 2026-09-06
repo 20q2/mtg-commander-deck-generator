@@ -158,6 +158,22 @@ function etbDamage(battlefield: OpponentPermanent[], count: number): number {
   return per * count;
 }
 
+/**
+ * Name a group of attackers without listing every one of them.
+ *
+ * A goblin swarm attacks with fifty-two creatures, and spelling that out gave
+ * the game log a 571-character line reading "Goblin, Goblin, Goblin" forty-odd
+ * times. Repeats collapse to a count, so the line says what you need: how many
+ * goblins, and which real cards came with them.
+ */
+function describeAttackers(cards: ScryfallCard[]): string {
+  const counts = new Map<string, number>();
+  for (const c of cards) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([name, n]) => (n > 1 ? `${n} ${name}s` : name))
+    .join(', ');
+}
+
 export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnResult {
   const frames: TurnFrame[] = [];
   const opp: Opponent = {
@@ -444,7 +460,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     // No damage here — combat opens and waits for blocks. Whatever gets through
     // is worked out when the player resolves it.
     frame(
-      [`${opp.name} attacks with ${attackers.map(a => a.card.name).join(', ')}`],
+      [`${opp.name} attacks with ${describeAttackers(attackers.map(a => a.card))}`],
       [],
       attackers.map(a => a.instanceId),
       'Attacks!',
