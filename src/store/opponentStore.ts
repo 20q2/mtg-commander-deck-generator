@@ -10,7 +10,7 @@ import { resolvePT } from '@/services/playtest/powerToughness';
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { registerUndoParticipant } from '@/store/undoBridge';
-import { chooseBlocks } from '@/services/playtest/opponents/evaluate';
+import { chooseBlocks } from '@/services/playtest/opponents/combatChoices';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CombatState, Opponent, OpponentPermanent, OpponentZone } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard } from '@/components/playtest/types';
@@ -173,6 +173,10 @@ function readPlayerBoard(): PlayerBoardRead {
   return {
     life: s.life,
     handSize: s.zones.hand.length,
+    // What could actually block a bot's attack this turn.
+    untappedCreatures: s.battlefield
+      .filter(b => !b.tapped && getFrontFaceTypeLine(b.card).toLowerCase().includes('creature'))
+      .map(playerCombatant),
     cards: s.battlefield.map(b => {
       const type = getFrontFaceTypeLine(b.card).toLowerCase();
       const pt = resolvePT(b);
@@ -494,7 +498,6 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           attackers,
           blockers,
           life: opponent.life,
-          aggression: opponent.aggression,
         }),
       };
 

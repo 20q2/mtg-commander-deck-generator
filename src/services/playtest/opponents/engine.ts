@@ -4,7 +4,9 @@ import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, hasLiveTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import { BOT_TRIGGERS, costOf, lookupSelfEffect } from '@/services/playtest/opponents/effects';
 import type { TokenSpec } from '@/services/playtest/opponents/effects';
-import { botPower as livePower, isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { botPower as livePower, botToughness as liveToughness, isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { chooseAttackers } from '@/services/playtest/opponents/combatChoices';
+import { keywordsOf } from '@/services/playtest/combat';
 import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
@@ -362,17 +364,32 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   // ── Attack ──
   // Everything that can attack, does. There's no blocking model, so this reads as
   // a clock rather than combat — which is what a goldfish needs.
-  const attackers = opp.battlefield.filter(
-    p =>
-      isCreatureCard(p.card) &&
-      !p.summoningSick &&
-      !p.tapped &&
-      livePower(p, opp.battlefield) > 0,
+  const able = opp.battlefield.filter(
+    p => isCreatureCard(p.card) && !p.summoningSick && !p.tapped,
   );
+  const chosen = new Set(
+    chooseAttackers({
+      candidates: able.map(p => ({
+        instanceId: p.instanceId,
+        name: p.card.name,
+        power: livePower(p, opp.battlefield),
+        toughness: liveToughness(p, opp.battlefield),
+        keywords: keywordsOf(p.card),
+      })),
+      blockers: playerBoard.untappedCreatures,
+      playerLife: playerBoard.life,
+      aggression: opp.aggression,
+    }),
+  );
+  const attackers = able.filter(p => chosen.has(p.instanceId));
+
   if (attackers.length > 0) {
-    const attackerIds = new Set(attackers.map(a => a.instanceId));
+    // Vigilance attacks without tapping — the same rule your own side follows.
+    const tapping = new Set(
+      attackers.filter(a => !keywordsOf(a.card).has('vigilance')).map(a => a.instanceId),
+    );
     opp.battlefield = opp.battlefield.map(p =>
-      attackerIds.has(p.instanceId) ? { ...p, tapped: true } : p,
+      tapping.has(p.instanceId) ? { ...p, tapped: true } : p,
     );
     opp.turnsTaken = input.turnsTaken + 1;
     // No damage here — combat opens and waits for blocks. Whatever gets through
