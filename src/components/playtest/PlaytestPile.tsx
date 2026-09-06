@@ -147,7 +147,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       title={titleText}
-      className={`relative rounded-lg border ${spec.bgClass} p-1.5 text-center transition-all select-none ${interactive ? 'hover:brightness-125 cursor-pointer' : 'opacity-60'} ${isOver ? 'ring-2 ring-primary' : ''}`}
+      className={`relative rounded border ${spec.bgClass} p-1.5 text-center transition-all select-none ${interactive ? 'hover:brightness-125 cursor-pointer' : 'opacity-60'} ${isOver ? 'ring-2 ring-primary' : ''}`}
     >
       <div
         ref={imgRef}
