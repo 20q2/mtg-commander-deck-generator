@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -38,6 +38,7 @@ export function Hand() {
 
   const display = sortedHand(hand, sort);
   const overlap = computeOverlap(display.length, rowWidth);
+  const flip = useHandFlip(hand, sort);
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: 'hand',
@@ -132,6 +133,7 @@ export function Hand() {
                 indexInHand={originalIndex}
                 fanIndex={i}
                 overlap={overlap}
+                flipFrom={flip?.get(occurrenceKey(display, i)) ?? null}
                 hoveredFanIndex={hoveredFanIndex}
                 onHoverChange={(h) => {
                   setHoveredFanIndex(prev => h ? i : (prev === i ? null : prev));
@@ -171,6 +173,83 @@ export function Hand() {
   );
 }
 
+/**
+ * A card's identity for animation purposes: its printing plus which copy of
+ * that printing it is, counting along the row.
+ *
+ * It cannot be the object reference — the library builder hands out one
+ * ScryfallCard per name, so two Forests in hand are literally the same object.
+ * It does not need to be stronger than this either: two copies of the same
+ * card are interchangeable, so if the match picks the "wrong" Forest the
+ * result is identical on screen.
+ */
+function occurrenceKey(display: { card: ScryfallCard }[], i: number): string {
+  let n = 0;
+  for (let j = 0; j < i; j++) if (display[j].card.id === display[i].card.id) n++;
+  return `${display[i].card.id}#${n}`;
+}
+
+interface FlipOffset { dx: number; dy: number }
+
+/**
+ * FLIP the hand row whenever it changes: measure where every card ended up,
+ * put it back where it was with the transition off, then release it so it
+ * travels to its new spot under the normal easing.
+ *
+ * The card you just dropped is special-cased. Everything else animates from
+ * its old slot, but that card should come from the cursor — it never visually
+ * occupied its old slot during the drag, and sliding it in from there would
+ * read as the card going backwards before going forwards.
+ */
+function useHandFlip(hand: ScryfallCard[], sort: SortMode): Map<string, FlipOffset> | null {
+  const previous = useRef<Map<string, number>>(new Map());
+  const [flip, setFlip] = useState<Map<string, FlipOffset> | null>(null);
+
+  useLayoutEffect(() => {
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-hand-index]'));
+    const landing = usePlaytestStore.getState().handLanding;
+    const seen = new Map<string, number>();
+    const next = new Map<string, number>();
+    const moves = new Map<string, FlipOffset>();
+
+    for (const el of els) {
+      const id = el.dataset.cardId ?? '';
+      const n = seen.get(id) ?? 0;
+      seen.set(id, n + 1);
+      const key = `${id}#${n}`;
+      // Layout position, not a bounding rect — a rect would fold in whatever
+      // transform is mid-flight and every FLIP would compound the last one.
+      const left = el.offsetLeft;
+      next.set(key, left);
+
+      if (landing && Number(el.dataset.handIndex) === landing.index) {
+        const r = el.getBoundingClientRect();
+        moves.set(key, { dx: landing.x - r.left, dy: landing.y - r.top });
+        continue;
+      }
+      const prev = previous.current.get(key);
+      if (prev !== undefined && prev !== left) moves.set(key, { dx: prev - left, dy: 0 });
+    }
+
+    previous.current = next;
+    if (landing) usePlaytestStore.getState().setHandLanding(null);
+    // Positions are still recorded with animations off, so turning them back
+    // on mid-game doesn't make the row lurch from a stale baseline.
+    if (moves.size === 0 || !usePlaytestSettings.getState().animations) return;
+
+    setFlip(moves);
+    // Two frames: the first paints the cards back at their old spots with the
+    // transition suppressed, the second releases them. Collapsing this into
+    // one frame batches both styles into a single paint and nothing moves.
+    const outer = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setFlip(null));
+    });
+    return () => cancelAnimationFrame(outer);
+  }, [hand, sort]);
+
+  return flip;
+}
+
 // Compute card overlap so the hand row always fits within rowWidth. Mirrors the
 // `width: clamp(80px, 11vw, 130px)` rule on HandCard — we estimate cardW the
 // same way so overlap math reflects the rendered size. A negative return value
@@ -202,12 +281,17 @@ interface HandCardProps {
   fanIndex: number;
   overlap: number;
   hoveredFanIndex: number | null;
+  /**
+   * Set for a single frame after the row changes: how far this card has to be
+   * pushed back to where it just was, so releasing it animates the move.
+   */
+  flipFrom: { dx: number; dy: number } | null;
   onHoverChange: (hovered: boolean) => void;
   onClickPlay: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
+function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipFrom, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -311,16 +395,25 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, onHov
 
   // While dealing, let the CSS keyframe drive transform — don't set an inline
   // transform (it would override the keyframe). Drag still wins if it starts.
-  const inlineTransform = isDragging
-    ? dragTransform
-    : dealing
-      ? undefined
-      : restingTransform;
+  //
+  // The FLIP frame outranks all of it: for that one paint the card is pinned
+  // back where it came from, and the frame after, this goes away and the
+  // transition carries it home.
+  const inlineTransform = flipFrom
+    ? `translate3d(${flipFrom.dx}px, ${flipFrom.dy}px, 0)`
+    : isDragging
+      ? dragTransform
+      : dealing
+        ? undefined
+        : restingTransform;
   const style: React.CSSProperties = {
     marginLeft: fanIndex === 0 ? 0 : `${-overlap}px`,
     transform: inlineTransform,
-    zIndex: isDragging ? 50 : isHovered ? 30 : fanIndex,
-    transition: isDragging || dealing ? 'none' : 'transform 160ms ease-out',
+    // A landing card travels over its neighbours, not under them.
+    zIndex: isDragging ? 50 : flipFrom ? 40 : isHovered ? 30 : fanIndex,
+    transition: flipFrom || isDragging || dealing
+      ? 'none'
+      : 'transform 220ms cubic-bezier(0.2, 0.9, 0.25, 1)',
     width: 'clamp(80px, 11vw, 130px)',
     cursor: isDragging ? 'grabbing' : 'pointer',
     opacity: isDragging ? 0 : 1,
@@ -341,6 +434,7 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, onHov
       onPointerLeave={(e) => { if (e.pointerType === 'mouse') { setHovered(false); onHoverChange(false); } }}
       title={`Click to play ${card.name} · right-click for more options`}
       data-hand-index={indexInHand}
+      data-card-id={card.id}
       className={`relative shrink-0 rounded-[5px] select-none touch-none ${
         isOver && !isDragging ? 'ring-2 ring-primary' : ''
       } ${dealing && !isDragging ? (isFreshlyReturned ? 'animate-deal-in-from-top' : 'animate-deal-in') : ''}`}

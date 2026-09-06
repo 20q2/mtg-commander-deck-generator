@@ -68,6 +68,12 @@ interface PlaytestState {
    * going before you let go. Null whenever nothing is hovering the hand.
    */
   handDropFanPos: number | null;
+  /**
+   * Set for one commit when a card lands in the hand: the hand index it landed
+   * at, and the viewport point it was released from. The hand replays that as
+   * a short flight into the slot, so a drop settles instead of snapping.
+   */
+  handLanding: { index: number; x: number; y: number } | null;
   // Mulligan state machine
   mulliganCount: number;
   // Increments any time the library is shuffled — UI hooks observe this for animations
@@ -126,6 +132,7 @@ interface PlaytestActions {
   setBattlefieldRect: (w: number, h: number) => void;
   setSeatBandHeight: (h: number) => void;
   setHandDropFanPos: (pos: number | null) => void;
+  setHandLanding: (landing: { index: number; x: number; y: number } | null) => void;
 
   dealOpeningHand: () => void;
   draw: (n?: number) => void;
@@ -250,6 +257,7 @@ const initial: PlaytestState = {
   battlefieldRect: { width: 0, height: 0 },
   seatBandHeight: 0,
   handDropFanPos: null,
+  handLanding: null,
   mulliganCount: 0,
   shuffleTick: 0,
   libraryTopPushTick: 0,
@@ -386,6 +394,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   setHandDropFanPos: (handDropFanPos) => set(s => (
     s.handDropFanPos === handDropFanPos ? {} : { handDropFanPos }
   )),
+  setHandLanding: (handLanding) => set({ handLanding }),
 
   // ─────────────────────── mulligan / draw / shuffle ───────────────────────
 

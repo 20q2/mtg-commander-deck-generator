@@ -595,6 +595,13 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           if (source.kind === 'zone' && source.zone === 'hand' && source.index < insertIndex) {
             insertIndex--;
           }
+          // Hand the release point to the hand so the card can fly from where
+          // you let go into its slot, rather than appearing there.
+          usePlaytestStore.getState().setHandLanding({
+            index: insertIndex,
+            x: draggedRect!.left,
+            y: draggedRect!.top,
+          });
           moveCard({ source, target: { kind: 'zone', zone: 'hand', index: insertIndex } });
           return;
         }

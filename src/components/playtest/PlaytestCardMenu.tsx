@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowDownToLine,
@@ -9,14 +9,16 @@ import {
   EyeOff,
   Hand as HandIcon,
   Link2Off,
+  Loader2,
   Plus,
   RotateCcw,
+  Shapes,
   Sparkles,
   Trash2,
   Type,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardsByIds, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import type { ZoneKey } from '@/components/playtest/types';
 
@@ -55,6 +57,40 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const battlefield = usePlaytestStore(s => s.battlefield);
   const commanderNames = usePlaytestStore(s => s.source?.commanderNames ?? []);
   const selectedIds = usePlaytestStore(s => s.selectedIds ?? []);
+  const spawnToken = usePlaytestStore(s => s.spawnToken);
+
+  // Tokens this specific card creates, straight off its Scryfall `all_parts`.
+  const tokenParts = useMemo(() => {
+    const parts = target?.card.all_parts ?? [];
+    const seen = new Set<string>();
+    return parts.filter(p => {
+      if (p.component !== 'token') return false;
+      if (p.id === target?.card.id) return false;
+      const key = `${p.name.toLowerCase()}|${p.type_line.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [target]);
+  const tokenKey = tokenParts.map(p => p.id).join(',');
+
+  // Resolve the token cards up front so the menu can show power/toughness and
+  // spawning is instant; clicking still self-heals if the fetch hasn't landed.
+  const [tokenCards, setTokenCards] = useState<ScryfallCard[]>([]);
+  const [spawnCounts, setSpawnCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    setTokenCards([]);
+    setSpawnCounts({});
+    if (!tokenKey) return;
+    let alive = true;
+    getCardsByIds(tokenKey.split(','))
+      .then(byId => {
+        if (!alive) return;
+        setTokenCards([...byId.values()]);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [tokenKey]);
 
   useEffect(() => {
     if (!target) return;
@@ -145,6 +181,22 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
     onClose();
   };
 
+  // Token creation keeps the menu open so "create three 1/1 Soldiers" is just
+  // three clicks; the running count is shown on the row.
+  const spawnPart = async (part: { id: string; name: string }) => {
+    let card = tokenCards.find(c => c.id === part.id);
+    if (!card) {
+      const byId = await getCardsByIds([part.id]);
+      card = byId.get(part.id);
+      if (!card) return;
+      setTokenCards(prev => (prev.some(c => c.id === card!.id) ? prev : [...prev, card!]));
+    }
+    // Land it next to the card that made it (battlefield only); findArrivalSlot
+    // nudges it to the nearest free spot.
+    spawnToken(card, bfCard ? { x: bfCard.x, y: bfCard.y } : undefined);
+    setSpawnCounts(prev => ({ ...prev, [part.id]: (prev[part.id] ?? 0) + 1 }));
+  };
+
   const move = (dest: 'hand' | 'graveyard' | 'exile' | 'command' | 'libtop' | 'libbot') => {
     if (onBattlefield) {
       // Bulk-aware battlefield → zone moves.
@@ -228,6 +280,37 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
         </>
       )}
 
+      {/* Tokens this card creates */}
+      {tokenParts.length > 0 && (
+        <>
+          {tokenParts.map(part => {
+            const resolved = tokenCards.find(c => c.id === part.id);
+            const pt = resolved?.power && resolved?.toughness
+              ? `${resolved.power}/${resolved.toughness}`
+              : null;
+            const made = spawnCounts[part.id] ?? 0;
+            return (
+              <Item
+                key={part.id}
+                icon={resolved
+                  ? <Shapes className="w-3.5 h-3.5" />
+                  : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                onClick={() => { void spawnPart(part); }}
+                trailing={
+                  <span className="flex items-center gap-1 shrink-0">
+                    {pt && <span className="font-mono text-[9px] text-muted-foreground">{pt}</span>}
+                    {made > 0 && <span className="font-mono text-[9px] text-primary">×{made}</span>}
+                  </span>
+                }
+              >
+                Create {part.name}
+              </Item>
+            );
+          })}
+          <Sep />
+        </>
+      )}
+
       {/* Move destinations */}
       {target.kind !== 'hand' && (
         <Item icon={<HandIcon className="w-3.5 h-3.5" />} onClick={() => move('hand')}>Move to hand{bulkSuffix}</Item>
@@ -265,11 +348,12 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
 }
 
 function Item({
-  icon, onClick, shortcut, children,
+  icon, onClick, shortcut, trailing, children,
 }: {
   icon?: React.ReactNode;
   onClick: () => void;
   shortcut?: string;
+  trailing?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -280,6 +364,7 @@ function Item({
     >
       <span className="w-4 flex items-center justify-center opacity-70 shrink-0">{icon}</span>
       <span className="flex-1 truncate">{children}</span>
+      {trailing}
       {shortcut && (
         <kbd className="ml-2 px-1 py-0.5 rounded border border-border/60 bg-accent/30 font-mono text-[9px] text-muted-foreground shrink-0">
           {shortcut}
