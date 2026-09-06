@@ -142,12 +142,16 @@ interface PlaytestActions {
   keepHandSendToBottom: (handIndices: number[]) => void;   // resolves the bottom-N step
   keepHand: () => void;                                    // confirms current 7
 
-  /** Whole hand to the graveyard. */
-  discardHand: () => void;
-  /** Wheel of Fortune: discard your hand, then draw seven. */
-  wheel: () => void;
-  /** Hymn-style: `n` cards chosen at random go to the graveyard. */
-  discardAtRandom: (n: number) => void;
+  /**
+   * Whole hand to the graveyard. Returns the hand indices that left, so the
+   * caller can fly them there — it cannot work that out afterwards, because
+   * by then they are gone.
+   */
+  discardHand: () => number[];
+  /** Wheel of Fortune: discard your hand, then draw seven. Returns what went. */
+  wheel: () => number[];
+  /** Hymn-style: `n` cards chosen at random go to the graveyard. Returns which. */
+  discardAtRandom: (n: number) => number[];
   /** Timetwister-style: hand back into the library, shuffle, redraw that many. */
   shuffleHandIntoLibrary: () => void;
   /** Discard specific hand indices — the cleanup step's picker resolves here. */
@@ -485,24 +489,26 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
-  discardHand: () => set(state => {
-    if (state.zones.hand.length === 0) return {};
-    const history = pushHistory(state.history, snapshotOf(state));
+  discardHand: () => {
+    const state = get();
     const n = state.zones.hand.length;
-    return {
-      history,
+    if (n === 0) return [];
+    set({
+      history: pushHistory(state.history, snapshotOf(state)),
       zones: { ...state.zones, hand: [], graveyard: [...state.zones.graveyard, ...state.zones.hand] },
       graveyardPushTick: state.graveyardPushTick + 1,
       log: [...state.log, makeLogEntry(`Discarded hand (${n})`, 'move')],
-    };
-  }),
+    });
+    return state.zones.hand.map((_, i) => i);
+  },
 
-  wheel: () => set(state => {
+  wheel: () => {
+    const state = get();
     const history = pushHistory(state.history, snapshotOf(state));
     const discarded = state.zones.hand;
     const hand = state.zones.library.slice(0, 7);
     const library = state.zones.library.slice(hand.length);
-    return {
+    set({
       history,
       zones: { ...state.zones, hand, library, graveyard: [...state.zones.graveyard, ...discarded] },
       graveyardPushTick: discarded.length > 0 ? state.graveyardPushTick + 1 : state.graveyardPushTick,
@@ -511,18 +517,20 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       lastReturnRange: { start: -1, end: -1 },
       libraryDrawTick: state.libraryDrawTick + 1,
       log: [...state.log, makeLogEntry(`Wheel: discarded ${discarded.length}, drew ${hand.length}`, 'library')],
-    };
-  }),
+    });
+    return discarded.map((_, i) => i);
+  },
 
-  discardAtRandom: (n) => set(state => {
+  discardAtRandom: (n) => {
+    const state = get();
     const take = Math.min(n, state.zones.hand.length);
-    if (take <= 0) return {};
+    if (take <= 0) return [];
     const history = pushHistory(state.history, snapshotOf(state));
     // Shuffle the indices rather than the cards, so the survivors keep their
     // order in hand — a random discard shouldn't quietly reorder your hand.
     const picked = new Set(fisherYates(state.zones.hand.map((_, i) => i)).slice(0, take));
     const discarded = state.zones.hand.filter((_, i) => picked.has(i));
-    return {
+    set({
       history,
       zones: {
         ...state.zones,
@@ -533,8 +541,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       log: [...state.log, makeLogEntry(
         `Discarded ${take} at random: ${discarded.map(c => c.name).join(', ')}`, 'move',
       )],
-    };
-  }),
+    });
+    return [...picked];
+  },
 
   shuffleHandIntoLibrary: () => set(state => {
     const n = state.zones.hand.length;

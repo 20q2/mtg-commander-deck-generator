@@ -147,6 +147,9 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
       role={interactive ? 'button' : undefined}
       tabIndex={interactive ? 0 : undefined}
       title={titleText}
+      // Flights measure their destination off this rather than assuming a
+      // size, so the piles can be resized or moved without touching them.
+      data-pile={spec.zone}
       className={`relative rounded border ${spec.bgClass} p-1.5 text-center transition-all select-none ${interactive ? 'hover:brightness-125 cursor-pointer' : 'opacity-60'} ${isOver ? 'ring-2 ring-primary' : ''}`}
     >
       <div

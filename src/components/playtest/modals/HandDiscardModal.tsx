@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
+import { captureHandBoxes, flyHandToZone } from '@/components/playtest/CardFlight';
+import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -54,7 +56,17 @@ export function HandDiscardModal({ downTo }: { downTo: number }) {
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={closeModal}>Cancel</Button>
           <Button
-            onClick={() => discardFromHand(Array.from(picked))}
+            onClick={() => {
+              // Same order as the menu discards: measure, then discard, then
+              // fly from the snapshot. The modal covers the hand, so the
+              // boxes come from the row underneath it.
+              const indices = Array.from(picked);
+              const boxes = captureHandBoxes();
+              discardFromHand(indices);
+              if (usePlaytestSettings.getState().animations) {
+                flyHandToZone(indices, 'graveyard', boxes, hand);
+              }
+            }}
             disabled={picked.size !== needed}
           >
             Discard {picked.size}

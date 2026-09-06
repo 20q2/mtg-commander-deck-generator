@@ -6,6 +6,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { captureHandBoxes, flyHandToZone } from '@/components/playtest/CardFlight';
 
 // Defined at module scope (not inside the component) so it keeps a stable
 // component identity across renders. If this lived in the render body, every
@@ -154,6 +155,24 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
   const row = 'w-full justify-start text-xs h-8';
   const run = (fn: () => void) => { fn(); onDone(); };
 
+  /**
+   * Run a discard and fly whatever it took to the graveyard.
+   *
+   * The hand has to be measured first: once the action has run those cards are
+   * gone from the DOM and there is nothing left to fly from. So snapshot every
+   * card's position, let the action report which indices it took, and animate
+   * from the snapshot.
+   */
+  const runDiscard = (discard: () => number[]) => {
+    const boxes = captureHandBoxes();
+    const cards = usePlaytestStore.getState().zones.hand;
+    const taken = discard();
+    if (usePlaytestSettings.getState().animations) {
+      flyHandToZone(taken, 'graveyard', boxes, cards);
+    }
+    onDone();
+  };
+
   return (
     <div className="space-y-1">
       <p className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">Mulligan</p>
@@ -166,7 +185,7 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
       </Button>
 
       <p className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">Effects</p>
-      <Button variant="ghost" size="sm" className={row} onClick={() => run(wheel)}
+      <Button variant="ghost" size="sm" className={row} onClick={() => runDiscard(wheel)}
         title="Wheel of Fortune, Windfall, Echo of Eons — discard your hand, then draw seven">
         <Repeat className="w-3 h-3 mr-2" />Wheel · discard, draw 7
       </Button>
@@ -179,7 +198,7 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
       <p className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">Discard</p>
       <div className="flex items-center gap-1 px-1">
         <Button variant="ghost" size="sm" className="flex-1 justify-start text-xs h-8" disabled={handSize === 0}
-          onClick={() => run(() => discardAtRandom(randomN))}
+          onClick={() => runDiscard(() => discardAtRandom(randomN))}
           title="Hymn to Tourach, Mind Twist — chosen at random">
           <Dices className="w-3 h-3 mr-2" />Discard {randomN} at random
         </Button>
@@ -196,7 +215,7 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
         <Scissors className="w-3 h-3 mr-2" />Discard down to 7
       </Button>
       <Button variant="ghost" size="sm" className={`${row} text-red-400 hover:text-red-300`} disabled={handSize === 0}
-        onClick={() => run(discardHand)}>
+        onClick={() => runDiscard(discardHand)}>
         <Trash2 className="w-3 h-3 mr-2" />Discard hand ({handSize})
       </Button>
     </div>
