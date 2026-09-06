@@ -5,7 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { PlaytestActionsBar, NextTurnButton, CombatButton } from '@/components/playtest/PlaytestActionsBar';
+import { PlaytestActionsBar, NextTurnButton, CombatButton, LibraryActions } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
@@ -158,7 +158,12 @@ export function Hand() {
             touch least, so it shouldn't claim a full card's worth of the row. */}
         {isDesktop && (
           <div className="flex items-end gap-2 shrink-0">
-            <div style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
+            {/* Deck actions and Search ride on top of the library — they all
+                act on the deck, so the pile is both the target and the
+                control. The other piles hang from the bottom of the row, so
+                this column is bottom-aligned too and the buttons stack above. */}
+            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
+              <LibraryActions className="w-full" />
               <PlaytestPile spec={PILES[1]} />
             </div>
             <div style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>

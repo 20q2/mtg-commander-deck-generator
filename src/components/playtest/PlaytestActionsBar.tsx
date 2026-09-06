@@ -22,20 +22,13 @@ const Group = ({ children, className = '' }: { children: React.ReactNode; classN
 );
 
 export function PlaytestActionsBar() {
-  const draw = usePlaytestStore(s => s.draw);
   const untapAll = usePlaytestStore(s => s.untapAll);
   const beginMulligan = usePlaytestStore(s => s.beginMulligan);
   const freeMulligan = usePlaytestStore(s => s.freeMulligan);
   const openModal = usePlaytestStore(s => s.openModal);
   const closeModal = usePlaytestStore(s => s.closeModal);
   const modal = usePlaytestStore(s => s.modal);
-  const searchOpen = modal?.kind === 'zoneViewer' && modal.zone === 'library';
 
-  // One amount drives every deck action — pick N once, then choose what to do
-  // with it. Draw keeps the popover open so you can tap it repeatedly; the
-  // scry/surveil/mill actions open a modal, so the popover gets out of the way.
-  const [deckN, setDeckN] = useState(1);
-  const [deckOpen, setDeckOpen] = useState(false);
   const [mullOpen, setMullOpen] = useState(false);
 
   // rounded-none + focus-visible:z-10 so the flush borders stay collapsed but a
@@ -44,27 +37,6 @@ export function PlaytestActionsBar() {
   // their horizontal rules would only double up on those lines.
   const btn = 'relative h-6 px-1.5 sm:px-2 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
   const icon = 'w-3 h-3 mr-1';
-
-  const deckActionsBtn = (
-    <Popover open={deckOpen} onOpenChange={setDeckOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={btn} title="Draw, scry, surveil or mill (D draws 1)">
-          <Layers className={icon} />
-          <span className="md:hidden">Deck</span>
-          <span className="hidden md:inline">Deck Actions</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={6} className="w-56 p-2 space-y-2">
-        <ScryNPicker value={deckN} onChange={setDeckN} />
-        <div className="space-y-1">
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => draw(deckN)}><Plus className={icon} />Draw {deckN}</Button>
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'scry', n: deckN }); }}><Eye className={icon} />Scry {deckN}</Button>
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'surveil', n: deckN }); }}><BookOpen className={icon} />Surveil {deckN}</Button>
-          <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'mill', n: deckN }); }}><Trash2 className={icon} />Mill {deckN}</Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
 
   const mulliganBtn = (
     <Popover open={mullOpen} onOpenChange={setMullOpen}>
@@ -130,16 +102,80 @@ export function PlaytestActionsBar() {
         <Button variant="outline" size="sm" className={btn} onClick={untapAll} title="Untap all (U)"><RotateCcw className={icon} />Untap</Button>
         {mulliganBtn}
       </Group>
-      <Group>
-        <Button variant={searchOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => searchOpen ? closeModal() : openModal({ kind: 'zoneViewer', zone: 'library' })} title="Search library"><Search className={icon} />Search</Button>
-        {deckActionsBtn}
-      </Group>
+      {/* Library controls live above the library pile on desktop — see
+          LibraryActions. There is no pile row on mobile, so they stay here. */}
+      <div className="md:hidden">
+        <LibraryActions />
+      </div>
       <Group className="hidden md:flex">
         <Button variant={tokensOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => tokensOpen ? closeModal() : openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
         {createBtn}
       </Group>
       {/* Mobile-only overflow with the hidden items */}
       <div className="md:hidden">{moreBtn}</div>
+    </div>
+  );
+}
+
+/**
+ * Deck Actions and Search, sized to sit directly above the library pile.
+ *
+ * They belong to the library rather than to the toolbar: every one of them —
+ * draw, scry, surveil, mill, search — is a thing you do to your deck, and
+ * putting them on top of it means the pile is both the target and the control.
+ *
+ * Search is icon-only because the magnifier is unambiguous and the column is
+ * only as wide as a card; Deck keeps a word so the popover is discoverable.
+ */
+export function LibraryActions({ className = '' }: { className?: string }) {
+  const draw = usePlaytestStore(s => s.draw);
+  const openModal = usePlaytestStore(s => s.openModal);
+  const closeModal = usePlaytestStore(s => s.closeModal);
+  const modal = usePlaytestStore(s => s.modal);
+  const searchOpen = modal?.kind === 'zoneViewer' && modal.zone === 'library';
+
+  // One amount drives every deck action — pick N once, then choose what to do
+  // with it. Draw keeps the popover open so you can tap it repeatedly; the
+  // scry/surveil/mill actions open a modal, so the popover gets out of the way.
+  const [deckN, setDeckN] = useState(1);
+  const [deckOpen, setDeckOpen] = useState(false);
+
+  const btn = 'relative h-6 px-1.5 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
+
+  return (
+    <div className={`flex items-center [&>*+*]:-ml-px ${className}`}>
+      <Popover open={deckOpen} onOpenChange={setDeckOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className={`${btn} flex-1 min-w-0`}
+            title="Draw, scry, surveil or mill (D draws 1)"
+          >
+            <Layers className="w-3 h-3 mr-1 shrink-0" />
+            <span className="truncate">Deck</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent side="top" align="end" sideOffset={6} className="w-56 p-2 space-y-2">
+          <ScryNPicker value={deckN} onChange={setDeckN} />
+          <div className="space-y-1">
+            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => draw(deckN)}><Plus className="w-3 h-3 mr-1" />Draw {deckN}</Button>
+            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'scry', n: deckN }); }}><Eye className="w-3 h-3 mr-1" />Scry {deckN}</Button>
+            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'surveil', n: deckN }); }}><BookOpen className="w-3 h-3 mr-1" />Surveil {deckN}</Button>
+            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'mill', n: deckN }); }}><Trash2 className="w-3 h-3 mr-1" />Mill {deckN}</Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Button
+        variant={searchOpen ? 'default' : 'outline'}
+        size="sm"
+        className={`${btn} w-7 px-0 shrink-0`}
+        onClick={() => searchOpen ? closeModal() : openModal({ kind: 'zoneViewer', zone: 'library' })}
+        title="Search library"
+        aria-label="Search library"
+      >
+        <Search className="w-3 h-3" />
+      </Button>
     </div>
   );
 }
