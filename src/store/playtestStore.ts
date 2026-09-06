@@ -142,6 +142,17 @@ interface PlaytestActions {
   keepHandSendToBottom: (handIndices: number[]) => void;   // resolves the bottom-N step
   keepHand: () => void;                                    // confirms current 7
 
+  /** Whole hand to the graveyard. */
+  discardHand: () => void;
+  /** Wheel of Fortune: discard your hand, then draw seven. */
+  wheel: () => void;
+  /** Hymn-style: `n` cards chosen at random go to the graveyard. */
+  discardAtRandom: (n: number) => void;
+  /** Timetwister-style: hand back into the library, shuffle, redraw that many. */
+  shuffleHandIntoLibrary: () => void;
+  /** Discard specific hand indices — the cleanup step's picker resolves here. */
+  discardFromHand: (handIndices: number[]) => void;
+
   untapAll: () => void;
   setLife: (n: number) => void;
   adjustLife: (delta: number) => void;
@@ -471,6 +482,90 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       zones: { ...state.zones, hand: draw, library: rest },
       shuffleTick: state.shuffleTick + 1,
       log: [...state.log, makeLogEntry(`Free mulligan (drew 7)`, 'library')],
+    };
+  }),
+
+  discardHand: () => set(state => {
+    if (state.zones.hand.length === 0) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    const n = state.zones.hand.length;
+    return {
+      history,
+      zones: { ...state.zones, hand: [], graveyard: [...state.zones.graveyard, ...state.zones.hand] },
+      graveyardPushTick: state.graveyardPushTick + 1,
+      log: [...state.log, makeLogEntry(`Discarded hand (${n})`, 'move')],
+    };
+  }),
+
+  wheel: () => set(state => {
+    const history = pushHistory(state.history, snapshotOf(state));
+    const discarded = state.zones.hand;
+    const hand = state.zones.library.slice(0, 7);
+    const library = state.zones.library.slice(hand.length);
+    return {
+      history,
+      zones: { ...state.zones, hand, library, graveyard: [...state.zones.graveyard, ...discarded] },
+      graveyardPushTick: discarded.length > 0 ? state.graveyardPushTick + 1 : state.graveyardPushTick,
+      // Deal-in covers the whole new hand, the same as an opening draw.
+      lastDrawRange: { start: 0, end: hand.length },
+      lastReturnRange: { start: -1, end: -1 },
+      libraryDrawTick: state.libraryDrawTick + 1,
+      log: [...state.log, makeLogEntry(`Wheel: discarded ${discarded.length}, drew ${hand.length}`, 'library')],
+    };
+  }),
+
+  discardAtRandom: (n) => set(state => {
+    const take = Math.min(n, state.zones.hand.length);
+    if (take <= 0) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    // Shuffle the indices rather than the cards, so the survivors keep their
+    // order in hand — a random discard shouldn't quietly reorder your hand.
+    const picked = new Set(fisherYates(state.zones.hand.map((_, i) => i)).slice(0, take));
+    const discarded = state.zones.hand.filter((_, i) => picked.has(i));
+    return {
+      history,
+      zones: {
+        ...state.zones,
+        hand: state.zones.hand.filter((_, i) => !picked.has(i)),
+        graveyard: [...state.zones.graveyard, ...discarded],
+      },
+      graveyardPushTick: state.graveyardPushTick + 1,
+      log: [...state.log, makeLogEntry(
+        `Discarded ${take} at random: ${discarded.map(c => c.name).join(', ')}`, 'move',
+      )],
+    };
+  }),
+
+  shuffleHandIntoLibrary: () => set(state => {
+    const n = state.zones.hand.length;
+    if (n === 0) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    const shuffled = fisherYates([...state.zones.hand, ...state.zones.library]);
+    return {
+      history,
+      zones: { ...state.zones, hand: shuffled.slice(0, n), library: shuffled.slice(n) },
+      shuffleTick: state.shuffleTick + 1,
+      lastDrawRange: { start: 0, end: n },
+      lastReturnRange: { start: -1, end: -1 },
+      log: [...state.log, makeLogEntry(`Shuffled ${n} back and redrew ${n}`, 'library')],
+    };
+  }),
+
+  discardFromHand: (handIndices) => set(state => {
+    const picked = new Set(handIndices);
+    if (picked.size === 0) return { modal: null };
+    const history = pushHistory(state.history, snapshotOf(state));
+    const discarded = state.zones.hand.filter((_, i) => picked.has(i));
+    return {
+      history,
+      modal: null,
+      zones: {
+        ...state.zones,
+        hand: state.zones.hand.filter((_, i) => !picked.has(i)),
+        graveyard: [...state.zones.graveyard, ...discarded],
+      },
+      graveyardPushTick: state.graveyardPushTick + 1,
+      log: [...state.log, makeLogEntry(`Discarded ${discarded.length} to hand size`, 'move')],
     };
   }),
 

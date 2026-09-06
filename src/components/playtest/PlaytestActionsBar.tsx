@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hand as HandIcon, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, Bot, Layers, Swords } from 'lucide-react';
+import { Hand as HandIcon, RotateCcw, Search, Eye, Sparkles, Plus, BookOpen, Trash2, SkipForward, MoreHorizontal, Bot, Layers, Swords, RefreshCw, Repeat, Shuffle, Dices, Scissors } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -23,13 +23,12 @@ const Group = ({ children, className = '' }: { children: React.ReactNode; classN
 
 export function PlaytestActionsBar() {
   const untapAll = usePlaytestStore(s => s.untapAll);
-  const beginMulligan = usePlaytestStore(s => s.beginMulligan);
-  const freeMulligan = usePlaytestStore(s => s.freeMulligan);
   const openModal = usePlaytestStore(s => s.openModal);
   const closeModal = usePlaytestStore(s => s.closeModal);
   const modal = usePlaytestStore(s => s.modal);
 
   const [mullOpen, setMullOpen] = useState(false);
+  const [handOpen, setHandOpen] = useState(false);
 
   // rounded-none + focus-visible:z-10 so the flush borders stay collapsed but a
   // focused / hovered button still paints its own outline on top of its neighbour.
@@ -38,28 +37,15 @@ export function PlaytestActionsBar() {
   const btn = 'relative h-6 px-1.5 sm:px-2 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
   const icon = 'w-3 h-3 mr-1';
 
-  const mulliganBtn = (
+  const handActionsBtn = (
     <Popover open={mullOpen} onOpenChange={setMullOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={`${btn} hidden md:inline-flex`} title="Mulligan (M)"><HandIcon className={icon} />Mulligan</Button>
+        <Button variant="outline" size="sm" className={`${btn} hidden md:inline-flex`} title="Mulligan, wheel, discard (M mulligans)">
+          <HandIcon className={icon} />Hand
+        </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={6} className="w-72 p-3 space-y-2">
-        <p className="text-xs">Shuffle your hand back and draw a new one?</p>
-        <div className="flex justify-between items-center gap-1.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            title="Reshuffle hand and draw 7 fresh cards, no penalty"
-            onClick={() => { setMullOpen(false); freeMulligan(); }}
-          >
-            Free mulligan
-          </Button>
-          <div className="flex gap-1.5">
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setMullOpen(false)}>Cancel</Button>
-            <Button size="sm" className="h-7 px-2 text-xs" onClick={() => { setMullOpen(false); beginMulligan(); }}>Mulligan</Button>
-          </div>
-        </div>
+      <PopoverContent side="top" align="start" sideOffset={6} className="w-64 p-1">
+        <HandActionsMenu onDone={() => setMullOpen(false)} />
       </PopoverContent>
     </Popover>
   );
@@ -86,7 +72,7 @@ export function PlaytestActionsBar() {
       </PopoverTrigger>
       <PopoverContent side="top" align="end" sideOffset={6} className="w-44 p-1">
         {/* Shuffle isn't here — it's an icon button on the library pile itself. */}
-        <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); setMullOpen(true); }}><HandIcon className="w-3 h-3 mr-2" />Mulligan…</Button>
+        <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); setHandOpen(true); }}><HandIcon className="w-3 h-3 mr-2" />Hand actions…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'tokens' }); }}><Sparkles className="w-3 h-3 mr-2" />Tokens…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); createOpen ? closeModal() : openModal({ kind: 'create' }); }}><Plus className="w-3 h-3 mr-2" />Create…</Button>
         {/* The opponent column is desktop-only, so this is mobile's way in. */}
@@ -100,7 +86,7 @@ export function PlaytestActionsBar() {
       {/* Always-visible essentials */}
       <Group>
         <Button variant="outline" size="sm" className={btn} onClick={untapAll} title="Untap all (U)"><RotateCcw className={icon} />Untap</Button>
-        {mulliganBtn}
+        {handActionsBtn}
       </Group>
       {/* Library controls live above the library pile on desktop — see
           LibraryActions. There is no pile row on mobile, so they stay here. */}
@@ -113,6 +99,83 @@ export function PlaytestActionsBar() {
       </Group>
       {/* Mobile-only overflow with the hidden items */}
       <div className="md:hidden">{moreBtn}</div>
+      {/* The desktop Hand trigger is hidden below md, so mobile opens the same
+          menu from its own anchor rather than from a button nobody can see. */}
+      <Popover open={handOpen} onOpenChange={setHandOpen}>
+        <PopoverTrigger asChild><span className="md:hidden" /></PopoverTrigger>
+        <PopoverContent side="top" align="center" sideOffset={6} className="w-64 p-1">
+          <HandActionsMenu onDone={() => setHandOpen(false)} />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/**
+ * Everything you can do to your hand as a whole. Mulligan used to be a button
+ * of its own, but it was one of a family — wheels, mass discard and shuffling
+ * back are all the same shape of effect, and Commander leans on them heavily
+ * enough that a goldfish needs to reproduce them.
+ */
+function HandActionsMenu({ onDone }: { onDone: () => void }) {
+  const beginMulligan = usePlaytestStore(s => s.beginMulligan);
+  const freeMulligan = usePlaytestStore(s => s.freeMulligan);
+  const wheel = usePlaytestStore(s => s.wheel);
+  const discardHand = usePlaytestStore(s => s.discardHand);
+  const discardAtRandom = usePlaytestStore(s => s.discardAtRandom);
+  const shuffleHandIntoLibrary = usePlaytestStore(s => s.shuffleHandIntoLibrary);
+  const openModal = usePlaytestStore(s => s.openModal);
+  const handSize = usePlaytestStore(s => s.zones.hand.length);
+  const [randomN, setRandomN] = useState(1);
+
+  const row = 'w-full justify-start text-xs h-8';
+  const run = (fn: () => void) => { fn(); onDone(); };
+
+  return (
+    <div className="space-y-1">
+      <p className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">Mulligan</p>
+      <Button variant="ghost" size="sm" className={row} onClick={() => run(beginMulligan)}>
+        <HandIcon className="w-3 h-3 mr-2" />Mulligan
+      </Button>
+      <Button variant="ghost" size="sm" className={`${row} text-muted-foreground`} onClick={() => run(freeMulligan)}
+        title="Reshuffle and draw 7 with no penalty">
+        <RefreshCw className="w-3 h-3 mr-2" />Free mulligan
+      </Button>
+
+      <p className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">Effects</p>
+      <Button variant="ghost" size="sm" className={row} onClick={() => run(wheel)}
+        title="Wheel of Fortune, Windfall, Echo of Eons — discard your hand, then draw seven">
+        <Repeat className="w-3 h-3 mr-2" />Wheel · discard, draw 7
+      </Button>
+      <Button variant="ghost" size="sm" className={row} onClick={() => run(shuffleHandIntoLibrary)}
+        disabled={handSize === 0}
+        title="Timetwister, Diminishing Returns — hand back into the library, then redraw that many">
+        <Shuffle className="w-3 h-3 mr-2" />Shuffle back, redraw {handSize}
+      </Button>
+
+      <p className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">Discard</p>
+      <div className="flex items-center gap-1 px-1">
+        <Button variant="ghost" size="sm" className="flex-1 justify-start text-xs h-8" disabled={handSize === 0}
+          onClick={() => run(() => discardAtRandom(randomN))}
+          title="Hymn to Tourach, Mind Twist — chosen at random">
+          <Dices className="w-3 h-3 mr-2" />Discard {randomN} at random
+        </Button>
+        <Input
+          type="number" min={1} max={Math.max(1, handSize)} value={randomN}
+          onChange={(e) => setRandomN(Math.max(1, Math.min(Math.max(1, handSize), Number(e.target.value) || 1)))}
+          className="h-8 w-12 text-xs text-center"
+          aria-label="How many cards to discard at random"
+        />
+      </div>
+      <Button variant="ghost" size="sm" className={row} disabled={handSize <= 7}
+        onClick={() => { onDone(); openModal({ kind: 'handDiscard', down_to: 7 }); }}
+        title="The cleanup step — choose which cards go">
+        <Scissors className="w-3 h-3 mr-2" />Discard down to 7
+      </Button>
+      <Button variant="ghost" size="sm" className={`${row} text-red-400 hover:text-red-300`} disabled={handSize === 0}
+        onClick={() => run(discardHand)}>
+        <Trash2 className="w-3 h-3 mr-2" />Discard hand ({handSize})
+      </Button>
     </div>
   );
 }

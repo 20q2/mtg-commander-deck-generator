@@ -164,7 +164,8 @@ export type Modal =
   | { kind: 'newCardTrial' }
   | { kind: 'opponents' }
   | { kind: 'opponentZone'; opponentId: string; zone: 'graveyard' | 'exile' }
-  | { kind: 'mulligan'; mulliganCount: number };
+  | { kind: 'mulligan'; mulliganCount: number }
+  | { kind: 'handDiscard'; down_to: number };
 
 export type MoveSource =
   | { kind: 'zone'; zone: ZoneKey; index: number }

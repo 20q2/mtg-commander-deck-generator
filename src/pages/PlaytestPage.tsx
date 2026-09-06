@@ -22,6 +22,7 @@ import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
+import { HandDiscardModal } from '@/components/playtest/modals/HandDiscardModal';
 import { useOpponentStore } from '@/store/opponentStore';
 import { captureAll } from '@/store/undoBridge';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
@@ -694,6 +695,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           )}
         </div>
         {modal?.kind === 'mulligan' && <MulliganModal />}
+      {modal?.kind === 'handDiscard' && <HandDiscardModal downTo={modal.down_to} />}
         {(modal?.kind === 'scry' || modal?.kind === 'mill' || modal?.kind === 'surveil') && <ScryMillSurveilModal />}
         {modal?.kind === 'zoneViewer' && <ZoneViewerModal />}
         {modal?.kind === 'tokens' && <TokenSpawnModal />}
