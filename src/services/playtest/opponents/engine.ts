@@ -26,6 +26,20 @@ const MAX_CASTS_PER_TURN = 5;
 /** How many interaction spells a resisting bot casts in one turn. */
 const MAX_INTERACTION_PER_TURN = 2;
 
+/**
+ * Hard ceiling on permanents a bot may control.
+ *
+ * Krenko doubles its goblins every combat, which is what the card does and is
+ * correct — but a player who ignores it for eight turns had 300 tokens and by
+ * twelve had 2,400, every one of them a card image in their seat. That is not
+ * a hard game, it is a hung browser.
+ *
+ * Token creation stops at the cap. Nothing else does: the bot keeps casting
+ * from hand, so hitting this looks like a board that has stopped growing rather
+ * than a bot that has stopped playing.
+ */
+const MAX_BOARD = 60;
+
 function isPermanent(card: ScryfallCard): boolean {
   const t = getFrontFaceTypeLine(card).toLowerCase();
   return (
@@ -213,7 +227,10 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     for (const spec of entry.spec.tokens) {
       const card = findToken(opp.tokens, spec.name);
       if (!card) continue;
-      const n = tokenCount(spec, opp.battlefield);
+      // Room left under the cap, so a doubling engine plateaus instead of
+      // running away with the frame rate.
+      const room = Math.max(0, MAX_BOARD - opp.battlefield.length);
+      const n = Math.min(tokenCount(spec, opp.battlefield), room);
       for (let i = 0; i < n; i++) {
         opp.battlefield.push(toPermanent(card));
         made++;

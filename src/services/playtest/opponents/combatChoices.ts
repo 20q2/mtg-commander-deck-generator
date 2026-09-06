@@ -147,7 +147,8 @@ export interface AttackContext {
  * Three rules, in order:
  *
  *  1. If the whole team gets there, the whole team goes. A lethal alpha strike
- *     beats any amount of careful value.
+ *     beats any amount of careful value — counted both from evasion alone and
+ *     from what survives the worst possible block assignment.
  *  2. A creature nothing can profitably block always attacks. That covers an
  *     empty board, evasion, and anything simply bigger than what is opposite.
  *  3. Otherwise it attacks only if an aggressive bot would take the trade.
@@ -160,13 +161,25 @@ export function chooseAttackers(ctx: AttackContext): string[] {
   const able = candidates.filter(c => c.power > 0);
   if (able.length === 0) return [];
 
-  // 1. Lethal on the swing, counting only what the player could not block at all.
+  // 1a. Lethal from evasion alone: what nothing on their board can even block.
   const unblockable = able.filter(a => !blockers.some(b => canBlock(a, b)));
-  const guaranteed = unblockable.reduce((n, a) => n + a.power, 0);
-  if (guaranteed >= playerLife) return able.map(a => a.instanceId);
-  if (able.reduce((n, a) => n + a.power, 0) >= playerLife && blockers.length === 0) {
+  if (unblockable.reduce((n, a) => n + a.power, 0) >= playerLife) {
     return able.map(a => a.instanceId);
   }
+
+  // 1b. Lethal through the blockers they have. Each blocker stops at most one
+  // attacker, so the worst case is that they eat the biggest ones: sort by
+  // power and write off the top `blockers.length`. What is left is what gets
+  // through no matter how they block.
+  //
+  // Requiring an empty board here instead — which is what this did first —
+  // meant four chump blockers held off a board of three hundred goblins,
+  // forever. A swarm that is obviously lethal has to be allowed to swing.
+  const byPower = [...able].sort((a, b) => b.power - a.power);
+  const throughAnyBlock = byPower
+    .slice(blockers.length)
+    .reduce((n, a) => n + a.power, 0);
+  if (throughAnyBlock >= playerLife) return able.map(a => a.instanceId);
 
   // 2 and 3, per creature.
   const takesTrades = aggression >= 0.5;
