@@ -2,7 +2,9 @@ import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { costOf, lookupEffect } from '@/services/playtest/opponents/effects';
+import { costOf, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
+import type { TokenSpec } from '@/services/playtest/opponents/effects';
+import { isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
@@ -27,10 +29,6 @@ function isPermanent(card: ScryfallCard): boolean {
     t.includes('enchantment') ||
     t.includes('planeswalker')
   );
-}
-
-function isCreature(card: ScryfallCard): boolean {
-  return getFrontFaceTypeLine(card).toLowerCase().includes('creature');
 }
 
 export function powerOf(card: ScryfallCard): number {
@@ -60,7 +58,7 @@ function manaFrom(p: OpponentPermanent): number {
   if (isLand(p.card)) return 1;
   if ((p.card.produced_mana?.length ?? 0) === 0) return 0;
   // A mana creature can't tap the turn it arrives.
-  if (isCreature(p.card) && p.summoningSick) return 0;
+  if (isCreatureCard(p.card) && p.summoningSick) return 0;
   return netManaFromText(p.card.oracle_text ?? '');
 }
 
@@ -71,7 +69,7 @@ function manaFrom(p: OpponentPermanent): number {
 function tapForMana(battlefield: OpponentPermanent[], amount: number): OpponentPermanent[] {
   if (amount <= 0) return battlefield;
   const priority = (p: OpponentPermanent) =>
-    isLand(p.card) ? 0 : isCreature(p.card) ? 2 : 1;
+    isLand(p.card) ? 0 : isCreatureCard(p.card) ? 2 : 1;
   const order = battlefield
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => manaFrom(p) > 0)
@@ -96,6 +94,36 @@ function toPermanent(card: ScryfallCard): OpponentPermanent {
     summoningSick: true,
     counters: {},
   };
+}
+
+/**
+ * Find a token in the deck's fetched pool. Matched on name first, then on the
+ * type line, so a spec asking for a 'Goblin' finds "Goblin" and would also find
+ * a differently-named goblin token if a deck ever had one.
+ *
+ * A miss returns undefined and the token is simply not made. That is the right
+ * failure: a Scryfall hiccup should cost the bot a token, not crash its turn.
+ */
+function findToken(pool: ScryfallCard[], name: string): ScryfallCard | undefined {
+  const want = name.toLowerCase();
+  return (
+    pool.find(t => t.name.toLowerCase() === want) ??
+    pool.find(t => getFrontFaceTypeLine(t).toLowerCase().includes(want))
+  );
+}
+
+/**
+ * How many of a token to make. A fixed count, unless the spec counts a subtype
+ * already on the board — Krenko makes one goblin per goblin. Either way it is
+ * multiplied by any token doublers the bot controls.
+ */
+function tokenCount(spec: TokenSpec, battlefield: OpponentPermanent[]): number {
+  const base = spec.countPerSubtype
+    ? battlefield.filter(p =>
+        getFrontFaceTypeLine(p.card).toLowerCase().includes(spec.countPerSubtype!.toLowerCase()),
+      ).length
+    : spec.count;
+  return base * tokenMultiplier(battlefield);
 }
 
 export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnResult {
@@ -132,6 +160,45 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     });
   };
 
+  /**
+   * Creatures that arrived since the last frame. Read and reset by `frame`, so
+   * every beat bills its own triggers exactly once.
+   */
+  let pendingCreatures = 0;
+
+  /**
+   * Apply a card's effect on the bot's own board — tokens and draw. Returns a
+   * short label for the frame, or null when nothing happened. Called for cast
+   * effects and again for the combat-timed ones.
+   */
+  const applySelfEffect = (cardName: string): string | null => {
+    const entry = lookupSelfEffect(cardName);
+    if (!entry) return null;
+
+    if (entry.spec.kind === 'draw') {
+      let drawn = 0;
+      for (let i = 0; i < entry.spec.count; i++) {
+        if (opp.library.length === 0) break;
+        opp.hand.push(opp.library.shift() as ScryfallCard);
+        drawn++;
+      }
+      return drawn > 0 ? `Draws ${drawn}` : null;
+    }
+
+    let made = 0;
+    for (const spec of entry.spec.tokens) {
+      const card = findToken(opp.tokens, spec.name);
+      if (!card) continue;
+      const n = tokenCount(spec, opp.battlefield);
+      for (let i = 0; i < n; i++) {
+        opp.battlefield.push(toPermanent(card));
+        made++;
+      }
+    }
+    pendingCreatures += made;
+    return made > 0 ? `+${made} token${made > 1 ? 's' : ''}` : null;
+  };
+
   // ── Untap + draw ──
   opp.battlefield = opp.battlefield.map(p => ({ ...p, tapped: false, summoningSick: false }));
   const drawLogs: string[] = [];
@@ -158,7 +225,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   /** Untapped mana right now — recomputed after every spell, since paying taps. */
   const availableMana = () => opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
   const botPower = opp.battlefield
-    .filter(p => isCreature(p.card))
+    .filter(p => isCreatureCard(p.card))
     .reduce((sum, p) => sum + powerOf(p.card), 0);
 
   // ── Commander ──
@@ -173,6 +240,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       opp.command = opp.command.slice(1);
       opp.battlefield = tapForMana(opp.battlefield, price);
       opp.battlefield.push(toPermanent(commander));
+      if (isCreatureCard(commander)) pendingCreatures += 1;
       opp.commanderCasts += 1;
       frame([`${opp.name} casts ${commander.name}`], [], [], commander.name);
     }
@@ -210,29 +278,65 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     let bestIdx = -1;
     let bestCmc = -1;
     opp.hand.forEach((card, i) => {
-      if (isLand(card) || !isPermanent(card)) return;
+      // A non-permanent is castable only when the registry says what it does.
+      // Everything else — the counterspells especially — stays in hand, and the
+      // end-of-turn hand limit is what eventually clears it out.
+      if (isLand(card) || (!isPermanent(card) && !lookupSelfEffect(card.name))) return;
       // A registry permanent held back for its effect shouldn't be dumped out as
       // a vanilla body — resistance already had its chance at it this turn.
       if (opp.resistance && lookupEffect(card.name)) return;
-      const cmc = card.cmc ?? 0;
+      const cost = costOf(card);
       // Cast the most expensive thing affordable — a rough proxy for "best play".
-      if (cmc <= mana && cmc > bestCmc) {
-        bestCmc = cmc;
+      if (cost <= mana && cost > bestCmc) {
+        bestCmc = cost;
         bestIdx = i;
       }
     });
     if (bestIdx < 0) break;
     const spell = opp.hand.splice(bestIdx, 1)[0];
-    opp.battlefield = tapForMana(opp.battlefield, spell.cmc ?? 0);
-    opp.battlefield.push(toPermanent(spell));
-    frame([`${opp.name} casts ${spell.name}`], [], [], spell.name);
+    opp.battlefield = tapForMana(opp.battlefield, costOf(spell));
+
+    // A permanent stays; a sorcery or instant does its thing and is done.
+    if (isPermanent(spell)) {
+      opp.battlefield.push(toPermanent(spell));
+      if (isCreatureCard(spell)) pendingCreatures += 1;
+    } else {
+      opp.graveyard.push(spell);
+    }
+
+    // Combat-timed effects fire in the attack step, not on arrival.
+    const entry = lookupSelfEffect(spell.name);
+    const label = entry && entry.timing !== 'combat' ? applySelfEffect(spell.name) : null;
+
+    frame([`${opp.name} casts ${spell.name}`], [], [], label ?? spell.name);
+  }
+
+  // ── Beginning of combat ──
+  // Rabblemaster and Krenko make their goblins here, before attackers are
+  // chosen, so the new bodies are summoning-sick this turn but block next turn.
+  const combatSources = opp.battlefield.filter(p => {
+    const entry = lookupSelfEffect(p.card.name);
+    if (!entry || entry.timing !== 'combat') return false;
+    if (p.tapped) return false;
+    // A tap ability needs the permanent to have been there since your upkeep.
+    return !(entry.tapsSource && p.summoningSick);
+  });
+  for (const source of combatSources) {
+    const entry = lookupSelfEffect(source.card.name)!;
+    const label = applySelfEffect(source.card.name);
+    if (entry.tapsSource) {
+      opp.battlefield = opp.battlefield.map(p =>
+        p.instanceId === source.instanceId ? { ...p, tapped: true } : p,
+      );
+    }
+    if (label) frame([`${opp.name}'s ${source.card.name} triggers`], [], [], label);
   }
 
   // ── Attack ──
   // Everything that can attack, does. There's no blocking model, so this reads as
   // a clock rather than combat — which is what a goldfish needs.
   const attackers = opp.battlefield.filter(
-    p => isCreature(p.card) && !p.summoningSick && !p.tapped && powerOf(p.card) > 0,
+    p => isCreatureCard(p.card) && !p.summoningSick && !p.tapped && powerOf(p.card) > 0,
   );
   if (attackers.length > 0) {
     const attackerIds = new Set(attackers.map(a => a.instanceId));
