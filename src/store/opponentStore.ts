@@ -765,8 +765,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       playerCombat: null,
       combatPhase: false,
       opponents: s.opponents.map(o => {
-        // Gather every card back — tokens have no printing to return to, and
-        // nothing here creates them yet, but filter anyway so that stays true.
+        // Gather every real card back. Tokens have no printing to return to,
+        // and the commander goes to the command zone rather than into the deck.
         const all = [
           ...o.library,
           ...o.hand,
@@ -774,7 +774,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           ...o.exile,
           ...o.battlefield.map(p => p.card),
         ].filter(c => !c.type_line.toLowerCase().includes('token'));
-        const shuffled = fisherYates(all);
+
+        const commander = o.commanderName
+          ? all.find(c => c.name === o.commanderName)
+          : undefined;
+        const deck = commander ? all.filter(c => c !== commander) : all;
+
+        const shuffled = fisherYates(deck);
         return {
           ...o,
           life: STARTING_LIFE,
@@ -782,6 +788,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           hand: shuffled.slice(0, 7),
           graveyard: [],
           exile: [],
+          command: commander ? [commander] : o.command,
+          commanderCasts: 0,
           battlefield: [],
           decked: false,
           turnsTaken: 0,
@@ -811,6 +819,7 @@ registerUndoParticipant({
         graveyard: [...o.graveyard],
         exile: [...o.exile],
         command: [...o.command],
+        tokens: [...o.tokens],
         battlefield: o.battlefield.map(p => ({ ...p, counters: { ...p.counters } })),
       })),
       combat: s.combat

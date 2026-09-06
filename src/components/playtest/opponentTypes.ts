@@ -29,6 +29,15 @@ export interface Opponent {
   graveyard: ScryfallCard[];
   exile: ScryfallCard[];
   command: ScryfallCard[];
+  /** The commander's card name, so a copy on the battlefield is recognisable. */
+  commanderName: string | null;
+  /** How many times it has been cast. Each one adds {2} to the next. */
+  commanderCasts: number;
+  /**
+   * Every token this deck can make, fetched once when the bot sits down.
+   * Token specs in the registry are matched against this list by name.
+   */
+  tokens: ScryfallCard[];
   battlefield: OpponentPermanent[];
   /** True once this bot has stopped drawing because its library ran dry. */
   decked: boolean;

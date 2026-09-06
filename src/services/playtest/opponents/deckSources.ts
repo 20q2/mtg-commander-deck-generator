@@ -1,6 +1,7 @@
 import type { ScryfallCard } from '@/types';
 import { getCardsByNames } from '@/services/scryfall/client';
-import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
+import { fisherYates, isLand, makeInstanceId } from '@/components/playtest/utils';
+import { resolveDeckTokens } from '@/services/playtest/tokens';
 import type { Opponent, OpponentStub } from '@/components/playtest/opponentTypes';
 import stubData from '@/data/opponentStubs.json';
 
@@ -50,7 +51,17 @@ export async function buildOpponentFromStub(
     if (card) pool.push(card);
   }
 
-  const shuffled = fisherYates(pool);
+  // Every token any card in this deck can make, in one batched, cached fetch.
+  // A failure here costs the deck its tokens, not the whole bot.
+  let tokens: ScryfallCard[] = [];
+  try {
+    tokens = await resolveDeckTokens([...pool, ...command]);
+  } catch {
+    tokens = [];
+  }
+
+  const { library, hand } = openingHand(pool);
+
   return {
     id: makeInstanceId(),
     name: stub.name,
@@ -58,15 +69,40 @@ export async function buildOpponentFromStub(
     blurb: stub.blurb,
     colors: stub.colors,
     life: startingLife,
-    library: shuffled.slice(7),
-    hand: shuffled.slice(0, 7),
+    library,
+    hand,
     graveyard: [],
     exile: [],
     command,
+    commanderName: commander?.name ?? null,
+    commanderCasts: 0,
+    tokens,
     battlefield: [],
     decked: false,
     resistance,
     aggression: 0.5,
     turnsTaken: 0,
   };
+}
+
+/**
+ * Shuffle and draw seven, redrawing a hand with fewer than two lands. Bots do
+ * not mulligan down to six — they just take another seven, up to four tries,
+ * and keep the best they saw. A one-land keep produces a bot that does nothing
+ * for ten turns, which reads as the feature being broken rather than as variance.
+ */
+function openingHand(pool: ScryfallCard[]): { library: ScryfallCard[]; hand: ScryfallCard[] } {
+  let best: { library: ScryfallCard[]; hand: ScryfallCard[] } | null = null;
+  let bestLands = -1;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const shuffled = fisherYates(pool);
+    const hand = shuffled.slice(0, 7);
+    const lands = hand.filter(isLand).length;
+    if (lands > bestLands) {
+      bestLands = lands;
+      best = { library: shuffled.slice(7), hand };
+    }
+    if (lands >= 2) break;
+  }
+  return best ?? { library: pool.slice(7), hand: pool.slice(0, 7) };
 }
