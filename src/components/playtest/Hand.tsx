@@ -226,6 +226,8 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, onHov
   const [hovered, setHovered] = useState(false);
   const magnify = useMagnifyKey();
   const showPreview = magnify && hovered && !isDragging;
+  // Where a dragged card would land, if one is over the hand right now.
+  const dropFanPos = usePlaytestStore(s => s.handDropFanPos);
 
   // Deal-in: capture the lastDrawRange at MOUNT to detect cards that were
   // freshly drawn (vs ones that just remounted because their key shifted on
@@ -261,11 +263,30 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, onHov
 
   const dragTransform = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(1.05)` : undefined;
 
+  /**
+   * Parting: while a card is being dragged over the hand, the row opens a gap
+   * where it would land. Cards on each side step away from the seam rather
+   * than the whole row sliding right, so the fan stays centred and the gap
+   * reads as the cards making room.
+   */
+  const parting = dropFanPos !== null && !isDragging && !dealing;
+  const partPx = (() => {
+    if (!parting) return 0;
+    // Wide enough to be unmistakable, and wider still when the hand is tightly
+    // overlapped and a small nudge would not show.
+    const gap = Math.max(26, overlap * 0.9);
+    return (fanIndex >= dropFanPos ? 1 : -1) * (gap / 2);
+  })();
+
   // Hover-fan-spread: when a sibling is hovered, push neighbors away to make
   // room. The hovered card itself lifts and scales up slightly.
-  const isHovered = hoveredFanIndex === fanIndex;
+  //
+  // Suppressed while parting — the pointer is busy carrying a card, so any
+  // hover state left over from before the drag is stale, and two competing
+  // displacements would just read as jitter.
+  const isHovered = !parting && hoveredFanIndex === fanIndex;
   const spreadPx = (() => {
-    if (isDragging || dealing || hoveredFanIndex === null || isHovered) return 0;
+    if (parting || isDragging || dealing || hoveredFanIndex === null || isHovered) return 0;
     const dist = fanIndex - hoveredFanIndex;
     const direction = dist > 0 ? 1 : -1;
     // Spread scales with overlap so a tightly-squeezed hand pushes neighbors
@@ -279,6 +300,7 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, onHov
 
   const restingTransform = (() => {
     const parts: string[] = [];
+    if (partPx) parts.push(`translateX(${partPx}px)`);
     if (spreadPx) parts.push(`translateX(${spreadPx}px)`);
     if (isHovered) {
       parts.push('translateY(-14px)');

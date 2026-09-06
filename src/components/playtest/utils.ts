@@ -146,3 +146,34 @@ export function findArrivalSlot(
   }
   return { x: startX, y: startY };
 }
+
+/**
+ * Where a card dropped at `pointerX` would land in the hand.
+ *
+ * Returns two different numbers on purpose. `index` is the hand index the move
+ * needs; `fanPos` is the position in the rendered row, which is what the cards
+ * part around. They diverge whenever the hand is sorted, because then the row
+ * order is not the hand order.
+ *
+ * Midpoints come from layout position (`offsetLeft`), never from
+ * `getBoundingClientRect`. The rect includes the parting transform, so
+ * measuring it would let the gap move the very cards that decide where the gap
+ * belongs — the answer would oscillate around every seam. Layout position is
+ * unaffected by the cards' transforms, so the decision stays still while the
+ * animation plays over it.
+ */
+export function handInsertAt(pointerX: number): { index: number; fanPos: number } {
+  const els = Array.from(document.querySelectorAll<HTMLElement>('[data-hand-index]'));
+  if (els.length === 0) return { index: 0, fanPos: 0 };
+  // Every hand card is `relative`, so they all share one offsetParent — the
+  // untransformed row container.
+  const parent = els[0].offsetParent as HTMLElement | null;
+  const parentLeft = parent ? parent.getBoundingClientRect().left : 0;
+  for (let i = 0; i < els.length; i++) {
+    const mid = parentLeft + els[i].offsetLeft + els[i].offsetWidth / 2;
+    if (pointerX < mid) {
+      return { index: Number(els[i].dataset.handIndex), fanPos: i };
+    }
+  }
+  return { index: els.length, fanPos: els.length };
+}

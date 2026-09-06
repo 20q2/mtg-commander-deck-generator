@@ -62,6 +62,12 @@ interface PlaytestState {
   // Arriving cards snap below it so nothing lands underneath them. 0 when no
   // bots are seated.
   seatBandHeight: number;
+  /**
+   * While a card is being dragged over the hand, the row position it would
+   * land at. The hand fan parts around it so you can see where the card is
+   * going before you let go. Null whenever nothing is hovering the hand.
+   */
+  handDropFanPos: number | null;
   // Mulligan state machine
   mulliganCount: number;
   // Increments any time the library is shuffled — UI hooks observe this for animations
@@ -119,6 +125,7 @@ interface PlaytestActions {
   exit: () => void;                                        // clears all state (for unmount)
   setBattlefieldRect: (w: number, h: number) => void;
   setSeatBandHeight: (h: number) => void;
+  setHandDropFanPos: (pos: number | null) => void;
 
   dealOpeningHand: () => void;
   draw: (n?: number) => void;
@@ -242,6 +249,7 @@ const initial: PlaytestState = {
   trialPins: [],
   battlefieldRect: { width: 0, height: 0 },
   seatBandHeight: 0,
+  handDropFanPos: null,
   mulliganCount: 0,
   shuffleTick: 0,
   libraryTopPushTick: 0,
@@ -375,6 +383,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   setBattlefieldRect: (width, height) => set({ battlefieldRect: { width, height } }),
   setSeatBandHeight: (h) => set({ seatBandHeight: h }),
+  setHandDropFanPos: (handDropFanPos) => set(s => (
+    s.handDropFanPos === handDropFanPos ? {} : { handDropFanPos }
+  )),
 
   // ─────────────────────── mulligan / draw / shuffle ───────────────────────
 

@@ -8,7 +8,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
 import { COUNTER_COLORS } from '@/components/playtest/types';
-import { battlefieldCardAt } from '@/components/playtest/utils';
+import { battlefieldCardAt, handInsertAt } from '@/components/playtest/utils';
 import { CardOverlays, CardCounterChip } from '@/components/playtest/CardOverlays';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
@@ -284,6 +284,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   }
 
   function onDragMove(event: DragMoveEvent) {
+    trackHandParting(event);
     const data = event.active.data.current as { source?: MoveSource | { kind: string } } | undefined;
     const source = data?.source as { kind?: string } | undefined;
     if (!source) return;
@@ -292,10 +293,28 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     usePlaytestStore.getState().setDragDelta({ x, y });
   }
 
+  /**
+   * Live feedback for a card heading into the hand: work out where it would
+   * land and let the fan part around that spot. Runs for any card that could
+   * end up in the hand, not just hand-to-hand reorders, so a card coming back
+   * from the battlefield opens a gap too.
+   */
+  function trackHandParting(event: DragMoveEvent) {
+    const set = usePlaytestStore.getState().setHandDropFanPos;
+    const overKind = (event.over?.data.current as { kind?: string; zone?: string } | undefined);
+    const overHand = overKind?.kind === 'hand-slot'
+      || (overKind?.kind === 'pile' && overKind.zone === 'hand');
+    if (!overHand) { set(null); return; }
+    const rect = event.active.rect.current.translated;
+    if (!rect) { set(null); return; }
+    set(handInsertAt(rect.left + rect.width / 2).fanPos);
+  }
+
   function clearDragTracking() {
     const state = usePlaytestStore.getState();
     state.setDragActive(null);
     state.setDragDelta(null);
+    state.setHandDropFanPos(null);
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -570,15 +589,9 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         const draggedRect = event.active.rect.current.translated;
         const pointerX = draggedRect ? draggedRect.left + draggedRect.width / 2 : null;
         if (pointerX !== null) {
-          const cardEls = Array.from(document.querySelectorAll<HTMLElement>('[data-hand-index]'));
-          let insertIndex = cardEls.length;
-          for (const el of cardEls) {
-            const r = el.getBoundingClientRect();
-            if (pointerX < r.left + r.width / 2) {
-              insertIndex = Number(el.dataset.handIndex);
-              break;
-            }
-          }
+          // Same helper the parting animation uses, so the gap you were shown
+          // is the slot the card actually takes.
+          let insertIndex = handInsertAt(pointerX).index;
           if (source.kind === 'zone' && source.zone === 'hand' && source.index < insertIndex) {
             insertIndex--;
           }
