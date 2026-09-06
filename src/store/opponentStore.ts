@@ -8,6 +8,7 @@ import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { botPower, botToughness, isCreatureCard } from '@/services/playtest/opponents/stats';
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks } from '@/services/playtest/opponents/evaluate';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
@@ -28,13 +29,6 @@ const STEP_MS = 260;
  */
 let combatResolver: (() => void) | null = null;
 
-/** Printed power/toughness as a number, since a bot's cards carry no counters yet. */
-function statOf(card: ScryfallCard, key: 'power' | 'toughness'): number {
-  const raw = card[key] ?? card.card_faces?.[0]?.[key];
-  const n = parseInt(raw ?? '', 10);
-  return Number.isNaN(n) ? 0 : n;
-}
-
 /**
  * Flatten one of the player's battlefield cards into a Combatant. Reads live
  * P/T through resolvePT so counters and stickers count — the same path the
@@ -53,13 +47,16 @@ function playerCombatant(b: BattlefieldCard): Combatant {
   };
 }
 
-/** The same, for a bot's permanent. Bot cards carry no counters yet. */
-function botCombatant(p: OpponentPermanent): Combatant {
+/**
+ * The same, for a bot's permanent. `battlefield` is the whole board it is on,
+ * because its stats depend on it: counters on the card, anthems from the rest.
+ */
+function botCombatant(p: OpponentPermanent, battlefield: OpponentPermanent[]): Combatant {
   return {
     instanceId: p.instanceId,
     name: p.card.name,
-    power: statOf(p.card, 'power'),
-    toughness: statOf(p.card, 'toughness'),
+    power: botPower(p, battlefield),
+    toughness: botToughness(p, battlefield),
     keywords: keywordsOf(p.card),
   };
 }
@@ -473,8 +470,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
       // Untapped creatures only. Summoning-sick creatures block fine.
       const blockers = opponent.battlefield
-        .filter(p => !p.tapped && getFrontFaceTypeLine(p.card).toLowerCase().includes('creature'))
-        .map(botCombatant);
+        .filter(p => !p.tapped && isCreatureCard(p.card))
+        .map(p => botCombatant(p, opponent.battlefield));
 
       perOpponent[opponentId] = {
         attackers: instanceIds,
@@ -517,7 +514,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         blocks[attacker.instanceId] = (side.blocks[attacker.instanceId] ?? [])
           .map(id => opponent.battlefield.find(p => p.instanceId === id))
           .filter((p): p is OpponentPermanent => !!p)
-          .map(botCombatant);
+          .map(p => botCombatant(p, opponent.battlefield));
       }
 
       // Same pure module the bot→player direction uses. It does not know or
@@ -691,8 +688,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
               .map(p => ({
                 instanceId: p.instanceId,
                 card: p.card,
-                power: statOf(p.card, 'power'),
-                toughness: statOf(p.card, 'toughness'),
+                power: botPower(p, f.opponent.battlefield),
+                toughness: botToughness(p, f.opponent.battlefield),
               }));
             set({
               combat: {
