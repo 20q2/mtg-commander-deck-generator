@@ -679,6 +679,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // without reading the log.
           if (f.blurb) useFloatingText.getState().float(f.blurb, 'neutral', `opp-lane-${f.opponent.id}`);
           f.effects.forEach(applyEffect);
+          // Damage from the bot's own triggers, billed per beat.
+          if (f.selfDamage) usePlaytestStore.getState().adjustLife(-f.selfDamage);
 
           if (f.attackers.length > 0) {
             // Combat stops the turn until the player has blocked. resolveCombat

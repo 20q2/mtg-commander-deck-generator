@@ -72,6 +72,12 @@ export interface TurnFrame {
   /** What to do to the player's board. Described here, applied by the store. */
   effects: AppliedEffect[];
   /**
+   * Life the player loses from the bot's own triggers this beat — an Impact
+   * Tremors or a Purphoros firing off its creatures. Separate from `effects`,
+   * which describe things done to the player's permanents.
+   */
+  selfDamage?: number;
+  /**
    * Instance ids on the bot's board that are attacking. Non-empty only on the
    * attack beat, and it stops the turn: combat waits for you to block.
    */

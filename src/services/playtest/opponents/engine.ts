@@ -2,9 +2,9 @@ import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { costOf, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
+import { BOT_TRIGGERS, costOf, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
 import type { TokenSpec } from '@/services/playtest/opponents/effects';
-import { isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { botPower as livePower, isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
@@ -29,12 +29,6 @@ function isPermanent(card: ScryfallCard): boolean {
     t.includes('enchantment') ||
     t.includes('planeswalker')
   );
-}
-
-export function powerOf(card: ScryfallCard): number {
-  const raw = card.power ?? card.card_faces?.[0]?.power;
-  const n = parseInt(raw ?? '', 10);
-  return Number.isNaN(n) ? 0 : n;
 }
 
 /**
@@ -126,6 +120,21 @@ function tokenCount(spec: TokenSpec, battlefield: OpponentPermanent[]): number {
   return base * tokenMultiplier(battlefield);
 }
 
+/**
+ * Damage the player takes when `count` creatures arrive on this board. Every
+ * trigger fires for every creature, tokens included, which is the entire
+ * reason a goblin deck with an Impact Tremors out is scary.
+ */
+function etbDamage(battlefield: OpponentPermanent[], count: number): number {
+  if (count <= 0) return 0;
+  let per = 0;
+  for (const p of battlefield) {
+    const spec = BOT_TRIGGERS[p.card.name];
+    if (spec?.kind === 'creatureEtbDamage') per += spec.amount;
+  }
+  return per * count;
+}
+
 export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnResult {
   const frames: TurnFrame[] = [];
   const opp: Opponent = {
@@ -144,6 +153,10 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     attackers: string[] = [],
     blurb?: string,
   ) => {
+    // Triggers are billed against the board as it stands at the end of the
+    // beat, so a Purphoros cast alongside its goblins counts them.
+    const selfDamage = etbDamage(opp.battlefield, pendingCreatures);
+    pendingCreatures = 0;
     frames.push({
       opponent: {
         ...opp,
@@ -151,12 +164,14 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         hand: [...opp.hand],
         graveyard: [...opp.graveyard],
         exile: [...opp.exile],
+        command: [...opp.command],
         battlefield: opp.battlefield.map(p => ({ ...p, counters: { ...p.counters } })),
       },
-      logs,
+      logs: selfDamage > 0 ? [...logs, `${opp.name} deals ${selfDamage} to you`] : logs,
       effects,
       attackers,
       blurb,
+      selfDamage,
     });
   };
 
@@ -226,7 +241,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   const availableMana = () => opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
   const botPower = opp.battlefield
     .filter(p => isCreatureCard(p.card))
-    .reduce((sum, p) => sum + powerOf(p.card), 0);
+    .reduce((sum, p) => sum + livePower(p, opp.battlefield), 0);
 
   // ── Commander ──
   // It goes first: it is the card the deck is built around, and holding it back
@@ -336,7 +351,11 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
   // Everything that can attack, does. There's no blocking model, so this reads as
   // a clock rather than combat — which is what a goldfish needs.
   const attackers = opp.battlefield.filter(
-    p => isCreatureCard(p.card) && !p.summoningSick && !p.tapped && powerOf(p.card) > 0,
+    p =>
+      isCreatureCard(p.card) &&
+      !p.summoningSick &&
+      !p.tapped &&
+      livePower(p, opp.battlefield) > 0,
   );
   if (attackers.length > 0) {
     const attackerIds = new Set(attackers.map(a => a.instanceId));
