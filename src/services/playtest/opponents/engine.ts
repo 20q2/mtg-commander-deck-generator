@@ -1,8 +1,8 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
-import { chooseResistancePlay, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { BOT_TRIGGERS, costOf, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
+import { chooseResistancePlay, hasLiveTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
+import { BOT_TRIGGERS, costOf, lookupSelfEffect } from '@/services/playtest/opponents/effects';
 import type { TokenSpec } from '@/services/playtest/opponents/effects';
 import { botPower as livePower, isCreatureCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
@@ -20,6 +20,9 @@ import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/compo
 
 /** Backstop on the develop loop so a mana-flooded board can't spin forever. */
 const MAX_CASTS_PER_TURN = 5;
+
+/** How many interaction spells a resisting bot casts in one turn. */
+const MAX_INTERACTION_PER_TURN = 2;
 
 function isPermanent(card: ScryfallCard): boolean {
   const t = getFrontFaceTypeLine(card).toLowerCase();
@@ -263,24 +266,28 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
 
   // ── Interaction ──
   // Interaction gets first call on the mana, before the bot spends it developing.
+  // Up to two spells a turn: one is too few for a control deck holding eight
+  // mana, and unlimited would let it empty its hand the moment you commit.
   if (opp.resistance) {
-    const play = chooseResistancePlay({
-      hand: opp.hand,
-      mana: availableMana(),
-      board: playerBoard,
-      botPower,
-      turn: input.turnsTaken + 1,
-      aggression: opp.aggression,
-    });
-    if (play) {
+    for (let cast = 0; cast < MAX_INTERACTION_PER_TURN; cast++) {
+      const play = chooseResistancePlay({
+        hand: opp.hand,
+        mana: availableMana(),
+        board: playerBoard,
+        botPower,
+        turn: input.turnsTaken + 1,
+        aggression: opp.aggression,
+      });
+      if (!play) break;
       opp.hand.splice(play.handIndex, 1);
       if (play.staysOnBattlefield) {
         opp.battlefield.push(toPermanent(play.card));
+        if (isCreatureCard(play.card)) pendingCreatures += 1;
       } else {
         opp.graveyard.push(play.card);
       }
       // Tap what it cost, so their board shows the spend.
-      opp.battlefield = tapForMana(opp.battlefield, play.card.cmc ?? 0);
+      opp.battlefield = tapForMana(opp.battlefield, costOf(play.card));
       frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : [], [], play.card.name);
     }
   }
@@ -297,9 +304,10 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       // Everything else — the counterspells especially — stays in hand, and the
       // end-of-turn hand limit is what eventually clears it out.
       if (isLand(card) || (!isPermanent(card) && !lookupSelfEffect(card.name))) return;
-      // A registry permanent held back for its effect shouldn't be dumped out as
-      // a vanilla body — resistance already had its chance at it this turn.
-      if (opp.resistance && lookupEffect(card.name)) return;
+      // A registry permanent is held back only while its effect has something to
+      // hit. Once your board is empty it is just a body, and a bot that keeps it
+      // in hand forever reads as a bot that has stopped playing.
+      if (opp.resistance && hasLiveTarget(card.name, playerBoard)) return;
       const cost = costOf(card);
       // Cast the most expensive thing affordable — a rough proxy for "best play".
       if (cost <= mana && cost > bestCmc) {

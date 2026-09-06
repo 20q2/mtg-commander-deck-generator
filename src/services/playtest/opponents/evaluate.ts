@@ -230,6 +230,20 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
   };
 }
 
+/**
+ * Would this card's registry effect actually hit anything right now?
+ *
+ * The develop loop asks so it can tell two cases apart: a Ravenous Chupacabra
+ * being held for the creature you are about to play, and a Ravenous Chupacabra
+ * that is simply a 2/2 because your board is empty. Without this, a bot with an
+ * empty board opposite it holds the card forever.
+ */
+export function hasLiveTarget(cardName: string, board: PlayerBoardRead): boolean {
+  const entry = lookupEffect(cardName);
+  if (!entry) return false;
+  return resolveEffect(entry.spec, board) !== null;
+}
+
 /** Exposed so the engine can log why a bot sat on its hand. */
 export function holdReason(board: PlayerBoardRead, botPower: number): string | null {
   return threatScore(board, botPower) === 0 ? null : 'holding interaction for a bigger threat';
