@@ -1,5 +1,5 @@
 import type { ScryfallCard } from '@/types';
-import { lookupEffect, type BotEffectSpec } from '@/services/playtest/opponents/effects';
+import { costOf, lookupEffect, type BotEffectSpec } from '@/services/playtest/opponents/effects';
 import { canBlock, type Combatant } from '@/services/playtest/combat';
 
 /** One of the player's battlefield cards, flattened to what a bot cares about. */
@@ -190,7 +190,7 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
   hand.forEach((card, handIndex) => {
     const entry = lookupEffect(card.name);
     if (!entry) return;
-    if ((card.cmc ?? 0) > mana) return;
+    if (costOf(card) > mana) return;
     const resolved = resolveEffect(entry.spec, board);
     if (!resolved) return;
 

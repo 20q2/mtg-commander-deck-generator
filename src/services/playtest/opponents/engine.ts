@@ -36,17 +36,21 @@ function isPermanent(card: ScryfallCard): boolean {
 
 /**
  * Net mana from a tap ability. "{T}: Add {C}{C}" is 2; "{1}, {T}: Add {U}{B}"
- * produces two but costs one, so it's 1. Anything else that makes mana at all
- * counts as one — including "add one mana of any color", which has no symbols
- * to count.
+ * produces two but costs one, so it's 1; "{T}: Add one mana of any color" has
+ * no symbols to count and is 1.
+ *
+ * No tap ability at all means no mana. That is the point of the rewrite: the
+ * old version returned 1 for anything with a `produced_mana` field, so Skirk
+ * Prospector — which has to sacrifice a goblin — was a free mana dork.
  */
 function netManaFromText(text: string): number {
-  const m = text.match(/([^\n:]*?)\{t\}[^:]*:\s*add\s*((?:\{[^}]+\}\s*)+)/i);
-  if (!m) return 1;
-  const produced = (m[2].match(/\{[^}]+\}/g) ?? []).length;
+  const m = text.match(/([^\n:]*?)\{t\}[^:]*:\s*add\s+([^.\n]*)/i);
+  if (!m) return 0;
+  // `|| 1` covers "add one mana of any color", which writes no mana symbols.
+  const produced = (m[2].match(/\{[^}]+\}/g) ?? []).length || 1;
   const genericCost = (m[1] ?? '').match(/\{(\d+)\}/);
   const spent = genericCost ? parseInt(genericCost[1], 10) : 0;
-  return Math.max(1, produced - spent);
+  return Math.max(0, produced - spent);
 }
 
 /** How much mana this permanent can make right now. */
