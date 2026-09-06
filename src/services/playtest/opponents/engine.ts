@@ -358,5 +358,22 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     if (frames.length > 0) frames[frames.length - 1].opponent.turnsTaken = opp.turnsTaken;
   }
 
+  // ── Cleanup ──
+  // Seven cards, like anyone else. Without this a control bot's hand grows all
+  // game, because a counterspell has no stack to answer and can never be cast.
+  // The most expensive card goes first: what is stuck is usually what is dear.
+  if (opp.hand.length > 7) {
+    const discarded: string[] = [];
+    while (opp.hand.length > 7) {
+      let worstIdx = 0;
+      for (let i = 1; i < opp.hand.length; i++) {
+        if (costOf(opp.hand[i]) > costOf(opp.hand[worstIdx])) worstIdx = i;
+      }
+      discarded.push(opp.hand[worstIdx].name);
+      opp.graveyard.push(opp.hand.splice(worstIdx, 1)[0]);
+    }
+    frame([`${opp.name} discards ${discarded.join(', ')}`], [], [], 'Discards');
+  }
+
   return { final: opp, frames };
 }
