@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useDroppable } from '@dnd-kit/core';
-import { Shield, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
@@ -10,7 +11,15 @@ import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import type { BattlefieldCard } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
+/** Declared attackers sitting in the strip before you confirm. */
 const ATTACKER_W = 34;
+/**
+ * A creature in an open combat. Much bigger than the resting size — combat is
+ * the moment you actually need to read power, toughness and keywords, and the
+ * seat shrinks its other rows to pay for it.
+ */
+const COMBAT_W = 68;
+const BLOCKER_W = 30;
 
 /**
  * The contested space between you and one opponent. Used in both directions:
@@ -123,9 +132,9 @@ function OutgoingResolve({ opponentId }: { opponentId: string }) {
               className={`rounded-[2px] rotate-90 shadow ${
                 blockerIds.length === 0 ? 'ring-1 ring-emerald-400/70' : ''
               }`}
-              style={{ width: ATTACKER_W }}
+              style={{ width: COMBAT_W }}
             />
-            <div className="flex gap-0.5 min-h-[14px]">
+            <div className="flex gap-0.5 min-h-[26px] items-start">
               {blockerIds.length === 0 ? (
                 <span className="text-[7px] text-emerald-300 uppercase tracking-wide">through</span>
               ) : blockerIds.map(bid => {
@@ -138,7 +147,7 @@ function OutgoingResolve({ opponentId }: { opponentId: string }) {
                     title={`${p.card.name} blocks`}
                     draggable={false}
                     className="rounded-[2px]"
-                    style={{ width: 14 }}
+                    style={{ width: BLOCKER_W }}
                   />
                 ) : null;
               })}
@@ -161,6 +170,7 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
   const combat = useOpponentStore(s => s.combat);
   const resolveCombat = useOpponentStore(s => s.resolveCombat);
   const removeBlocker = useOpponentStore(s => s.removeBlocker);
+  const assignBlocker = useOpponentStore(s => s.assignBlocker);
   const battlefield = usePlaytestStore(s => s.battlefield);
   if (!combat || combat.opponentId !== opponentId) return null;
 
@@ -178,6 +188,7 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
           blockerIds={combat.blocks[a.instanceId] ?? []}
           onRemoveBlocker={id => removeBlocker(a.instanceId, id)}
           battlefield={battlefield}
+          onAssign={assignBlocker}
         />
       ))}
       <button
@@ -190,9 +201,17 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
   );
 }
 
-/** One incoming attacker with its own blocker drop target. */
+/**
+ * One incoming attacker and the slot where its blockers go.
+ *
+ * Two ways to block, because they suit different moments. Drag one of your
+ * creatures up onto the attacker, as before — or pull an arrow down out of the
+ * blocker slot and point it at the creature you want. The arrow is the one that
+ * scales: with the seats floating over your board, dragging a card all the way
+ * up to a strip is a long haul, and aiming down at your own board is short.
+ */
 function AttackerSlot({
-  attackerId, card, label, blockerIds, onRemoveBlocker, battlefield,
+  attackerId, card, label, blockerIds, onRemoveBlocker, battlefield, onAssign,
 }: {
   attackerId: string;
   card: ScryfallCard;
@@ -200,11 +219,13 @@ function AttackerSlot({
   blockerIds: string[];
   onRemoveBlocker: (instanceId: string) => void;
   battlefield: BattlefieldCard[];
+  onAssign: (attackerId: string, blockerInstanceId: string) => void;
 }) {
   const previewMode = usePlaytestSettings(s => s.opponentPreview);
   const ctrlHeld = useMagnifyKey();
   const [hovered, setHovered] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
+  const [aim, setAim] = useState<{ from: Point; to: Point } | null>(null);
   const { setNodeRef, isOver } = useDroppable({
     id: `combat:${attackerId}`,
     data: { kind: 'combatAttacker', attackerId },
@@ -212,12 +233,46 @@ function AttackerSlot({
   const showPreview =
     previewMode === 'off' ? false : previewMode === 'hover' ? hovered : ctrlHeld && hovered;
 
+  /** Pull an arrow out of the slot and drop it on one of your creatures. */
+  const startAim = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // Clicking a blocker already in the slot removes it; don't fight that.
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const slot = e.currentTarget;
+    const r = slot.getBoundingClientRect();
+    const from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    slot.setPointerCapture(e.pointerId);
+    setAim({ from, to: { x: e.clientX, y: e.clientY } });
+
+    const onMove = (ev: PointerEvent) => setAim({ from, to: { x: ev.clientX, y: ev.clientY } });
+    const onUp = (ev: PointerEvent) => {
+      slot.removeEventListener('pointermove', onMove);
+      slot.removeEventListener('pointerup', onUp);
+      slot.removeEventListener('pointercancel', onUp);
+      try { slot.releasePointerCapture(ev.pointerId); } catch { /* already gone */ }
+      setAim(null);
+      // The arrow layer is pointer-events:none and portalled to <body>, so the
+      // hit test sees the card underneath rather than the overlay.
+      const hit = document.elementsFromPoint(ev.clientX, ev.clientY)
+        .map(el => (el as HTMLElement).closest?.('[data-bf-card]'))
+        .find(Boolean) as HTMLElement | null | undefined;
+      const id = hit?.getAttribute('data-bf-card');
+      if (id) onAssign(attackerId, id);
+    };
+    slot.addEventListener('pointermove', onMove);
+    slot.addEventListener('pointerup', onUp);
+    slot.addEventListener('pointercancel', onUp);
+  }, [attackerId, onAssign]);
+
+  const empty = blockerIds.length === 0;
+
   return (
     <div
       ref={setNodeRef}
       className={`shrink-0 rounded p-0.5 border transition-colors ${
         isOver ? 'border-emerald-400/70 bg-emerald-500/10'
-        : blockerIds.length > 0 ? 'border-emerald-400/40'
+        : !empty ? 'border-emerald-400/40'
         : 'border-rose-400/30'
       }`}
     >
@@ -233,16 +288,34 @@ function AttackerSlot({
           title={`${card.name} · ${label}`}
           draggable={false}
           className="rounded-[2px] shadow"
-          style={{ width: ATTACKER_W }}
+          style={{ width: COMBAT_W }}
         />
-        <span className="absolute bottom-0 right-0 px-0.5 rounded-tl bg-black/80 text-white text-[8px] font-bold tabular-nums">
+        <span className="absolute bottom-0 right-0 px-1 rounded-tl bg-black/85 text-white text-[10px] font-bold tabular-nums">
           {label}
         </span>
         {showPreview && <MagnifiedPreview card={card} anchorRef={ref} />}
       </div>
-      <div className="mt-0.5 flex gap-0.5 min-h-[14px] justify-center">
-        {blockerIds.length === 0 ? (
-          <Shield className="w-2.5 h-2.5 text-muted-foreground/50" />
+
+      {/* The blocker slot. While it is empty it pulses, so it reads as
+          something to act on rather than an empty box. */}
+      <div
+        onPointerDown={startAim}
+        title={
+          empty
+            ? `Drag from here onto one of your creatures to block ${card.name}`
+            : `Blocking ${card.name} · drag from here to add another, click one to remove`
+        }
+        style={{ width: COMBAT_W }}
+        className={`mt-0.5 rounded border border-dashed flex flex-wrap gap-0.5 p-0.5 justify-center items-center min-h-[26px] cursor-crosshair touch-none transition-colors ${
+          aim ? 'border-emerald-300 bg-emerald-500/25 ring-2 ring-emerald-300/60'
+          : empty ? 'border-emerald-400/60 bg-emerald-500/10 hover:bg-emerald-500/25 animate-pulse'
+          : 'border-emerald-400/50 bg-emerald-500/5'
+        }`}
+      >
+        {empty ? (
+          <span className="text-[8px] uppercase tracking-wider text-emerald-300/90 select-none leading-tight">
+            Block
+          </span>
         ) : blockerIds.map(bid => {
           const b = battlefield.find(x => x.instanceId === bid);
           return b ? (
@@ -250,13 +323,70 @@ function AttackerSlot({
               key={bid}
               onClick={() => onRemoveBlocker(bid)}
               title={`${b.card.name} is blocking · click to remove`}
-              style={{ width: 14 }}
+              className="relative shrink-0 group"
+              style={{ width: BLOCKER_W }}
             >
-              <img src={getCardImageUrl(b.card, 'small')} alt={b.card.name} draggable={false} className="rounded-[2px]" />
+              <img
+                src={getCardImageUrl(b.card, 'small')}
+                alt={b.card.name}
+                draggable={false}
+                className="w-full rounded-[2px]"
+              />
+              <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/60 rounded-[2px]">
+                <X className="w-2.5 h-2.5 text-red-300" />
+              </span>
             </button>
           ) : null;
         })}
       </div>
+
+      {aim && <TargetArrow from={aim.from} to={aim.to} />}
     </div>
+  );
+}
+
+interface Point { x: number; y: number }
+
+/**
+ * The targeting arrow, portalled to <body>. It has to escape the seat: the
+ * seat uses backdrop-blur, which makes it a containing block for fixed
+ * positioning, so an arrow rendered in place would be trapped inside the seat
+ * instead of reaching your board.
+ */
+function TargetArrow({ from, to }: { from: Point; to: Point }) {
+  // Bow the curve out sideways so a near-vertical drag still reads as an arc
+  // rather than a straight line lying on top of itself.
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const bow = Math.min(60, len * 0.25);
+  const cx = (from.x + to.x) / 2 - (dy / len) * bow;
+  const cy = (from.y + to.y) / 2 + (dx / len) * bow;
+  // The head points along the tangent at the tip, which is the line from the
+  // control point to the end of the curve.
+  const angle = (Math.atan2(to.y - cy, to.x - cx) * 180) / Math.PI;
+
+  return createPortal(
+    <svg
+      aria-hidden
+      className="fixed inset-0 pointer-events-none"
+      style={{ zIndex: 200, width: '100vw', height: '100vh' }}
+    >
+      <path
+        d={`M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`}
+        fill="none"
+        stroke="rgb(52 211 153)"
+        strokeWidth={4}
+        strokeLinecap="round"
+        opacity={0.95}
+      />
+      <circle cx={from.x} cy={from.y} r={5} fill="rgb(52 211 153)" />
+      <polygon
+        points="0,-7 14,0 0,7"
+        fill="rgb(52 211 153)"
+        transform={`translate(${to.x} ${to.y}) rotate(${angle})`}
+      />
+    </svg>,
+    document.body,
   );
 }

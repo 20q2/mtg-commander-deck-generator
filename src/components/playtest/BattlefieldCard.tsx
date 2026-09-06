@@ -160,6 +160,9 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
     <div
       ref={setRefs}
       data-float-id={card.instanceId}
+      // Distinct from data-float-id, which opponent permanents also carry.
+      // Blocker targeting hit-tests on this, and must never match their board.
+      data-bf-card={card.instanceId}
       {...attributes}
       {...(listeners as Record<string, unknown>)}
       onClick={(e) => { e.stopPropagation(); onTap(e); }}

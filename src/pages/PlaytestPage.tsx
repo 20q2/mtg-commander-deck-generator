@@ -10,7 +10,7 @@ import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } fr
 import { COUNTER_COLORS } from '@/components/playtest/types';
 import { battlefieldCardAt } from '@/components/playtest/utils';
 import { CardOverlays, CardCounterChip } from '@/components/playtest/CardOverlays';
-import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardImageUrl } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 import { PlaytestToolbar } from '@/components/playtest/PlaytestToolbar';
 import { Battlefield } from '@/components/playtest/Battlefield';
@@ -340,10 +340,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       const src = sourceData?.source;
       if (!src || (src as { kind: string }).kind !== 'battlefield') return;
       const instanceId = (src as { instanceId: string }).instanceId;
-      const card = usePlaytestStore.getState().battlefield.find(b => b.instanceId === instanceId);
-      // Tapped creatures can't block, and neither can non-creatures.
-      if (!card || card.tapped) return;
-      if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) return;
+      // Tapped creatures can't block and neither can non-creatures, but that
+      // check lives in assignBlocker so the targeting arrow obeys it too.
       useOpponentStore.getState().assignBlocker(overData.attackerId, instanceId);
       return;
     }

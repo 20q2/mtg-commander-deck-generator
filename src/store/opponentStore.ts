@@ -270,6 +270,14 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   assignBlocker: (attackerId, blockerInstanceId) => set(s => {
     if (!s.combat) return {};
+    // Legality lives here rather than in the drop handler, because there are
+    // two ways to assign a blocker now — dragging a creature up onto the
+    // attacker, and pulling a targeting arrow down out of its blocker slot —
+    // and both have to agree on what a legal blocker is.
+    const card = usePlaytestStore.getState().battlefield
+      .find(b => b.instanceId === blockerInstanceId);
+    if (!card || card.tapped) return {};
+    if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) return {};
     // A creature can only block once — drop it from any other attacker first.
     const blocks: Record<string, string[]> = {};
     for (const [id, ids] of Object.entries(s.combat.blocks)) {

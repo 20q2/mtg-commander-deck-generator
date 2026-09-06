@@ -67,7 +67,15 @@ export function OpponentSeat({
   });
 
   const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
-  const zoneWidth = Math.round(Math.max(18, Math.min(38, width * 0.10)));
+
+  /**
+   * Combat is the one moment the rest of the board stops mattering. While this
+   * seat is fighting, its rows and zones shrink so the strip can show the
+   * creatures actually in the fight at a size you can read. Nothing is hidden
+   * — everything they own is still on screen, just smaller for a beat.
+   */
+  const scale = inCombat ? COMBAT_SHRINK : 1;
+  const zoneWidth = Math.round(Math.max(14, Math.min(38, width * 0.10 * scale)));
 
   return (
     <div
@@ -116,7 +124,7 @@ export function OpponentSeat({
                     key={p.instanceId}
                     opponentId={opponent.id}
                     permanent={p}
-                    width={rowWidth(width, row.scale)}
+                    width={rowWidth(width, row.scale * scale)}
                   />
                 ))}
               </div>
@@ -136,7 +144,7 @@ export function OpponentSeat({
               key={p.instanceId}
               opponentId={opponent.id}
               permanent={p}
-              width={rowWidth(width, LAND_SCALE)}
+              width={rowWidth(width, LAND_SCALE * scale)}
             />
           ))}
         </div>
@@ -423,9 +431,16 @@ const UPPER_ROWS: { key: Exclude<RowKey, 'lands'>; label: string; scale: number 
 /** Lands are smallest — they share a row with the hand fan and the zone piles. */
 const LAND_SCALE = 0.10;
 
+/**
+ * How far the board shrinks while this seat is in combat. The strip's cards
+ * roughly double at the same moment, so the seat as a whole stays about the
+ * same height while the attention moves to the fight.
+ */
+const COMBAT_SHRINK = 0.6;
+
 /** Seat width → card width for a row, clamped so it stays legible and sane. */
 function rowWidth(seatWidth: number, scale: number): number {
-  return Math.round(Math.max(20, Math.min(84, seatWidth * scale)));
+  return Math.round(Math.max(14, Math.min(84, seatWidth * scale)));
 }
 
 /**
