@@ -54,6 +54,25 @@ const centerCreateOnCursor: Modifier = ({ activatorEvent, draggingNodeRect, tran
 };
 
 /**
+ * Where the dragged card actually sits at the moment of release, in viewport
+ * coordinates.
+ *
+ * Derived from the drag's own initial rect plus its total delta rather than
+ * read off `rect.current.translated`, which is not dependable once the drag
+ * has ended. Both the hand's insertion point and the flight the card makes
+ * into its slot are measured from this, so they cannot disagree.
+ */
+function releaseRect(event: DragEndEvent): { left: number; top: number; width: number } | null {
+  const initial = event.active.rect.current.initial;
+  if (!initial) return null;
+  return {
+    left: initial.left + event.delta.x,
+    top: initial.top + event.delta.y,
+    width: initial.width,
+  };
+}
+
+/**
  * A pasted deck exists only in the history entry that launched it — nothing is
  * saved. `history.state` survives a reload, so a refresh on /playtest/pasted keeps
  * the deck (the game itself restarts, same as a generated deck).
@@ -305,9 +324,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     const overHand = overKind?.kind === 'hand-slot'
       || (overKind?.kind === 'pile' && overKind.zone === 'hand');
     if (!overHand) { set(null); return; }
-    const rect = event.active.rect.current.translated;
-    if (!rect) { set(null); return; }
-    set(handInsertAt(rect.left + rect.width / 2).fanPos);
+    // Same initial-plus-delta the drop uses, so the gap the fan opens is never
+    // a slot away from where the card actually lands.
+    const initial = event.active.rect.current.initial;
+    if (!initial) { set(null); return; }
+    set(handInsertAt(initial.left + event.delta.x + initial.width / 2).fanPos);
   }
 
   function clearDragTracking() {
@@ -552,18 +573,21 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     // Drop on a specific hand slot — insert before or after based on which
     // side of the hovered card's midpoint the cursor is on.
     if (overData?.kind === 'hand-slot' && typeof overData.index === 'number') {
-      let insertIndex = overData.index;
-      const overRect = over.rect as DOMRect | undefined;
-      const draggedRect = event.active.rect.current.translated;
-      if (overRect && draggedRect) {
-        const pointerX = draggedRect.left + draggedRect.width / 2;
-        if (pointerX >= overRect.left + overRect.width / 2) {
-          insertIndex += 1;
-        }
-      }
+      const release = releaseRect(event);
+      // Prefer the shared helper, so the slot matches the gap the fan opened.
+      // Falling back to the hovered slot's own index only matters if the drag
+      // never reported a rect, which in practice it always does.
+      let insertIndex = release
+        ? handInsertAt(release.left + release.width / 2).index
+        : overData.index;
       // If reordering within the hand, removing the source first shifts later indices
       if (source.kind === 'zone' && source.zone === 'hand' && source.index < insertIndex) {
         insertIndex--;
+      }
+      if (release) {
+        usePlaytestStore.getState().setHandLanding({
+          index: insertIndex, x: release.left, y: release.top,
+        });
       }
       moveCard({ source, target: { kind: 'zone', zone: 'hand', index: insertIndex } });
       return;
@@ -586,21 +610,18 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       // For the hand, infer insertion index from pointer X relative to existing
       // hand cards so drops on the left side go to the left, not the end.
       if (zone === 'hand') {
-        const draggedRect = event.active.rect.current.translated;
-        const pointerX = draggedRect ? draggedRect.left + draggedRect.width / 2 : null;
-        if (pointerX !== null) {
+        const release = releaseRect(event);
+        if (release) {
           // Same helper the parting animation uses, so the gap you were shown
           // is the slot the card actually takes.
-          let insertIndex = handInsertAt(pointerX).index;
+          let insertIndex = handInsertAt(release.left + release.width / 2).index;
           if (source.kind === 'zone' && source.zone === 'hand' && source.index < insertIndex) {
             insertIndex--;
           }
-          // Hand the release point to the hand so the card can fly from where
-          // you let go into its slot, rather than appearing there.
+          // Hand the release point over so the card can fly from where you let
+          // go down into its slot, rather than appearing there.
           usePlaytestStore.getState().setHandLanding({
-            index: insertIndex,
-            x: draggedRect!.left,
-            y: draggedRect!.top,
+            index: insertIndex, x: release.left, y: release.top,
           });
           moveCard({ source, target: { kind: 'zone', zone: 'hand', index: insertIndex } });
           return;
