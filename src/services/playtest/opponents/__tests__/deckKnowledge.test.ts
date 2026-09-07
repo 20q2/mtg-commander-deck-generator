@@ -1,0 +1,220 @@
+import { describe, it, expect } from 'vitest';
+import { takeTurn } from '@/services/playtest/opponents/engine';
+import { botPower, effectiveCost, hasHaste } from '@/services/playtest/opponents/stats';
+import type { PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
+import type { Opponent, OpponentPermanent, TurnFrame } from '@/components/playtest/opponentTypes';
+import type { ScryfallCard } from '@/types';
+
+/**
+ * The recurring card shapes a deck needs its bot to understand.
+ *
+ * These are the five patterns the coverage report kept surfacing across the
+ * stub decks, and the ones a precon roster will keep meeting: cost reducers,
+ * haste granters, regrow, ramp-on-legs, and a `*` in the printed stats. None of
+ * them is exotic; all of them were previously invisible to the bot, which is
+ * the difference between a deck that plays its plan and one that plays a
+ * worse deck for reasons you cannot see.
+ */
+
+let n = 0;
+function card(p: Partial<ScryfallCard> & { name: string }): ScryfallCard {
+  return {
+    id: `c${n++}`, type_line: p.type_line ?? 'Creature — Goblin',
+    cmc: p.cmc ?? 1, oracle_text: p.oracle_text ?? '', keywords: p.keywords ?? [],
+    color_identity: [], colors: [], legalities: {}, set: 'tst', rarity: 'common',
+    ...p,
+  } as unknown as ScryfallCard;
+}
+const MOUNTAIN = () => card({ name: 'Mountain', type_line: 'Basic Land — Mountain', cmc: 0 });
+const FOREST = () => card({ name: 'Forest', type_line: 'Basic Land — Forest', cmc: 0 });
+const perm = (c: ScryfallCard, over: Partial<OpponentPermanent> = {}): OpponentPermanent =>
+  ({ instanceId: `p${n++}`, card: c, tapped: false, summoningSick: false, counters: {}, ...over });
+
+function bot(over: Partial<Opponent> = {}): Opponent {
+  return {
+    id: 'b1', name: 'Bot', stubId: null, blurb: '', colors: [], life: 40,
+    library: [], hand: [], graveyard: [], exile: [], command: [],
+    commanderName: null, commanderCasts: 0, tokens: [], battlefield: [],
+    decked: false, resistance: false, aggression: 0.5, turnsTaken: 0, ...over,
+  };
+}
+const board = (over: Partial<PlayerBoardRead> = {}): PlayerBoardRead =>
+  ({ cards: [], life: 40, handSize: 0, untappedCreatures: [], ...over });
+const logsOf = (frames: TurnFrame[]) => frames.flatMap(f => f.logs).join(' | ');
+const names = (o: Opponent) => o.battlefield.map(p => p.card.name);
+
+const WARCHIEF = () => card({ name: 'Goblin Warchief', cmc: 3, power: '2', toughness: '2' });
+const CHIEFTAIN = () => card({ name: 'Goblin Chieftain', cmc: 3, power: '2', toughness: '2' });
+
+describe('cost reducers', () => {
+  it('discounts only the matching subtype', () => {
+    const bf = [perm(WARCHIEF())];
+    const goblin = card({ name: 'Some Goblin', cmc: 4 });
+    const elf = card({ name: 'Some Elf', cmc: 4, type_line: 'Creature — Elf' });
+    expect(effectiveCost(goblin, bf)).toBe(3);
+    expect(effectiveCost(elf, bf)).toBe(4);
+  });
+
+  it('stacks and never goes below zero', () => {
+    const bf = [perm(WARCHIEF()), perm(WARCHIEF())];
+    expect(effectiveCost(card({ name: 'Some Goblin', cmc: 5 }), bf)).toBe(3);
+    expect(effectiveCost(card({ name: 'Cheap Goblin', cmc: 1 }), bf)).toBe(0);
+  });
+
+  it('lets the bot cast a spell it could not otherwise afford', () => {
+    const four = card({ name: 'Costly Goblin', cmc: 4, power: '4', toughness: '4' });
+    const lands = () => Array.from({ length: 3 }, () => perm(MOUNTAIN()));
+
+    // Three mana, a 4-drop: without the discount it stays in hand.
+    const without = takeTurn(bot({ battlefield: lands(), hand: [four] }), board());
+    expect(names(without.final)).not.toContain('Costly Goblin');
+
+    const withIt = takeTurn(
+      bot({ battlefield: [...lands(), perm(WARCHIEF())], hand: [four] }),
+      board(),
+    );
+    expect(names(withIt.final)).toContain('Costly Goblin');
+  });
+});
+
+describe('haste', () => {
+  it('is read off the card itself', () => {
+    const hasty = perm(card({ name: 'Hasty Thing', keywords: ['Haste'] }), { summoningSick: true });
+    expect(hasHaste(hasty, [hasty])).toBe(true);
+    const slow = perm(card({ name: 'Slow Thing' }), { summoningSick: true });
+    expect(hasHaste(slow, [slow])).toBe(false);
+  });
+
+  it('is granted by a lord, to the matching subtype only', () => {
+    const chieftain = perm(CHIEFTAIN());
+    const goblin = perm(card({ name: 'Plain Goblin' }), { summoningSick: true });
+    const elf = perm(card({ name: 'Plain Elf', type_line: 'Creature — Elf' }), { summoningSick: true });
+    expect(hasHaste(goblin, [chieftain, goblin, elf])).toBe(true);
+    expect(hasHaste(elf, [chieftain, goblin, elf])).toBe(false);
+  });
+
+  it('lets a creature attack the turn it lands', () => {
+    // The creature has to ARRIVE this turn to be summoning-sick: the untap step
+    // clears sickness on anything that was already there, so a pre-placed sick
+    // creature is not a test of haste at all.
+    const brute = () => card({ name: 'Brute', cmc: 3, power: '3', toughness: '3' });
+    const lands = () => Array.from({ length: 3 }, () => perm(MOUNTAIN()));
+
+    const slow = takeTurn(bot({ battlefield: lands(), hand: [brute()] }), board());
+    expect(names(slow.final)).toContain('Brute');
+    expect(logsOf(slow.frames)).not.toContain('attacks');
+
+    const quick = takeTurn(
+      bot({ battlefield: [...lands(), perm(CHIEFTAIN())], hand: [brute()] }),
+      board(),
+    );
+    expect(logsOf(quick.frames)).toContain('Brute');
+    expect(logsOf(quick.frames)).toContain('attacks you with');
+  });
+
+  it('a Chieftain is still a lord as well as a haste granter', () => {
+    const chieftain = perm(CHIEFTAIN());
+    const goblin = perm(card({ name: 'Plain Goblin', power: '1', toughness: '1' }));
+    // Anthem and haste come off the same card; the list form must keep both.
+    expect(botPower(goblin, [chieftain, goblin])).toBe(2);
+    expect(hasHaste(goblin, [chieftain, goblin])).toBe(true);
+  });
+});
+
+describe('regrow', () => {
+  it('takes back the best card, never a land', () => {
+    const witness = card({ name: 'Eternal Witness', cmc: 3, power: '2', toughness: '1' });
+    const r = takeTurn(bot({
+      battlefield: Array.from({ length: 3 }, () => perm(FOREST())),
+      hand: [witness],
+      // Registry-known beats bigger, and the land is not a candidate at all.
+      graveyard: [FOREST(), card({ name: 'Vanilla Beast', cmc: 8 }), card({ name: 'Murder', cmc: 3, type_line: 'Instant' })],
+    }), board());
+    expect(logsOf(r.frames)).toContain('takes back Murder');
+    expect(r.final.hand.map(c => c.name)).toContain('Murder');
+  });
+
+  it('is silent with an empty graveyard but still lands the body', () => {
+    const witness = card({ name: 'Eternal Witness', cmc: 3, power: '2', toughness: '1' });
+    const r = takeTurn(bot({
+      battlefield: Array.from({ length: 3 }, () => perm(FOREST())),
+      hand: [witness],
+    }), board());
+    expect(names(r.final)).toContain('Eternal Witness');
+    expect(logsOf(r.frames)).not.toContain('takes back');
+  });
+});
+
+describe('ramp on legs', () => {
+  const ELDER = () => card({ name: 'Sakura-Tribe Elder', cmc: 2, power: '1', toughness: '1' });
+
+  it('is cashed in when the bot is behind on lands', () => {
+    // Turn 6 with two lands out: well behind, so crack it.
+    const r = takeTurn(bot({
+      turnsTaken: 5,
+      battlefield: [perm(ELDER()), perm(FOREST()), perm(FOREST())],
+      library: [FOREST(), FOREST()],
+    }), board());
+    expect(logsOf(r.frames)).toContain('fetches 1 land');
+    expect(names(r.final)).not.toContain('Sakura-Tribe Elder');
+    expect(r.final.graveyard.map(c => c.name)).toContain('Sakura-Tribe Elder');
+  });
+
+  it('is kept as a blocker when the bot is on curve', () => {
+    const r = takeTurn(bot({
+      turnsTaken: 1,
+      battlefield: [perm(ELDER()), perm(FOREST()), perm(FOREST())],
+      library: [FOREST()],
+    }), board());
+    expect(logsOf(r.frames)).not.toContain('fetches');
+    expect(names(r.final)).toContain('Sakura-Tribe Elder');
+  });
+
+  it('the fetched land arrives tapped, so it is not mana this turn', () => {
+    const r = takeTurn(bot({
+      turnsTaken: 5,
+      battlefield: [perm(ELDER()), perm(FOREST()), perm(FOREST())],
+      library: [FOREST(), FOREST()],
+    }), board());
+    const fetched = r.final.battlefield.filter(p => p.card.name === 'Forest');
+    expect(fetched.some(p => p.tapped)).toBe(true);
+  });
+});
+
+describe('a * in the printed stats', () => {
+  const JARAD = () => card({
+    name: 'Jarad, Golgari Lich Lord', cmc: 4, power: '2', toughness: '2',
+    type_line: 'Legendary Creature — Zombie Elf',
+  });
+
+  it('scales with the bot\'s own graveyard', () => {
+    const jarad = perm(JARAD());
+    const creatures = Array.from({ length: 5 }, () => card({ name: 'Dead Thing', power: '1', toughness: '1' }));
+    expect(botPower(jarad, [jarad])).toBe(2);
+    expect(botPower(jarad, [jarad], creatures)).toBe(7);
+  });
+
+  it('counts only creature cards', () => {
+    const jarad = perm(JARAD());
+    const junk = [
+      card({ name: 'Murder', type_line: 'Instant' }),
+      card({ name: 'Forest', type_line: 'Basic Land — Forest' }),
+    ];
+    expect(botPower(jarad, [jarad], junk)).toBe(2);
+  });
+
+  it('attacks at its real size', () => {
+    const jarad = perm(JARAD());
+    const r = takeTurn(bot({
+      battlefield: [jarad],
+      graveyard: Array.from({ length: 4 }, () => card({ name: 'Dead Thing', power: '1', toughness: '1' })),
+      // A blocker it only beats once the graveyard is counted.
+    }), board({
+      untappedCreatures: [{
+        instanceId: 'wall', name: 'Wall', power: 0, toughness: 5, keywords: new Set(),
+      }],
+    }));
+    // A printed 2/2 would refuse this attack; a 6/6 takes it.
+    expect(logsOf(r.frames)).toContain('attacks you with Jarad');
+  });
+});

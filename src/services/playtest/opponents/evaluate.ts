@@ -175,6 +175,12 @@ function threatScore(board: PlayerBoardRead, botPower: number): number {
 export interface ResistanceContext {
   hand: ScryfallCard[];
   mana: number;
+  /**
+   * What a card costs with the bot's board as it stands. Supplied by the engine
+   * so a cost reducer applies to interaction too — without it a Goblin Warchief
+   * discounted creatures and nothing else.
+   */
+  costFor?: (card: ScryfallCard) => number;
   board: PlayerBoardRead;
   botPower: number;
   turn: number;
@@ -194,6 +200,7 @@ export interface ResistanceContext {
  */
 export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | null {
   const { hand, mana, board, botPower, turn, aggression } = ctx;
+  const priceOf = ctx.costFor ?? costOf;
   const threat = threatScore(board, botPower);
 
   interface Candidate {
@@ -209,7 +216,7 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
   hand.forEach((card, handIndex) => {
     const entry = lookupEffect(card.name);
     if (!entry) return;
-    if (costOf(card) > mana) return;
+    if (priceOf(card) > mana) return;
     const resolved = resolveEffect(entry.spec, board);
     if (!resolved) return;
 

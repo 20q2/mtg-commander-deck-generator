@@ -145,7 +145,14 @@ export type BotSelfSpec =
       want?: { subtype?: string; type?: string };
       to: 'hand' | 'battlefield';
       count: number;
-    };
+    }
+  /** Return a card from the bot's graveyard to its HAND — Eternal Witness. */
+  | { kind: 'regrow'; count: number }
+  /**
+   * Search out a land and put it straight onto the battlefield. Separate from
+   * `tutor`, which deliberately never fetches lands: this one only fetches them.
+   */
+  | { kind: 'fetchLand'; count: number; tapped?: boolean };
 
 export interface BotSelfEntry {
   spec: BotSelfSpec;
@@ -186,6 +193,9 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
     { name: 'Knight', count: 1 }, { name: 'Centaur', count: 1 }, { name: 'Rhino', count: 1 },
   ] } },
   'Wall of Blossoms':     { spec: { kind: 'draw', count: 1 } },
+  // "Whenever Emmara becomes tapped" — attacking taps it, so combat timing with
+  // tapsSource is close enough to the real trigger without modelling taps.
+  'Emmara, Soul of the Accord': { spec: { kind: 'makeTokens', tokens: [{ name: 'Soldier', count: 1 }] }, timing: 'combat', tapsSource: true },
 
   // ── Golgari ──
   'Grave Titan':          { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 2 }] } },
@@ -195,6 +205,7 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // The sacrifice is not modelled; the two bodies back are the point of the card.
   'Victimize':            { spec: { kind: 'reanimate', count: 2 } },
   'Grisly Salvage':       { spec: { kind: 'selfMill', count: 5 } },
+  'Eternal Witness':      { spec: { kind: 'regrow', count: 1 } },
   'Worldly Tutor':        { spec: { kind: 'tutor', want: { type: 'creature' }, to: 'hand', count: 1 } },
   'Satyr Wayfinder':      { spec: { kind: 'selfMill', count: 4 } },
   "Stitcher's Supplier":  { spec: { kind: 'selfMill', count: 3 } },
@@ -231,6 +242,17 @@ export interface BotActivatedEntry {
   spec: BotSelfSpec;
   /** True when activating taps the source, which also stops it attacking. */
   tapsSource?: boolean;
+  /** The ability eats its own source — a Sakura-Tribe Elder cashing itself in. */
+  sacrificesSelf?: boolean;
+  /**
+   * Hold the ability until it is worth using.
+   *
+   * 'behindOnLands' is for the ramp-on-legs creatures. A player keeps a
+   * Sakura-Tribe Elder around as a blocker and only cracks it when they need
+   * the land, so a bot that sacrificed it the moment it could would be throwing
+   * away a body for nothing.
+   */
+  only?: 'behindOnLands';
 }
 
 export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
@@ -248,6 +270,14 @@ export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
   'Meren of Clan Nel Toth': [
     { cost: 0, spec: { kind: 'reanimate', count: 1 } },
   ],
+  // Ramp on legs. Free, but only cashed in when the bot is actually behind on
+  // mana — otherwise it is a blocker worth keeping.
+  'Sakura-Tribe Elder': [
+    { cost: 0, spec: { kind: 'fetchLand', count: 1, tapped: true }, sacrificesSelf: true, only: 'behindOnLands' },
+  ],
+  'Jarad, Golgari Lich Lord': [
+    { cost: 3, spec: { kind: 'reanimate', count: 1 } },
+  ],
 };
 
 export function lookupActivated(cardName: string): BotActivatedEntry[] {
@@ -263,17 +293,66 @@ export type BotStaticSpec =
   /** A lord. `subtype` is matched as a substring of the type line. */
   | { kind: 'anthem'; power: number; toughness: number; subtype?: string; includeSelf?: boolean }
   /** Doubles every token the bot makes. Two doublers quadruple, as they should. */
-  | { kind: 'tokenDoubler' };
+  | { kind: 'tokenDoubler' }
+  /**
+   * "Goblin spells you cast cost {1} less." Without this a deck built around
+   * its cost reducer plays a whole turn behind the curve it was designed for.
+   */
+  | { kind: 'costReducer'; amount: number; subtype?: string }
+  /**
+   * Grants haste to the bot's creatures. Matters more than it sounds: the attack
+   * step skips summoning-sick creatures, so a haste granter is the difference
+   * between a threat landing and a threat landing a turn late.
+   */
+  | { kind: 'grantsHaste'; subtype?: string };
 
-export const BOT_STATICS: Record<string, BotStaticSpec> = {
+/**
+ * A card may carry several statics: Goblin Chieftain is a lord AND a haste
+ * granter, Goblin Warchief reduces costs AND grants haste. Values are a single
+ * spec or a list of them; read them through `staticsOf`.
+ */
+export const BOT_STATICS: Record<string, BotStaticSpec | BotStaticSpec[]> = {
   // "Other Goblins get +1/+1" — includeSelf stays off, so the lord is a 2/2.
   'Goblin King':         { kind: 'anthem', power: 1, toughness: 1, subtype: 'goblin' },
-  'Goblin Chieftain':    { kind: 'anthem', power: 1, toughness: 1, subtype: 'goblin' },
+  // "Other Goblins you control get +1/+1 and have haste" — both halves.
+  'Goblin Chieftain': [
+    { kind: 'anthem', power: 1, toughness: 1, subtype: 'goblin' },
+    { kind: 'grantsHaste', subtype: 'goblin' },
+  ],
   // Token type lines read "Token Creature — Soldier", so 'token' matches them all.
   // It is an enchantment, not a creature, so includeSelf is harmless and honest.
   'Intangible Virtue':   { kind: 'anthem', power: 1, toughness: 1, subtype: 'token', includeSelf: true },
   'Anointed Procession': { kind: 'tokenDoubler' },
   'Parallel Lives':      { kind: 'tokenDoubler' },
+  // Does two things, and both of them matter to how the deck curves out.
+  'Goblin Warchief': [
+    { kind: 'costReducer', amount: 1, subtype: 'goblin' },
+    { kind: 'grantsHaste', subtype: 'goblin' },
+  ],
+};
+
+/** Every static a card carries, whether it was written as one or as a list. */
+export function staticsOf(cardName: string): BotStaticSpec[] {
+  const entry = BOT_STATICS[cardName];
+  if (!entry) return [];
+  return Array.isArray(entry) ? entry : [entry];
+}
+
+/**
+ * Creatures whose printed power is a `*`, plus what it counts.
+ *
+ * Scryfall prints these as "1+*" or "*", which `parseInt` reads as 1 and 0 —
+ * so a Jarad that should be a 7/7 attacks as a 2/2 and reads as a bot that
+ * cannot do arithmetic.
+ */
+export type BotDynamicStat = {
+  kind: 'perCreatureInOwnGraveyard';
+  power: number;
+  toughness: number;
+};
+
+export const BOT_DYNAMIC_STATS: Record<string, BotDynamicStat> = {
+  'Jarad, Golgari Lich Lord': { kind: 'perCreatureInOwnGraveyard', power: 1, toughness: 1 },
 };
 
 /**

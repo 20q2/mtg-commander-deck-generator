@@ -4,7 +4,7 @@ import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, hasLiveTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import { BOT_TRIGGERS, costOf, lookupActivated, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
 import type { BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
-import { botPower as livePower, botToughness as liveToughness, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { BOT_COMBOS, liveCombos, missingComboPieces } from '@/services/playtest/opponents/botCombos';
 import { keywordsOf } from '@/services/playtest/combat';
@@ -247,6 +247,17 @@ export function takeTurn(
    * short label for the frame, or null when nothing happened. Called for cast
    * effects and again for the combat-timed ones.
    */
+  /**
+   * Is the bot short of mana for where the game is?
+   *
+   * One land a turn is the baseline every deck is built around, so falling
+   * behind that is the moment a ramp creature is worth more cashed in than left
+   * as a blocker. Deliberately generous by one: sacrificing a body to catch up
+   * from a single missed land drop is a bad trade.
+   */
+  const behindOnLands = () =>
+    opp.battlefield.filter(p => isLand(p.card)).length < input.turnsTaken;
+
   /** Put `card` onto the board as a fresh permanent, respecting the cap. */
   const addBody = (card: ScryfallCard): boolean => {
     if (opp.battlefield.length >= MAX_BOARD) return false;
@@ -322,6 +333,42 @@ export function takeTurn(
         return made > 0 ? `populates ${made}` : null;
       }
 
+      case 'regrow': {
+        // Same taste as the tutor: something it knows how to use, then the
+        // biggest thing. A regrow that returns a Mountain is a wasted card.
+        const names: string[] = [];
+        for (let i = 0; i < spec.count; i++) {
+          const legal = opp.graveyard
+            .map((card, index) => ({ card, index }))
+            .filter(({ card }) => !isLand(card));
+          if (legal.length === 0) break;
+          const score = (card: ScryfallCard) =>
+            (lookupEffect(card.name) || lookupSelfEffect(card.name) ? 100 : 0) + costOf(card);
+          const best = legal.reduce((a, b) => (score(b.card) > score(a.card) ? b : a));
+          opp.graveyard.splice(best.index, 1);
+          opp.hand.push(best.card);
+          names.push(best.card.name);
+        }
+        return names.length > 0 ? `takes back ${describeNames(names)}` : null;
+      }
+
+      case 'fetchLand': {
+        let made = 0;
+        for (let i = 0; i < spec.count; i++) {
+          const index = opp.library.findIndex(isLand);
+          if (index < 0) break;
+          const [land] = opp.library.splice(index, 1);
+          opp.battlefield.push({
+            ...toPermanent(land),
+            // A land is never summoning-sick, but it can arrive tapped.
+            summoningSick: false,
+            tapped: spec.tapped ?? false,
+          });
+          made++;
+        }
+        return made > 0 ? `fetches ${made} land${made > 1 ? 's' : ''}` : null;
+      }
+
       case 'tutor': {
         const found: string[] = [];
         for (let i = 0; i < spec.count; i++) {
@@ -395,6 +442,8 @@ export function takeTurn(
     switch (spec.kind) {
       case 'populate':   return opp.battlefield.some(p => isTokenCard(p.card));
       case 'reanimate':  return opp.graveyard.some(isCreatureCard);
+      case 'regrow':     return opp.graveyard.some(c => !isLand(c));
+      case 'fetchLand':  return opp.library.some(isLand);
       case 'draw':
       case 'selfMill':   return opp.library.length > 0;
       case 'tutor':      return opp.library.some(c => {
@@ -459,7 +508,7 @@ export function takeTurn(
   if (opp.command.length > 0) {
     const commander = opp.command[0];
     const tax = 2 * opp.commanderCasts;
-    const price = costOf(commander) + tax;
+    const price = effectiveCost(commander, opp.battlefield) + tax;
     if (price <= availableMana()) {
       opp.command = opp.command.slice(1);
       opp.battlefield = tapForMana(opp.battlefield, price);
@@ -479,6 +528,7 @@ export function takeTurn(
       const play = chooseResistancePlay({
         hand: opp.hand,
         mana: availableMana(),
+        costFor: card => effectiveCost(card, opp.battlefield),
         board: playerBoard,
         botPower: botPower(),
         turn: input.turnsTaken + 1,
@@ -496,7 +546,7 @@ export function takeTurn(
         opp.graveyard.push(play.card);
       }
       // Tap what it cost, so their board shows the spend.
-      opp.battlefield = tapForMana(opp.battlefield, costOf(play.card));
+      opp.battlefield = tapForMana(opp.battlefield, effectiveCost(play.card, opp.battlefield));
 
       // A wrath is symmetrical. The bot's own creatures die too — tokens simply
       // cease to exist, and its commander goes back to the command zone.
@@ -544,7 +594,7 @@ export function takeTurn(
       // hit. Once your board is empty it is just a body, and a bot that keeps it
       // in hand forever reads as a bot that has stopped playing.
       if (opp.resistance && hasLiveTarget(card.name, playerBoard)) return;
-      const cost = costOf(card);
+      const cost = effectiveCost(card, opp.battlefield);
       // Cast the most expensive thing affordable — a rough proxy for "best play".
       if (cost <= mana && cost > bestCmc) {
         bestCmc = cost;
@@ -553,7 +603,7 @@ export function takeTurn(
     });
     if (bestIdx < 0) break;
     const spell = opp.hand.splice(bestIdx, 1)[0];
-    opp.battlefield = tapForMana(opp.battlefield, costOf(spell));
+    opp.battlefield = tapForMana(opp.battlefield, effectiveCost(spell, opp.battlefield));
 
     // A permanent stays; a sorcery or instant does its thing and is done.
     if (isPermanent(spell)) {
@@ -590,6 +640,8 @@ export function takeTurn(
       // A tap ability needs the permanent to have been there since upkeep.
       .filter(a => !(a.tapsSource && live.summoningSick))
       .filter(a => specWouldDo(a.spec))
+      // Ramp-on-legs is held while it is still a useful blocker.
+      .filter(a => a.only !== 'behindOnLands' || behindOnLands())
       .sort((a, b) => b.cost - a.cost);
     if (options.length === 0) continue;
 
@@ -600,6 +652,13 @@ export function takeTurn(
       opp.battlefield = opp.battlefield.map(p =>
         p.instanceId === live.instanceId ? { ...p, tapped: true } : p,
       );
+    }
+    if (ability.sacrificesSelf) {
+      opp.battlefield = opp.battlefield.filter(p => p.instanceId !== live.instanceId);
+      // A real card goes to the graveyard; a token ceases to exist.
+      if (!isTokenCard(live.card) && live.card.name !== opp.commanderName) {
+        opp.graveyard.push(live.card);
+      }
     }
     const label = applySpec(ability.spec);
     if (label) {
@@ -704,7 +763,11 @@ export function takeTurn(
   // than grind at the player behind four blockers, which is what a fourth
   // player at the table would do.
   const able = opp.battlefield.filter(
-    p => isCreatureCard(p.card) && !p.summoningSick && !p.tapped,
+    p => isCreatureCard(p.card)
+      && !p.tapped
+      // Haste is the whole reason the keyword exists, and the attack step used
+      // to ignore it — a card printed with haste sat out its first turn.
+      && (!p.summoningSick || hasHaste(p, opp.battlefield)),
   );
   const target = chooseAttackTarget(
     {
@@ -720,8 +783,8 @@ export function takeTurn(
       candidates: able.map(p => ({
         instanceId: p.instanceId,
         name: p.card.name,
-        power: livePower(p, opp.battlefield),
-        toughness: liveToughness(p, opp.battlefield),
+        power: livePower(p, opp.battlefield, opp.graveyard),
+        toughness: liveToughness(p, opp.battlefield, opp.graveyard),
         keywords: keywordsOf(p.card),
       })),
       blockers: target.untappedCreatures,

@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { BOT_STATICS } from '@/services/playtest/opponents/effects';
+import { BOT_DYNAMIC_STATS, costOf, staticsOf } from '@/services/playtest/opponents/effects';
 import type { OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
@@ -55,34 +55,101 @@ export function anthemBonus(
   let power = 0;
   let toughness = 0;
   for (const source of battlefield) {
-    const spec = BOT_STATICS[source.card.name];
-    if (!spec || spec.kind !== 'anthem') continue;
-    // Almost every lord says "OTHER creatures", so a source skips itself.
-    if (source.instanceId === p.instanceId && !spec.includeSelf) continue;
-    if (spec.subtype && !hasSubtype(p.card, spec.subtype)) continue;
-    power += spec.power;
-    toughness += spec.toughness;
+    for (const spec of staticsOf(source.card.name)) {
+      if (spec.kind !== 'anthem') continue;
+      // Almost every lord says "OTHER creatures", so a source skips itself.
+      if (source.instanceId === p.instanceId && !spec.includeSelf) continue;
+      if (spec.subtype && !hasSubtype(p.card, spec.subtype)) continue;
+      power += spec.power;
+      toughness += spec.toughness;
+    }
   }
   return { power, toughness };
 }
 
-/** Power as it stands: printed, plus counters, plus anthems. */
-export function botPower(p: OpponentPermanent, battlefield: OpponentPermanent[]): number {
-  return printedStat(p.card, 'power') + counterDelta(p) + anthemBonus(p, battlefield).power;
+/**
+ * What a `*` in the printed stats is actually worth right now.
+ *
+ * `graveyard` is optional so the many callers that do not care need not thread
+ * it through, but the three that decide combat — the engine, the store and the
+ * combat preview — all have it and all pass it.
+ */
+function dynamicBonus(
+  p: OpponentPermanent,
+  graveyard: ScryfallCard[],
+): { power: number; toughness: number } {
+  const spec = BOT_DYNAMIC_STATS[p.card.name];
+  if (!spec) return { power: 0, toughness: 0 };
+  const n = graveyard.filter(isCreatureCard).length;
+  return { power: spec.power * n, toughness: spec.toughness * n };
+}
+
+/** Power as it stands: printed, plus counters, plus anthems, plus any `*`. */
+export function botPower(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): number {
+  return printedStat(p.card, 'power')
+    + counterDelta(p)
+    + anthemBonus(p, battlefield).power
+    + dynamicBonus(p, graveyard).power;
 }
 
 /** Toughness as it stands. Never below 0 — nothing has negative toughness on screen. */
-export function botToughness(p: OpponentPermanent, battlefield: OpponentPermanent[]): number {
+export function botToughness(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): number {
   return Math.max(
     0,
-    printedStat(p.card, 'toughness') + counterDelta(p) + anthemBonus(p, battlefield).toughness,
+    printedStat(p.card, 'toughness')
+      + counterDelta(p)
+      + anthemBonus(p, battlefield).toughness
+      + dynamicBonus(p, graveyard).toughness,
   );
+}
+
+/**
+ * What this card costs the bot with its board as it stands.
+ *
+ * Always use this rather than `costOf` at a cast site: a deck built around its
+ * cost reducer curves out a whole turn behind without it.
+ */
+export function effectiveCost(card: ScryfallCard, battlefield: OpponentPermanent[]): number {
+  let reduction = 0;
+  for (const source of battlefield) {
+    for (const spec of staticsOf(source.card.name)) {
+      if (spec.kind !== 'costReducer') continue;
+      if (spec.subtype && !hasSubtype(card, spec.subtype)) continue;
+      reduction += spec.amount;
+    }
+  }
+  // A reducer never makes a spell free-er than free.
+  return Math.max(0, costOf(card) - reduction);
+}
+
+/**
+ * Can this creature attack the turn it arrived?
+ *
+ * The attack step skipped every summoning-sick creature, which meant a card
+ * printed WITH haste could not attack the turn it landed — the keyword was read
+ * for combat maths and ignored for the one thing it exists to do.
+ */
+export function hasHaste(p: OpponentPermanent, battlefield: OpponentPermanent[]): boolean {
+  // Read off the raw card, not through `keywordsOf`: that narrows to the
+  // keywords the damage maths cares about, and haste is not one of them.
+  if ((p.card.keywords ?? []).some(k => k.toLowerCase() === 'haste')) return true;
+  return battlefield.some(source => staticsOf(source.card.name).some(spec =>
+    spec.kind === 'grantsHaste' && (!spec.subtype || hasSubtype(p.card, spec.subtype)),
+  ));
 }
 
 /** Token counts are multiplied by this. Two doublers make four times as many. */
 export function tokenMultiplier(battlefield: OpponentPermanent[]): number {
   const doublers = battlefield.filter(
-    p => BOT_STATICS[p.card.name]?.kind === 'tokenDoubler',
+    p => staticsOf(p.card.name).some(spec => spec.kind === 'tokenDoubler'),
   ).length;
   return 2 ** doublers;
 }

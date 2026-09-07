@@ -93,12 +93,16 @@ function playerCombatant(b: BattlefieldCard): Combatant {
  * The same, for a bot's permanent. `battlefield` is the whole board it is on,
  * because its stats depend on it: counters on the card, anthems from the rest.
  */
-function botCombatant(p: OpponentPermanent, battlefield: OpponentPermanent[]): Combatant {
+function botCombatant(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): Combatant {
   return {
     instanceId: p.instanceId,
     name: p.card.name,
-    power: botPower(p, battlefield),
-    toughness: botToughness(p, battlefield),
+    power: botPower(p, battlefield, graveyard),
+    toughness: botToughness(p, battlefield, graveyard),
     keywords: keywordsOf(p.card),
   };
 }
@@ -590,7 +594,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       // Untapped creatures only. Summoning-sick creatures block fine.
       const blockers = opponent.battlefield
         .filter(p => !p.tapped && isCreatureCard(p.card))
-        .map(p => botCombatant(p, opponent.battlefield));
+        .map(p => botCombatant(p, opponent.battlefield, opponent.graveyard));
 
       perOpponent[opponentId] = {
         attackers: instanceIds,
@@ -638,7 +642,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         blocks[attacker.instanceId] = (side.blocks[attacker.instanceId] ?? [])
           .map(id => opponent.battlefield.find(p => p.instanceId === id))
           .filter((p): p is OpponentPermanent => !!p)
-          .map(p => botCombatant(p, opponent.battlefield));
+          .map(p => botCombatant(p, opponent.battlefield, opponent.graveyard));
       }
 
       // Same pure module the bot→player direction uses. It does not know or
@@ -818,12 +822,12 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       const attackers = attackerIds
         .map(id => attacker.battlefield.find(p => p.instanceId === id))
         .filter((p): p is OpponentPermanent => !!p)
-        .map(p => botCombatant(p, attacker.battlefield));
+        .map(p => botCombatant(p, attacker.battlefield, attacker.graveyard));
       if (attackers.length === 0) return;
 
       const pool = defender.battlefield
         .filter(p => !p.tapped && isCreatureCard(p.card))
-        .map(p => botCombatant(p, defender.battlefield));
+        .map(p => botCombatant(p, defender.battlefield, defender.graveyard));
 
       const assignment = chooseBlocks({
         attackers,
@@ -889,7 +893,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             life: o.life,
             untappedCreatures: o.battlefield
               .filter(p => !p.tapped && isCreatureCard(p.card))
-              .map(p => botCombatant(p, o.battlefield)),
+              .map(p => botCombatant(p, o.battlefield, o.graveyard)),
           }));
         const { frames, final } = takeTurn(opponent, readPlayerBoard(), rivals);
         const step = stepFor(frames.length);

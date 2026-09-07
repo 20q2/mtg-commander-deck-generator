@@ -61,8 +61,8 @@ export function readIncomingCombat(
     const p = board.find(x => x.instanceId === a.instanceId);
     // Not on the board any more: killed, exiled, bounced or stolen mid-combat.
     if (!p) continue;
-    const power = botPower(p, board);
-    const toughness = botToughness(p, board);
+    const power = botPower(p, board, opponent?.graveyard ?? []);
+    const toughness = botToughness(p, board, opponent?.graveyard ?? []);
     live.push({ instanceId: a.instanceId, card: p.card, power, toughness });
     attackers.push({
       instanceId: a.instanceId,
