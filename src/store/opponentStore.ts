@@ -7,7 +7,7 @@ import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/d
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT } from '@/services/playtest/powerToughness';
-import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks } from '@/services/playtest/opponents/combatChoices';
@@ -322,6 +322,18 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       .find(b => b.instanceId === blockerInstanceId);
     if (!card || card.tapped) return {};
     if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) return {};
+    // Evasion is checked here rather than at resolve, so an illegal block is
+    // refused while you can still see what you dropped. Without it a ground
+    // creature blocked a flyer and the damage maths happily honoured it — while
+    // the bots' own attack step assumed flying was unblockable, so the two
+    // sides of the table disagreed about the rules.
+    const attacker = s.combat.attackers.find(a => a.instanceId === attackerId);
+    if (attacker && !canBlock(
+      { instanceId: attacker.instanceId, name: attacker.card.name,
+        power: attacker.power, toughness: attacker.toughness,
+        keywords: keywordsOf(attacker.card) },
+      playerCombatant(card),
+    )) return {};
     // A creature can only block once — drop it from any other attacker first.
     const blocks: Record<string, string[]> = {};
     for (const [id, ids] of Object.entries(s.combat.blocks)) {
@@ -641,13 +653,25 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       : zone === 'hand'      ? 'hand'
       :                        'top of library';
       usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`);
+
+      // Killing it is a death like any other, so it goes through the one helper
+      // that knows a commander belongs in the command zone and a token belongs
+      // nowhere. Sending it here by hand put a bot's commander in its graveyard
+      // permanently — it could never be recast — and left token cards lying in
+      // the graveyard as if they were real.
+      if (zone === 'graveyard') return sendToGraveyard(o, [instanceId]);
+
+      // A token that leaves the battlefield any other way also ceases to exist.
+      if (isTokenCard(hit.card)) {
+        return { ...o, battlefield: o.battlefield.filter(p => p.instanceId !== instanceId) };
+      }
+
       return {
         ...o,
         battlefield: o.battlefield.filter(p => p.instanceId !== instanceId),
-        graveyard: zone === 'graveyard' ? [...o.graveyard, hit.card] : o.graveyard,
-        exile:     zone === 'exile'     ? [...o.exile, hit.card]     : o.exile,
-        hand:      zone === 'hand'      ? [...o.hand, hit.card]      : o.hand,
-        library:   zone === 'library'   ? [hit.card, ...o.library]   : o.library,
+        exile:     zone === 'exile'   ? [...o.exile, hit.card]   : o.exile,
+        hand:      zone === 'hand'    ? [...o.hand, hit.card]    : o.hand,
+        library:   zone === 'library' ? [hit.card, ...o.library] : o.library,
       };
     }),
   })),

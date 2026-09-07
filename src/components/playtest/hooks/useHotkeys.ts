@@ -43,7 +43,16 @@ export function usePlaytestHotkeys() {
       }
       // Backspace: reset the playtest, matching the Reset button. preventDefault
       // also stops the browser's back-navigation behaviour.
-      if (e.key === 'Backspace') { e.preventDefault(); s.reset(); return; }
+      //
+      // The bots reset with you. Resetting only your own side left you on a
+      // fresh opening hand facing three developed turn-nine boards, which is
+      // not a reset so much as a concession.
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        s.reset();
+        useOpponentStore.getState().resetAll();
+        return;
+      }
 
       const k = e.key.toLowerCase();
       if (k === 'd') { e.preventDefault(); s.draw(1); return; }
