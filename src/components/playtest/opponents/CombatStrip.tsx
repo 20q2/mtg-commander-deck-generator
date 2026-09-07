@@ -13,15 +13,22 @@ import type { BattlefieldCard } from '@/components/playtest/types';
 import type { Attacker } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
-/** Declared attackers sitting in the strip before you confirm. */
-const ATTACKER_W = 34;
 /**
- * A creature in an open combat. Much bigger than the resting size — combat is
- * the moment you actually need to read power, toughness and keywords, and the
- * seat shrinks its other rows to pay for it.
+ * Card sizes in the strip, as fractions of the seat's width, so resizing a
+ * seat zooms its combat too rather than leaving the fight at a fixed size
+ * inside a table that grew around it.
+ *
+ * A creature in an open combat is much larger than a merely declared one:
+ * combat is the moment you actually need to read power, toughness and
+ * keywords, and the seat shrinks its other rows to pay for it.
  */
-const COMBAT_W = 68;
-const BLOCKER_W = 30;
+const ATTACKER_SCALE = 0.085;
+const COMBAT_SCALE = 0.17;
+const BLOCKER_SCALE = 0.075;
+/** Below this a card is a smudge, whatever the maths says. */
+const MIN_CARD = 18;
+
+const cardW = (seatWidth: number, scale: number) => Math.round(Math.max(MIN_CARD, seatWidth * scale));
 
 /**
  * The contested space between you and one opponent. Used in both directions:
@@ -31,7 +38,7 @@ const BLOCKER_W = 30;
  * Four states. Idle is a hairline so a seat with nothing happening costs
  * nothing. Armed is a drop target. Declared and resolving both show cards.
  */
-export function CombatStrip({ opponentId }: { opponentId: string }) {
+export function CombatStrip({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
   const declaration  = useOpponentStore(s => s.declaration);
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const combat       = useOpponentStore(s => s.combat);
@@ -64,9 +71,9 @@ export function CombatStrip({ opponentId }: { opponentId: string }) {
         :          'border-dashed border-violet-400/60 bg-violet-500/10'
       }`}
     >
-      {theirs                 ? <IncomingAttack opponentId={opponentId} />
-      : mine                  ? <OutgoingResolve opponentId={opponentId} />
-      : declared.length > 0   ? <Declared instanceIds={declared} />
+      {theirs                 ? <IncomingAttack opponentId={opponentId} seatWidth={seatWidth} />
+      : mine                  ? <OutgoingResolve opponentId={opponentId} seatWidth={seatWidth} />
+      : declared.length > 0   ? <Declared instanceIds={declared} seatWidth={seatWidth} />
       : (
         <span className="w-full text-center text-[8px] uppercase tracking-wider text-violet-300/80 select-none">
           Drop to attack
@@ -77,7 +84,7 @@ export function CombatStrip({ opponentId }: { opponentId: string }) {
 }
 
 /** Your declared attackers. Click one to pull it back out. */
-function Declared({ instanceIds }: { instanceIds: string[] }) {
+function Declared({ instanceIds, seatWidth }: { instanceIds: string[]; seatWidth: number }) {
   const battlefield = usePlaytestStore(s => s.battlefield);
   const undeclare = useOpponentStore(s => s.undeclareAttacker);
   return (
@@ -91,7 +98,7 @@ function Declared({ instanceIds }: { instanceIds: string[] }) {
             onClick={() => undeclare(id)}
             title={`${card.card.name} is attacking · click to pull it back`}
             className="relative shrink-0 group"
-            style={{ width: ATTACKER_W }}
+            style={{ width: cardW(seatWidth, ATTACKER_SCALE) }}
           >
             <img
               src={getCardImageUrl(card.card, 'small')}
@@ -110,7 +117,7 @@ function Declared({ instanceIds }: { instanceIds: string[] }) {
 }
 
 /** Confirmed attack: your attackers, the bot's blocks, and the Resolve button. */
-function OutgoingResolve({ opponentId }: { opponentId: string }) {
+function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const resolve = useOpponentStore(s => s.resolvePlayerCombat);
   const battlefield = usePlaytestStore(s => s.battlefield);
@@ -134,7 +141,7 @@ function OutgoingResolve({ opponentId }: { opponentId: string }) {
               className={`rounded-[2px] rotate-90 shadow ${
                 blockerIds.length === 0 ? 'ring-1 ring-emerald-400/70' : ''
               }`}
-              style={{ width: COMBAT_W }}
+              style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
             />
             <div className="flex gap-0.5 min-h-[26px] items-start">
               {blockerIds.length === 0 ? (
@@ -149,7 +156,7 @@ function OutgoingResolve({ opponentId }: { opponentId: string }) {
                     title={`${p.card.name} blocks`}
                     draggable={false}
                     className="rounded-[2px]"
-                    style={{ width: BLOCKER_W }}
+                    style={{ width: cardW(seatWidth, BLOCKER_SCALE) }}
                   />
                 ) : null;
               })}
@@ -188,7 +195,7 @@ function groupAttackers(attackers: Attacker[]): { key: string; members: Attacker
 }
 
 /** Their attack. Same strip, roles flipped — drag your creatures in to block. */
-function IncomingAttack({ opponentId }: { opponentId: string }) {
+function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
   const combat = useOpponentStore(s => s.combat);
   const resolveCombat = useOpponentStore(s => s.resolveCombat);
   const removeBlocker = useOpponentStore(s => s.removeBlocker);
@@ -231,6 +238,7 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
             }}
             battlefield={battlefield}
             onAssign={assignBlocker}
+            seatWidth={seatWidth}
           />
         );
       })}
@@ -254,7 +262,7 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
  * up to a strip is a long haul, and aiming down at your own board is short.
  */
 function AttackerSlot({
-  attackerId, card, label, blockerIds, onRemoveBlocker, battlefield, onAssign,
+  attackerId, card, label, blockerIds, onRemoveBlocker, battlefield, onAssign, seatWidth,
   count = 1, blockedCount = 0,
 }: {
   attackerId: string;
@@ -264,6 +272,8 @@ function AttackerSlot({
   onRemoveBlocker: (instanceId: string) => void;
   battlefield: BattlefieldCard[];
   onAssign: (attackerId: string, blockerInstanceId: string) => void;
+  /** The seat's width, so the strip's cards zoom with the rest of the table. */
+  seatWidth: number;
   /** How many identical attackers this slot stands for. */
   count?: number;
   /** How many of them already have a blocker in front of them. */
@@ -336,7 +346,7 @@ function AttackerSlot({
           title={`${card.name} · ${label}`}
           draggable={false}
           className="rounded-[2px] shadow"
-          style={{ width: COMBAT_W }}
+          style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
         />
         <span className="absolute bottom-0 right-0 px-1 rounded-tl bg-black/85 text-white text-[10px] font-bold tabular-nums">
           {label}
@@ -362,7 +372,7 @@ function AttackerSlot({
             ? `Drag from here onto one of your creatures to block ${card.name}`
             : `Blocking ${card.name} · drag from here to add another, click one to remove`
         }
-        style={{ width: COMBAT_W }}
+        style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
         className={`mt-0.5 rounded border border-dashed flex flex-wrap gap-0.5 p-0.5 justify-center items-center min-h-[26px] cursor-crosshair touch-none transition-colors ${
           aim ? 'border-emerald-300 bg-emerald-500/25 ring-2 ring-emerald-300/60'
           : empty ? 'border-emerald-400/60 bg-emerald-500/10 hover:bg-emerald-500/25 animate-pulse'
@@ -381,7 +391,7 @@ function AttackerSlot({
               onClick={() => onRemoveBlocker(bid)}
               title={`${b.card.name} is blocking · click to remove`}
               className="relative shrink-0 group"
-              style={{ width: BLOCKER_W }}
+              style={{ width: cardW(seatWidth, BLOCKER_SCALE) }}
             >
               <img
                 src={getCardImageUrl(b.card, 'small')}

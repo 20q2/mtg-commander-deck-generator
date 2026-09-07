@@ -77,7 +77,7 @@ export function OpponentSeat({
    * — everything they own is still on screen, just smaller for a beat.
    */
   const scale = inCombat ? COMBAT_SHRINK : 1;
-  const zoneWidth = Math.round(Math.max(14, Math.min(38, width * 0.10 * scale)));
+  const zoneWidth = Math.round(Math.max(14, width * 0.10 * scale));
 
   return (
     <div
@@ -198,16 +198,16 @@ export function OpponentSeat({
         </div>
       </div>
 
-      <CombatStrip opponentId={opponent.id} />
+      <CombatStrip opponentId={opponent.id} seatWidth={width} />
 
-      {/* Resize handle on the right edge. Width is the only lever a seat needs
-          — height follows the board, and every card inside is sized as a
-          fraction of the width, so dragging this scales the whole table rather
-          than just stretching it.
+      {/* Resize grip on the bottom-right corner. Width is the only lever a
+          seat needs — height follows the board, and every card inside is a
+          fraction of the width, so dragging this zooms the whole table rather
+          than stretching it.
 
-          Deliberately the edge and not a bottom-right corner grip: the combat
-          strip puts its Resolve button in that corner, and a grip there would
-          swallow the click that ends combat. */}
+          It hangs outside the border on purpose. The combat strip puts its
+          Resolve button in that corner, and a grip sitting inside the seat
+          would swallow the click that ends combat. */}
       <div
         onPointerDown={onResizeGrab}
         onDoubleClick={sized ? onResetSize : undefined}
@@ -216,8 +216,13 @@ export function OpponentSeat({
             ? `Drag to resize ${opponent.name}'s table · double-click for the automatic width`
             : `Drag to resize ${opponent.name}'s table`
         }
-        className="absolute top-0 right-0 h-full w-1.5 translate-x-1/2 cursor-col-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
-      />
+        className="absolute -bottom-2 -right-2 w-4 h-4 cursor-nwse-resize touch-none text-muted-foreground/60 hover:text-violet-300 transition-colors"
+      >
+        <svg viewBox="0 0 12 12" aria-hidden className="w-full h-full">
+          <path d="M11 4v7H4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M11 8.5v2.5H8.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </div>
     </div>
   );
 }
@@ -552,9 +557,16 @@ const LAND_SCALE = 0.10;
  */
 const COMBAT_SHRINK = 0.6;
 
-/** Seat width → card width for a row, clamped so it stays legible and sane. */
+/**
+ * Seat width → card width for a row.
+ *
+ * Only a floor, no ceiling. There used to be an 84px cap, which meant that
+ * past a certain seat width the cards stopped growing and resizing the seat
+ * just added blank space around them — the opposite of what dragging a seat
+ * wider is for. The whole point is that the seat is a zoom control.
+ */
 function rowWidth(seatWidth: number, scale: number): number {
-  return Math.round(Math.max(14, Math.min(84, seatWidth * scale)));
+  return Math.round(Math.max(14, seatWidth * scale));
 }
 
 /**
