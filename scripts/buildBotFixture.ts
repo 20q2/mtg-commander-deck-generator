@@ -96,8 +96,36 @@ function trim(card: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Resolve one name the collection endpoint would not take.
+ *
+ * The collection endpoint wants exact names and is particular about split and
+ * adventure cards — it rejects "Dusk // Dawn" outright even though that IS the
+ * canonical name. The fuzzy endpoint takes them, and also quietly forgives the
+ * transcription slips that come with copying a decklist off a web page.
+ *
+ * Keyed by the name the stub asked for, because that is what the engine looks
+ * up at play time. A canonical name that differs is printed rather than
+ * silently accepted: a fuzzy match is a guess, and a wrong guess would put a
+ * card nobody chose into a deck.
+ */
+async function fuzzyResolve(name: string): Promise<Record<string, unknown> | null> {
+  const res = await fetch(
+    `${SCRYFALL}/cards/named?fuzzy=${encodeURIComponent(name)}`,
+    { headers: HEADERS },
+  );
+  await sleep(DELAY_MS);
+  if (!res.ok) return null;
+  const card = await res.json() as Record<string, unknown>;
+  if (card.name !== name) {
+    console.warn(`  ~ "${name}" resolved to "${card.name as string}" — check the decklist`);
+  }
+  return card;
+}
+
 async function fetchByNames(names: string[]): Promise<Map<string, Record<string, unknown>>> {
   const found = new Map<string, Record<string, unknown>>();
+  const misses: string[] = [];
   for (let i = 0; i < names.length; i += BATCH) {
     const slice = names.slice(i, i + BATCH);
     const res = await fetch(`${SCRYFALL}/cards/collection`, {
@@ -113,13 +141,15 @@ async function fetchByNames(names: string[]): Promise<Map<string, Record<string,
       not_found?: { name: string }[];
     };
     for (const card of json.data) found.set(card.name as string, card);
-    // A stub naming a card Scryfall cannot resolve is a typo worth shouting about
-    // here, where it is cheap to fix, rather than at play time.
-    for (const miss of json.not_found ?? []) {
-      console.warn(`  ! not found: ${miss.name}`);
-    }
+    for (const miss of json.not_found ?? []) misses.push(miss.name);
     console.log(`  fetched ${Math.min(i + BATCH, names.length)}/${names.length}`);
     await sleep(DELAY_MS);
+  }
+
+  // Second pass, one at a time, for whatever the bulk endpoint refused.
+  for (const name of misses) {
+    const card = await fuzzyResolve(name);
+    if (card) found.set(name, card);
   }
   return found;
 }
