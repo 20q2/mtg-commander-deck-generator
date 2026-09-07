@@ -8,6 +8,8 @@
       "colors": [
         "R"
       ],
+      "bracket": 2,
+      "source": "Hand-built",
       "cards": [
         "16 Mountain",
         "1 Sol Ring",
@@ -34,9 +36,7 @@
         "1 Shock",
         "1 Chaos Warp",
         "1 Vandalblast",
-        "1 Blasphemous Act",
-        "1 Kiki-Jiki, Mirror Breaker",
-        "1 Zealous Conscripts"
+        "1 Blasphemous Act"
       ]
     },
     {
@@ -48,6 +48,8 @@
         "U",
         "B"
       ],
+      "bracket": 1,
+      "source": "Hand-built",
       "cards": [
         "9 Island",
         "9 Swamp",
@@ -91,6 +93,8 @@
         "G",
         "W"
       ],
+      "bracket": 2,
+      "source": "Hand-built",
       "cards": [
         "9 Forest",
         "9 Plains",
@@ -129,6 +133,8 @@
         "B",
         "G"
       ],
+      "bracket": 2,
+      "source": "Hand-built",
       "cards": [
         "9 Forest",
         "9 Swamp",

@@ -55,12 +55,44 @@ export interface Opponent {
   armedCombos?: string[];
 }
 
+/**
+ * Which Commander bracket a seat plays at, 1 (Exhibition) to 5 (cEDH).
+ *
+ * Since the October 2025 revision a bracket is anchored on how quickly a deck
+ * expects to win — roughly turn 9+, 8+, 6+, 4+, and any — rather than on a
+ * power-level vibe. That matters here because it is measurable: unlike the
+ * Inspector, which has to estimate a stranger's bracket from a card list, we
+ * own these decks and can measure their kill turn in the diagnostic. A label
+ * on a seat is a claim we can check.
+ *
+ * Note that stock precons all sit at 2 by definition — bracket 2 IS
+ * "precon-level power" — so 1 and 3 are a de-tune and an upgrade of one, and
+ * 4 and 5 are built rather than bought.
+ */
+export type Bracket = 1 | 2 | 3 | 4 | 5;
+
+export const BRACKET_LABELS: Record<Bracket, { name: string; hint: string }> = {
+  1: { name: 'Exhibition', hint: 'Built around a theme rather than around winning. Expect to be around past turn nine.' },
+  2: { name: 'Core',       hint: 'Precon-level power. Strong cards, no fast combos — what most tables expect.' },
+  3: { name: 'Upgraded',   hint: 'Tuned mana and a real win condition. Wins from about turn six.' },
+  4: { name: 'Optimized',  hint: 'Efficient interaction and a compact win condition. Can win from turn four.' },
+  5: { name: 'cEDH',       hint: 'Playing to win. Will kill you as fast as it can assemble.' },
+};
+
 export interface OpponentStub {
   id: string;
   name: string;
   blurb: string;
   commander: string;
   colors: string[];
+  /** 1-5. See `Bracket` — this is a claim the diagnostic can check. */
+  bracket: Bracket;
+  /**
+   * The real product this list came from, when it came from one. Shown on the
+   * seat picker, because "this is the actual precon" is the whole reason to
+   * sit down across from it.
+   */
+  source?: string;
   /** Entries are "<qty> <card name>". */
   cards: string[];
 }

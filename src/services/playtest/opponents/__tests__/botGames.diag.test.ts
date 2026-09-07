@@ -99,6 +99,15 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
       const neverCast = new Map<string, number>();
       const drawnEver = new Map<string, number>();
       let totalDamage = 0, totalTurnsAttacked = 0, commanderCastGames = 0;
+      /**
+       * The turn each game's cumulative damage first reaches 40 — the bot's
+       * kill turn against a goldfish that never blocks.
+       *
+       * This is the number a bracket actually means since the October 2025
+       * revision: B1 is around turn 9+, B2 8+, B3 6+, B4 4+. A seat's bracket
+       * label is a claim, and this is how the claim gets checked.
+       */
+      const killTurns: number[] = [];
       const boardAt: number[] = Array(TURNS + 1).fill(0);
       const handAt: number[] = Array(TURNS + 1).fill(0);
       const landsAt: number[] = Array(TURNS + 1).fill(0);
@@ -106,6 +115,8 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
       let stuckHandTotal = 0;
 
       for (let game = 0; game < GAMES; game++) {
+        let cumulative = 0;
+        let killTurn: number | null = null;
         const rand = rng(game * 7919 + 13);
         const pool = shuffle(deckNames.map(n => fx.cards[n]), rand);
         let opp: Opponent = {
@@ -123,15 +134,22 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
           for (const n of before) drawnEver.set(n, (drawnEver.get(n) ?? 0) + 1);
 
           // Damage that would land if nothing blocked, plus trigger damage.
+          let thisTurn = 0;
           const atkFrame = frames.find(f => f.attackers.length > 0);
           if (atkFrame) {
             totalTurnsAttacked++;
-            totalDamage += atkFrame.attackers.reduce((n, id) => {
+            thisTurn += atkFrame.attackers.reduce((n, id) => {
               const p = atkFrame.opponent.battlefield.find(b => b.instanceId === id);
-              return n + (p ? botPower(p, atkFrame.opponent.battlefield) : 0);
+              return n + (p ? botPower(p, atkFrame.opponent.battlefield, atkFrame.opponent.graveyard) : 0);
             }, 0);
           }
-          totalDamage += frames.reduce((n, f) => n + (f.selfDamage ?? 0), 0);
+          thisTurn += frames.reduce((n, f) => n + (f.selfDamage ?? 0), 0);
+          // A combo that says "you lose" is a kill regardless of the number.
+          const lethal = frames.some(f => f.effects.some(e => e.lethal));
+          thisTurn += frames.reduce((n, f) => n + f.effects.reduce((m, e) => m + e.lifeLoss, 0), 0);
+          totalDamage += thisTurn;
+          cumulative += thisTurn;
+          if (killTurn === null && (lethal || cumulative >= 40)) killTurn = turn;
 
           boardAt[turn] += opp.battlefield.length;
           handAt[turn] += opp.hand.length;
@@ -140,6 +158,7 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
             p.card.type_line.toLowerCase().includes('token')).length;
         }
 
+        if (killTurn !== null) killTurns.push(killTurn);
         if (opp.commanderCasts > 0) commanderCastGames++;
         // Anything still in hand at the end was never castable.
         for (const c of opp.hand) neverCast.set(c.name, (neverCast.get(c.name) ?? 0) + 1);
@@ -151,6 +170,22 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
       console.log(`commander cast in ${commanderCastGames}/${GAMES} games`);
       console.log(`avg unblocked damage per game: ${(totalDamage / GAMES).toFixed(1)}`
         + `   attacked on ${(totalTurnsAttacked / GAMES).toFixed(1)}/${TURNS} turns`);
+
+      // Median rather than mean: one flooded game that never gets there should
+      // not drag the figure past the turn limit.
+      const sorted = [...killTurns].sort((a, b) => a - b);
+      const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+      const bracketFor = (t: number | null) =>
+        t === null ? '1 (never got there)'
+        : t <= 4 ? '4+'
+        : t <= 6 ? '3'
+        : t <= 8 ? '2'
+        : '1';
+      console.log(
+        `kill turn (40 damage): median ${median ?? '—'}`
+        + `   fastest ${sorted[0] ?? '—'}   killed in ${killTurns.length}/${GAMES} games`
+        + `   → reads as bracket ${bracketFor(median)}`,
+      );
       console.log('turn :  ' + [3, 6, 9, 12].map(t => `T${t}`.padStart(6)).join(''));
       console.log('lands:  ' + [3, 6, 9, 12].map(t => avg(landsAt, t).padStart(6)).join(''));
       console.log('board:  ' + [3, 6, 9, 12].map(t => avg(boardAt, t).padStart(6)).join(''));
