@@ -77,8 +77,11 @@ export function OpponentCardMenu({ target, onClose }: Props) {
   const act = (fn: () => void) => { fn(); onClose(); };
 
   const steal = () => {
-    const card = takePermanent(opponentId, permanent.instanceId);
-    if (card) addPermanent(card, undefined, `You stole ${card.name}`);
+    const taken = takePermanent(opponentId, permanent.instanceId);
+    if (!taken) return;
+    addPermanent(taken.card, undefined, `You stole ${taken.card.name}`, {
+      tapped: taken.tapped, counters: taken.counters,
+    });
   };
 
   return createPortal(

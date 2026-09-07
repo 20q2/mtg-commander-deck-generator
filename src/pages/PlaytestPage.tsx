@@ -391,25 +391,37 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
 
     // ── Theft: a bot's permanent dropped on your battlefield ──
     if (sourceData?.opponentSource) {
-      if (overData?.kind !== 'battlefield') return;
+      if (overData?.kind !== 'battlefield') {
+        usePlaytestStore.getState().showToast('Drop that on your battlefield to steal it');
+        return;
+      }
       const { opponentId, instanceId } = sourceData.opponentSource;
-      const card = useOpponentStore.getState().takePermanent(opponentId, instanceId);
-      if (!card) return;
+      const taken = useOpponentStore.getState().takePermanent(opponentId, instanceId);
+      if (!taken) return;
       const rect = document.querySelector('[data-battlefield]')?.getBoundingClientRect();
       const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
       const y = (active.rect.current.translated?.top ?? 0) - (rect?.top ?? 0);
-      usePlaytestStore.getState().addPermanent(card, { x, y }, `You stole ${card.name}`);
+      // Counters and tap state come across with it.
+      usePlaytestStore.getState().addPermanent(
+        taken.card, { x, y }, `You stole ${taken.card.name}`,
+        { tapped: taken.tapped, counters: taken.counters },
+      );
       return;
     }
 
     // ── Donate: one of your permanents dropped on a bot's lane ──
     if (overData?.kind === 'opponentLane' && overData.opponentId) {
       const src = sourceData?.source;
-      if (!src || (src as { kind: string }).kind !== 'battlefield') return;
+      if (!src || (src as { kind: string }).kind !== 'battlefield') {
+        usePlaytestStore.getState().showToast('Only a permanent already on the table can be given away');
+        return;
+      }
       const instanceId = (src as { instanceId: string }).instanceId;
-      const card = usePlaytestStore.getState().releasePermanent(instanceId);
-      if (!card) return;
-      useOpponentStore.getState().givePermanent(overData.opponentId, card);
+      const released = usePlaytestStore.getState().releasePermanent(instanceId);
+      if (!released) return;
+      useOpponentStore.getState().givePermanent(overData.opponentId, released.card, {
+        tapped: released.tapped, counters: released.counters,
+      });
       return;
     }
 

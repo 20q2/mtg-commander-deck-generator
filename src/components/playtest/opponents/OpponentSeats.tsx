@@ -13,8 +13,8 @@ const MIN_SEAT_WIDTH = 190;
 const USABLE_FRACTION = 0.62;
 
 /** Seat placements and sizes survive a reload; they're layout, not game state. */
-const POSITIONS_KEY = 'playtest-seat-positions';
-const WIDTHS_KEY = 'playtest-seat-widths';
+const POSITIONS_KEY = 'playtest-seat-positions-v2';
+const WIDTHS_KEY = 'playtest-seat-widths-v2';
 
 /**
  * A hand-set width can go well past the automatic ceiling — the whole point of
@@ -23,9 +23,19 @@ const WIDTHS_KEY = 'playtest-seat-widths';
 const RESIZE_MIN = 160;
 const RESIZE_MAX = 900;
 
-/** Keyed by seat index rather than opponent id, so re-seating keeps your layout. */
-type SeatPositions = Record<number, { x: number; y: number }>;
-type SeatWidths = Record<number, number>;
+/**
+ * Keyed by opponent id, so a placement belongs to the seat you actually dragged.
+ *
+ * This used to be keyed by seat index, which meant removing a middle bot slid
+ * every seat after it down an index and into somebody else's coordinates — your
+ * whole layout rearranged itself because you dismissed one opponent. The cost of
+ * the change is that seating a fresh deck no longer inherits the freed slot's
+ * position; it starts in the auto row, which is the far less surprising of the
+ * two behaviours. The `-v2` keys above orphan the old index-keyed entries rather
+ * than reading them as ids.
+ */
+type SeatPositions = Record<string, { x: number; y: number }>;
+type SeatWidths = Record<string, number>;
 
 function loadJson<T>(key: string): T {
   try {
@@ -70,7 +80,7 @@ export function OpponentSeats() {
    * first move. So the seat stays exactly where it is in the DOM and slides
    * under a transform, and only lands in the other layer on release.
    */
-  const [drag, setDrag] = useState<{ index: number; dx: number; dy: number } | null>(null);
+  const [drag, setDrag] = useState<{ seatId: string; dx: number; dy: number } | null>(null);
 
   const persist = useCallback((next: SeatPositions) => {
     setPositions(next);
@@ -86,14 +96,14 @@ export function OpponentSeats() {
     MIN_SEAT_WIDTH,
     Math.min(MAX_SEAT_WIDTH, Math.round((viewportWidth * USABLE_FRACTION) / Math.max(1, opponents.length))),
   );
-  const widthOf = (index: number) => widths[index] ?? autoWidth;
+  const widthOf = (seatId: string) => widths[seatId] ?? autoWidth;
 
   /**
    * Drag a seat by its name. Pointer capture rather than window listeners so a
    * fast drag that outruns the handle cannot drop the gesture — the same
    * reason the old column's resize handle worked this way.
    */
-  const startDrag = useCallback((index: number, e: React.PointerEvent<HTMLElement>) => {
+  const startDrag = useCallback((seatId: string, e: React.PointerEvent<HTMLElement>) => {
     // Let the buttons in the header keep their clicks.
     if ((e.target as HTMLElement).closest('button')) return;
     e.preventDefault();
@@ -124,7 +134,7 @@ export function OpponentSeats() {
         x: Math.round(clamp(baseX + ev.clientX - startX, 0, maxX)),
         y: Math.round(clamp(baseY + ev.clientY - startY, 0, maxY)),
       };
-      setDrag({ index, dx: landed.x - baseX, dy: landed.y - baseY });
+      setDrag({ seatId, dx: landed.x - baseX, dy: landed.y - baseY });
     };
     const onUp = (ev: PointerEvent) => {
       handle.removeEventListener('pointermove', onMove);
@@ -133,7 +143,7 @@ export function OpponentSeats() {
       try { handle.releasePointerCapture(ev.pointerId); } catch { /* already gone */ }
       setDrag(null);
       // Write through once at the end rather than on every frame.
-      persist({ ...loadPositions(), [index]: landed });
+      persist({ ...loadPositions(), [seatId]: landed });
     };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
@@ -145,7 +155,7 @@ export function OpponentSeats() {
    * live rather than deferred — the cards inside are sized off the seat width,
    * so you need to see them grow to know when to stop.
    */
-  const startResize = useCallback((index: number, e: React.PointerEvent<HTMLElement>) => {
+  const startResize = useCallback((seatId: string, e: React.PointerEvent<HTMLElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const handle = e.currentTarget;
@@ -159,29 +169,29 @@ export function OpponentSeats() {
 
     const onMove = (ev: PointerEvent) => {
       landed = Math.round(clamp(startWidth + (ev.clientX - startX), RESIZE_MIN, RESIZE_MAX));
-      setWidths(prev => ({ ...prev, [index]: landed }));
+      setWidths(prev => ({ ...prev, [seatId]: landed }));
     };
     const onUp = (ev: PointerEvent) => {
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('pointerup', onUp);
       handle.removeEventListener('pointercancel', onUp);
       try { handle.releasePointerCapture(ev.pointerId); } catch { /* already gone */ }
-      persistWidths({ ...loadWidths(), [index]: landed });
+      persistWidths({ ...loadWidths(), [seatId]: landed });
     };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
     handle.addEventListener('pointercancel', onUp);
   }, [persistWidths]);
 
-  const resetSize = useCallback((index: number) => {
+  const resetSize = useCallback((seatId: string) => {
     const next = { ...loadWidths() };
-    delete next[index];
+    delete next[seatId];
     persistWidths(next);
   }, [persistWidths]);
 
-  const resetSeat = useCallback((index: number) => {
+  const resetSeat = useCallback((seatId: string) => {
     const next = { ...loadPositions() };
-    delete next[index];
+    delete next[seatId];
     persist(next);
   }, [persist]);
 
@@ -203,7 +213,7 @@ export function OpponentSeats() {
     );
   }
 
-  const seated = opponents.map((o, index) => ({ o, index, pos: positions[index] }));
+  const seated = opponents.map(o => ({ o, pos: positions[o.id] }));
   const inRow = seated.filter(s => !s.pos);
   const placed = seated.filter(s => s.pos);
 
@@ -212,8 +222,8 @@ export function OpponentSeats() {
    * Transform only — the wrappers own their own positioning, and overriding it
    * here would knock a placed seat off its left/top the moment you grabbed it.
    */
-  const dragStyle = (index: number) =>
-    drag?.index === index
+  const dragStyle = (seatId: string) =>
+    drag?.seatId === seatId
       ? { transform: `translate(${drag.dx}px, ${drag.dy}px)`, zIndex: 1 }
       : undefined;
 
@@ -225,16 +235,16 @@ export function OpponentSeats() {
         ref={bandRef}
         className="hidden md:flex absolute top-1.5 inset-x-1.5 z-30 justify-center items-start gap-2 pointer-events-none"
       >
-        {inRow.map(({ o, index }) => (
-          <div key={o.id} className="relative pointer-events-auto" style={dragStyle(index)}>
+        {inRow.map(({ o }) => (
+          <div key={o.id} className="relative pointer-events-auto" style={dragStyle(o.id)}>
             <OpponentSeat
               opponent={o}
-              width={widthOf(index)}
-              onGrab={e => startDrag(index, e)}
-              onResetPosition={() => resetSeat(index)}
-              onResizeGrab={e => startResize(index, e)}
-              onResetSize={() => resetSize(index)}
-              sized={widths[index] !== undefined}
+              width={widthOf(o.id)}
+              onGrab={e => startDrag(o.id, e)}
+              onResetPosition={() => resetSeat(o.id)}
+              onResizeGrab={e => startResize(o.id, e)}
+              onResetSize={() => resetSize(o.id)}
+              sized={widths[o.id] !== undefined}
             />
           </div>
         ))}
@@ -244,20 +254,20 @@ export function OpponentSeats() {
           of it when the two overlap. */}
       {placed.length > 0 && (
         <div className="hidden md:block absolute inset-0 z-30 pointer-events-none">
-          {placed.map(({ o, index, pos }) => (
+          {placed.map(({ o, pos }) => (
             <div
               key={o.id}
               className="absolute pointer-events-auto"
-              style={{ left: pos!.x, top: pos!.y, ...dragStyle(index) }}
+              style={{ left: pos!.x, top: pos!.y, ...dragStyle(o.id) }}
             >
               <OpponentSeat
                 opponent={o}
-                width={widthOf(index)}
-                onGrab={e => startDrag(index, e)}
-                onResetPosition={() => resetSeat(index)}
-                onResizeGrab={e => startResize(index, e)}
-                onResetSize={() => resetSize(index)}
-                sized={widths[index] !== undefined}
+                width={widthOf(o.id)}
+                onGrab={e => startDrag(o.id, e)}
+                onResetPosition={() => resetSeat(o.id)}
+                onResizeGrab={e => startResize(o.id, e)}
+                onResetSize={() => resetSize(o.id)}
+                sized={widths[o.id] !== undefined}
                 placed
               />
             </div>

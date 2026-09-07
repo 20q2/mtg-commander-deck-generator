@@ -1,4 +1,5 @@
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { useEffect } from 'react';
+import { Loader2, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
@@ -12,6 +13,11 @@ export function AddOpponentModal() {
   const error = useOpponentStore(s => s.error);
   const addFromStub = useOpponentStore(s => s.addFromStub);
   const remove = useOpponentStore(s => s.remove);
+  const clearError = useOpponentStore(s => s.clearError);
+
+  // A failure belongs to the visit that caused it. Closing the picker and
+  // opening it again should not show you last time's error.
+  useEffect(() => clearError, [clearError]);
 
   const full = opponents.length >= MAX_OPPONENTS;
 
@@ -30,8 +36,15 @@ export function AddOpponentModal() {
         </p>
 
         {error && (
-          <div className="px-2.5 py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-xs text-red-400">
-            {error}
+          <div className="px-2.5 py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-xs text-red-400 flex items-start gap-2">
+            <span className="flex-1 min-w-0">{error}</span>
+            <button
+              onClick={clearError}
+              title="Dismiss"
+              className="shrink-0 text-red-400/70 hover:text-red-300 transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
           </div>
         )}
 

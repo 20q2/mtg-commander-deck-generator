@@ -187,8 +187,19 @@ interface PlaytestActions {
   attach: (childId: string, parentId: string) => void;
   unattach: (instanceId: string) => void;
   spawnToken: (card: ScryfallCard, position?: { x: number; y: number }) => void;
-  addPermanent: (card: ScryfallCard, position?: { x: number; y: number }, logText?: string) => void;
-  releasePermanent: (instanceId: string) => ScryfallCard | null;
+  /**
+   * `arrival` carries state the card is bringing with it. Stealing a bot's
+   * permanent used to drop its counters on the floor — a Krenko with three
+   * +1/+1 counters arrived on your side as a vanilla copy.
+   */
+  addPermanent: (
+    card: ScryfallCard,
+    position?: { x: number; y: number },
+    logText?: string,
+    arrival?: { tapped?: boolean; counters?: Record<string, number> },
+  ) => void;
+  /** Hands back the whole entry, so a donated permanent keeps its counters. */
+  releasePermanent: (instanceId: string) => BattlefieldCard | null;
 
   scryConfirm: (topOrder: number[], bottomOrder: number[]) => void;
   surveilConfirm: (topOrder: number[], graveyardOrder: number[]) => void;
@@ -207,6 +218,12 @@ interface PlaytestActions {
 
   appendLog: (text: string) => void;
   clearLog: () => void;
+  /**
+   * Flash a short message at the top of the table. For the moments where an
+   * action simply does not happen — a card dropped somewhere it cannot go —
+   * and silence reads as the app being broken rather than as a refusal.
+   */
+  showToast: (text: string) => void;
 
   /**
    * Push one history entry capturing the current state, without mutating
@@ -1091,7 +1108,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   // Theft's landing point: put an arbitrary card onto the battlefield without it
   // having come from one of your zones. Same arrival maths as spawnToken.
-  addPermanent: (card, position, logText) => set(state => {
+  addPermanent: (card, position, logText, arrival) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const cx = position?.x ?? Math.floor(state.battlefieldRect.width / 2 - 50);
     const cy = position?.y ?? Math.floor(state.battlefieldRect.height / 2 - 70);
@@ -1106,10 +1123,10 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       card,
       x: slot.x,
       y: slot.y,
-      tapped: false,
+      tapped: arrival?.tapped ?? false,
       faceDown: false,
       flipped: false,
-      counters: {},
+      counters: { ...(arrival?.counters ?? {}) },
     };
     return {
       history,
@@ -1127,7 +1144,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       history: pushHistory(state.history, snapshotOf(state)),
       battlefield: state.battlefield.filter(b => b.instanceId !== instanceId),
     }));
-    return entry.card;
+    return entry;
   },
 
   spawnToken: (card, position) => set(state => {
@@ -1290,6 +1307,10 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
   clearLog: () => set({ log: [] }),
+  showToast: (text) => set(state => ({
+    // The tick is what re-triggers the display, so a repeated message still shows.
+    toast: { text, tick: (state.toast?.tick ?? 0) + 1 },
+  })),
 
   addFreeCounter: (color = 'emerald', position) => set(state => {
     const cx = position ? Math.round(position.x - 22) : Math.floor(state.battlefieldRect.width / 2 - 22);

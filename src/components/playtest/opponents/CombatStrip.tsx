@@ -7,6 +7,7 @@ import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import type { BattlefieldCard } from '@/components/playtest/types';
 import type { Attacker } from '@/components/playtest/opponentTypes';
@@ -157,7 +158,8 @@ function OutgoingResolve({ opponentId }: { opponentId: string }) {
         );
       })}
       <button
-        onClick={resolve}
+        onClick={() => resolve(opponentId)}
+        title={`Resolve your attack on ${opponent.name}`}
         className="ml-auto shrink-0 px-2 h-6 rounded bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold"
       >
         Resolve
@@ -192,12 +194,18 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
   const removeBlocker = useOpponentStore(s => s.removeBlocker);
   const assignBlocker = useOpponentStore(s => s.assignBlocker);
   const battlefield = usePlaytestStore(s => s.battlefield);
+  const opponent = useOpponentStore(s => s.opponents.find(o => o.id === opponentId));
   if (!combat || combat.opponentId !== opponentId) return null;
 
+  // Read the attack off the live board. An attacker you killed mid-combat
+  // disappears from the strip, and the number on the button is what
+  // `resolveDamage` will actually take off you — trample overflow included,
+  // which the old "sum of unblocked power" quietly left out.
+  const { live } = readIncomingCombat(combat, opponent, battlefield);
+  const incoming = incomingDamage(combat, opponent, battlefield);
+
   const blocksOf = (a: Attacker) => combat.blocks[a.instanceId] ?? [];
-  const unblocked = combat.attackers.filter(a => blocksOf(a).length === 0);
-  const incoming = unblocked.reduce((sum, a) => sum + a.power, 0);
-  const piles = groupAttackers(combat.attackers);
+  const piles = groupAttackers(live);
 
   return (
     <>

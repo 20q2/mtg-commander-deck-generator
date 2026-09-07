@@ -30,13 +30,21 @@ function expandEntries(entries: string[]): string[] {
  *
  * Names that Scryfall can't resolve are skipped rather than failing the whole
  * deck — a bot one card short still plays fine, and a hard failure here would
- * block the whole feature over a single typo.
+ * block the whole feature over a single typo. But they are *reported*: dropping
+ * them in silence meant a bot could quietly sit down as a 25-card deck, play
+ * like it, and give you no way to tell why.
  */
+export interface BuiltOpponent {
+  opponent: Opponent;
+  /** Deck entries Scryfall did not return, one per distinct name. */
+  missing: string[];
+}
+
 export async function buildOpponentFromStub(
   stub: OpponentStub,
   startingLife: number,
   resistance: boolean,
-): Promise<Opponent> {
+): Promise<BuiltOpponent> {
   const names = expandEntries(stub.cards);
   const cardMap = await getCardsByNames(Array.from(new Set([...names, stub.commander])));
 
@@ -45,10 +53,13 @@ export async function buildOpponentFromStub(
   if (commander) command.push(commander);
 
   const pool: ScryfallCard[] = [];
+  const missing = new Set<string>();
+  if (!commander) missing.add(stub.commander);
   for (const name of names) {
     if (name === stub.commander) continue;
     const card = cardMap.get(name);
     if (card) pool.push(card);
+    else missing.add(name);
   }
 
   // Every token any card in this deck can make, in one batched, cached fetch.
@@ -62,7 +73,7 @@ export async function buildOpponentFromStub(
 
   const { library, hand } = openingHand(pool);
 
-  return {
+  const opponent: Opponent = {
     id: makeInstanceId(),
     name: stub.name,
     stubId: stub.id,
@@ -83,6 +94,7 @@ export async function buildOpponentFromStub(
     aggression: 0.5,
     turnsTaken: 0,
   };
+  return { opponent, missing: [...missing] };
 }
 
 /**
