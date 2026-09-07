@@ -171,6 +171,16 @@ interface PlaytestActions {
   toggleTapMany: (instanceIds: string[]) => void;
   toggleFaceDownMany: (instanceIds: string[]) => void;
   shufflePile: (zone: Exclude<ZoneKey, 'hand'>) => void;
+  /**
+   * Empty one zone into another in a single step — Elixir of Immortality,
+   * Tormod's Crypt, Riftsweeper. One action rather than one per pairing,
+   * because every combination is the same move with different labels.
+   */
+  emptyZoneInto: (
+    from: Exclude<ZoneKey, 'hand'>,
+    to: ZoneKey,
+    opts?: { shuffle?: boolean },
+  ) => void;
   setCounter: (instanceId: string, type: string, value: number) => void;
   /**
    * `anchor` is viewport coords for the floating "+1" to pop from. Pass the
@@ -939,6 +949,35 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         ids.has(b.instanceId) ? { ...b, faceDown: !b.faceDown } : b
       ),
       log: [...state.log, makeLogEntry(`Toggled face-down on ${ids.size} card${ids.size === 1 ? '' : 's'}`, 'move')],
+    };
+  }),
+
+  emptyZoneInto: (from, to, opts) => set(state => {
+    const moving = state.zones[from];
+    if (moving.length === 0) return {};
+    const history = pushHistory(state.history, snapshotOf(state));
+    const merged = [...state.zones[to], ...moving];
+    const zones = {
+      ...state.zones,
+      [from]: [],
+      [to]: opts?.shuffle ? fisherYates(merged) : merged,
+    };
+    const n = moving.length;
+    return {
+      history,
+      zones,
+      shuffleTick: opts?.shuffle ? state.shuffleTick + 1 : state.shuffleTick,
+      graveyardPushTick: to === 'graveyard' ? state.graveyardPushTick + 1 : state.graveyardPushTick,
+      exilePushTick: to === 'exile' ? state.exilePushTick + 1 : state.exilePushTick,
+      // Cards arriving in hand deal in, the same as a draw would.
+      lastDrawRange: to === 'hand'
+        ? { start: state.zones.hand.length, end: state.zones.hand.length + n }
+        : { start: -1, end: -1 },
+      lastReturnRange: { start: -1, end: -1 },
+      log: [...state.log, makeLogEntry(
+        `${n} card${n === 1 ? '' : 's'}: ${from} → ${to}${opts?.shuffle ? ' (shuffled)' : ''}`,
+        'move',
+      )],
     };
   }),
 

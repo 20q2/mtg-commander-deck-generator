@@ -74,10 +74,12 @@ export function PlaytestActionsBar() {
       {/* Untap is a chip in the corner of the table and Hand actions sit
           beside the hand's own label — both are exported and mounted
           elsewhere. What's left here is the middle of the bar. */}
-      {/* Library controls live above the library pile on desktop — see
-          LibraryActions. There is no pile row on mobile, so they stay here. */}
-      <div className="md:hidden">
-        <LibraryActions />
+      {/* Zone actions ride on their own piles on desktop — see ZoneActions.
+          Mobile has no pile row, so all three live here instead. */}
+      <div className="md:hidden flex items-center gap-1.5">
+        <ZoneActions zone="library" />
+        <ZoneActions zone="graveyard" />
+        <ZoneActions zone="exile" />
       </div>
       <Group className="hidden md:flex">
         <Button variant={tokensOpen ? 'default' : 'outline'} size="sm" className={btn} onClick={() => tokensOpen ? closeModal() : openModal({ kind: 'tokens' })} title="Create token"><Sparkles className={icon} />Tokens</Button>
@@ -236,55 +238,120 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
  * Search is icon-only because the magnifier is unambiguous and the column is
  * only as wide as a card; Deck keeps a word so the popover is discoverable.
  */
-export function LibraryActions({ className = '' }: { className?: string }) {
+type ActionZone = 'library' | 'graveyard' | 'exile';
+
+const ZONE_LABEL: Record<ActionZone, string> = {
+  library: 'Deck',
+  graveyard: 'Graveyard',
+  exile: 'Exile',
+};
+
+/**
+ * The actions for one zone pile, sized to sit directly on top of it.
+ *
+ * Every pile gets the same affordance: its own icon, the word Actions, and a
+ * menu of the things you do to that zone as a whole. Putting them on the pile
+ * rather than in the toolbar means the pile is both the target and the
+ * control, and you never have to work out which of eight toolbar buttons acts
+ * on which zone.
+ */
+export function ZoneActions({ zone, className = '', compact = false }: {
+  zone: ActionZone;
+  className?: string;
+  /**
+   * Drop the word and show only the icon. Exile's column on the desktop pile
+   * row is half the width of the others by design, so it asks for this — the
+   * zone itself has no opinion, and on mobile it gets the label like the rest.
+   */
+  compact?: boolean;
+}) {
   const draw = usePlaytestStore(s => s.draw);
   const openModal = usePlaytestStore(s => s.openModal);
   const closeModal = usePlaytestStore(s => s.closeModal);
   const modal = usePlaytestStore(s => s.modal);
+  const emptyZoneInto = usePlaytestStore(s => s.emptyZoneInto);
+  const shufflePile = usePlaytestStore(s => s.shufflePile);
+  const count = usePlaytestStore(s => s.zones[zone].length);
   const searchOpen = modal?.kind === 'zoneViewer' && modal.zone === 'library';
 
   // One amount drives every deck action — pick N once, then choose what to do
   // with it. Draw keeps the popover open so you can tap it repeatedly; the
   // scry/surveil/mill actions open a modal, so the popover gets out of the way.
   const [deckN, setDeckN] = useState(1);
-  const [deckOpen, setDeckOpen] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const btn = 'relative h-6 px-1.5 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
+  const row = 'w-full justify-start text-xs h-8';
+  const Icon = zone === 'library' ? Layers : zone === 'graveyard' ? Trash2 : Sparkles;
+  const run = (fn: () => void) => { fn(); setOpen(false); };
+
+  const iconOnly = compact;
 
   return (
     <div className={`flex items-center [&>*+*]:-ml-px ${className}`}>
-      <Popover open={deckOpen} onOpenChange={setDeckOpen}>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
             size="sm"
-            className={`${btn} flex-1 min-w-0`}
-            title="Draw, scry, surveil or mill (D draws 1)"
+            className={`${btn} ${iconOnly ? 'w-full px-0 justify-center' : 'flex-1 min-w-0'}`}
+            title={`${ZONE_LABEL[zone]} actions`}
+            aria-label={`${ZONE_LABEL[zone]} actions`}
           >
-            <Layers className="w-3 h-3 mr-1 shrink-0" />
-            <span className="truncate">Deck</span>
+            <Icon className={`w-3 h-3 shrink-0 ${iconOnly ? '' : 'mr-1'}`} />
+            {!iconOnly && <span className="truncate">Actions</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent side="top" align="end" sideOffset={6} className="w-56 p-2 space-y-2">
-          <ScryNPicker value={deckN} onChange={setDeckN} />
-          <div className="space-y-1">
-            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => draw(deckN)}><Plus className="w-3 h-3 mr-1" />Draw {deckN}</Button>
-            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'scry', n: deckN }); }}><Eye className="w-3 h-3 mr-1" />Scry {deckN}</Button>
-            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'surveil', n: deckN }); }}><BookOpen className="w-3 h-3 mr-1" />Surveil {deckN}</Button>
-            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { setDeckOpen(false); openModal({ kind: 'mill', n: deckN }); }}><Trash2 className="w-3 h-3 mr-1" />Mill {deckN}</Button>
-          </div>
+          {zone === 'library' ? (
+            <>
+              <ScryNPicker value={deckN} onChange={setDeckN} />
+              <div className="space-y-1">
+                <Button variant="ghost" size="sm" className={row} onClick={() => draw(deckN)}><Plus className="w-3 h-3 mr-2" />Draw {deckN}</Button>
+                <Button variant="ghost" size="sm" className={row} onClick={() => run(() => openModal({ kind: 'scry', n: deckN }))}><Eye className="w-3 h-3 mr-2" />Scry {deckN}</Button>
+                <Button variant="ghost" size="sm" className={row} onClick={() => run(() => openModal({ kind: 'surveil', n: deckN }))}><BookOpen className="w-3 h-3 mr-2" />Surveil {deckN}</Button>
+                <Button variant="ghost" size="sm" className={row} onClick={() => run(() => openModal({ kind: 'mill', n: deckN }))}><Trash2 className="w-3 h-3 mr-2" />Mill {deckN}</Button>
+                <Button variant="ghost" size="sm" className={row} onClick={() => run(() => shufflePile('library'))}><Shuffle className="w-3 h-3 mr-2" />Shuffle</Button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-1">
+              <Button variant="ghost" size="sm" className={row} disabled={count === 0}
+                onClick={() => run(() => openModal({ kind: 'zoneViewer', zone }))}>
+                <Eye className="w-3 h-3 mr-2" />View {ZONE_LABEL[zone].toLowerCase()} ({count})
+              </Button>
+              <Button variant="ghost" size="sm" className={row} disabled={count === 0}
+                onClick={() => run(() => emptyZoneInto(zone, 'library', { shuffle: true }))}
+                title="Elixir of Immortality, Gaea's Blessing">
+                <Shuffle className="w-3 h-3 mr-2" />Shuffle into library
+              </Button>
+              <Button variant="ghost" size="sm" className={row} disabled={count === 0}
+                onClick={() => run(() => emptyZoneInto(zone, 'hand'))}>
+                <HandIcon className="w-3 h-3 mr-2" />Return all to hand
+              </Button>
+              {zone === 'graveyard' && (
+                <Button variant="ghost" size="sm" className={row} disabled={count === 0}
+                  onClick={() => run(() => emptyZoneInto('graveyard', 'exile'))}
+                  title="Tormod's Crypt, Bojuka Bog, Rest in Peace">
+                  <Sparkles className="w-3 h-3 mr-2" />Exile graveyard
+                </Button>
+              )}
+            </div>
+          )}
         </PopoverContent>
       </Popover>
-      <Button
-        variant={searchOpen ? 'default' : 'outline'}
-        size="sm"
-        className={`${btn} w-7 px-0 shrink-0`}
-        onClick={() => searchOpen ? closeModal() : openModal({ kind: 'zoneViewer', zone: 'library' })}
-        title="Search library"
-        aria-label="Search library"
-      >
-        <Search className="w-3 h-3" />
-      </Button>
+      {zone === 'library' && (
+        <Button
+          variant={searchOpen ? 'default' : 'outline'}
+          size="sm"
+          className={`${btn} w-7 px-0 shrink-0`}
+          onClick={() => searchOpen ? closeModal() : openModal({ kind: 'zoneViewer', zone: 'library' })}
+          title="Search library"
+          aria-label="Search library"
+        >
+          <Search className="w-3 h-3" />
+        </Button>
+      )}
     </div>
   );
 }

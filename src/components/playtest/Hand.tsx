@@ -5,7 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { PlaytestActionsBar, NextTurnButton, CombatButton, LibraryActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
+import { PlaytestActionsBar, NextTurnButton, CombatButton, ZoneActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
@@ -164,13 +164,15 @@ export function Hand() {
                 control. The other piles hang from the bottom of the row, so
                 this column is bottom-aligned too and the buttons stack above. */}
             <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
-              <LibraryActions className="w-full" />
+              <ZoneActions zone="library" className="w-full" />
               <PlaytestPile spec={PILES[1]} />
             </div>
-            <div style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
+            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
+              <ZoneActions zone="graveyard" className="w-full" />
               <PlaytestPile spec={PILES[2]} />
             </div>
-            <div className="self-start" style={{ width: 'clamp(30px, 4.15vw, 49px)' }}>
+            <div className="self-start flex flex-col gap-1" style={{ width: 'clamp(30px, 4.15vw, 49px)' }}>
+              <ZoneActions zone="exile" className="w-full" compact />
               <PlaytestPile spec={PILES[3]} />
             </div>
           </div>
