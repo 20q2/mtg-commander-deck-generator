@@ -15,13 +15,20 @@ const USABLE_FRACTION = 0.62;
 /** Seat placements and sizes survive a reload; they're layout, not game state. */
 const POSITIONS_KEY = 'playtest-seat-positions-v2';
 const WIDTHS_KEY = 'playtest-seat-widths-v2';
+const SIZES_KEY = 'playtest-seat-sizes-v2';
 
 /**
- * A hand-set width can go well past the automatic ceiling — the whole point of
+ * A hand-set size can go well past the automatic ceiling — the whole point of
  * resizing a seat is to make one opponent big enough to actually read.
  */
-const RESIZE_MIN = 160;
-const RESIZE_MAX = 900;
+const RESIZE_MIN_W = 160;
+const RESIZE_MAX_W = 900;
+/** Tall enough to still show a header and a combat strip. */
+const RESIZE_MIN_H = 110;
+const RESIZE_MAX_H = 900;
+
+/** Which handle you grabbed. */
+export type ResizeAxis = 'x' | 'y' | 'both';
 
 /**
  * Keyed by opponent id, so a placement belongs to the seat you actually dragged.
@@ -35,7 +42,14 @@ const RESIZE_MAX = 900;
  * than reading them as ids.
  */
 type SeatPositions = Record<string, { x: number; y: number }>;
-type SeatWidths = Record<string, number>;
+/**
+ * Either axis may be unset, meaning "whatever the content wants". They are
+ * independent because they do different jobs: width is the zoom, since every
+ * card in the seat is a fraction of it, while height decides how much table
+ * the seat may occupy before its board starts scrolling.
+ */
+export type SeatSize = { w?: number; h?: number };
+type SeatSizes = Record<string, SeatSize>;
 
 function loadJson<T>(key: string): T {
   try {
@@ -47,7 +61,16 @@ function loadJson<T>(key: string): T {
 }
 
 const loadPositions = () => loadJson<SeatPositions>(POSITIONS_KEY);
-const loadWidths = () => loadJson<SeatWidths>(WIDTHS_KEY);
+/**
+ * Sizes used to be a bare width per seat. Read the old key forward so an
+ * existing layout survives gaining a second axis.
+ */
+function loadSizes(): SeatSizes {
+  const current = loadJson<SeatSizes>(SIZES_KEY);
+  if (Object.keys(current).length > 0) return current;
+  const legacy = loadJson<Record<string, number>>(WIDTHS_KEY);
+  return Object.fromEntries(Object.entries(legacy).map(([k, w]) => [k, { w }]));
+}
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -70,7 +93,7 @@ export function OpponentSeats() {
   const viewportWidth = useViewportWidth();
   const bandRef = useSeatBandMeasure(opponents.length);
   const [positions, setPositions] = useState<SeatPositions>(loadPositions);
-  const [widths, setWidths] = useState<SeatWidths>(loadWidths);
+  const [sizes, setSizes] = useState<SeatSizes>(loadSizes);
   /**
    * The in-flight move, as an offset from wherever the seat already sits.
    *
@@ -87,16 +110,17 @@ export function OpponentSeats() {
     try { localStorage.setItem(POSITIONS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
   }, []);
 
-  const persistWidths = useCallback((next: SeatWidths) => {
-    setWidths(next);
-    try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+  const persistSizes = useCallback((next: SeatSizes) => {
+    setSizes(next);
+    try { localStorage.setItem(SIZES_KEY, JSON.stringify(next)); } catch { /* private mode */ }
   }, []);
 
   const autoWidth = Math.max(
     MIN_SEAT_WIDTH,
     Math.min(MAX_SEAT_WIDTH, Math.round((viewportWidth * USABLE_FRACTION) / Math.max(1, opponents.length))),
   );
-  const widthOf = (seatId: string) => widths[seatId] ?? autoWidth;
+  const widthOf = (seatId: string) => sizes[seatId]?.w ?? autoWidth;
+  const heightOf = (seatId: string) => sizes[seatId]?.h;
 
   /**
    * Drag a seat by its name. Pointer capture rather than window listeners so a
@@ -151,43 +175,62 @@ export function OpponentSeats() {
   }, [persist]);
 
   /**
-   * Resize a seat from its corner. Same pointer-capture shape as the move, and
-   * live rather than deferred — the cards inside are sized off the seat width,
-   * so you need to see them grow to know when to stop.
+   * Resize a seat from an edge or the corner. Same pointer-capture shape as
+   * the move, and live rather than deferred — the cards inside are sized off
+   * the seat, so you need to see them change to know when to stop.
+   *
+   * The axes are tracked separately, so grabbing one edge leaves the other
+   * exactly as you left it — including leaving it automatic.
    */
-  const startResize = useCallback((seatId: string, e: React.PointerEvent<HTMLElement>) => {
+  const startResize = useCallback((seatId: string, axis: ResizeAxis, e: React.PointerEvent<HTMLElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const handle = e.currentTarget;
     const seatEl = handle.closest('[data-seat]') as HTMLElement | null;
     if (!seatEl) return;
-    const startWidth = seatEl.getBoundingClientRect().width;
+    const rect = seatEl.getBoundingClientRect();
+    const startW = rect.width;
+    const startH = rect.height;
     const startX = e.clientX;
+    const startY = e.clientY;
 
     handle.setPointerCapture(e.pointerId);
-    let landed = Math.round(startWidth);
+    let landed: SeatSize = { ...(loadSizes()[seatId] ?? {}) };
 
     const onMove = (ev: PointerEvent) => {
-      landed = Math.round(clamp(startWidth + (ev.clientX - startX), RESIZE_MIN, RESIZE_MAX));
-      setWidths(prev => ({ ...prev, [seatId]: landed }));
+      const next: SeatSize = { ...landed };
+      if (axis === 'x' || axis === 'both') {
+        next.w = Math.round(clamp(startW + (ev.clientX - startX), RESIZE_MIN_W, RESIZE_MAX_W));
+      }
+      if (axis === 'y' || axis === 'both') {
+        next.h = Math.round(clamp(startH + (ev.clientY - startY), RESIZE_MIN_H, RESIZE_MAX_H));
+      }
+      landed = next;
+      setSizes(prev => ({ ...prev, [seatId]: next }));
     };
     const onUp = (ev: PointerEvent) => {
       handle.removeEventListener('pointermove', onMove);
       handle.removeEventListener('pointerup', onUp);
       handle.removeEventListener('pointercancel', onUp);
       try { handle.releasePointerCapture(ev.pointerId); } catch { /* already gone */ }
-      persistWidths({ ...loadWidths(), [seatId]: landed });
+      persistSizes({ ...loadSizes(), [seatId]: landed });
     };
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
     handle.addEventListener('pointercancel', onUp);
-  }, [persistWidths]);
+  }, [persistSizes]);
 
-  const resetSize = useCallback((seatId: string) => {
-    const next = { ...loadWidths() };
-    delete next[seatId];
-    persistWidths(next);
-  }, [persistWidths]);
+  /** Double-clicking a handle releases only the axis that handle controls. */
+  const resetSize = useCallback((seatId: string, axis: ResizeAxis) => {
+    const all = loadSizes();
+    const current = { ...(all[seatId] ?? {}) };
+    if (axis === 'x' || axis === 'both') delete current.w;
+    if (axis === 'y' || axis === 'both') delete current.h;
+    const next = { ...all };
+    if (current.w === undefined && current.h === undefined) delete next[seatId];
+    else next[seatId] = current;
+    persistSizes(next);
+  }, [persistSizes]);
 
   const resetSeat = useCallback((seatId: string) => {
     const next = { ...loadPositions() };
@@ -242,9 +285,10 @@ export function OpponentSeats() {
               width={widthOf(o.id)}
               onGrab={e => startDrag(o.id, e)}
               onResetPosition={() => resetSeat(o.id)}
-              onResizeGrab={e => startResize(o.id, e)}
-              onResetSize={() => resetSize(o.id)}
-              sized={widths[o.id] !== undefined}
+              height={heightOf(o.id)}
+              onResizeGrab={(axis, e) => startResize(o.id, axis, e)}
+              onResetSize={axis => resetSize(o.id, axis)}
+              sized={sizes[o.id] ?? {}}
             />
           </div>
         ))}
@@ -265,9 +309,10 @@ export function OpponentSeats() {
                 width={widthOf(o.id)}
                 onGrab={e => startDrag(o.id, e)}
                 onResetPosition={() => resetSeat(o.id)}
-                onResizeGrab={e => startResize(o.id, e)}
-                onResetSize={() => resetSize(o.id)}
-                sized={widths[o.id] !== undefined}
+                height={heightOf(o.id)}
+                onResizeGrab={(axis, e) => startResize(o.id, axis, e)}
+                onResetSize={axis => resetSize(o.id, axis)}
+                sized={sizes[o.id] ?? {}}
                 placed
               />
             </div>

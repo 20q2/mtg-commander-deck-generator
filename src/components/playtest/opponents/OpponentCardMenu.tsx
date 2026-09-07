@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowUpToLine, Hand as HandIcon, Grab, Minus, Plus, RotateCcw, Sparkles, Trash2,
+  ArrowUpToLine, Hand as HandIcon, Grab, Minus, Plus, RotateCcw, Sparkles, Trash2, Wand2,
 } from 'lucide-react';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { isCreatureCard } from '@/services/playtest/opponents/stats';
 import type { OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 export interface OpponentMenuTarget {
@@ -36,6 +37,7 @@ export function OpponentCardMenu({ target, onClose }: Props) {
   const adjustPermanentCounter = useOpponentStore(s => s.adjustPermanentCounter);
   const takePermanent = useOpponentStore(s => s.takePermanent);
   const addPermanent = usePlaytestStore(s => s.addPermanent);
+  const openModal = usePlaytestStore(s => s.openModal);
 
   useEffect(() => {
     if (!target) return;
@@ -80,7 +82,7 @@ export function OpponentCardMenu({ target, onClose }: Props) {
     const taken = takePermanent(opponentId, permanent.instanceId);
     if (!taken) return;
     addPermanent(taken.card, undefined, `You stole ${taken.card.name}`, {
-      tapped: taken.tapped, counters: taken.counters,
+      tapped: taken.tapped, counters: taken.counters, edit: taken.edit,
     });
   };
 
@@ -113,6 +115,17 @@ export function OpponentCardMenu({ target, onClose }: Props) {
       <Item icon={<Grab className="w-3.5 h-3.5" />} onClick={() => act(steal)}>
         Steal to your battlefield
       </Item>
+      {isCreatureCard(permanent.card) && (
+        <Item
+          icon={<Wand2 className="w-3.5 h-3.5" />}
+          onClick={() => {
+            onClose();
+            openModal({ kind: 'editCreature', target: { side: 'opponent', opponentId, instanceId: permanent.instanceId } });
+          }}
+        >
+          {permanent.edit ? 'Edit creature…' : 'Make it something else…'}
+        </Item>
+      )}
 
       <Sep />
       <Item

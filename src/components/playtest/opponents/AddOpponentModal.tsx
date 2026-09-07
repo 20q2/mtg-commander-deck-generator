@@ -57,7 +57,11 @@ export function AddOpponentModal() {
       width={560}
       storageKey="playtest-opponents-pos"
     >
-      <div className="p-3 space-y-3 text-sm">
+      {/* Three bands, so a roster taller than the dialog scrolls on its own
+          rather than pushing Done off the bottom: blurb, scrolling list, footer.
+          `min-h-0` is what lets the middle one shrink inside the flex column —
+          without it the list's content height wins and nothing scrolls. */}
+      <div className="px-3 pt-3 pb-2 text-sm space-y-3 shrink-0">
         <p className="text-xs text-muted-foreground">
           Pick up to {MAX_OPPONENTS} decks to sit across from you. They untap, draw, play
           lands, cast what they can afford, block, and attack whoever looks softest — so you
@@ -76,7 +80,9 @@ export function AddOpponentModal() {
             </button>
           </div>
         )}
+      </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 text-sm">
         <div className="space-y-3">
           {byBracket.map(({ bracket, stubs }) => {
             const { name, hint } = BRACKET_LABELS[bracket];
@@ -156,10 +162,10 @@ export function AddOpponentModal() {
             );
           })}
         </div>
+      </div>
 
-        <div className="flex justify-end pt-1">
-          <Button size="sm" className="h-7 px-3 text-xs" onClick={closeModal}>Done</Button>
-        </div>
+      <div className="flex justify-end px-3 py-2.5 border-t border-border/40 shrink-0">
+        <Button size="sm" className="h-7 px-3 text-xs" onClick={closeModal}>Done</Button>
       </div>
     </FloatingDialog>
   );

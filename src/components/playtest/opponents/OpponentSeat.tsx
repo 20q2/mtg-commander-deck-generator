@@ -7,12 +7,14 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { botPower, botToughness } from '@/services/playtest/opponents/stats';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
 import { CombatStrip } from '@/components/playtest/opponents/CombatStrip';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
+import type { ResizeAxis, SeatSize } from '@/components/playtest/opponents/OpponentSeats';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -33,7 +35,7 @@ import type { ScryfallCard } from '@/types';
  */
 export function OpponentSeat({
   opponent, width, onGrab, onResetPosition, placed = false,
-  onResizeGrab, onResetSize, sized = false,
+  onResizeGrab, onResetSize, sized = {}, height,
 }: {
   opponent: Opponent;
   width: number;
@@ -44,11 +46,16 @@ export function OpponentSeat({
   /** True once this seat has been dragged off the row. */
   placed?: boolean;
   /** Pointer-down on the corner grip — starts a resize. */
-  onResizeGrab?: (e: React.PointerEvent<HTMLElement>) => void;
+  onResizeGrab?: (axis: ResizeAxis, e: React.PointerEvent<HTMLElement>) => void;
   /** Double-click the grip — back to the auto width. */
-  onResetSize?: () => void;
-  /** True once this seat has been resized by hand. */
-  sized?: boolean;
+  onResetSize?: (axis: ResizeAxis) => void;
+  /** Which axes have been set by hand, so each handle knows if it can reset. */
+  sized?: SeatSize;
+  /**
+   * An explicit height, once one has been dragged. Unset means the seat is
+   * as tall as its contents, which is the default.
+   */
+  height?: number;
 }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
@@ -83,7 +90,7 @@ export function OpponentSeat({
     <div
       data-seat
       data-float-id={`opp-lane-${opponent.id}`}
-      className={`relative rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 transition-colors ${
+      className={`relative flex flex-col rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 transition-colors ${
         placed ? 'shadow-2xl ring-1 ring-black/30' : 'shadow-lg'
       } ${
         isOver ? 'border-violet-400/70 bg-violet-500/10'
@@ -95,7 +102,7 @@ export function OpponentSeat({
         // so you can see the board that beat them and still take their stuff.
         opponent.life <= 0 ? 'opacity-50 saturate-50' : ''
       }`}
-      style={{ width }}
+      style={{ width, height }}
     >
       <SeatHeader
         opponent={opponent}
@@ -115,7 +122,18 @@ export function OpponentSeat({
           keeps almost every board under it, but a genuinely wide board of
           distinct cards must not be allowed to grow down over the player's own
           battlefield — which is exactly what a 64-permanent goblin board did. */}
-      <div ref={setNodeRef} className="mt-1 space-y-1 max-h-[38vh] overflow-y-auto overflow-x-hidden">
+      {/* Creatures and other permanents. With an explicit height they take
+          whatever is left over and scroll inside it; without one they keep the
+          viewport-relative cap that stops a huge board swallowing the screen.
+          Either way the header, lands, zones and combat strip stay pinned —
+          shortening a seat should cost you the least useful rows, not the life
+          total or the fight. */}
+      <div
+        ref={setNodeRef}
+        className={`mt-1 space-y-1 overflow-y-auto overflow-x-hidden ${
+          height ? 'flex-1 min-h-0' : 'max-h-[38vh]'
+        }`}
+      >
         {opponent.battlefield.length === 0 ? (
           // A drop target you can see, rather than a sentence explaining one.
           <div
@@ -149,7 +167,7 @@ export function OpponentSeat({
           right. Sharing one row keeps the seat short enough to live over the
           canvas while still showing every land they've played. Mirrors your
           own hand row, with Exile half-width and hanging from the top. */}
-      <div className="mt-1 flex items-end gap-1">
+      <div className="mt-1 flex items-end gap-1 shrink-0">
         <div className="flex items-end gap-1 flex-wrap min-w-0" title="Lands">
           {pileUp(rows.lands).map(pile => (
             <OpponentPermanentCard
@@ -200,23 +218,33 @@ export function OpponentSeat({
 
       <CombatStrip opponentId={opponent.id} seatWidth={width} />
 
-      {/* Resize grip on the bottom-right corner. Width is the only lever a
-          seat needs — height follows the board, and every card inside is a
-          fraction of the width, so dragging this zooms the whole table rather
-          than stretching it.
+      {/* Three handles, because the axes do different jobs. Width is the zoom
+          — every card in the seat is a fraction of it. Height decides how much
+          table this seat may occupy before its board starts scrolling. The
+          corner does both at once.
 
-          It hangs outside the border on purpose. The combat strip puts its
-          Resolve button in that corner, and a grip sitting inside the seat
-          would swallow the click that ends combat. */}
+          All of them hang half outside the border on purpose: the combat strip
+          puts its Resolve button in the bottom-right, and a handle sitting
+          inside the seat would swallow the click that ends combat. */}
       <div
-        onPointerDown={onResizeGrab}
-        onDoubleClick={sized ? onResetSize : undefined}
-        title={
-          sized
-            ? `Drag to resize ${opponent.name}'s table · double-click for the automatic width`
-            : `Drag to resize ${opponent.name}'s table`
+        onPointerDown={e => onResizeGrab?.('x', e)}
+        onDoubleClick={sized.w !== undefined ? () => onResetSize?.('x') : undefined}
+        title={`Drag to set ${opponent.name}'s width${sized.w !== undefined ? ' · double-click for automatic' : ''}`}
+        className="absolute top-0 right-0 h-full w-1.5 translate-x-1/2 cursor-col-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
+      />
+      <div
+        onPointerDown={e => onResizeGrab?.('y', e)}
+        onDoubleClick={sized.h !== undefined ? () => onResetSize?.('y') : undefined}
+        title={`Drag to set ${opponent.name}'s height${sized.h !== undefined ? ' · double-click for automatic' : ''}`}
+        className="absolute bottom-0 left-0 w-full h-1.5 translate-y-1/2 cursor-row-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
+      />
+      <div
+        onPointerDown={e => onResizeGrab?.('both', e)}
+        onDoubleClick={
+          sized.w !== undefined || sized.h !== undefined ? () => onResetSize?.('both') : undefined
         }
-        className="absolute -bottom-2 -right-2 w-4 h-4 cursor-nwse-resize touch-none text-muted-foreground/60 hover:text-violet-300 transition-colors"
+        title={`Drag to resize ${opponent.name}'s table · double-click for automatic`}
+        className="absolute -bottom-2 -right-2 z-10 w-4 h-4 cursor-nwse-resize touch-none text-muted-foreground/60 hover:text-violet-300 transition-colors"
       >
         <svg viewBox="0 0 12 12" aria-hidden className="w-full h-full">
           <path d="M11 4v7H4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -246,7 +274,7 @@ function SeatHeader({
 }) {
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 shrink-0">
       {/* The name doubles as the seat's move handle. Everything else in this
           row is a button, so the drag can't steal a click that mattered.
 
@@ -663,6 +691,15 @@ function OpponentPermanentCard({
   : previewMode === 'hover' ? hovered
   :                           ctrlHeld && hovered;
   const counters = Object.entries(permanent.counters).filter(([, v]) => v > 0);
+  // Only edited permanents get a P/T pill, and only then is it worth computing:
+  // read through botPower/botToughness so counters and anthems are in the number,
+  // not just the edit's own values. A string keeps the selector's equality cheap.
+  const editedPT = useOpponentStore(s => {
+    if (!permanent.edit) return null;
+    const opp = s.opponents.find(o => o.id === opponentId);
+    if (!opp) return null;
+    return `${botPower(permanent, opp.battlefield, opp.graveyard)}/${botToughness(permanent, opp.battlefield, opp.graveyard)}`;
+  });
 
   // Theft: drag this down onto your battlefield to take it.
   const drag = useDraggable({
@@ -719,6 +756,15 @@ function OpponentPermanentCard({
           aria-label={`${count} copies`}
         >
           ×{count}
+        </span>
+      )}
+
+      {editedPT && (
+        <span
+          className="absolute -bottom-1 -right-1 px-1 rounded-[3px] bg-amber-600 text-white text-[9px] font-bold leading-4 tabular-nums shadow ring-1 ring-black/50 pointer-events-none"
+          title={`Edited${permanent.edit?.loseAbilities ? ' · loses all abilities' : ''}`}
+        >
+          {editedPT}{permanent.edit?.loseAbilities ? ' ⊘' : ''}
         </span>
       )}
 
