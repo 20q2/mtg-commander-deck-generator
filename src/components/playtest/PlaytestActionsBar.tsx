@@ -59,8 +59,12 @@ export function PlaytestActionsBar() {
         {/* Shuffle isn't here — it's an icon button on the library pile itself. */}
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'tokens' }); }}><Sparkles className="w-3 h-3 mr-2" />Tokens…</Button>
         <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); createOpen ? closeModal() : openModal({ kind: 'create' }); }}><Plus className="w-3 h-3 mr-2" />Create…</Button>
-        {/* The opponent column is desktop-only, so this is mobile's way in. */}
-        <Button variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'opponents' }); }}><Bot className="w-3 h-3 mr-2" />Play against bots…</Button>
+        {/* Desktop only, deliberately. Every seat renderer is `hidden md:*`, so a
+            phone could seat a bot, let it attack, and then be stuck: Next Turn
+            locks while combat is open and the only button that clears it lives
+            inside a display:none subtree. Until seats render on mobile, the
+            honest thing is not to offer the trip. */}
+        <Button variant="ghost" size="sm" className="hidden md:flex w-full justify-start text-xs" onClick={() => { setMoreOpen(false); openModal({ kind: 'opponents' }); }}><Bot className="w-3 h-3 mr-2" />Play against bots…</Button>
       </PopoverContent>
     </Popover>
   );
