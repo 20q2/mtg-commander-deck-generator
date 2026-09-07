@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:theme-tags": "node --experimental-strip-types scripts/buildThemeCharTags.ts"
+    "build:theme-tags": "node --experimental-strip-types scripts/buildThemeCharTags.ts",
+    "build:bot-fixture": "node --experimental-strip-types scripts/buildBotFixture.ts",
+    "bot:coverage": "node --experimental-strip-types scripts/botDeckCoverage.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

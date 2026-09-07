@@ -164,3 +164,86 @@ describe('the telegraph', () => {
     expect(second.final.graveyard.map(c => c.name)).toContain('Demonic Consultation');
   });
 });
+
+describe('tutors', () => {
+  const MATRON = () => card({ name: 'Goblin Matron', cmc: 3, power: '1', toughness: '1' });
+  /**
+   * The bot draws for turn before it casts anything, so every library here
+   * leads with a card meant to be drawn — otherwise the draw step eats the very
+   * card the test is about.
+   */
+  const FILLER = () => card({ name: 'Filler Wastes', type_line: 'Land', cmc: 0 });
+
+  /** Kiki-Jiki down, three Mountains up, and a Matron ready to cast. */
+  const goblinBot = (library: ScryfallCard[]) => bot({
+    battlefield: [
+      perm(card({ name: 'Kiki-Jiki, Mirror Breaker', cmc: 5, power: '2', toughness: '2' })),
+      ...Array.from({ length: 3 }, () => perm(MOUNTAIN())),
+    ],
+    hand: [MATRON()],
+    library: [FILLER(), ...library],
+  });
+
+  it('fetches the piece that completes a line over a bigger card', () => {
+    const r = takeTurn(goblinBot([
+      // Strictly bigger and also a goblin, so cost alone would take it.
+      card({ name: 'Big Goblin', cmc: 9, power: '9', toughness: '9' }),
+      card({ name: 'Zealous Conscripts', cmc: 5, power: '3', toughness: '3' }),
+    ]), board());
+    expect(logsOf(r.frames)).toContain('searches up Zealous Conscripts');
+  });
+
+  it('otherwise prefers a card it knows how to use', () => {
+    const r = takeTurn(goblinBot([
+      card({ name: 'Vanilla Goblin', cmc: 6, power: '6', toughness: '6' }),
+      // Registry-known: the bot can actually do something with this one.
+      card({ name: 'Goblin Rabblemaster', cmc: 3, power: '2', toughness: '2' }),
+    ]), board());
+    expect(logsOf(r.frames)).toContain('searches up Goblin Rabblemaster');
+  });
+
+  it('falls back to the most expensive legal card', () => {
+    const r = takeTurn(goblinBot([
+      card({ name: 'Small Goblin', cmc: 1, power: '1', toughness: '1' }),
+      card({ name: 'Large Goblin', cmc: 7, power: '7', toughness: '7' }),
+    ]), board());
+    expect(logsOf(r.frames)).toContain('searches up Large Goblin');
+  });
+
+  it('respects the subtype restriction', () => {
+    const r = takeTurn(goblinBot([
+      card({ name: 'Huge Dragon', cmc: 9, type_line: 'Creature — Dragon', power: '9', toughness: '9' }),
+      card({ name: 'Small Goblin', cmc: 1, power: '1', toughness: '1' }),
+    ]), board());
+    expect(logsOf(r.frames)).toContain('searches up Small Goblin');
+    expect(r.final.hand.map(c => c.name)).not.toContain('Huge Dragon');
+  });
+
+  it('never fetches a land', () => {
+    const r = takeTurn(goblinBot([
+      card({ name: 'Goblin Hideout', type_line: 'Land', cmc: 0 }),
+      card({ name: 'Small Goblin', cmc: 1, power: '1', toughness: '1' }),
+    ]), board());
+    expect(logsOf(r.frames)).toContain('searches up Small Goblin');
+    expect(logsOf(r.frames)).not.toContain('Goblin Hideout');
+  });
+
+  it('still casts the body when there is nothing to find', () => {
+    // A Matron with an empty library is a 1/1 that should still hit the table —
+    // holding it forever would read as a bot that had stopped playing.
+    const r = takeTurn(goblinBot([]), board());
+    expect(r.final.battlefield.map(p => p.card.name)).toContain('Goblin Matron');
+    expect(logsOf(r.frames)).not.toContain('searches up');
+  });
+
+  it('does not waste a sorcery-speed tutor with nothing legal to find', () => {
+    // Demonic Tutor is not a body, so casting it into an empty library is pure
+    // loss — the guard that holds Victimize back holds this back too.
+    const r = takeTurn(bot({
+      battlefield: Array.from({ length: 3 }, () => perm(MOUNTAIN())),
+      hand: [card({ name: 'Demonic Tutor', type_line: 'Sorcery', cmc: 2 })],
+      library: [],
+    }), board());
+    expect(r.final.hand.map(c => c.name)).toContain('Demonic Tutor');
+  });
+});

@@ -126,6 +126,36 @@ export function comboIsLive(combo: BotCombo, ctx: ComboContext): boolean {
 }
 
 /**
+ * Cards this bot is exactly one short of, across every line it knows.
+ *
+ * This is what makes a tutor look like a player rather than a random draw: a
+ * goblin deck holding Kiki-Jiki and a Goblin Matron should go and find Zealous
+ * Conscripts, not fetch the biggest goblin in the deck.
+ *
+ * A piece already in hand counts as held — the bot needs to cast it, not search
+ * for a second copy. And only a one-card gap counts: chasing a line you are
+ * three cards away from is indistinguishable from noise.
+ */
+export function missingComboPieces(
+  battlefield: string[],
+  hand: string[],
+  decks?: BotCombo[],
+): string[] {
+  const out = new Set<string>();
+  for (const combo of decks ?? BOT_COMBOS) {
+    const held = [...battlefield, ...hand];
+    const missing: string[] = [];
+    for (const name of [...combo.onBattlefield, ...(combo.inHand ?? [])]) {
+      const i = held.indexOf(name);
+      if (i >= 0) held.splice(i, 1);
+      else missing.push(name);
+    }
+    if (missing.length === 1) out.add(missing[0]);
+  }
+  return [...out];
+}
+
+/**
  * Every combo this bot could fire right now, best outcome first, so a deck
  * holding two live lines takes the one that actually ends it.
  */

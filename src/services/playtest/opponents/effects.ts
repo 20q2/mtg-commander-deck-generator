@@ -133,7 +133,19 @@ export type BotSelfSpec =
    * Mill the bot's own library into its own graveyard. Pure setup: it does
    * nothing on its own, it is what gives `reanimate` something to return.
    */
-  | { kind: 'selfMill'; count: number };
+  | { kind: 'selfMill'; count: number }
+  /**
+   * Search the library. `want` narrows what is legal to find — leave it empty
+   * for an unrestricted tutor. What it actually picks is decided in the engine,
+   * and that choice is where a tutor earns its keep: a missing combo piece
+   * first, then a card the bot knows how to use, then the biggest thing.
+   */
+  | {
+      kind: 'tutor';
+      want?: { subtype?: string; type?: string };
+      to: 'hand' | 'battlefield';
+      count: number;
+    };
 
 export interface BotSelfEntry {
   spec: BotSelfSpec;
@@ -158,6 +170,9 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'Beetleback Chief':     { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 2 }] } },
   'Siege-Gang Commander': { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 3 }] } },
   'Goblin Ringleader':    { spec: { kind: 'draw', count: 2 } },
+  // "Search your library for a Goblin card" — the reason a goblin deck ever
+  // assembles anything. Unhandled, this was a 3-mana do-nothing.
+  'Goblin Matron':        { spec: { kind: 'tutor', want: { subtype: 'goblin' }, to: 'hand', count: 1 } },
 
   // ── Selesnya tokens ──
   'Raise the Alarm':      { spec: { kind: 'makeTokens', tokens: [{ name: 'Soldier', count: 2 }] } },
@@ -180,11 +195,13 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // The sacrifice is not modelled; the two bodies back are the point of the card.
   'Victimize':            { spec: { kind: 'reanimate', count: 2 } },
   'Grisly Salvage':       { spec: { kind: 'selfMill', count: 5 } },
+  'Worldly Tutor':        { spec: { kind: 'tutor', want: { type: 'creature' }, to: 'hand', count: 1 } },
   'Satyr Wayfinder':      { spec: { kind: 'selfMill', count: 4 } },
   "Stitcher's Supplier":  { spec: { kind: 'selfMill', count: 3 } },
 
   // ── Dimir ──
   'Baleful Strix':        { spec: { kind: 'draw', count: 1 } },
+  'Demonic Tutor':        { spec: { kind: 'tutor', to: 'hand', count: 1 } },
   'Divination':           { spec: { kind: 'draw', count: 2 } },
   "Night's Whisper":      { spec: { kind: 'draw', count: 2 } },
   'Fact or Fiction':      { spec: { kind: 'draw', count: 2 } },

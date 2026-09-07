@@ -6,7 +6,7 @@ import { BOT_TRIGGERS, costOf, lookupActivated, lookupEffect, lookupSelfEffect }
 import type { BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
 import { botPower as livePower, botToughness as liveToughness, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
-import { BOT_COMBOS, liveCombos } from '@/services/playtest/opponents/botCombos';
+import { BOT_COMBOS, liveCombos, missingComboPieces } from '@/services/playtest/opponents/botCombos';
 import { keywordsOf } from '@/services/playtest/combat';
 import type { AttackTarget, Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
@@ -322,6 +322,50 @@ export function takeTurn(
         return made > 0 ? `populates ${made}` : null;
       }
 
+      case 'tutor': {
+        const found: string[] = [];
+        for (let i = 0; i < spec.count; i++) {
+          // Recomputed each pick: fetching one piece changes what is missing.
+          const chasing = new Set(missingComboPieces(
+            opp.battlefield.map(p => p.card.name),
+            opp.hand.map(c => c.name),
+          ));
+
+          const legal = opp.library
+            .map((card, index) => ({ card, index }))
+            .filter(({ card }) => {
+              const t = getFrontFaceTypeLine(card).toLowerCase();
+              if (spec.want?.type && !t.includes(spec.want.type.toLowerCase())) return false;
+              if (spec.want?.subtype && !t.includes(spec.want.subtype.toLowerCase())) return false;
+              // A tutor that fetches a land is almost never the play.
+              return !isLand(card);
+            });
+          if (legal.length === 0) break;
+
+          // What a player would actually go and get, in order:
+          //  1. the card that completes a line it is one piece from,
+          //  2. a card the registry knows how to use — a body it can only stare
+          //     at is worth less than a spell it can point at you,
+          //  3. the most expensive thing left.
+          const score = (card: ScryfallCard) =>
+            (chasing.has(card.name) ? 1000 : 0)
+            + (lookupEffect(card.name) || lookupSelfEffect(card.name) ? 100 : 0)
+            + costOf(card);
+          const best = legal.reduce((a, b) => (score(b.card) > score(a.card) ? b : a));
+
+          opp.library.splice(best.index, 1);
+          if (spec.to === 'battlefield') {
+            if (!addBody(best.card)) break;
+          } else {
+            opp.hand.push(best.card);
+          }
+          found.push(best.card.name);
+        }
+        // Named out loud: a tutor you cannot see is indistinguishable from a
+        // lucky draw, and knowing what they went and got is the whole tell.
+        return found.length > 0 ? `searches up ${describeNames(found)}` : null;
+      }
+
       case 'makeTokens': {
         const parts: string[] = [];
         for (const tspec of spec.tokens) {
@@ -353,6 +397,12 @@ export function takeTurn(
       case 'reanimate':  return opp.graveyard.some(isCreatureCard);
       case 'draw':
       case 'selfMill':   return opp.library.length > 0;
+      case 'tutor':      return opp.library.some(c => {
+        const t = getFrontFaceTypeLine(c).toLowerCase();
+        if (spec.want?.type && !t.includes(spec.want.type.toLowerCase())) return false;
+        if (spec.want?.subtype && !t.includes(spec.want.subtype.toLowerCase())) return false;
+        return !isLand(c);
+      });
       case 'makeTokens': return opp.battlefield.length < MAX_BOARD;
     }
   };
