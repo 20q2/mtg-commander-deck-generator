@@ -617,11 +617,22 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     // Pops "−4" off the life counter. Fired here rather than at the call sites so
     // combat, drain and the toolbar buttons all get it for free.
     floatDelta(delta, 'player-life');
-    set(state => ({
-      history: pushHistory(state.history, snapshotOf(state)),
-      life: state.life + delta,
-      log: [...state.log, makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${state.life + delta})`, 'life')],
-    }));
+    set(state => {
+      const life = state.life + delta;
+      // A bot crossing zero has always been announced; yours never was, so a
+      // game could run to −260 with nobody saying anything. Announced on the
+      // crossing only, so nudging the counter afterwards stays quiet.
+      const died = state.life > 0 && life <= 0;
+      return {
+        history: pushHistory(state.history, snapshotOf(state)),
+        life,
+        log: [
+          ...state.log,
+          makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${life})`, 'life'),
+          ...(died ? [makeLogEntry('You have been defeated', 'life')] : []),
+        ],
+      };
+    });
   },
 
   nextTurn: () => set(state => {

@@ -2,12 +2,12 @@ import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import { chooseResistancePlay, hasLiveTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { BOT_TRIGGERS, costOf, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
-import type { TokenSpec } from '@/services/playtest/opponents/effects';
+import { BOT_TRIGGERS, costOf, lookupActivated, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
+import type { BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
 import { botPower as livePower, botToughness as liveToughness, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
-import { chooseAttackers } from '@/services/playtest/opponents/combatChoices';
+import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { keywordsOf } from '@/services/playtest/combat';
-import type { Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
+import type { AttackTarget, Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
  * The bot turn loop. Pure: it takes an opponent plus a read of the player's board
@@ -37,8 +37,13 @@ const MAX_INTERACTION_PER_TURN = 2;
  * Token creation stops at the cap. Nothing else does: the bot keeps casting
  * from hand, so hitting this looks like a board that has stopped growing rather
  * than a bot that has stopped playing.
+ *
+ * Lowered from 60 after measuring the goblin deck at 555 damage a game against
+ * the other three decks' 25 to 84. Sixty permanents was not a difficulty
+ * setting, it was a different game — and the cap is the one lever that bounds
+ * the doubling without rewriting what Krenko does.
  */
-const MAX_BOARD = 60;
+const MAX_BOARD = 40;
 
 function isPermanent(card: ScryfallCard): boolean {
   const t = getFrontFaceTypeLine(card).toLowerCase();
@@ -166,15 +171,24 @@ function etbDamage(battlefield: OpponentPermanent[], count: number): number {
  * times. Repeats collapse to a count, so the line says what you need: how many
  * goblins, and which real cards came with them.
  */
-function describeAttackers(cards: ScryfallCard[]): string {
+function describeNames(names: string[]): string {
   const counts = new Map<string, number>();
-  for (const c of cards) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
   return [...counts.entries()]
     .map(([name, n]) => (n > 1 ? `${n} ${name}s` : name))
     .join(', ');
 }
 
-export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnResult {
+function describeAttackers(cards: ScryfallCard[]): string {
+  return describeNames(cards.map(c => c.name));
+}
+
+export function takeTurn(
+  input: Opponent,
+  playerBoard: PlayerBoardRead,
+  /** The other seats, so a bot can swing at one of them instead of the player. */
+  rivals: AttackCandidate[] = [],
+): TurnResult {
   const frames: TurnFrame[] = [];
   const opp: Opponent = {
     ...input,
@@ -191,6 +205,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     effects: AppliedEffect[] = [],
     attackers: string[] = [],
     blurb?: string,
+    attackTarget?: AttackTarget,
   ) => {
     // Triggers are billed against the board as it stands at the end of the
     // beat, so a Purphoros cast alongside its goblins counts them.
@@ -210,6 +225,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       effects,
       attackers,
       blurb,
+      attackTarget,
       selfDamage,
     });
   };
@@ -225,49 +241,138 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
    * short label for the frame, or null when nothing happened. Called for cast
    * effects and again for the combat-timed ones.
    */
+  /** Put `card` onto the board as a fresh permanent, respecting the cap. */
+  const addBody = (card: ScryfallCard): boolean => {
+    if (opp.battlefield.length >= MAX_BOARD) return false;
+    opp.battlefield.push(toPermanent(card));
+    pendingCreatures += 1;
+    return true;
+  };
+
+  const applySpec = (spec: BotSelfSpec): string | null => {
+    switch (spec.kind) {
+      case 'draw': {
+        let drawn = 0;
+        for (let i = 0; i < spec.count; i++) {
+          if (opp.library.length === 0) break;
+          opp.hand.push(opp.library.shift() as ScryfallCard);
+          drawn++;
+        }
+        return drawn > 0 ? `draws ${drawn}` : null;
+      }
+
+      case 'selfMill': {
+        let milled = 0;
+        for (let i = 0; i < spec.count; i++) {
+          if (opp.library.length === 0) break;
+          opp.graveyard.push(opp.library.shift() as ScryfallCard);
+          milled++;
+        }
+        return milled > 0 ? `mills ${milled}` : null;
+      }
+
+      case 'reanimate': {
+        // Best body first — the graveyard is a resource and the bot spends it
+        // on the biggest thing in there.
+        const names: string[] = [];
+        for (let i = 0; i < spec.count; i++) {
+          let bestIdx = -1;
+          for (let j = 0; j < opp.graveyard.length; j++) {
+            if (!isCreatureCard(opp.graveyard[j])) continue;
+            if (bestIdx < 0 || costOf(opp.graveyard[j]) > costOf(opp.graveyard[bestIdx])) bestIdx = j;
+          }
+          if (bestIdx < 0) break;
+          const card = opp.graveyard[bestIdx];
+          if (!addBody(card)) break;
+          opp.graveyard.splice(bestIdx, 1);
+          names.push(card.name);
+        }
+        return names.length > 0 ? `returns ${describeNames(names)}` : null;
+      }
+
+      case 'populate': {
+        // Copy the best token already on the board. `count` above the number of
+        // tokens present means "one copy of each", which is Rhys's big ability.
+        const tokens = opp.battlefield.filter(p => isTokenCard(p.card));
+        if (tokens.length === 0) return null;
+        let made = 0;
+        if (spec.count >= tokens.length) {
+          for (const t of tokens) {
+            for (let i = 0; i < tokenMultiplier(opp.battlefield); i++) {
+              if (!addBody(t.card)) break;
+              made++;
+            }
+          }
+        } else {
+          const best = [...tokens].sort(
+            (a, b) => livePower(b, opp.battlefield) - livePower(a, opp.battlefield),
+          )[0];
+          const n = spec.count * tokenMultiplier(opp.battlefield);
+          for (let i = 0; i < n; i++) {
+            if (!addBody(best.card)) break;
+            made++;
+          }
+        }
+        return made > 0 ? `populates ${made}` : null;
+      }
+
+      case 'makeTokens': {
+        const parts: string[] = [];
+        for (const tspec of spec.tokens) {
+          const card = findToken(opp.tokens, tspec.name);
+          if (!card) continue;
+          // Room left under the cap, so a doubling engine plateaus instead of
+          // running away with the frame rate.
+          const room = Math.max(0, MAX_BOARD - opp.battlefield.length);
+          const n = Math.min(tokenCount(tspec, opp.battlefield), room);
+          for (let i = 0; i < n; i++) {
+            opp.battlefield.push(toPermanent(card));
+          }
+          pendingCreatures += n;
+          if (n > 0) parts.push(n > 1 ? `${n} ${card.name}s` : card.name);
+        }
+        return parts.length > 0 ? `creates ${parts.join(', ')}` : null;
+      }
+    }
+  };
+
+  /**
+   * Would this spec actually do anything right now? Checked before paying, so
+   * a bot never taps out to populate with no tokens or to reanimate an empty
+   * graveyard — and never burns Victimize for nothing.
+   */
+  const specWouldDo = (spec: BotSelfSpec): boolean => {
+    switch (spec.kind) {
+      case 'populate':   return opp.battlefield.some(p => isTokenCard(p.card));
+      case 'reanimate':  return opp.graveyard.some(isCreatureCard);
+      case 'draw':
+      case 'selfMill':   return opp.library.length > 0;
+      case 'makeTokens': return opp.battlefield.length < MAX_BOARD;
+    }
+  };
+
   const applySelfEffect = (cardName: string): string | null => {
     const entry = lookupSelfEffect(cardName);
     if (!entry) return null;
-
-    if (entry.spec.kind === 'draw') {
-      let drawn = 0;
-      for (let i = 0; i < entry.spec.count; i++) {
-        if (opp.library.length === 0) break;
-        opp.hand.push(opp.library.shift() as ScryfallCard);
-        drawn++;
-      }
-      return drawn > 0 ? `Draws ${drawn}` : null;
-    }
-
-    let made = 0;
-    for (const spec of entry.spec.tokens) {
-      const card = findToken(opp.tokens, spec.name);
-      if (!card) continue;
-      // Room left under the cap, so a doubling engine plateaus instead of
-      // running away with the frame rate.
-      const room = Math.max(0, MAX_BOARD - opp.battlefield.length);
-      const n = Math.min(tokenCount(spec, opp.battlefield), room);
-      for (let i = 0; i < n; i++) {
-        opp.battlefield.push(toPermanent(card));
-        made++;
-      }
-    }
-    pendingCreatures += made;
-    return made > 0 ? `+${made} token${made > 1 ? 's' : ''}` : null;
+    return applySpec(entry.spec);
   };
 
   // ── Untap + draw ──
   opp.battlefield = opp.battlefield.map(p => ({ ...p, tapped: false, summoningSick: false }));
   const drawLogs: string[] = [];
+  let drewForTurn = false;
   if (opp.library.length > 0) {
     opp.hand.push(opp.library.shift() as ScryfallCard);
+    drewForTurn = true;
   } else if (!opp.decked) {
     // Logged once, then never again — a bot that can't draw isn't a loss here,
     // this is a goldfish, not a game with a win condition.
     opp.decked = true;
     drawLogs.push(`${opp.name} has no cards left to draw`);
   }
-  frame(drawLogs);
+  // Floated rather than logged: three bots drawing every turn is twelve log
+  // lines a turn cycle, but a card advantage you cannot see at all is worse.
+  frame(drawLogs, [], [], drewForTurn ? 'Draws' : undefined);
 
   // ── Land ──
   const landIdx = opp.hand.findIndex(isLand);
@@ -340,7 +445,7 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       // A wrath is symmetrical. The bot's own creatures die too — tokens simply
       // cease to exist, and its commander goes back to the command zone.
       const wipe = lookupEffect(play.card.name);
-      if (wipe?.spec.kind === 'boardWipe') {
+      if (wipe?.spec.kind === 'boardWipe' && !wipe.spec.oneSided) {
         const cap = wipe.spec.maxToughness;
         const dying = opp.battlefield.filter(
           p =>
@@ -374,7 +479,11 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
       // A non-permanent is castable only when the registry says what it does.
       // Everything else — the counterspells especially — stays in hand, and the
       // end-of-turn hand limit is what eventually clears it out.
-      if (isLand(card) || (!isPermanent(card) && !lookupSelfEffect(card.name))) return;
+      const self = lookupSelfEffect(card.name);
+      if (isLand(card) || (!isPermanent(card) && !self)) return;
+      // Don't burn a spell that would fizzle. Victimize with an empty graveyard
+      // is a card worth keeping, not a card worth casting.
+      if (self && !isPermanent(card) && self.timing !== 'combat' && !specWouldDo(self.spec)) return;
       // A registry permanent is held back only while its effect has something to
       // hit. Once your board is empty it is just a body, and a bot that keeps it
       // in hand forever reads as a bot that has stopped playing.
@@ -402,7 +511,44 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     const entry = lookupSelfEffect(spell.name);
     const label = entry && entry.timing !== 'combat' ? applySelfEffect(spell.name) : null;
 
-    frame([`${opp.name} casts ${spell.name}`], [], [], label ?? spell.name);
+    // What the spell did to the bot's own board gets its own line. Four Warriors
+    // used to arrive in silence — the log said "casts Secure the Wastes" and
+    // nothing else, so a swarm appeared out of nowhere.
+    const castLogs = [`${opp.name} casts ${spell.name}`];
+    if (label) castLogs.push(`${opp.name} ${label}`);
+    frame(castLogs, [], [], label ?? spell.name);
+  }
+
+  // ── Activated abilities ──
+  // Whatever mana is left over goes into abilities on the board. This is where
+  // Rhys makes elves, Trostani populates and Meren recurs — without it the
+  // token and graveyard decks stop developing the moment their hand runs out.
+  //
+  // One activation per permanent per turn, most expensive affordable ability
+  // first, so Rhys doubles the board when it can rather than making one elf.
+  for (const source of opp.battlefield.filter(p => lookupActivated(p.card.name).length > 0)) {
+    const live = opp.battlefield.find(p => p.instanceId === source.instanceId);
+    if (!live || live.tapped) continue;
+    const options = lookupActivated(live.card.name)
+      .filter(a => a.cost <= availableMana())
+      // A tap ability needs the permanent to have been there since upkeep.
+      .filter(a => !(a.tapsSource && live.summoningSick))
+      .filter(a => specWouldDo(a.spec))
+      .sort((a, b) => b.cost - a.cost);
+    if (options.length === 0) continue;
+
+    const ability = options[0];
+    // Pay before resolving, so the cost shows on their board either way.
+    opp.battlefield = tapForMana(opp.battlefield, ability.cost);
+    if (ability.tapsSource) {
+      opp.battlefield = opp.battlefield.map(p =>
+        p.instanceId === live.instanceId ? { ...p, tapped: true } : p,
+      );
+    }
+    const label = applySpec(ability.spec);
+    if (label) {
+      frame([`${opp.name} activates ${live.card.name}`, `${opp.name} ${label}`], [], [], label);
+    }
   }
 
   // ── Beginning of combat ──
@@ -423,14 +569,26 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         p.instanceId === source.instanceId ? { ...p, tapped: true } : p,
       );
     }
-    if (label) frame([`${opp.name}'s ${source.card.name} triggers`], [], [], label);
+    if (label) {
+      frame([`${opp.name}'s ${source.card.name} triggers`, `${opp.name} ${label}`], [], [], label);
+    }
   }
 
   // ── Attack ──
-  // Everything that can attack, does. There's no blocking model, so this reads as
-  // a clock rather than combat — which is what a goldfish needs.
+  // Who first, then which creatures. A bot will turn on a wounded rival rather
+  // than grind at the player behind four blockers, which is what a fourth
+  // player at the table would do.
   const able = opp.battlefield.filter(
     p => isCreatureCard(p.card) && !p.summoningSick && !p.tapped,
+  );
+  const target = chooseAttackTarget(
+    {
+      id: null,
+      name: 'you',
+      life: playerBoard.life,
+      untappedCreatures: playerBoard.untappedCreatures,
+    },
+    rivals,
   );
   const chosen = new Set(
     chooseAttackers({
@@ -441,12 +599,16 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
         toughness: liveToughness(p, opp.battlefield),
         keywords: keywordsOf(p.card),
       })),
-      blockers: playerBoard.untappedCreatures,
-      playerLife: playerBoard.life,
+      blockers: target.untappedCreatures,
+      playerLife: target.life,
       aggression: opp.aggression,
+      botLife: opp.life,
     }),
   );
   const attackers = able.filter(p => chosen.has(p.instanceId));
+  const attackTarget: AttackTarget = target.id === null
+    ? { kind: 'player' }
+    : { kind: 'opponent', id: target.id, name: target.name };
 
   if (attackers.length > 0) {
     // Vigilance attacks without tapping — the same rule your own side follows.
@@ -460,10 +622,11 @@ export function takeTurn(input: Opponent, playerBoard: PlayerBoardRead): TurnRes
     // No damage here — combat opens and waits for blocks. Whatever gets through
     // is worked out when the player resolves it.
     frame(
-      [`${opp.name} attacks with ${describeAttackers(attackers.map(a => a.card))}`],
+      [`${opp.name} attacks ${target.name} with ${describeAttackers(attackers.map(a => a.card))}`],
       [],
       attackers.map(a => a.instanceId),
-      'Attacks!',
+      target.id === null ? 'Attacks!' : `Attacks ${target.name}!`,
+      attackTarget,
     );
   } else {
     opp.turnsTaken = input.turnsTaken + 1;

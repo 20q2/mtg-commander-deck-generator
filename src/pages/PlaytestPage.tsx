@@ -28,6 +28,7 @@ import { captureAll } from '@/store/undoBridge';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
 import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
+import { GameOutcomeBanner } from '@/components/playtest/GameOutcomeBanner';
 import { FloatingTextLayer } from '@/components/playtest/FloatingTextLayer';
 import { CardFlightLayer } from '@/components/playtest/CardFlight';
 import { trackEvent } from '@/services/analytics';
@@ -687,6 +688,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           >
             <GameLog />
           </div>
+          <GameOutcomeBanner />
           {mobileSideOpen && (
             <button
               className="md:hidden absolute inset-0 bg-background/40 z-30"

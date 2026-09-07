@@ -59,25 +59,52 @@ export interface BlockContext {
   blockers: Combatant[];
   /** The bot's current life, for the chump-block threshold. */
   life: number;
+  /**
+   * 0..1. Raises the bar on a trade block: a cautious bot only eats an attacker
+   * that is clearly worth more than the blocker it spends, an aggressive one
+   * will take a near-even swap. Defaults to the middle.
+   */
+  aggression?: number;
 }
 
 /**
- * Decide how a bot blocks. Two passes: take the good blocks, then chump only
- * if what is left coming through would kill it.
+ * Roughly what a creature is worth, for comparing a blocker against the
+ * attacker it would trade with. Power plus toughness is crude but it ranks the
+ * cases that matter — a 1/3 deathtouch blocker eating a 6/6 is the trade the
+ * old logic refused, and 4 against 12 says so plainly.
+ */
+function value(c: Combatant): number {
+  return Math.max(0, c.power) + Math.max(0, c.toughness);
+}
+
+/**
+ * Decide how a bot blocks. Four passes, best blocks first:
+ *
+ *  1. Kill the attacker and keep the blocker — free.
+ *  2. Trade: the blocker dies but takes a more valuable attacker with it. This
+ *     is what makes a deathtouch blocker behave like one.
+ *  3. Absorb: the blocker kills nothing but survives, so the block costs
+ *     nothing and stops the damage anyway. A wall doing its job.
+ *  4. Chump, but only against lethal.
  *
  * Returns attacker instanceId to blocker instanceIds. An attacker missing from
  * the map is unblocked.
  *
- * There is deliberately no "hold some back to attack with" rule. Blocking does
- * not tap a creature, and pass 1 only takes blocks the blocker survives, so a
- * reserve costs the bot free value and buys it nothing.
+ * Passes 2 and 3 were the whole reason bots read as asleep in combat: the
+ * original pass 1 required a blocker to kill AND survive, so a 1/3 deathtouch
+ * flier watched a 6/6 walk past it, and a 2/5 took three to the face rather
+ * than blocking a 3/3 it comfortably lived through.
+ *
+ * There is deliberately no "hold some back to attack with" rule here. Blocking
+ * does not tap a creature, so the reserve belongs on the attack side — see
+ * `chooseAttackers`.
  *
  * Known gap: a chump block against a trampler still lets the excess through,
- * so the lethal check in pass 2 can be optimistic against trample. Rare enough
+ * so the lethal check in pass 4 can be optimistic against trample. Rare enough
  * on bot boards that the bookkeeping is not worth it yet.
  */
 export function chooseBlocks(ctx: BlockContext): Record<string, string[]> {
-  const { attackers, blockers, life } = ctx;
+  const { attackers, blockers, life, aggression = 0.5 } = ctx;
   const blocks: Record<string, string[]> = {};
   const available = new Map(blockers.map(b => [b.instanceId, b]));
   const free = () => [...available.values()];
@@ -108,7 +135,53 @@ export function chooseBlocks(ctx: BlockContext): Record<string, string[]> {
     }
   }
 
-  // Pass 2 — chump, but only against lethal.
+  // Pass 2 — trades worth making. The blocker dies, but it drags down an
+  // attacker worth more than itself. `edge` is how much more: an aggressive bot
+  // signs up for a near-even swap, a cautious one wants a clear win.
+  const edge = 1 + (1 - aggression) * 2;
+  for (const atk of ordered) {
+    if (free().length === 0) break;
+    if (blocks[atk.instanceId]?.length) continue;
+    const legal = free().filter(b => canBlock(atk, b));
+    const need = atk.keywords.has('menace') ? 2 : 1;
+    if (legal.length < need) continue;
+
+    if (need === 1) {
+      // Cheapest body that still kills it — no reason to overpay for the trade.
+      const trades = legal
+        .filter(b => killsIt(b, atk) && value(atk) >= value(b) * edge)
+        .sort((a, b) => value(a) - value(b));
+      if (trades.length === 0) continue;
+      blocks[atk.instanceId] = [trades[0].instanceId];
+      take(trades[0]);
+    } else {
+      const pair = bestMenacePair(legal, atk);
+      if (!pair) continue;
+      const spent = pair.reduce((n, b) => n + (blockerSurvives(b, atk) ? 0 : value(b)), 0);
+      if (value(atk) < spent * edge) continue;
+      blocks[atk.instanceId] = pair.map(b => b.instanceId);
+      pair.forEach(take);
+    }
+  }
+
+  // Pass 3 — absorb. The blocker kills nothing but walks away, so the block is
+  // free damage prevention. Only worth a body that is not needed elsewhere,
+  // which by now means anything still unassigned.
+  for (const atk of ordered) {
+    if (free().length === 0) break;
+    if (blocks[atk.instanceId]?.length) continue;
+    if (atk.power <= 0) continue;
+    const legal = free().filter(b => canBlock(atk, b) && blockerSurvives(b, atk));
+    // Menace needs two survivors to be worth it; one body cannot absorb alone.
+    const need = atk.keywords.has('menace') ? 2 : 1;
+    if (legal.length < need) continue;
+    // Smallest survivor first: keep the big blockers free for bigger attackers.
+    const picks = [...legal].sort((a, b) => value(a) - value(b)).slice(0, need);
+    blocks[atk.instanceId] = picks.map(b => b.instanceId);
+    picks.forEach(take);
+  }
+
+  // Pass 4 — chump, but only against lethal.
   const stillComing = () => attackers
     .filter(a => !(blocks[a.instanceId]?.length))
     .reduce((n, a) => n + Math.max(0, a.power), 0);
@@ -130,15 +203,56 @@ export function chooseBlocks(ctx: BlockContext): Record<string, string[]> {
   return blocks;
 }
 
+/** Somebody a bot could swing at — the player, or another seat. */
+export interface AttackCandidate {
+  /** Null for the player; a seat id for a rival bot. */
+  id: string | null;
+  name: string;
+  life: number;
+  untappedCreatures: Combatant[];
+}
+
+/**
+ * Who this bot attacks. Real pods do not all point at one player, and three
+ * bots that only ever knew about you meant you ate three full attacks a turn
+ * cycle — seventy-eight damage in one round of a game I played — while the
+ * bots never touched each other.
+ *
+ * Softness is life plus a premium per untapped blocker. The player has to stay
+ * the default though: this is their playtest, and a table that ignores them is
+ * as broken as a table that ganks them. So a rival is only chosen when it is
+ * clearly the easier target, not merely the marginally easier one.
+ */
+export function chooseAttackTarget(
+  player: AttackCandidate,
+  rivals: AttackCandidate[],
+): AttackCandidate {
+  const softness = (c: AttackCandidate) =>
+    c.life + 3 * c.untappedCreatures.length;
+
+  const alive = rivals.filter(r => r.life > 0);
+  if (alive.length === 0) return player;
+
+  const easiest = [...alive].sort((a, b) => softness(a) - softness(b))[0];
+  // 35% easier, or it is not worth turning the clock off the player.
+  return softness(easiest) * 1.35 < softness(player) ? easiest : player;
+}
+
 export interface AttackContext {
   /** The bot's creatures that legally could attack: untapped and not sick. */
   candidates: Combatant[];
-  /** The player's untapped creatures — what might block. */
+  /** The player's untapped creatures — what might block, and what might swing back. */
   blockers: Combatant[];
   /** The player's life, for the "swing for the win" case. */
   playerLife: number;
-  /** 0..1. At 0.5 and above a bot will take an even trade. */
+  /**
+   * 0..1, and now a dial rather than a switch. It sets how willingly a bot
+   * takes an even trade AND how much of its board it keeps home to block, so
+   * every step between 0 and 1 changes behaviour.
+   */
   aggression: number;
+  /** The bot's own life. Without it a bot never keeps a blocker home. */
+  botLife?: number;
 }
 
 /**
@@ -152,12 +266,16 @@ export interface AttackContext {
  *  2. A creature nothing can profitably block always attacks. That covers an
  *     empty board, evasion, and anything simply bigger than what is opposite.
  *  3. Otherwise it attacks only if an aggressive bot would take the trade.
+ *  4. Finally, keep some defence home if the swing back would hurt. Attacking
+ *     taps, and a bot's turn runs inside your Next Turn, so a bot that sent
+ *     everything every turn met your attack with a board lying sideways — its
+ *     blocking logic was effectively unreachable.
  *
  * This is deliberately not a full combat solver. It exists to stop the one
  * behaviour that reads as broken: a 1/1 walking into a 5/5 every single turn.
  */
 export function chooseAttackers(ctx: AttackContext): string[] {
-  const { candidates, blockers, playerLife, aggression } = ctx;
+  const { candidates, blockers, playerLife, aggression, botLife = Infinity } = ctx;
   const able = candidates.filter(c => c.power > 0);
   if (able.length === 0) return [];
 
@@ -183,17 +301,51 @@ export function chooseAttackers(ctx: AttackContext): string[] {
 
   // 2 and 3, per creature.
   const takesTrades = aggression >= 0.5;
-  return able
-    .filter(atk => {
-      const legal = blockers.filter(b => canBlock(atk, b));
-      if (legal.length === 0) return true;
-      // A block the player would love: their creature lives, ours dies.
-      const oneSided = legal.some(b => killsIt(b, atk) && !killsIt(atk, b));
-      if (oneSided) return false;
-      // An even trade: both die. Only an aggressive bot signs up for that.
-      const trade = legal.some(b => killsIt(b, atk) && killsIt(atk, b));
-      if (trade) return takesTrades;
-      return true;
-    })
-    .map(a => a.instanceId);
+  const wanted = able.filter(atk => {
+    const legal = blockers.filter(b => canBlock(atk, b));
+    if (legal.length === 0) return true;
+    // A block the player would love: their creature lives, ours dies.
+    const oneSided = legal.some(b => killsIt(b, atk) && !killsIt(atk, b));
+    if (oneSided) return false;
+    // An even trade: both die. Only an aggressive bot signs up for that.
+    const trade = legal.some(b => killsIt(b, atk) && killsIt(atk, b));
+    if (trade) return takesTrades;
+    return true;
+  });
+
+  // 4. Keep some defence home.
+  //
+  // Only when the swing back actually threatens: a board that could take a
+  // third of the bot's life is worth respecting, anything less is not worth
+  // slowing the clock for. Vigilant creatures are exempt — they attack and are
+  // still home to block, which is the whole point of the keyword.
+  const incoming = blockers.reduce((n, b) => n + Math.max(0, b.power), 0);
+  const threatened = incoming > 0 && incoming * 3 >= botLife;
+  if (!threatened || wanted.length === 0) return wanted.map(a => a.instanceId);
+
+  const reserveCount = Math.min(
+    // Never hold back more than there are attackers to answer...
+    blockers.length,
+    // ...and never the whole board: at aggression 0 that is still a clock.
+    Math.max(0, wanted.length - 1),
+    Math.ceil(blockers.length * (1 - aggression)),
+  );
+  if (reserveCount <= 0) return wanted.map(a => a.instanceId);
+
+  // Hold back the best defenders: the ones that survive the biggest thing
+  // coming, then the toughest. A vigilant creature never needs holding.
+  const biggest = [...blockers].sort((a, b) => b.power - a.power)[0];
+  const reserve = new Set(
+    wanted
+      .filter(c => !c.keywords.has('vigilance'))
+      .sort((a, b) => {
+        const aSafe = Number(blockerSurvives(a, biggest));
+        const bSafe = Number(blockerSurvives(b, biggest));
+        return bSafe - aSafe || b.toughness - a.toughness;
+      })
+      .slice(0, reserveCount)
+      .map(c => c.instanceId),
+  );
+
+  return wanted.filter(a => !reserve.has(a.instanceId)).map(a => a.instanceId);
 }

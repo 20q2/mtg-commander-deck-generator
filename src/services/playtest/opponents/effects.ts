@@ -19,11 +19,15 @@ export type BotEffectSpec =
   /** Destroy the best permanent of any type. */
   | { kind: 'destroyPermanent' }
   /**
-   * Destroy creatures on both sides. `maxToughness` models a -X/-X sweeper
-   * like Languish, which only kills what it is big enough to kill; omit it for
-   * an unconditional wrath.
+   * Destroy creatures. `maxToughness` models a -X/-X sweeper like Languish,
+   * which only kills what it is big enough to kill; omit it for an
+   * unconditional wrath.
+   *
+   * `oneSided` is for the sweepers that only hit your opponents — a Massacre
+   * Wurm. Without it the engine would kill the bot's own board too, which is
+   * both wrong and the reason the bot would then refuse to cast it.
    */
-  | { kind: 'boardWipe'; maxToughness?: number }
+  | { kind: 'boardWipe'; maxToughness?: number; oneSided?: boolean }
   /** Destroy every artifact on the player's board. */
   | { kind: 'artifactSweep' }
   /** The player sacrifices — they'd pick their worst, so the bot takes the worst. */
@@ -57,6 +61,8 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   "Assassin's Trophy":     { spec: { kind: 'destroyPermanent' } },
   'Putrefy':               { spec: { kind: 'destroyCreature' } },
   'Chaos Warp':            { spec: { kind: 'destroyPermanent' } },
+  'Infernal Grasp':        { spec: { kind: 'destroyCreature' } },
+  'Cut Down':              { spec: { kind: 'destroyCreature' } },
 
   // ── Burn ──
   'Lightning Bolt':        { spec: { kind: 'damage', amount: 3 } },
@@ -69,8 +75,12 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Vandalblast':           { spec: { kind: 'artifactSweep' } },
 
   // ── Attrition ──
+  // Sign in Blood lives in BOT_SELF_EFFECTS now: it draws the bot two cards
+  // rather than pinging you for two, which is what a player would do with it.
   'Agonizing Remorse':     { spec: { kind: 'discard', count: 1 } },
-  'Sign in Blood':         { spec: { kind: 'drain', amount: 2 } },
+  'Mind Rot':              { spec: { kind: 'discard', count: 2 } },
+  'Hymn to Tourach':       { spec: { kind: 'discard', count: 2 } },
+  'Thought Erasure':       { spec: { kind: 'discard', count: 1 } },
 
   // ── Permanents that do something on arrival ──
   'Ravenous Chupacabra':   { spec: { kind: 'destroyCreature' }, etb: true },
@@ -78,6 +88,10 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Gray Merchant of Asphodel': { spec: { kind: 'drain', amount: 2 }, etb: true },
   'Sheoldred, Whispering One':  { spec: { kind: 'edict' }, etb: true },
   'Goblin Trashmaster':    { spec: { kind: 'artifactSweep' }, etb: true },
+  'Shriekmaw':             { spec: { kind: 'destroyCreature' }, etb: true },
+  // -2/-2 to your side only. One-sided, so unlike a wrath it never eats the
+  // bot's own board — which is why it is here and not with the sweepers.
+  'Massacre Wurm':         { spec: { kind: 'boardWipe', maxToughness: 2, oneSided: true }, etb: true },
 };
 
 export function lookupEffect(cardName: string): BotEffectEntry | undefined {
@@ -107,7 +121,19 @@ export type BotSelfSpec =
   /** Put token creatures onto the bot's battlefield. */
   | { kind: 'makeTokens'; tokens: TokenSpec[] }
   /** Draw cards. Approximates every "look at the top N and take some" too. */
-  | { kind: 'draw'; count: number };
+  | { kind: 'draw'; count: number }
+  /**
+   * Copy a token already on the bot's board — populate. Does nothing with no
+   * token to copy, which is exactly how the mechanic reads.
+   */
+  | { kind: 'populate'; count: number }
+  /** Return creature cards from the bot's graveyard to its battlefield. */
+  | { kind: 'reanimate'; count: number }
+  /**
+   * Mill the bot's own library into its own graveyard. Pure setup: it does
+   * nothing on its own, it is what gives `reanimate` something to return.
+   */
+  | { kind: 'selfMill'; count: number };
 
 export interface BotSelfEntry {
   spec: BotSelfSpec;
@@ -148,16 +174,67 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
 
   // ── Golgari ──
   'Grave Titan':          { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 2 }] } },
+  // Really "X insects for creatures in your graveyard". A flat three is close
+  // to what a self-milling deck actually has by the time it casts this.
+  'Izoni, Thousand-Eyed': { spec: { kind: 'makeTokens', tokens: [{ name: 'Insect', count: 3 }] } },
+  // The sacrifice is not modelled; the two bodies back are the point of the card.
+  'Victimize':            { spec: { kind: 'reanimate', count: 2 } },
+  'Grisly Salvage':       { spec: { kind: 'selfMill', count: 5 } },
+  'Satyr Wayfinder':      { spec: { kind: 'selfMill', count: 4 } },
+  "Stitcher's Supplier":  { spec: { kind: 'selfMill', count: 3 } },
 
   // ── Dimir ──
   'Baleful Strix':        { spec: { kind: 'draw', count: 1 } },
   'Divination':           { spec: { kind: 'draw', count: 2 } },
   "Night's Whisper":      { spec: { kind: 'draw', count: 2 } },
   'Fact or Fiction':      { spec: { kind: 'draw', count: 2 } },
+  // Targets itself, as any player would: two cards beats two damage. It used to
+  // be a player-facing drain, which handed the bot's own card draw to nobody.
+  'Sign in Blood':        { spec: { kind: 'draw', count: 2 } },
 };
 
 export function lookupSelfEffect(cardName: string): BotSelfEntry | undefined {
   return BOT_SELF_EFFECTS[cardName];
+}
+
+/**
+ * Abilities a bot activates from its own board in its main phase.
+ *
+ * This is the map that made the slow decks play. Rhys sat on the table for six
+ * turns without once making an elf, Trostani never populated, and Meren never
+ * recurred anything — so three of the four decks flat-lined the moment they
+ * ran out of spells to cast, while goblins doubled every combat.
+ *
+ * A card may list several abilities; the bot activates the most expensive one
+ * it can afford, and each permanent activates at most once per turn.
+ */
+export interface BotActivatedEntry {
+  /** Total mana paid. Colours are ignored here as everywhere else. */
+  cost: number;
+  spec: BotSelfSpec;
+  /** True when activating taps the source, which also stops it attacking. */
+  tapsSource?: boolean;
+}
+
+export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
+  // Both of Rhys's abilities. With six mana up it doubles the board instead of
+  // making a single elf, which is what the card is actually for.
+  'Rhys the Redeemed': [
+    { cost: 3, spec: { kind: 'makeTokens', tokens: [{ name: 'Elf Warrior', count: 1 }] }, tapsSource: true },
+    { cost: 6, spec: { kind: 'populate', count: 99 }, tapsSource: true },
+  ],
+  "Trostani, Selesnya's Voice": [
+    { cost: 3, spec: { kind: 'populate', count: 1 }, tapsSource: true },
+  ],
+  // Free and once a turn, which is close enough to "at the beginning of your
+  // end step" without needing an end step.
+  'Meren of Clan Nel Toth': [
+    { cost: 0, spec: { kind: 'reanimate', count: 1 } },
+  ],
+};
+
+export function lookupActivated(cardName: string): BotActivatedEntry[] {
+  return BOT_ACTIVATED[cardName] ?? [];
 }
 
 /**

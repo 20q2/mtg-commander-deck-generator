@@ -59,6 +59,11 @@ export interface OpponentStub {
   cards: string[];
 }
 
+/** Who a bot's attack is pointed at. */
+export type AttackTarget =
+  | { kind: 'player' }
+  | { kind: 'opponent'; id: string; name: string };
+
 /**
  * One visible beat of a bot's turn — untap, land, cast, attack. The store plays
  * these in sequence with a short pause between so the turn reads as a series of
@@ -79,9 +84,13 @@ export interface TurnFrame {
   selfDamage?: number;
   /**
    * Instance ids on the bot's board that are attacking. Non-empty only on the
-   * attack beat, and it stops the turn: combat waits for you to block.
+   * attack beat. An attack on YOU stops the turn while you block; an attack on
+   * another seat is resolved by the store without pausing, since both sides of
+   * it are decided by the bots.
    */
   attackers: string[];
+  /** Who those attackers are pointed at. Absent on non-attack beats. */
+  attackTarget?: AttackTarget;
 }
 
 /** One creature swinging at you, flattened for the combat UI. */

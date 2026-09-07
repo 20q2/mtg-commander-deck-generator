@@ -5,7 +5,9 @@
       "name": "Goblin Aggro",
       "blurb": "Mono-red. Floods the board with cheap goblins and swings early.",
       "commander": "Krenko, Mob Boss",
-      "colors": ["R"],
+      "colors": [
+        "R"
+      ],
       "cards": [
         "16 Mountain",
         "1 Sol Ring",
@@ -37,10 +39,13 @@
     },
     {
       "id": "dimir-control",
-      "name": "Dimir Control",
-      "blurb": "Blue-black. Holds up interaction, answers threats, wins slowly.",
+      "name": "Dimir Attrition",
+      "blurb": "Blue-black. Strips your hand, kills your creatures, grinds you down.",
       "commander": "Lazav, Dimir Mastermind",
-      "colors": ["U", "B"],
+      "colors": [
+        "U",
+        "B"
+      ],
       "cards": [
         "9 Island",
         "9 Swamp",
@@ -49,11 +54,6 @@
         "1 Sol Ring",
         "1 Dimir Signet",
         "1 Talisman of Dominance",
-        "1 Counterspell",
-        "1 Negate",
-        "1 Swan Song",
-        "1 Dispel",
-        "1 Cancel",
         "1 Murder",
         "1 Go for the Throat",
         "1 Doom Blade",
@@ -69,7 +69,15 @@
         "1 Divination",
         "1 Sign in Blood",
         "1 Night's Whisper",
-        "1 Fact or Fiction"
+        "1 Fact or Fiction",
+        "1 Infernal Grasp",
+        "1 Cut Down",
+        "1 Mind Rot",
+        "1 Hymn to Tourach",
+        "1 Thought Erasure",
+        "1 Vampire Nighthawk",
+        "1 Shriekmaw",
+        "1 Massacre Wurm"
       ]
     },
     {
@@ -77,7 +85,10 @@
       "name": "Selesnya Tokens",
       "blurb": "Green-white. Ramps into wide token boards and pumps them.",
       "commander": "Trostani, Selesnya's Voice",
-      "colors": ["G", "W"],
+      "colors": [
+        "G",
+        "W"
+      ],
       "cards": [
         "9 Forest",
         "9 Plains",
@@ -112,7 +123,10 @@
       "name": "Golgari Graveyard",
       "blurb": "Black-green. Mills itself, recurs threats, grinds you out.",
       "commander": "Meren of Clan Nel Toth",
-      "colors": ["B", "G"],
+      "colors": [
+        "B",
+        "G"
+      ],
       "cards": [
         "9 Forest",
         "9 Swamp",

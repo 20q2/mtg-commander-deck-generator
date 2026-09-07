@@ -10,7 +10,7 @@ import { resolvePT } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { registerUndoParticipant } from '@/store/undoBridge';
-import { chooseBlocks } from '@/services/playtest/opponents/combatChoices';
+import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CombatState, Opponent, OpponentPermanent, OpponentZone } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard } from '@/components/playtest/types';
@@ -50,6 +50,25 @@ function stepFor(beats: number): number {
  * function in Zustand, which nothing else here does.
  */
 let combatResolver: (() => void) | null = null;
+
+/**
+ * Identifies the turn loop that is allowed to write to the store.
+ *
+ * `runAllTurns` is a long async replay that pauses in the middle, waiting on
+ * your blocks. Anything that throws the game away while it is parked has to be
+ * able to stop it, or the loop wakes up and writes a dead game back over the
+ * new one: resetting mid-combat reshuffled every bot and then had two of the
+ * three seats clobbered by the run that was still in flight. Bumping this
+ * invalidates the run, which checks it after every await.
+ */
+let turnRunId = 0;
+
+/** Stop any in-flight turn loop from writing anything more. */
+function cancelTurns() {
+  turnRunId++;
+  combatResolver?.();
+  combatResolver = null;
+}
 
 /**
  * Flatten one of the player's battlefield cards into a Combatant. Reads live
@@ -304,8 +323,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   clearAll: () => {
     // Never leave a turn awaiting blocks for a table that no longer exists.
-    combatResolver?.();
-    combatResolver = null;
+    cancelTurns();
     set({
       opponents: [], error: null, combat: null, combatPhase: false,
       declaration: null, playerCombat: null, running: false,
@@ -532,6 +550,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           attackers,
           blockers,
           life: opponent.life,
+          aggression: opponent.aggression,
         }),
       };
 
@@ -712,6 +731,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   runAllTurns: async () => {
     if (get().running || get().opponents.length === 0) return;
+    const myRun = ++turnRunId;
+    /** False once a reset or a teardown has claimed the store from under us. */
+    const mine = () => myRun === turnRunId;
     set({ running: true });
 
     // Animations off means no waiting — the whole turn lands at once.
@@ -719,19 +741,133 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const pause = (ms: number) =>
       animate ? new Promise(r => setTimeout(r, ms)) : Promise.resolve();
 
+    /**
+     * One bot swinging at another. Nothing here needs the player, so it does
+     * not open a combat and does not pause the turn: the attacker's creatures
+     * are already chosen and the defender picks its own blocks.
+     */
+    const resolveBotAttack = (
+      attacker: Opponent,
+      defenderId: string,
+      attackerIds: string[],
+    ) => {
+      const playtest = usePlaytestStore.getState();
+      const defender = get().opponents.find(o => o.id === defenderId);
+      if (!defender) return;
+
+      const attackers = attackerIds
+        .map(id => attacker.battlefield.find(p => p.instanceId === id))
+        .filter((p): p is OpponentPermanent => !!p)
+        .map(p => botCombatant(p, attacker.battlefield));
+      if (attackers.length === 0) return;
+
+      const pool = defender.battlefield
+        .filter(p => !p.tapped && isCreatureCard(p.card))
+        .map(p => botCombatant(p, defender.battlefield));
+
+      const assignment = chooseBlocks({
+        attackers,
+        blockers: pool,
+        life: defender.life,
+        aggression: defender.aggression,
+      });
+
+      const blocks: Record<string, Combatant[]> = {};
+      for (const a of attackers) {
+        blocks[a.instanceId] = (assignment[a.instanceId] ?? [])
+          .map(id => pool.find(b => b.instanceId === id))
+          .filter((b): b is Combatant => !!b);
+      }
+
+      const blocked = Object.values(blocks).flat();
+      if (blocked.length > 0) {
+        playtest.appendLog(
+          `${defender.name} blocks with ${blocked.length} creature${blocked.length === 1 ? '' : 's'}`,
+        );
+      }
+
+      const outcome = resolveDamage(attackers, blocks);
+      for (const id of outcome.deadAttackers) {
+        const c = attackers.find(a => a.instanceId === id);
+        playtest.appendLog(`${attacker.name}'s ${c?.name ?? 'creature'} died attacking ${defender.name}`);
+      }
+      for (const id of outcome.deadBlockers) {
+        const c = pool.find(b => b.instanceId === id);
+        playtest.appendLog(`${defender.name}'s ${c?.name ?? 'creature'} died blocking`);
+      }
+
+      set(s => ({
+        opponents: s.opponents.map(o => {
+          if (o.id === attacker.id) return sendToGraveyard(o, outcome.deadAttackers);
+          if (o.id === defenderId)  return sendToGraveyard(o, outcome.deadBlockers);
+          return o;
+        }),
+      }));
+
+      if (outcome.damageToDefender > 0) {
+        playtest.appendLog(
+          `${defender.name} took ${outcome.damageToDefender} from ${attacker.name}`,
+        );
+        get().adjustLife(defenderId, -outcome.damageToDefender);
+      }
+    };
+
     try {
       for (const opponent of get().opponents) {
         // Out of the game. The seat stays on the table so you can see what beat
         // them, and so their board is still there to be interacted with.
+        if (!mine()) return;
         if (opponent.life <= 0) continue;
         // Re-read the board for every bot: the one before it may have blown up
         // half of it, and targeting a creature that's already dead reads broken.
-        const { frames, final } = takeTurn(opponent, readPlayerBoard());
+        // The rivals are read fresh for the same reason.
+        const rivals: AttackCandidate[] = get().opponents
+          .filter(o => o.id !== opponent.id && o.life > 0)
+          .map(o => ({
+            id: o.id,
+            name: o.name,
+            life: o.life,
+            untappedCreatures: o.battlefield
+              .filter(p => !p.tapped && isCreatureCard(p.card))
+              .map(p => botCombatant(p, o.battlefield)),
+          }));
+        const { frames, final } = takeTurn(opponent, readPlayerBoard(), rivals);
         const step = stepFor(frames.length);
 
+        /**
+         * Creatures of this bot's that died partway through its own turn.
+         *
+         * The engine plans the whole turn before the first frame is shown, so
+         * its later frames — and its `final` — still have anything you killed
+         * in combat standing. Replaying them straight put a creature that died
+         * blocking right back onto the board. Diffing the live seat against the
+         * frame catches every cause: blocks, and the seat's own kill button.
+         */
+        const casualties = new Set<string>();
+        const noteCasualties = (snapshot: Opponent) => {
+          const live = get().opponents.find(o => o.id === snapshot.id);
+          if (!live) return;
+          for (const p of snapshot.battlefield) {
+            if (!live.battlefield.some(q => q.instanceId === p.instanceId)) {
+              casualties.add(p.instanceId);
+            }
+          }
+        };
+        /** A planned snapshot, brought back in line with what actually happened. */
+        const correct = (o: Opponent): Opponent => {
+          const live = get().opponents.find(x => x.id === o.id);
+          // Nothing in the engine writes a bot's life, so the live value always wins.
+          const base = live && live.life !== o.life ? { ...o, life: live.life } : o;
+          const dead = [...casualties].filter(id =>
+            base.battlefield.some(p => p.instanceId === id),
+          );
+          return dead.length > 0 ? sendToGraveyard(base, dead) : base;
+        };
+
         for (const f of frames) {
+          if (!mine()) return;
           set(s => ({
-            opponents: s.opponents.map(o => (o.id === f.opponent.id ? f.opponent : o)),
+            opponents: s.opponents.map(o => (o.id === f.opponent.id ? correct(f.opponent) : o)),
           }));
           f.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
           // Narrate the play off the bot's lane, so you can follow the turn
@@ -740,6 +876,16 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           f.effects.forEach(applyEffect);
           // Damage from the bot's own triggers, billed per beat.
           if (f.selfDamage) usePlaytestStore.getState().adjustLife(-f.selfDamage);
+
+          // An attack on another seat needs nothing from the player: both sides
+          // are bot decisions, so it is worked out here and the turn carries on.
+          if (f.attackers.length > 0 && f.attackTarget?.kind === 'opponent') {
+            resolveBotAttack(correct(f.opponent), f.attackTarget.id, f.attackers);
+            noteCasualties(f.opponent);
+            await pause(step);
+            if (!mine()) return;
+            continue;
+          }
 
           if (f.attackers.length > 0) {
             // Combat stops the turn until the player has blocked. resolveCombat
@@ -763,14 +909,20 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
               },
             });
             await new Promise<void>(resolve => { combatResolver = resolve; });
+            // A reset while we were parked means this game no longer exists.
+            if (!mine()) return;
+            // Whatever you killed blocking stays dead for the rest of the turn.
+            noteCasualties(f.opponent);
           }
 
           await pause(step);
+          if (!mine()) return;
         }
 
         // Frames are snapshots; make sure the stored bot is the authoritative
-        // final state even if it was removed and re-added mid-animation.
-        set(s => ({ opponents: s.opponents.map(o => (o.id === final.id ? final : o)) }));
+        // final state even if it was removed and re-added mid-animation — minus
+        // anything that died while the turn was being played out.
+        set(s => ({ opponents: s.opponents.map(o => (o.id === final.id ? correct(final) : o)) }));
       }
     } finally {
       set({ running: false });
@@ -821,12 +973,19 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   resetAll: () => set(s => {
     if (s.opponents.length === 0) return {};
+    // A bot's attack that was waiting on blocks belongs to the game being
+    // thrown away. Left behind, its strip stayed live over a turn-one board and
+    // resolving it dealt damage in the new game — so the parked promise is
+    // settled, the combat dropped and the turn loop cancelled.
+    cancelTurns();
     return {
       // A reshuffle must not leave a half-declared attack pointing at instance
       // ids that no longer mean anything.
       declaration: null,
       playerCombat: null,
       combatPhase: false,
+      combat: null,
+      running: false,
       opponents: s.opponents.map(o => {
         // Gather every real card back. Tokens have no printing to return to,
         // and the commander goes to the command zone rather than into the deck.

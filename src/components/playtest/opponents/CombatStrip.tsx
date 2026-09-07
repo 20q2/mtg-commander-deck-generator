@@ -9,6 +9,7 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import type { BattlefieldCard } from '@/components/playtest/types';
+import type { Attacker } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
 /** Declared attackers sitting in the strip before you confirm. */
@@ -165,6 +166,25 @@ function OutgoingResolve({ opponentId }: { opponentId: string }) {
   );
 }
 
+/**
+ * Collapse identical attackers into one slot.
+ *
+ * A goblin swarm attacks with fifty-two creatures. Drawn one slot each at the
+ * combat size, the strip ran about nine hundred pixels wide and wrapped its
+ * Resolve button off the bottom of the canvas — the attack was unresolvable.
+ * Identical tokens share a Scryfall id and identical stats, so they collapse.
+ */
+function groupAttackers(attackers: Attacker[]): { key: string; members: Attacker[] }[] {
+  const groups = new Map<string, Attacker[]>();
+  for (const a of attackers) {
+    const key = `${a.card.id}|${a.power}/${a.toughness}`;
+    const hit = groups.get(key);
+    if (hit) hit.push(a);
+    else groups.set(key, [a]);
+  }
+  return [...groups].map(([key, members]) => ({ key, members }));
+}
+
 /** Their attack. Same strip, roles flipped — drag your creatures in to block. */
 function IncomingAttack({ opponentId }: { opponentId: string }) {
   const combat = useOpponentStore(s => s.combat);
@@ -174,23 +194,38 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
   const battlefield = usePlaytestStore(s => s.battlefield);
   if (!combat || combat.opponentId !== opponentId) return null;
 
-  const unblocked = combat.attackers.filter(a => (combat.blocks[a.instanceId] ?? []).length === 0);
+  const blocksOf = (a: Attacker) => combat.blocks[a.instanceId] ?? [];
+  const unblocked = combat.attackers.filter(a => blocksOf(a).length === 0);
   const incoming = unblocked.reduce((sum, a) => sum + a.power, 0);
+  const piles = groupAttackers(combat.attackers);
 
   return (
     <>
-      {combat.attackers.map(a => (
-        <AttackerSlot
-          key={a.instanceId}
-          attackerId={a.instanceId}
-          card={a.card}
-          label={`${a.power}/${a.toughness}`}
-          blockerIds={combat.blocks[a.instanceId] ?? []}
-          onRemoveBlocker={id => removeBlocker(a.instanceId, id)}
-          battlefield={battlefield}
-          onAssign={assignBlocker}
-        />
-      ))}
+      {piles.map(({ key, members }) => {
+        const top = members[0];
+        // Every blocker assigned anywhere in the pile, shown on the one slot.
+        const blockerIds = members.flatMap(blocksOf);
+        const blockedCount = members.filter(m => blocksOf(m).length > 0).length;
+        return (
+          <AttackerSlot
+            key={key}
+            // A new blocker goes onto the next member with nothing in front of
+            // it, so chumping a swarm one goblin at a time works as expected.
+            attackerId={(members.find(m => blocksOf(m).length === 0) ?? top).instanceId}
+            card={top.card}
+            label={`${top.power}/${top.toughness}`}
+            count={members.length}
+            blockedCount={blockedCount}
+            blockerIds={blockerIds}
+            onRemoveBlocker={id => {
+              const owner = members.find(m => blocksOf(m).includes(id));
+              if (owner) removeBlocker(owner.instanceId, id);
+            }}
+            battlefield={battlefield}
+            onAssign={assignBlocker}
+          />
+        );
+      })}
       <button
         onClick={resolveCombat}
         className="ml-auto shrink-0 px-2 h-6 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold"
@@ -212,6 +247,7 @@ function IncomingAttack({ opponentId }: { opponentId: string }) {
  */
 function AttackerSlot({
   attackerId, card, label, blockerIds, onRemoveBlocker, battlefield, onAssign,
+  count = 1, blockedCount = 0,
 }: {
   attackerId: string;
   card: ScryfallCard;
@@ -220,6 +256,10 @@ function AttackerSlot({
   onRemoveBlocker: (instanceId: string) => void;
   battlefield: BattlefieldCard[];
   onAssign: (attackerId: string, blockerInstanceId: string) => void;
+  /** How many identical attackers this slot stands for. */
+  count?: number;
+  /** How many of them already have a blocker in front of them. */
+  blockedCount?: number;
 }) {
   const previewMode = usePlaytestSettings(s => s.opponentPreview);
   const ctrlHeld = useMagnifyKey();
@@ -293,6 +333,15 @@ function AttackerSlot({
         <span className="absolute bottom-0 right-0 px-1 rounded-tl bg-black/85 text-white text-[10px] font-bold tabular-nums">
           {label}
         </span>
+        {count > 1 && (
+          <span
+            className="absolute top-0 left-0 px-1 rounded-br bg-rose-600 text-white text-[10px] font-bold tabular-nums shadow"
+            title={`${count} attacking · ${blockedCount} blocked`}
+          >
+            ×{count}
+            {blockedCount > 0 && <span className="text-emerald-200">{` −${blockedCount}`}</span>}
+          </span>
+        )}
         {showPreview && <MagnifiedPreview card={card} anchorRef={ref} />}
       </div>
 

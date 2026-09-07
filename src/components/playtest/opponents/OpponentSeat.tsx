@@ -52,6 +52,7 @@ export function OpponentSeat({
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
+  const setAggression = useOpponentStore(s => s.setAggression);
   const openModal = usePlaytestStore(s => s.openModal);
   const running = useOpponentStore(s => s.running);
   const combat = useOpponentStore(s => s.combat);
@@ -99,6 +100,7 @@ export function OpponentSeat({
         opponent={opponent}
         onAdjustLife={adjustLife}
         onSetResistance={setResistance}
+        onSetAggression={setAggression}
         onRemove={remove}
         onGrab={onGrab}
         onResetPosition={onResetPosition}
@@ -108,7 +110,11 @@ export function OpponentSeat({
       {/* Creatures and other permanents. Both always shown — a bot casting a
           Signet is a bot doing something, and hiding it made their turns read
           as nothing happening. */}
-      <div ref={setNodeRef} className="mt-1 space-y-1">
+      {/* Height is capped and scrolls past the cap. Piling identical tokens
+          keeps almost every board under it, but a genuinely wide board of
+          distinct cards must not be allowed to grow down over the player's own
+          battlefield — which is exactly what a 64-permanent goblin board did. */}
+      <div ref={setNodeRef} className="mt-1 space-y-1 max-h-[38vh] overflow-y-auto overflow-x-hidden">
         {opponent.battlefield.length === 0 ? (
           // A drop target you can see, rather than a sentence explaining one.
           <div
@@ -123,11 +129,12 @@ export function OpponentSeat({
             if (cards.length === 0) return null;
             return (
               <div key={row.key} className="flex items-end gap-1 flex-wrap" title={row.label}>
-                {cards.map(p => (
+                {pileUp(cards).map(pile => (
                   <OpponentPermanentCard
-                    key={p.instanceId}
+                    key={pile.key}
                     opponentId={opponent.id}
-                    permanent={p}
+                    permanent={pile.top}
+                    count={pile.count}
                     width={rowWidth(width, row.scale * scale)}
                   />
                 ))}
@@ -143,11 +150,12 @@ export function OpponentSeat({
           own hand row, with Exile half-width and hanging from the top. */}
       <div className="mt-1 flex items-end gap-1">
         <div className="flex items-end gap-1 flex-wrap min-w-0" title="Lands">
-          {rows.lands.map(p => (
+          {pileUp(rows.lands).map(pile => (
             <OpponentPermanentCard
-              key={p.instanceId}
+              key={pile.key}
               opponentId={opponent.id}
-              permanent={p}
+              permanent={pile.top}
+              count={pile.count}
               width={rowWidth(width, LAND_SCALE * scale)}
             />
           ))}
@@ -219,11 +227,12 @@ export function OpponentSeat({
  * targets it by that exact id.
  */
 function SeatHeader({
-  opponent, onAdjustLife, onSetResistance, onRemove, onGrab, onResetPosition, placed,
+  opponent, onAdjustLife, onSetResistance, onSetAggression, onRemove, onGrab, onResetPosition, placed,
 }: {
   opponent: Opponent;
   onAdjustLife: (id: string, delta: number) => void;
   onSetResistance: (id: string, resistance: boolean) => void;
+  onSetAggression: (id: string, aggression: number) => void;
   onRemove: (id: string) => void;
   onGrab?: (e: React.PointerEvent<HTMLElement>) => void;
   onResetPosition?: () => void;
@@ -288,6 +297,11 @@ function SeatHeader({
         <Swords className="w-2.5 h-2.5" />
       </button>
 
+      <AggressionDial
+        value={opponent.aggression}
+        onChange={next => onSetAggression(opponent.id, next)}
+      />
+
       <button
         onClick={() => onRemove(opponent.id)}
         className="shrink-0 text-muted-foreground/70 hover:text-red-400 transition-colors"
@@ -296,6 +310,64 @@ function SeatHeader({
         <X className="w-3 h-3" />
       </button>
     </div>
+  );
+}
+
+/**
+ * The three settings of the aggression dial.
+ *
+ * It used to be a value nothing in the UI could set, and a switch rather than a
+ * dial besides — only the 0.5 boundary changed anything, so 0 and 0.25 played
+ * identically. It now feeds trade willingness in both directions of combat and
+ * how much of its board a bot keeps home to block, so these all play
+ * differently.
+ */
+const AGGRESSION_STEPS: { value: number; label: string; hint: string }[] = [
+  { value: 0.15, label: 'Cautious', hint: 'Keeps blockers home and only takes trades it clearly wins.' },
+  { value: 0.50, label: 'Measured', hint: 'Takes an even trade and keeps some defence back.' },
+  { value: 0.85, label: 'Reckless', hint: 'Sends nearly everything and trades freely.' },
+];
+
+/**
+ * Three bars, filled to the current setting. Deliberately not an icon: the
+ * ones that would fit are all spoken for elsewhere in the app, and a filling
+ * meter says "this is a dial with settings" better than any glyph would.
+ */
+function AggressionDial({
+  value, onChange,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  // Nearest step, so a value set outside this control still lands somewhere.
+  let index = 0;
+  for (let i = 1; i < AGGRESSION_STEPS.length; i++) {
+    if (Math.abs(AGGRESSION_STEPS[i].value - value) < Math.abs(AGGRESSION_STEPS[index].value - value)) {
+      index = i;
+    }
+  }
+  const step = AGGRESSION_STEPS[index];
+  const next = AGGRESSION_STEPS[(index + 1) % AGGRESSION_STEPS.length];
+
+  return (
+    <button
+      onClick={() => onChange(next.value)}
+      title={`${step.label} — ${step.hint} Click for ${next.label}.`}
+      aria-label={`Aggression: ${step.label}`}
+      className="shrink-0 inline-flex items-end justify-center gap-px w-5 h-4 rounded border border-border/50 px-0.5 pb-0.5 hover:border-violet-400/50 transition-colors"
+    >
+      {AGGRESSION_STEPS.map((s, i) => (
+        <span
+          key={s.value}
+          className={`w-1 rounded-sm transition-colors ${
+            i <= index
+              ? index === 0 ? 'bg-sky-300' : index === 1 ? 'bg-violet-300' : 'bg-rose-300'
+              : 'bg-border/60'
+          }`}
+          style={{ height: 3 + i * 3 }}
+        />
+      ))}
+    </button>
   );
 }
 
@@ -459,6 +531,59 @@ function rowWidth(seatWidth: number, scale: number): number {
 }
 
 /**
+ * Below this a group renders as separate cards. Two identical signets read
+ * better as two cards than as a pile of two; forty-four goblins do not.
+ */
+const PILE_AT = 3;
+
+/** A run of interchangeable permanents, drawn as one card with a count. */
+export interface PermanentPile {
+  key: string;
+  /** The one that gets drawn, and the one a click acts on. */
+  top: OpponentPermanent;
+  count: number;
+}
+
+/**
+ * Collapse interchangeable permanents into counted piles.
+ *
+ * A goblin deck attacks with a median of fifty-two creatures and can hold
+ * sixty-eight permanents. Drawn one card each, that board overflowed its seat
+ * and painted straight down over the player's own battlefield. Identical tokens
+ * share a Scryfall id, so they collapse to a single pile almost for free.
+ *
+ * The key includes tapped state, sickness and counters, so a pile never lies
+ * about the cards inside it: half a tapped goblin army splits into two piles
+ * rather than pretending to be one.
+ */
+function pileUp(cards: OpponentPermanent[]): PermanentPile[] {
+  const groups = new Map<string, OpponentPermanent[]>();
+  for (const p of cards) {
+    const counters = Object.entries(p.counters)
+      .filter(([, v]) => v > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([t, v]) => `${t}=${v}`)
+      .join(',');
+    const key = `${p.card.id}|${p.tapped ? 't' : ''}|${p.summoningSick ? 's' : ''}|${counters}`;
+    const hit = groups.get(key);
+    if (hit) hit.push(p);
+    else groups.set(key, [p]);
+  }
+
+  const out: PermanentPile[] = [];
+  for (const [key, members] of groups) {
+    // A small group stays as individual cards, so an ordinary board is
+    // untouched by any of this.
+    if (members.length < PILE_AT) {
+      for (const p of members) out.push({ key: p.instanceId, top: p, count: 1 });
+      continue;
+    }
+    out.push({ key, top: members[0], count: members.length });
+  }
+  return out;
+}
+
+/**
  * Split a board into rows. Creature is checked before land so a creature-land
  * lands in the row you'd scan for attackers rather than hiding among the mana.
  */
@@ -474,11 +599,17 @@ function splitRows(battlefield: OpponentPermanent[]): Record<RowKey, OpponentPer
 }
 
 function OpponentPermanentCard({
-  opponentId, permanent, width,
+  opponentId, permanent, width, count = 1,
 }: {
   opponentId: string;
   permanent: OpponentPermanent;
   width: number;
+  /**
+   * How many interchangeable copies this card stands for. Above one it draws as
+   * a pile with a count, and every action on it — tap, steal, destroy — applies
+   * to the one on top.
+   */
+  count?: number;
 }) {
   const togglePermanentTap = useOpponentStore(s => s.togglePermanentTap);
   const permanentToZone = useOpponentStore(s => s.permanentToZone);
@@ -535,13 +666,22 @@ function OpponentPermanentCard({
         {...drag.listeners}
         src={getCardImageUrl(permanent.card, 'small')}
         alt={permanent.card.name}
-        title={`${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''} · click to tap · right-click for options · hold Ctrl to magnify · drag onto your battlefield to steal`}
+        title={`${count > 1 ? `${count}× ` : ''}${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''}${count > 1 ? ' · actions apply to the top one' : ''} · click to tap · right-click for options · hold Ctrl to magnify · drag onto your battlefield to steal`}
         onClick={() => { if (!dragMoved.current) togglePermanentTap(opponentId, permanent.instanceId); }}
         draggable={false}
         className={`w-full rounded-[3px] shadow cursor-grab touch-none transition-transform duration-200 ${
           permanent.tapped ? 'rotate-90' : ''
         } ${permanent.summoningSick ? 'ring-1 ring-amber-300/50' : ''}`}
       />
+
+      {count > 1 && (
+        <span
+          className="absolute -top-1 -left-1 px-1 rounded-full bg-violet-600 text-white text-[10px] font-bold leading-4 tabular-nums shadow ring-1 ring-black/50 pointer-events-none"
+          aria-label={`${count} copies`}
+        >
+          ×{count}
+        </span>
+      )}
 
       {counters.length > 0 && (
         <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-center gap-0.5 pointer-events-none">
