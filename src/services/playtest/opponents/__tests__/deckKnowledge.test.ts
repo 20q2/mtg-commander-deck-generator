@@ -275,3 +275,56 @@ describe('every creature type', () => {
     expect(botPower(elf, [reaper, elf, nexus])).toBe(2);
   });
 });
+
+describe('the other kinds of *', () => {
+  it('counts every card in the graveyard, not just creatures', () => {
+    const lord = perm(card({
+      name: 'Lord of Extinction', cmc: 6, power: '*', toughness: '*',
+      type_line: 'Creature — Elemental',
+    }));
+    const gy = [
+      card({ name: 'Dead Thing', power: '1', toughness: '1' }),
+      card({ name: 'Murder', type_line: 'Instant' }),
+      card({ name: 'Forest', type_line: 'Basic Land — Forest' }),
+    ];
+    // A `*` reads as 0 printed, so this is the whole of its size.
+    expect(botPower(lord, [lord])).toBe(0);
+    expect(botPower(lord, [lord], gy)).toBe(3);
+  });
+
+  it('counts lands on the battlefield', () => {
+    const multani = perm(card({
+      name: "Multani, Yavimaya's Avatar", cmc: 6, power: '*', toughness: '*',
+      type_line: 'Legendary Creature — Elemental',
+    }));
+    const lands = Array.from({ length: 5 }, () => perm(FOREST()));
+    expect(botPower(multani, [multani])).toBe(0);
+    expect(botPower(multani, [multani, ...lands])).toBe(5);
+  });
+});
+
+describe('land fetchers', () => {
+  it('ramp a deck that would otherwise miss its drops', () => {
+    // The library leads with a non-land so the draw step cannot hand the bot a
+    // land drop as well — otherwise this counts the land drop and the fetch
+    // together and proves neither.
+    const r = takeTurn(bot({
+      battlefield: [perm(FOREST()), perm(FOREST())],
+      hand: [card({ name: 'Rampant Growth', type_line: 'Sorcery', cmc: 2 })],
+      library: [card({ name: 'Filler Instant', type_line: 'Instant', cmc: 9 }), FOREST()],
+    }), board());
+    expect(logsOf(r.frames)).toContain('fetches 1 land');
+    // Two lands became three, and the third came out of the library.
+    expect(r.final.battlefield.filter(p => p.card.name === 'Forest')).toHaveLength(3);
+    expect(r.final.library).toHaveLength(0);
+  });
+
+  it('are held rather than wasted with no land left to find', () => {
+    const r = takeTurn(bot({
+      battlefield: [perm(FOREST()), perm(FOREST())],
+      hand: [card({ name: 'Rampant Growth', type_line: 'Sorcery', cmc: 2 })],
+      library: [card({ name: 'Some Creature', power: '2', toughness: '2' })],
+    }), board());
+    expect(r.final.hand.map(c => c.name)).toContain('Rampant Growth');
+  });
+});

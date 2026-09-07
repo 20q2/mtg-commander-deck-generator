@@ -1,5 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { isLand } from '@/components/playtest/utils';
 import { BOT_DYNAMIC_STATS, costOf, staticsOf } from '@/services/playtest/opponents/effects';
 import type { OpponentPermanent } from '@/components/playtest/opponentTypes';
 
@@ -96,11 +97,15 @@ export function anthemBonus(
  */
 function dynamicBonus(
   p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
   graveyard: ScryfallCard[],
 ): { power: number; toughness: number } {
   const spec = BOT_DYNAMIC_STATS[p.card.name];
   if (!spec) return { power: 0, toughness: 0 };
-  const n = graveyard.filter(isCreatureCard).length;
+  const n =
+    spec.kind === 'ownGraveyardCreatures' ? graveyard.filter(isCreatureCard).length
+    : spec.kind === 'ownGraveyardCards'   ? graveyard.length
+    :                                       battlefield.filter(x => isLand(x.card)).length;
   return { power: spec.power * n, toughness: spec.toughness * n };
 }
 
@@ -113,7 +118,7 @@ export function botPower(
   return printedStat(p.card, 'power')
     + counterDelta(p)
     + anthemBonus(p, battlefield).power
-    + dynamicBonus(p, graveyard).power;
+    + dynamicBonus(p, battlefield, graveyard).power;
 }
 
 /** Toughness as it stands. Never below 0 — nothing has negative toughness on screen. */
@@ -127,7 +132,7 @@ export function botToughness(
     printedStat(p.card, 'toughness')
       + counterDelta(p)
       + anthemBonus(p, battlefield).toughness
-      + dynamicBonus(p, graveyard).toughness,
+      + dynamicBonus(p, battlefield, graveyard).toughness,
   );
 }
 

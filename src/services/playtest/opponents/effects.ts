@@ -71,6 +71,12 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   // either way and pretending it is a vanilla 2/3 was worse.
   'Murderous Rider // Swift End': { spec: { kind: 'destroyCreature' }, etb: true },
   'Never // Return':       { spec: { kind: 'destroyCreature' } },
+  // ── Sultai Arisen ──
+  'Casualties of War':     { spec: { kind: 'destroyPermanent' } },
+  'Tear Asunder':          { spec: { kind: 'destroyPermanent' } },
+  'Lethal Scheme':         { spec: { kind: 'destroyCreature' } },
+  // Destroys everything, the bot's board included, which the engine handles.
+  'Necromantic Selection': { spec: { kind: 'boardWipe' } },
 
   // ── Burn ──
   'Lightning Bolt':        { spec: { kind: 'damage', amount: 3 } },
@@ -100,6 +106,8 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Angel of Sanctions':    { spec: { kind: 'destroyPermanent' }, etb: true },
   'Cast Out':              { spec: { kind: 'destroyPermanent' }, etb: true },
   'Fleshbag Marauder':     { spec: { kind: 'edict' }, etb: true },
+  'Noxious Gearhulk':      { spec: { kind: 'destroyCreature' }, etb: true },
+  'Amphin Mutineer':       { spec: { kind: 'exileCreature' }, etb: true },
   // -2/-2 to your side only. One-sided, so unlike a wrath it never eats the
   // bot's own board — which is why it is here and not with the sweepers.
   'Massacre Wurm':         { spec: { kind: 'boardWipe', maxToughness: 2, oneSided: true }, etb: true },
@@ -252,6 +260,42 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'Champion of Wits':     { spec: { kind: 'draw', count: 2 } },
   'Pull from Tomorrow':   { spec: { kind: 'draw', count: 4 } },
 
+  // ── Sultai Arisen: filling the graveyard ──
+  // A self-mill deck needs its graveyard stocked before anything else it does
+  // means anything. The recurring ones use combat timing, the closest beat the
+  // engine has to an upkeep trigger.
+  'Nyx Weaver':           { spec: { kind: 'selfMill', count: 2 }, timing: 'combat' },
+  'Crawling Sensation':   { spec: { kind: 'selfMill', count: 2 }, timing: 'combat' },
+  'Hedron Crab':          { spec: { kind: 'selfMill', count: 3 }, timing: 'combat' },
+  'Colossal Grave-Reaver': { spec: { kind: 'selfMill', count: 3 }, timing: 'combat' },
+  'Diviner of Mist':      { spec: { kind: 'selfMill', count: 4 }, timing: 'combat' },
+  'Essence Anchor':       { spec: { kind: 'selfMill', count: 1 }, timing: 'combat' },
+  'Grapple with the Past': { spec: { kind: 'selfMill', count: 3 } },
+  'Forbidden Alchemy':    { spec: { kind: 'selfMill', count: 3 } },
+
+  // ── Sultai Arisen: buying it back ──
+  'Living Death':         { spec: { kind: 'reanimate', count: 3 } },
+  'Timeless Witness':     { spec: { kind: 'regrow', count: 1 } },
+
+  // ── Sultai Arisen: ramp ──
+  // Five land-fetchers, all the same shape, all previously doing nothing at all.
+  'Cultivate':            { spec: { kind: 'fetchLand', count: 1 } },
+  'Rampant Growth':       { spec: { kind: 'fetchLand', count: 1, tapped: true } },
+  'Farseek':              { spec: { kind: 'fetchLand', count: 1, tapped: true } },
+  'Harrow':               { spec: { kind: 'fetchLand', count: 2 } },
+  'Springbloom Druid':    { spec: { kind: 'fetchLand', count: 2, tapped: true } },
+
+  // ── Sultai Arisen: cards and bodies ──
+  'Treasure Cruise':      { spec: { kind: 'draw', count: 3 } },
+  'Disciple of Bolas':    { spec: { kind: 'draw', count: 3 } },
+  'River Kelpie':         { spec: { kind: 'draw', count: 1 }, timing: 'combat' },
+  'Kishla Skimmer':       { spec: { kind: 'draw', count: 1 }, timing: 'combat' },
+  'Welcome the Dead':     { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 2 }] } },
+  'Woe Strider':          { spec: { kind: 'makeTokens', tokens: [{ name: 'Goat', count: 1 }] } },
+  // "A Plant for each land you control" — `countPerSubtype` already counts
+  // permanents by type line, and a land's type line says Land.
+  'Avenger of Zendikar':  { spec: { kind: 'makeTokens', tokens: [{ name: 'Plant', count: 1, countPerSubtype: 'land' }] } },
+
   // ── Dimir ──
   'Baleful Strix':        { spec: { kind: 'draw', count: 1 } },
   'Demonic Tutor':        { spec: { kind: 'tutor', to: 'hand', count: 1 } },
@@ -320,6 +364,16 @@ export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
   // {1}{B}, {T}, discard: make a 2/2 Zombie. The discard is not modelled.
   'Cryptbreaker': [
     { cost: 2, spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 1 }] }, tapsSource: true },
+  ],
+  // "Once each turn you may cast a creature spell from your graveyard."
+  'Kotis, Sibsig Champion': [
+    { cost: 3, spec: { kind: 'reanimate', count: 1 } },
+  ],
+  'Phyrexian Reclamation': [
+    { cost: 1, spec: { kind: 'regrow', count: 1 } },
+  ],
+  'Shigeki, Jukai Visionary': [
+    { cost: 2, spec: { kind: 'regrow', count: 1 }, tapsSource: true },
   ],
   'Jarad, Golgari Lich Lord': [
     { cost: 3, spec: { kind: 'reanimate', count: 1 } },
@@ -415,13 +469,26 @@ export function staticsOf(cardName: string): BotStaticSpec[] {
  * cannot do arithmetic.
  */
 export type BotDynamicStat = {
-  kind: 'perCreatureInOwnGraveyard';
+  /**
+   * What the `*` counts.
+   *
+   * `ownGraveyardCreatures` — Jarad.
+   * `ownGraveyardCards`     — Lord of Extinction, Consuming Aberration. Both
+   *   really count cards in ALL graveyards, or the opponents'; the bot only
+   *   knows its own, which under-counts rather than over-counts. In a deck that
+   *   mills itself every turn its own graveyard is the big one anyway.
+   * `ownLands`              — Multani, which also counts lands in the graveyard.
+   */
+  kind: 'ownGraveyardCreatures' | 'ownGraveyardCards' | 'ownLands';
   power: number;
   toughness: number;
 };
 
 export const BOT_DYNAMIC_STATS: Record<string, BotDynamicStat> = {
-  'Jarad, Golgari Lich Lord': { kind: 'perCreatureInOwnGraveyard', power: 1, toughness: 1 },
+  'Jarad, Golgari Lich Lord': { kind: 'ownGraveyardCreatures', power: 1, toughness: 1 },
+  'Lord of Extinction':       { kind: 'ownGraveyardCards', power: 1, toughness: 1 },
+  'Consuming Aberration':     { kind: 'ownGraveyardCards', power: 1, toughness: 1 },
+  "Multani, Yavimaya's Avatar": { kind: 'ownLands', power: 1, toughness: 1 },
 };
 
 /**
@@ -462,6 +529,20 @@ export const BOT_COSTS: Record<string, number> = {
   // reads as a 7-drop and never gets cast. This is the half the bot uses.
   'Never // Return':         3,
   'Dusk // Dawn':            4,
+  /*
+   * Delve. Each card exiled from the graveyard pays for {1}, so a printed cmc of
+   * eight or nine is a price nobody ever pays — and at that price the bot never
+   * cast any of these. In a deck that mills itself every turn the graveyard is
+   * deep, so these numbers are what delve actually costs there.
+   */
+  'Treasure Cruise':         2,
+  'Tasigur, the Golden Fang': 3,
+  'Necropolis Fiend':        5,
+  'Afterlife from the Loam': 3,
+  // Kicker, and the kicked mode is the one worth having.
+  'Tear Asunder':            4,
+  // X spell.
+  'Welcome the Dead':        4,
   'March of the Multitudes': 6,
   'Blasphemous Act':         5,
 };
