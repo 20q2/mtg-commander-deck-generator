@@ -42,6 +42,26 @@ function hasSubtype(card: ScryfallCard, subtype: string): boolean {
   return getFrontFaceTypeLine(card).toLowerCase().includes(subtype.toLowerCase());
 }
 
+/** Is a Maskwood Nexus out, making every subtype test pass? */
+function everyTypeActive(battlefield: OpponentPermanent[]): boolean {
+  return battlefield.some(p =>
+    staticsOf(p.card.name).some(spec => spec.kind === 'allCreatureTypes'),
+  );
+}
+
+/**
+ * Does this creature count as `subtype` right now? Normally a type-line test,
+ * but a "creatures you control are every creature type" effect makes it always
+ * true — which is the whole reason that card is in a tribal deck.
+ */
+function countsAs(
+  card: ScryfallCard,
+  subtype: string,
+  battlefield: OpponentPermanent[],
+): boolean {
+  return hasSubtype(card, subtype) || everyTypeActive(battlefield);
+}
+
 /** Net +1/+1 counters, since -1/-1 counters cancel them out. */
 function counterDelta(p: OpponentPermanent): number {
   return (p.counters['+1/+1'] ?? 0) - (p.counters['-1/-1'] ?? 0);
@@ -59,7 +79,7 @@ export function anthemBonus(
       if (spec.kind !== 'anthem') continue;
       // Almost every lord says "OTHER creatures", so a source skips itself.
       if (source.instanceId === p.instanceId && !spec.includeSelf) continue;
-      if (spec.subtype && !hasSubtype(p.card, spec.subtype)) continue;
+      if (spec.subtype && !countsAs(p.card, spec.subtype, battlefield)) continue;
       power += spec.power;
       toughness += spec.toughness;
     }
@@ -122,7 +142,7 @@ export function effectiveCost(card: ScryfallCard, battlefield: OpponentPermanent
   for (const source of battlefield) {
     for (const spec of staticsOf(source.card.name)) {
       if (spec.kind !== 'costReducer') continue;
-      if (spec.subtype && !hasSubtype(card, spec.subtype)) continue;
+      if (spec.subtype && !countsAs(card, spec.subtype, battlefield)) continue;
       reduction += spec.amount;
     }
   }
@@ -142,7 +162,7 @@ export function hasHaste(p: OpponentPermanent, battlefield: OpponentPermanent[])
   // keywords the damage maths cares about, and haste is not one of them.
   if ((p.card.keywords ?? []).some(k => k.toLowerCase() === 'haste')) return true;
   return battlefield.some(source => staticsOf(source.card.name).some(spec =>
-    spec.kind === 'grantsHaste' && (!spec.subtype || hasSubtype(p.card, spec.subtype)),
+    spec.kind === 'grantsHaste' && (!spec.subtype || countsAs(p.card, spec.subtype, battlefield)),
   ));
 }
 

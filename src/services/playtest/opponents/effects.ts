@@ -63,6 +63,14 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Chaos Warp':            { spec: { kind: 'destroyPermanent' } },
   'Infernal Grasp':        { spec: { kind: 'destroyCreature' } },
   'Cut Down':              { spec: { kind: 'destroyCreature' } },
+  // ── Eternal Might ──
+  'Damn':                  { spec: { kind: 'destroyCreature' } },
+  'Despark':               { spec: { kind: 'destroyPermanent' } },
+  // Modelled as its Swift End half. The body comes with it, which is generous
+  // — the real card is one or the other — but it is a 3-mana removal spell
+  // either way and pretending it is a vanilla 2/3 was worse.
+  'Murderous Rider // Swift End': { spec: { kind: 'destroyCreature' }, etb: true },
+  'Never // Return':       { spec: { kind: 'destroyCreature' } },
 
   // ── Burn ──
   'Lightning Bolt':        { spec: { kind: 'damage', amount: 3 } },
@@ -89,6 +97,9 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Sheoldred, Whispering One':  { spec: { kind: 'edict' }, etb: true },
   'Goblin Trashmaster':    { spec: { kind: 'artifactSweep' }, etb: true },
   'Shriekmaw':             { spec: { kind: 'destroyCreature' }, etb: true },
+  'Angel of Sanctions':    { spec: { kind: 'destroyPermanent' }, etb: true },
+  'Cast Out':              { spec: { kind: 'destroyPermanent' }, etb: true },
+  'Fleshbag Marauder':     { spec: { kind: 'edict' }, etb: true },
   // -2/-2 to your side only. One-sided, so unlike a wrath it never eats the
   // bot's own board — which is why it is here and not with the sweepers.
   'Massacre Wurm':         { spec: { kind: 'boardWipe', maxToughness: 2, oneSided: true }, etb: true },
@@ -152,7 +163,17 @@ export type BotSelfSpec =
    * Search out a land and put it straight onto the battlefield. Separate from
    * `tutor`, which deliberately never fetches lands: this one only fetches them.
    */
-  | { kind: 'fetchLand'; count: number; tapped?: boolean };
+  | { kind: 'fetchLand'; count: number; tapped?: boolean }
+  /**
+   * Amass N — put N +1/+1 counters on your Army, creating a 0/0 Zombie Army
+   * token first if you have none.
+   *
+   * One spec for most of a deck: half of Eternal Might amasses, and the
+   * mechanic needs nothing new underneath it. The Army is an ordinary token and
+   * the counters are ordinary +1/+1 counters, both of which `botPower` already
+   * reads — so a single growing threat falls out of machinery that exists.
+   */
+  | { kind: 'amass'; count: number };
 
 export interface BotSelfEntry {
   spec: BotSelfSpec;
@@ -209,6 +230,27 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'Worldly Tutor':        { spec: { kind: 'tutor', want: { type: 'creature' }, to: 'hand', count: 1 } },
   'Satyr Wayfinder':      { spec: { kind: 'selfMill', count: 4 } },
   "Stitcher's Supplier":  { spec: { kind: 'selfMill', count: 3 } },
+
+  // ── Eternal Might: amass ──
+  // Dreadhorde Invasion amasses every upkeep. Combat timing is the closest beat
+  // the engine has to an upkeep trigger, and it fires once a turn either way.
+  'Dreadhorde Invasion':  { spec: { kind: 'amass', count: 1 }, timing: 'combat' },
+  'Gleaming Overseer':    { spec: { kind: 'amass', count: 1 } },
+  'Eternal Skylord':      { spec: { kind: 'amass', count: 2 } },
+  // "Amass X where X is your hand size" — the cost override below fixes X, and
+  // four is about what a hand looks like when a six-drop resolves.
+  'Commence the Endgame': { spec: { kind: 'amass', count: 4 } },
+
+  // ── Eternal Might: the horde ──
+  // A planeswalker ticking up every turn, which combat timing models exactly.
+  "Liliana, Death's Majesty": { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 1 }] }, timing: 'combat' },
+  // Really one token per creature spell cast; once a turn is the honest average.
+  'God-Eternal Oketra':   { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie Warrior', count: 1 }] }, timing: 'combat' },
+  'Dread Summons':        { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 3 }] } },
+  'Rot Hulk':             { spec: { kind: 'reanimate', count: 2 } },
+  'Prophet of the Scarab': { spec: { kind: 'draw', count: 3 } },
+  'Champion of Wits':     { spec: { kind: 'draw', count: 2 } },
+  'Pull from Tomorrow':   { spec: { kind: 'draw', count: 4 } },
 
   // ── Dimir ──
   'Baleful Strix':        { spec: { kind: 'draw', count: 1 } },
@@ -275,6 +317,10 @@ export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
   'Sakura-Tribe Elder': [
     { cost: 0, spec: { kind: 'fetchLand', count: 1, tapped: true }, sacrificesSelf: true, only: 'behindOnLands' },
   ],
+  // {1}{B}, {T}, discard: make a 2/2 Zombie. The discard is not modelled.
+  'Cryptbreaker': [
+    { cost: 2, spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 1 }] }, tapsSource: true },
+  ],
   'Jarad, Golgari Lich Lord': [
     { cost: 3, spec: { kind: 'reanimate', count: 1 } },
   ],
@@ -304,7 +350,15 @@ export type BotStaticSpec =
    * step skips summoning-sick creatures, so a haste granter is the difference
    * between a threat landing and a threat landing a turn late.
    */
-  | { kind: 'grantsHaste'; subtype?: string };
+  | { kind: 'grantsHaste'; subtype?: string }
+  /**
+   * "Creatures you control are every creature type" — a Maskwood Nexus. Every
+   * subtype test the bot makes then passes, so its tribal lords pump the whole
+   * board instead of half of it. One card, but it changes what every other card
+   * in the deck is worth, which is exactly what a bot understanding its own
+   * deck has to know.
+   */
+  | { kind: 'allCreatureTypes' };
 
 /**
  * A card may carry several statics: Goblin Chieftain is a lord AND a haste
@@ -324,6 +378,21 @@ export const BOT_STATICS: Record<string, BotStaticSpec | BotStaticSpec[]> = {
   'Intangible Virtue':   { kind: 'anthem', power: 1, toughness: 1, subtype: 'token', includeSelf: true },
   'Anointed Procession': { kind: 'tokenDoubler' },
   'Parallel Lives':      { kind: 'tokenDoubler' },
+  // ── Eternal Might ──
+  'Cemetery Reaper':     { kind: 'anthem', power: 1, toughness: 1, subtype: 'zombie' },
+  'Lord of the Accursed': { kind: 'anthem', power: 1, toughness: 1, subtype: 'zombie' },
+  // An enchantment, so includeSelf is harmless; it pumps zombies AND tokens,
+  // and a zombie deck's tokens are zombies.
+  'On Wings of Gold':    { kind: 'anthem', power: 1, toughness: 1, subtype: 'zombie', includeSelf: true },
+  // "Choose a creature type" — in this deck that is always Zombie.
+  'Renewed Solidarity':  { kind: 'anthem', power: 1, toughness: 0, subtype: 'zombie', includeSelf: true },
+  // Black creature spells cost {1} less. There is no colour model, so this is
+  // scoped to creatures by matching the type line — near enough in a deck whose
+  // creatures are all black.
+  "Bontu's Monument":    { kind: 'costReducer', amount: 1, subtype: 'creature' },
+  // Turns every one of the lords above into a board-wide anthem.
+  'Maskwood Nexus':      { kind: 'allCreatureTypes' },
+
   // Does two things, and both of them matter to how the deck curves out.
   'Goblin Warchief': [
     { kind: 'costReducer', amount: 1, subtype: 'goblin' },
@@ -364,6 +433,12 @@ export type BotTriggerSpec = { kind: 'creatureEtbDamage'; amount: number };
 
 export const BOT_TRIGGERS: Record<string, BotTriggerSpec> = {
   'Impact Tremors':              { kind: 'creatureEtbDamage', amount: 1 },
+  // The reason a zombie deck's tokens are a clock and not just a board: every
+  // body that arrives bills you. Deliberately NOT including Bontu's Monument,
+  // which triggers on casting a creature SPELL — tokens are not cast, and
+  // treating it as an arrival trigger would over-drain by a mile.
+  'Corpse Knight':               { kind: 'creatureEtbDamage', amount: 1 },
+  'Wayward Servant':             { kind: 'creatureEtbDamage', amount: 1 },
   'Purphoros, God of the Forge': { kind: 'creatureEtbDamage', amount: 2 },
 };
 
@@ -379,6 +454,14 @@ export const BOT_TRIGGERS: Record<string, BotTriggerSpec> = {
  */
 export const BOT_COSTS: Record<string, number> = {
   'Secure the Wastes':       5,
+  // X spells: the number here is what the bot pays, and the counts above match.
+  'Dread Summons':           5,
+  'Pull from Tomorrow':      5,
+  'Commence the Endgame':    6,
+  // Split cards carry the SUM of both halves as their cmc, so Never // Return
+  // reads as a 7-drop and never gets cast. This is the half the bot uses.
+  'Never // Return':         3,
+  'Dusk // Dawn':            4,
   'March of the Multitudes': 6,
   'Blasphemous Act':         5,
 };

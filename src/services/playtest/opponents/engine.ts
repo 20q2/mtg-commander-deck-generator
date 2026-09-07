@@ -140,6 +140,12 @@ function findToken(pool: ScryfallCard[], name: string): ScryfallCard | undefined
   );
 }
 
+/** A Zombie Army token — the single permanent every `amass` piles onto. */
+function isArmyToken(card: ScryfallCard): boolean {
+  const t = getFrontFaceTypeLine(card).toLowerCase();
+  return t.includes('token') && t.includes('army');
+}
+
 /**
  * How many of a token to make. A fixed count, unless the spec counts a subtype
  * already on the board — Krenko makes one goblin per goblin. Either way it is
@@ -352,6 +358,28 @@ export function takeTurn(
         return names.length > 0 ? `takes back ${describeNames(names)}` : null;
       }
 
+      case 'amass': {
+        if (spec.count <= 0) return null;
+        // One Army, grown over and over — that is the whole point of the
+        // mechanic, and it is why a deck full of amass reads as a single
+        // enormous threat rather than as a wide board.
+        let army = opp.battlefield.find(p => isArmyToken(p.card));
+        if (!army) {
+          const token = findToken(opp.tokens, 'Army');
+          if (!token) return null;
+          if (!addBody(token)) return null;
+          army = opp.battlefield[opp.battlefield.length - 1];
+        }
+        const id = army.instanceId;
+        opp.battlefield = opp.battlefield.map(p => (
+          p.instanceId === id
+            ? { ...p, counters: { ...p.counters, '+1/+1': (p.counters['+1/+1'] ?? 0) + spec.count } }
+            : p
+        ));
+        const total = opp.battlefield.find(p => p.instanceId === id)?.counters['+1/+1'] ?? 0;
+        return `amasses ${spec.count} (Army is ${total}/${total})`;
+      }
+
       case 'fetchLand': {
         let made = 0;
         for (let i = 0; i < spec.count; i++) {
@@ -443,6 +471,8 @@ export function takeTurn(
       case 'populate':   return opp.battlefield.some(p => isTokenCard(p.card));
       case 'reanimate':  return opp.graveyard.some(isCreatureCard);
       case 'regrow':     return opp.graveyard.some(c => !isLand(c));
+      case 'amass':      return opp.battlefield.some(p => isArmyToken(p.card))
+        || (!!findToken(opp.tokens, 'Army') && opp.battlefield.length < MAX_BOARD);
       case 'fetchLand':  return opp.library.some(isLand);
       case 'draw':
       case 'selfMill':   return opp.library.length > 0;

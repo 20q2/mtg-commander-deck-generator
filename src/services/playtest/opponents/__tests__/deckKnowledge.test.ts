@@ -218,3 +218,60 @@ describe('a * in the printed stats', () => {
     expect(logsOf(r.frames)).toContain('attacks you with Jarad');
   });
 });
+
+describe('amass', () => {
+  const ARMY = () => card({
+    name: 'Zombie Army', type_line: 'Token Creature — Zombie Army',
+    power: '0', toughness: '0', cmc: 0,
+  });
+  const OVERSEER = () => card({ name: 'Gleaming Overseer', cmc: 3, power: '1', toughness: '4' });
+  const SKYLORD = () => card({ name: 'Eternal Skylord', cmc: 5, power: '3', toughness: '3' });
+
+  const amassBot = (hand: ScryfallCard[], over: Partial<Opponent> = {}) => bot({
+    battlefield: Array.from({ length: 6 }, () => perm(MOUNTAIN())),
+    tokens: [ARMY()],
+    hand,
+    ...over,
+  });
+
+  it('creates one Army and puts counters on it', () => {
+    const r = takeTurn(amassBot([OVERSEER()]), board());
+    const army = r.final.battlefield.filter(p => p.card.name === 'Zombie Army');
+    expect(army).toHaveLength(1);
+    expect(army[0].counters['+1/+1']).toBe(1);
+    expect(logsOf(r.frames)).toContain('amasses 1 (Army is 1/1)');
+  });
+
+  it('grows the same Army rather than making a second one', () => {
+    // One Army is the whole point of the mechanic: a single big threat.
+    const first = takeTurn(amassBot([OVERSEER()]), board());
+    const second = takeTurn({ ...first.final, hand: [SKYLORD()] }, board());
+    const army = second.final.battlefield.filter(p => p.card.name === 'Zombie Army');
+    expect(army).toHaveLength(1);
+    expect(army[0].counters['+1/+1']).toBe(3);
+  });
+
+  it('the Army fights at the size its counters say', () => {
+    const army = perm(ARMY(), { counters: { '+1/+1': 5 } });
+    expect(botPower(army, [army])).toBe(5);
+  });
+
+  it('does nothing without an Army token in the pool', () => {
+    const r = takeTurn(amassBot([OVERSEER()], { tokens: [] }), board());
+    expect(logsOf(r.frames)).not.toContain('amasses');
+    // The body still lands — it is a 1/4 either way.
+    expect(names(r.final)).toContain('Gleaming Overseer');
+  });
+});
+
+describe('every creature type', () => {
+  it('makes a tribal lord pump the whole board', () => {
+    const reaper = perm(card({ name: 'Cemetery Reaper', cmc: 3, power: '2', toughness: '2', type_line: 'Creature — Zombie' }));
+    const elf = perm(card({ name: 'Some Elf', type_line: 'Creature — Elf', power: '1', toughness: '1' }));
+    const nexus = perm(card({ name: 'Maskwood Nexus', type_line: 'Artifact', cmc: 4 }));
+
+    // Without the Nexus the elf is not a Zombie and gets nothing.
+    expect(botPower(elf, [reaper, elf])).toBe(1);
+    expect(botPower(elf, [reaper, elf, nexus])).toBe(2);
+  });
+});
