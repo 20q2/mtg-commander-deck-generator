@@ -47,6 +47,12 @@ export interface Opponent {
   aggression: number;
   /** Drives the "hold early" rule in evaluation. */
   turnsTaken: number;
+  /**
+   * Combo ids this bot has announced and will execute next turn. A combo is
+   * telegraphed on the turn it assembles and fired on the following one, so
+   * there is always exactly one window to break it up.
+   */
+  armedCombos?: string[];
 }
 
 export interface OpponentStub {

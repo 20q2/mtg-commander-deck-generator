@@ -35,6 +35,12 @@ export interface AppliedEffect {
   lifeLoss: number;
   /** Cards to discard at random from the player's hand. */
   discard: number;
+  /**
+   * The game is over. Set by a combo whose outcome is simply "you lose" rather
+   * than a number — an Oracle on an empty library does not deal damage, it
+   * wins. Kept separate from a huge `lifeLoss` so the log reads honestly.
+   */
+  lethal?: boolean;
 }
 
 export interface CastDecision {

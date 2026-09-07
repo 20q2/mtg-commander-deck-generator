@@ -283,6 +283,13 @@ function applyEffect(effect: AppliedEffect) {
   }
 
   if (effect.lifeLoss > 0) playtest.adjustLife(-effect.lifeLoss);
+
+  // Straight to zero, through adjustLife so the defeat line and the banner
+  // fire the same way they would from any other lethal damage.
+  if (effect.lethal) {
+    const life = usePlaytestStore.getState().life;
+    if (life > 0) playtest.adjustLife(-life);
+  }
 }
 
 const initial: OpponentState = {

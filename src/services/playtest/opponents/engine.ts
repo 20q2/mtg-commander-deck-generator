@@ -6,6 +6,7 @@ import { BOT_TRIGGERS, costOf, lookupActivated, lookupEffect, lookupSelfEffect }
 import type { BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
 import { botPower as livePower, botToughness as liveToughness, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
+import { BOT_COMBOS, liveCombos } from '@/services/playtest/opponents/botCombos';
 import { keywordsOf } from '@/services/playtest/combat';
 import type { AttackTarget, Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
@@ -19,6 +20,11 @@ import type { AttackTarget, Opponent, OpponentPermanent, TurnFrame, TurnResult }
  * checking. Real coloured-mana correctness turns this into a rules engine, which
  * is explicitly out of scope — the bot is a goldfish opponent, not a referee.
  */
+
+/** A do-nothing effect, for combo outcomes to fill in one field of. */
+const EMPTY_EFFECT: AppliedEffect = {
+  destroy: [], destination: 'graveyard', lifeLoss: 0, discard: 0,
+};
 
 /** Backstop on the develop loop so a mana-flooded board can't spin forever. */
 const MAX_CASTS_PER_TURN = 5;
@@ -571,6 +577,75 @@ export function takeTurn(
     }
     if (label) {
       frame([`${opp.name}'s ${source.card.name} triggers`, `${opp.name} ${label}`], [], [], label);
+    }
+  }
+
+  // ── Combos ──
+  // A deck whose plan is to assemble two cards and win has to be able to do
+  // that, or its bracket is a lie. Nothing here is deduced from the cards: the
+  // lines are written down in BOT_COMBOS, and this only decides when to fire.
+  //
+  // Armed on the turn it assembles, executed on the next. That window is the
+  // whole point — a bot that silently wins is a loss screen, and the pieces are
+  // face-up permanents you can answer.
+  if (opp.resistance) {
+    const live = liveCombos({
+      battlefield: opp.battlefield.map(p => p.card.name),
+      hand: opp.hand.map(c => c.name),
+      mana: availableMana(),
+    });
+    const armed = new Set(opp.armedCombos ?? []);
+    const ready = live.find(c => armed.has(c.id));
+
+    if (ready) {
+      opp.battlefield = tapForMana(opp.battlefield, ready.mana);
+      // The finisher leaves hand and is spent.
+      for (const name of ready.inHand ?? []) {
+        const i = opp.hand.findIndex(c => c.name === name);
+        if (i >= 0) opp.graveyard.push(opp.hand.splice(i, 1)[0]);
+      }
+      opp.armedCombos = [...armed].filter(id => id !== ready.id);
+
+      const logs = [`${opp.name} goes off: ${ready.name}`, ready.how];
+      if (ready.outcome.kind === 'makeTokens') {
+        const label = applySpec(ready.outcome);
+        if (label) logs.push(`${opp.name} ${label}`);
+        frame(logs, [], [], ready.name);
+      } else {
+        const effect: AppliedEffect = ready.outcome.kind === 'winTheGame'
+          ? { ...EMPTY_EFFECT, lethal: true }
+          : { ...EMPTY_EFFECT, lifeLoss: ready.outcome.amount };
+        frame(logs, [effect], [], ready.name);
+      }
+    } else if (live.length > 0) {
+      // Newly assembled: name it, so the window is one you can see.
+      const fresh = live.filter(c => !armed.has(c.id));
+      if (fresh.length > 0) {
+        opp.armedCombos = [...armed, ...fresh.map(c => c.id)];
+        frame(
+          fresh.map(c => `${opp.name} has ${c.name} assembled — it goes off next turn`),
+          [], [], 'Combo ready!',
+        );
+      }
+    }
+
+    // Pieces that left the board disarm the line they belonged to.
+    if ((opp.armedCombos ?? []).length > 0) {
+      const stillLive = new Set(liveCombos({
+        battlefield: opp.battlefield.map(p => p.card.name),
+        hand: opp.hand.map(c => c.name),
+        // Mana is irrelevant to whether the pieces are still there.
+        mana: Number.POSITIVE_INFINITY,
+      }).map(c => c.id));
+      const kept = (opp.armedCombos ?? []).filter(id => stillLive.has(id));
+      if (kept.length !== (opp.armedCombos ?? []).length) {
+        const broken = (opp.armedCombos ?? []).filter(id => !stillLive.has(id));
+        opp.armedCombos = kept;
+        const names = BOT_COMBOS.filter(c => broken.includes(c.id)).map(c => c.name);
+        if (names.length > 0) {
+          frame([`${opp.name}'s ${names.join(', ')} is broken up`], [], [], 'Combo broken');
+        }
+      }
     }
   }
 

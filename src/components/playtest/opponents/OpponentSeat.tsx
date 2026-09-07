@@ -11,6 +11,7 @@ import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
 import { CombatStrip } from '@/components/playtest/opponents/CombatStrip';
+import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
@@ -263,6 +264,8 @@ function SeatHeader({
         <span className="text-[11px] font-semibold truncate">{opponent.name}</span>
       </span>
 
+      <ArmedComboBadge ids={opponent.armedCombos ?? []} />
+
       <button onClick={() => onAdjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
       <span
         data-float-id={`opp-life-${opponent.id}`}
@@ -310,6 +313,30 @@ function SeatHeader({
         <X className="w-3 h-3" />
       </button>
     </div>
+  );
+}
+
+/**
+ * A live combo, said out loud on the seat.
+ *
+ * The whole reason a bot arms a combo one turn before firing it is so you get a
+ * window to break it up — and a window you cannot see is not a window. This is
+ * the loudest thing on the seat by design: it means you lose next turn unless
+ * you do something about it, and it names the pieces so you know what to kill.
+ */
+function ArmedComboBadge({ ids }: { ids: string[] }) {
+  if (ids.length === 0) return null;
+  const combos = BOT_COMBOS.filter(c => ids.includes(c.id));
+  if (combos.length === 0) return null;
+  return (
+    <span
+      className="shrink-0 inline-flex items-center gap-0.5 px-1 rounded border border-rose-400/70 bg-rose-500/25 text-rose-100 text-[9px] font-bold uppercase tracking-wide animate-pulse"
+      title={combos
+        .map(c => `${c.name} — ${c.how} Fires on their next turn unless you break it up.`)
+        .join(' / ')}
+    >
+      Combo ready
+    </span>
   );
 }
 
