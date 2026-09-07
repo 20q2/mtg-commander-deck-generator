@@ -210,6 +210,12 @@ export interface AttackCandidate {
   name: string;
   life: number;
   untappedCreatures: Combatant[];
+  /**
+   * Total power this seat has on board, tapped or not — what it will hit
+   * somebody with next turn. This is the "threat" half of the decision, and
+   * leaving it out is what made three bots gang the player forever.
+   */
+  threat?: number;
 }
 
 /**
@@ -226,16 +232,54 @@ export interface AttackCandidate {
 export function chooseAttackTarget(
   player: AttackCandidate,
   rivals: AttackCandidate[],
+  /**
+   * Total power this bot could swing with. Only used to spot a kill — and a
+   * kill outranks everything, because turning to finish off the seat on three
+   * life is the most obviously correct attack in Magic.
+   */
+  myPower = 0,
 ): AttackCandidate {
-  const softness = (c: AttackCandidate) =>
-    c.life + 3 * c.untappedCreatures.length;
+  /**
+   * How much this bot wants to attack a seat.
+   *
+   * Threat first, because that is what a player actually attacks: the seat
+   * about to kill everybody. Then how hard it is to get through — blockers
+   * matter far more than life, since blockers stop damage where life only
+   * absorbs it. Life is a tiebreak, not the question.
+   */
+  const appeal = (c: AttackCandidate) => {
+    // Can this bot just end it? Nothing else comes close in value.
+    const kill = myPower > 0 && myPower >= c.life ? 50 : 0;
+    return kill
+      + 2 * (c.threat ?? 0)
+      - 3 * c.untappedCreatures.length
+      - c.life / 10;
+  };
 
-  const alive = rivals.filter(r => r.life > 0);
-  if (alive.length === 0) return player;
+  // Never beat a corpse. A seat already at zero cannot be damaged further and
+  // swinging at it wastes the turn — which is exactly what the log looked like
+  // when three bots kept attacking a player who was two hundred life down.
+  const live = rivals.filter(r => r.life > 0);
+  const playerAlive = player.life > 0;
+  if (!playerAlive && live.length === 0) return player;
+  if (live.length === 0) return player;
+  if (!playerAlive) {
+    return [...live].sort((a, b) => appeal(b) - appeal(a))[0];
+  }
 
-  const easiest = [...alive].sort((a, b) => softness(a) - softness(b))[0];
-  // 35% easier, or it is not worth turning the clock off the player.
-  return softness(easiest) * 1.35 < softness(player) ? easiest : player;
+  const best = [...live].sort((a, b) => appeal(b) - appeal(a))[0];
+  /*
+   * The player keeps a thumb on the scale, but a small one.
+   *
+   * It has to be small. The old rule scored only softness, so with three bots
+   * building unopposed boards the human was permanently the softest seat at the
+   * table and ate every single attack — twenty out of twenty in a game I
+   * played, dead on turn six and still being swung at on turn eleven. Threat
+   * fixes that on its own: a bot with thirty power on board is a bigger problem
+   * to its neighbours than a player with two creatures, so the bots turn on each
+   * other, and they come back for the player the moment the player is ahead.
+   */
+  return appeal(best) > appeal(player) + 4 ? best : player;
 }
 
 export interface AttackContext {

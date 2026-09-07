@@ -805,8 +805,15 @@ export function takeTurn(
       name: 'you',
       life: playerBoard.life,
       untappedCreatures: playerBoard.untappedCreatures,
+      // The player's whole board, not just what is untapped — a tapped
+      // attacker is still a threat that comes back next turn.
+      threat: playerBoard.cards
+        .filter(c => c.isCreature)
+        .reduce((n, c) => n + Math.max(0, c.power), 0),
     },
     rivals,
+    // What it could swing with, so it can spot a seat it is able to finish.
+    able.reduce((n, p) => n + livePower(p, opp.battlefield, opp.graveyard), 0),
   );
   const chosen = new Set(
     chooseAttackers({

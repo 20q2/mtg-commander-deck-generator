@@ -175,40 +175,67 @@ describe('chooseAttackers', () => {
 
 describe('chooseAttackTarget', () => {
   const seat = (o: Partial<AttackCandidate>): AttackCandidate => ({
-    id: 'r1', name: 'Rival', life: 40, untappedCreatures: [], ...o,
+    id: 'r1', name: 'Rival', life: 40, untappedCreatures: [], threat: 0, ...o,
   });
   const you = (o: Partial<AttackCandidate> = {}) => seat({ id: null, name: 'you', ...o });
 
-  it('attacks the player by default', () => {
-    expect(chooseAttackTarget(you(), [seat({})]).id).toBeNull();
+  it('attacks the player when no rival is threatening or killable', () => {
+    expect(chooseAttackTarget(you({ threat: 4 }), [seat({})]).id).toBeNull();
   });
 
-  it('turns on a rival that is clearly softer', () => {
-    expect(chooseAttackTarget(you({ life: 40 }), [seat({ life: 3 })]).id).toBe('r1');
+  it('turns on the biggest threat at the table', () => {
+    // This is the case that matters most. Three bots building unopposed boards
+    // used to gang the player forever — twenty attacks out of twenty in a real
+    // game — because the player was permanently the softest seat. Threat is what
+    // makes them turn on each other instead.
+    const menace = seat({ id: 'big', threat: 30 });
+    expect(chooseAttackTarget(you({ threat: 4 }), [menace]).id).toBe('big');
   });
 
-  it('stays on the player when a rival is only slightly softer', () => {
-    expect(chooseAttackTarget(you({ life: 40 }), [seat({ life: 34 })]).id).toBeNull();
+  it('finishes off a seat it can kill', () => {
+    // Ten power available against a rival on four life: take the win.
+    const nearlyDead = seat({ id: 'weak', life: 4, threat: 0 });
+    expect(chooseAttackTarget(you({ life: 40, threat: 6 }), [nearlyDead], 10).id).toBe('weak');
   });
 
-  it('counts blockers as toughness, not just life', () => {
+  it('does not chase a low-life seat it cannot actually kill', () => {
+    const nearlyDead = seat({ id: 'weak', life: 4, threat: 0 });
+    // No attackers, so no kill on offer, and an empty board is no threat.
+    expect(chooseAttackTarget(you({ life: 40, threat: 6 }), [nearlyDead], 0).id).toBeNull();
+  });
+
+  it('comes back for the player once the player is the threat', () => {
+    const quiet = seat({ id: 'quiet', threat: 2 });
+    expect(chooseAttackTarget(you({ threat: 25 }), [quiet]).id).toBeNull();
+  });
+
+  it('treats blockers as a reason to look elsewhere', () => {
     const guarded = seat({
-      life: 20,
-      untappedCreatures: Array.from({ length: 8 }, () => c({ name: 'Guard', power: 2, toughness: 2 })),
+      id: 'guarded', threat: 20,
+      untappedCreatures: Array.from({ length: 10 }, () => c({ name: 'Guard', power: 2, toughness: 2 })),
     });
-    // 20 + 24 = 44 against your bare 30: you are the softer target.
-    expect(chooseAttackTarget(you({ life: 30 }), [guarded]).id).toBeNull();
+    const open = seat({ id: 'open', threat: 14 });
+    expect(chooseAttackTarget(you({ threat: 2 }), [guarded, open]).id).toBe('open');
   });
 
-  it('ignores a rival that is already dead', () => {
-    expect(chooseAttackTarget(you({ life: 40 }), [seat({ life: 0 })]).id).toBeNull();
+  it('never swings at a seat already at zero', () => {
+    const dead = seat({ id: 'dead', life: 0, threat: 40 });
+    const alive = seat({ id: 'alive', life: 30, threat: 10 });
+    expect(chooseAttackTarget(you({ threat: 2 }), [dead, alive]).id).toBe('alive');
   });
 
-  it('picks the softest of several rivals', () => {
-    const target = chooseAttackTarget(you({ life: 40 }), [
-      seat({ id: 'a', life: 30 }),
-      seat({ id: 'b', life: 4 }),
-      seat({ id: 'c', life: 18 }),
+  it('stops beating the player once the player is dead', () => {
+    // The other half of the same problem: a player two hundred life down was
+    // still being attacked every turn, which is both pointless and absurd.
+    const rival = seat({ id: 'r', life: 30, threat: 8 });
+    expect(chooseAttackTarget(you({ life: -12, threat: 0 }), [rival]).id).toBe('r');
+  });
+
+  it('picks the most threatening of several rivals', () => {
+    const target = chooseAttackTarget(you({ threat: 3 }), [
+      seat({ id: 'a', threat: 6 }),
+      seat({ id: 'b', threat: 22 }),
+      seat({ id: 'c', threat: 11 }),
     ]);
     expect(target.id).toBe('b');
   });

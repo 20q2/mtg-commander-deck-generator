@@ -894,6 +894,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             untappedCreatures: o.battlefield
               .filter(p => !p.tapped && isCreatureCard(p.card))
               .map(p => botCombatant(p, o.battlefield, o.graveyard)),
+            // Everything it has, tapped or not: what it swings with next turn.
+            threat: o.battlefield
+              .filter(p => isCreatureCard(p.card))
+              .reduce((n, p) => n + botPower(p, o.battlefield, o.graveyard), 0),
           }));
         const { frames, final } = takeTurn(opponent, readPlayerBoard(), rivals);
         const step = stepFor(frames.length);
