@@ -5,6 +5,7 @@ import { resolveCombos } from '@/services/playtest/combos';
 import { applyTrialPins } from '@/services/playtest/trialPins';
 import {
   type BattlefieldCard,
+  type CardEdit,
   type CardSticker,
   type CounterColor,
   type DieSides,
@@ -24,6 +25,8 @@ import {
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
+import { useDamageFlash } from '@/store/damageFlashStore';
+import { describeEdit } from '@/services/playtest/powerToughness';
 import { captureAll, restoreAll } from '@/store/undoBridge';
 
 const HISTORY_CAP = 20;
@@ -48,12 +51,24 @@ interface PlaytestState {
   modal: Modal;
   hovered: string | null;
   hoveredPile: Exclude<ZoneKey, 'hand'> | null;
+  // Digits typed over a pile buffer for a moment so "2" can still become "20".
+  // Purely transient feedback — the pile shows the number building up. Not in
+  // snapshotOf(), so it never lands in undo history.
+  pileDrawPending: { zone: Exclude<ZoneKey, 'hand'>; n: number } | null;
   // Free counters, dice and hand cards track their own hover so Delete knows
   // what's under the cursor — battlefield cards use `hovered` above. Hand is an
   // index rather than an id because a hand holds duplicate cards.
   hoveredCounter: string | null;
   hoveredDie: string | null;
   hoveredHandIndex: number | null;
+  /**
+   * Hand cards turned over with F — the back face of a double-faced card, the
+   * card back for anything else. Keyed by card id rather than hand index
+   * because every draw, discard and re-sort shifts the indices; the price is
+   * that two copies of one printing turn over together, which shows the same
+   * face twice either way.
+   */
+  flippedHandIds: string[];
   // New Card Trial: force chosen cards to show up so they can actually be tested.
   // Pins only ever name cards already in the deck, so no card data is stored here.
   trialPins: TrialPin[];
@@ -120,6 +135,21 @@ interface PlaytestState {
     dice: FreeDie[];
     pasteOffset: { x: number; y: number };
   } | null;
+  /**
+   * Set when stackSelection has just rewritten a group's positions, so each
+   * card can be animated in from where it came from instead of appearing in
+   * its new spot. Offsets are old-minus-new — where the flight starts — and
+   * the tick is what tells a card this is a fresh stack and not the one it
+   * already played. Ephemeral; never snapshotted.
+   */
+  stackFlight: { tick: number; offsets: Record<string, StackFlightOffset> } | null;
+  /**
+   * True while a drag that has already stacked its selection is still holding
+   * it. From that moment the pile — not the one card — is the thing in your
+   * hand, so the dragged card drops its floating ghost and takes its place in
+   * the stack instead of hovering above it.
+   */
+  stackedDrag: boolean;
   // Ephemeral feedback toast — incrementing tick triggers a fresh display in
   // the UI. Cleared automatically after the toast fades.
   toast: { text: string; tick: number } | null;
@@ -170,7 +200,9 @@ interface PlaytestActions {
   rotateCards: (instanceIds: string[], delta: number) => void;
   toggleTapMany: (instanceIds: string[]) => void;
   toggleFaceDownMany: (instanceIds: string[]) => void;
+  toggleHandFlipped: (cardId: string) => void;
   shufflePile: (zone: Exclude<ZoneKey, 'hand'>) => void;
+  takeFromPile: (zone: Exclude<ZoneKey, 'hand'>, n?: number) => void;
   /**
    * Empty one zone into another in a single step — Elixir of Immortality,
    * Tormod's Crypt, Riftsweeper. One action rather than one per pairing,
@@ -182,6 +214,8 @@ interface PlaytestActions {
     opts?: { shuffle?: boolean },
   ) => void;
   setCounter: (instanceId: string, type: string, value: number) => void;
+  /** Rewrite one of your creatures — Lignify and friends. `null` clears it. */
+  setCardEdit: (instanceId: string, edit: CardEdit | null) => void;
   /**
    * `anchor` is viewport coords for the floating "+1" to pop from. Pass the
    * badge's own rect when the click came from a badge; without it the text
@@ -206,7 +240,7 @@ interface PlaytestActions {
     card: ScryfallCard,
     position?: { x: number; y: number },
     logText?: string,
-    arrival?: { tapped?: boolean; counters?: Record<string, number> },
+    arrival?: { tapped?: boolean; counters?: Record<string, number>; edit?: CardEdit },
   ) => void;
   /** Hands back the whole entry, so a donated permanent keeps its counters. */
   releasePermanent: (instanceId: string) => BattlefieldCard | null;
@@ -221,6 +255,7 @@ interface PlaytestActions {
   closeModal: () => void;
   setHovered: (id: string | null) => void;
   setHoveredPile: (zone: Exclude<ZoneKey, 'hand'> | null) => void;
+  setPileDrawPending: (pending: { zone: Exclude<ZoneKey, 'hand'>; n: number } | null) => void;
   setHoveredCounter: (id: string | null) => void;
   setHoveredDie: (id: string | null) => void;
   setHoveredHandIndex: (index: number | null) => void;
@@ -261,6 +296,12 @@ interface PlaytestActions {
   setFreeDieColor: (id: string, color: CounterColor) => void;
   removeFreeDie: (id: string) => void;
   moveFreeDie: (id: string, x: number, y: number) => void;
+  /**
+   * Throw a loose counter or die away — what the battlefield's trash corner
+   * does. Takes the whole selection of that kind when the dragged one is part
+   * of it, so binning a marquee'd handful is one gesture and one undo.
+   */
+  trashLoose: (active: { kind: 'counter' | 'die'; id: string }) => void;
 
   setSelectedIds: (ids: string[]) => void;
   setMarqueeSelection: (sel: { cards: string[]; counters: string[]; dice: string[] }) => void;
@@ -270,6 +311,14 @@ interface PlaytestActions {
   setDragActive: (active: { kind: 'card' | 'counter' | 'die'; id: string } | null) => void;
   setDragDelta: (delta: { x: number; y: number } | null) => void;
   applyGroupMove: (active: { kind: 'card' | 'counter' | 'die'; id: string }, dx: number, dy: number) => void;
+  /**
+   * Tidy the selected cards into one staggered pile, Tabletop-Simulator style:
+   * every card shares an x, each one sits a title-row below the last, so you
+   * read the pile as a list of names. `anchorInstanceId` (the card being
+   * dragged, when a shake triggered this) leads the pile and keeps its own
+   * position, since mid-drag it's the one under the cursor and can't be moved.
+   */
+  stackSelection: (anchorInstanceId?: string) => void;
 
   copyToClipboard: () => void;
   pasteClipboard: (target?: { x: number; y: number }) => void;
@@ -292,11 +341,15 @@ const initial: PlaytestState = {
   modal: null,
   hovered: null,
   hoveredPile: null,
+  pileDrawPending: null,
   hoveredCounter: null,
   hoveredDie: null,
   hoveredHandIndex: null,
+  flippedHandIds: [],
   trialPins: [],
   battlefieldRect: { width: 0, height: 0 },
+  stackFlight: null,
+  stackedDrag: false,
   seatBandHeight: 0,
   handDropFanPos: null,
   handLanding: null,
@@ -339,6 +392,33 @@ function snapshotOf(s: PlaytestState): PlaytestSnapshot {
     turn: s.turn,
     participants: captureAll(),
   };
+}
+
+/** How far back to start a card's flight into a pile. */
+export interface StackFlightOffset {
+  dx: number;
+  dy: number;
+}
+
+/** How long a card takes to fly into its slot. They all leave together. */
+export const STACK_FLIGHT_MS = 240;
+
+/**
+ * Vertical gap between cards in a tidy pile. A card's title row is about 13% of
+ * its height, so that's all a pile shows of every card but the bottom one.
+ * Tall piles tighten the step rather than run off the table: names go from
+ * readable to merely countable, which beats vanishing under the hand row.
+ */
+const PILE_STEP_RATIO = 0.13;
+
+function pileStep(cardHeight: number, count: number, tableHeight: number): number {
+  const ideal = Math.round(cardHeight * PILE_STEP_RATIO);
+  // Fit-check against the whole table, not the pile's actual y — a pile you
+  // deliberately parked near the bottom edge is your business, the same as any
+  // card dragged down there.
+  const room = tableHeight - cardHeight - 16;
+  if (count < 2 || room <= 0) return ideal;
+  return Math.max(6, Math.min(ideal, Math.floor(room / (count - 1))));
 }
 
 function pushHistory(history: PlaytestSnapshot[], snap: PlaytestSnapshot): PlaytestSnapshot[] {
@@ -644,6 +724,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     // Pops "−4" off the life counter. Fired here rather than at the call sites so
     // combat, drain and the toolbar buttons all get it for free.
     floatDelta(delta, 'player-life');
+    // Same reasoning for the "ouch" glow: every way you can lose life — a bot's
+    // combat damage, a drain, your own Phyrexian mana — funnels through here.
+    if (delta < 0) useDamageFlash.getState().hit(-delta, get().life);
     set(state => {
       const life = state.life + delta;
       // A bot crossing zero has always been announced; yours never was, so a
@@ -907,6 +990,18 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
+  // Turning a card over in hand is a look at the card, not a play: it changes
+  // nothing about the game, so it stays out of the history and the log.
+  //
+  // Ids whose card has since left the hand are dropped on the next toggle, so a
+  // card discarded while flipped doesn't come back turned over later.
+  toggleHandFlipped: (cardId) => set(state => {
+    const flipped = state.flippedHandIds.includes(cardId)
+      ? state.flippedHandIds.filter(id => id !== cardId)
+      : [...state.flippedHandIds, cardId];
+    return { flippedHandIds: flipped.filter(id => state.zones.hand.some(c => c.id === id)) };
+  }),
+
   rotateCard: (instanceId, delta) => set(state => {
     // Accumulate without modulo so CSS transition spins the short way the user
     // intended (e.g. 270 → 360 spins clockwise, not 270 → 0 counter-clockwise).
@@ -992,6 +1087,39 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
+  // Pull the top n cards off a pile into your hand — "drawing" from whichever
+  // pile the cursor is on. The library routes through draw() so it keeps the
+  // flight animation and the empty-library message; the other piles take one
+  // history entry for the whole batch, so a mis-typed digit is a single undo.
+  takeFromPile: (zone, n = 1) => {
+    if (zone === 'library') { get().draw(n); return; }
+    set(state => {
+      const pile = state.zones[zone];
+      const taken = pile.slice(0, n);
+      if (taken.length === 0) {
+        return { log: [...state.log, makeLogEntry(`${zone} is empty`, 'move')] };
+      }
+      const history = pushHistory(state.history, snapshotOf(state));
+      const before = state.zones.hand.length;
+      const zones = { ...state.zones, hand: [...state.zones.hand, ...taken] };
+      zones[zone] = pile.slice(taken.length);
+      return {
+        history,
+        zones,
+        // Cards arriving from a face-up pile slide in from the top, same as a
+        // card returned from the battlefield — they were never in the library.
+        lastReturnRange: { start: before, end: before + taken.length },
+        lastDrawRange: { start: -1, end: -1 },
+        log: [...state.log, makeLogEntry(
+          taken.length === 1
+            ? `${taken[0].name}: ${zone} → hand`
+            : `Took ${taken.length} cards: ${zone} → hand`,
+          'move',
+        )],
+      };
+    });
+  },
+
   setCounter: (instanceId, type, value) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const battlefield = state.battlefield.map(b => {
@@ -1012,6 +1140,22 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       return { ...b, counters };
     });
     return { history, battlefield };
+  }),
+
+  setCardEdit: (instanceId, edit) => set(state => {
+    const hit = state.battlefield.find(b => b.instanceId === instanceId);
+    if (!hit) return {};
+    return {
+      history: pushHistory(state.history, snapshotOf(state)),
+      battlefield: state.battlefield.map(b =>
+        b.instanceId === instanceId
+          // Dropped rather than set to undefined, so a cleared edit leaves no
+          // trace in the snapshots the undo stack keeps.
+          ? (edit ? { ...b, edit } : (({ edit: _drop, ...rest }) => rest)(b))
+          : b,
+      ),
+      log: [...state.log, makeLogEntry(describeEdit(hit.card.name, edit), 'counter')],
+    };
   }),
 
   adjustCounter: (instanceId, type, delta, anchor) => {
@@ -1166,6 +1310,8 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       faceDown: false,
       flipped: false,
       counters: { ...(arrival?.counters ?? {}) },
+      // A stolen Lignified creature is still Lignified — the aura didn't move.
+      ...(arrival?.edit ? { edit: arrival.edit } : {}),
     };
     return {
       history,
@@ -1330,6 +1476,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   closeModal: () => set({ modal: null }),
   setHovered: (id) => set({ hovered: id }),
   setHoveredPile: (zone) => set({ hoveredPile: zone }),
+  setPileDrawPending: (pending) => set({ pileDrawPending: pending }),
   setHoveredCounter: (id) => set({ hoveredCounter: id }),
   setHoveredDie: (id) => set({ hoveredDie: id }),
   setHoveredHandIndex: (index) => set({ hoveredHandIndex: index }),
@@ -1426,6 +1573,33 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     freeDice: state.freeDice.map(d => (d.id === id ? { ...d, x, y } : d)),
   })),
 
+  trashLoose: ({ kind, id }) => set(state => {
+    const selected = kind === 'counter' ? state.selectedCounterIds : state.selectedDieIds;
+    // Only sweep the selection up if the thing being dragged is in it — dragging
+    // an unselected counter must not take a stale selection down with it.
+    const doomed = new Set(selected.includes(id) ? selected : [id]);
+    const noun = kind === 'counter' ? 'counter' : 'die';
+    return {
+      history: pushHistory(state.history, snapshotOf(state)),
+      freeCounters: kind === 'counter'
+        ? state.freeCounters.filter(c => !doomed.has(c.id))
+        : state.freeCounters,
+      freeDice: kind === 'die'
+        ? state.freeDice.filter(d => !doomed.has(d.id))
+        : state.freeDice,
+      selectedCounterIds: kind === 'counter'
+        ? state.selectedCounterIds.filter(x => !doomed.has(x))
+        : state.selectedCounterIds,
+      selectedDieIds: kind === 'die'
+        ? state.selectedDieIds.filter(x => !doomed.has(x))
+        : state.selectedDieIds,
+      log: [...state.log, makeLogEntry(
+        doomed.size > 1 ? `Removed ${doomed.size} ${noun}s` : `Removed a ${noun}`,
+        'counter',
+      )],
+    };
+  }),
+
   setSelectedIds: (ids) => set({ selectedIds: ids }),
   setMarqueeSelection: (sel) => set({
     selectedIds: sel.cards,
@@ -1446,7 +1620,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       : { selectedIds: [], selectedCounterIds: [], selectedDieIds: [] }
   )),
 
-  setDragActive: (active) => set({ dragActiveId: active }),
+  // Clearing the active drag also clears stackedDrag: the flag only describes a
+  // drag in progress, and every end-of-drag path already comes through here.
+  setDragActive: (active) => set(active ? { dragActiveId: active } : { dragActiveId: null, stackedDrag: false }),
   setDragDelta: (delta) => set({ dragDelta: delta }),
 
   // Apply (dx, dy) to every selected battlefield card, free counter, and free
@@ -1573,6 +1749,53 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       freeDice: state.freeDice.map(d =>
         moveDice.has(d.id) ? { ...d, x: d.x + dx, y: d.y + dy } : d
       ),
+    };
+  }),
+
+  stackSelection: (anchorInstanceId) => set(state => {
+    const ids = new Set(state.selectedIds);
+    const inPile = state.battlefield.filter(b => ids.has(b.instanceId));
+    if (inPile.length < 2) return {};
+    // Pile order follows the battlefield array, which is paint order — except
+    // the anchor, pulled to the front so the pile only ever grows downwards
+    // from the card in your hand and never off the top edge of the table.
+    const anchor = inPile.find(b => b.instanceId === anchorInstanceId) ?? inPile[0];
+    const order = [anchor, ...inPile.filter(b => b.instanceId !== anchor.instanceId)];
+
+    const { height } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
+    const step = pileStep(height, order.length, state.battlefieldRect.height);
+    const offsets: Record<string, StackFlightOffset> = {};
+    const positioned = order.map((b, i) => {
+      const x = anchor.x;
+      const y = anchor.y + i * step;
+      // Where it was, relative to where it's going — the card renders at this
+      // offset for one frame, then transitions it away. See useStackFlight.
+      offsets[b.instanceId] = { dx: b.x - x, dy: b.y - y };
+      return {
+        ...b,
+        x,
+        y,
+        // A card in a pile isn't strapped to anything, and an attached card
+        // draws at its parent's offset — it would ignore the spot we just
+        // gave it.
+        attachedTo: undefined,
+      };
+    });
+
+    // The pile goes to the end of the array (later = painted on top) so it
+    // reads as one object sitting above the rest of the board, each card
+    // covering all but the title row of the one before it.
+    const rest = state.battlefield.filter(b => !ids.has(b.instanceId));
+    const text = `Stacked ${positioned.length} cards`;
+    return {
+      history: pushHistory(state.history, snapshotOf(state)),
+      battlefield: [...rest, ...positioned],
+      stackFlight: { tick: (state.stackFlight?.tick ?? 0) + 1, offsets },
+      // A drag is holding this pile if one is in progress — the menu path
+      // stacks with nothing in hand, and must not claim otherwise.
+      stackedDrag: state.dragActiveId !== null,
+      toast: { text, tick: (state.toast?.tick ?? 0) + 1 },
+      log: [...state.log, makeLogEntry(text, 'move')],
     };
   }),
 }));

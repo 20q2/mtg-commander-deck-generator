@@ -6,7 +6,7 @@ import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { resolvePT } from '@/services/playtest/powerToughness';
+import { resolvePT, describeEdit } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { registerUndoParticipant } from '@/store/undoBridge';
@@ -14,7 +14,7 @@ import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponent
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CombatState, Opponent, OpponentPermanent, OpponentZone } from '@/components/playtest/opponentTypes';
-import type { BattlefieldCard } from '@/components/playtest/types';
+import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
 const STARTING_LIFE = 40;
@@ -85,7 +85,7 @@ function playerCombatant(b: BattlefieldCard): Combatant {
     name: b.card.name,
     power: Number.isNaN(power) ? 0 : power,
     toughness: Number.isNaN(toughness) ? 0 : toughness,
-    keywords: keywordsOf(b.card),
+    keywords: keywordsOf(b.card, b.edit),
   };
 }
 
@@ -103,7 +103,7 @@ function botCombatant(
     name: p.card.name,
     power: botPower(p, battlefield, graveyard),
     toughness: botToughness(p, battlefield, graveyard),
-    keywords: keywordsOf(p.card),
+    keywords: keywordsOf(p.card, p.edit),
   };
 }
 
@@ -155,6 +155,12 @@ interface OpponentState {
       blocks: Record<string, string[]>;
     }>;
   } | null;
+  /**
+   * True once your combat has resolved this turn — you're past it, in your
+   * second main phase. Combat happens once a turn, so the button stops
+   * offering a second one until `beginTurn` clears this.
+   */
+  combatDone: boolean;
 }
 
 interface OpponentActions {
@@ -187,11 +193,18 @@ interface OpponentActions {
   givePermanent: (
     opponentId: string,
     card: ScryfallCard,
-    arrival?: { tapped?: boolean; counters?: Record<string, number> },
+    arrival?: { tapped?: boolean; counters?: Record<string, number>; edit?: CardEdit },
   ) => void;
   /** Move one of their permanents off the board into one of their zones. */
   permanentToZone: (opponentId: string, instanceId: string, zone: OpponentZone) => void;
   adjustPermanentCounter: (opponentId: string, instanceId: string, type: string, delta: number) => void;
+  /**
+   * Rewrite one of a bot's creatures — Lignify and friends. `null` clears it.
+   * The bot reads its own board through botPower/botToughness/keywordsOf, so an
+   * edit here changes what it attacks with and how it chooses blocks, not just
+   * what the numbers say on screen.
+   */
+  setPermanentEdit: (opponentId: string, instanceId: string, edit: CardEdit | null) => void;
   /** Assign one of your creatures to block an attacker. */
   assignBlocker: (attackerId: string, blockerInstanceId: string) => void;
   removeBlocker: (attackerId: string, blockerInstanceId: string) => void;
@@ -201,6 +214,11 @@ interface OpponentActions {
   enterCombat: () => void;
   /** Back out. Anything declared is untapped and forgotten. */
   exitCombat: () => void;
+  /**
+   * A new turn has started: your combat is available again. Called from the
+   * player's Next Turn, alongside `exitCombat`.
+   */
+  beginTurn: () => void;
   /** Drop one of your creatures into a seat's strip. Taps it unless vigilant. */
   declareAttacker: (opponentId: string, instanceId: string) => void;
   /** Pull a declared attacker back out. Untaps it. */
@@ -242,7 +260,7 @@ function readPlayerBoard(): PlayerBoardRead {
       .filter(b => !b.tapped && getFrontFaceTypeLine(b.card).toLowerCase().includes('creature'))
       .map(playerCombatant),
     cards: s.battlefield.map(b => {
-      const type = getFrontFaceTypeLine(b.card).toLowerCase();
+      const type = (b.edit?.typeLine ?? getFrontFaceTypeLine(b.card)).toLowerCase();
       const pt = resolvePT(b);
       const power = parseInt(pt?.modified.split('/')[0] ?? '', 10);
       const toughness = parseInt(pt?.modified.split('/')[1] ?? '', 10);
@@ -305,6 +323,7 @@ const initial: OpponentState = {
   combatPhase: false,
   declaration: null,
   playerCombat: null,
+  combatDone: false,
 };
 
 /**
@@ -373,7 +392,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     cancelTurns();
     set({
       opponents: [], error: null, combat: null, combatPhase: false,
-      declaration: null, playerCombat: null, running: false,
+      declaration: null, playerCombat: null, running: false, combatDone: false,
     });
   },
 
@@ -405,7 +424,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     if (attacker && !canBlock(
       { instanceId: attacker.instanceId, name: attacker.card.name,
         power: attacker.power, toughness: attacker.toughness,
-        keywords: keywordsOf(attacker.card) },
+        keywords: keywordsOf(attacker.card, attacker.edit) },
       playerCombatant(card),
     )) {
       playtest.showToast(`${card.card.name} can't block a flyer`);
@@ -512,6 +531,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({ combatPhase: false });
   },
 
+  beginTurn: () => set({ combatDone: false }),
+
   declareAttacker: (opponentId, instanceId) => {
     const playtest = usePlaytestStore.getState();
     const card = playtest.battlefield.find(b => b.instanceId === instanceId);
@@ -533,7 +554,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     if (!current) playtest.pushCheckpoint();
 
     // Vigilance attacks without tapping. Everything else taps.
-    if (!keywordsOf(card.card).has('vigilance')) {
+    if (!keywordsOf(card.card, card.edit).has('vigilance')) {
       playtest.setTappedQuiet([instanceId], true);
     }
 
@@ -549,7 +570,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     if (!current) return;
     const playtest = usePlaytestStore.getState();
     const card = playtest.battlefield.find(b => b.instanceId === instanceId);
-    if (card && !keywordsOf(card.card).has('vigilance')) {
+    if (card && !keywordsOf(card.card, card.edit).has('vigilance')) {
       playtest.setTappedQuiet([instanceId], false);
     }
     set(() => {
@@ -568,7 +589,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const playtest = usePlaytestStore.getState();
     const toUntap = Object.values(current).flat().filter(id => {
       const card = playtest.battlefield.find(b => b.instanceId === id);
-      return card ? !keywordsOf(card.card).has('vigilance') : false;
+      return card ? !keywordsOf(card.card, card.edit).has('vigilance') : false;
     });
     playtest.setTappedQuiet(toUntap, false);
     set({ declaration: null });
@@ -692,6 +713,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         // combatPhase stays true from confirm through here so the strips keep
         // showing the blocks — and stays true while another fight is unsettled.
         combatPhase: done ? false : s.combatPhase,
+        // Every fight settled means combat is behind you: second main phase.
+        combatDone: done || s.combatDone,
       };
     });
   },
@@ -778,6 +801,30 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
                 else counters[type] = next;
                 return { ...p, counters };
               }),
+            }
+          : o,
+      ),
+    }));
+  },
+
+  setPermanentEdit: (opponentId, instanceId, edit) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    const hit = opp?.battlefield.find(p => p.instanceId === instanceId);
+    if (!opp || !hit) return;
+    usePlaytestStore.getState().pushCheckpoint();
+    usePlaytestStore.getState().appendLog(`${opp.name}'s ${describeEdit(hit.card.name, edit)}`);
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              battlefield: o.battlefield.map(p =>
+                p.instanceId === instanceId
+                  // Dropped rather than set to undefined, so a cleared edit
+                  // leaves no trace in the snapshots the undo stack keeps.
+                  ? (edit ? { ...p, edit } : (({ edit: _drop, ...rest }) => rest)(p))
+                  : p,
+              ),
             }
           : o,
       ),
@@ -967,6 +1014,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
                 card: p.card,
                 power: botPower(p, f.opponent.battlefield),
                 toughness: botToughness(p, f.opponent.battlefield),
+                edit: p.edit,
               }));
             set({
               combat: {
@@ -1035,6 +1083,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
                   tapped: arrival?.tapped ?? false,
                   summoningSick: true,
                   counters: { ...(arrival?.counters ?? {}) },
+                  ...(arrival?.edit ? { edit: arrival.edit } : {}),
                 },
               ],
             }
@@ -1057,6 +1106,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       declaration: null,
       playerCombat: null,
       combatPhase: false,
+      combatDone: false,
       combat: null,
       running: false,
       opponents: s.opponents.map(o => {
@@ -1101,6 +1151,7 @@ interface OpponentUndoSnapshot {
   combatPhase: boolean;
   declaration: Record<string, string[]> | null;
   playerCombat: OpponentState['playerCombat'];
+  combatDone: boolean;
 }
 
 registerUndoParticipant({
@@ -1134,6 +1185,7 @@ registerUndoParticipant({
             ),
           }
         : null,
+      combatDone: s.combatDone,
     };
   },
   restore: (snapshot) => {
@@ -1145,6 +1197,7 @@ registerUndoParticipant({
       combatPhase: s.combatPhase,
       declaration: s.declaration,
       playerCombat: s.playerCombat,
+      combatDone: s.combatDone,
     });
     // An undo that closes an open combat has to settle the promise runAllTurns
     // is parked on, or the bot's turn never finishes and `running` sticks true,

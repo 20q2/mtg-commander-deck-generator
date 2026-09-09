@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, pointerWithin, rectIntersection, type CollisionDetection, type DragEndEvent, type DragMoveEvent, type DragStartEvent, type Modifier } from '@dnd-kit/core';
+import { createShakeDetector } from '@/components/playtest/hooks/shakeGesture';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -20,6 +21,7 @@ import { MulliganModal } from '@/components/playtest/modals/MulliganModal';
 import { ScryMillSurveilModal } from '@/components/playtest/modals/ScryMillSurveilModal';
 import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
 import { TokenSpawnModal } from '@/components/playtest/modals/TokenSpawnModal';
+import { EditCreatureModal } from '@/components/playtest/modals/EditCreatureModal';
 import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
 import { HandDiscardModal } from '@/components/playtest/modals/HandDiscardModal';
@@ -30,6 +32,7 @@ import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneM
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { GameOutcomeBanner } from '@/components/playtest/GameOutcomeBanner';
 import { FloatingTextLayer } from '@/components/playtest/FloatingTextLayer';
+import { DamageFlashLayer } from '@/components/playtest/DamageFlashLayer';
 import { CardFlightLayer } from '@/components/playtest/CardFlight';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
@@ -112,6 +115,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   const error = usePlaytestStore(s => s.error);
   const modal = usePlaytestStore(s => s.modal);
   const moveCard = usePlaytestStore(s => s.moveCard);
+  // Suppresses the drag ghost once a shake has put a whole pile in your hand.
+  const stackedDrag = usePlaytestStore(s => s.stackedDrag);
   const spawnToken = usePlaytestStore(s => s.spawnToken);
   const cardSize = usePlaytestSettings(s => s.cardSize);
 
@@ -203,7 +208,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     | null
   >(null);
 
+  // One detector per page, reset per drag — see shakeGesture for the gesture.
+  const shakeRef = useRef(createShakeDetector());
+
   function onDragStart(event: DragStartEvent) {
+    shakeRef.current.reset();
     const data = event.active.data.current as {
       source?: MoveSource | { kind: 'freecounter'; id: string } | { kind: 'freedie'; id: string };
       tokenCard?: ScryfallCard;
@@ -313,6 +322,20 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     if (source.kind !== 'battlefield' && source.kind !== 'freecounter' && source.kind !== 'freedie') return;
     const { x, y } = event.delta;
     usePlaytestStore.getState().setDragDelta({ x, y });
+
+    // Shake a marquee'd handful over the table and they tidy into a pile. Only
+    // cards do it, only over the battlefield itself — a shake on the way to a
+    // pile or a combat strip is just an unsteady hand, not a request.
+    if (source.kind !== 'battlefield') return;
+    const overKind = (event.over?.data.current as { kind?: string } | undefined)?.kind;
+    if (overKind !== 'battlefield') return;
+    const instanceId = (source as unknown as { instanceId: string }).instanceId;
+    const state = usePlaytestStore.getState();
+    if (state.selectedIds.length < 2 || !state.selectedIds.includes(instanceId)) return;
+    // stackSelection raises `stackedDrag` itself when a drag is holding the
+    // pile, which is what drops the floating ghost and suppresses the second
+    // history checkpoint at drop time.
+    if (shakeRef.current.push(x, y, performance.now())) state.stackSelection(instanceId);
   }
 
   /**
@@ -335,10 +358,30 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   }
 
   function clearDragTracking() {
+    shakeRef.current.reset();
     const state = usePlaytestStore.getState();
     state.setDragActive(null);
     state.setDragDelta(null);
     state.setHandDropFanPos(null);
+  }
+
+  /**
+   * Everything the drag is carrying: the grabbed card first, then the rest of
+   * its selection in board order. Dragging one card of a marquee'd group into a
+   * zone takes the whole group — the same rule the card menu's bulk actions
+   * follow, and the only reading of "put this pile back in my hand" that isn't
+   * a surprise. Non-battlefield sources are never grouped: a card leaving the
+   * hand or a zone viewer is on its own.
+   */
+  function carriedGroup(source: MoveSource): MoveSource[] {
+    if (source.kind !== 'battlefield') return [source];
+    const state = usePlaytestStore.getState();
+    if (state.selectedIds.length < 2 || !state.selectedIds.includes(source.instanceId)) return [source];
+    const ids = new Set(state.selectedIds);
+    const followers = state.battlefield
+      .filter(b => ids.has(b.instanceId) && b.instanceId !== source.instanceId)
+      .map(b => ({ kind: 'battlefield' as const, instanceId: b.instanceId }));
+    return [source, ...followers];
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -420,7 +463,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       const released = usePlaytestStore.getState().releasePermanent(instanceId);
       if (!released) return;
       useOpponentStore.getState().givePermanent(overData.opponentId, released.card, {
-        tapped: released.tapped, counters: released.counters,
+        tapped: released.tapped, counters: released.counters, edit: released.edit,
       });
       return;
     }
@@ -498,6 +541,10 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     // Free counter drag → reposition on the battlefield (or no-op if dropped elsewhere)
     if (sourceData?.source && (sourceData.source as { kind: string }).kind === 'freecounter') {
       const cs = sourceData.source as { kind: 'freecounter'; id: string };
+      if (overData?.kind === 'counterTrash') {
+        usePlaytestStore.getState().trashLoose({ kind: 'counter', id: cs.id });
+        return;
+      }
       if (over.id === 'battlefield' && overData?.kind === 'battlefield') {
         const rect = over.rect as DOMRect | undefined;
         const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
@@ -515,6 +562,10 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     // Free die drag → reposition on the battlefield
     if (sourceData?.source && (sourceData.source as { kind: string }).kind === 'freedie') {
       const ds = sourceData.source as { kind: 'freedie'; id: string };
+      if (overData?.kind === 'counterTrash') {
+        usePlaytestStore.getState().trashLoose({ kind: 'die', id: ds.id });
+        return;
+      }
       if (over.id === 'battlefield' && overData?.kind === 'battlefield') {
         const rect = over.rect as DOMRect | undefined;
         const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
@@ -549,10 +600,27 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         // Move only the active card here; other selected cards (plus selected
         // counters & dice) are repositioned by applyGroupMove. Doing both
         // here would double-apply the delta to followers.
-        const others = state.battlefield.filter(b => b.instanceId !== source.instanceId);
-        const updated = [...others, { ...target, x, y }];
+        //
+        // Array order is paint order, and the dropped card goes to the end so
+        // it lands on top of the board. Dragging a group lifts the WHOLE group,
+        // relative order intact — pulling just the grabbed card to the top
+        // would break any arrangement the group has, a stacked pile most
+        // visibly: its middle card would jump in front of the ones below it.
+        const selected = new Set(state.selectedIds);
+        const asGroup = selected.size > 1 && selected.has(source.instanceId);
+        const moved = (b: BfCard) => (b.instanceId === source.instanceId ? { ...b, x, y } : b);
+        const updated = asGroup
+          ? [
+              ...state.battlefield.filter(b => !selected.has(b.instanceId)),
+              ...state.battlefield.filter(b => selected.has(b.instanceId)).map(moved),
+            ]
+          : [...state.battlefield.filter(b => b.instanceId !== source.instanceId), { ...target, x, y }];
+        // A shake mid-drag already checkpointed this gesture, and the drop is
+        // the same gesture: checkpoint it again and the first Undo would only
+        // nudge the pile back by the drop delta — which after a shake-in-place
+        // is a few pixels — instead of unstacking it.
         usePlaytestStore.setState({
-          history: [...state.history, {
+          history: state.stackedDrag ? state.history : [...state.history, {
             zones: state.zones,
             battlefield: state.battlefield,
             life: state.life,
@@ -577,11 +645,13 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         if (source.index === insertIndex) return;
         if (source.index < insertIndex) insertIndex--;
       }
-      if (targetZone === 'library') {
-        moveCard({ source, target: { kind: 'library', position: insertIndex } });
-      } else {
-        moveCard({ source, target: { kind: 'zone', zone: targetZone as 'graveyard' | 'exile' | 'command' | 'hand', index: insertIndex } });
-      }
+      carriedGroup(source).forEach((src, k) => {
+        if (targetZone === 'library') {
+          moveCard({ source: src, target: { kind: 'library', position: insertIndex + k } });
+        } else {
+          moveCard({ source: src, target: { kind: 'zone', zone: targetZone as 'graveyard' | 'exile' | 'command' | 'hand', index: insertIndex + k } });
+        }
+      });
       return;
     }
 
@@ -604,7 +674,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           index: insertIndex, x: release.left, y: release.top,
         });
       }
-      moveCard({ source, target: { kind: 'zone', zone: 'hand', index: insertIndex } });
+      // Each following card lands one slot further along, so a pile put back
+      // in your hand keeps the order it had on the table.
+      carriedGroup(source).forEach((src, k) => {
+        moveCard({ source: src, target: { kind: 'zone', zone: 'hand', index: insertIndex + k } });
+      });
       return;
     }
 
@@ -612,13 +686,19 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     if (overData?.kind === 'pile' && overData.zone) {
       // No-op when dragging within a zone viewer back onto itself — prevents
       // the entry animation from firing on a same-zone drop.
-      if (source.kind === 'zone' && source.zone === overData.zone) {
+      //
+      // The hand is the exception: a hand card dropped back on the hand is a
+      // reorder, and the hand's own container droppable is exactly what catches
+      // a release past either end of the fan, where there is no `hand-slot`
+      // under the pointer. Returning here sent those drops nowhere — the card
+      // snapped back to its old slot even though the fan had parted for it.
+      if (source.kind === 'zone' && source.zone === overData.zone && overData.zone !== 'hand') {
         return;
       }
       // Dropping onto the library pile = "put on top of library"; route through
       // the typed library target so the top-push animation fires.
       if (overData.zone === 'library') {
-        moveCard({ source, target: { kind: 'library', position: 'top' } });
+        carriedGroup(source).forEach(src => moveCard({ source: src, target: { kind: 'library', position: 'top' } }));
         return;
       }
       const zone = overData.zone as 'graveyard' | 'exile' | 'hand' | 'command';
@@ -630,25 +710,30 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           // Same helper the parting animation uses, so the gap you were shown
           // is the slot the card actually takes.
           let insertIndex = handInsertAt(release.left + release.width / 2).index;
-          if (source.kind === 'zone' && source.zone === 'hand' && source.index < insertIndex) {
-            insertIndex--;
+          if (source.kind === 'zone' && source.zone === 'hand') {
+            if (source.index < insertIndex) insertIndex--;
+            // Released back onto its own slot: nothing moves, so skip the move
+            // entirely rather than replaying the landing flight for a no-op.
+            if (source.index === insertIndex) return;
           }
           // Hand the release point over so the card can fly from where you let
           // go down into its slot, rather than appearing there.
           usePlaytestStore.getState().setHandLanding({
             index: insertIndex, x: release.left, y: release.top,
           });
-          moveCard({ source, target: { kind: 'zone', zone: 'hand', index: insertIndex } });
+          carriedGroup(source).forEach((src, k) => {
+            moveCard({ source: src, target: { kind: 'zone', zone: 'hand', index: insertIndex + k } });
+          });
           return;
         }
       }
-      moveCard({ source, target: { kind: 'zone', zone } });
+      carriedGroup(source).forEach(src => moveCard({ source: src, target: { kind: 'zone', zone } }));
       return;
     }
 
     // Library top/bottom
     if (overData?.kind === 'library' && overData.position) {
-      moveCard({ source, target: { kind: 'library', position: overData.position } });
+      carriedGroup(source).forEach(src => moveCard({ source: src, target: { kind: 'library', position: overData.position! } }));
       return;
     }
   }
@@ -717,15 +802,17 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         {modal?.kind === 'create' && <CreateModal />}
         {modal?.kind === 'newCardTrial' && <NewCardTrialModal />}
         {modal?.kind === 'opponents' && <AddOpponentModal />}
+        {modal?.kind === 'editCreature' && <EditCreatureModal />}
         {modal?.kind === 'opponentZone' && (
           <OpponentZoneModal opponentId={modal.opponentId} zone={modal.zone} />
         )}
         <PlaytestToast />
         <FloatingTextLayer />
+        <DamageFlashLayer />
       <CardFlightLayer />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>
-        {activeCard ? (
+        {activeCard && !stackedDrag ? (
           // Mirror the battlefield card's box model: an upright outer wrapper at
           // the real card width (this is the node dnd-kit measures for the drop
           // position) with the tap rotation on the INNER image. If the rotation
@@ -753,7 +840,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
               <img
                 src={activeFaceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(activeCard, 'normal')}
                 alt={activeCard.name}
-                className="block w-full rounded-[5px] shadow-2xl ring-2 ring-primary/40"
+                className="block w-full rounded-[6px] shadow-2xl ring-2 ring-primary/40"
                 style={{ filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.5))' }}
                 draggable={false}
               />

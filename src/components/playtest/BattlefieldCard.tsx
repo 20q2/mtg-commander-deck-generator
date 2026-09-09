@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import type { DraggableAttributes } from '@dnd-kit/core';
-import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestStore, STACK_FLIGHT_MS } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getCardBackFaceUrl, isDoubleFacedCard } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
@@ -98,6 +98,50 @@ interface PositionedProps {
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
+/**
+ * Flight-in for a card that was just tidied into a pile. The store has already
+ * moved it, so this renders it back at its old spot for a frame and then lets
+ * CSS carry it home — a snap with no travel reads as a glitch rather than as
+ * cards being gathered up.
+ *
+ * Deliberately not a general "animate any position change": a card being
+ * dragged has to track the cursor exactly, and a transition on transform would
+ * put it on a leash. Only stacking opts in.
+ */
+function useStackFlight(instanceId: string, enabled: boolean) {
+  const flight = usePlaytestStore(s => s.stackFlight);
+  // Initialised to whatever tick is current, so a card mounting long after a
+  // stack doesn't fly in from a stale offset.
+  const seenTick = React.useRef(flight?.tick ?? 0);
+  const [leg, setLeg] = React.useState<{ dx: number; dy: number; gliding: boolean } | null>(null);
+
+  // Layout, not passive: the store has already moved the card, so the offset
+  // has to be in place before the browser paints. A passive effect lands one
+  // frame late and the pile flashes into view before the cards fly in.
+  React.useLayoutEffect(() => {
+    if (!flight || flight.tick === seenTick.current) return;
+    seenTick.current = flight.tick;
+    const off = flight.offsets[instanceId];
+    if (!enabled || !off || (off.dx === 0 && off.dy === 0)) return;
+    setLeg({ ...off, gliding: false });
+    // Two frames, not one: React would otherwise batch the offset and the
+    // glide into a single commit, the browser would never paint the start
+    // position, and there'd be nothing to transition from.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setLeg({ ...off, dx: 0, dy: 0, gliding: true }));
+    });
+    const land = setTimeout(() => setLeg(null), STACK_FLIGHT_MS + 80);
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+      clearTimeout(land);
+    };
+  }, [flight, instanceId, enabled]);
+
+  return leg;
+}
+
 /** Float the loyalty text off the shield itself rather than the card centre. */
 const shieldAnchor = (e: React.MouseEvent<HTMLElement>) => badgeFloatAnchor(e.currentTarget);
 
@@ -112,6 +156,10 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
     if (typeof ref === 'function') ref(node);
     else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
   };
+  // Once a shake has tidied the group, the pile is what you're holding: the
+  // dragged card stops hiding behind its floating ghost and sits in the stack
+  // at the same z as its neighbours, so the cards below it aren't painted over.
+  const stackedDrag = usePlaytestStore(s => s.stackedDrag);
   const [hovered, setHoveredLocal] = useState(false);
   const magnify = useMagnifyKey();
   const showPreview = magnify && hovered && !isDragging;
@@ -123,6 +171,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   // Arrival shrink: cards mount briefly larger then transition down to the
   // battlefield's normal size, matching the visual "drop from hand" intent.
   const animations = usePlaytestSettings(s => s.animations);
+  const flight = useStackFlight(card.instanceId, animations);
   const [arrived, setArrived] = React.useState(!animations);
   React.useEffect(() => {
     if (!animations) { setArrived(true); return; }
@@ -169,11 +218,16 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
       onContextMenu={onContextMenu}
       onMouseEnter={() => { onHover(true); setHoveredLocal(true); }}
       onMouseLeave={() => { onHover(false); setHoveredLocal(false); }}
-      className={`absolute select-none touch-none ${isDragging ? 'opacity-0 z-50' : 'z-10'}`}
+      className={`absolute select-none touch-none ${isDragging && !stackedDrag ? 'opacity-0 z-50' : 'z-10'}`}
       style={{
         left: xPx,
         top: yPx,
-        transform: `translate3d(${tx}px, ${ty}px, 0)`,
+        // The flight offset rides on top of the drag delta, so a group tidied
+        // mid-drag keeps following the cursor while its cards fly together.
+        transform: `translate3d(${tx + (flight?.dx ?? 0)}px, ${ty + (flight?.dy ?? 0)}px, 0)`,
+        transition: flight?.gliding
+          ? `transform ${STACK_FLIGHT_MS}ms cubic-bezier(0.2, 0.9, 0.25, 1)`
+          : undefined,
         width: cardWidth,
         cursor: isDragging ? 'grabbing' : 'grab',
       }}
@@ -193,7 +247,14 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
                   : getCardImageUrl(card.card, 'normal'))
           }
           alt={displayFaceDown ? 'Face-down' : card.card.name}
-          className={`w-full rounded-[5px] shadow-lg pointer-events-none ${selected ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent' : ''} ${flipping ? 'animate-bf-flip' : ''}`}
+          // A hairline violet ring marks the card under the cursor — enough to
+          // pick one card out of an overlapped stack, thin enough not to read as
+          // selection. Selection's own ring outranks it, so the two never stack.
+          className={`w-full rounded-[6px] shadow-lg pointer-events-none ${
+            selected
+              ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent'
+              : hovered && !isDragging ? 'ring-1 ring-violet-400' : ''
+          } ${flipping ? 'animate-bf-flip' : ''}`}
           draggable={false}
         />
         {/* Loyalty shield — bottom-right, MTG-style hex shield. Planeswalkers

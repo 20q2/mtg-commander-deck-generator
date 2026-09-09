@@ -35,7 +35,7 @@ export function ScryMillSurveilModal() {
       <ModalShell title={`Mill ${n}`} onClose={closeModal}>
         <p className="text-sm text-muted-foreground mb-3">These {n} cards will be moved from library to graveyard:</p>
         <div className="grid grid-cols-7 gap-2 mb-5">
-          {top.map((c, i) => <HoverPreviewImage key={`${c.id}-${i}`} card={c} size="normal" className="w-full rounded-[5px] shadow" />)}
+          {top.map((c, i) => <HoverPreviewImage key={`${c.id}-${i}`} card={c} size="normal" className="w-full rounded-[6px] shadow" />)}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={closeModal}>Cancel</Button>
@@ -300,9 +300,9 @@ function CardSlot({
       {...drag.attributes}
       {...drag.listeners}
       style={{ width: CARD_W, ...dragStyle }}
-      className={`relative rounded-[5px] cursor-grab active:cursor-grabbing touch-none shrink-0 ${drag.isDragging ? 'shadow-2xl ring-2 ring-primary' : ''} ${isOver && !drag.isDragging ? 'ring-2 ring-primary' : ''}`}
+      className={`relative rounded-[6px] cursor-grab active:cursor-grabbing touch-none shrink-0 ${drag.isDragging ? 'shadow-2xl ring-2 ring-primary' : ''} ${isOver && !drag.isDragging ? 'ring-2 ring-primary' : ''}`}
     >
-      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[5px] shadow pointer-events-none" />
+      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[6px] shadow pointer-events-none" />
       {showPosition && (
         <span className="absolute top-1 left-1 text-[10px] font-bold bg-background/85 text-foreground px-1.5 py-0.5 rounded pointer-events-none">
           {position + 1}
@@ -318,7 +318,7 @@ function EndSlot({ zoneId, position }: { zoneId: ZoneId; position: number }) {
     <div
       ref={setNodeRef}
       style={{ width: CARD_W, height: Math.round(CARD_W * 1.4) }}
-      className={`rounded-[5px] border border-dashed shrink-0 ${isOver ? 'border-primary bg-primary/10' : 'border-border/30'}`}
+      className={`rounded-[6px] border border-dashed shrink-0 ${isOver ? 'border-primary bg-primary/10' : 'border-border/30'}`}
       aria-hidden
     />
   );

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
-import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardImageUrl, getCardBackFaceUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import { PlaytestActionsBar, NextTurnButton, CombatButton, ZoneActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
@@ -18,6 +18,7 @@ export function Hand() {
   const hand = usePlaytestStore(s => s.zones.hand);
   const moveCard = usePlaytestStore(s => s.moveCard);
   const setHoveredHandIndex = usePlaytestStore(s => s.setHoveredHandIndex);
+  const flippedHandIds = usePlaytestStore(s => s.flippedHandIds);
   const [sort, setSort] = useState<SortMode>('none');
   // Conditionally RENDER the hand-row piles (not just CSS-hide) so they
   // don't share dnd-kit IDs with the mobile floating piles on the battlefield.
@@ -119,7 +120,12 @@ export function Hand() {
           </div>
         </div>
       </div>
-      <div className="flex items-end gap-1 sm:gap-2 min-h-[140px] sm:min-h-[160px]">
+      {/* The min-height holds the row open on mobile, where no piles are
+          rendered and an empty hand would collapse it. On desktop the piles
+          are always there, so the row is content-sized instead — otherwise a
+          narrow desktop window pads the row past the tallest column and the
+          zone buttons drift down off the hairline they're aligned to. */}
+      <div className="flex items-end gap-1 sm:gap-2 min-h-[140px] sm:min-h-[160px] md:min-h-0">
         {/* Desktop: Command pile on the left. Mobile: zones float on the battlefield. */}
         {isDesktop && (
           <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }}>
@@ -135,6 +141,7 @@ export function Hand() {
                 indexInHand={originalIndex}
                 fanIndex={i}
                 overlap={overlap}
+                flippedOver={flippedHandIds.includes(card.id)}
                 flipFrom={flip?.get(occurrenceKey(display, i)) ?? null}
                 inFlight={flight?.index === originalIndex}
                 hoveredFanIndex={hoveredFanIndex}
@@ -156,22 +163,29 @@ export function Hand() {
         </div>
         {/* Desktop: Library / Graveyard / Exile on the right. Exile is half the
             width of the other two and hangs from the top — it's the zone you
-            touch least, so it shouldn't claim a full card's worth of the row. */}
+            touch least, so it shouldn't claim a full card's worth of the row.
+
+            Their widths are the command pile's minus 20px, which is what makes
+            the action buttons sit flush with the hairline above them: these
+            columns are bottom-aligned and carry a 24px button plus a 4px gap
+            that the command column doesn't, and a 5:7 pile spends 1.4px of
+            height per px of width — so 28px of button stack is exactly 20px of
+            width. Exile stays half of that. */}
         {isDesktop && (
           <div className="flex items-end gap-2 shrink-0">
-            {/* Deck actions and Search ride on top of the library — they all
-                act on the deck, so the pile is both the target and the
-                control. The other piles hang from the bottom of the row, so
+            {/* Deck actions ride on top of the library — draw, scry, mill and
+                search all act on the deck, so the pile is both the target and
+                the control. The other piles hang from the bottom of the row, so
                 this column is bottom-aligned too and the buttons stack above. */}
-            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
+            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, calc(11vw - 20px), 110px)' }}>
               <ZoneActions zone="library" className="w-full" />
               <PlaytestPile spec={PILES[1]} />
             </div>
-            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, 8.25vw, 98px)' }}>
+            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, calc(11vw - 20px), 110px)' }}>
               <ZoneActions zone="graveyard" className="w-full" />
               <PlaytestPile spec={PILES[2]} />
             </div>
-            <div className="self-start flex flex-col gap-1" style={{ width: 'clamp(30px, 4.15vw, 49px)' }}>
+            <div className="self-start flex flex-col gap-1" style={{ width: 'clamp(30px, calc(5.5vw - 10px), 55px)' }}>
               <ZoneActions zone="exile" className="w-full" compact />
               <PlaytestPile spec={PILES[3]} />
             </div>
@@ -339,7 +353,7 @@ function HandFlight({ flight, landed, onDone }: { flight: Flight; landed: boolea
       aria-hidden
       draggable={false}
       onTransitionEnd={onDone}
-      className="fixed pointer-events-none rounded-[5px] shadow-2xl"
+      className="fixed pointer-events-none rounded-[6px] shadow-2xl"
       style={{
         left: flight.from.x,
         top: flight.from.y,
@@ -391,6 +405,8 @@ interface HandCardProps {
   fanIndex: number;
   overlap: number;
   hoveredFanIndex: number | null;
+  /** Turned over with F: shows the back face (DFC) or the card back. */
+  flippedOver: boolean;
   /**
    * Set for a single frame after the row changes: how far this card has to be
    * pushed back to where it just was, so releasing it animates the move.
@@ -403,7 +419,7 @@ interface HandCardProps {
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipFrom, inFlight, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
+function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flippedOver, flipFrom, inFlight, onHoverChange, onClickPlay, onContextMenu }: HandCardProps) {
   const dragId = `hand:${indexInHand}:${card.id}`;
   const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: dragId,
@@ -456,6 +472,27 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipF
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Turning a card over in hand mirrors the battlefield's flip: a quick
+  // rotateY with the displayed face swapping at the edge-on midpoint, so you
+  // never see the new face rotating in from frame 0.
+  const prevFlipped = useRef(flippedOver);
+  const [flipping, setFlipping] = useState(false);
+  const [displayFlipped, setDisplayFlipped] = useState(flippedOver);
+  useEffect(() => {
+    if (prevFlipped.current === flippedOver) return;
+    prevFlipped.current = flippedOver;
+    if (!animations) { setDisplayFlipped(flippedOver); return; }
+    setFlipping(true);
+    const swap = setTimeout(() => setDisplayFlipped(flippedOver), 175);
+    const end  = setTimeout(() => setFlipping(false), 380);
+    return () => { clearTimeout(swap); clearTimeout(end); };
+  }, [flippedOver, animations]);
+  // A double-faced card turned over shows its other face; anything else shows
+  // the card back, the same rule the battlefield follows.
+  const faceSrc = displayFlipped
+    ? (getCardBackFaceUrl(card, 'normal') ?? `${import.meta.env.BASE_URL}card-back.png`)
+    : getCardImageUrl(card, 'normal');
 
   const dragTransform = transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(1.05)` : undefined;
 
@@ -549,19 +586,19 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipF
       title={`Click to play ${card.name} · right-click for more options`}
       data-hand-index={indexInHand}
       data-card-id={card.id}
-      className={`relative shrink-0 rounded-[5px] select-none touch-none ${
+      className={`relative shrink-0 rounded-[6px] select-none touch-none ${
         isOver && !isDragging ? 'ring-2 ring-primary' : ''
       } ${dealing && !isDragging ? (isFreshlyReturned ? 'animate-deal-in-from-top' : 'animate-deal-in') : ''}`}
       style={style}
     >
       <img
-        src={getCardImageUrl(card, 'normal')}
-        alt={card.name}
-        className="w-full rounded-[5px] shadow-md pointer-events-none"
+        src={faceSrc}
+        alt={displayFlipped ? `${card.name} (turned over)` : card.name}
+        className={`w-full rounded-[6px] shadow-md pointer-events-none ${flipping ? 'animate-bf-flip' : ''}`}
         loading="lazy"
         draggable={false}
       />
-      {showPreview && <MagnifiedPreview card={card} anchorRef={localRef} />}
+      {showPreview && <MagnifiedPreview card={card} anchorRef={localRef} faceDown={displayFlipped} />}
     </div>
   );
 }

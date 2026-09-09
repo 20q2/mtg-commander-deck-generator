@@ -15,6 +15,24 @@ export interface CardSticker {
   y: number;
 }
 
+/**
+ * A creature's characteristics rewritten in place — Lignify, Frogify, Kenrith's
+ * Transformation. The printed values stay on the card; this is what everything
+ * that asks "what is this creature right now" reads instead.
+ *
+ * Counters and anthems still layer on top, so a Lignified creature that picks up
+ * a +1/+1 counter is a 1/5. Deliberately not tied to the aura that caused it:
+ * you clear the edit yourself, the same way you'd peel off a sticker.
+ */
+export interface CardEdit {
+  power: number;
+  toughness: number;
+  /** Replaces the printed type line for display and for subtype matching. */
+  typeLine?: string;
+  /** Suppresses printed keywords, for combat maths and for the bots' decisions. */
+  loseAbilities?: boolean;
+}
+
 export interface BattlefieldCard {
   instanceId: string;
   card: ScryfallCard;
@@ -34,6 +52,8 @@ export interface BattlefieldCard {
   counterPositions?: Record<string, { x: number; y: number }>;
   /** Optional so the many places that construct a card don't all need updating. */
   stickers?: CardSticker[];
+  /** Set when this creature has been rewritten — see CardEdit. */
+  edit?: CardEdit;
   attachedTo?: string;
 }
 
@@ -165,7 +185,13 @@ export type Modal =
   | { kind: 'opponents' }
   | { kind: 'opponentZone'; opponentId: string; zone: 'graveyard' | 'exile' }
   | { kind: 'mulligan'; mulliganCount: number }
-  | { kind: 'handDiscard'; down_to: number };
+  | { kind: 'handDiscard'; down_to: number }
+  | { kind: 'editCreature'; target: EditTarget };
+
+/** Which creature the edit dialog is pointed at — yours, or one of the bots'. */
+export type EditTarget =
+  | { side: 'player'; instanceId: string }
+  | { side: 'opponent'; opponentId: string; instanceId: string };
 
 export type MoveSource =
   | { kind: 'zone'; zone: ZoneKey; index: number }

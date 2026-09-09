@@ -822,7 +822,7 @@ export function takeTurn(
         name: p.card.name,
         power: livePower(p, opp.battlefield, opp.graveyard),
         toughness: liveToughness(p, opp.battlefield, opp.graveyard),
-        keywords: keywordsOf(p.card),
+        keywords: keywordsOf(p.card, p.edit),
       })),
       blockers: target.untappedCreatures,
       playerLife: target.life,
@@ -838,7 +838,7 @@ export function takeTurn(
   if (attackers.length > 0) {
     // Vigilance attacks without tapping — the same rule your own side follows.
     const tapping = new Set(
-      attackers.filter(a => !keywordsOf(a.card).has('vigilance')).map(a => a.instanceId),
+      attackers.filter(a => !keywordsOf(a.card, a.edit).has('vigilance')).map(a => a.instanceId),
     );
     opp.battlefield = opp.battlefield.map(p =>
       tapping.has(p.instanceId) ? { ...p, tapped: true } : p,

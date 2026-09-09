@@ -229,14 +229,15 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
 }
 
 /**
- * Deck Actions and Search, sized to sit directly above the library pile.
+ * Deck Actions, sized to sit directly above the library pile.
  *
  * They belong to the library rather than to the toolbar: every one of them —
  * draw, scry, surveil, mill, search — is a thing you do to your deck, and
  * putting them on top of it means the pile is both the target and the control.
  *
- * Search is icon-only because the magnifier is unambiguous and the column is
- * only as wide as a card; Deck keeps a word so the popover is discoverable.
+ * Search is one of the menu rows rather than its own button beside it: the
+ * column is only as wide as a card, and a second button there cost the label
+ * more room than the magnifier was worth.
  */
 type ActionZone = 'library' | 'graveyard' | 'exile';
 
@@ -267,12 +268,9 @@ export function ZoneActions({ zone, className = '', compact = false }: {
 }) {
   const draw = usePlaytestStore(s => s.draw);
   const openModal = usePlaytestStore(s => s.openModal);
-  const closeModal = usePlaytestStore(s => s.closeModal);
-  const modal = usePlaytestStore(s => s.modal);
   const emptyZoneInto = usePlaytestStore(s => s.emptyZoneInto);
   const shufflePile = usePlaytestStore(s => s.shufflePile);
   const count = usePlaytestStore(s => s.zones[zone].length);
-  const searchOpen = modal?.kind === 'zoneViewer' && modal.zone === 'library';
 
   // One amount drives every deck action — pick N once, then choose what to do
   // with it. Draw keeps the popover open so you can tap it repeatedly; the
@@ -311,7 +309,16 @@ export function ZoneActions({ zone, className = '', compact = false }: {
                 <Button variant="ghost" size="sm" className={row} onClick={() => run(() => openModal({ kind: 'scry', n: deckN }))}><Eye className="w-3 h-3 mr-2" />Scry {deckN}</Button>
                 <Button variant="ghost" size="sm" className={row} onClick={() => run(() => openModal({ kind: 'surveil', n: deckN }))}><BookOpen className="w-3 h-3 mr-2" />Surveil {deckN}</Button>
                 <Button variant="ghost" size="sm" className={row} onClick={() => run(() => openModal({ kind: 'mill', n: deckN }))}><Trash2 className="w-3 h-3 mr-2" />Mill {deckN}</Button>
+                {/* Everything above answers to the N picker; everything below
+                    ignores it. The rule says so rather than the reader having
+                    to notice which rows carry a number. */}
+                <div className="h-px bg-border/60 my-1" />
                 <Button variant="ghost" size="sm" className={row} onClick={() => run(() => shufflePile('library'))}><Shuffle className="w-3 h-3 mr-2" />Shuffle</Button>
+                <Button variant="ghost" size="sm" className={row} disabled={count === 0}
+                  onClick={() => run(() => openModal({ kind: 'zoneViewer', zone: 'library' }))}
+                  title="Demonic Tutor, Rampant Growth, any fetch">
+                  <Search className="w-3 h-3 mr-2" />Search deck ({count})
+                </Button>
               </div>
             </>
           ) : (
@@ -340,18 +347,6 @@ export function ZoneActions({ zone, className = '', compact = false }: {
           )}
         </PopoverContent>
       </Popover>
-      {zone === 'library' && (
-        <Button
-          variant={searchOpen ? 'default' : 'outline'}
-          size="sm"
-          className={`${btn} w-7 px-0 shrink-0`}
-          onClick={() => searchOpen ? closeModal() : openModal({ kind: 'zoneViewer', zone: 'library' })}
-          title="Search library"
-          aria-label="Search library"
-        >
-          <Search className="w-3 h-3" />
-        </Button>
-      )}
     </div>
   );
 }
@@ -360,6 +355,10 @@ export function ZoneActions({ zone, className = '', compact = false }: {
  * Steps into the combat phase, which is what opens the attack zones in front
  * of each opponent. Toggles: pressing it again backs out and untaps anything
  * you'd already declared.
+ *
+ * Once your combat has resolved it stops being a toggle and becomes a phase
+ * readout: combat happens once a turn, so the button grays out and says you're
+ * in your second main phase rather than offering an attack you can't make.
  *
  * Sits beside Next Turn because that's the other button that moves the game
  * forward a beat, and combat is the beat before the turn ends.
@@ -372,32 +371,39 @@ export function CombatButton() {
   const combat = useOpponentStore(s => s.combat);
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const botsRunning = useOpponentStore(s => s.running);
+  const combatDone = useOpponentStore(s => s.combatDone);
 
   // Nothing to attack, so nothing to offer.
   if (opponentCount === 0) return null;
 
   // Their combat owns the strips while it's open, and a confirmed attack of
-  // yours is already past the point of backing out.
-  const blocked = botsRunning || !!combat || !!playerCombat;
+  // yours is already past the point of backing out. Past your own combat, the
+  // turn has no second one to step into.
+  const blocked = botsRunning || !!combat || !!playerCombat || combatDone;
 
   return (
     <Button
       size="sm"
       disabled={blocked}
       className={`h-8 sm:h-6 px-2 text-[11px] rounded-none border border-y-0 gap-1 ${
-        combatPhase
+        combatDone
+          ? 'bg-muted/40 border-border/60 text-muted-foreground'
+        : combatPhase
           ? 'bg-violet-500/25 border-violet-400/60 text-violet-100'
           : 'bg-primary/15 hover:bg-primary/25 border-primary/40 text-primary-foreground/90'
       }`}
       onClick={() => (combatPhase ? exitCombat() : enterCombat())}
       title={
-        blocked      ? 'Finish the combat already in progress'
+        combatDone   ? "Combat is over — you're in your second main phase"
+      : blocked      ? 'Finish the combat already in progress'
       : combatPhase  ? 'Leave combat — anything you declared is untapped and forgotten'
       :                'Go to combat: open the attack zone in front of each opponent'
       }
     >
       <Swords className="w-3 h-3" />
-      <span className="hidden sm:inline">{combatPhase ? 'End Combat' : 'Start Combat'}</span>
+      <span className="hidden sm:inline">
+        {combatDone ? 'Main Phase 2' : combatPhase ? 'End Combat' : 'Start Combat'}
+      </span>
     </Button>
   );
 }
@@ -411,6 +417,7 @@ export function NextTurnButton() {
   const combat = useOpponentStore(s => s.combat);
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const exitCombat = useOpponentStore(s => s.exitCombat);
+  const beginTurn = useOpponentStore(s => s.beginTurn);
   const botsRunning = useOpponentStore(s => s.running);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
 
@@ -431,6 +438,9 @@ export function NextTurnButton() {
     // so untap and forget it rather than carrying a half-built attack — or an
     // open combat phase — into the bots' turn.
     exitCombat();
+    // A fresh turn gets a fresh combat, so the phase readout goes back to
+    // offering one.
+    beginTurn();
     nextTurn();
     draw(1);
     if (autoTurns) runAllTurns();

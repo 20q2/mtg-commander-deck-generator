@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   Hand as HandIcon,
+  Layers,
   Link2Off,
   Loader2,
   Plus,
@@ -16,9 +17,11 @@ import {
   Sparkles,
   Trash2,
   Type,
+  Wand2,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { getCardsByIds, getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { getCardsByIds, getFrontFaceTypeLine, isDoubleFacedCard } from '@/services/scryfall/client';
+import { isCreatureCard } from '@/services/playtest/opponents/stats';
 import type { ScryfallCard } from '@/types';
 import type { ZoneKey } from '@/components/playtest/types';
 
@@ -50,14 +53,18 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   const moveCard = usePlaytestStore(s => s.moveCard);
   const toggleTap = usePlaytestStore(s => s.toggleTap);
   const toggleFaceDown = usePlaytestStore(s => s.toggleFaceDown);
+  const toggleHandFlipped = usePlaytestStore(s => s.toggleHandFlipped);
+  const flippedHandIds = usePlaytestStore(s => s.flippedHandIds);
   const adjustCounter = usePlaytestStore(s => s.adjustCounter);
   const addSticker = usePlaytestStore(s => s.addSticker);
   const copyCard = usePlaytestStore(s => s.copyCard);
   const unattach = usePlaytestStore(s => s.unattach);
   const battlefield = usePlaytestStore(s => s.battlefield);
+  const openModal = usePlaytestStore(s => s.openModal);
   const commanderNames = usePlaytestStore(s => s.source?.commanderNames ?? []);
   const selectedIds = usePlaytestStore(s => s.selectedIds ?? []);
   const spawnToken = usePlaytestStore(s => s.spawnToken);
+  const stackSelection = usePlaytestStore(s => s.stackSelection);
 
   // Tokens this specific card creates, straight off its Scryfall `all_parts`.
   const tokenParts = useMemo(() => {
@@ -134,6 +141,8 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
   if (!target) return null;
 
   const onBattlefield = target.kind === 'battlefield';
+  const inHand = target.kind === 'hand';
+  const handFlipped = inHand && flippedHandIds.includes(target.card.id);
   const bfCard = onBattlefield && target.instanceId ? battlefield.find(b => b.instanceId === target.instanceId) : null;
   const isAttached = !!bfCard?.attachedTo;
   const typeLine = getFrontFaceTypeLine(target.card);
@@ -168,8 +177,13 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
     });
     onClose();
   };
+  const applyHandFlip = () => { toggleHandFlipped(target.card.id); onClose(); };
   const applyCopy = () => { targetIds.forEach((id) => copyCard(id)); onClose(); };
   const applyUnattach = () => { targetIds.forEach((id) => unattach(id)); onClose(); };
+  // Anchored on the right-clicked card, so the pile grows down from the one
+  // you pointed at — same as the shake gesture, which anchors on the card in
+  // your hand.
+  const applyStack = () => { stackSelection(bfCard?.instanceId); onClose(); };
   const applyCounter = (type: string) => { targetIds.forEach((id) => adjustCounter(id, type, 1)); onClose(); };
   // Stagger stickers down the card so a second one doesn't land on the first.
   const applySticker = () => {
@@ -268,6 +282,15 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
           >
             {isBulk ? `Create copies${bulkSuffix}` : 'Create copy'}
           </Item>
+          {isBulk && (
+            <Item
+              icon={<Layers className="w-3.5 h-3.5" />}
+              onClick={applyStack}
+              trailing={<span className="text-[9px] text-muted-foreground/60 shrink-0">or shake</span>}
+            >
+              Stack into a pile{bulkSuffix}
+            </Item>
+          )}
           {isAttached && (
             <Item
               icon={<Link2Off className="w-3.5 h-3.5" />}
@@ -311,6 +334,22 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
         </>
       )}
 
+      {/* Hand-only: turn the card over, same as pressing F over it */}
+      {inHand && (
+        <>
+          <Item
+            icon={handFlipped ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            onClick={applyHandFlip}
+            shortcut="F"
+          >
+            {handFlipped
+              ? 'Turn back over'
+              : isDoubleFacedCard(target.card) ? 'Show other face' : 'Turn face down'}
+          </Item>
+          <Sep />
+        </>
+      )}
+
       {/* Move destinations */}
       {target.kind !== 'hand' && (
         <Item icon={<HandIcon className="w-3.5 h-3.5" />} onClick={() => move('hand')}>Move to hand{bulkSuffix}</Item>
@@ -340,6 +379,17 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
           <Item icon={<Type className="w-3.5 h-3.5" />} onClick={applySticker}>
             Add text sticker{bulkSuffix}
           </Item>
+          {isCreatureCard(bfCard.card) && (
+            <Item
+              icon={<Wand2 className="w-3.5 h-3.5" />}
+              onClick={() => {
+                onClose();
+                openModal({ kind: 'editCreature', target: { side: 'player', instanceId: bfCard.instanceId } });
+              }}
+            >
+              {bfCard.edit ? 'Edit creature…' : 'Make it something else…'}
+            </Item>
+          )}
         </>
       )}
     </div>,

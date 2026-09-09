@@ -5,6 +5,7 @@ import { usePlaytestSettings, CARD_SIZES, resolveBgLayers } from '@/store/playte
 import { BattlefieldCard } from '@/components/playtest/BattlefieldCard';
 import { FreeCounter } from '@/components/playtest/FreeCounter';
 import { FreeDie } from '@/components/playtest/FreeDie';
+import { CounterTrash } from '@/components/playtest/CounterTrash';
 import { BattlefieldContextMenu, type BattlefieldMenuTarget } from '@/components/playtest/BattlefieldContextMenu';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { OpponentSeats } from '@/components/playtest/opponents/OpponentSeats';
@@ -23,6 +24,12 @@ export function Battlefield() {
   const colorIdentity = usePlaytestStore(s => s.colorIdentity);
   const bgLayers = resolveBgLayers(bg, colorIdentity);
   const dotGrid = usePlaytestSettings(s => s.dotGrid);
+  // Carrying a group means cards travel with the cursor, and the table clips
+  // its children — so a pile dragged towards the hand row lost everything but
+  // the card under the cursor (which is drawn in the drag layer, above the
+  // clip). Stop clipping for the duration of a group drag: the cards ride at
+  // z-10, over the hand row, and you can see what you're putting down.
+  const groupDrag = usePlaytestStore(s => s.dragActiveId !== null && s.selectedIds.length > 1);
   // Tailwind's md breakpoint is 768px. Keep the floating piles to mobile so
   // the desktop hand-row piles don't share dnd-kit IDs with floating ones.
   const isDesktop = useMediaQuery('(min-width: 768px)');
@@ -160,7 +167,7 @@ export function Battlefield() {
       data-battlefield
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
-      className="flex-1 relative border-b border-border/50 overflow-hidden"
+      className={`flex-1 relative border-b border-border/50 ${groupDrag ? '' : 'overflow-hidden'}`}
       style={{ background: bgLayers.image ? '#0a0c10' : bgLayers.base }}
     >
       {/* Art background (auto-matched or hand-picked) with a dark scrim so cards
@@ -196,6 +203,7 @@ export function Battlefield() {
       {sorted.map(b => <BattlefieldCard key={b.instanceId} card={b} />)}
       {freeCounters.map(c => <FreeCounter key={c.id} counter={c} />)}
       {freeDice.map(d => <FreeDie key={d.id} die={d} />)}
+      <CounterTrash />
 
       {/* Opponents sit across the top of the table. Absolutely positioned at
           z-30: above cards, below the marquee (z-65) and the context menu,

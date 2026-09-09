@@ -155,7 +155,7 @@ function FlyingCard({ flight }: { flight: Flight }) {
       src={getCardImageUrl(flight.card, 'normal')}
       alt=""
       draggable={false}
-      className="absolute rounded-[5px] shadow-2xl"
+      className="absolute rounded-[6px] shadow-2xl"
       style={{
         left: flight.from.x,
         top: flight.from.y,

@@ -126,10 +126,10 @@ function TokenTile({ token, onSpawn }: { token: ScryfallCard; onSpawn: () => voi
       {...attributes}
       {...listeners}
       onClick={onSpawn}
-      className={`rounded-[5px] hover:ring-2 hover:ring-primary transition-all touch-none ${isDragging ? 'opacity-0' : ''}`}
+      className={`rounded-[6px] hover:ring-2 hover:ring-primary transition-all touch-none ${isDragging ? 'opacity-0' : ''}`}
       title={`Click or drag to spawn ${token.name}`}
     >
-      <HoverPreviewImage card={token} size="small" className="w-full rounded-[5px] shadow pointer-events-none" />
+      <HoverPreviewImage card={token} size="small" className="w-full rounded-[6px] shadow pointer-events-none" />
     </button>
   );
 }

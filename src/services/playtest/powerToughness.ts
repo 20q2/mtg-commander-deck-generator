@@ -1,16 +1,18 @@
 import { isDoubleFacedCard } from '@/services/scryfall/client';
-import type { BattlefieldCard } from '@/components/playtest/types';
+import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
 
 /** A sticker written as "8/8" (or "-1/-1") replaces the printed P/T entirely. */
 const PT_STICKER = /^\s*(-?\d+)\s*\/\s*(-?\d+)\s*$/;
 
 export interface ResolvedPT {
-  /** Printed values, or the sticker override if one is present. */
+  /** Printed values, or the edit / sticker override if one is present. */
   base: string;
   /** Base with +1/+1 and -1/-1 counters applied. */
   modified: string;
-  /** True when a text sticker replaced the printed values. */
+  /** True when an edit or a text sticker replaced the printed values. */
   overridden: boolean;
+  /** True specifically for a CardEdit — the amber pill is only for those. */
+  edited: boolean;
 }
 
 /** Printed P/T for whichever face is currently showing. */
@@ -47,7 +49,12 @@ export function resolvePT(card: BattlefieldCard): ResolvedPT | null {
 
   let basePower: string;
   let baseToughness: string;
-  if (override) {
+  // An edit outranks a sticker: it's the deliberate, structured version of the
+  // same idea, so if both are present the dialog wins over the scribble.
+  if (card.edit) {
+    basePower = String(card.edit.power);
+    baseToughness = String(card.edit.toughness);
+  } else if (override) {
     basePower = override[1];
     baseToughness = override[2];
   } else {
@@ -62,6 +69,20 @@ export function resolvePT(card: BattlefieldCard): ResolvedPT | null {
   return {
     base: `${basePower}/${baseToughness}`,
     modified: `${applyDelta(basePower, delta)}/${applyDelta(baseToughness, delta)}`,
-    overridden: !!override,
+    overridden: !!override || !!card.edit,
+    edited: !!card.edit,
   };
+}
+
+/**
+ * The log line for an edit landing or being cleared. Both sides of the table
+ * write it, so neither owns the wording.
+ */
+export function describeEdit(cardName: string, edit: CardEdit | null): string {
+  if (!edit) return `${cardName} is itself again`;
+  // "0/4 Treefolk" reads better than "0/4 Creature — Treefolk"; the subtypes
+  // after the dash are the interesting half.
+  const subtypes = edit.typeLine?.split('—').pop()?.trim();
+  const body = subtypes ? `a ${edit.power}/${edit.toughness} ${subtypes}` : `a ${edit.power}/${edit.toughness}`;
+  return `${cardName} is ${body}${edit.loseAbilities ? ' with no abilities' : ''}`;
 }

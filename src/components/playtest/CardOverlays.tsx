@@ -179,7 +179,14 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
         ),
       )}
 
-      {showPT && pt && <PTBadge value={pt.modified} cardWidth={cardWidth} />}
+      {showPT && pt && (
+        <PTBadge
+          value={pt.modified}
+          cardWidth={cardWidth}
+          edited={pt.edited}
+          abilitiesLost={!!card.edit?.loseAbilities}
+        />
+      )}
     </>
   );
 }
@@ -192,19 +199,48 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
  * labels you read, so they stay upright; this one is impersonating printed text,
  * so it has to turn with the card and stay glued over the value it replaces.
  */
-function PTBadge({ value, cardWidth }: { value: string; cardWidth: number }) {
+function PTBadge({
+  value, cardWidth, edited = false, abilitiesLost = false,
+}: {
+  value: string;
+  cardWidth: number;
+  /** A rewritten creature reads amber; counters and stickers keep the fuchsia. */
+  edited?: boolean;
+  abilitiesLost?: boolean;
+}) {
+  const fontSize = Math.max(9, Math.round(cardWidth * 0.088));
   return (
-    <div
-      className="absolute z-30 pointer-events-none"
-      style={{ right: '4.5%', bottom: '3.4%', width: '25%', height: '8%' }}
-    >
-      <span
-        className="flex items-center justify-center w-full h-full rounded-[3px] bg-fuchsia-600 text-white font-bold tabular-nums ring-1 ring-black/50 shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
-        style={{ fontSize: Math.max(9, Math.round(cardWidth * 0.088)) }}
+    <>
+      <div
+        className="absolute z-30 pointer-events-none"
+        style={{ right: '4.5%', bottom: '3.4%', width: '25%', height: '8%' }}
       >
-        {value}
-      </span>
-    </div>
+        <span
+          className={`flex items-center justify-center w-full h-full rounded-[3px] text-white font-bold tabular-nums ring-1 ring-black/50 shadow-[0_1px_4px_rgba(0,0,0,0.8)] ${
+            edited ? 'bg-amber-600' : 'bg-fuchsia-600'
+          }`}
+          style={{ fontSize }}
+        >
+          {value}
+        </span>
+      </div>
+      {abilitiesLost && (
+        // Sits just left of the P/T box, in the same amber, so "no abilities"
+        // reads at a glance without crowding the numbers.
+        <div
+          className="absolute z-30 pointer-events-none"
+          style={{ right: '31%', bottom: '3.4%', width: '9%', height: '8%' }}
+          title="Loses all abilities"
+        >
+          <span
+            className="flex items-center justify-center w-full h-full rounded-[3px] bg-amber-600 text-white font-bold ring-1 ring-black/50 shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
+            style={{ fontSize }}
+          >
+            ⊘
+          </span>
+        </div>
+      )}
+    </>
   );
 }
 

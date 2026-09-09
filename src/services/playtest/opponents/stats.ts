@@ -39,8 +39,17 @@ export function printedStat(card: ScryfallCard, key: 'power' | 'toughness'): num
   return Number.isNaN(n) ? 0 : n;
 }
 
-function hasSubtype(card: ScryfallCard, subtype: string): boolean {
-  return getFrontFaceTypeLine(card).toLowerCase().includes(subtype.toLowerCase());
+/**
+ * The type line to judge a permanent by — the edited one when it has been
+ * rewritten, so a Lignified creature stops answering to Goblin lords and starts
+ * answering to Treefolk ones.
+ */
+export function typeLineOf(p: OpponentPermanent): string {
+  return p.edit?.typeLine ?? getFrontFaceTypeLine(p.card);
+}
+
+function hasSubtype(typeLine: string, subtype: string): boolean {
+  return typeLine.toLowerCase().includes(subtype.toLowerCase());
 }
 
 /** Is a Maskwood Nexus out, making every subtype test pass? */
@@ -56,11 +65,16 @@ function everyTypeActive(battlefield: OpponentPermanent[]): boolean {
  * true — which is the whole reason that card is in a tribal deck.
  */
 function countsAs(
-  card: ScryfallCard,
+  typeLine: string,
   subtype: string,
   battlefield: OpponentPermanent[],
 ): boolean {
-  return hasSubtype(card, subtype) || everyTypeActive(battlefield);
+  return hasSubtype(typeLine, subtype) || everyTypeActive(battlefield);
+}
+
+/** The stat to build from: the edit's if it has one, otherwise what's printed. */
+function baseStat(p: OpponentPermanent, key: 'power' | 'toughness'): number {
+  return p.edit ? p.edit[key] : printedStat(p.card, key);
 }
 
 /** Net +1/+1 counters, since -1/-1 counters cancel them out. */
@@ -80,7 +94,7 @@ export function anthemBonus(
       if (spec.kind !== 'anthem') continue;
       // Almost every lord says "OTHER creatures", so a source skips itself.
       if (source.instanceId === p.instanceId && !spec.includeSelf) continue;
-      if (spec.subtype && !countsAs(p.card, spec.subtype, battlefield)) continue;
+      if (spec.subtype && !countsAs(typeLineOf(p), spec.subtype, battlefield)) continue;
       power += spec.power;
       toughness += spec.toughness;
     }
@@ -115,10 +129,12 @@ export function botPower(
   battlefield: OpponentPermanent[],
   graveyard: ScryfallCard[] = [],
 ): number {
-  return printedStat(p.card, 'power')
+  return baseStat(p, 'power')
     + counterDelta(p)
     + anthemBonus(p, battlefield).power
-    + dynamicBonus(p, battlefield, graveyard).power;
+    // An edit replaces a characteristic-defining `*` outright, so there's
+    // nothing left for the graveyard/land count to define.
+    + (p.edit ? 0 : dynamicBonus(p, battlefield, graveyard).power);
 }
 
 /** Toughness as it stands. Never below 0 — nothing has negative toughness on screen. */
@@ -129,10 +145,10 @@ export function botToughness(
 ): number {
   return Math.max(
     0,
-    printedStat(p.card, 'toughness')
+    baseStat(p, 'toughness')
       + counterDelta(p)
       + anthemBonus(p, battlefield).toughness
-      + dynamicBonus(p, battlefield, graveyard).toughness,
+      + (p.edit ? 0 : dynamicBonus(p, battlefield, graveyard).toughness),
   );
 }
 
@@ -147,7 +163,7 @@ export function effectiveCost(card: ScryfallCard, battlefield: OpponentPermanent
   for (const source of battlefield) {
     for (const spec of staticsOf(source.card.name)) {
       if (spec.kind !== 'costReducer') continue;
-      if (spec.subtype && !countsAs(card, spec.subtype, battlefield)) continue;
+      if (spec.subtype && !countsAs(getFrontFaceTypeLine(card), spec.subtype, battlefield)) continue;
       reduction += spec.amount;
     }
   }
@@ -165,9 +181,10 @@ export function effectiveCost(card: ScryfallCard, battlefield: OpponentPermanent
 export function hasHaste(p: OpponentPermanent, battlefield: OpponentPermanent[]): boolean {
   // Read off the raw card, not through `keywordsOf`: that narrows to the
   // keywords the damage maths cares about, and haste is not one of them.
-  if ((p.card.keywords ?? []).some(k => k.toLowerCase() === 'haste')) return true;
+  // A creature stripped of its abilities has no printed haste to read.
+  if (!p.edit?.loseAbilities && (p.card.keywords ?? []).some(k => k.toLowerCase() === 'haste')) return true;
   return battlefield.some(source => staticsOf(source.card.name).some(spec =>
-    spec.kind === 'grantsHaste' && (!spec.subtype || countsAs(p.card, spec.subtype, battlefield)),
+    spec.kind === 'grantsHaste' && (!spec.subtype || countsAs(typeLineOf(p), spec.subtype, battlefield)),
   ));
 }
 

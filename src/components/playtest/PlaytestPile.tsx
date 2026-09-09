@@ -35,6 +35,8 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const currentModal = usePlaytestStore(s => s.modal);
   const moveCard = usePlaytestStore(s => s.moveCard);
   const setHoveredPile = usePlaytestStore(s => s.setHoveredPile);
+  // The number you're part-way through typing, if it's aimed at this pile.
+  const pendingDraw = usePlaytestStore(s => (s.pileDrawPending?.zone === spec.zone ? s.pileDrawPending.n : null));
   const draw = usePlaytestStore(s => s.draw);
   const shuffle = usePlaytestStore(s => s.shuffle);
   const shuffleTick = usePlaytestStore(s => s.shuffleTick);
@@ -136,8 +138,8 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const titleText = !interactive
     ? spec.label
     : spec.zone === 'library'
-      ? `Click to draw a card · right-click to search ${spec.label.toLowerCase()}`
-      : `Click to play top card · right-click to view ${spec.label.toLowerCase()}`;
+      ? `Click to draw a card · type a number to draw that many · right-click to search ${spec.label.toLowerCase()}`
+      : `Click to play top card · type a number to take that many to hand · right-click to view ${spec.label.toLowerCase()}`;
 
   return (
     <div
@@ -156,7 +158,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
         ref={imgRef}
         onMouseEnter={() => { setHovered(true); setHoveredPile(spec.zone); }}
         onMouseLeave={() => { setHovered(false); setHoveredPile(null); }}
-        className="aspect-[5/7] w-full rounded-[5px] overflow-hidden bg-black/20 flex items-center justify-center relative"
+        className="aspect-[5/7] w-full rounded-[6px] overflow-hidden bg-black/20 flex items-center justify-center relative"
       >
         {!baseTop && <Icon className="w-6 h-6 opacity-60" />}
         {cards.length > 0 && (
@@ -166,7 +168,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
               src={spec.faceUp ? getCardImageUrl(cards[1], 'small') : `${import.meta.env.BASE_URL}card-back.png`}
               alt=""
               aria-hidden
-              className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[5px]"
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[6px]"
               draggable={false}
             />
           )}
@@ -190,12 +192,20 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
                 src={spec.faceUp ? getCardImageUrl(top, 'small') : `${import.meta.env.BASE_URL}card-back.png`}
                 alt=""
                 aria-hidden
-                className={`absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[5px] shadow-lg ${pushAnim.isFirst ? 'animate-soft-in' : 'animate-deal-in'}`}
+                className={`absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[6px] shadow-lg ${pushAnim.isFirst ? 'animate-soft-in' : 'animate-deal-in'}`}
                 draggable={false}
               />
             )}
           </div>
           </>
+        )}
+        {/* A typed number waits ~half a second for a second digit. Showing it
+            building up is what makes that pause read as "still listening"
+            rather than as a keystroke that went nowhere. */}
+        {pendingDraw !== null && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 pointer-events-none rounded-[6px]">
+            <span className="text-2xl font-bold tabular-nums text-white drop-shadow">{pendingDraw}</span>
+          </div>
         )}
         {drawAnim > 0 && (
           <img
@@ -203,7 +213,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
             src={`${import.meta.env.BASE_URL}card-back.png`}
             alt=""
             aria-hidden
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[5px] shadow-lg animate-deal-out"
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[6px] shadow-lg animate-deal-out"
             draggable={false}
           />
         )}

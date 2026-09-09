@@ -2,6 +2,18 @@ import { useEffect, useRef } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import type { ZoneKey } from '@/components/playtest/types';
+
+type PileZone = Exclude<ZoneKey, 'hand'>;
+
+/**
+ * How long a typed digit waits to see whether another one follows. Long enough
+ * to type a second digit without hurrying, short enough that a single-digit
+ * draw doesn't read as a dropped keystroke.
+ */
+const DIGIT_BUFFER_MS = 450;
+/** Ninety-nine cards is more than any pile-draw needs, and two digits keeps the wait to one. */
+const DIGIT_MAX_LEN = 2;
 
 export function usePlaytestHotkeys() {
   // Track the most recent cursor position so Ctrl+V can paste at the cursor.
@@ -13,6 +25,45 @@ export function usePlaytestHotkeys() {
   }, []);
 
   useEffect(() => {
+    // Digits typed over a pile accumulate here until you stop typing, so "20"
+    // draws twenty rather than two-then-zero. The zone is captured on the first
+    // digit: moving the mouse mid-number doesn't redirect the draw.
+    let digitBuf: { zone: PileZone; digits: string; timer: number } | null = null;
+
+    const clearDigits = () => {
+      if (!digitBuf) return;
+      window.clearTimeout(digitBuf.timer);
+      digitBuf = null;
+      usePlaytestStore.getState().setPileDrawPending(null);
+    };
+
+    const flushDigits = () => {
+      const buf = digitBuf;
+      if (!buf) return;
+      clearDigits();
+      usePlaytestStore.getState().takeFromPile(buf.zone, Number(buf.digits));
+    };
+
+    const pushDigit = (zone: PileZone, digit: string) => {
+      // Pointing at a different pile part-way through a number means the old
+      // number was meant for the old pile. Honour it rather than dropping the
+      // keystrokes on the floor.
+      if (digitBuf && digitBuf.zone !== zone) flushDigits();
+      // A leading zero has nothing to say — "draw 0" isn't an action — and
+      // allowing it would make "05" a two-digit number that fires as five.
+      if (!digitBuf && digit === '0') return;
+      const digits = (digitBuf?.digits ?? '') + digit;
+      clearDigits();
+      // Two digits is the cap, and reaching it fires straight away: "20" lands
+      // the instant the 0 does, so only single-digit draws ever wait.
+      if (digits.length >= DIGIT_MAX_LEN) {
+        usePlaytestStore.getState().takeFromPile(zone, Number(digits));
+        return;
+      }
+      digitBuf = { zone, digits, timer: window.setTimeout(flushDigits, DIGIT_BUFFER_MS) };
+      usePlaytestStore.getState().setPileDrawPending({ zone, n: Number(digits) });
+    };
+
     const onKey = (e: KeyboardEvent) => {
       // Ignore when typing in an input/textarea/contenteditable
       const t = e.target as HTMLElement | null;
@@ -36,6 +87,8 @@ export function usePlaytestHotkeys() {
         if (bots.running || bots.combat || bots.playerCombat) return;
         // An unconfirmed declaration never happened — untap and forget it.
         bots.exitCombat();
+        // Fresh turn, fresh combat — same reset the Next Turn button does.
+        bots.beginTurn();
         s.nextTurn();
         s.draw(1);
         if (usePlaytestSettings.getState().opponentAutoTurns) bots.runAllTurns();
@@ -53,6 +106,9 @@ export function usePlaytestHotkeys() {
         useOpponentStore.getState().resetAll();
         return;
       }
+
+      // Esc backs out of a half-typed number instead of drawing it.
+      if (e.key === 'Escape' && digitBuf) { clearDigits(); return; }
 
       const k = e.key.toLowerCase();
       if (k === 'd') { e.preventDefault(); s.draw(1); return; }
@@ -120,11 +176,46 @@ export function usePlaytestHotkeys() {
         return;
       }
       if (k === 'f') {
+        // A hovered hand card turns over instead — same resolution order Delete
+        // uses, where the card under the cursor beats a stale board selection.
+        if (s.hoveredHandIndex !== null) {
+          const inHand = s.zones.hand[s.hoveredHandIndex];
+          if (inHand) { e.preventDefault(); s.toggleHandFlipped(inHand.id); }
+          return;
+        }
         if (targetCardIds.length > 0) { e.preventDefault(); s.toggleFaceDownMany(targetCardIds); }
         return;
       }
       if (k === 'r') {
         if (s.hoveredPile) { e.preventDefault(); s.shufflePile(s.hoveredPile); }
+        return;
+      }
+      // Digits: "draw that many". Over a pile they buffer briefly so a 2 can
+      // still turn into a 20, then pull that many cards off the top into your
+      // hand. Over the battlefield, 1 pulls the card under the cursor (or the
+      // whole marquee selection) back to hand — drawing a card you already own.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-9]$/.test(e.key)) {
+        if (s.hoveredPile) {
+          e.preventDefault();
+          pushDigit(s.hoveredPile, e.key);
+          return;
+        }
+        const n = Number(e.key);
+        // Only 1 works on the battlefield: the count is the cards you're
+        // pointing at, not a number you pick, so 2-9 would be a lie.
+        if (n === 1 && targetCardIds.length > 0) {
+          e.preventDefault();
+          for (const id of targetCardIds) {
+            s.moveCard({
+              source: { kind: 'battlefield', instanceId: id },
+              target: { kind: 'zone', zone: 'hand' },
+            });
+          }
+          // Those cards aren't on the battlefield any more, so a second 1 must
+          // not act on their stale ids.
+          s.setHovered(null);
+          s.clearSelection();
+        }
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -160,6 +251,10 @@ export function usePlaytestHotkeys() {
     };
 
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      // Don't let a pending draw fire into a store the view has left.
+      clearDigits();
+    };
   }, []);
 }

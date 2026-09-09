@@ -90,11 +90,11 @@ function DiscardCard({ card, selected, onPick }: { card: ScryfallCard; selected:
         transition: 'transform 160ms ease-out',
         zIndex: hovered ? 10 : undefined,
       }}
-      className={`relative rounded-[5px] cursor-pointer select-none ${
+      className={`relative rounded-[6px] cursor-pointer select-none ${
         selected ? 'ring-4 ring-red-500 opacity-70' : ''
       }`}
     >
-      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[5px] shadow" />
+      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[6px] shadow" />
       {selected && (
         <span className="absolute top-1 right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
           discard

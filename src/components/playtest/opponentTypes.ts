@@ -1,4 +1,5 @@
 import type { ScryfallCard } from '@/types';
+import type { CardEdit } from '@/components/playtest/types';
 import type { AppliedEffect } from '@/services/playtest/opponents/evaluate';
 
 export interface OpponentPermanent {
@@ -9,6 +10,8 @@ export interface OpponentPermanent {
   summoningSick: boolean;
   /** Same shape as a player card's, so counter handling reads the same. */
   counters: Record<string, number>;
+  /** Set when this creature has been rewritten — see CardEdit. */
+  edit?: CardEdit;
 }
 
 /** Zones a permanent can be sent to from the board. */
@@ -137,6 +140,8 @@ export interface Attacker {
   card: ScryfallCard;
   power: number;
   toughness: number;
+  /** Carried on the snapshot so its keywords agree with its already-resolved P/T. */
+  edit?: CardEdit;
 }
 
 /** An open combat step, waiting on blocks. */

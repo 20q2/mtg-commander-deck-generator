@@ -31,8 +31,20 @@ const KEYWORD_MAP: Record<string, CombatKeyword> = {
   'vigilance': 'vigilance',
 };
 
-export function keywordsOf(card: ScryfallCard): Set<CombatKeyword> {
+/**
+ * The combat keywords a creature actually has right now.
+ *
+ * `edit` is the CardEdit on the permanent holding this card, if any: a creature
+ * that has lost all its abilities has no keywords to read, and that has to be
+ * true here rather than at the call sites, because this set is what both the
+ * damage maths and the bots' attack and block decisions run on.
+ */
+export function keywordsOf(
+  card: ScryfallCard,
+  edit?: { loseAbilities?: boolean },
+): Set<CombatKeyword> {
   const out = new Set<CombatKeyword>();
+  if (edit?.loseAbilities) return out;
   for (const raw of card.keywords ?? []) {
     const mapped = KEYWORD_MAP[raw.toLowerCase()];
     if (mapped) out.add(mapped);

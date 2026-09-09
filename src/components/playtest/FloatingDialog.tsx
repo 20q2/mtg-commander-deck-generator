@@ -24,6 +24,9 @@ interface Props {
   minHeight?: number;
   /** Extra header content rendered after the title */
   headerExtra?: React.ReactNode;
+  /** Header buttons rendered to the left of the close button. Stop pointerdown on anything
+   *  interactive here — the whole header bar is the drag handle. */
+  headerActions?: React.ReactNode;
   /** Optional ref attached to the outer dialog div — useful for adding a useDroppable overlay */
   outerRef?: (node: HTMLDivElement | null) => void;
   /** Optional extra class on the outer dialog div */
@@ -45,6 +48,7 @@ export function FloatingDialog({
   minWidth = 320,
   minHeight = 240,
   headerExtra,
+  headerActions,
   outerRef,
   outerClassName = '',
   hideGrip = false,
@@ -188,16 +192,21 @@ export function FloatingDialog({
     >
       <div
         onPointerDown={isMobile ? undefined : startHeaderDrag}
-        className={`flex items-center justify-between gap-3 px-4 py-2 border-b border-border/60 bg-muted/40 rounded-t-lg select-none ${isMobile ? '' : 'cursor-grab active:cursor-grabbing'}`}
+        // shrink-0: a body taller than the dialog must never squeeze the title
+        // bar — it's the drag handle and it holds the close button.
+        className={`shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-border/60 bg-muted/40 rounded-t-lg select-none ${isMobile ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {!isMobile && !hideGrip && <GripHorizontal className="w-4 h-4 opacity-50 shrink-0" />}
           <h2 className="text-sm font-semibold truncate">{title}</h2>
           {headerExtra}
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose} title="Close (Esc)">
-          <X className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          {headerActions}
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose} title="Close (Esc)">
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
       {children}
       {resizable && !isMobile && (

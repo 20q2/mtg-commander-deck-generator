@@ -44,7 +44,7 @@ function playerCombatant(b: BattlefieldCard): Combatant {
     name: b.card.name,
     power: Number.isNaN(power) ? 0 : power,
     toughness: Number.isNaN(toughness) ? 0 : toughness,
-    keywords: keywordsOf(b.card),
+    keywords: keywordsOf(b.card, b.edit),
   };
 }
 
@@ -69,7 +69,7 @@ export function readIncomingCombat(
       name: p.card.name,
       power,
       toughness,
-      keywords: keywordsOf(p.card),
+      keywords: keywordsOf(p.card, p.edit),
     });
   }
 

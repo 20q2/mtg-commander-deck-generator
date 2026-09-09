@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { getCardImageUrl } from '@/services/scryfall/client';
+import { getCardImageUrl, getCardBackFaceUrl } from '@/services/scryfall/client';
 import type { ScryfallCard } from '@/types';
 
 interface Props {
@@ -71,7 +71,11 @@ export function MagnifiedPreview({ card, anchorRef, faceDown, side = 'top', widt
   }, [anchorRef, side, PREVIEW_WIDTH, PREVIEW_HEIGHT]);
 
   if (!pos) return null;
-  const src = faceDown ? `${import.meta.env.BASE_URL}card-back.png` : getCardImageUrl(card, 'large');
+  // Turned over, a double-faced card shows its other face — matching the tile
+  // this preview is anchored to. Everything else shows the card back.
+  const src = faceDown
+    ? (getCardBackFaceUrl(card, 'large') ?? `${import.meta.env.BASE_URL}card-back.png`)
+    : getCardImageUrl(card, 'large');
 
   return createPortal(
     <div

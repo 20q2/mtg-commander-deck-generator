@@ -131,9 +131,9 @@ function MulliganCard({ card, index, picking, selected, onPick }: MulliganCardPr
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={style}
-      className={`relative rounded-[5px] touch-none select-none ${selected ? 'ring-4 ring-amber-400' : ''} ${isOver && !isDragging ? 'ring-2 ring-primary' : ''}`}
+      className={`relative rounded-[6px] touch-none select-none ${selected ? 'ring-4 ring-amber-400' : ''} ${isOver && !isDragging ? 'ring-2 ring-primary' : ''}`}
     >
-      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[5px] shadow" />
+      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[6px] shadow" />
       {selected && <span className="absolute top-1 right-1 bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded">↓ bottom</span>}
     </div>
   );
