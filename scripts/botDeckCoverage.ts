@@ -23,9 +23,15 @@
  * The GAP list is the authoring queue, in the order it should be worked.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const STUBS = new URL('../src/data/opponentStubs.json', import.meta.url);
+/**
+ * Written on every run. The seat picker badges each deck with how well the bot
+ * knows it, and a hand-set label would drift the moment a registry entry lands
+ * — so the badge reads this, and this is a measurement.
+ */
+const COVERAGE = new URL('../src/data/botDeckCoverage.json', import.meta.url);
 const FIXTURE = new URL(
   '../src/services/playtest/opponents/__tests__/botGames.fixture.json',
   import.meta.url,
@@ -104,6 +110,7 @@ function main() {
   console.log('-'.repeat(24 + 9 * 6 + 12));
 
   const queues: { deck: string; gaps: Card[] }[] = [];
+  const coverage: Record<string, { understood: number; gaps: number; cards: number }> = {};
   let absent = 0;
 
   for (const stub of stubs) {
@@ -126,7 +133,10 @@ function main() {
       + `${understood}%`.padStart(12),
     );
     queues.push({ deck: stub.name, gaps });
+    coverage[stub.id] = { understood, gaps: counts.gap, cards: total };
   }
+
+  writeFileSync(COVERAGE, JSON.stringify(coverage, null, 2) + '\n');
 
   if (absent > 0) {
     console.log(`\n! ${absent} card(s) missing from the fixture — run npm run build:bot-fixture`);

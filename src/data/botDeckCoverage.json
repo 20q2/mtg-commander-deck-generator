@@ -1,0 +1,32 @@
+{
+  "goblin-aggro": {
+    "understood": 89,
+    "gaps": 3,
+    "cards": 27
+  },
+  "dimir-control": {
+    "understood": 91,
+    "gaps": 3,
+    "cards": 32
+  },
+  "selesnya-tokens": {
+    "understood": 100,
+    "gaps": 0,
+    "cards": 27
+  },
+  "golgari-graveyard": {
+    "understood": 93,
+    "gaps": 2,
+    "cards": 27
+  },
+  "eternal-might": {
+    "understood": 74,
+    "gaps": 23,
+    "cards": 89
+  },
+  "sultai-arisen": {
+    "understood": 81,
+    "gaps": 17,
+    "cards": 88
+  }
+}

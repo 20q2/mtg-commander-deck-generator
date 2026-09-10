@@ -6,6 +6,20 @@ import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
 import { OPPONENT_STUBS } from '@/services/playtest/opponents/deckSources';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { BRACKET_LABELS, type Bracket, type OpponentStub } from '@/components/playtest/opponentTypes';
+import { deckReadiness, type ReadinessLevel } from '@/services/playtest/opponents/deckReadiness';
+
+/**
+ * Deliberately not the bracket palette: a bracket says what kind of game this
+ * is, readiness says whether the bot has learned the deck yet. They sit inches
+ * apart, so they must not read as the same axis. Unfinished is grey rather than
+ * red — it isn't broken, just not taught.
+ */
+const READINESS_TINT: Record<ReadinessLevel, string> = {
+  ready: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40',
+  playable: 'bg-amber-500/15 text-amber-300 border-amber-400/40',
+  rough: 'bg-zinc-500/15 text-zinc-400 border-zinc-400/30',
+  unmeasured: 'bg-zinc-500/15 text-zinc-400 border-zinc-400/30',
+};
 
 /** Cool at the bottom of the range, hot at the top. */
 const BRACKET_TINT: Record<Bracket, string> = {
@@ -104,6 +118,7 @@ export function AddOpponentModal() {
                 {stubs.map(stub => {
                   const loading = loadingStubIds.includes(stub.id);
                   const seated = opponents.filter(o => o.stubId === stub.id);
+                  const readiness = deckReadiness(stub.id);
                   return (
                     <div
                       key={stub.id}
@@ -117,15 +132,22 @@ export function AddOpponentModal() {
                               <i key={c} className={`ms ms-${c.toLowerCase()} ms-cost text-xs`} aria-hidden />
                             ))}
                           </span>
-                          {stub.source && (
-                            <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60 truncate">
-                              {stub.source}
-                            </span>
-                          )}
+                          {/* Whether the bot has been taught this deck. The one
+                              thing worth knowing before you sit down, so it
+                              gets the end of the name line rather than a
+                              footnote. */}
+                          <span
+                            title={readiness.detail}
+                            className={`ml-auto shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-medium ${READINESS_TINT[readiness.level]}`}
+                          >
+                            <span className="w-1 h-1 rounded-full bg-current" aria-hidden />
+                            {readiness.label}
+                          </span>
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5">{stub.blurb}</p>
                         <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">
                           Commander: {stub.commander}
+                          {stub.source && <span className="opacity-70"> · {stub.source}</span>}
                         </p>
                         {seated.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
