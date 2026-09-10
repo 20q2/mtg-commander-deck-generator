@@ -11,6 +11,7 @@ import { botPower, botToughness } from '@/services/playtest/opponents/stats';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
+import { backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import { CombatStrip } from '@/components/playtest/opponents/CombatStrip';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
@@ -76,6 +77,7 @@ export function OpponentSeat({
   });
 
   const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
+  const seatArt = useMemo(() => backgroundUrlForIdentity(opponent.colors), [opponent.colors]);
 
   /**
    * Combat is the one moment the rest of the board stops mattering. While this
@@ -104,6 +106,30 @@ export function OpponentSeat({
       }`}
       style={{ width, height }}
     >
+      {/* Their colours, as SpellChroma's art for that identity, sunk almost
+          all the way out. Enough to tell three seats apart at a glance and to
+          give each one a mood, not enough to compete with the cards on it.
+
+          A layer rather than a background-image on the seat itself: the art
+          files are opaque, so painting them into the seat's own background
+          would cover bg-background/80 and cost the panel its translucency
+          over the table. As a separate layer it can carry its own opacity
+          and leave the glass underneath alone. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 z-0 rounded-lg overflow-hidden pointer-events-none"
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `url("${seatArt}")`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            opacity: SEAT_ART_OPACITY,
+          }}
+        />
+      </div>
+
       <SeatHeader
         opponent={opponent}
         onAdjustLife={adjustLife}
@@ -130,7 +156,7 @@ export function OpponentSeat({
           total or the fight. */}
       <div
         ref={setNodeRef}
-        className={`mt-1 space-y-1 overflow-y-auto overflow-x-hidden ${
+        className={`relative z-10 mt-1 space-y-1 overflow-y-auto overflow-x-hidden ${
           height ? 'flex-1 min-h-0' : 'max-h-[38vh]'
         }`}
       >
@@ -167,7 +193,7 @@ export function OpponentSeat({
           right. Sharing one row keeps the seat short enough to live over the
           canvas while still showing every land they've played. Mirrors your
           own hand row, with Exile half-width and hanging from the top. */}
-      <div className="mt-1 flex items-end gap-1 shrink-0">
+      <div className="relative z-10 mt-1 flex items-end gap-1 shrink-0">
         <div className="flex items-end gap-1 flex-wrap min-w-0" title="Lands">
           {pileUp(rows.lands).map(pile => (
             <OpponentPermanentCard
@@ -216,7 +242,9 @@ export function OpponentSeat({
         </div>
       </div>
 
-      <CombatStrip opponentId={opponent.id} seatWidth={width} />
+      <div className="relative z-10">
+        <CombatStrip opponentId={opponent.id} seatWidth={width} />
+      </div>
 
       {/* Three handles, because the axes do different jobs. Width is the zoom
           — every card in the seat is a fraction of it. Height decides how much
@@ -230,13 +258,13 @@ export function OpponentSeat({
         onPointerDown={e => onResizeGrab?.('x', e)}
         onDoubleClick={sized.w !== undefined ? () => onResetSize?.('x') : undefined}
         title={`Drag to set ${opponent.name}'s width${sized.w !== undefined ? ' · double-click for automatic' : ''}`}
-        className="absolute top-0 right-0 h-full w-1.5 translate-x-1/2 cursor-col-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
+        className="absolute top-0 right-0 z-20 h-full w-1.5 translate-x-1/2 cursor-col-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
       />
       <div
         onPointerDown={e => onResizeGrab?.('y', e)}
         onDoubleClick={sized.h !== undefined ? () => onResetSize?.('y') : undefined}
         title={`Drag to set ${opponent.name}'s height${sized.h !== undefined ? ' · double-click for automatic' : ''}`}
-        className="absolute bottom-0 left-0 w-full h-1.5 translate-y-1/2 cursor-row-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
+        className="absolute bottom-0 left-0 z-20 w-full h-1.5 translate-y-1/2 cursor-row-resize touch-none hover:bg-violet-400/50 active:bg-violet-400/70 transition-colors"
       />
       <div
         onPointerDown={e => onResizeGrab?.('both', e)}
@@ -244,7 +272,7 @@ export function OpponentSeat({
           sized.w !== undefined || sized.h !== undefined ? () => onResetSize?.('both') : undefined
         }
         title={`Drag to resize ${opponent.name}'s table · double-click for automatic`}
-        className="absolute -bottom-2 -right-2 z-10 w-4 h-4 cursor-nwse-resize touch-none text-muted-foreground/60 hover:text-violet-300 transition-colors"
+        className="absolute -bottom-2 -right-2 z-20 w-4 h-4 cursor-nwse-resize touch-none text-muted-foreground/60 hover:text-violet-300 transition-colors"
       >
         <svg viewBox="0 0 12 12" aria-hidden className="w-full h-full">
           <path d="M11 4v7H4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -274,7 +302,7 @@ function SeatHeader({
 }) {
   const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
   return (
-    <div className="flex items-center gap-1 shrink-0">
+    <div className="relative z-10 flex items-center gap-1 shrink-0">
       {/* The name doubles as the seat's move handle. Everything else in this
           row is a button, so the drag can't steal a click that mattered.
 
@@ -574,6 +602,12 @@ const UPPER_ROWS: { key: Exclude<RowKey, 'lands'>; label: string; scale: number 
   { key: 'creatures', label: 'Creatures',        scale: 0.19 },
   { key: 'others',    label: 'Other permanents', scale: 0.14 },
 ];
+
+/**
+ * How much of the identity art shows through. Deliberately low: this is a
+ * tint that tells you who you are looking at, not a picture.
+ */
+const SEAT_ART_OPACITY = 0.16;
 
 /** Lands are smallest — they share a row with the hand fan and the zone piles. */
 const LAND_SCALE = 0.10;
