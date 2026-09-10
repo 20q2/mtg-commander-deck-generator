@@ -1,7 +1,14 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand } from '@/components/playtest/utils';
-import { BOT_DYNAMIC_STATS, costOf, staticsOf } from '@/services/playtest/opponents/effects';
+import {
+  BOT_DYNAMIC_STATS,
+  costOf,
+  graveyardStaticsOf,
+  staticsOf,
+  type BotStaticSpec,
+} from '@/services/playtest/opponents/effects';
+import { keywordsOf, type CombatKeyword } from '@/services/playtest/combat';
 import type { OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
@@ -186,6 +193,34 @@ export function hasHaste(p: OpponentPermanent, battlefield: OpponentPermanent[])
   return battlefield.some(source => staticsOf(source.card.name).some(spec =>
     spec.kind === 'grantsHaste' && (!spec.subtype || countsAs(typeLineOf(p), spec.subtype, battlefield)),
   ));
+}
+
+/**
+ * The combat keywords a bot's creature has, printed ones plus anything its
+ * controller's board or graveyard is granting.
+ *
+ * Use this instead of `keywordsOf` for anything on a bot's side. `keywordsOf`
+ * reads one card in isolation, which is right for the player — nothing on the
+ * player's side grants keywords — and wrong for a bot with a Wonder in the
+ * yard, where the grant is the reason the deck wins.
+ */
+export function botKeywords(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): Set<CombatKeyword> {
+  const out = keywordsOf(p.card, p.edit);
+  // A creature stripped of its abilities can't be granted them back by a lord.
+  if (p.edit?.loseAbilities) return out;
+  const grant = (spec: BotStaticSpec) => {
+    if (spec.kind !== 'grantsKeyword') return;
+    if (spec.subtype && !countsAs(typeLineOf(p), spec.subtype, battlefield)) return;
+    out.add(spec.keyword);
+  };
+  for (const source of battlefield) staticsOf(source.card.name).forEach(grant);
+  // The graveyard half is the whole point of Wonder: it works while dead.
+  for (const card of graveyard) graveyardStaticsOf(card.name).forEach(grant);
+  return out;
 }
 
 /** Token counts are multiplied by this. Two doublers make four times as many. */

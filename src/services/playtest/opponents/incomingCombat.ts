@@ -1,5 +1,5 @@
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botPower, botToughness } from '@/services/playtest/opponents/stats';
+import { botKeywords, botPower, botToughness } from '@/services/playtest/opponents/stats';
 import { resolvePT } from '@/services/playtest/powerToughness';
 import type { Attacker, CombatState, Opponent } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard } from '@/components/playtest/types';
@@ -69,7 +69,7 @@ export function readIncomingCombat(
       name: p.card.name,
       power,
       toughness,
-      keywords: keywordsOf(p.card, p.edit),
+      keywords: botKeywords(p, board, opponent?.graveyard ?? []),
     });
   }
 

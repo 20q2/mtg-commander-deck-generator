@@ -92,10 +92,17 @@ function comboPieceToBreak(board: PlayerBoardRead): PlayerCardRead | null {
   return best;
 }
 
-/** Which of the player's permanents this spec would hit, and what it costs them. */
-function resolveEffect(
+/**
+ * Which of the player's permanents this spec would hit, and what it costs them.
+ *
+ * `scale` multiplies the amounts on the effects that count something the bot
+ * controls — The Scarab God drains per Zombie, and only the caller can see the
+ * bot's own board.
+ */
+export function resolveEffect(
   spec: BotEffectSpec,
   board: PlayerBoardRead,
+  scale = 1,
 ): { effect: AppliedEffect; target: string } | null {
   switch (spec.kind) {
     case 'destroyCreature':
@@ -144,17 +151,23 @@ function resolveEffect(
       return { effect: { ...EMPTY, destroy: [worst.instanceId] }, target: worst.name };
     }
     case 'damage': {
+      const amount = spec.amount * scale;
       // Prefer a creature it can actually kill; otherwise it goes upstairs.
       const killable = creatures(board)
-        .filter(c => c.toughness > 0 && c.toughness <= spec.amount)
+        .filter(c => c.toughness > 0 && c.toughness <= amount)
         .sort((a, b) => b.power - a.power)[0];
       if (killable) {
         return { effect: { ...EMPTY, destroy: [killable.instanceId] }, target: killable.name };
       }
-      return { effect: { ...EMPTY, lifeLoss: spec.amount }, target: 'you' };
+      return { effect: { ...EMPTY, lifeLoss: amount }, target: 'you' };
     }
-    case 'drain':
-      return { effect: { ...EMPTY, lifeLoss: spec.amount }, target: 'you' };
+    case 'drain': {
+      const amount = spec.amount * scale;
+      // A scaled drain with nothing to count does nothing, and a bot should not
+      // pay for it — an upkeep Scarab God trigger on an empty board is silent.
+      if (amount <= 0) return null;
+      return { effect: { ...EMPTY, lifeLoss: amount }, target: 'you' };
+    }
     case 'discard':
       if (board.handSize === 0) return null;
       return { effect: { ...EMPTY, discard: spec.count }, target: 'your hand' };

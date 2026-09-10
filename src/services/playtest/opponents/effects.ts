@@ -11,6 +11,8 @@
  * they're simply never cast, which is better than pretending.
  */
 
+import type { CombatKeyword } from '@/services/playtest/combat';
+
 export type BotEffectSpec =
   /** Destroy the best creature on the player's board. */
   | { kind: 'destroyCreature' }
@@ -34,8 +36,14 @@ export type BotEffectSpec =
   | { kind: 'edict' }
   /** N damage: kills a creature it can, otherwise goes to the face. */
   | { kind: 'damage'; amount: number }
-  /** Straight life loss. */
-  | { kind: 'drain'; amount: number }
+  /**
+   * Straight life loss. `perSubtype` scales it by how many permanents with that
+   * subtype the BOT controls — "each opponent loses X life, where X is the
+   * number of Zombies you control". A fixed number would make The Scarab God a
+   * 5-mana Lava Spike on a board of twelve zombies, which is the opposite of
+   * what that card is feared for.
+   */
+  | { kind: 'drain'; amount: number; perSubtype?: string }
   /** Discard at random from the player's hand. */
   | { kind: 'discard'; count: number };
 
@@ -161,7 +169,8 @@ export type BotSelfSpec =
    */
   | {
       kind: 'tutor';
-      want?: { subtype?: string; type?: string };
+      /** `name` is an exact card — a Gate to the Afterlife knows what it wants. */
+      want?: { subtype?: string; type?: string; name?: string };
       to: 'hand' | 'battlefield';
       count: number;
     }
@@ -181,18 +190,47 @@ export type BotSelfSpec =
    * the counters are ordinary +1/+1 counters, both of which `botPower` already
    * reads — so a single growing threat falls out of machinery that exists.
    */
-  | { kind: 'amass'; count: number };
+  | { kind: 'amass'; count: number }
+  /**
+   * Put land cards from the bot's own GRAVEYARD onto the battlefield.
+   *
+   * The mirror of `fetchLand`, which only ever reaches into the library. A
+   * self-mill deck buries its own lands by the fistful, and until this existed
+   * every card that dug them back out — Teval's attack trigger, Will of the
+   * Sultai, Conduit of Worlds — was a blank. It is also the deck's real ramp:
+   * milling five cards puts roughly two lands in the yard, and reclaiming them
+   * is faster than drawing them.
+   *
+   * `to` matters more than it looks. Straight onto the battlefield is a burst
+   * of mana this turn; back to hand is a land drop banked for each of the next
+   * few turns. Life from the Loam is the second and Teval is the first, and
+   * collapsing them into one would have made one of the two cards a lie.
+   */
+  | { kind: 'reclaimLands'; count: number; to: 'hand' | 'battlefield'; tapped?: boolean };
 
 export interface BotSelfEntry {
-  spec: BotSelfSpec;
+  /**
+   * What it does. A list when one trigger does several things at once — Teval
+   * mills three AND returns a land, and splitting that across two registry
+   * entries would mean the card could only ever be half-understood.
+   */
+  spec: BotSelfSpec | BotSelfSpec[];
   /**
    * 'cast'   — fires as the card resolves. This is the default.
    * 'combat' — fires from the battlefield at the start of every combat, so a
    *            Rabblemaster keeps producing rather than doing it once.
+   * 'attack' — fires only when the source itself attacks. The distinction from
+   *            'combat' is the whole card for an attack trigger: a bot holding
+   *            Teval home as a blocker should not be milling as if it swung.
    */
-  timing?: 'cast' | 'combat';
+  timing?: 'cast' | 'combat' | 'attack';
   /** A 'combat' source that taps to do this — Krenko does, Rabblemaster does not. */
   tapsSource?: boolean;
+}
+
+/** Every spec an entry carries, whether it was written as one or as a list. */
+export function specsOf(entry: { spec: BotSelfSpec | BotSelfSpec[] }): BotSelfSpec[] {
+  return Array.isArray(entry.spec) ? entry.spec : [entry.spec];
 }
 
 export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
@@ -249,6 +287,21 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // four is about what a hand looks like when a six-drop resolves.
   'Commence the Endgame': { spec: { kind: 'amass', count: 4 } },
 
+  // The commander. Vigilance means it attacks every turn without giving up its
+  // blocking, so the loot trigger is close to guaranteed once it lands — which
+  // is exactly why leaving the deck's own commander unauthored was the single
+  // worst gap in it. Modelled as the draw; the discard is what the hand limit
+  // already does at end of turn.
+  "Temmet, Naktamun's Will": { spec: { kind: 'draw', count: 1 }, timing: 'attack' },
+  // "At the beginning of your second main phase, if a player was dealt combat
+  // damage by a Zombie this turn, mill three, then return a creature card from
+  // your graveyard to your hand." In a deck of zombies, attacking is that
+  // condition — so 'attack' timing is the trigger, near enough.
+  'Lost Monarch of Ifnir': {
+    spec: [{ kind: 'selfMill', count: 3 }, { kind: 'regrow', count: 1 }],
+    timing: 'attack',
+  },
+
   // ── Eternal Might: the horde ──
   // A planeswalker ticking up every turn, which combat timing models exactly.
   "Liliana, Death's Majesty": { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 1 }] }, timing: 'combat' },
@@ -256,6 +309,11 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'God-Eternal Oketra':   { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie Warrior', count: 1 }] }, timing: 'combat' },
   'Dread Summons':        { spec: { kind: 'makeTokens', tokens: [{ name: 'Zombie', count: 3 }] } },
   'Rot Hulk':             { spec: { kind: 'reanimate', count: 2 } },
+  // The deck's marquee seven-drop: every combat it exiles a creature from the
+  // graveyard and gets a hasty 4/4 copy. Reanimation is the honest model — the
+  // body comes back and can attack — and 'combat' timing makes it recur, which
+  // is the only reason it is worth seven mana.
+  "God-Pharaoh's Gift":   { spec: { kind: 'reanimate', count: 1 }, timing: 'combat' },
   'Prophet of the Scarab': { spec: { kind: 'draw', count: 3 } },
   'Champion of Wits':     { spec: { kind: 'draw', count: 2 } },
   'Pull from Tomorrow':   { spec: { kind: 'draw', count: 4 } },
@@ -273,9 +331,27 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'Grapple with the Past': { spec: { kind: 'selfMill', count: 3 } },
   'Forbidden Alchemy':    { spec: { kind: 'selfMill', count: 3 } },
 
+  // The commander, and it was doing nothing but flying for 4. Its attack
+  // trigger is the deck in miniature: mill three, then drag a land back out of
+  // the yard. Both halves in one entry, because half of Teval is not Teval.
+  'Teval, the Balanced Scale': {
+    spec: [{ kind: 'selfMill', count: 3 }, { kind: 'reclaimLands', count: 1, to: 'battlefield', tapped: true }],
+    timing: 'attack',
+  },
+
   // ── Sultai Arisen: buying it back ──
   'Living Death':         { spec: { kind: 'reanimate', count: 3 } },
   'Timeless Witness':     { spec: { kind: 'regrow', count: 1 } },
+  // Delve, so the real price is the override in BOT_COSTS. Reanimates one
+  // creature out of each graveyard; the bot's own is the one it knows about.
+  'Afterlife from the Loam': { spec: { kind: 'reanimate', count: 2 } },
+  // Both modes, which is what "you may choose both" means with a commander out
+  // — and this deck's commander is a 4-drop that is usually on the board.
+  'Will of the Sultai':   { spec: [{ kind: 'selfMill', count: 3 }, { kind: 'reclaimLands', count: 3, to: 'battlefield', tapped: true }] },
+  // Exactly what it says. Dredge isn't modelled, so this is the front half of
+  // the card only — but the front half is three land drops banked, which is
+  // what makes it ramp.
+  'Life from the Loam':   { spec: { kind: 'reclaimLands', count: 3, to: 'hand' } },
 
   // ── Sultai Arisen: ramp ──
   // Five land-fetchers, all the same shape, all previously doing nothing at all.
@@ -325,7 +401,17 @@ export function lookupSelfEffect(cardName: string): BotSelfEntry | undefined {
 export interface BotActivatedEntry {
   /** Total mana paid. Colours are ignored here as everywhere else. */
   cost: number;
-  spec: BotSelfSpec;
+  /**
+   * What it does to the bot's own board. Mutually exclusive with `effect`, and
+   * a list when one ability does several things.
+   */
+  spec?: BotSelfSpec | BotSelfSpec[];
+  /**
+   * What it does to YOU. Activated abilities used to be self-only, which meant
+   * a Necropolis Fiend — a repeatable removal engine, and the best card in its
+   * deck — sat on the board as a 4/5 flier and never pointed at anything.
+   */
+  effect?: BotEffectSpec;
   /** True when activating taps the source, which also stops it attacking. */
   tapsSource?: boolean;
   /** The ability eats its own source — a Sakura-Tribe Elder cashing itself in. */
@@ -337,8 +423,13 @@ export interface BotActivatedEntry {
    * Sakura-Tribe Elder around as a blocker and only cracks it when they need
    * the land, so a bot that sacrificed it the moment it could would be throwing
    * away a body for nothing.
+   *
+   * 'graveyardStocked' is for the payoffs that are only worth their cost once
+   * the yard is deep — Gate to the Afterlife's real condition is six creature
+   * cards in the graveyard, and a bot that ignored it would trade its Gate for
+   * a God-Pharaoh's Gift with nothing to reanimate.
    */
-  only?: 'behindOnLands';
+  only?: 'behindOnLands' | 'graveyardStocked';
 }
 
 export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
@@ -378,6 +469,61 @@ export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
   'Jarad, Golgari Lich Lord': [
     { cost: 3, spec: { kind: 'reanimate', count: 1 } },
   ],
+
+  // ── Golgari ──
+  // Three modes; the one that matters to you is "{B}, {T}: exile an instant or
+  // sorcery from a graveyard, each opponent loses 2." A one-drop that bills you
+  // two a turn forever, and until activated abilities could reach the player it
+  // was a 1/2 that never did anything.
+  'Deathrite Shaman': [
+    { cost: 1, effect: { kind: 'drain', amount: 2 }, tapsSource: true },
+  ],
+
+  // ── Eternal Might ──
+  // "{2}{U}{B}: Exile a creature card from a graveyard, make a 4/4 Zombie copy
+  // of it." Reanimation with extra steps, and the reason this card ends games:
+  // left alone it turns every corpse on the table into a 4/4 every turn.
+  'The Scarab God': [
+    { cost: 4, spec: { kind: 'reanimate', count: 1 } },
+  ],
+  // Sacrifices itself to fetch God-Pharaoh's Gift straight onto the battlefield
+  // — the deck's whole top end for {2}. The real card demands six creature
+  // cards in the yard; `only` enforces that, or the bot would cash in its Gate
+  // on turn three for a Gift with nothing to reanimate.
+  'Gate to the Afterlife': [
+    {
+      cost: 2,
+      spec: { kind: 'tutor', want: { name: "God-Pharaoh's Gift" }, to: 'battlefield', count: 1 },
+      tapsSource: true,
+      sacrificesSelf: true,
+      only: 'graveyardStocked',
+    },
+  ],
+
+  // ── Sultai Arisen ──
+  // "{X}, {T}, exile X cards from your graveyard: target creature gets -X/-X."
+  // In a deck that mills itself every turn X is however big it needs to be, so
+  // this is simply removal that never runs out.
+  'Necropolis Fiend': [
+    { cost: 2, effect: { kind: 'destroyCreature' }, tapsSource: true },
+  ],
+  // "Mill two, then return a nonland card from your graveyard to your hand."
+  // The opponent picks which, so the bot gets its worst card back — but a card
+  // is a card, and the mill feeds everything else the deck is doing.
+  'Tasigur, the Golden Fang': [
+    { cost: 4, spec: [{ kind: 'selfMill', count: 2 }, { kind: 'regrow', count: 1 }] },
+  ],
+  // "{G}, discard a creature card: return a land card from your graveyard to
+  // the battlefield tapped." The discard is not modelled; the ramp is the card.
+  'Floral Evoker': [
+    { cost: 1, spec: { kind: 'reclaimLands', count: 1, to: 'battlefield', tapped: true } },
+  ],
+  // "You may play lands from your graveyard", plus casting a permanent out of
+  // it once a turn. Both are graveyard recursion, and in a self-mill deck the
+  // graveyard is the better library.
+  'Conduit of Worlds': [
+    { cost: 0, spec: { kind: 'reclaimLands', count: 1, to: 'hand' } },
+  ],
 };
 
 export function lookupActivated(cardName: string): BotActivatedEntry[] {
@@ -412,7 +558,16 @@ export type BotStaticSpec =
    * in the deck is worth, which is exactly what a bot understanding its own
    * deck has to know.
    */
-  | { kind: 'allCreatureTypes' };
+  | { kind: 'allCreatureTypes' }
+  /**
+   * Gives every creature the bot controls a combat keyword.
+   *
+   * Written for Wonder, which grants flying from the GRAVEYARD — see
+   * `BOT_GRAVEYARD_STATICS`. An unblockable board is the difference between a
+   * self-mill deck durdling and a self-mill deck killing you, and it was
+   * invisible: the card was in the yard doing exactly nothing.
+   */
+  | { kind: 'grantsKeyword'; keyword: CombatKeyword; subtype?: string };
 
 /**
  * A card may carry several statics: Goblin Chieftain is a lord AND a haste
@@ -460,6 +615,170 @@ export function staticsOf(cardName: string): BotStaticSpec[] {
   if (!entry) return [];
   return Array.isArray(entry) ? entry : [entry];
 }
+
+/**
+ * Statics that work from the GRAVEYARD.
+ *
+ * A separate map rather than a flag, because the zone is the whole point: a
+ * card here is doing its job precisely when it is dead, and a self-mill deck
+ * puts it there on purpose. Wonder is the archetypal one — mill it on turn
+ * three and the rest of the deck flies for the rest of the game.
+ *
+ * The real Wonder also wants an Island in play. Every land in that deck taps
+ * for blue and the engine has no colour model, so the condition is dropped
+ * rather than faked.
+ */
+export const BOT_GRAVEYARD_STATICS: Record<string, BotStaticSpec | BotStaticSpec[]> = {
+  'Wonder': { kind: 'grantsKeyword', keyword: 'flying' },
+};
+
+export function graveyardStaticsOf(cardName: string): BotStaticSpec[] {
+  const entry = BOT_GRAVEYARD_STATICS[cardName];
+  if (!entry) return [];
+  return Array.isArray(entry) ? entry : [entry];
+}
+
+/**
+ * "When this dies…" — read off the card that died.
+ *
+ * A deck built on its own creatures dying has to get paid when they do, or its
+ * whole plan reads as the bot throwing bodies away for nothing. Junji is the
+ * clearest case: a 5/5 flier nobody wants to block, whose death is supposed to
+ * be the good half of the card.
+ */
+export const BOT_DEATH_TRIGGERS: Record<string, BotSelfSpec | BotSelfSpec[]> = {
+  // "Draw X where X is the creature cards in target player's graveyard." Its
+  // own controller's yard is the deep one in this deck; three is about right
+  // by the time a 4-drop is trading.
+  'Corpse Augur': { kind: 'draw', count: 3 },
+  // Two modes; the bot always wants the body back off a stocked graveyard.
+  'Junji, the Midnight Sky': { kind: 'reanimate', count: 1 },
+  // "Return it to its owner's hand at the beginning of the next end step" —
+  // a recursion the engine models as simply getting the card back.
+  'The Scarab God': { kind: 'regrow', count: 1 },
+};
+
+/**
+ * "Whenever a creature you control dies…" — read off a permanent that is
+ * WATCHING, not off the one that died.
+ *
+ * The distinction matters: these fire once per death, and a board with two of
+ * them fires both. Together they are why a zombie deck's chump blocks are not
+ * a concession — every trade draws it a card or bills you a life.
+ */
+export interface BotDeathWatcher {
+  /** Fires only for deaths of creatures matching this subtype, if set. */
+  subtype?: string;
+  /** Tokens don't count for the "nontoken creature" watchers. */
+  nontokenOnly?: boolean;
+  spec?: BotSelfSpec | BotSelfSpec[];
+  /** Player-facing half, e.g. Plague Belcher billing you a life per zombie. */
+  effect?: BotEffectSpec;
+}
+
+export const BOT_DEATH_WATCHERS: Record<string, BotDeathWatcher> = {
+  'Midnight Reaper':  { nontokenOnly: true, spec: { kind: 'draw', count: 1 } },
+  'Undead Augur':     { subtype: 'zombie', spec: { kind: 'draw', count: 1 } },
+  // The life loss is on the bot, not you — but a card for a life is a trade a
+  // zombie deck makes happily, and the engine only tracks what it draws.
+  'Gate to the Afterlife': { nontokenOnly: true, spec: { kind: 'draw', count: 1 } },
+  'Plague Belcher':   { subtype: 'zombie', effect: { kind: 'drain', amount: 1 } },
+};
+
+/**
+ * Cards the bot may cast straight out of its own graveyard.
+ *
+ * A recurring threat is one of the most "this player knows their deck" things
+ * a bot can do: kill the Gravecrawler and it comes back next turn, and the
+ * only way to stop it is to change the board condition. Both entries here are
+ * cheap creatures, which is the point — they turn a stocked graveyard into a
+ * board that will not stay clear.
+ */
+export interface BotRecursionEntry {
+  /** What it costs to bring back. Gravecrawler is simply recast. */
+  cost: number;
+  /** Only castable while the bot controls a permanent of this subtype. */
+  requiresSubtype?: string;
+  /** It returns tapped, so it can't attack or block the turn it comes back. */
+  tapped?: boolean;
+}
+
+export const BOT_RECURSION: Record<string, BotRecursionEntry> = {
+  'Gravecrawler':         { cost: 1, requiresSubtype: 'zombie' },
+  'Reassembling Skeleton': { cost: 2, tapped: true },
+};
+
+/**
+ * Cycling — pay a small cost, pitch the card, get something.
+ *
+ * Worth a hook of its own because the alternative is a lie in both directions:
+ * a six-mana 4/3 that the bot dutifully hard-casts on turn six, when every
+ * real player pitches it for two on turn two. Cycling is also what makes the
+ * back half of Eternal Might work — a third of the deck would rather be
+ * discarded than cast.
+ *
+ * The bot cycles a card when it can afford the cycling cost and either can't
+ * afford to cast it or the cycled mode is simply better.
+ */
+export interface BotCyclingEntry {
+  /** Mana to cycle. Always well under the card's own cost. */
+  cost: number;
+  /**
+   * What cycling gets the bot. Plain cycling draws, so say so explicitly;
+   * LANDcycling fetches instead of drawing, which is why this is not defaulted.
+   */
+  spec?: BotSelfSpec | BotSelfSpec[];
+  /** What cycling does to you — Gempalm Polluter's whole reason to exist. */
+  effect?: BotEffectSpec;
+  /**
+   * Prefer cycling even when the card is affordable. True for the ones whose
+   * cycled mode IS the card: nobody casts a six-mana Gempalm Polluter.
+   */
+  preferred?: boolean;
+}
+
+export const BOT_CYCLING: Record<string, BotCyclingEntry> = {
+  // Landcycling. A two-mana Rampant Growth stapled to a card the bot would
+  // otherwise never reach, which is exactly how both of these get played.
+  'Twisted Abomination': { cost: 2, spec: { kind: 'fetchLand', count: 1 }, preferred: true },
+  'Timeless Dragon':     { cost: 2, spec: { kind: 'fetchLand', count: 1 } },
+  // "Target player loses life equal to the number of Zombies on the
+  // battlefield" — on a developed board this is the deck's reach, and it costs
+  // two. Hard-casting it for six is strictly worse.
+  // Cycling draws, and the trigger drains on top — with no zombies out it is
+  // still a two-mana cantrip, which is why it gets pitched either way.
+  'Gempalm Polluter':    {
+    cost: 2,
+    spec: { kind: 'draw', count: 1 },
+    effect: { kind: 'drain', amount: 1, perSubtype: 'zombie' },
+    preferred: true,
+  },
+  'Archfiend of Ifnir':  { cost: 2, spec: { kind: 'draw', count: 1 } },
+};
+
+/**
+ * "Whenever a land you control enters" — checked on the bot's land drop.
+ *
+ * The engine plays one land a turn, so a landfall trigger is close to a
+ * once-a-turn upkeep trigger. That is enough to make Ob Nixilis what it is:
+ * three life a turn, every turn, from a card that was previously a 3/3.
+ */
+export const BOT_LANDFALL_EFFECTS: Record<string, BotEffectSpec> = {
+  'Ob Nixilis, the Fallen': { kind: 'drain', amount: 3 },
+};
+
+/**
+ * Effects that fire from the battlefield every turn, aimed at YOU.
+ *
+ * `BOT_SELF_EFFECTS` already had recurring timings, but they could only ever
+ * touch the bot's own board — so the one card in either precon whose whole
+ * text is "each opponent loses X life every upkeep" was a 5/5 vanilla. This is
+ * the other half of that.
+ */
+export const BOT_RECURRING_EFFECTS: Record<string, BotEffectSpec> = {
+  // X = zombies the bot controls, which in this deck is the whole board.
+  'The Scarab God': { kind: 'drain', amount: 1, perSubtype: 'zombie' },
+};
 
 /**
  * Creatures whose printed power is a `*`, plus what it counts.

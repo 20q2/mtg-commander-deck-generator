@@ -1,10 +1,21 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
-import { chooseResistancePlay, hasLiveTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import { BOT_TRIGGERS, costOf, lookupActivated, lookupEffect, lookupSelfEffect } from '@/services/playtest/opponents/effects';
-import type { BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
-import { botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { chooseResistancePlay, hasLiveTarget, resolveEffect, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
+import {
+  BOT_CYCLING,
+  BOT_LANDFALL_EFFECTS,
+  BOT_RECURRING_EFFECTS,
+  BOT_RECURSION,
+  BOT_TRIGGERS,
+  costOf,
+  lookupActivated,
+  lookupEffect,
+  lookupSelfEffect,
+  specsOf,
+} from '@/services/playtest/opponents/effects';
+import type { BotEffectSpec, BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
+import { botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { BOT_COMBOS, liveCombos, missingComboPieces } from '@/services/playtest/opponents/botCombos';
 import { keywordsOf } from '@/services/playtest/combat';
@@ -50,6 +61,15 @@ const MAX_INTERACTION_PER_TURN = 2;
  * the doubling without rewriting what Krenko does.
  */
 const MAX_BOARD = 40;
+
+/**
+ * Distinct names a log line will spell out before it starts counting.
+ *
+ * Identical tokens collapse to "29 Goblins" on their own, but a developed
+ * precon attacks with a dozen DIFFERENT creatures, and naming every one made
+ * a 276-character line nobody could read.
+ */
+const MAX_NAMED = 4;
 
 function isPermanent(card: ScryfallCard): boolean {
   const t = getFrontFaceTypeLine(card).toLowerCase();
@@ -183,12 +203,16 @@ function etbDamage(battlefield: OpponentPermanent[], count: number): number {
  * times. Repeats collapse to a count, so the line says what you need: how many
  * goblins, and which real cards came with them.
  */
-function describeNames(names: string[]): string {
+function describeNames(names: string[], max = MAX_NAMED): string {
   const counts = new Map<string, number>();
   for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
-  return [...counts.entries()]
-    .map(([name, n]) => (n > 1 ? `${n} ${name}s` : name))
-    .join(', ');
+  const parts = [...counts.entries()]
+    .map(([name, n]) => (n > 1 ? `${n} ${name}s` : name));
+  if (parts.length <= max) return parts.join(', ');
+  // Identical creatures are already collapsed above; this is the other case —
+  // a dozen DIFFERENT bodies. Naming all twelve produced a 276-character log
+  // line nobody reads, so name a few and count the rest.
+  return `${parts.slice(0, max).join(', ')} and ${parts.length - max} more`;
 }
 
 function describeAttackers(cards: ScryfallCard[]): string {
@@ -274,6 +298,29 @@ export function takeTurn(
 
   const applySpec = (spec: BotSelfSpec): string | null => {
     switch (spec.kind) {
+      case 'reclaimLands': {
+        // Lands come back worst-first is wrong — a land is a land, so take
+        // them in the order they were milled. Straight onto the battlefield is
+        // mana this turn; to hand is a land drop banked for a later one.
+        const names: string[] = [];
+        for (let i = 0; i < spec.count; i++) {
+          const idx = opp.graveyard.findIndex(isLand);
+          if (idx < 0) break;
+          const card = opp.graveyard.splice(idx, 1)[0];
+          if (spec.to === 'hand') {
+            opp.hand.push(card);
+          } else {
+            if (opp.battlefield.length >= MAX_BOARD) break;
+            opp.battlefield.push({ ...toPermanent(card), tapped: spec.tapped ?? false });
+          }
+          names.push(card.name);
+        }
+        if (names.length === 0) return null;
+        return spec.to === 'hand'
+          ? `returns ${describeNames(names)} to hand`
+          : `returns ${describeNames(names)} from the graveyard`;
+      }
+
       case 'draw': {
         let drawn = 0;
         for (let i = 0; i < spec.count; i++) {
@@ -482,14 +529,42 @@ export function takeTurn(
         if (spec.want?.subtype && !t.includes(spec.want.subtype.toLowerCase())) return false;
         return !isLand(c);
       });
-      case 'makeTokens': return opp.battlefield.length < MAX_BOARD;
+      case 'makeTokens':   return opp.battlefield.length < MAX_BOARD;
+      case 'reclaimLands': return opp.graveyard.some(isLand);
     }
+  };
+
+  /**
+   * Run every spec on one entry and join what they did into a single line.
+   *
+   * A trigger that does two things is one event, so it reads as one: Teval
+   * "mills 3, returns Swamp" rather than two frames a beat apart.
+   */
+  const applySpecs = (specs: BotSelfSpec[]): string | null => {
+    const parts = specs.map(applySpec).filter((s): s is string => s !== null);
+    return parts.length > 0 ? parts.join(', ') : null;
+  };
+
+  /** Any one of the specs doing something is enough to be worth paying for. */
+  const anySpecWouldDo = (specs: BotSelfSpec[]): boolean => specs.some(specWouldDo);
+
+  /**
+   * The multiplier on a scaled player-facing effect — "X, where X is the
+   * number of Zombies you control". Only the bot's own board can answer that,
+   * which is why `resolveEffect` takes it rather than working it out.
+   */
+  const effectScale = (spec: BotEffectSpec): number => {
+    if (spec.kind !== 'drain' || !spec.perSubtype) return 1;
+    const want = spec.perSubtype.toLowerCase();
+    return opp.battlefield.filter(p =>
+      getFrontFaceTypeLine(p.card).toLowerCase().includes(want),
+    ).length;
   };
 
   const applySelfEffect = (cardName: string): string | null => {
     const entry = lookupSelfEffect(cardName);
     if (!entry) return null;
-    return applySpec(entry.spec);
+    return applySpecs(specsOf(entry));
   };
 
   // ── Untap + draw ──
@@ -509,12 +584,43 @@ export function takeTurn(
   // lines a turn cycle, but a card advantage you cannot see at all is worse.
   frame(drawLogs, [], [], drewForTurn ? 'Draws' : undefined);
 
+  // ── Upkeep ──
+  // Effects that bill you every turn just for still being there. Scaled ones
+  // read the board as it stands, so The Scarab God hurts more the longer the
+  // horde grows — which is the entire threat that card represents.
+  for (const p of opp.battlefield) {
+    const spec = BOT_RECURRING_EFFECTS[p.card.name];
+    if (!spec) continue;
+    const hit = resolveEffect(spec, playerBoard, effectScale(spec));
+    if (hit) {
+      frame(
+        [`${opp.name}'s ${p.card.name} triggers`, `${opp.name} hits ${hit.target}`],
+        [hit.effect], [], p.card.name,
+      );
+    }
+  }
+
   // ── Land ──
   const landIdx = opp.hand.findIndex(isLand);
   if (landIdx >= 0) {
     const land = opp.hand.splice(landIdx, 1)[0];
     opp.battlefield.push({ ...toPermanent(land), summoningSick: false });
     frame([`${opp.name} plays ${land.name}`], [], [], land.name);
+
+    // Landfall. The engine plays one land a turn, so this is once a turn —
+    // which is exactly the cadence that makes Ob Nixilis a clock rather than
+    // a 3/3.
+    for (const p of opp.battlefield) {
+      const spec = BOT_LANDFALL_EFFECTS[p.card.name];
+      if (!spec) continue;
+      const hit = resolveEffect(spec, playerBoard, effectScale(spec));
+      if (hit) {
+        frame(
+          [`${opp.name}'s ${p.card.name} triggers on the land`, `${opp.name} hits ${hit.target}`],
+          [hit.effect], [], p.card.name,
+        );
+      }
+    }
   }
 
   // Lands, rocks and unsick mana creatures. Colours are still ignored — that's
@@ -604,6 +710,61 @@ export function takeTurn(
     }
   }
 
+  // ── Cycling ──
+  // Before the develop loop, because the whole point of a cycler is that it is
+  // played on a turn you could not afford the card itself. A `preferred` one is
+  // pitched even when it is affordable: nobody hard-casts a six-mana Gempalm
+  // Polluter, and a bot that did would read as one following a rule instead of
+  // playing a deck.
+  for (const card of [...opp.hand]) {
+    const cycle = BOT_CYCLING[card.name];
+    if (!cycle || cycle.cost > availableMana()) continue;
+    const affordable = effectiveCost(card, opp.battlefield) <= availableMana();
+    if (affordable && !cycle.preferred) continue;
+    const specs = specsOf({ spec: cycle.spec ?? [] });
+    const hit = cycle.effect
+      ? resolveEffect(cycle.effect, playerBoard, effectScale(cycle.effect))
+      : null;
+    // Nothing to fetch and nothing to hit means the card is worth more in hand.
+    if (!hit && !anySpecWouldDo(specs)) continue;
+
+    const i = opp.hand.findIndex(c => c === card);
+    if (i < 0) continue;
+    opp.hand.splice(i, 1);
+    opp.graveyard.push(card);
+    opp.battlefield = tapForMana(opp.battlefield, cycle.cost);
+
+    const logs = [`${opp.name} cycles ${card.name}`];
+    const label = applySpecs(specs);
+    if (label) logs.push(`${opp.name} ${label}`);
+    if (hit) logs.push(`${opp.name} hits ${hit.target}`);
+    frame(logs, hit ? [hit.effect] : [], [], label ?? `Cycles ${card.name}`);
+  }
+
+  // ── Back from the dead ──
+  // A Gravecrawler you killed last turn walks back onto the board. Cheap, and
+  // the most legible "this deck does a thing" moment either precon has: the
+  // only answer is to change the board state, not to kill it again.
+  for (const card of [...opp.graveyard]) {
+    const rec = BOT_RECURSION[card.name];
+    if (!rec || rec.cost > availableMana()) continue;
+    if (opp.battlefield.length >= MAX_BOARD) break;
+    if (rec.requiresSubtype) {
+      const want = rec.requiresSubtype.toLowerCase();
+      const has = opp.battlefield.some(p =>
+        isCreatureCard(p.card) && getFrontFaceTypeLine(p.card).toLowerCase().includes(want),
+      );
+      if (!has) continue;
+    }
+    const i = opp.graveyard.findIndex(c => c === card);
+    if (i < 0) continue;
+    opp.graveyard.splice(i, 1);
+    opp.battlefield = tapForMana(opp.battlefield, rec.cost);
+    opp.battlefield.push({ ...toPermanent(card), tapped: rec.tapped ?? false });
+    pendingCreatures += 1;
+    frame([`${opp.name} returns ${card.name} from the graveyard`], [], [], card.name);
+  }
+
   // ── Develop ──
   // Keep casting while the mana lasts, one frame per spell, so a big turn plays
   // out as a sequence of plays instead of the whole board appearing at once.
@@ -619,7 +780,7 @@ export function takeTurn(
       if (isLand(card) || (!isPermanent(card) && !self)) return;
       // Don't burn a spell that would fizzle. Victimize with an empty graveyard
       // is a card worth keeping, not a card worth casting.
-      if (self && !isPermanent(card) && self.timing !== 'combat' && !specWouldDo(self.spec)) return;
+      if (self && !isPermanent(card) && self.timing === undefined && !anySpecWouldDo(specsOf(self))) return;
       // A registry permanent is held back only while its effect has something to
       // hit. Once your board is empty it is just a body, and a bot that keeps it
       // in hand forever reads as a bot that has stopped playing.
@@ -645,7 +806,7 @@ export function takeTurn(
 
     // Combat-timed effects fire in the attack step, not on arrival.
     const entry = lookupSelfEffect(spell.name);
-    const label = entry && entry.timing !== 'combat' ? applySelfEffect(spell.name) : null;
+    const label = entry && entry.timing === undefined ? applySelfEffect(spell.name) : null;
 
     // What the spell did to the bot's own board gets its own line. Four Warriors
     // used to arrive in silence — the log said "casts Secure the Wastes" and
@@ -669,9 +830,15 @@ export function takeTurn(
       .filter(a => a.cost <= availableMana())
       // A tap ability needs the permanent to have been there since upkeep.
       .filter(a => !(a.tapsSource && live.summoningSick))
-      .filter(a => specWouldDo(a.spec))
+      // A player-facing ability is worth paying for when it has a target; a
+      // self ability when at least one of its specs would do something.
+      .filter(a => a.effect
+        ? resolveEffect(a.effect, playerBoard, effectScale(a.effect)) !== null
+        : anySpecWouldDo(specsOf({ spec: a.spec ?? [] })))
       // Ramp-on-legs is held while it is still a useful blocker.
       .filter(a => a.only !== 'behindOnLands' || behindOnLands())
+      // A Gate to the Afterlife is only worth cashing in on a deep graveyard.
+      .filter(a => a.only !== 'graveyardStocked' || opp.graveyard.filter(isCreatureCard).length >= 6)
       .sort((a, b) => b.cost - a.cost);
     if (options.length === 0) continue;
 
@@ -690,9 +857,19 @@ export function takeTurn(
         opp.graveyard.push(live.card);
       }
     }
-    const label = applySpec(ability.spec);
-    if (label) {
-      frame([`${opp.name} activates ${live.card.name}`, `${opp.name} ${label}`], [], [], label);
+    if (ability.effect) {
+      const hit = resolveEffect(ability.effect, playerBoard, effectScale(ability.effect));
+      if (hit) {
+        frame(
+          [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`],
+          [hit.effect], [], live.card.name,
+        );
+      }
+    } else {
+      const label = applySpecs(specsOf({ spec: ability.spec ?? [] }));
+      if (label) {
+        frame([`${opp.name} activates ${live.card.name}`, `${opp.name} ${label}`], [], [], label);
+      }
     }
   }
 
@@ -822,7 +999,7 @@ export function takeTurn(
         name: p.card.name,
         power: livePower(p, opp.battlefield, opp.graveyard),
         toughness: liveToughness(p, opp.battlefield, opp.graveyard),
-        keywords: keywordsOf(p.card, p.edit),
+        keywords: botKeywords(p, opp.battlefield, opp.graveyard),
       })),
       blockers: target.untappedCreatures,
       playerLife: target.life,
@@ -836,6 +1013,19 @@ export function takeTurn(
     : { kind: 'opponent', id: target.id, name: target.name };
 
   if (attackers.length > 0) {
+    // ── Attack triggers ──
+    // Fired before the attack frame, so the log reads cause then effect, and
+    // only for creatures that actually swung: a Teval held home as a blocker
+    // mills nothing, which is the difference between 'attack' and 'combat'.
+    for (const a of attackers) {
+      const entry = lookupSelfEffect(a.card.name);
+      if (entry?.timing !== 'attack') continue;
+      const label = applySpecs(specsOf(entry));
+      if (label) {
+        frame([`${opp.name}'s ${a.card.name} attacks`, `${opp.name} ${label}`], [], [], label);
+      }
+    }
+
     // Vigilance attacks without tapping — the same rule your own side follows.
     const tapping = new Set(
       attackers.filter(a => !keywordsOf(a.card, a.edit).has('vigilance')).map(a => a.instanceId),

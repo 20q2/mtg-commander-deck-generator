@@ -15,18 +15,18 @@
     "cards": 27
   },
   "golgari-graveyard": {
-    "understood": 93,
-    "gaps": 2,
+    "understood": 96,
+    "gaps": 1,
     "cards": 27
   },
   "eternal-might": {
-    "understood": 74,
-    "gaps": 23,
+    "understood": 90,
+    "gaps": 9,
     "cards": 89
   },
   "sultai-arisen": {
-    "understood": 81,
-    "gaps": 17,
+    "understood": 95,
+    "gaps": 4,
     "cards": 88
   }
 }
