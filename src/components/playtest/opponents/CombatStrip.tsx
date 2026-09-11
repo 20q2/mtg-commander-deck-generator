@@ -1,13 +1,14 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDroppable } from '@dnd-kit/core';
-import { X } from 'lucide-react';
+import { HeartCrack, ShieldCheck, Sword, X } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
+import { isCreatureCard } from '@/services/playtest/opponents/stats';
 import { useMagnifyKey } from '@/hooks/useMagnifyKey';
 import type { BattlefieldCard } from '@/components/playtest/types';
 import type { Attacker } from '@/components/playtest/opponentTypes';
@@ -39,6 +40,7 @@ const cardW = (seatWidth: number, scale: number) => Math.round(Math.max(MIN_CARD
  * nothing. Armed is a drop target. Declared and resolving both show cards.
  */
 export function CombatStrip({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
+  const animations   = usePlaytestSettings(s => s.animations);
   const declaration  = useOpponentStore(s => s.declaration);
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const combat       = useOpponentStore(s => s.combat);
@@ -64,9 +66,14 @@ export function CombatStrip({ opponentId, seatWidth }: { opponentId: string; sea
   return (
     <div
       ref={setNodeRef}
-      className={`mt-1 rounded-md border p-1 min-h-[38px] flex items-center gap-1 flex-wrap transition-colors ${
+      // The incoming case gets the entrance: adding the class to the live
+      // element is enough to play it, and this element was a 1px spacer until
+      // the attack opened, so it plays exactly once per attack.
+      className={`relative mt-1 rounded-md border p-1 min-h-[38px] flex items-center gap-1 flex-wrap transition-colors ${
+        theirs && animations ? 'animate-combat-open' : ''
+      } ${
         isOver   ? 'border-violet-300 bg-violet-500/25'
-        : theirs ? 'border-rose-400/50 bg-rose-500/10'
+        : theirs ? 'border-rose-400/60 bg-rose-500/15 shadow-[0_0_20px_rgba(244,63,94,0.25)]'
         : busy   ? 'border-violet-400/60 bg-violet-500/12'
         :          'border-dashed border-violet-400/60 bg-violet-500/10'
       }`}
@@ -196,6 +203,7 @@ function groupAttackers(attackers: Attacker[]): { key: string; members: Attacker
 
 /** Their attack. Same strip, roles flipped — drag your creatures in to block. */
 function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
+  const animations = usePlaytestSettings(s => s.animations);
   const combat = useOpponentStore(s => s.combat);
   const resolveCombat = useOpponentStore(s => s.resolveCombat);
   const removeBlocker = useOpponentStore(s => s.removeBlocker);
@@ -213,10 +221,33 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
 
   const blocksOf = (a: Attacker) => combat.blocks[a.instanceId] ?? [];
   const piles = groupAttackers(live);
+  const total = live.length;
+
+  // The hint below is only worth its row while there is still something to do
+  // with it: an attacker with nothing in front of it, and a creature of yours
+  // that could stand there. Once you've blocked everything it gets out of the
+  // way rather than explaining a job you've finished.
+  const anyUnblocked = live.some(a => blocksOf(a).length === 0);
+  const canBlock = battlefield.some(
+    b => !b.tapped && !b.faceDown && isCreatureCard(b.card),
+  );
 
   return (
     <>
-      {piles.map(({ key, members }) => {
+      {/* Say it in words. A red-tinted strip full of sideways cards reads as
+          "something is happening here" but not as "you are being attacked and
+          have to answer it", which is the only thing that matters.
+          Floated onto the strip's top edge rather than sitting in the row: as a
+          flex item it cost a whole card slot, and space in the strip belongs to
+          the fight. */}
+      <span
+        className="absolute -top-1.5 left-1.5 z-10 inline-flex items-center gap-0.5 px-1 rounded border border-rose-400/70 bg-rose-600/90 text-rose-50 text-[8px] font-bold uppercase tracking-wide leading-[1.35] shadow"
+        title={`${opponent?.name ?? 'They'} ${total === 1 ? 'is attacking' : 'are attacking'} you with ${total} creature${total === 1 ? '' : 's'} · block or take the damage`}
+      >
+        <Sword className="w-2 h-2" />
+        Attacking you
+      </span>
+      {piles.map(({ key, members }, i) => {
         const top = members[0];
         // Every blocker assigned anywhere in the pile, shown on the one slot.
         const blockerIds = members.flatMap(blocksOf);
@@ -239,14 +270,59 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
             battlefield={battlefield}
             onAssign={assignBlocker}
             seatWidth={seatWidth}
+            // Where this pile flies in from: the creature's own square on the
+            // bot's board. It has already turned sideways there — the engine
+            // taps attackers — so the flight starts rotated and lands upright,
+            // which reads as the creature turning and stepping forward.
+            flyFrom={animations ? top.instanceId : null}
+            flyRotated={!!opponent?.battlefield.find(p => p.instanceId === top.instanceId)?.tapped}
+            flyOrder={i}
           />
         );
       })}
+      {anyUnblocked && canBlock && (
+        // `w-full` breaks the flex line, so this is a row of its own under the
+        // attackers without a second container to lay out.
+        <span className="w-full text-center text-[8px] uppercase tracking-wider text-emerald-300/60 select-none leading-tight">
+          Drag from a Block zone onto your creature to assign a blocker
+        </span>
+      )}
+      {/* The one thing you have to do to get out of combat.
+          It used to be a 24px pill at the end of the attacker row, which with
+          three seats on the table meant hunting for the seat that was asking.
+          Now it owns a row, carries the number at a size you can read across
+          the table, and breathes for as long as damage is still getting
+          through — once you have blocked everything it goes quiet and green,
+          because at that point the click is safe. */}
       <button
         onClick={resolveCombat}
-        className="ml-auto shrink-0 px-2 h-6 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold"
+        title={incoming > 0
+          ? `Take ${incoming} damage and end combat`
+          : 'Everything is blocked — end combat'}
+        className={`relative w-full mt-0.5 h-9 rounded-md inline-flex items-center justify-center gap-2 font-bold shadow-lg transition-colors ${
+          incoming > 0
+            ? 'bg-rose-600 hover:bg-rose-500 text-white'
+            : 'bg-emerald-700 hover:bg-emerald-600 text-emerald-50'
+        }`}
       >
-        {incoming > 0 ? `Take ${incoming}` : 'Resolve'}
+        {incoming > 0 && animations && (
+          <span
+            aria-hidden
+            className="absolute -inset-0.5 rounded-md ring-2 ring-rose-300 animate-threat-ring pointer-events-none"
+          />
+        )}
+        {incoming > 0 ? (
+          <>
+            <HeartCrack className="w-4 h-4 shrink-0" />
+            <span className="text-[10px] uppercase tracking-[0.14em]">Take</span>
+            <span className="text-lg leading-none tabular-nums">{incoming}</span>
+          </>
+        ) : (
+          <>
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            <span className="text-[10px] uppercase tracking-[0.14em]">All blocked · resolve</span>
+          </>
+        )}
       </button>
     </>
   );
@@ -263,7 +339,7 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
  */
 function AttackerSlot({
   attackerId, card, label, blockerIds, onRemoveBlocker, battlefield, onAssign, seatWidth,
-  count = 1, blockedCount = 0,
+  count = 1, blockedCount = 0, flyFrom = null, flyRotated = false, flyOrder = 0,
 }: {
   attackerId: string;
   card: ScryfallCard;
@@ -278,6 +354,16 @@ function AttackerSlot({
   count?: number;
   /** How many of them already have a blocker in front of them. */
   blockedCount?: number;
+  /**
+   * The instanceId of the creature on the bot's board this slot came from, or
+   * null to skip the flight. Measured rather than guessed, so the card leaves
+   * from exactly where it was standing however the seat has been resized.
+   */
+  flyFrom?: string | null;
+  /** Whether that creature is tapped, so the flight starts at the angle it left at. */
+  flyRotated?: boolean;
+  /** Position in the attack, for the stagger. */
+  flyOrder?: number;
 }) {
   const previewMode = usePlaytestSettings(s => s.opponentPreview);
   const ctrlHeld = useMagnifyKey();
@@ -290,6 +376,50 @@ function AttackerSlot({
   });
   const showPreview =
     previewMode === 'off' ? false : previewMode === 'hover' ? hovered : ctrlHeld && hovered;
+
+  /**
+   * Fly the card down out of the bot's board and into the fight.
+   *
+   * A FLIP: the slot is already laid out where it belongs, so all this does is
+   * start it at the source card's box and animate the difference away. That
+   * keeps the strip's layout the single source of truth for where things end
+   * up — no coordinates are hard-coded, and resizing a seat mid-attack cannot
+   * leave a card parked in the wrong place.
+   *
+   * `fill: backwards` holds the start pose through the stagger delay, or each
+   * card would sit at its destination and then jump back to begin.
+   */
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!flyFrom) return;
+    const node = outerRef.current;
+    const src = document.querySelector(`[data-float-id="${CSS.escape(flyFrom)}"]`);
+    if (!node || !src) return;
+    const a = src.getBoundingClientRect();
+    const b = node.getBoundingClientRect();
+    if (a.width === 0 || b.width === 0) return;
+    const dx = a.left + a.width / 2 - (b.left + b.width / 2);
+    const dy = a.top + a.height / 2 - (b.top + b.height / 2);
+    node.animate(
+      [
+        {
+          transform: `translate(${dx}px, ${dy}px) scale(${a.width / b.width}) rotate(${flyRotated ? 90 : 0}deg)`,
+          opacity: 0.9,
+        },
+        { transform: 'translate(0, 0) scale(1) rotate(0deg)', opacity: 1 },
+      ],
+      {
+        duration: 420,
+        delay: 120 + flyOrder * 80,
+        easing: 'cubic-bezier(0.22, 0.9, 0.32, 1)',
+        fill: 'backwards',
+      },
+    );
+    // Once per arrival. The deps are deliberately empty: this slot is mounted
+    // for one attack, and re-running it on a re-render would fly a card that
+    // is already standing in the fight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Pull an arrow out of the slot and drop it on one of your creatures. */
   const startAim = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -327,7 +457,9 @@ function AttackerSlot({
 
   return (
     <div
-      ref={setNodeRef}
+      // Two owners: dnd-kit needs it as a drop target, the flight needs it to
+      // measure. Both get the same node.
+      ref={node => { setNodeRef(node); outerRef.current = node; }}
       className={`shrink-0 rounded p-0.5 border transition-colors ${
         isOver ? 'border-emerald-400/70 bg-emerald-500/10'
         : !empty ? 'border-emerald-400/40'

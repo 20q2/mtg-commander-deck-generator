@@ -14,7 +14,7 @@ import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import type { CombatState, Opponent, OpponentPermanent, OpponentZone } from '@/components/playtest/opponentTypes';
+import type { CombatState, Opponent, OpponentPermanent, OpponentZone, StackItem, TurnFrame } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
@@ -54,6 +54,15 @@ function stepFor(beats: number): number {
 let combatResolver: (() => void) | null = null;
 
 /**
+ * Same idea for the stack. A beat that does something to you parks the turn
+ * here until you resolve or counter what is waiting, which is the response
+ * window — everything you might do in it (tapping lands, pitching a
+ * counterspell to your graveyard) is an ordinary playtest move, so the window
+ * itself needs no machinery beyond "the bot is not allowed to continue yet".
+ */
+let stackResolver: (() => void) | null = null;
+
+/**
  * Identifies the turn loop that is allowed to write to the store.
  *
  * `runAllTurns` is a long async replay that pauses in the middle, waiting on
@@ -70,6 +79,8 @@ function cancelTurns() {
   turnRunId++;
   combatResolver?.();
   combatResolver = null;
+  stackResolver?.();
+  stackResolver = null;
 }
 
 /**
@@ -189,6 +200,12 @@ interface OpponentState {
    * offering a second one until `beginTurn` clears this.
    */
   combatDone: boolean;
+  /**
+   * What the bots have aimed at you and not yet resolved, newest last. The turn
+   * loop is parked for as long as this is non-empty, so anything here is a
+   * question waiting on an answer rather than a record of what happened.
+   */
+  stack: StackItem[];
 }
 
 interface OpponentActions {
@@ -261,6 +278,10 @@ interface OpponentActions {
   resolvePlayerCombat: (opponentId?: string) => void;
   /** Throw away an unconfirmed declaration, untapping everything in it. */
   discardDeclaration: () => void;
+  /** Let the top item resolve — its effect lands on your board. */
+  resolveStackTop: () => void;
+  /** Counter the top item. The effect is thrown away; the card already left. */
+  counterStackTop: () => void;
 }
 
 /**
@@ -342,6 +363,20 @@ function applyEffect(effect: AppliedEffect) {
   }
 }
 
+/**
+ * Take one item off the stack and, once it is empty, let the parked turn carry
+ * on. Shared by resolve and counter, because the only difference between them
+ * is whether the effect was applied on the way out.
+ */
+function popStack(id: string) {
+  const rest = useOpponentStore.getState().stack.filter(x => x.id !== id);
+  useOpponentStore.setState({ stack: rest });
+  if (rest.length === 0) {
+    stackResolver?.();
+    stackResolver = null;
+  }
+}
+
 const initial: OpponentState = {
   opponents: [],
   loadingStubIds: [],
@@ -352,6 +387,7 @@ const initial: OpponentState = {
   declaration: null,
   playerCombat: null,
   combatDone: false,
+  stack: [],
 };
 
 /**
@@ -421,6 +457,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({
       opponents: [], error: null, combat: null, combatPhase: false,
       declaration: null, playerCombat: null, running: false, combatDone: false,
+      stack: [],
     });
   },
 
@@ -553,6 +590,41 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({ combat: null });
     combatResolver?.();
     combatResolver = null;
+  },
+
+  resolveStackTop: () => {
+    // Last on, first off. Nothing puts two things up at once today, but a
+    // stack that resolved bottom-up would be a stack in name only.
+    const item = get().stack[get().stack.length - 1];
+    if (!item) return;
+    const playtest = usePlaytestStore.getState();
+
+    // Read the board as it is NOW, not as it was when the bot picked. If you
+    // answered by killing, bouncing or blinking the target, the spell has
+    // nothing left to hit and says so instead of quietly doing nothing.
+    const live = new Set(playtest.battlefield.map(b => b.instanceId));
+    const stillThere = item.effect.destroy.filter(id => live.has(id));
+    const fizzled = item.effect.destroy.length > 0 && stillThere.length === 0;
+
+    if (fizzled) {
+      playtest.appendLog(`${item.name} fizzles — no legal target`);
+    } else {
+      applyEffect({ ...item.effect, destroy: stillThere });
+    }
+    popStack(item.id);
+  },
+
+  counterStackTop: () => {
+    // Last on, first off. Nothing puts two things up at once today, but a
+    // stack that resolved bottom-up would be a stack in name only.
+    const item = get().stack[get().stack.length - 1];
+    if (!item) return;
+    // Nothing to undo on the bot's side: an instant or sorcery was already put
+    // into their graveyard when it was cast, which is where a countered spell
+    // goes anyway. An ETB trigger's body is on their board and stays there,
+    // same as being Stifled.
+    usePlaytestStore.getState().appendLog(`You counter ${item.name}`);
+    popStack(item.id);
   },
 
   enterCombat: () => {
@@ -966,6 +1038,42 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       }
     };
 
+    /**
+     * Park the turn on one beat's effects.
+     *
+     * Holding priority is the default: the item waits until you resolve or
+     * counter it, and everything you do in the meantime — untapping a land,
+     * dropping a counterspell into your graveyard — is a normal move on your
+     * own board, which is why nothing here has to model a response.
+     */
+    const putOnStack = async (f: TurnFrame, step: number) => {
+      const items: StackItem[] = f.effects.map(effect => ({
+        id: makeInstanceId(),
+        opponentId: f.opponent.id,
+        opponentName: f.opponent.name,
+        effect,
+        card: f.source?.card,
+        name: f.source?.name ?? f.blurb ?? f.opponent.name,
+        kind: f.source?.kind ?? 'spell',
+        label: f.source?.label ?? 'Resolves',
+      }));
+      set(s => ({ stack: [...s.stack, ...items] }));
+
+      if (!usePlaytestSettings.getState().stackHold) {
+        // Auto-pass: hold it long enough to read, then let it through.
+        await pause(Math.max(STEP_MS, step));
+        if (!mine()) return;
+        for (const item of items) applyEffect(item.effect);
+        set(s => ({ stack: s.stack.filter(x => !items.some(i => i.id === x.id)) }));
+        return;
+      }
+
+      // resolveStackTop / counterStackTop settle this once the last item is
+      // gone; cancelTurns settles it too, so leaving the table mid-response
+      // cannot strand the loop.
+      await new Promise<void>(resolve => { stackResolver = resolve; });
+    };
+
     try {
       for (const opponent of get().opponents) {
         // Out of the game. The seat stays on the table so you can see what beat
@@ -1031,7 +1139,14 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // Narrate the play off the bot's lane, so you can follow the turn
           // without reading the log.
           if (f.blurb) useFloatingText.getState().float(f.blurb, 'neutral', `opp-lane-${f.opponent.id}`);
-          f.effects.forEach(applyEffect);
+          // Anything aimed at you goes on the stack rather than straight onto
+          // your board. With priority held the turn parks here until you answer
+          // it; without, the item still shows for a beat, so the panel is a
+          // record of what hit you either way.
+          if (f.effects.length > 0) {
+            await putOnStack(f, step);
+            if (!mine()) return;
+          }
           // Damage from the bot's own triggers, billed per beat.
           if (f.selfDamage) usePlaytestStore.getState().adjustLife(-f.selfDamage);
 
@@ -1152,6 +1267,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       combatDone: false,
       combat: null,
       running: false,
+      stack: [],
       opponents: s.opponents.map(o => {
         // Gather every real card back. Tokens have no printing to return to,
         // and the commander goes to the command zone rather than into the deck.

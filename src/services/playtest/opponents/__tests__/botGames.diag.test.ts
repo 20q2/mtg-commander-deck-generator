@@ -108,6 +108,7 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
        * label is a claim, and this is how the claim gets checked.
        */
       const killTurns: number[] = [];
+      const comboTurns: number[] = [];
       const boardAt: number[] = Array(TURNS + 1).fill(0);
       const handAt: number[] = Array(TURNS + 1).fill(0);
       const landsAt: number[] = Array(TURNS + 1).fill(0);
@@ -116,6 +117,7 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
 
       for (let game = 0; game < GAMES; game++) {
         let cumulative = 0;
+        let comboTurn: number | null = null;
         let killTurn: number | null = null;
         const rand = rng(game * 7919 + 13);
         const pool = shuffle(deckNames.map(n => fx.cards[n]), rand);
@@ -146,6 +148,13 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
           thisTurn += frames.reduce((n, f) => n + (f.selfDamage ?? 0), 0);
           // A combo that says "you lose" is a kill regardless of the number.
           const lethal = frames.some(f => f.effects.some(e => e.lethal));
+          // Tracked separately from the kill turn, because a combo deck spends
+          // its mana interacting with a goldfish whose board regrows every turn
+          // — so its cumulative-damage kill turn understates it badly, and the
+          // bracket line derived from that reads a turn-four deck as a slow one.
+          if (comboTurn === null && frames.some(f => f.logs.some(l => / goes off: /.test(l)))) {
+            comboTurn = turn;
+          }
           thisTurn += frames.reduce((n, f) => n + f.effects.reduce((m, e) => m + e.lifeLoss, 0), 0);
           totalDamage += thisTurn;
           cumulative += thisTurn;
@@ -159,6 +168,7 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
         }
 
         if (killTurn !== null) killTurns.push(killTurn);
+        if (comboTurn !== null) comboTurns.push(comboTurn);
         if (opp.commanderCasts > 0) commanderCastGames++;
         // Anything still in hand at the end was never castable.
         for (const c of opp.hand) neverCast.set(c.name, (neverCast.get(c.name) ?? 0) + 1);
@@ -186,7 +196,14 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
         + `   fastest ${sorted[0] ?? '—'}   killed in ${killTurns.length}/${GAMES} games`
         + `   → reads as bracket ${bracketFor(median)}`,
       );
-      console.log('turn :  ' + [3, 6, 9, 12].map(t => `T${t}`.padStart(6)).join(''));
+
+      if (comboTurns.length > 0) {
+        const cs = [...comboTurns].sort((a, b) => a - b);
+        console.log(
+          `combo goes off:  median ${cs[Math.floor(cs.length / 2)]}   fastest ${cs[0]}`
+          + `   in ${cs.length}/${GAMES} games`,
+        );
+      }      console.log('turn :  ' + [3, 6, 9, 12].map(t => `T${t}`.padStart(6)).join(''));
       console.log('lands:  ' + [3, 6, 9, 12].map(t => avg(landsAt, t).padStart(6)).join(''));
       console.log('board:  ' + [3, 6, 9, 12].map(t => avg(boardAt, t).padStart(6)).join(''));
       console.log('tokens: ' + [3, 6, 9, 12].map(t => avg(tokensAt, t).padStart(6)).join(''));

@@ -100,6 +100,43 @@ export interface OpponentStub {
   cards: string[];
 }
 
+/**
+ * What kind of thing is sitting on the stack. The distinction is cosmetic — the
+ * panel labels a cast spell differently from an ability that was activated —
+ * but it is the difference between "they cast Murder" and "the Chupacabra
+ * arrived", which is the whole story of the beat.
+ */
+export type StackKind = 'spell' | 'trigger' | 'ability' | 'combo';
+
+/** Who put something on the stack, and what it says it will do. */
+export interface StackSource {
+  /**
+   * The card doing it, when a single card is doing it. The art IS the panel —
+   * a combo line has no one card to show, which is why this is optional.
+   */
+  card?: ScryfallCard;
+  name: string;
+  kind: StackKind;
+  /** A few words on what happens if it resolves: "Destroys Llanowar Elves". */
+  label: string;
+}
+
+/**
+ * One thing waiting to resolve, aimed at the player.
+ *
+ * The bot turn loop parks on these the same way it parks on combat: the frame
+ * that carried the effect stops, the item goes up, and nothing is applied until
+ * you either let it resolve or counter it. Everything you might do in response
+ * — tapping lands, pitching a counterspell to your graveyard — is a normal
+ * playtest move, so the window needs no machinery of its own.
+ */
+export interface StackItem extends StackSource {
+  id: string;
+  opponentId: string;
+  opponentName: string;
+  effect: AppliedEffect;
+}
+
 /** Who a bot's attack is pointed at. */
 export type AttackTarget =
   | { kind: 'player' }
@@ -132,6 +169,12 @@ export interface TurnFrame {
   attackers: string[];
   /** Who those attackers are pointed at. Absent on non-attack beats. */
   attackTarget?: AttackTarget;
+  /**
+   * The card behind `effects`, for the stack. Present on every beat that does
+   * something to the player and absent on the rest — which is exactly the test
+   * the store uses to decide whether a beat is worth stopping the turn for.
+   */
+  source?: StackSource;
 }
 
 /** One creature swinging at you, flattened for the combat UI. */

@@ -86,6 +86,17 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   // Destroys everything, the bot's board included, which the engine handles.
   'Necromantic Selection': { spec: { kind: 'boardWipe' } },
 
+  // ── Mirror Break (bracket 4) ──
+  'Terminate':             { spec: { kind: 'destroyCreature' } },
+  'Bedevil':               { spec: { kind: 'destroyPermanent' } },
+  // ── Old-Growth Stampede (bracket 3) ──
+  // Destroys up to three noncreature permanents; the engine takes the best
+  // one. The 3/3 Elephants it hands back are a drawback we skip.
+  'Terastodon':            { spec: { kind: 'destroyPermanent' }, etb: true },
+  // "Destroy all artifacts and enchantments" — the bot controls none, so this
+  // is one-sided in practice and green's only real interaction here.
+  'Bane of Progress':      { spec: { kind: 'artifactSweep' }, etb: true },
+
   // ── Burn ──
   'Lightning Bolt':        { spec: { kind: 'damage', amount: 3 } },
   'Shock':                 { spec: { kind: 'damage', amount: 2 } },
@@ -372,6 +383,43 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // permanents by type line, and a land's type line says Land.
   'Avenger of Zendikar':  { spec: { kind: 'makeTokens', tokens: [{ name: 'Plant', count: 1, countPerSubtype: 'land' }] } },
 
+  // ── Old-Growth Stampede (bracket 3) ──
+  // Nine ways to find a land, which is the whole deck: the threats are all
+  // six-plus and the only question is whether it reaches them a turn early.
+  'Wood Elves':           { spec: { kind: 'fetchLand', count: 1 } },
+  'Farhaven Elf':         { spec: { kind: 'fetchLand', count: 1, tapped: true } },
+  "Kodama's Reach":       { spec: { kind: 'fetchLand', count: 1, tapped: true } },
+  "Nature's Lore":        { spec: { kind: 'fetchLand', count: 1 } },
+  'Explosive Vegetation': { spec: { kind: 'fetchLand', count: 2, tapped: true } },
+  // Untapped, unlike the others — that is what the card is paying for.
+  'Skyshroud Claim':      { spec: { kind: 'fetchLand', count: 2 } },
+  // "Whenever this enters OR attacks." An entry carries one timing, so this is
+  // the ETB, which is the trigger that always happens.
+  'Primeval Titan':       { spec: { kind: 'fetchLand', count: 2, tapped: true } },
+  'Hornet Queen':         { spec: { kind: 'makeTokens', tokens: [{ name: 'Insect', count: 4 }] } },
+  'Harmonize':            { spec: { kind: 'draw', count: 3 } },
+  // "Draw a card for each green creature you control" — in this deck, most of
+  // the board. Four is what it looks like on the turn a seven-drop resolves.
+  'Regal Force':          { spec: { kind: 'draw', count: 4 } },
+  // Really one card per nontoken creature that arrives. Once a turn is the
+  // honest average for a deck casting roughly a creature a turn.
+  'Soul of the Harvest':  { spec: { kind: 'draw', count: 1 }, timing: 'combat' },
+
+  // ── Mirror Break (bracket 4) ──
+  // Four tutors, because a two-card combo deck is only as fast as its ability
+  // to find the half it is missing — and the tutor logic already prefers a
+  // combo piece it is one short of over anything else.
+  'Diabolic Intent':      { spec: { kind: 'tutor', to: 'hand', count: 1 } },
+  'Grim Tutor':           { spec: { kind: 'tutor', to: 'hand', count: 1 } },
+  'Imperial Seal':        { spec: { kind: 'tutor', to: 'hand', count: 1 } },
+  // Really puts it on top of the library; the next draw step gets it either
+  // way, and the engine has no "top of library" zone to model.
+  'Vampiric Tutor':       { spec: { kind: 'tutor', to: 'hand', count: 1 } },
+  'Read the Bones':       { spec: { kind: 'draw', count: 2 } },
+  // An upkeep draw every turn. 'combat' is the closest recurring beat.
+  'Phyrexian Arena':      { spec: { kind: 'draw', count: 1 }, timing: 'combat' },
+  'Solemn Simulacrum':    { spec: { kind: 'fetchLand', count: 1, tapped: true } },
+
   // ── Dimir ──
   'Baleful Strix':        { spec: { kind: 'draw', count: 1 } },
   'Demonic Tutor':        { spec: { kind: 'tutor', to: 'hand', count: 1 } },
@@ -602,6 +650,14 @@ export const BOT_STATICS: Record<string, BotStaticSpec | BotStaticSpec[]> = {
   // Turns every one of the lords above into a board-wide anthem.
   'Maskwood Nexus':      { kind: 'allCreatureTypes' },
 
+  // ── Bracket 3 / 4 commanders ──
+  // Goreclaw reduces creature spells with power 4+. There is no power test in
+  // the cost model, but this deck's creatures are all enormous, so scoping it
+  // to creatures is accurate here and nowhere near a blanket discount.
+  'Goreclaw, Terror of Qal Sisma': { kind: 'costReducer', amount: 2, subtype: 'creature' },
+  // "Other creatures you control get +1/+0" — the death half is a watcher.
+  'Judith, the Scourge Diva': { kind: 'anthem', power: 1, toughness: 0 },
+
   // Does two things, and both of them matter to how the deck curves out.
   'Goblin Warchief': [
     { kind: 'costReducer', amount: 1, subtype: 'goblin' },
@@ -653,6 +709,9 @@ export const BOT_DEATH_TRIGGERS: Record<string, BotSelfSpec | BotSelfSpec[]> = {
   'Corpse Augur': { kind: 'draw', count: 3 },
   // Two modes; the bot always wants the body back off a stocked graveyard.
   'Junji, the Midnight Sky': { kind: 'reanimate', count: 1 },
+  // Both of these are cards you are happy to see traded off.
+  'Pelakka Wurm':      { kind: 'draw', count: 1 },
+  'Solemn Simulacrum': { kind: 'draw', count: 1 },
   // "Return it to its owner's hand at the beginning of the next end step" —
   // a recursion the engine models as simply getting the card back.
   'The Scarab God': { kind: 'regrow', count: 1 },
@@ -683,6 +742,9 @@ export const BOT_DEATH_WATCHERS: Record<string, BotDeathWatcher> = {
   // zombie deck makes happily, and the engine only tracks what it draws.
   'Gate to the Afterlife': { nontokenOnly: true, spec: { kind: 'draw', count: 1 } },
   'Plague Belcher':   { subtype: 'zombie', effect: { kind: 'drain', amount: 1 } },
+  // Judith turns every trade and every chump block into reach. With the
+  // anthem above it is why this deck kills through a board rather than around it.
+  'Judith, the Scourge Diva': { nontokenOnly: true, effect: { kind: 'damage', amount: 1 } },
 };
 
 /**
@@ -765,6 +827,17 @@ export const BOT_CYCLING: Record<string, BotCyclingEntry> = {
  */
 export const BOT_LANDFALL_EFFECTS: Record<string, BotEffectSpec> = {
   'Ob Nixilis, the Fallen': { kind: 'drain', amount: 3 },
+};
+
+/**
+ * Landfall that pays the BOT rather than hitting you.
+ *
+ * The mirror of `BOT_LANDFALL_EFFECTS`, and the reason a ramp deck's ramp is
+ * also its threat: every land Old-Growth Stampede finds is another 4/4. One
+ * land a turn, so this is a once-a-turn trigger like the rest.
+ */
+export const BOT_LANDFALL_SELF: Record<string, BotSelfSpec | BotSelfSpec[]> = {
+  'Rampaging Baloths': { kind: 'makeTokens', tokens: [{ name: 'Beast', count: 1 }] },
 };
 
 /**
@@ -864,6 +937,10 @@ export const BOT_COSTS: Record<string, number> = {
   'Welcome the Dead':        4,
   'March of the Multitudes': 6,
   'Blasphemous Act':         5,
+  // "Costs {X} less, where X is the total power of creatures you control." A
+  // printed twelve is a price this deck never pays — by the time it casts
+  // Ghalta the board is already enormous, which is the point of the card.
+  'Ghalta, Primal Hunger':   6,
 };
 
 /** What the bot pays for a card. Use this everywhere instead of reading `cmc`. */

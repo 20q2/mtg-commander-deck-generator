@@ -28,5 +28,15 @@
     "understood": 95,
     "gaps": 4,
     "cards": 88
+  },
+  "old-growth-stampede": {
+    "understood": 97,
+    "gaps": 1,
+    "cards": 34
+  },
+  "mirror-break": {
+    "understood": 100,
+    "gaps": 0,
+    "cards": 35
   }
 }

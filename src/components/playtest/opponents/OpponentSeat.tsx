@@ -63,11 +63,19 @@ export function OpponentSeat({
   const setResistance = useOpponentStore(s => s.setResistance);
   const setAggression = useOpponentStore(s => s.setAggression);
   const openModal = usePlaytestStore(s => s.openModal);
+  const animations = usePlaytestSettings(s => s.animations);
   const running = useOpponentStore(s => s.running);
   const combat = useOpponentStore(s => s.combat);
   const playerCombat = useOpponentStore(s => s.playerCombat);
 
   const inCombat = combat?.opponentId === opponent.id || !!playerCombat?.perOpponent[opponent.id];
+  /**
+   * THIS seat is the one swinging at you. Distinct from `inCombat`, which is
+   * also true while you are attacking them — being attacked is the only one of
+   * the two that is a question you have to answer, and with three seats on the
+   * table the answer has to be findable without reading all three.
+   */
+  const attackingYou = combat?.opponentId === opponent.id;
 
   // Donating a permanent still targets the seat's BOARD. Attacking targets the
   // strip. Two regions, so the gestures never collide.
@@ -96,6 +104,7 @@ export function OpponentSeat({
         placed ? 'shadow-2xl ring-1 ring-black/30' : 'shadow-lg'
       } ${
         isOver ? 'border-violet-400/70 bg-violet-500/10'
+        : attackingYou ? 'border-rose-400/80'
         : inCombat ? 'border-violet-400/70'
         : running ? 'border-violet-400/40'
         : 'border-border/50'
@@ -129,6 +138,22 @@ export function OpponentSeat({
           }}
         />
       </div>
+
+      {/* The threat ring. A breathing rose halo around the whole seat, so with
+          three bots up there the one asking you a question is the one that
+          moves. A layer of its own rather than a `ring-` class on the seat:
+          the seat already carries `ring-1 ring-black/30` when it has been
+          dragged loose, and two ring utilities on one element is a coin toss
+          over which wins. Transparent inside and pointer-events-none, so it
+          neither tints the cards under it nor swallows a click. */}
+      {attackingYou && (
+        <div
+          aria-hidden
+          className={`absolute -inset-0.5 z-30 rounded-lg pointer-events-none border-2 border-rose-400/80 ${
+            animations ? 'animate-threat-ring' : ''
+          }`}
+        />
+      )}
 
       <SeatHeader
         opponent={opponent}
@@ -714,6 +739,19 @@ function OpponentPermanentCard({
 }) {
   const togglePermanentTap = useOpponentStore(s => s.togglePermanentTap);
   const permanentToZone = useOpponentStore(s => s.permanentToZone);
+  /**
+   * This creature is out front in the combat strip right now.
+   *
+   * It stays in the row as a faded ghost rather than vanishing: the row keeps
+   * its shape, the flight has something to leave from, and the empty square
+   * says where the creature came back to once combat is over. Also the only
+   * way a pile of identical attackers reads honestly — the strip shows the
+   * pile once, and the board shows the square it left.
+   */
+  const attacking = useOpponentStore(s =>
+    s.combat?.opponentId === opponentId
+    && s.combat.attackers.some(a => a.instanceId === permanent.instanceId),
+  );
   const [hovered, setHovered] = useState(false);
   const [menu, setMenu] = useState<OpponentMenuTarget | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -758,7 +796,9 @@ function OpponentPermanentCard({
       data-float-id={permanent.instanceId}
       // Keyed by instanceId upstream, so this runs once when the card arrives —
       // it drops onto their board rather than blinking into existence.
-      className={`relative shrink-0 ${drag.isDragging ? 'opacity-30' : ''} ${
+      className={`relative shrink-0 transition-opacity duration-300 ${
+        drag.isDragging ? 'opacity-30' : attacking ? 'opacity-25' : ''
+      } ${
         animations ? 'animate-deal-in-from-top' : ''
       }`}
       style={{ width }}

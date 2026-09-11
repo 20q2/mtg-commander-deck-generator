@@ -43,6 +43,26 @@ export interface AppliedEffect {
   lethal?: boolean;
 }
 
+/**
+ * A few words on what an effect does, for the stack panel.
+ *
+ * Built from the resolved effect rather than from the spec that made it, so the
+ * one function covers a cast spell, an activated ability, a recurring trigger
+ * and a combo payoff alike. `target` is the phrase `resolveEffect` already
+ * returns — a card name for spot removal, "3 creatures" for a wrath.
+ */
+export function describeEffect(effect: AppliedEffect, target: string): string {
+  if (effect.lethal) return 'You lose the game';
+  if (effect.destroy.length > 0) {
+    return `${effect.destination === 'exile' ? 'Exiles' : 'Destroys'} ${target}`;
+  }
+  if (effect.discard > 0) {
+    return `You discard ${effect.discard} card${effect.discard > 1 ? 's' : ''}`;
+  }
+  if (effect.lifeLoss > 0) return `You lose ${effect.lifeLoss} life`;
+  return 'No effect';
+}
+
 export interface CastDecision {
   handIndex: number;
   card: ScryfallCard;
@@ -50,6 +70,8 @@ export interface CastDecision {
   effect: AppliedEffect | null;
   /** Shown in the game log so the bot's thinking is visible. */
   reason: string;
+  /** What it is pointed at, as `resolveEffect` phrases it. For the stack. */
+  target: string;
   /** ETB permanents stay on the bot's board; instants and sorceries don't. */
   staysOnBattlefield: boolean;
 }
@@ -277,6 +299,7 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     effect: best.resolved.effect,
     staysOnBattlefield: best.etb,
     reason: `${best.card.name} → ${best.resolved.target}`,
+    target: best.resolved.target,
   };
 }
 

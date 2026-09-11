@@ -1,10 +1,11 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
-import { chooseResistancePlay, hasLiveTarget, resolveEffect, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
+import { chooseResistancePlay, describeEffect, hasLiveTarget, resolveEffect, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import {
   BOT_CYCLING,
   BOT_LANDFALL_EFFECTS,
+  BOT_LANDFALL_SELF,
   BOT_RECURRING_EFFECTS,
   BOT_RECURSION,
   BOT_TRIGGERS,
@@ -15,11 +16,11 @@ import {
   specsOf,
 } from '@/services/playtest/opponents/effects';
 import type { BotEffectSpec, BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
-import { botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
-import { BOT_COMBOS, liveCombos, missingComboPieces } from '@/services/playtest/opponents/botCombos';
+import { BOT_COMBOS, comboPiecesWanted, liveCombos } from '@/services/playtest/opponents/botCombos';
 import { keywordsOf } from '@/services/playtest/combat';
-import type { AttackTarget, Opponent, OpponentPermanent, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
+import type { AttackTarget, Opponent, OpponentPermanent, StackSource, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
  * The bot turn loop. Pure: it takes an opponent plus a read of the player's board
@@ -242,6 +243,8 @@ export function takeTurn(
     attackers: string[] = [],
     blurb?: string,
     attackTarget?: AttackTarget,
+    /** The card behind `effects`. Only beats that touch the player have one. */
+    source?: StackSource,
   ) => {
     // Triggers are billed against the board as it stands at the end of the
     // beat, so a Purphoros cast alongside its goblins counts them.
@@ -263,6 +266,7 @@ export function takeTurn(
       blurb,
       attackTarget,
       selfDamage,
+      source,
     });
   };
 
@@ -448,10 +452,10 @@ export function takeTurn(
         const found: string[] = [];
         for (let i = 0; i < spec.count; i++) {
           // Recomputed each pick: fetching one piece changes what is missing.
-          const chasing = new Set(missingComboPieces(
+          const chasing = comboPiecesWanted(
             opp.battlefield.map(p => p.card.name),
             opp.hand.map(c => c.name),
-          ));
+          );
 
           const legal = opp.library
             .map((card, index) => ({ card, index }))
@@ -469,10 +473,15 @@ export function takeTurn(
           //  2. a card the registry knows how to use — a body it can only stare
           //     at is worth less than a spell it can point at you,
           //  3. the most expensive thing left.
-          const score = (card: ScryfallCard) =>
-            (chasing.has(card.name) ? 1000 : 0)
-            + (lookupEffect(card.name) || lookupSelfEffect(card.name) ? 100 : 0)
-            + costOf(card);
+          const score = (card: ScryfallCard) => {
+            // Completing a line beats starting one, but starting one still
+            // beats fetching the biggest body in the deck.
+            const away = chasing.get(card.name);
+            const combo = away === 1 ? 1000 : away !== undefined ? 400 : 0;
+            return combo
+              + (lookupEffect(card.name) || lookupSelfEffect(card.name) ? 100 : 0)
+              + costOf(card);
+          };
           const best = legal.reduce((a, b) => (score(b.card) > score(a.card) ? b : a));
 
           opp.library.splice(best.index, 1);
@@ -595,7 +604,8 @@ export function takeTurn(
     if (hit) {
       frame(
         [`${opp.name}'s ${p.card.name} triggers`, `${opp.name} hits ${hit.target}`],
-        [hit.effect], [], p.card.name,
+        [hit.effect], [], p.card.name, undefined,
+        { card: p.card, name: p.card.name, kind: 'trigger', label: describeEffect(hit.effect, hit.target) },
       );
     }
   }
@@ -607,6 +617,17 @@ export function takeTurn(
     opp.battlefield.push({ ...toPermanent(land), summoningSick: false });
     frame([`${opp.name} plays ${land.name}`], [], [], land.name);
 
+    // Landfall that pays the bot — a Rampaging Baloths turning every land it
+    // ramps into into another 4/4.
+    for (const p of opp.battlefield) {
+      const spec = BOT_LANDFALL_SELF[p.card.name];
+      if (!spec) continue;
+      const label = applySpecs(Array.isArray(spec) ? spec : [spec]);
+      if (label) {
+        frame([`${opp.name}'s ${p.card.name} triggers on the land`, `${opp.name} ${label}`], [], [], label);
+      }
+    }
+
     // Landfall. The engine plays one land a turn, so this is once a turn —
     // which is exactly the cadence that makes Ob Nixilis a clock rather than
     // a 3/3.
@@ -617,7 +638,8 @@ export function takeTurn(
       if (hit) {
         frame(
           [`${opp.name}'s ${p.card.name} triggers on the land`, `${opp.name} hits ${hit.target}`],
-          [hit.effect], [], p.card.name,
+          [hit.effect], [], p.card.name, undefined,
+          { card: p.card, name: p.card.name, kind: 'trigger', label: describeEffect(hit.effect, hit.target) },
         );
       }
     }
@@ -659,7 +681,26 @@ export function takeTurn(
   // Interaction gets first call on the mana, before the bot spends it developing.
   // Up to two spells a turn: one is too few for a control deck holding eight
   // mana, and unlimited would let it empty its hand the moment you commit.
-  if (opp.resistance) {
+  //
+  // Unless it is holding a combo piece it can pay for. A combo deck that spends
+  // every turn answering the board never assembles: measured against a goldfish
+  // whose creatures regrow each turn, Mirror Break went off on turn nine with
+  // interaction first and turn seven without. A real combo player in that spot
+  // deploys the piece and keeps the removal for whatever tries to stop them.
+  const holdingComboPiece = () => {
+    const wanted = comboPiecesWanted(
+      opp.battlefield.map(p => p.card.name),
+      opp.hand.map(c => c.name),
+    );
+    return opp.hand.some(c =>
+      // Only pieces still needed on the BATTLEFIELD — a finisher that stays in
+      // hand is cast by the combo step itself, not by developing.
+      BOT_COMBOS.some(combo => combo.onBattlefield.includes(c.name) && !wanted.has(c.name))
+      && effectiveCost(c, opp.battlefield) <= availableMana(),
+    );
+  };
+
+  if (opp.resistance && !holdingComboPiece()) {
     for (let cast = 0; cast < MAX_INTERACTION_PER_TURN; cast++) {
       const play = chooseResistancePlay({
         hand: opp.hand,
@@ -706,7 +747,20 @@ export function takeTurn(
         opp.battlefield = opp.battlefield.filter(p => !ids.has(p.instanceId));
       }
 
-      frame([`${opp.name} casts ${play.reason}`], play.effect ? [play.effect] : [], [], play.card.name);
+      frame(
+        [`${opp.name} casts ${play.reason}`],
+        play.effect ? [play.effect] : [], [], play.card.name, undefined,
+        play.effect
+          ? {
+              card: play.card,
+              name: play.card.name,
+              // An ETB permanent is already on their board by the time you see
+              // this, so what is waiting is its trigger, not the spell.
+              kind: play.staysOnBattlefield ? 'trigger' : 'spell',
+              label: describeEffect(play.effect, play.target),
+            }
+          : undefined,
+      );
     }
   }
 
@@ -738,7 +792,12 @@ export function takeTurn(
     const label = applySpecs(specs);
     if (label) logs.push(`${opp.name} ${label}`);
     if (hit) logs.push(`${opp.name} hits ${hit.target}`);
-    frame(logs, hit ? [hit.effect] : [], [], label ?? `Cycles ${card.name}`);
+    frame(
+      logs, hit ? [hit.effect] : [], [], label ?? `Cycles ${card.name}`, undefined,
+      hit
+        ? { card, name: card.name, kind: 'ability', label: describeEffect(hit.effect, hit.target) }
+        : undefined,
+    );
   }
 
   // ── Back from the dead ──
@@ -778,6 +837,9 @@ export function takeTurn(
       // end-of-turn hand limit is what eventually clears it out.
       const self = lookupSelfEffect(card.name);
       if (isLand(card) || (!isPermanent(card) && !self)) return;
+      // A 0/0 with nothing to define its size never dies here and attacks for
+      // nothing — holding it is strictly better than four mana for clutter.
+      if (arrivesDead(card, opp.battlefield, opp.graveyard)) return;
       // Don't burn a spell that would fizzle. Victimize with an empty graveyard
       // is a card worth keeping, not a card worth casting.
       if (self && !isPermanent(card) && self.timing === undefined && !anySpecWouldDo(specsOf(self))) return;
@@ -862,7 +924,8 @@ export function takeTurn(
       if (hit) {
         frame(
           [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`],
-          [hit.effect], [], live.card.name,
+          [hit.effect], [], live.card.name, undefined,
+          { card: live.card, name: live.card.name, kind: 'ability', label: describeEffect(hit.effect, hit.target) },
         );
       }
     } else {
@@ -931,7 +994,15 @@ export function takeTurn(
         const effect: AppliedEffect = ready.outcome.kind === 'winTheGame'
           ? { ...EMPTY_EFFECT, lethal: true }
           : { ...EMPTY_EFFECT, lifeLoss: ready.outcome.amount };
-        frame(logs, [effect], [], ready.name);
+        // A line has no single card behind it. Show a piece that is on the
+        // board, so the stack still has a face rather than a bare name.
+        const face = opp.battlefield.find(pp => ready.onBattlefield.includes(pp.card.name))?.card;
+        frame(logs, [effect], [], ready.name, undefined, {
+          card: face,
+          name: ready.name,
+          kind: 'combo',
+          label: describeEffect(effect, 'you'),
+        });
       }
     } else if (live.length > 0) {
       // Newly assembled: name it, so the window is one you can see.

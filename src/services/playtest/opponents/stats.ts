@@ -223,6 +223,35 @@ export function botKeywords(
   return out;
 }
 
+/**
+ * Would this creature arrive as a 0/0 — a card no player would ever cast?
+ *
+ * Some creatures are printed 0/0 because something else defines their size:
+ * Vizier of Many Faces enters as a copy of something, an Army grows on
+ * counters. When the bot has no guidance for that card, the copy never happens
+ * and it lands as a literal 0/0 — and since there are no state-based actions
+ * here, nothing kills it. It sits on the board for the rest of the game
+ * attacking for nothing, which reads as a bot that cannot count.
+ *
+ * A general rule rather than a per-card exclusion, because the shape recurs:
+ * any unauthored 0/0 is a card the bot is better off holding. Anthems already
+ * on the board count, so a lord genuinely does make it castable.
+ */
+export function arrivesDead(
+  card: ScryfallCard,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): boolean {
+  if (!isCreatureCard(card)) return false;
+  // A `*` is a real size the registry defines; only a printed 0 is a problem.
+  if (printedStat(card, 'toughness') > 0) return false;
+  if (BOT_DYNAMIC_STATS[card.name]) return false;
+  const arriving: OpponentPermanent = {
+    instanceId: '__probe__', card, tapped: false, summoningSick: true, counters: {},
+  };
+  return botToughness(arriving, [...battlefield, arriving], graveyard) <= 0;
+}
+
 /** Token counts are multiplied by this. Two doublers make four times as many. */
 export function tokenMultiplier(battlefield: OpponentPermanent[]): number {
   const doublers = battlefield.filter(

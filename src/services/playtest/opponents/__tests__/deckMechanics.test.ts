@@ -291,6 +291,59 @@ describe('death triggers', () => {
   });
 });
 
+describe('creatures that would arrive as a 0/0', () => {
+  it('holds an unauthored 0/0 rather than paying for permanent clutter', () => {
+    // Vizier of Many Faces is printed 0/0 and enters as a copy of something.
+    // With no copy support the copy never happens, and with no state-based
+    // actions nothing kills it — so it would sit there all game attacking for
+    // nothing. Four mana for that is worse than holding the card.
+    const { final, frames } = takeTurn(
+      {
+        ...bot({
+          battlefield: lands(6),
+          hand: [card({ name: 'Vizier of Many Faces', cmc: 4, power: '0', toughness: '0' })],
+          library: [card({ name: 'Filler A' }), card({ name: 'Filler B' })],
+        }),
+        turnsTaken: 5,
+      },
+      board(),
+    );
+    expect(logsOf(frames)).not.toContain('casts Vizier of Many Faces');
+    expect(final.hand.some(c => c.name === 'Vizier of Many Faces')).toBe(true);
+  });
+
+  it('casts it once an anthem makes it a real body', () => {
+    const { frames } = takeTurn(
+      {
+        ...bot({
+          battlefield: [perm(card({ name: 'Cemetery Reaper', cmc: 3, power: '2', toughness: '2' })), ...lands(6)],
+          hand: [card({ name: 'Vizier of Many Faces', cmc: 4, power: '0', toughness: '0' })],
+          library: [card({ name: 'Filler A' }), card({ name: 'Filler B' })],
+        }),
+        turnsTaken: 5,
+      },
+      board(),
+    );
+    expect(logsOf(frames)).toContain('casts Vizier of Many Faces');
+  });
+
+  it('still casts a 0/0 whose size the registry defines', () => {
+    // Multani's power is a `*` off lands, so it is a real creature.
+    const { frames } = takeTurn(
+      {
+        ...bot({
+          battlefield: lands(7),
+          hand: [card({ name: "Multani, Yavimaya's Avatar", cmc: 6, power: '0', toughness: '0' })],
+          library: [card({ name: 'Filler A' }), card({ name: 'Filler B' })],
+        }),
+        turnsTaken: 6,
+      },
+      board(),
+    );
+    expect(logsOf(frames)).toContain("casts Multani, Yavimaya's Avatar");
+  });
+});
+
 describe('activated abilities that reach the player', () => {
   it('taps Necropolis Fiend to kill the biggest thing you have', () => {
     const { frames } = takeTurn(

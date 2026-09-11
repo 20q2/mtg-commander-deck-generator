@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronLeft, ListFilter, Trash2, Sparkles, Crown, X } from 'lucide-react';
+import { ChevronRight, ListFilter, Trash2, Sparkles, Crown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -8,14 +8,18 @@ import type { DetectedCombo, ScryfallCard } from '@/types';
 
 type Tab = 'log' | 'combos';
 
-export function GameLog() {
+/**
+ * The log/combos half of the side panel. It no longer owns the strip: SidePanel
+ * does, because the strip now holds the stack underneath as well and folding
+ * away one half of it made no sense.
+ */
+export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
   const log = usePlaytestStore(s => s.log);
   const clearLog = usePlaytestStore(s => s.clearLog);
   const combos = usePlaytestStore(s => s.combos);
   const enabled = usePlaytestSettings(s => s.logFilter);
   const setLogFilter = usePlaytestSettings(s => s.setLogFilter);
   const toggleLogCategory = usePlaytestSettings(s => s.toggleLogCategory);
-  const [open, setOpen] = useState(true);
   const [tab, setTab] = useState<Tab>('log');
   const [showFilters, setShowFilters] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -28,24 +32,12 @@ export function GameLog() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [tab, filtered.length]);
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-6 border-l border-border/50 bg-card/30 hover:bg-card/60 flex items-center justify-center"
-        title="Open side panel"
-      >
-        <ChevronLeft className="w-3.5 h-3.5" />
-      </button>
-    );
-  }
-
   const toggle = (key: LogCategory) => toggleLogCategory(key);
   const setAll = (v: boolean) =>
     setLogFilter({ move: v, tap: v, library: v, counter: v, life: v, turn: v, system: v });
 
   return (
-    <aside className="w-56 border-l border-border/50 bg-card md:bg-card/30 flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col">
       {/* Tab strip */}
       <div className="flex items-stretch border-b border-border/50 text-[11px]">
         <TabButton active={tab === 'log'} onClick={() => setTab('log')}>
@@ -57,15 +49,17 @@ export function GameLog() {
             return `Combos${completeCount > 0 ? ` · ${completeCount}` : ''}`;
           })()}
         </TabButton>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0 ml-auto self-center mr-0.5"
-          title="Collapse panel"
-          onClick={() => setOpen(false)}
-        >
-          <ChevronRight className="w-3.5 h-3.5" />
-        </Button>
+        {onCollapse && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 ml-auto self-center mr-0.5"
+            title="Collapse panel"
+            onClick={onCollapse}
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Button>
+        )}
       </div>
 
       {/* Per-tab toolbar */}
@@ -134,7 +128,7 @@ export function GameLog() {
       )}
 
       {tab === 'combos' && <CombosPanel combos={combos} />}
-    </aside>
+    </div>
   );
 }
 

@@ -72,6 +72,12 @@ interface Settings {
   opponentResistanceDefault: boolean;
   /** Whether bots take their turns automatically on Next Turn. */
   opponentAutoTurns: boolean;
+  /**
+   * Whether a bot spell aimed at you waits on the stack for an answer. Off, it
+   * still shows there for a beat and then resolves itself — the panel becomes a
+   * play-by-play instead of a decision point.
+   */
+  stackHold: boolean;
 }
 
 interface SettingsActions {
@@ -84,6 +90,7 @@ interface SettingsActions {
   setOpponentPreview: (mode: OpponentPreviewMode) => void;
   setOpponentResistanceDefault: (v: boolean) => void;
   setOpponentAutoTurns: (v: boolean) => void;
+  setStackHold: (v: boolean) => void;
 }
 
 const defaults: Settings = {
@@ -95,6 +102,7 @@ const defaults: Settings = {
   opponentPreview: 'ctrl',
   opponentResistanceDefault: true,
   opponentAutoTurns: true,
+  stackHold: true,
 };
 
 const PRESET_IDS: BattlefieldPreset[] = ['arena', 'dark', 'felt', 'wood'];
@@ -142,6 +150,7 @@ export const usePlaytestSettings = create<Settings & SettingsActions>((set, get)
   setOpponentPreview: (opponentPreview) => { set({ opponentPreview }); save({ ...get(), opponentPreview }); },
   setOpponentResistanceDefault: (opponentResistanceDefault) => { set({ opponentResistanceDefault }); save({ ...get(), opponentResistanceDefault }); },
   setOpponentAutoTurns: (opponentAutoTurns) => { set({ opponentAutoTurns }); save({ ...get(), opponentAutoTurns }); },
+  setStackHold: (stackHold) => { set({ stackHold }); save({ ...get(), stackHold }); },
   toggleLogCategory: (category) => {
     const next: LogFilter = { ...get().logFilter, [category]: !get().logFilter[category] };
     set({ logFilter: next });

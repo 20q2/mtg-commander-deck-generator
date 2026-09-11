@@ -99,6 +99,41 @@ export const BOT_COMBOS: BotCombo[] = [
   },
 ];
 
+/**
+ * Every combo piece worth tutoring for, and how many cards that line is still
+ * short — 1 for a line one card from live, 2 for one it has not started.
+ *
+ * `missingComboPieces` deliberately answers a narrower question (what completes
+ * a line RIGHT NOW) and several callers want exactly that. But a tutor is not
+ * one of them: a combo deck holding a Demonic Tutor and neither piece goes and
+ * gets the first half, and scoring only "one away" meant the bot could tutor
+ * for a piece only after it had already drawn the other one by luck. That made
+ * a bracket-4 deck play like a bracket-1 one.
+ */
+export function comboPiecesWanted(
+  battlefield: string[],
+  hand: string[],
+  decks?: BotCombo[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const combo of decks ?? BOT_COMBOS) {
+    const held = [...battlefield, ...hand];
+    const missing: string[] = [];
+    for (const name of [...combo.onBattlefield, ...(combo.inHand ?? [])]) {
+      const i = held.indexOf(name);
+      if (i >= 0) held.splice(i, 1);
+      else missing.push(name);
+    }
+    if (missing.length === 0) continue;
+    for (const name of missing) {
+      // A card on two lines is worth whichever is closer to going off.
+      const prev = out.get(name);
+      if (prev === undefined || missing.length < prev) out.set(name, missing.length);
+    }
+  }
+  return out;
+}
+
 export interface ComboContext {
   /** Card names on the bot's battlefield. */
   battlefield: string[];

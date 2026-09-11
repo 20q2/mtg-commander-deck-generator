@@ -16,7 +16,7 @@ import type { ScryfallCard } from '@/types';
 import { PlaytestToolbar } from '@/components/playtest/PlaytestToolbar';
 import { Battlefield } from '@/components/playtest/Battlefield';
 import { Hand } from '@/components/playtest/Hand';
-import { GameLog } from '@/components/playtest/GameLog';
+import { SidePanel } from '@/components/playtest/SidePanel';
 import { MulliganModal } from '@/components/playtest/modals/MulliganModal';
 import { ScryMillSurveilModal } from '@/components/playtest/modals/ScryMillSurveilModal';
 import { ZoneViewerModal } from '@/components/playtest/modals/ZoneViewerModal';
@@ -775,7 +775,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           </main>
           {/* Desktop / tablet: inline side panel */}
           <div className="hidden md:flex">
-            <GameLog />
+            <SidePanel />
           </div>
           {/* Mobile: slide-over overlay. `flex` so the aside child stretches
               to fill the height — otherwise its inner `flex-1 overflow-y-auto`
@@ -783,7 +783,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           <div
             className={`md:hidden absolute inset-y-0 right-0 z-40 flex transition-transform duration-200 ${mobileSideOpen ? 'translate-x-0' : 'translate-x-full'}`}
           >
-            <GameLog />
+            <SidePanel />
           </div>
           <GameOutcomeBanner />
           {mobileSideOpen && (
