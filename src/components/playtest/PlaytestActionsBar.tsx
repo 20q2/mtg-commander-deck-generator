@@ -430,20 +430,26 @@ export function NextTurnButton() {
   // hasn't happened, and advancing past that would strand it the same way.
   const blocked = botsRunning || !!combat || !!playerCombat;
 
-  // One button still drives the whole game: your turn, then every bot's, in order.
-  // Unless you've turned that off, in which case the table waits for you.
-  const handleNextTurn = () => {
+  // One button still drives the whole game — but in the right order. Your
+  // turn ended when you pressed it; the table plays; THEN your next turn
+  // begins with its untap and draw. It used to log "Turn 5 / Drew Sol Ring"
+  // and then three bots casting, as if they were acting inside your turn.
+  const handleNextTurn = async () => {
     if (blocked) return;
     // Leave combat on the way out: an unconfirmed declaration never happened,
     // so untap and forget it rather than carrying a half-built attack — or an
     // open combat phase — into the bots' turn.
     exitCombat();
+    if (autoTurns && opponentCount > 0) {
+      const completed = await runAllTurns();
+      // A reset or an exit while the bots were playing threw this game away.
+      if (!completed) return;
+    }
     // A fresh turn gets a fresh combat, so the phase readout goes back to
     // offering one.
     beginTurn();
     nextTurn();
     draw(1);
-    if (autoTurns) runAllTurns();
   };
 
   return (
@@ -460,7 +466,7 @@ export function NextTurnButton() {
         combat        ? 'Resolve combat before taking your next turn'
       : botsRunning   ? 'Waiting for the opponents to finish their turn'
       : opponentCount > 0 && autoTurns
-          ? `Advance the turn, draw a card, then let ${opponentCount} opponent${opponentCount > 1 ? 's' : ''} take their turn`
+          ? `Let ${opponentCount} opponent${opponentCount === 1 ? '' : 's'} take their turn, then start your turn ${turn + 1}`
           : 'Advance to the next turn and draw a card'
       }
     >

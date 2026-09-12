@@ -34,7 +34,7 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
 
   const toggle = (key: LogCategory) => toggleLogCategory(key);
   const setAll = (v: boolean) =>
-    setLogFilter({ move: v, tap: v, library: v, counter: v, life: v, turn: v, system: v });
+    setLogFilter({ move: v, tap: v, library: v, counter: v, life: v, turn: v, bot: v, system: v });
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">

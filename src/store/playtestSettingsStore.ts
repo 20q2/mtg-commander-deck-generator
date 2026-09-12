@@ -58,7 +58,7 @@ export type OpponentPreviewMode = 'ctrl' | 'hover' | 'off';
 export type LogFilter = Record<LogCategory, boolean>;
 
 const ALL_LOG_CATEGORIES_ON: LogFilter = {
-  move: true, tap: true, library: true, counter: true, life: true, turn: true, system: true,
+  move: true, tap: true, library: true, counter: true, life: true, turn: true, bot: true, system: true,
 };
 
 interface Settings {

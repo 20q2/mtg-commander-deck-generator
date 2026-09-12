@@ -193,8 +193,12 @@ interface OpponentActions {
   setLife: (id: string, life: number) => void;
   togglePermanentTap: (opponentId: string, instanceId: string) => void;
   removePermanent: (opponentId: string, instanceId: string) => void;
-  /** Run every bot's turn in sequence. Called from the player's Next Turn. */
-  runAllTurns: () => Promise<void>;
+  /**
+   * Run every bot's turn in sequence. Resolves true when the whole cycle
+   * played out, false when a reset or exit threw the game away mid-cycle —
+   * the caller must not start the player's next turn on top of a new game.
+   */
+  runAllTurns: () => Promise<boolean>;
   /** Reshuffle every seated bot back to a fresh opening hand. No refetch. */
   resetAll: () => void;
   setResistance: (id: string, resistance: boolean) => void;
@@ -317,7 +321,7 @@ function applyEffect(effect: AppliedEffect) {
       const hand = usePlaytestStore.getState().zones.hand;
       if (hand.length === 0) break;
       const index = Math.floor(Math.random() * hand.length);
-      playtest.appendLog(`You discard ${hand[index].name}`);
+      playtest.appendLog(`You discard ${hand[index].name}`, 'bot');
       playtest.moveCard({
         source: { kind: 'zone', zone: 'hand', index },
         target: { kind: 'zone', zone: 'graveyard' },
@@ -391,7 +395,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         loadingStubIds: s.loadingStubIds.filter(id => id !== stubId),
       }));
       const playtest = usePlaytestStore.getState();
-      playtest.appendLog(`${stub.name} sat down across from you`);
+      playtest.appendLog(`${stub.name} sat down across from you`, 'bot');
       // Said out loud rather than swallowed: a deck short a handful of cards
       // plays noticeably worse, and you could not tell that was why.
       if (missing.length > 0) {
@@ -399,6 +403,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         const rest = missing.length > 4 ? ` and ${missing.length - 4} more` : '';
         playtest.appendLog(
           `${stub.name} is missing ${missing.length} card${missing.length === 1 ? '' : 's'}: ${listed}${rest}`,
+          'bot',
         );
         set({ error: `${stub.name} sat down without ${missing.length} of its cards — see the log.` });
         playtest.showToast(`${stub.name}: ${missing.length} cards unavailable`);
@@ -419,7 +424,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   remove: (id) => set(s => {
     const gone = s.opponents.find(o => o.id === id);
-    if (gone) usePlaytestStore.getState().appendLog(`${gone.name} left the table`);
+    if (gone) usePlaytestStore.getState().appendLog(`${gone.name} left the table`, 'bot');
     return { opponents: s.opponents.filter(o => o.id !== id) };
   }),
 
@@ -507,7 +512,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // Every attacker died or left before you resolved. Nothing to work out, but
     // the turn is still parked on this promise.
     if (attackers.length === 0) {
-      playtest.appendLog(`${combat.opponentName}'s attack came to nothing`);
+      playtest.appendLog(`${combat.opponentName}'s attack came to nothing`, 'bot');
       set({ combat: null });
       combatResolver?.();
       combatResolver = null;
@@ -524,12 +529,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       );
       playtest.appendLog(
         `${names.get(id) ?? 'A creature'} died blocking ${killer?.card.name ?? 'an attacker'}`,
+        'bot',
       );
     }
     for (const id of deadAttackers) {
       float('Dies', 'damage', id);
       const attacker = attackers.find(a => a.instanceId === id);
-      playtest.appendLog(`${attacker?.name ?? 'An attacker'} died in combat`);
+      playtest.appendLog(`${attacker?.name ?? 'An attacker'} died in combat`, 'bot');
     }
 
     for (const id of deadBlockers) {
@@ -548,15 +554,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           o.id === combat.opponentId ? sendToGraveyard(o, deadAttackers) : o,
         ),
       }));
-      toll.logs.forEach(line => playtest.appendLog(line));
+      toll.logs.forEach(line => playtest.appendLog(line, 'bot'));
       if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
     }
 
     if (outcome.damageToDefender > 0) {
-      playtest.appendLog(`You took ${outcome.damageToDefender} from ${combat.opponentName}`);
+      playtest.appendLog(`You took ${outcome.damageToDefender} from ${combat.opponentName}`, 'bot');
       playtest.adjustLife(-outcome.damageToDefender);
     } else {
-      playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`);
+      playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`, 'bot');
     }
 
     set({ combat: null });
@@ -579,7 +585,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const fizzled = item.effect.destroy.length > 0 && stillThere.length === 0;
 
     if (fizzled) {
-      playtest.appendLog(`${item.name} fizzles — no legal target`);
+      playtest.appendLog(`${item.name} fizzles — no legal target`, 'bot');
     } else {
       applyEffect({ ...item.effect, destroy: stillThere });
     }
@@ -595,7 +601,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // into their graveyard when it was cast, which is where a countered spell
     // goes anyway. An ETB trigger's body is on their board and stays there,
     // same as being Stifled.
-    usePlaytestStore.getState().appendLog(`You counter ${item.name}`);
+    usePlaytestStore.getState().appendLog(`You counter ${item.name}`, 'bot');
     popStack(item.id);
   },
 
@@ -707,6 +713,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
       playtest.appendLog(
         `You attack ${opponent.name} with ${attackers.length} creature${attackers.length === 1 ? '' : 's'}`,
+        'bot',
       );
     }
 
@@ -751,21 +758,21 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       for (const id of outcome.deadAttackers) {
         float('Dies', 'damage', id);
         const c = attackers.find(a => a.instanceId === id);
-        playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`);
+        playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`, 'bot');
         myDead.push(id);
       }
       for (const id of outcome.deadBlockers) {
         float('Dies', 'damage', id);
         const p = opponent.battlefield.find(b => b.instanceId === id);
-        playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`);
+        playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`, 'bot');
       }
       theirDead[opponentId] = outcome.deadBlockers;
 
       if (outcome.damageToDefender > 0) {
-        playtest.appendLog(`${opponent.name} took ${outcome.damageToDefender}`);
+        playtest.appendLog(`${opponent.name} took ${outcome.damageToDefender}`, 'bot');
         get().adjustLife(opponentId, -outcome.damageToDefender);
       } else {
-        playtest.appendLog(`Your attack on ${opponent.name} dealt no damage`);
+        playtest.appendLog(`Your attack on ${opponent.name} dealt no damage`, 'bot');
       }
     }
 
@@ -802,7 +809,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     });
 
     const drained = tolls.reduce((n, t) => n + t.lifeLoss, 0);
-    tolls.flatMap(t => t.logs).forEach(line => playtest.appendLog(line));
+    tolls.flatMap(t => t.logs).forEach(line => playtest.appendLog(line, 'bot'));
     if (drained > 0) playtest.adjustLife(-drained);
   },
 
@@ -814,7 +821,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }));
     // Announced on the crossing only, so nudging a dead bot's life stays quiet.
     if (before && before.life > 0 && before.life + delta <= 0) {
-      usePlaytestStore.getState().appendLog(`${before.name} is defeated`);
+      usePlaytestStore.getState().appendLog(`${before.name} is defeated`, 'bot');
     }
   },
 
@@ -845,7 +852,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       : zone === 'exile'     ? 'exile'
       : zone === 'hand'      ? 'hand'
       :                        'top of library';
-      usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`);
+      usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`, 'bot');
 
       // Killing it is a death like any other, so it goes through the one helper
       // that knows a commander belongs in the command zone and a token belongs
@@ -899,7 +906,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const hit = opp?.battlefield.find(p => p.instanceId === instanceId);
     if (!opp || !hit) return;
     usePlaytestStore.getState().pushCheckpoint();
-    usePlaytestStore.getState().appendLog(`${opp.name}'s ${describeEdit(hit.card.name, edit)}`);
+    usePlaytestStore.getState().appendLog(`${opp.name}'s ${describeEdit(hit.card.name, edit)}`, 'bot');
     set(s => ({
       opponents: s.opponents.map(o =>
         o.id === opponentId
@@ -922,13 +929,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     opponents: s.opponents.map(o => {
       if (o.id !== opponentId) return o;
       const hit = o.battlefield.find(p => p.instanceId === instanceId);
-      if (hit) usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} was destroyed`);
+      if (hit) usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} was destroyed`, 'bot');
       return sendToGraveyard(o, [instanceId]);
     }),
   })),
 
   runAllTurns: async () => {
-    if (get().running || get().opponents.length === 0) return;
+    if (get().running || get().opponents.length === 0) return false;
     const myRun = ++turnRunId;
     /** False once a reset or a teardown has claimed the store from under us. */
     const mine = () => myRun === turnRunId;
@@ -981,17 +988,18 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (blocked.length > 0) {
         playtest.appendLog(
           `${defender.name} blocks with ${blocked.length} creature${blocked.length === 1 ? '' : 's'}`,
+          'bot',
         );
       }
 
       const outcome = resolveDamage(attackers, blocks);
       for (const id of outcome.deadAttackers) {
         const c = attackers.find(a => a.instanceId === id);
-        playtest.appendLog(`${attacker.name}'s ${c?.name ?? 'creature'} died attacking ${defender.name}`);
+        playtest.appendLog(`${attacker.name}'s ${c?.name ?? 'creature'} died attacking ${defender.name}`, 'bot');
       }
       for (const id of outcome.deadBlockers) {
         const c = pool.find(b => b.instanceId === id);
-        playtest.appendLog(`${defender.name}'s ${c?.name ?? 'creature'} died blocking`);
+        playtest.appendLog(`${defender.name}'s ${c?.name ?? 'creature'} died blocking`, 'bot');
       }
 
       set(s => ({
@@ -1005,6 +1013,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (outcome.damageToDefender > 0) {
         playtest.appendLog(
           `${defender.name} took ${outcome.damageToDefender} from ${attacker.name}`,
+          'bot',
         );
         get().adjustLife(defenderId, -outcome.damageToDefender);
       }
@@ -1054,7 +1063,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       // standing there again by B's cleanup, with B's graveyard and the card
       // its Midnight Reaper drew both gone.
       for (const seatId of get().opponents.map(o => o.id)) {
-        if (!mine()) return;
+        if (!mine()) return false;
         const opponent = get().opponents.find(o => o.id === seatId);
         // Left the table mid-cycle, or out of the game. A dead seat stays on
         // the table so you can see what beat them, but it takes no turn.
@@ -1110,11 +1119,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         };
 
         for (const f of frames) {
-          if (!mine()) return;
+          if (!mine()) return false;
           set(s => ({
             opponents: s.opponents.map(o => (o.id === f.opponent.id ? correct(f.opponent) : o)),
           }));
-          f.logs.forEach(line => usePlaytestStore.getState().appendLog(line));
+          f.logs.forEach(line => usePlaytestStore.getState().appendLog(line, 'bot'));
           // Narrate the play off the bot's lane, so you can follow the turn
           // without reading the log.
           if (f.blurb) useFloatingText.getState().float(f.blurb, 'neutral', `opp-lane-${f.opponent.id}`);
@@ -1124,7 +1133,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // record of what hit you either way.
           if (f.effects.length > 0) {
             await putOnStack(f, step);
-            if (!mine()) return;
+            if (!mine()) return false;
           }
           // Damage from the bot's own triggers, billed per beat.
           if (f.selfDamage) usePlaytestStore.getState().adjustLife(-f.selfDamage);
@@ -1135,7 +1144,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             resolveBotAttack(correct(f.opponent), f.attackTarget.id, f.attackers);
             noteCasualties(f.opponent);
             await pause(step);
-            if (!mine()) return;
+            if (!mine()) return false;
             continue;
           }
 
@@ -1163,13 +1172,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             });
             await new Promise<void>(resolve => { combatResolver = resolve; });
             // A reset while we were parked means this game no longer exists.
-            if (!mine()) return;
+            if (!mine()) return false;
             // Whatever you killed blocking stays dead for the rest of the turn.
             noteCasualties(f.opponent);
           }
 
           await pause(step);
-          if (!mine()) return;
+          if (!mine()) return false;
         }
 
         // Frames are snapshots; make sure the stored bot is the authoritative
@@ -1177,6 +1186,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         // anything that died while the turn was being played out.
         set(s => ({ opponents: s.opponents.map(o => (o.id === final.id ? correct(final) : o)) }));
       }
+      return mine();
     } finally {
       set({ running: false });
     }
@@ -1201,7 +1211,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           : o,
       ),
     }));
-    usePlaytestStore.getState().appendLog(`You took ${permanent.card.name} from ${opponent.name}`);
+    usePlaytestStore.getState().appendLog(`You took ${permanent.card.name} from ${opponent.name}`, 'bot');
     return permanent;
   },
 
@@ -1227,7 +1237,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           : o,
       ),
     }));
-    usePlaytestStore.getState().appendLog(`${card.name} went to ${opponent.name}`);
+    usePlaytestStore.getState().appendLog(`${card.name} went to ${opponent.name}`, 'bot');
   },
 
   resetAll: () => set(s => {

@@ -261,7 +261,7 @@ interface PlaytestActions {
   setHoveredHandIndex: (index: number | null) => void;
   setTrialPins: (pins: TrialPin[]) => void;
 
-  appendLog: (text: string) => void;
+  appendLog: (text: string, category?: LogCategory) => void;
   clearLog: () => void;
   /**
    * Flash a short message at the top of the table. For the moments where an
@@ -1535,7 +1535,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     )],
   })),
 
-  appendLog: (text) => set(state => ({ log: [...state.log, makeLogEntry(text)] })),
+  appendLog: (text, category = 'system') => set(state => ({ log: [...state.log, makeLogEntry(text, category)] })),
   clearLog: () => set({ log: [] }),
   showToast: (text) => set(state => ({
     // The tick is what re-triggers the display, so a repeated message still shows.
