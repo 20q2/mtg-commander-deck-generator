@@ -1033,6 +1033,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           'bot',
         );
         get().adjustLife(defenderId, -outcome.damageToDefender);
+      } else {
+        // Say so. A fight that logged its blocks and then went quiet read as
+        // an unfinished sentence — you could not tell whether it was still
+        // being worked out or had simply bounced off.
+        playtest.appendLog(`${attacker.name}'s attack on ${defender.name} dealt no damage`, 'bot');
       }
     };
 

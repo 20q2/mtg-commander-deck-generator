@@ -56,6 +56,8 @@ describe('runAllTurns across seats', () => {
     expect(b.battlefield.map(p => p.card.name)).not.toContain('Chump');
     expect(b.graveyard.map(c => c.name)).toContain('Chump');
     expect(b.life).toBe(3);
+    // The 1/1 chump absorbed the 4/4, so the fight says so rather than going quiet.
+    expect(usePlaytestStore.getState().log.map(l => l.text)).toContain("Seat A's attack on Seat B dealt no damage");
   });
   it("a bot killing your commander sends it to the command zone, not the graveyard", () => {
     const krenko = card({ name: 'Krenko, Mob Boss', cmc: 4, power: '3', toughness: '3', type_line: 'Legendary Creature — Goblin Warrior' });
