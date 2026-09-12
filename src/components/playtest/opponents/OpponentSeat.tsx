@@ -85,6 +85,11 @@ export function OpponentSeat({
   });
 
   const rows = useMemo(() => splitRows(opponent.battlefield), [opponent.battlefield]);
+
+  /** Names of the permanents that are part of an armed combo — the ones worth killing right now. */
+  const armedPieces = useMemo(() => new Set(
+    BOT_COMBOS.filter(c => (opponent.armedCombos ?? []).includes(c.id)).flatMap(c => c.onBattlefield),
+  ), [opponent.armedCombos]);
   const seatArt = useMemo(() => backgroundUrlForIdentity(opponent.colors), [opponent.colors]);
 
   /**
@@ -166,6 +171,8 @@ export function OpponentSeat({
         placed={placed}
       />
 
+      <ArmedComboBanner ids={opponent.armedCombos ?? []} />
+
       {/* Creatures and other permanents. Both always shown — a bot casting a
           Signet is a bot doing something, and hiding it made their turns read
           as nothing happening. */}
@@ -205,6 +212,7 @@ export function OpponentSeat({
                     opponentId={opponent.id}
                     permanent={pile.top}
                     count={pile.count}
+                    comboPiece={armedPieces.has(pile.top.card.name)}
                     width={rowWidth(width, row.scale * scale)}
                   />
                 ))}
@@ -226,6 +234,7 @@ export function OpponentSeat({
               opponentId={opponent.id}
               permanent={pile.top}
               count={pile.count}
+              comboPiece={armedPieces.has(pile.top.card.name)}
               width={rowWidth(width, LAND_SCALE * scale)}
             />
           ))}
@@ -421,8 +430,27 @@ function ArmedComboBadge({ ids }: { ids: string[] }) {
         .map(c => `${c.name} — ${c.how} Fires on their next turn unless you break it up.`)
         .join(' / ')}
     >
-      Combo ready
+      Combo
     </span>
+  );
+}
+
+/**
+ * The line, spelled out. The header chip only has room to shout; this says
+ * WHICH combo and reminds you the answer is to kill a piece — and the pieces
+ * themselves are ringed in the rows below (see `comboPiece`).
+ */
+function ArmedComboBanner({ ids }: { ids: string[] }) {
+  if (ids.length === 0) return null;
+  const combos = BOT_COMBOS.filter(c => ids.includes(c.id));
+  if (combos.length === 0) return null;
+  return (
+    <div
+      className="relative z-10 mt-1 px-1.5 py-0.5 rounded border border-rose-400/60 bg-rose-500/20 text-[10px] leading-tight text-rose-100 truncate"
+      title={combos.map(c => c.how).join(' / ')}
+    >
+      {combos.map(c => c.name).join(' · ')} — goes off next turn. Kill a piece.
+    </div>
   );
 }
 
@@ -725,11 +753,13 @@ function splitRows(battlefield: OpponentPermanent[]): Record<RowKey, OpponentPer
 }
 
 function OpponentPermanentCard({
-  opponentId, permanent, width, count = 1,
+  opponentId, permanent, width, count = 1, comboPiece = false,
 }: {
   opponentId: string;
   permanent: OpponentPermanent;
   width: number;
+  /** Part of an armed combo — ringed so the piece to kill is obvious. */
+  comboPiece?: boolean;
   /**
    * How many interchangeable copies this card stands for. Above one it draws as
    * a pile with a count, and every action on it — tap, steal, destroy — applies
@@ -800,7 +830,7 @@ function OpponentPermanentCard({
         drag.isDragging ? 'opacity-30' : attacking ? 'opacity-25' : ''
       } ${
         animations ? 'animate-deal-in-from-top' : ''
-      }`}
+      } ${comboPiece ? 'ring-2 ring-rose-400 rounded-[3px] animate-pulse' : ''}`}
       style={{ width }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
