@@ -431,6 +431,25 @@ function makeLogEntry(text: string, category: LogCategory = 'system'): LogEntry 
   return { id: makeInstanceId(), ts: Date.now(), text, category };
 }
 
+/**
+ * The canvas size to place an arriving card in.
+ *
+ * The store's copy is zeroed by every `set({ ...initial })` — exit, load,
+ * reset — and Battlefield's ResizeObserver only fires on a size CHANGE, so
+ * after a reload the store can sit at 0×0 for a whole game. `findArrivalSlot`
+ * then returns its start point untouched, and every card played by clicking
+ * piled onto the same spot: a Krenko landed exactly on top of a Mountain, and
+ * the creature underneath could not be grabbed to attack. Read the live
+ * element when the store's copy is unusable.
+ */
+function canvasRect(state: { battlefieldRect: { width: number; height: number } }): { width: number; height: number } {
+  const { width, height } = state.battlefieldRect;
+  if (width > 0 && height > 0) return { width, height };
+  const el = typeof document !== 'undefined' ? document.querySelector('[data-battlefield]') : null;
+  const r = el?.getBoundingClientRect();
+  return r && r.width > 0 && r.height > 0 ? { width: r.width, height: r.height } : { width, height };
+}
+
 // Snap an accumulated rotation back to its nearest upright orientation. Untapping
 // straightens cards turned sideways with Q/E, and snapping to the closest multiple
 // of 360 keeps already-upright cards in place while spinning the short way home.
@@ -852,13 +871,14 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       let { x, y } = target;
       if (target.arrived) {
         const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
-        const snapped = snapArrival(card, x, y, state.battlefieldRect.height, ch, state.seatBandHeight);
+        const rect = canvasRect(state);
+        const snapped = snapArrival(card, x, y, rect.height, ch, state.seatBandHeight);
         const slot = findArrivalSlot(
           next.battlefield,
           snapped.x,
           snapped.y,
-          state.battlefieldRect.width,
-          state.battlefieldRect.height,
+          rect.width,
+          rect.height,
           _isLand(card),
           cw,
           ch,
@@ -1293,12 +1313,13 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   // having come from one of your zones. Same arrival maths as spawnToken.
   addPermanent: (card, position, logText, arrival) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
-    const cx = position?.x ?? Math.floor(state.battlefieldRect.width / 2 - 50);
-    const cy = position?.y ?? Math.floor(state.battlefieldRect.height / 2 - 70);
+    const rect = canvasRect(state);
+    const cx = position?.x ?? Math.floor(rect.width / 2 - 50);
+    const cy = position?.y ?? Math.floor(rect.height / 2 - 70);
     const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
     const slot = findArrivalSlot(
       state.battlefield, cx, cy,
-      state.battlefieldRect.width, state.battlefieldRect.height,
+      rect.width, rect.height,
       false, cw, ch,
     );
     const entry: BattlefieldCard = {
@@ -1334,15 +1355,16 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   spawnToken: (card, position) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
-    const cx = position?.x ?? Math.floor(state.battlefieldRect.width / 2 - 50);
-    const cy = position?.y ?? Math.floor(state.battlefieldRect.height / 2 - 70);
+    const rect = canvasRect(state);
+    const cx = position?.x ?? Math.floor(rect.width / 2 - 50);
+    const cy = position?.y ?? Math.floor(rect.height / 2 - 70);
     const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
     const slot = findArrivalSlot(
       state.battlefield,
       cx,
       cy,
-      state.battlefieldRect.width,
-      state.battlefieldRect.height,
+      rect.width,
+      rect.height,
       false,
       cw,
       ch,
