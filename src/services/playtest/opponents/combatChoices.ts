@@ -297,6 +297,14 @@ export interface AttackContext {
   aggression: number;
   /** The bot's own life. Without it a bot never keeps a blocker home. */
   botLife?: number;
+  /**
+   * The most dangerous other seat at the table: its total creature power and
+   * how many creatures that is. The reserve is sized against THIS, not against
+   * whoever is being attacked — a bot swinging at an empty rival board while
+   * the player sat on fifteen power used to tap out, because the only board it
+   * looked at was the one in front of it. Defaults to `blockers`.
+   */
+  threatFrom?: { power: number; creatures: number };
 }
 
 /**
@@ -310,7 +318,9 @@ export interface AttackContext {
  *  2. A creature nothing can profitably block always attacks. That covers an
  *     empty board, evasion, and anything simply bigger than what is opposite.
  *  3. Otherwise it attacks only if an aggressive bot would take the trade.
- *  4. Finally, keep some defence home if the swing back would hurt. Attacking
+ *  4. Finally, keep some defence home if the swing back would hurt, sized
+ *     against the most dangerous seat at the table rather than against
+ *     whichever one is being attacked. Attacking
  *     taps, and a bot's turn runs inside your Next Turn, so a bot that sent
  *     everything every turn met your attack with a board lying sideways — its
  *     blocking logic was effectively unreachable.
@@ -381,16 +391,19 @@ export function chooseAttackers(ctx: AttackContext): string[] {
   // third of the bot's life is worth respecting, anything less is not worth
   // slowing the clock for. Vigilant creatures are exempt — they attack and are
   // still home to block, which is the whole point of the keyword.
-  const incoming = blockers.reduce((n, b) => n + Math.max(0, b.power), 0);
-  const threatened = incoming > 0 && incoming * 3 >= botLife;
+  const threat = ctx.threatFrom ?? {
+    power: blockers.reduce((n, b) => n + Math.max(0, b.power), 0),
+    creatures: blockers.length,
+  };
+  const threatened = threat.power > 0 && threat.power * 3 >= botLife;
   if (!threatened || wanted.length === 0) return wanted.map(a => a.instanceId);
 
   const reserveCount = Math.min(
     // Never hold back more than there are attackers to answer...
-    blockers.length,
+    threat.creatures,
     // ...and never the whole board: at aggression 0 that is still a clock.
     Math.max(0, wanted.length - 1),
-    Math.ceil(blockers.length * (1 - aggression)),
+    Math.ceil(threat.creatures * (1 - aggression)),
   );
   if (reserveCount <= 0) return wanted.map(a => a.instanceId);
 
@@ -401,8 +414,8 @@ export function chooseAttackers(ctx: AttackContext): string[] {
     wanted
       .filter(c => !c.keywords.has('vigilance'))
       .sort((a, b) => {
-        const aSafe = Number(blockerSurvives(a, biggest));
-        const bSafe = Number(blockerSurvives(b, biggest));
+        const aSafe = biggest ? Number(blockerSurvives(a, biggest)) : 0;
+        const bSafe = biggest ? Number(blockerSurvives(b, biggest)) : 0;
         return bSafe - aSafe || b.toughness - a.toughness;
       })
       .slice(0, reserveCount)

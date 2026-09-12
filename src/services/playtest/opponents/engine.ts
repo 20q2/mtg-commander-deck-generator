@@ -1127,6 +1127,21 @@ export function takeTurn(
     // What it could swing with, so it can spot a seat it is able to finish.
     able.reduce((n, p) => n + livePower(p, opp.battlefield, opp.graveyard), 0),
   );
+  /**
+   * Who could hurt this bot most next turn — the player or any rival — so
+   * the reserve is sized against them rather than against whoever happens to
+   * be attacked. Rival creature counts are untapped bodies, which is what the
+   * store reports; close enough for sizing a reserve.
+   */
+  const seats = [
+    {
+      power: board.cards.filter(c => c.isCreature).reduce((n, c) => n + Math.max(0, c.power), 0),
+      creatures: board.cards.filter(c => c.isCreature).length,
+    },
+    ...rivals.filter(r => r.life > 0).map(r => ({ power: r.threat ?? 0, creatures: r.untappedCreatures.length })),
+  ];
+  const threatFrom = seats.reduce((a, b) => (b.power > a.power ? b : a));
+
   const chosen = new Set(
     chooseAttackers({
       candidates: able.map(p => ({
@@ -1140,6 +1155,7 @@ export function takeTurn(
       playerLife: target.life,
       aggression: opp.aggression,
       botLife: opp.life,
+      threatFrom,
     }),
   );
   const attackers = able.filter(p => chosen.has(p.instanceId));

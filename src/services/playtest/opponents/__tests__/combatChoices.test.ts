@@ -204,6 +204,22 @@ describe('chooseAttackers', () => {
     });
     expect(out).toHaveLength(0);
   });
+
+  it('keeps defence home against the most dangerous seat, not just the one it attacks', () => {
+    // Swinging at an empty rival board while the player holds three 3/3s:
+    // without knowing about the player, nothing stays home.
+    const team = Array.from({ length: 3 }, () => c({ power: 3, toughness: 3 }));
+    const reckless = chooseAttackers({
+      candidates: team, blockers: [], playerLife: 40, aggression: 0.5, botLife: 20,
+    });
+    expect(reckless).toHaveLength(3);
+    const wary = chooseAttackers({
+      candidates: team, blockers: [], playerLife: 40, aggression: 0.5, botLife: 20,
+      threatFrom: { power: 9, creatures: 3 },
+    });
+    // min(3 bodies, 2 = wanted − 1, ceil(3 × 0.5) = 2) → two held, one swings.
+    expect(wary).toHaveLength(1);
+  });
 });
 
 describe('chooseAttackTarget', () => {
