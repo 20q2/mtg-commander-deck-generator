@@ -1075,11 +1075,18 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
 
     try {
-      for (const opponent of get().opponents) {
-        // Out of the game. The seat stays on the table so you can see what beat
-        // them, and so their board is still there to be interacted with.
+      // By id, re-read at the top of every turn. The array captured when the
+      // loop started is a photograph: seat A's attack this cycle kills seat
+      // B's blockers in the live store, and a turn planned from the photograph
+      // replayed them back onto the board — the chump that died blocking was
+      // standing there again by B's cleanup, with B's graveyard and the card
+      // its Midnight Reaper drew both gone.
+      for (const seatId of get().opponents.map(o => o.id)) {
         if (!mine()) return;
-        if (opponent.life <= 0) continue;
+        const opponent = get().opponents.find(o => o.id === seatId);
+        // Left the table mid-cycle, or out of the game. A dead seat stays on
+        // the table so you can see what beat them, but it takes no turn.
+        if (!opponent || opponent.life <= 0) continue;
         // Re-read the board for every bot: the one before it may have blown up
         // half of it, and targeting a creature that's already dead reads broken.
         // The rivals are read fresh for the same reason.
