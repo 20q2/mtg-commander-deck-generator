@@ -8,6 +8,8 @@ export interface PlayerCardRead {
   name: string;
   isCreature: boolean;
   isArtifact: boolean;
+  /** Optional so older callers and the diagnostic's scripted board need not set it. */
+  isLand?: boolean;
   power: number;
   toughness: number;
   isCommander: boolean;
@@ -141,8 +143,13 @@ export function resolveEffect(
       };
     }
     case 'destroyPermanent': {
+      // Combo piece, then the biggest creature, then any artifact or
+      // enchantment — a Beast Within on a basic land is a wasted card, and
+      // `cards[0]` was very often a land.
       const target = comboPieceToBreak(board)
         ?? biggestCreature(board)
+        ?? board.cards.find(c => c.isArtifact)
+        ?? board.cards.find(c => !c.isLand && !c.isCreature)
         ?? board.cards[0];
       if (!target) return null;
       return { effect: { ...EMPTY, destroy: [target.instanceId] }, target: target.name };

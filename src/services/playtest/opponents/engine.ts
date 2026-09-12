@@ -528,6 +528,7 @@ export function takeTurn(
             .map((card, index) => ({ card, index }))
             .filter(({ card }) => {
               const t = getFrontFaceTypeLine(card).toLowerCase();
+              if (spec.want?.name && card.name !== spec.want.name) return false;
               if (spec.want?.type && !t.includes(spec.want.type.toLowerCase())) return false;
               if (spec.want?.subtype && !t.includes(spec.want.subtype.toLowerCase())) return false;
               // A tutor that fetches a land is almost never the play.
@@ -600,6 +601,7 @@ export function takeTurn(
       case 'draw':
       case 'selfMill':   return opp.library.length > 0;
       case 'tutor':      return opp.library.some(c => {
+        if (spec.want?.name && c.name !== spec.want.name) return false;
         const t = getFrontFaceTypeLine(c).toLowerCase();
         if (spec.want?.type && !t.includes(spec.want.type.toLowerCase())) return false;
         if (spec.want?.subtype && !t.includes(spec.want.subtype.toLowerCase())) return false;

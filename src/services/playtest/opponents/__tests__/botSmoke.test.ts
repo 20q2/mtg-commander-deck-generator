@@ -242,6 +242,43 @@ describe('bot engine smoke', () => {
     expect(blocks['atk']).toHaveLength(1);
   });
 
+  it('a tutor that names a card fetches that card and nothing else', () => {
+    // Gate to the Afterlife wants God-Pharaoh's Gift by name. The registry
+    // says so; the engine used to ignore `want.name` and fetch by score, which
+    // in a real deck happened to be the Gift and in any other deck would not.
+    const gift = card({ name: "God-Pharaoh's Gift", type_line: 'Legendary Artifact', cmc: 7 });
+    // Rot Hulk is in the self-effect registry too and costs more than the
+    // Gift, so by score alone it wins. Only `want.name` makes the Gift win.
+    const decoy = card({ name: 'Rot Hulk', cmc: 8, power: '6', toughness: '6' });
+    const gate = perm(card({ name: 'Gate to the Afterlife', type_line: 'Artifact', cmc: 3 }));
+    const yard = Array.from({ length: 6 }, (_, i) => card({ name: `Corpse ${i}` }));
+    const r = takeTurn(
+      bot({
+        battlefield: [gate, perm(MOUNTAIN()), perm(MOUNTAIN())],
+        graveyard: yard,
+        library: [card({ name: 'Filler', type_line: 'Sorcery', cmc: 2 }), decoy, gift],
+      }),
+      board(),
+    );
+    expect(names(r.final)).toContain("God-Pharaoh's Gift");
+    expect(names(r.final)).not.toContain('Rot Hulk');
+  });
+
+  it('Beast Within with no creatures to hit takes an artifact, not a land', () => {
+    const beast = card({ name: 'Beast Within', type_line: 'Instant', cmc: 3 });
+    const r = takeTurn(
+      bot({ resistance: true, hand: [beast], turnsTaken: 6, battlefield: Array.from({ length: 3 }, () => perm(MOUNTAIN())) }),
+      board({
+        cards: [
+          { instanceId: 'land', name: 'Forest', isCreature: false, isArtifact: false, isLand: true, power: 0, toughness: 0, isCommander: false, comboId: null },
+          { instanceId: 'rock', name: 'Sol Ring', isCreature: false, isArtifact: true, isLand: false, power: 0, toughness: 0, isCommander: false, comboId: null },
+        ],
+      }),
+    );
+    const destroyed = r.frames.flatMap(f => f.effects).flatMap(e => e.destroy);
+    expect(destroyed).toEqual(['rock']);
+  });
+
   it('points two removal spells at two different creatures in one turn', () => {
     const murder = () => card({ name: 'Murder', type_line: 'Instant', cmc: 3 });
     const yours = (instanceId: string, power: number) => ({

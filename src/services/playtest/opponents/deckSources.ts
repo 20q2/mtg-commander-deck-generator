@@ -98,7 +98,8 @@ export async function buildOpponentFromStub(
 }
 
 /**
- * Shuffle and draw seven, redrawing a hand with fewer than two lands. Bots do
+ * Shuffle and draw seven, redrawing a hand with fewer than two or more than
+ * five lands. Bots do
  * not mulligan down to six — they just take another seven, up to four tries,
  * and keep the best they saw. A one-land keep produces a bot that does nothing
  * for ten turns, which reads as the feature being broken rather than as variance.
@@ -110,11 +111,18 @@ function openingHand(pool: ScryfallCard[]): { library: ScryfallCard[]; hand: Scr
     const shuffled = fisherYates(pool);
     const hand = shuffled.slice(0, 7);
     const lands = hand.filter(isLand).length;
-    if (lands > bestLands) {
+    // A keep is two to five lands. Seven lands used to count as the best hand
+    // seen, because "more lands" was the only score.
+    const keepable = lands >= 2 && lands <= 5;
+    if (keepable) {
+      best = { library: shuffled.slice(7), hand };
+      break;
+    }
+    // Nothing keepable yet: remember the hand closest to three lands.
+    if (best === null || Math.abs(lands - 3) < Math.abs(bestLands - 3)) {
       bestLands = lands;
       best = { library: shuffled.slice(7), hand };
     }
-    if (lands >= 2) break;
   }
   return best ?? { library: pool.slice(7), hand: pool.slice(0, 7) };
 }

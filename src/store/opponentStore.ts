@@ -277,7 +277,7 @@ function readPlayerBoard(): PlayerBoardRead {
     handSize: s.zones.hand.length,
     // What could actually block a bot's attack this turn.
     untappedCreatures: s.battlefield
-      .filter(b => !b.tapped && getFrontFaceTypeLine(b.card).toLowerCase().includes('creature'))
+      .filter(b => !b.tapped && (b.edit?.typeLine ?? getFrontFaceTypeLine(b.card)).toLowerCase().includes('creature'))
       .map(playerCombatant),
     cards: s.battlefield.map(b => {
       const type = (b.edit?.typeLine ?? getFrontFaceTypeLine(b.card)).toLowerCase();
@@ -289,6 +289,7 @@ function readPlayerBoard(): PlayerBoardRead {
         name: b.card.name,
         isCreature: type.includes('creature'),
         isArtifact: type.includes('artifact'),
+        isLand: type.includes('land'),
         // Counters and stickers already changed these numbers on screen; a bot
         // reading the printed values would target the wrong creature.
         power: Number.isNaN(power) ? 0 : power,

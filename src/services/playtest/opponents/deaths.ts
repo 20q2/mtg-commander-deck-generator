@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { isLand } from '@/components/playtest/utils';
+import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import {
   BOT_DEATH_TRIGGERS,
   BOT_DEATH_WATCHERS,
@@ -94,7 +94,7 @@ function applySpec(o: Opponent, spec: BotSelfSpec): { opponent: Opponent; label:
 
 function toPermanent(card: ScryfallCard): OpponentPermanent {
   return {
-    instanceId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    instanceId: makeInstanceId(),
     card,
     tapped: false,
     summoningSick: true,
