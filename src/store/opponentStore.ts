@@ -309,11 +309,18 @@ function readPlayerBoard(): PlayerBoardRead {
 function applyEffect(effect: AppliedEffect) {
   const playtest = usePlaytestStore.getState();
 
+  const commanders = new Set(playtest.source?.commanderNames ?? []);
   for (const instanceId of effect.destroy) {
+    const hit = playtest.battlefield.find(b => b.instanceId === instanceId);
+    // Your commander dying or being exiled goes back to the command zone. It
+    // is the choice every player makes every single time, so it is not worth
+    // a prompt — and the graveyard path stranded Krenko with no way back.
+    const toCommand = !!hit && commanders.has(hit.card.name);
     playtest.moveCard({
       source: { kind: 'battlefield', instanceId },
-      target: { kind: 'zone', zone: effect.destination },
+      target: { kind: 'zone', zone: toCommand ? 'command' : effect.destination },
     });
+    if (toCommand && hit) playtest.appendLog(`${hit.card.name} returns to the command zone`, 'bot');
   }
 
   if (effect.discard > 0) {

@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { usePlaytestStore } from '@/store/playtestStore';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
@@ -55,5 +56,25 @@ describe('runAllTurns across seats', () => {
     expect(b.battlefield.map(p => p.card.name)).not.toContain('Chump');
     expect(b.graveyard.map(c => c.name)).toContain('Chump');
     expect(b.life).toBe(3);
+  });
+  it("a bot killing your commander sends it to the command zone, not the graveyard", () => {
+    const krenko = card({ name: 'Krenko, Mob Boss', cmc: 4, power: '3', toughness: '3', type_line: 'Legendary Creature — Goblin Warrior' });
+    usePlaytestStore.setState({
+      // Only commanderNames is read; the rest of SourceMeta is irrelevant here.
+      source: { kind: 'pasted', name: 'Test', commanderNames: ['Krenko, Mob Boss'] } as never,
+      battlefield: [{ instanceId: 'k1', card: krenko, x: 0, y: 0, tapped: false, faceDown: false, flipped: false, counters: {} }],
+    });
+    useOpponentStore.setState({
+      opponents: [bot({ id: 'A', name: 'Seat A' })],
+      stack: [{
+        id: 's1', opponentId: 'A', opponentName: 'Seat A', name: 'Murder', kind: 'spell', label: 'Destroys Krenko',
+        effect: { destroy: ['k1'], destination: 'graveyard', lifeLoss: 0, discard: 0 },
+      }],
+    });
+    useOpponentStore.getState().resolveStackTop();
+    const s = usePlaytestStore.getState();
+    expect(s.battlefield.map(b => b.card.name)).not.toContain('Krenko, Mob Boss');
+    expect(s.zones.command.map(c => c.name)).toContain('Krenko, Mob Boss');
+    expect(s.zones.graveyard.map(c => c.name)).not.toContain('Krenko, Mob Boss');
   });
 });
