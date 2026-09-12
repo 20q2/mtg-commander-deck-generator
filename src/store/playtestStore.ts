@@ -531,7 +531,29 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   exit: () => set({ ...initial }),
 
   setBattlefieldRect: (width, height) => set({ battlefieldRect: { width, height } }),
-  setSeatBandHeight: (h) => set({ seatBandHeight: h }),
+  setSeatBandHeight: (h) => set(state => {
+    if (h === state.seatBandHeight) return {};
+    // The seats are opaque and grow as the bots develop. A card that arrived
+    // just under the old band edge is now under a seat — invisible, and
+    // ungrabbable when you want to attack with it. When the band grows, walk
+    // anything it has grown over down to the first free slot below it. Only
+    // downwards, only when it grows: shrinking leaves your layout alone.
+    if (h <= state.seatBandHeight || state.battlefield.length === 0) return { seatBandHeight: h };
+    const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
+    const rect = canvasRect(state);
+    const top = h + 8;
+    const battlefield = [...state.battlefield];
+    let moved = false;
+    for (let i = 0; i < battlefield.length; i++) {
+      const b = battlefield[i];
+      if (b.y >= top) continue;
+      const others = battlefield.filter((_, j) => j !== i);
+      const slot = findArrivalSlot(others, b.x, top, rect.width, rect.height, false, cw, ch);
+      battlefield[i] = { ...b, x: slot.x, y: slot.y };
+      moved = true;
+    }
+    return moved ? { seatBandHeight: h, battlefield } : { seatBandHeight: h };
+  }),
   setHandDropFanPos: (handDropFanPos) => set(s => (
     s.handDropFanPos === handDropFanPos ? {} : { handDropFanPos }
   )),
